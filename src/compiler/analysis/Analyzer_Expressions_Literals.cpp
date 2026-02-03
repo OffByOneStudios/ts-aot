@@ -3,6 +3,7 @@
 #include <fmt/core.h>
 #include <iostream>
 #include <set>
+#include <cmath>
 
 namespace ts {
 using namespace ast;
@@ -48,16 +49,54 @@ void Analyzer::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node
 
 void Analyzer::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
     std::vector<std::shared_ptr<Type>> elementTypes;
-    for (auto& el : node->elements) {
+    bool hasHoles = false;
+    bool allIntegerLiterals = true;
+    bool allNumericLiterals = true;
+    bool allStringLiterals = true;
+
+    for (size_t i = 0; i < node->elements.size(); ++i) {
+        auto& el = node->elements[i];
+
+        // Check for holes (sparse arrays with undefined/null elements)
+        if (!el) {
+            hasHoles = true;
+            elementTypes.push_back(std::make_shared<Type>(TypeKind::Undefined));
+            allIntegerLiterals = false;
+            allNumericLiterals = false;
+            allStringLiterals = false;
+            continue;
+        }
+
         visit(el.get());
         elementTypes.push_back(lastType ? lastType : std::make_shared<Type>(TypeKind::Any));
+
+        // Check if element is a numeric literal (for SMI/Double optimization)
+        if (auto* numLit = dynamic_cast<ast::NumericLiteral*>(el.get())) {
+            allStringLiterals = false;
+            // Check if it's a small integer (fits in 31-bit SMI range: -2^30 to 2^30-1)
+            double val = numLit->value;
+            constexpr double SMI_MIN = -1073741824.0;  // -2^30
+            constexpr double SMI_MAX = 1073741823.0;   // 2^30 - 1
+            if (std::floor(val) != val || val < SMI_MIN || val > SMI_MAX) {
+                allIntegerLiterals = false;
+            }
+        } else if (dynamic_cast<ast::StringLiteral*>(el.get())) {
+            allIntegerLiterals = false;
+            allNumericLiterals = false;
+        } else {
+            allIntegerLiterals = false;
+            allNumericLiterals = false;
+            allStringLiterals = false;
+        }
     }
-    
+
     // Determine if all elements have the same type (homogeneous array)
     // If so, use ArrayType; otherwise use TupleType for heterogeneous arrays
     if (elementTypes.empty()) {
-        // Empty array - default to Array<Any>
-        lastType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+        // Empty array - default to Array<Any> with Unknown kind
+        auto arrType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+        arrType->elementKind = ElementKind::Unknown;  // Empty array, kind TBD at runtime
+        lastType = arrType;
     } else {
         bool homogeneous = true;
         auto firstType = elementTypes[0];
@@ -68,12 +107,29 @@ void Analyzer::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
                 break;
             }
         }
-        
+
         if (homogeneous) {
-            // All elements same type -> ArrayType
-            lastType = std::make_shared<ArrayType>(firstType);
+            // All elements same type -> ArrayType with inferred element kind
+            auto arrType = ArrayType::createWithKind(firstType);
+
+            // Override with more specific kind based on literal analysis
+            if (allIntegerLiterals && !hasHoles) {
+                arrType->elementKind = ElementKind::PackedSmi;
+            } else if (allNumericLiterals && !hasHoles) {
+                arrType->elementKind = ElementKind::PackedDouble;
+            } else if (allStringLiterals && !hasHoles) {
+                arrType->elementKind = ElementKind::PackedString;
+            }
+
+            // If there are holes, transition to holey variant
+            if (hasHoles) {
+                arrType->elementKind = toHoley(arrType->elementKind);
+                arrType->mayHaveHoles = true;
+            }
+
+            lastType = arrType;
         } else {
-            // Mixed types -> TupleType
+            // Mixed types -> TupleType (no element kind optimization for tuples)
             lastType = std::make_shared<TupleType>(elementTypes);
         }
     }

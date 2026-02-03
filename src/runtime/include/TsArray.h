@@ -4,6 +4,20 @@
 #include <cstddef>
 #include "TsObject.h"
 
+/// V8-style element kinds for monomorphic array optimizations
+/// Must match the ElementKind enum in src/compiler/analysis/Type.h
+enum class ElementKind : uint8_t {
+    Unknown = 0,       ///< Type not yet determined
+    PackedSmi = 1,     ///< Small integers (31-bit signed)
+    PackedDouble = 2,  ///< IEEE 754 doubles
+    PackedString = 3,  ///< TsString* pointers only
+    PackedObject = 4,  ///< Homogeneous object type
+    PackedAny = 5,     ///< Mixed types (generic path)
+    HoleySmi = 6,      ///< SMI with holes
+    HoleyDouble = 7,   ///< Double with holes
+    HoleyAny = 8       ///< Mixed with holes
+};
+
 class TsArray {
 public:
     static constexpr uint32_t MAGIC = 0x41525259; // "ARRY"
@@ -57,6 +71,28 @@ public:
     struct TaggedValue* FindLast(void* callback, void* thisArg = nullptr);
     int64_t FindLastIndex(void* callback, void* thisArg = nullptr);
 
+    /// Get the element kind
+    ElementKind GetElementKind() const { return elementKind_; }
+
+    /// Set the element kind (used during array creation/transition)
+    void SetElementKind(ElementKind kind) { elementKind_ = kind; }
+
+    /// Check if this array can use the fast SMI path
+    bool IsSmiArray() const {
+        return elementKind_ == ElementKind::PackedSmi ||
+               elementKind_ == ElementKind::HoleySmi;
+    }
+
+    /// Check if this array uses the double path
+    bool IsDoubleArray() const {
+        return elementKind_ == ElementKind::PackedDouble ||
+               elementKind_ == ElementKind::HoleyDouble ||
+               isDouble;  // Legacy compatibility
+    }
+
+    /// Transition to a more general element kind
+    void TransitionTo(ElementKind newKind);
+
 private:
     TsArray(size_t initialCapacity, size_t elementSize = 8);
 
@@ -67,6 +103,7 @@ private:
     size_t elementSize;
     bool isSpecialized = false;
     bool isDouble = false;
+    ElementKind elementKind_ = ElementKind::PackedAny;  ///< V8-style element kind
 };
 
 extern "C" {
@@ -132,4 +169,16 @@ extern "C" {
     void __ts_array_get_inline(void* arr, int64_t index, uint8_t* out_type, int64_t* out_value);
     void __ts_array_set_inline(void* arr, int64_t index, uint8_t val_type, int64_t val_value);
     int64_t __ts_array_length(void* arr);
+
+    // Element kind API (V8-style optimization)
+    uint8_t ts_array_get_element_kind(void* arr);
+    void ts_array_set_element_kind(void* arr, uint8_t kind);
+    void ts_array_transition_to(void* arr, uint8_t newKind);
+    void* ts_array_create_with_kind(int64_t size, uint8_t kind);
+
+    // Fast path accessors for specific element kinds
+    int64_t ts_array_get_smi(void* arr, int64_t index);      // Fast SMI get (no boxing)
+    void ts_array_set_smi(void* arr, int64_t index, int64_t value);  // Fast SMI set
+    double ts_array_get_double_fast(void* arr, int64_t index);  // Fast double get
+    void ts_array_set_double_fast(void* arr, int64_t index, double value);  // Fast double set
 }

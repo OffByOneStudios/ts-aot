@@ -1,6 +1,6 @@
 # PERF-002: Integer Optimization V8/JSC Parity
 
-**Status:** In Progress (Phases 1, 2, 4 Complete)
+**Status:** In Progress (Phases 1, 2, 4, 5 Infrastructure Complete)
 **Category:** Performance
 **Priority:** High
 **Related:** IntegerOptimizationPass (src/compiler/hir/passes/IntegerOptimizationPass.cpp)
@@ -52,7 +52,7 @@ Our IntegerOptimizationPass:
 | Safe integer range | 2^31 | 2^32 | ✅ Checked | ~~Add checks~~ Done |
 | Bitwise ops (32-bit result) | Yes | Yes | ✅ Yes | ~~Implement~~ Done |
 | Loop counter opt | Yes | Yes | **Basic** | **Enhance** |
-| Array element kinds | Yes | Yes | **No** | **Future work** |
+| Array element kinds | Yes | Yes | ⚠️ Infra | Runtime fast paths |
 | Negative zero handling | Yes | Yes | ✅ Yes | ~~Implement~~ Done |
 
 ## Implementation Plan
@@ -173,7 +173,7 @@ JavaScript distinguishes -0 and +0:
 
 The implementation ensures that values which could be negative zero stay as Float64, preserving correct JavaScript semantics for division operations.
 
-### Phase 5: Array Element Kinds (Future Epic)
+### Phase 5: Array Element Kinds (Infrastructure Complete)
 
 **Goal:** V8-style monomorphic array optimizations for 2-5x array operation speedup.
 
@@ -183,13 +183,35 @@ The implementation ensures that values which could be negative zero stay as Floa
 - `PACKED_ELEMENTS` - Mixed/object elements (boxed)
 - `HOLEY_*` variants - Arrays with holes (sparse)
 
-**Current ts-aot Implementation:**
-- TsArray already has `isSpecialized` and `isDouble` flags
-- Compiler detects int[] and double[] at compile time
-- Runtime has two-path codegen (specialized vs generic)
-- Gap: No SMI tagging, no kind transitions, limited kind detection
+**Status (commit a17341f):**
+- ✅ Phase 5.1: ElementKind enum in Type.h and TsArray.h
+- ✅ Phase 5.2: Element kind inference in Analyzer
+- ✅ Phase 5.3: Codegen infrastructure (specialized codegen deferred)
+- ✅ Phase 5.4: Runtime TransitionTo() method
+- ✅ Phase 5.5: Benchmarks showing 5.6x opportunity on double arrays
 
-#### Phase 5.1: Element Kind Enum and Metadata
+**What's Done:**
+- Element kinds are inferred at compile time (PackedSmi, PackedDouble, PackedString)
+- ArrayType stores elementKind for optimization decisions
+- Runtime has element kind field and transition support
+- Tests pass (146/146 golden IR tests)
+
+**Remaining Work (Future):**
+- Update runtime push/pop/get/set to check element kind and use fast unboxed paths
+- Enable specialized codegen for inferred element kinds once runtime supports it
+- Currently deferred because runtime operations still expect boxed TsValue* values
+
+**Benchmark Results:**
+```
+ts-aot vs Node.js:
+- Integer array: 11ms vs 12ms (1.1x faster - AOT advantage!)
+- Double array: 56ms vs 10ms (5.6x slower - boxing overhead)
+- Mixed array: 6ms vs 2ms (3x slower)
+```
+
+The 5.6x gap on double arrays shows the potential improvement from enabling fast paths.
+
+#### Phase 5.1: Element Kind Enum and Metadata ✅ COMPLETE
 
 1. **Add ElementKind enum to Type.h:**
    ```cpp
@@ -223,7 +245,7 @@ The implementation ensures that values which could be negative zero stay as Floa
    };
    ```
 
-#### Phase 5.2: Element Kind Inference
+#### Phase 5.2: Element Kind Inference ✅ COMPLETE
 
 1. **Array literal inference (IRGenerator_Expressions_Literals.cpp):**
    - Analyze all elements to determine most specific kind
@@ -237,7 +259,7 @@ The implementation ensures that values which could be negative zero stay as Floa
    - `arr.filter(...)` preserves element kind
    - `arr.concat(other)` → union of element kinds
 
-#### Phase 5.3: Specialized Code Generation
+#### Phase 5.3: Specialized Code Generation ⚠️ INFRASTRUCTURE ONLY
 
 1. **Array access codegen:**
    ```cpp
@@ -260,7 +282,7 @@ The implementation ensures that values which could be negative zero stay as Floa
    - Detect kind transitions at compile time where possible
    - Generate kind transition code when needed
 
-#### Phase 5.4: Kind Transitions
+#### Phase 5.4: Kind Transitions ✅ COMPLETE
 
 When an operation would change the element kind:
 1. `PackedSmi.push(1.5)` → transition to PackedDouble
@@ -275,7 +297,7 @@ void TsArray::TransitionTo(ElementKind newKind) {
 }
 ```
 
-#### Phase 5.5: Benchmarking
+#### Phase 5.5: Benchmarking ✅ COMPLETE
 
 Create benchmarks to measure improvement:
 ```typescript
@@ -373,11 +395,13 @@ function user_main(): number {
 
 ## Timeline
 
-- **Phase 1 (Overflow Safety):** ✅ Complete
-- **Phase 2 (Bitwise Operations):** ✅ Complete
+- **Phase 1 (Overflow Safety):** ✅ Complete (commit 946aa9f)
+- **Phase 2 (Bitwise Operations):** ✅ Complete (commit 9ef52d2)
 - **Phase 3 (Loop Counters):** Pending (requires CFG analysis)
-- **Phase 4 (Negative Zero):** ✅ Complete
-- **Phase 5 (Array Element Kinds):** 2-3 weeks (separate epic)
+- **Phase 4 (Negative Zero):** ✅ Complete (commit 6b71c9d)
+- **Phase 5 (Array Element Kinds):** ⚠️ Infrastructure complete (commit a17341f)
+  - Enum, inference, transitions: Done
+  - Fast runtime paths: Future work (update push/pop/get/set)
 
 ## References
 

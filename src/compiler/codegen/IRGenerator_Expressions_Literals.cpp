@@ -1,5 +1,6 @@
 #include "IRGenerator.h"
 #include "../analysis/Monomorphizer.h"
+#include "../analysis/Type.h"
 
 namespace ts {
 using namespace ast;
@@ -82,8 +83,12 @@ void IRGenerator::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* n
 
 void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
     std::shared_ptr<Type> elemType = nullptr;
+    ElementKind elementKind = ElementKind::PackedAny;  // Default to generic path
+
     if (node->inferredType && node->inferredType->kind == TypeKind::Array) {
-        elemType = std::static_pointer_cast<ArrayType>(node->inferredType)->elementType;
+        auto arrType = std::static_pointer_cast<ArrayType>(node->inferredType);
+        elemType = arrType->elementType;
+        elementKind = arrType->elementKind;  // Use analyzer-inferred element kind
     }
 
     bool isSpecialized = false;
@@ -92,31 +97,39 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
 
     bool isDouble = false;
 
+    // NOTE: Element kind inference from PackedSmi/PackedDouble is recorded for future
+    // optimizations, but we DON'T use specialized codegen for these yet because
+    // the runtime's push/pop operations expect boxed TsValue* values.
+    // Only use specialized path for explicit Double/Int element types from type annotations.
     if (elemType) {
+        // Fall back to type-based detection for backwards compatibility
         if (elemType->kind == TypeKind::Double) {
             isSpecialized = true;
             llvmElemType = llvm::Type::getDoubleTy(*context);
             elementSize = 8;
             isDouble = true;
+            elementKind = ElementKind::PackedDouble;
         } else if (elemType->kind == TypeKind::Int) {
             isSpecialized = true;
             llvmElemType = llvm::Type::getInt64Ty(*context);
             elementSize = 8;
+            elementKind = ElementKind::PackedSmi;
         } else if (elemType->kind == TypeKind::Class) {
             auto cls = std::static_pointer_cast<ClassType>(elemType);
             if (cls->isStruct) {
                 isSpecialized = true;
                 llvmElemType = llvm::StructType::getTypeByName(*context, cls->name);
                 elementSize = module->getDataLayout().getTypeAllocSize(llvmElemType);
+                elementKind = ElementKind::PackedObject;
             }
         }
     }
 
     if (isSpecialized) {
-        llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), 
+        llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(),
                 { llvm::Type::getInt64Ty(*context), llvm::Type::getInt64Ty(*context), llvm::Type::getInt1Ty(*context) }, false);
         llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create_specialized", createFt);
-        
+
         llvm::Value* arr = createCall(createFt, createFn.getCallee(), {
             llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), node->elements.size()),
             llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), elementSize),
@@ -124,10 +137,19 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
         });
         nonNullValues.insert(arr);
 
+        // Set the element kind on the created array
+        llvm::FunctionType* setKindFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+                { builder->getPtrTy(), llvm::Type::getInt8Ty(*context) }, false);
+        llvm::FunctionCallee setKindFn = getRuntimeFunction("ts_array_set_element_kind", setKindFt);
+        createCall(setKindFt, setKindFn.getCallee(), {
+            arr,
+            llvm::ConstantInt::get(llvm::Type::getInt8Ty(*context), static_cast<uint8_t>(elementKind))
+        });
+
         llvm::FunctionType* getPtrFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
         llvm::FunctionCallee getPtrFn = getRuntimeFunction("ts_array_get_elements_ptr", getPtrFt);
         llvm::Value* elementsPtr = createCall(getPtrFt, getPtrFn.getCallee(), { arr });
-        
+
         for (size_t i = 0; i < node->elements.size(); ++i) {
             visit(node->elements[i].get());
             llvm::Value* val = lastValue;
@@ -138,7 +160,7 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
             llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { llvm::ConstantInt::get(llvm::Type::getInt64Ty(*context), i) });
             builder->CreateStore(val, ptr);
         }
-        
+
         lastValue = arr;
         return;
     }
