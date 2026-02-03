@@ -768,7 +768,19 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         bool isSpecialized = false;
         llvm::Type* llvmElemType = nullptr;
 
-        if (elemType->kind == TypeKind::Double) {
+        // Check the array's element kind first (inferred from literals/operations)
+        // This takes precedence over elemType->kind because PackedSmi arrays store int64
+        // even though the TypeScript element type is "number" (which maps to Double)
+        if (arrayType->elementKind == ElementKind::PackedSmi ||
+            arrayType->elementKind == ElementKind::HoleySmi) {
+            isSpecialized = true;
+            llvmElemType = llvm::Type::getInt64Ty(*context);
+        } else if (arrayType->elementKind == ElementKind::PackedDouble ||
+                   arrayType->elementKind == ElementKind::HoleyDouble) {
+            isSpecialized = true;
+            llvmElemType = llvm::Type::getDoubleTy(*context);
+        } else if (elemType->kind == TypeKind::Double) {
+            // Fallback for arrays without inferred element kind
             isSpecialized = true;
             llvmElemType = llvm::Type::getDoubleTy(*context);
         } else if (elemType->kind == TypeKind::Int) {
@@ -814,9 +826,18 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
 
             llvm::Value* ptr = builder->CreateGEP(llvmElemType, elementsPtr, { index });
             llvm::Value* specResult = builder->CreateLoad(llvmElemType, ptr);
+
+            // For PackedSmi arrays, we loaded an int64 but TypeScript expects a double
+            // Convert int64 to double to match the element type
+            bool isSmiArray = (arrayType->elementKind == ElementKind::PackedSmi ||
+                              arrayType->elementKind == ElementKind::HoleySmi);
+            if (isSmiArray && elemType->kind == TypeKind::Double) {
+                specResult = builder->CreateSIToFP(specResult, llvm::Type::getDoubleTy(*context));
+            }
+
             llvm::BasicBlock* specEndBB = builder->GetInsertBlock();
             builder->CreateBr(mergeBB);
-            
+
             // Boxed path - use ts_array_get_as_value
             builder->SetInsertPoint(boxedBB);
             llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(),
@@ -829,7 +850,7 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             llvm::Value* boxedResult = unboxValue(boxedVal, elemType);
             llvm::BasicBlock* boxedEndBB = builder->GetInsertBlock();
             builder->CreateBr(mergeBB);
-            
+
             // Merge
             builder->SetInsertPoint(mergeBB);
             llvm::PHINode* phi = builder->CreatePHI(specResult->getType(), 2);

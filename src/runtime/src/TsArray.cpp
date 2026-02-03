@@ -177,50 +177,102 @@ void TsArray::Sort() {
 }
 
 int64_t TsArray::IndexOf(int64_t value) {
+    // For specialized arrays, we may receive a boxed TsValue* from the codegen.
+    // Try to unbox it if it looks like a valid TsValue*.
+    int64_t rawValue = value;
+    if (isSpecialized && (uintptr_t)value > 0x10000) {
+        // Check if value looks like a TsValue* (type byte <= 10, padding bytes are 0)
+        TsValue* maybeBoxed = (TsValue*)value;
+        uint8_t typeVal = *(uint8_t*)maybeBoxed;
+        uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+        uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
+        uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
+        if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
+            // It's a boxed TsValue* - extract the value
+            if (maybeBoxed->type == ValueType::NUMBER_INT) {
+                rawValue = maybeBoxed->i_val;
+            } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
+                // Convert double to the format we need for comparison
+                if (isDouble) {
+                    memcpy(&rawValue, &maybeBoxed->d_val, sizeof(rawValue));
+                } else {
+                    rawValue = (int64_t)maybeBoxed->d_val;
+                }
+            }
+        }
+    }
+
     if (isSpecialized && isDouble) {
-        // For double arrays, value could be:
+        // For double arrays, rawValue could be:
         // 1. A double bit pattern (from bitcast)
         // 2. An integer literal (small values like 3)
         // Try both interpretations
         double searchVal;
-        memcpy(&searchVal, &value, sizeof(double));
+        memcpy(&searchVal, &rawValue, sizeof(double));
 
         // First try as double bit pattern
         for (size_t i = 0; i < length; ++i) {
             if (((double*)elements)[i] == searchVal) return (int64_t)i;
         }
 
-        // If not found and value looks like a small integer, try as integer->double
-        if (value >= -1000000 && value <= 1000000) {
-            double intAsDouble = (double)value;
+        // If not found and rawValue looks like a small integer, try as integer->double
+        if (rawValue >= -1000000 && rawValue <= 1000000) {
+            double intAsDouble = (double)rawValue;
             for (size_t i = 0; i < length; ++i) {
                 if (((double*)elements)[i] == intAsDouble) return (int64_t)i;
             }
         }
         return -1;
     }
+
+    // For specialized integer arrays or non-specialized arrays
     for (size_t i = 0; i < length; ++i) {
-        if (((int64_t*)elements)[i] == value) return (int64_t)i;
+        if (((int64_t*)elements)[i] == rawValue) return (int64_t)i;
     }
     return -1;
 }
 
 int64_t TsArray::LastIndexOf(int64_t value) {
+    // For specialized arrays, we may receive a boxed TsValue* from the codegen.
+    // Try to unbox it if it looks like a valid TsValue*.
+    int64_t rawValue = value;
+    if (isSpecialized && (uintptr_t)value > 0x10000) {
+        // Check if value looks like a TsValue* (type byte <= 10, padding bytes are 0)
+        TsValue* maybeBoxed = (TsValue*)value;
+        uint8_t typeVal = *(uint8_t*)maybeBoxed;
+        uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+        uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
+        uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
+        if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
+            // It's a boxed TsValue* - extract the value
+            if (maybeBoxed->type == ValueType::NUMBER_INT) {
+                rawValue = maybeBoxed->i_val;
+            } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
+                // Convert double to the format we need for comparison
+                if (isDouble) {
+                    memcpy(&rawValue, &maybeBoxed->d_val, sizeof(rawValue));
+                } else {
+                    rawValue = (int64_t)maybeBoxed->d_val;
+                }
+            }
+        }
+    }
+
     if (isSpecialized && isDouble) {
-        // For double arrays, value could be:
+        // For double arrays, rawValue could be:
         // 1. A double bit pattern (from bitcast)
         // 2. An integer literal (small values like 3)
         double searchVal;
-        memcpy(&searchVal, &value, sizeof(double));
+        memcpy(&searchVal, &rawValue, sizeof(double));
 
         // First try as double bit pattern
         for (size_t i = length; i > 0; --i) {
             if (((double*)elements)[i - 1] == searchVal) return (int64_t)(i - 1);
         }
 
-        // If not found and value looks like a small integer, try as integer->double
-        if (value >= -1000000 && value <= 1000000) {
-            double intAsDouble = (double)value;
+        // If not found and rawValue looks like a small integer, try as integer->double
+        if (rawValue >= -1000000 && rawValue <= 1000000) {
+            double intAsDouble = (double)rawValue;
             for (size_t i = length; i > 0; --i) {
                 if (((double*)elements)[i - 1] == intAsDouble) return (int64_t)(i - 1);
             }
@@ -228,7 +280,7 @@ int64_t TsArray::LastIndexOf(int64_t value) {
         return -1;
     }
     for (size_t i = length; i > 0; --i) {
-        if (((int64_t*)elements)[i - 1] == value) return (int64_t)(i - 1);
+        if (((int64_t*)elements)[i - 1] == rawValue) return (int64_t)(i - 1);
     }
     return -1;
 }
@@ -975,6 +1027,12 @@ extern "C" {
     void ts_array_push(void* arr, void* value) {
         TsArray* array = (TsArray*)arr;
         int64_t bits = (int64_t)value;
+        ElementKind kind = array->GetElementKind();
+
+        // ==== FAST PATH: Specialized arrays (values passed as raw bits via inttoptr) ====
+        // When arrays are specialized (IsSpecialized() or IsDouble()), the codegen passes
+        // values directly as i64 bits (via inttoptr), NOT as TsValue* pointers.
+        // We must NOT try to dereference these values!
 
         // For specialized double arrays, handle the value appropriately
         if (array->IsDouble()) {
@@ -1001,27 +1059,126 @@ extern "C" {
             return;
         }
 
-        // For specialized integer arrays, unbox and store raw value
+        // For specialized integer arrays, store raw value directly
         if (array->IsSpecialized()) {
+            // Value is passed as raw i64 bits via inttoptr - just store it
+            array->Push(bits);
+            return;
+        }
+
+        // ==== SLOW PATH: Non-specialized arrays (values may be TsValue* or raw) ====
+        // For non-specialized arrays, the value might be:
+        // 1. A boxed TsValue* pointer
+        // 2. Raw integer/double bits (via inttoptr from older code paths)
+
+        // V8-style element kind handling for non-specialized arrays
+        // (These element kinds are tracked for future optimization but arrays still use generic storage)
+
+        // PackedSmi: Try to store as unboxed int64
+        if (kind == ElementKind::PackedSmi || kind == ElementKind::HoleySmi) {
+            // For non-specialized SMI arrays, check if value is a boxed TsValue*
             TsValue* maybeBoxed = (TsValue*)value;
             if (maybeBoxed && (uintptr_t)value > 0x10000) {
-                uint8_t typeVal = (uint8_t)maybeBoxed->type;
-                if (typeVal <= 10) {  // Valid ValueType range
+                uint8_t typeVal = *(uint8_t*)maybeBoxed;
+                uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+                uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
+                uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
+                if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
+                    // It's a boxed TsValue*
                     if (maybeBoxed->type == ValueType::NUMBER_INT) {
-                        array->Push(maybeBoxed->i_val);
+                        // SMI value - store directly
+                        int64_t val = maybeBoxed->i_val;
+                        // Check SMI range (-2^30 to 2^30-1 for 31-bit SMI)
+                        if (val >= -1073741824LL && val <= 1073741823LL) {
+                            array->Push(val);
+                            return;
+                        }
+                        // Out of SMI range - transition to Double
+                        array->TransitionTo(ElementKind::PackedDouble);
+                        int64_t dblBits;
+                        double dval = (double)val;
+                        memcpy(&dblBits, &dval, sizeof(dblBits));
+                        array->Push(dblBits);
                         return;
                     } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                        array->Push((int64_t)maybeBoxed->d_val);
+                        // Double value - transition to PackedDouble
+                        array->TransitionTo(ElementKind::PackedDouble);
+                        int64_t dblBits;
+                        memcpy(&dblBits, &maybeBoxed->d_val, sizeof(dblBits));
+                        array->Push(dblBits);
                         return;
-                    } else if (maybeBoxed->type == ValueType::BOOLEAN) {
-                        array->Push(maybeBoxed->b_val ? 1 : 0);
+                    } else {
+                        // Non-numeric - transition to PackedAny
+                        array->TransitionTo(ElementKind::PackedAny);
+                        TsValue* heapCopy = (TsValue*)ts_alloc(sizeof(TsValue));
+                        heapCopy->type = maybeBoxed->type;
+                        heapCopy->i_val = maybeBoxed->i_val;
+                        array->Push((int64_t)heapCopy);
                         return;
                     }
                 }
             }
+            // Raw integer value - store directly if in SMI range
+            if (bits >= -1073741824LL && bits <= 1073741823LL) {
+                array->Push(bits);
+                return;
+            }
+            // Out of SMI range - transition to Double
+            array->TransitionTo(ElementKind::PackedDouble);
+            double dval = (double)bits;
+            int64_t dblBits;
+            memcpy(&dblBits, &dval, sizeof(dblBits));
+            array->Push(dblBits);
+            return;
+        }
+
+        // PackedDouble: Store as unboxed double bits
+        if (kind == ElementKind::PackedDouble || kind == ElementKind::HoleyDouble) {
+            // For non-specialized Double arrays, check if value is a boxed TsValue*
+            TsValue* maybeBoxed = (TsValue*)value;
+            if (maybeBoxed && (uintptr_t)value > 0x10000) {
+                uint8_t typeVal = *(uint8_t*)maybeBoxed;
+                uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+                uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
+                uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
+                if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
+                    // It's a boxed TsValue*
+                    if (maybeBoxed->type == ValueType::NUMBER_DBL) {
+                        int64_t dblBits;
+                        memcpy(&dblBits, &maybeBoxed->d_val, sizeof(dblBits));
+                        array->Push(dblBits);
+                        return;
+                    } else if (maybeBoxed->type == ValueType::NUMBER_INT) {
+                        double dval = (double)maybeBoxed->i_val;
+                        int64_t dblBits;
+                        memcpy(&dblBits, &dval, sizeof(dblBits));
+                        array->Push(dblBits);
+                        return;
+                    } else {
+                        // Non-numeric - transition to PackedAny
+                        array->TransitionTo(ElementKind::PackedAny);
+                        TsValue* heapCopy = (TsValue*)ts_alloc(sizeof(TsValue));
+                        heapCopy->type = maybeBoxed->type;
+                        heapCopy->i_val = maybeBoxed->i_val;
+                        array->Push((int64_t)heapCopy);
+                        return;
+                    }
+                }
+            }
+            // Raw bits - interpret using same heuristic as before
+            double asDouble;
+            memcpy(&asDouble, &bits, sizeof(asDouble));
+            double absMag = asDouble < 0 ? -asDouble : asDouble;
+            if (absMag < 1e-100 && bits != 0) {
+                // Likely an integer - convert to double
+                double dval = (double)bits;
+                memcpy(&bits, &dval, sizeof(bits));
+            }
             array->Push(bits);
             return;
         }
+
+        // ==== PackedAny / generic path ====
 
         // For generic (non-specialized) arrays, keep values boxed as TsValue*
         // This preserves type information and avoids ambiguity (e.g., double 0.0 vs null)
@@ -1073,6 +1230,21 @@ extern "C" {
              return ts_value_make_undefined();
         }
         int64_t val = array->Get(index);
+        ElementKind kind = array->GetElementKind();
+
+        // ==== V8-style element kind fast paths ====
+
+        // PackedSmi: Return as boxed int
+        if (kind == ElementKind::PackedSmi || kind == ElementKind::HoleySmi) {
+            return ts_value_make_int(val);
+        }
+
+        // PackedDouble: Return as boxed double
+        if (kind == ElementKind::PackedDouble || kind == ElementKind::HoleyDouble) {
+            return ts_value_make_double(*(double*)&val);
+        }
+
+        // ==== Legacy specialized arrays (backward compat) ====
         if (array->IsSpecialized()) {
             if (array->IsDouble()) {
                 return ts_value_make_double(*(double*)&val);
@@ -1088,15 +1260,34 @@ extern "C" {
         TsValue result;
         result.type = ValueType::UNDEFINED;
         result.ptr_val = nullptr;
-        
+
         if (!arr) return result;
-        
+
         TsArray* array = (TsArray*)arr;
         if (index < 0 || index >= array->Length()) {
             return result;
         }
-        
+
         int64_t val = array->Get(index);
+        ElementKind kind = array->GetElementKind();
+
+        // ==== V8-style element kind fast paths ====
+
+        // PackedSmi: Return as NUMBER_INT
+        if (kind == ElementKind::PackedSmi || kind == ElementKind::HoleySmi) {
+            result.type = ValueType::NUMBER_INT;
+            result.i_val = val;
+            return result;
+        }
+
+        // PackedDouble: Return as NUMBER_DBL
+        if (kind == ElementKind::PackedDouble || kind == ElementKind::HoleyDouble) {
+            result.type = ValueType::NUMBER_DBL;
+            result.d_val = *(double*)&val;
+            return result;
+        }
+
+        // ==== Legacy specialized arrays (backward compat) ====
         if (array->IsSpecialized()) {
             if (array->IsDouble()) {
                 result.type = ValueType::NUMBER_DBL;
@@ -1107,7 +1298,7 @@ extern "C" {
             }
             return result;
         }
-        
+
         // For non-specialized arrays, the stored value is a TsValue*
         TsValue* stored = (TsValue*)val;
         if (stored) {
@@ -1120,7 +1311,66 @@ extern "C" {
     void ts_array_set_v(void* arr, int64_t index, TsValue value) {
         if (!arr) return;
         TsArray* array = (TsArray*)arr;
+        ElementKind kind = array->GetElementKind();
 
+        // ==== V8-style element kind fast paths ====
+
+        // PackedSmi: Store as raw int64
+        if (kind == ElementKind::PackedSmi || kind == ElementKind::HoleySmi) {
+            if (value.type == ValueType::NUMBER_INT) {
+                // Check SMI range
+                if (value.i_val >= -1073741824LL && value.i_val <= 1073741823LL) {
+                    array->Set(index, value.i_val);
+                    return;
+                }
+                // Out of SMI range - transition to Double
+                array->TransitionTo(ElementKind::PackedDouble);
+                double d = (double)value.i_val;
+                int64_t bits;
+                memcpy(&bits, &d, sizeof(bits));
+                array->Set(index, bits);
+                return;
+            } else if (value.type == ValueType::NUMBER_DBL) {
+                // Double value - transition to PackedDouble
+                array->TransitionTo(ElementKind::PackedDouble);
+                int64_t bits;
+                memcpy(&bits, &value.d_val, sizeof(bits));
+                array->Set(index, bits);
+                return;
+            } else {
+                // Non-numeric - transition to PackedAny
+                array->TransitionTo(ElementKind::PackedAny);
+                TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+                *v = value;
+                array->Set(index, (int64_t)v);
+                return;
+            }
+        }
+
+        // PackedDouble: Store as raw double bits
+        if (kind == ElementKind::PackedDouble || kind == ElementKind::HoleyDouble) {
+            if (value.type == ValueType::NUMBER_DBL) {
+                int64_t bits;
+                memcpy(&bits, &value.d_val, sizeof(bits));
+                array->Set(index, bits);
+                return;
+            } else if (value.type == ValueType::NUMBER_INT) {
+                double d = (double)value.i_val;
+                int64_t bits;
+                memcpy(&bits, &d, sizeof(bits));
+                array->Set(index, bits);
+                return;
+            } else {
+                // Non-numeric - transition to PackedAny
+                array->TransitionTo(ElementKind::PackedAny);
+                TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+                *v = value;
+                array->Set(index, (int64_t)v);
+                return;
+            }
+        }
+
+        // ==== Legacy specialized arrays (backward compat) ====
         if (array->IsSpecialized()) {
             if (array->IsDouble()) {
                 double d = (value.type == ValueType::NUMBER_DBL) ? value.d_val : (double)value.i_val;
@@ -1131,12 +1381,14 @@ extern "C" {
                 int64_t i = (value.type == ValueType::NUMBER_INT) ? value.i_val : (int64_t)value.d_val;
                 array->Set(index, i);
             }
-        } else {
-            // For non-specialized, we need to allocate a TsValue
-            TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-            *v = value;
-            array->Set(index, (int64_t)v);
+            return;
         }
+
+        // ==== PackedAny / generic path ====
+        // For non-specialized, we need to allocate a TsValue
+        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        *v = value;
+        array->Set(index, (int64_t)v);
     }
 
     // Helper to extract raw TsArray* from potentially boxed TsValue*
@@ -1564,6 +1816,25 @@ extern "C" {
         }
 
         int64_t raw_val = array->GetUnchecked(index);
+        ElementKind kind = array->GetElementKind();
+
+        // ==== V8-style element kind fast paths ====
+
+        // PackedSmi: Return as NUMBER_INT directly
+        if (kind == ElementKind::PackedSmi || kind == ElementKind::HoleySmi) {
+            *out_type = (uint8_t)ValueType::NUMBER_INT;
+            *out_value = raw_val;
+            return;
+        }
+
+        // PackedDouble: Return as NUMBER_DBL directly
+        if (kind == ElementKind::PackedDouble || kind == ElementKind::HoleyDouble) {
+            *out_type = (uint8_t)ValueType::NUMBER_DBL;
+            *out_value = raw_val;  // Double bits stored as int64
+            return;
+        }
+
+        // ==== Legacy specialized arrays (backward compat) ====
 
         // For specialized arrays, return the raw value directly
         if (array->IsSpecialized()) {
@@ -1655,21 +1926,83 @@ extern "C" {
     // For non-specialized arrays, we need to store TsValue* pointers, not raw values
     void __ts_array_set_inline(void* arr, int64_t index, uint8_t val_type, int64_t val_value) {
         if (!arr || index < 0) return;
-        
+
         TsArray* array = (TsArray*)arr;
-        
+        ElementKind kind = array->GetElementKind();
+        ValueType vtype = (ValueType)val_type;
+
+        // ==== V8-style element kind fast paths ====
+
+        // PackedSmi: Store as raw int64
+        if (kind == ElementKind::PackedSmi || kind == ElementKind::HoleySmi) {
+            if (vtype == ValueType::NUMBER_INT) {
+                // Check SMI range
+                if (val_value >= -1073741824LL && val_value <= 1073741823LL) {
+                    array->Set(index, val_value);
+                    return;
+                }
+                // Out of SMI range - transition to Double
+                array->TransitionTo(ElementKind::PackedDouble);
+                double dval = (double)val_value;
+                int64_t bits;
+                memcpy(&bits, &dval, sizeof(bits));
+                array->Set(index, bits);
+                return;
+            } else if (vtype == ValueType::NUMBER_DBL) {
+                // Double value - transition to PackedDouble
+                array->TransitionTo(ElementKind::PackedDouble);
+                array->Set(index, val_value);  // Already double bits
+                return;
+            } else {
+                // Non-numeric - transition to PackedAny
+                array->TransitionTo(ElementKind::PackedAny);
+                TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
+                boxed->type = vtype;
+                boxed->i_val = val_value;
+                array->Set(index, (int64_t)boxed);
+                return;
+            }
+        }
+
+        // PackedDouble: Store as raw double bits
+        if (kind == ElementKind::PackedDouble || kind == ElementKind::HoleyDouble) {
+            if (vtype == ValueType::NUMBER_DBL) {
+                array->Set(index, val_value);  // Double bits stored as int64
+                return;
+            } else if (vtype == ValueType::NUMBER_INT) {
+                // Convert int to double
+                double dval = (double)val_value;
+                int64_t bits;
+                memcpy(&bits, &dval, sizeof(bits));
+                array->Set(index, bits);
+                return;
+            } else {
+                // Non-numeric - transition to PackedAny
+                array->TransitionTo(ElementKind::PackedAny);
+                TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
+                boxed->type = vtype;
+                boxed->i_val = val_value;
+                array->Set(index, (int64_t)boxed);
+                return;
+            }
+        }
+
+        // ==== Legacy specialized arrays (backward compat) ====
+
         // For specialized arrays, store raw value
         if (array->IsSpecialized()) {
             array->Set(index, val_value);
             return;
         }
-        
+
+        // ==== PackedAny / generic path ====
+
         // For non-specialized arrays, we need to store a TsValue*
         // Reconstruct a boxed TsValue from the type and value
         TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
-        boxed->type = (ValueType)val_type;
+        boxed->type = vtype;
         boxed->i_val = val_value;  // Union - works for any type
-        
+
         array->Set(index, (int64_t)boxed);
     }
     
