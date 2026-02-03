@@ -1,6 +1,6 @@
 # PERF-002: Integer Optimization V8/JSC Parity
 
-**Status:** In Progress (Phases 1-2 Complete)
+**Status:** In Progress (Phases 1, 2, 4 Complete)
 **Category:** Performance
 **Priority:** High
 **Related:** IntegerOptimizationPass (src/compiler/hir/passes/IntegerOptimizationPass.cpp)
@@ -53,7 +53,7 @@ Our IntegerOptimizationPass:
 | Bitwise ops (32-bit result) | Yes | Yes | ✅ Yes | ~~Implement~~ Done |
 | Loop counter opt | Yes | Yes | **Basic** | **Enhance** |
 | Array element kinds | Yes | Yes | **No** | **Future work** |
-| Negative zero handling | Yes | Yes | **No** | **Implement** |
+| Negative zero handling | Yes | Yes | ✅ Yes | ~~Implement~~ Done |
 
 ## Implementation Plan
 
@@ -149,7 +149,7 @@ JavaScript bitwise operations convert to 32-bit signed integers:
 3. **Propagate loop bounds to array indexing**
    - If `i < arr.length` and arr.length known, array access is bounds-safe
 
-### Phase 4: Negative Zero Handling
+### Phase 4: Negative Zero Handling ✅ COMPLETE
 
 **Goal:** Correctly handle -0 vs +0 semantics.
 
@@ -160,21 +160,18 @@ JavaScript distinguishes -0 and +0:
 0 === -0  // true (!)
 ```
 
-1. **Track negative zero potential**
-   ```cpp
-   struct NumericRange {
-       bool mayBeNegativeZero = false;
-   };
-   ```
+**Implementation:**
+- Added `mayBeNegativeZero` flag to `NumericRange` struct
+- Updated `isSafeInteger()` to return false if -0 is possible (can't represent as int64)
+- Updated `combineMul()` to detect when multiplication could produce -0:
+  - `0 * negative = -0`
+  - `negative * 0 = -0`
+  - Propagates -0 flag from operands
+- Updated `combineAdd()`: result may be -0 only if both operands may be -0
+- Updated `combineSub()`: result may be -0 if lhs may be -0 and rhs could be 0
+- Tests: `tests/golden_hir/passes/negative_zero.ts`
 
-2. **Operations that produce -0:**
-   - `0 * negative` → -0
-   - `-0 + 0` → -0
-   - `negative / Infinity` → -0
-
-3. **Keep as Float64 if -0 matters**
-   - Division results (already Float64)
-   - Values used with division
+The implementation ensures that values which could be negative zero stay as Float64, preserving correct JavaScript semantics for division operations.
 
 ### Phase 5: Array Element Kinds (Future)
 

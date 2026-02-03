@@ -58,13 +58,18 @@ private:
         Kind kind = Kind::Unknown;
         int64_t minVal = INT64_MIN;  ///< Minimum value (for IntegerRange)
         int64_t maxVal = INT64_MAX;  ///< Maximum value (for IntegerRange)
+        bool mayBeNegativeZero = false;  ///< Could this value be -0?
 
         /// JavaScript's MAX_SAFE_INTEGER = 2^53 - 1
         static constexpr int64_t MAX_SAFE_INTEGER = 9007199254740991LL;
         static constexpr int64_t MIN_SAFE_INTEGER = -9007199254740991LL;
 
         /// Check if value is a safe integer that can use I64 operations
+        /// Note: Values that may be -0 cannot be safely converted to I64
+        /// because -0 === 0 but 1/-0 !== 1/0 (different infinities)
         bool isSafeInteger() const {
+            // -0 cannot be represented as integer
+            if (mayBeNegativeZero) return false;
             if (kind == Kind::Integer) return true;
             if (kind == Kind::IntegerRange) {
                 return minVal >= MIN_SAFE_INTEGER && maxVal <= MAX_SAFE_INTEGER;
