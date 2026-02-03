@@ -529,11 +529,39 @@ IntegerOptimizationPass::combineSub(const NumericRange& lhs, const NumericRange&
     return NumericRange::makeRange(newMin, newMax);
 }
 
+/// Check if multiplication would overflow int64_t (before even checking JS safe integer range)
+static bool wouldOverflowI64Mul(int64_t a, int64_t b) {
+    if (a == 0 || b == 0) return false;
+    if (a > 0) {
+        if (b > 0) {
+            return a > INT64_MAX / b;
+        } else {
+            return b < INT64_MIN / a;
+        }
+    } else {
+        if (b > 0) {
+            return a < INT64_MIN / b;
+        } else {
+            return a != 0 && b < INT64_MAX / a;
+        }
+    }
+}
+
 IntegerOptimizationPass::NumericRange
 IntegerOptimizationPass::combineMul(const NumericRange& lhs, const NumericRange& rhs) {
     if (lhs.kind != NumericRange::Kind::IntegerRange ||
         rhs.kind != NumericRange::Kind::IntegerRange) {
         return NumericRange::makeUnknown();
+    }
+
+    // First check if any of the corner products would overflow int64_t itself
+    // If so, we must stay as Float64 to avoid undefined behavior
+    if (wouldOverflowI64Mul(lhs.minVal, rhs.minVal) ||
+        wouldOverflowI64Mul(lhs.minVal, rhs.maxVal) ||
+        wouldOverflowI64Mul(lhs.maxVal, rhs.minVal) ||
+        wouldOverflowI64Mul(lhs.maxVal, rhs.maxVal)) {
+        SPDLOG_DEBUG("IntegerOpt: Multiplication would overflow int64_t - keeping as Float64");
+        return NumericRange::makeFloat();
     }
 
     // Compute all four corner products to find min/max
@@ -547,7 +575,7 @@ IntegerOptimizationPass::combineMul(const NumericRange& lhs, const NumericRange&
     int64_t newMin = *std::min_element(products, products + 4);
     int64_t newMax = *std::max_element(products, products + 4);
 
-    // Check if result exceeds safe integer range
+    // Check if result exceeds JS safe integer range
     if (newMin < NumericRange::MIN_SAFE_INTEGER ||
         newMax > NumericRange::MAX_SAFE_INTEGER) {
         return NumericRange::makeMayOverflow(newMin, newMax);
