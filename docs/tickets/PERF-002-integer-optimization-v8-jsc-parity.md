@@ -173,14 +173,154 @@ JavaScript distinguishes -0 and +0:
 
 The implementation ensures that values which could be negative zero stay as Float64, preserving correct JavaScript semantics for division operations.
 
-### Phase 5: Array Element Kinds (Future)
+### Phase 5: Array Element Kinds (Future Epic)
 
-**Goal:** V8-style monomorphic array optimizations.
+**Goal:** V8-style monomorphic array optimizations for 2-5x array operation speedup.
 
-This is a larger architectural change for the future:
-- Track array element types through the pipeline
-- Generate specialized code for SMI-only arrays
-- Avoid boxing/unboxing for homogeneous arrays
+**Background:** V8 tracks "element kinds" for arrays to avoid boxing/unboxing overhead:
+- `PACKED_SMI_ELEMENTS` - Small integers only (31-bit)
+- `PACKED_DOUBLE_ELEMENTS` - IEEE 754 doubles only
+- `PACKED_ELEMENTS` - Mixed/object elements (boxed)
+- `HOLEY_*` variants - Arrays with holes (sparse)
+
+**Current ts-aot Implementation:**
+- TsArray already has `isSpecialized` and `isDouble` flags
+- Compiler detects int[] and double[] at compile time
+- Runtime has two-path codegen (specialized vs generic)
+- Gap: No SMI tagging, no kind transitions, limited kind detection
+
+#### Phase 5.1: Element Kind Enum and Metadata
+
+1. **Add ElementKind enum to Type.h:**
+   ```cpp
+   enum class ElementKind {
+       Unknown,           // Type not yet determined
+       PackedSmi,        // Small integers (-2^30 to 2^30-1)
+       PackedDouble,     // IEEE 754 doubles
+       PackedString,     // TsString* pointers only
+       PackedObject,     // Homogeneous object type
+       PackedAny,        // Mixed types (current generic)
+       HoleySmi,         // SMI with holes
+       HoleyDouble,      // Double with holes
+       HoleyAny          // Mixed with holes
+   };
+   ```
+
+2. **Extend ArrayType:**
+   ```cpp
+   struct ArrayType : public Type {
+       std::shared_ptr<Type> elementType;
+       ElementKind elementKind = ElementKind::Unknown;
+       bool mayHaveHoles = false;
+   };
+   ```
+
+3. **Extend TsArray runtime class:**
+   ```cpp
+   class TsArray {
+       uint8_t elementKind;  // Use enum value
+       // ... existing fields
+   };
+   ```
+
+#### Phase 5.2: Element Kind Inference
+
+1. **Array literal inference (IRGenerator_Expressions_Literals.cpp):**
+   - Analyze all elements to determine most specific kind
+   - `[1, 2, 3]` → PackedSmi (all values fit in 31 bits)
+   - `[1.5, 2.0, 3.14]` → PackedDouble
+   - `[1, "hello"]` → PackedAny (mixed)
+   - `[1, , 3]` → HoleySmi (has holes)
+
+2. **Array method return type inference:**
+   - `arr.map(x => x * 2)` on PackedSmi → PackedSmi
+   - `arr.filter(...)` preserves element kind
+   - `arr.concat(other)` → union of element kinds
+
+#### Phase 5.3: Specialized Code Generation
+
+1. **Array access codegen:**
+   ```cpp
+   // Current: binary specialized vs generic
+   // Proposed: multi-path based on element kind
+   switch (elementKind) {
+       case PackedSmi:
+           // Direct int64 load, no unboxing
+           break;
+       case PackedDouble:
+           // Direct double load
+           break;
+       case PackedAny:
+           // Current boxed path
+           break;
+   }
+   ```
+
+2. **Array push codegen:**
+   - Detect kind transitions at compile time where possible
+   - Generate kind transition code when needed
+
+#### Phase 5.4: Kind Transitions
+
+When an operation would change the element kind:
+1. `PackedSmi.push(1.5)` → transition to PackedDouble
+2. `PackedDouble.push("x")` → transition to PackedAny
+3. Transitions are one-way (never go back to more specific)
+
+```cpp
+void TsArray::TransitionTo(ElementKind newKind) {
+    if (newKind <= elementKind) return;  // No-op
+    // Reallocate and convert elements if needed
+    // e.g., SMI to Double: widen all int64 to double
+}
+```
+
+#### Phase 5.5: Benchmarking
+
+Create benchmarks to measure improvement:
+```typescript
+// Array sum benchmark
+function sumArray(arr: number[]): number {
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) {
+        sum += arr[i];
+    }
+    return sum;
+}
+
+// Measure with SMI array vs generic array
+const smiArr = [1, 2, 3, 4, 5];  // Should use PackedSmi
+const mixedArr: any[] = [1, 2, 3, 4, 5];  // Uses PackedAny
+```
+
+**Expected Speedup:**
+- Array element access: 2-3x (avoid boxing/unboxing)
+- Array iteration: 2-5x (cache-friendly data layout)
+- Array methods (map, filter): 2-3x
+
+#### Files to Modify (Phase 5)
+
+| File | Changes |
+|------|---------|
+| `src/compiler/analysis/Type.h` | Add ElementKind enum, extend ArrayType |
+| `src/compiler/analysis/Analyzer_Types.cpp` | Infer element kinds from literals |
+| `src/compiler/codegen/IRGenerator_Expressions_Literals.cpp` | Generate kind-specific array creation |
+| `src/compiler/codegen/IRGenerator_Expressions_Access.cpp` | Multi-path element access |
+| `src/runtime/include/TsArray.h` | Add elementKind field |
+| `src/runtime/src/TsArray.cpp` | Implement kind transitions |
+| `examples/benchmarks/array_*.ts` | Element kind benchmarks |
+
+#### Dependencies
+
+Phase 5 depends on:
+- Phase 1 (Overflow Safety) ✅ - needed for SMI range checking
+- Phase 2 (Bitwise Operations) ✅ - needed for tagged integer operations
+
+Phase 5 does NOT depend on:
+- Phase 3 (Loop Counters) - independent optimization
+- Phase 4 (Negative Zero) ✅ - already complete
+
+**Estimated Effort:** 2-3 weeks for full implementation
 
 ## Testing Strategy
 
@@ -233,11 +373,11 @@ function user_main(): number {
 
 ## Timeline
 
-- **Phase 1 (Overflow Safety):** 1-2 days
-- **Phase 2 (Bitwise Operations):** 1-2 days
-- **Phase 3 (Loop Counters):** 1 day
-- **Phase 4 (Negative Zero):** 0.5 days
-- **Phase 5 (Array Kinds):** Future epic
+- **Phase 1 (Overflow Safety):** ✅ Complete
+- **Phase 2 (Bitwise Operations):** ✅ Complete
+- **Phase 3 (Loop Counters):** Pending (requires CFG analysis)
+- **Phase 4 (Negative Zero):** ✅ Complete
+- **Phase 5 (Array Element Kinds):** 2-3 weeks (separate epic)
 
 ## References
 
