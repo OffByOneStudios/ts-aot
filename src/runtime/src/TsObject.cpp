@@ -272,6 +272,17 @@ TsValue* ts_value_make_int(int64_t i) {
         return v->type == ValueType::UNDEFINED;
     }
 
+    bool ts_value_is_null(TsValue* v) {
+        if (!v) {
+            return false;  // null C++ pointer is not the same as JavaScript null
+        }
+        // Check for explicit null value (OBJECT_PTR with nullptr)
+        if (v->type == ValueType::OBJECT_PTR && v->ptr_val == nullptr) {
+            return true;
+        }
+        return false;
+    }
+
     // Box any pointer by detecting its runtime type
     // This is used when the compile-time type is 'any' but we need proper boxing
     TsValue* ts_value_box_any(void* ptr) {
@@ -2467,6 +2478,41 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
 
+        // Detect if obj is a raw pointer (not a boxed TsValue*) by checking magic values
+        // A TsValue* has type in first byte (0-10) with zero padding bytes
+        // A TsArray* has magic "ARRY" (0x41525259) at offset 0
+        // A TsMap*/TsObject* has magic at offset 16
+        {
+            uint32_t magic0 = *(uint32_t*)obj;
+            // Check for TsArray magic at offset 0
+            if (magic0 == 0x41525259) { // "ARRY" - this is a raw TsArray*
+                TsArray* arr = (TsArray*)obj;
+                if (key->type == ValueType::NUMBER_INT) {
+                    return ts_array_get_as_value((void*)arr, key->i_val);
+                } else if (key->type == ValueType::NUMBER_DBL) {
+                    return ts_array_get_as_value((void*)arr, (int64_t)key->d_val);
+                } else if (key->type == ValueType::STRING_PTR) {
+                    TsString* keyStr = (TsString*)key->ptr_val;
+                    if (keyStr) {
+                        const char* k = keyStr->ToUtf8();
+                        if (k && strcmp(k, "length") == 0) {
+                            return ts_value_make_int(arr->Length());
+                        }
+                    }
+                }
+                return ts_value_make_undefined();
+            }
+            // Check for TsObject/TsMap magic at offset 16
+            uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
+            if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC || magic16 == 0x54415252) {
+                // This is a raw TsObject* - wrap it and continue
+                TsValue* wrapped = (TsValue*)ts_alloc(sizeof(TsValue));
+                wrapped->type = ValueType::OBJECT_PTR;
+                wrapped->ptr_val = (void*)obj;
+                obj = wrapped;
+            }
+        }
+
         // Check if obj is ARRAY_PTR FIRST - TsArray is NOT a TsObject, so we can't use dynamic_cast on it
         if (obj->type == ValueType::ARRAY_PTR) {
             void* arrPtr = obj->ptr_val;
@@ -2572,7 +2618,22 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_undefined();  // No properties set yet
             }
             // Use the properties map
-            TsValue result = func->properties->Get(*key);
+            // key might be a proper TsValue* or a raw TsString* pointer from HIR
+            TsValue funcKeyVal;
+            uint8_t funcKeyType = *(uint8_t*)key;
+            uint8_t funcKeyB1 = *((uint8_t*)key + 1);
+            uint8_t funcKeyB2 = *((uint8_t*)key + 2);
+            uint8_t funcKeyB3 = *((uint8_t*)key + 3);
+            bool funcKeyIsTsValue = (funcKeyType <= 10 && funcKeyB1 == 0 && funcKeyB2 == 0 && funcKeyB3 == 0);
+
+            if (funcKeyIsTsValue) {
+                funcKeyVal = *key;
+            } else {
+                funcKeyVal.type = ValueType::STRING_PTR;
+                funcKeyVal.ptr_val = (void*)key;
+            }
+
+            TsValue result = func->properties->Get(funcKeyVal);
             if (result.type == ValueType::UNDEFINED) {
                 return ts_value_make_undefined();
             }
@@ -2656,8 +2717,26 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue result;
         result.type = ValueType::UNDEFINED;
         TsMap* currentMap = map;
+
+        // Create proper TsValue key for map lookup
+        // key might be a proper TsValue* or a raw TsString* pointer from HIR
+        TsValue keyVal;
+        uint8_t keyTypeField = *(uint8_t*)key;
+        uint8_t keyByte1 = *((uint8_t*)key + 1);
+        uint8_t keyByte2 = *((uint8_t*)key + 2);
+        uint8_t keyByte3 = *((uint8_t*)key + 3);
+        bool keyIsTsValue = (keyTypeField <= 10 && keyByte1 == 0 && keyByte2 == 0 && keyByte3 == 0);
+
+        if (keyIsTsValue) {
+            keyVal = *key;  // It's a proper TsValue - copy it
+        } else {
+            // It's a raw string pointer - wrap it
+            keyVal.type = ValueType::STRING_PTR;
+            keyVal.ptr_val = (void*)key;
+        }
+
         while (currentMap != nullptr) {
-            result = currentMap->Get(*key);
+            result = currentMap->Get(keyVal);
             if (result.type != ValueType::UNDEFINED) {
                 break;  // Found the property
             }
@@ -2727,6 +2806,13 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Delegate to ts_object_set_prop_v which handles all cases
         ts_object_set_prop_v(*obj, *key, *value);
+    }
+
+    // HIR-friendly wrapper for setting object properties
+    // Takes void* args that may be TsValue* or raw pointers
+    void ts_object_set_property(void* obj, void* key, void* value) {
+        // Forward to ts_object_set_dynamic after casting
+        ts_object_set_dynamic((TsValue*)obj, (TsValue*)key, (TsValue*)value);
     }
 
     // ============================================================
@@ -2868,10 +2954,15 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
             TsMap* map = (TsMap*)rawObj;
 
+            // Create a proper TsValue key from the keyStr for lookup
+            TsValue keyVal;
+            keyVal.type = ValueType::STRING_PTR;
+            keyVal.ptr_val = keyStr;
+
             // Walk the prototype chain to check for the property
             TsMap* currentMap = map;
             while (currentMap != nullptr) {
-                if (currentMap->Has(*key)) {
+                if (currentMap->Has(keyVal)) {
                     return true;
                 }
                 currentMap = currentMap->GetPrototype();
@@ -2900,10 +2991,77 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic = *(uint32_t*)((char*)rawObj + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC "MAPS"
             TsMap* map = (TsMap*)rawObj;
-            return map->Delete(*key);
+            // Create a proper TsValue key from the keyStr for delete
+            TsValue keyVal;
+            keyVal.type = ValueType::STRING_PTR;
+            keyVal.ptr_val = keyStr;
+            return map->Delete(keyVal);
         }
 
         return false;
+    }
+
+    // Wrapper for 'in' operator: checks if property exists (including inherited)
+    bool ts_object_has_property(void* objArg, void* keyArg) {
+        TsValue* obj = (TsValue*)objArg;
+        TsValue* key = (TsValue*)keyArg;
+        return ts_object_has_prop(obj, key);
+    }
+
+    // Wrapper for delete operator: removes property from object
+    // Handles both raw pointers from HIR and boxed TsValue* pointers
+    int ts_object_delete_property(void* objArg, void* keyArg) {
+        if (!objArg || !keyArg) return 0;
+
+        // Detect if obj is a TsValue or raw pointer
+        // TsValue has type (0-10) in first byte, followed by 3 zero padding bytes
+        uint8_t objType = *(uint8_t*)objArg;
+        uint8_t objB1 = *((uint8_t*)objArg + 1);
+        uint8_t objB2 = *((uint8_t*)objArg + 2);
+        uint8_t objB3 = *((uint8_t*)objArg + 3);
+        bool objIsTsValue = (objType <= 10 && objB1 == 0 && objB2 == 0 && objB3 == 0);
+
+        // Get the raw TsMap pointer
+        void* rawMap;
+        if (objIsTsValue) {
+            TsValue* objVal = (TsValue*)objArg;
+            rawMap = ts_value_get_object(objVal);
+        } else {
+            // It's a raw TsMap* pointer
+            rawMap = objArg;
+        }
+        if (!rawMap) return 0;
+
+        // Check magic to confirm it's a TsMap
+        uint32_t magic = *(uint32_t*)((char*)rawMap + 16);
+        if (magic != 0x4D415053) return 0; // Not a TsMap ("MAPS")
+
+        TsMap* map = (TsMap*)rawMap;
+
+        // Detect if key is a TsValue or raw TsString pointer
+        uint8_t keyType = *(uint8_t*)keyArg;
+        uint8_t keyB1 = *((uint8_t*)keyArg + 1);
+        uint8_t keyB2 = *((uint8_t*)keyArg + 2);
+        uint8_t keyB3 = *((uint8_t*)keyArg + 3);
+        bool keyIsTsValue = (keyType <= 10 && keyB1 == 0 && keyB2 == 0 && keyB3 == 0);
+
+        // Get the key string
+        TsString* keyStr;
+        if (keyIsTsValue) {
+            TsValue* keyVal = (TsValue*)keyArg;
+            keyStr = (TsString*)ts_value_get_string(keyVal);
+        } else {
+            // It's a raw TsString* pointer
+            keyStr = (TsString*)keyArg;
+        }
+        if (!keyStr) return 0;
+
+        // Create proper TsValue key for map delete
+        TsValue keyVal;
+        keyVal.type = ValueType::STRING_PTR;
+        keyVal.ptr_val = keyStr;
+
+        return map->Delete(keyVal) ? 1 : 0;
     }
 
     extern "C" void ts_console_log_value_no_newline(TsValue* val);

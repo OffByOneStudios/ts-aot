@@ -63,6 +63,245 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program, const std::str
     return std::move(module_);
 }
 
+std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
+                                           const std::vector<Specialization>& specializations,
+                                           const std::string& moduleName) {
+    module_ = std::make_unique<HIRModule>(moduleName);
+    builder_ = HIRBuilder(module_.get());
+
+    // Store specializations for lookup during call generation
+    specializations_ = &specializations;
+
+    valueCounter_ = 0;
+    blockCounter_ = 0;
+    scopes_.clear();
+    pushScope();  // Global scope
+
+    // First pass: visit all statements in the program to process classes and globals
+    // This ensures class definitions and other declarations are available
+    for (auto& stmt : program->body) {
+        std::string kind = stmt->getKind();
+        // Process class declarations, enum declarations, and imports
+        // Skip function declarations as they'll be processed via specializations
+        if (kind == "ClassDeclaration" || kind == "EnumDeclaration" ||
+            kind == "ImportDeclaration" || kind == "ExportDeclaration") {
+            lowerStatement(stmt.get());
+        }
+    }
+
+    // Second pass: generate functions from specializations (like legacy IRGenerator)
+    for (const auto& spec : specializations) {
+        if (spec.specializedName.find("lambda") != std::string::npos) {
+            // Skip lambda specializations - they'll be generated when encountered
+            continue;
+        }
+
+        // Get the node - could be FunctionDeclaration or MethodDefinition
+        if (auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+            // Create HIR function with the specialized name
+            auto func = std::make_unique<HIRFunction>(spec.specializedName);
+            func->isAsync = funcNode->isAsync;
+            func->isGenerator = funcNode->isGenerator;
+
+            // Handle parameters
+            for (size_t paramIdx = 0; paramIdx < funcNode->parameters.size(); ++paramIdx) {
+                auto& param = funcNode->parameters[paramIdx];
+                // Use specialized type from spec.argTypes if available
+                std::shared_ptr<HIRType> paramType;
+                if (paramIdx < spec.argTypes.size() && spec.argTypes[paramIdx]) {
+                    paramType = convertType(spec.argTypes[paramIdx]);
+                } else if (!param->type.empty()) {
+                    paramType = convertTypeFromString(param->type);
+                } else {
+                    paramType = HIRType::makeAny();
+                }
+
+                // Get parameter name
+                std::string paramName;
+                if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                    paramName = ident->name;
+                } else {
+                    paramName = "param" + std::to_string(func->params.size());
+                }
+
+                if (param->isRest) {
+                    func->hasRestParam = true;
+                }
+
+                func->params.push_back({paramName, paramType});
+            }
+
+            // Set return type from specialization
+            if (spec.returnType) {
+                func->returnType = convertType(spec.returnType);
+            } else if (!funcNode->returnType.empty()) {
+                func->returnType = convertTypeFromString(funcNode->returnType);
+            } else {
+                func->returnType = HIRType::makeAny();
+            }
+
+            // Create entry block and set up for lowering
+            auto entryBlock = func->createBlock("entry");
+            currentFunction_ = func.get();
+            currentBlock_ = entryBlock;
+            builder_.setInsertPoint(entryBlock);
+
+            // Push function scope and bind parameters
+            pushFunctionScope(func.get());
+            func->nextValueId = static_cast<uint32_t>(func->params.size());
+            for (size_t i = 0; i < func->params.size(); ++i) {
+                const auto& [paramName, paramType] = func->params[i];
+                auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
+
+                // Check if this parameter has a default value
+                ast::Parameter* astParam = (i < funcNode->parameters.size()) ? funcNode->parameters[i].get() : nullptr;
+                if (astParam && astParam->initializer) {
+                    // Parameter has a default value - need to check if undefined and use default
+                    auto allocaVal = builder_.createAlloca(paramType);
+
+                    // Check if param is undefined using runtime function
+                    auto isUndefined = builder_.createCall("ts_value_is_undefined",
+                        {paramValue}, HIRType::makeBool());
+
+                    // Create basic blocks for the conditional
+                    auto defaultBB = func->createBlock("default_param");
+                    auto usedBB = func->createBlock("use_param");
+                    auto mergeBB = func->createBlock("param_merge");
+
+                    // Branch based on undefined check
+                    builder_.createCondBranch(isUndefined, defaultBB, usedBB);
+
+                    // Default block - evaluate default expression and store
+                    builder_.setInsertPoint(defaultBB);
+                    currentBlock_ = defaultBB;
+                    auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
+                    auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
+                    builder_.createStore(defaultVal, allocaVal);
+                    builder_.createBranch(mergeBB);
+
+                    // Use param block - store the passed parameter value
+                    builder_.setInsertPoint(usedBB);
+                    currentBlock_ = usedBB;
+                    builder_.createStore(paramValue, allocaVal);
+                    builder_.createBranch(mergeBB);
+
+                    // Merge block - continue execution
+                    builder_.setInsertPoint(mergeBB);
+                    currentBlock_ = mergeBB;
+
+                    // Register the alloca as the variable
+                    defineVariableAlloca(paramName, allocaVal, paramType);
+                } else {
+                    // No default value - just register the parameter directly
+                    defineVariable(paramName, paramValue);
+                }
+            }
+
+            // Lower function body
+            for (auto& stmt : funcNode->body) {
+                lowerStatement(stmt.get());
+                if (builder_.isBlockTerminated()) {
+                    break;
+                }
+            }
+
+            // Add implicit return if needed
+            if (!hasTerminator()) {
+                if (func->returnType->kind == HIRTypeKind::Void) {
+                    builder_.createReturnVoid();
+                } else {
+                    // Return undefined for non-void functions without explicit return
+                    auto undef = builder_.createConstUndefined();
+                    builder_.createReturn(undef);
+                }
+            }
+
+            popScope();
+            module_->functions.push_back(std::move(func));
+        } else if (auto* methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+            // Handle method definitions (similar to above)
+            if (methodNode->isAbstract || !methodNode->hasBody) continue;
+
+            auto func = std::make_unique<HIRFunction>(spec.specializedName);
+            func->isAsync = methodNode->isAsync;
+            func->isGenerator = methodNode->isGenerator;
+
+            // Add 'this' parameter first for instance methods
+            if (!methodNode->isStatic) {
+                auto thisType = HIRType::makeAny();
+                func->params.push_back({"this", thisType});
+            }
+
+            // Handle regular parameters
+            for (size_t paramIdx = 0; paramIdx < methodNode->parameters.size(); ++paramIdx) {
+                auto& param = methodNode->parameters[paramIdx];
+                std::shared_ptr<HIRType> paramType;
+                if (paramIdx < spec.argTypes.size() && spec.argTypes[paramIdx]) {
+                    paramType = convertType(spec.argTypes[paramIdx]);
+                } else if (!param->type.empty()) {
+                    paramType = convertTypeFromString(param->type);
+                } else {
+                    paramType = HIRType::makeAny();
+                }
+
+                std::string paramName;
+                if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
+                    paramName = ident->name;
+                } else {
+                    paramName = "param" + std::to_string(func->params.size());
+                }
+
+                func->params.push_back({paramName, paramType});
+            }
+
+            // Set return type
+            if (spec.returnType) {
+                func->returnType = convertType(spec.returnType);
+            } else if (!methodNode->returnType.empty()) {
+                func->returnType = convertTypeFromString(methodNode->returnType);
+            } else {
+                func->returnType = HIRType::makeAny();
+            }
+
+            auto entryBlock = func->createBlock("entry");
+            currentFunction_ = func.get();
+            currentBlock_ = entryBlock;
+            builder_.setInsertPoint(entryBlock);
+
+            pushFunctionScope(func.get());
+            for (size_t i = 0; i < func->params.size(); ++i) {
+                const auto& [paramName, paramType] = func->params[i];
+                auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
+                defineVariable(paramName, paramValue);
+            }
+            func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+            for (auto& stmt : methodNode->body) {
+                lowerStatement(stmt.get());
+                if (builder_.isBlockTerminated()) {
+                    break;
+                }
+            }
+
+            if (!hasTerminator()) {
+                if (func->returnType->kind == HIRTypeKind::Void) {
+                    builder_.createReturnVoid();
+                } else {
+                    auto undef = builder_.createConstUndefined();
+                    builder_.createReturn(undef);
+                }
+            }
+
+            popScope();
+            module_->functions.push_back(std::move(func));
+        }
+    }
+
+    popScope();
+    specializations_ = nullptr;  // Clear to avoid dangling pointer
+    return std::move(module_);
+}
+
 //==============================================================================
 // SSA Helpers
 //==============================================================================
@@ -134,6 +373,13 @@ std::shared_ptr<HIRValue> ASTToHIR::lookupVariable(const std::string& name) {
     // Legacy method - looks up and emits load if needed
     auto* info = lookupVariableInfo(name);
     if (!info) return nullptr;
+
+    // If this variable is captured by a nested closure, we need to read from the cell
+    if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
+        // Use cell-based access: ts_closure_get_cell(closure, index) -> ts_cell_get(cell)
+        auto type = info->elemType ? info->elemType : HIRType::makeAny();
+        return builder_.createLoadCaptureFromClosure(info->closurePtr, info->captureIndex, type);
+    }
 
     if (info->isAlloca && info->elemType) {
         // Emit a load for alloca-stored variables
@@ -485,9 +731,12 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             // Create an alloca to store the potentially-defaulted value
             auto allocaVal = builder_.createAlloca(paramType);
 
-            // Check if param is undefined using pointer comparison
-            auto undefinedVal = builder_.createConstUndefined();
-            auto isUndefined = builder_.createCmpEqPtr(paramValue, undefinedVal);
+            // Check if param is undefined using runtime function
+            // We can't use pointer comparison because ts_value_make_undefined() creates
+            // a new TsValue* each time, so pointers won't match. Instead use the
+            // runtime's ts_value_is_undefined() which checks the type field.
+            auto isUndefined = builder_.createCall("ts_value_is_undefined",
+                {paramValue}, HIRType::makeBool());
 
             // Create basic blocks for the conditional
             auto defaultBB = func->createBlock("default_param");
@@ -1452,6 +1701,99 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                astNode->inferredType->kind == ts::TypeKind::BigInt;
     };
 
+    // Helper to check if an operand is a number type (Int or Double)
+    auto isNumber = [&isFloat64](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
+        // Check HIR type
+        if (val && val->type) {
+            if (val->type->kind == HIRTypeKind::Int64 ||
+                val->type->kind == HIRTypeKind::Float64) return true;
+        }
+        // Check AST inferred type
+        if (astNode && astNode->inferredType) {
+            if (astNode->inferredType->kind == ts::TypeKind::Int ||
+                astNode->inferredType->kind == ts::TypeKind::Double) return true;
+        }
+        return false;
+    };
+
+    // Helper to check if an operand is a boolean type
+    auto isBoolean = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
+        if (val && val->type && val->type->kind == HIRTypeKind::Bool) return true;
+        if (astNode && astNode->inferredType && astNode->inferredType->kind == ts::TypeKind::Boolean) return true;
+        return false;
+    };
+
+    // Helper to check if an operand could be Any, Null, or Undefined type
+    // (requires runtime type checking for strict equality)
+    auto isAnyOrNullish = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
+        // Check HIR type
+        if (val && val->type && val->type->kind == HIRTypeKind::Any) return true;
+        // Check AST inferred type
+        if (astNode && astNode->inferredType) {
+            auto kind = astNode->inferredType->kind;
+            if (kind == ts::TypeKind::Any || kind == ts::TypeKind::Undefined ||
+                kind == ts::TypeKind::Null || kind == ts::TypeKind::Unknown) return true;
+        }
+        return false;
+    };
+
+    // Helper to check if an expression is the literal `undefined` keyword
+    auto isUndefinedLiteral = [](ast::Expression* astNode) {
+        if (auto* id = dynamic_cast<ast::Identifier*>(astNode)) {
+            return id->name == "undefined";
+        }
+        return false;
+    };
+
+    // Helper to check if an expression is the literal `null` keyword
+    auto isNullLiteral = [](ast::Expression* astNode) {
+        if (auto* nullLit = dynamic_cast<ast::NullLiteral*>(astNode)) {
+            return true;
+        }
+        if (auto* id = dynamic_cast<ast::Identifier*>(astNode)) {
+            return id->name == "null";
+        }
+        return false;
+    };
+
+    // For strict equality (===), check if types are incompatible
+    // Returns true if types are definitely different and === should return false
+    auto typesIncompatibleForStrictEqual = [&isString, &isNumber, &isBoolean, &isBigInt](
+            const std::shared_ptr<HIRValue>& lhsVal, ast::Expression* lhsAst,
+            const std::shared_ptr<HIRValue>& rhsVal, ast::Expression* rhsAst) {
+        bool lhsIsString = isString(lhsVal, lhsAst);
+        bool rhsIsString = isString(rhsVal, rhsAst);
+        bool lhsIsNumber = !lhsIsString && ((lhsVal && lhsVal->type &&
+            (lhsVal->type->kind == HIRTypeKind::Int64 || lhsVal->type->kind == HIRTypeKind::Float64))
+            || (lhsAst && lhsAst->inferredType &&
+            (lhsAst->inferredType->kind == ts::TypeKind::Int ||
+             lhsAst->inferredType->kind == ts::TypeKind::Double)));
+        bool rhsIsNumber = !rhsIsString && ((rhsVal && rhsVal->type &&
+            (rhsVal->type->kind == HIRTypeKind::Int64 || rhsVal->type->kind == HIRTypeKind::Float64))
+            || (rhsAst && rhsAst->inferredType &&
+            (rhsAst->inferredType->kind == ts::TypeKind::Int ||
+             rhsAst->inferredType->kind == ts::TypeKind::Double)));
+        bool lhsIsBoolean = isBoolean(lhsVal, lhsAst);
+        bool rhsIsBoolean = isBoolean(rhsVal, rhsAst);
+        bool lhsIsBigInt = isBigInt(lhsAst);
+        bool rhsIsBigInt = isBigInt(rhsAst);
+
+        // If both are the same type category, compatible
+        if (lhsIsString && rhsIsString) return false;
+        if (lhsIsNumber && rhsIsNumber) return false;
+        if (lhsIsBoolean && rhsIsBoolean) return false;
+        if (lhsIsBigInt && rhsIsBigInt) return false;
+
+        // If one has a known type and the other has a different known type, incompatible
+        if (lhsIsString && (rhsIsNumber || rhsIsBoolean || rhsIsBigInt)) return true;
+        if (lhsIsNumber && (rhsIsString || rhsIsBoolean || rhsIsBigInt)) return true;
+        if (lhsIsBoolean && (rhsIsString || rhsIsNumber || rhsIsBigInt)) return true;
+        if (lhsIsBigInt && (rhsIsString || rhsIsNumber || rhsIsBoolean)) return true;
+
+        // If types are unknown (Any), can't determine incompatibility at compile time
+        return false;
+    };
+
     // Determine if we should use Float64 operations (if either operand is Float64)
     bool useFloat = isFloat64(lhs, node->left.get()) || isFloat64(rhs, node->right.get());
     bool useBigInt = isBigInt(node->left.get()) || isBigInt(node->right.get());
@@ -1516,15 +1858,83 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         } else {
             lastValue_ = useFloat ? builder_.createCmpGeF64(lhs, rhs) : builder_.createCmpGeI64(lhs, rhs);
         }
-    } else if (op == "==" || op == "===") {
+    } else if (op == "==") {
+        // Loose equality - use coercing comparison
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_eq", {lhs, rhs}, HIRType::makeBool());
         } else {
             lastValue_ = useFloat ? builder_.createCmpEqF64(lhs, rhs) : builder_.createCmpEqI64(lhs, rhs);
         }
-    } else if (op == "!=" || op == "!==") {
+    } else if (op == "===") {
+        // Strict equality - if types are incompatible, return false directly
+        if (typesIncompatibleForStrictEqual(lhs, node->left.get(), rhs, node->right.get())) {
+            lastValue_ = builder_.createConstBool(false);
+        } else if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_eq", {lhs, rhs}, HIRType::makeBool());
+        } else if (isString(lhs, node->left.get()) && isString(rhs, node->right.get())) {
+            // String comparison using ts_string_eq
+            lastValue_ = builder_.createCall("ts_string_eq", {lhs, rhs}, HIRType::makeBool());
+        } else if (isUndefinedLiteral(node->right.get()) && isAnyOrNullish(lhs, node->left.get())) {
+            // x === undefined where x is Any type: use ts_value_is_undefined(x)
+            // This correctly checks if a TsValue* has type == UNDEFINED
+            lastValue_ = builder_.createCall("ts_value_is_undefined", {lhs}, HIRType::makeBool());
+        } else if (isUndefinedLiteral(node->left.get()) && isAnyOrNullish(rhs, node->right.get())) {
+            // undefined === x where x is Any type: use ts_value_is_undefined(x)
+            lastValue_ = builder_.createCall("ts_value_is_undefined", {rhs}, HIRType::makeBool());
+        } else if (isNullLiteral(node->right.get()) && isAnyOrNullish(lhs, node->left.get())) {
+            // x === null where x is Any type: use ts_value_is_null(x)
+            lastValue_ = builder_.createCall("ts_value_is_null", {lhs}, HIRType::makeBool());
+        } else if (isNullLiteral(node->left.get()) && isAnyOrNullish(rhs, node->right.get())) {
+            // null === x where x is Any type: use ts_value_is_null(x)
+            lastValue_ = builder_.createCall("ts_value_is_null", {rhs}, HIRType::makeBool());
+        } else if (isUndefinedLiteral(node->left.get()) && isUndefinedLiteral(node->right.get())) {
+            // undefined === undefined is always true
+            lastValue_ = builder_.createConstBool(true);
+        } else if (isNullLiteral(node->left.get()) && isNullLiteral(node->right.get())) {
+            // null === null is always true
+            lastValue_ = builder_.createConstBool(true);
+        } else {
+            lastValue_ = useFloat ? builder_.createCmpEqF64(lhs, rhs) : builder_.createCmpEqI64(lhs, rhs);
+        }
+    } else if (op == "!=") {
+        // Loose inequality - use coercing comparison
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_ne", {lhs, rhs}, HIRType::makeBool());
+        } else {
+            lastValue_ = useFloat ? builder_.createCmpNeF64(lhs, rhs) : builder_.createCmpNeI64(lhs, rhs);
+        }
+    } else if (op == "!==") {
+        // Strict inequality - if types are incompatible, return true directly
+        if (typesIncompatibleForStrictEqual(lhs, node->left.get(), rhs, node->right.get())) {
+            lastValue_ = builder_.createConstBool(true);
+        } else if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_ne", {lhs, rhs}, HIRType::makeBool());
+        } else if (isString(lhs, node->left.get()) && isString(rhs, node->right.get())) {
+            // String comparison using ts_string_eq, then negate
+            auto eq = builder_.createCall("ts_string_eq", {lhs, rhs}, HIRType::makeBool());
+            lastValue_ = builder_.createLogicalNot(eq);
+        } else if (isUndefinedLiteral(node->right.get()) && isAnyOrNullish(lhs, node->left.get())) {
+            // x !== undefined where x is Any type: negate ts_value_is_undefined(x)
+            auto eq = builder_.createCall("ts_value_is_undefined", {lhs}, HIRType::makeBool());
+            lastValue_ = builder_.createLogicalNot(eq);
+        } else if (isUndefinedLiteral(node->left.get()) && isAnyOrNullish(rhs, node->right.get())) {
+            // undefined !== x where x is Any type: negate ts_value_is_undefined(x)
+            auto eq = builder_.createCall("ts_value_is_undefined", {rhs}, HIRType::makeBool());
+            lastValue_ = builder_.createLogicalNot(eq);
+        } else if (isNullLiteral(node->right.get()) && isAnyOrNullish(lhs, node->left.get())) {
+            // x !== null where x is Any type: negate ts_value_is_null(x)
+            auto eq = builder_.createCall("ts_value_is_null", {lhs}, HIRType::makeBool());
+            lastValue_ = builder_.createLogicalNot(eq);
+        } else if (isNullLiteral(node->left.get()) && isAnyOrNullish(rhs, node->right.get())) {
+            // null !== x where x is Any type: negate ts_value_is_null(x)
+            auto eq = builder_.createCall("ts_value_is_null", {rhs}, HIRType::makeBool());
+            lastValue_ = builder_.createLogicalNot(eq);
+        } else if (isUndefinedLiteral(node->left.get()) && isUndefinedLiteral(node->right.get())) {
+            // undefined !== undefined is always false
+            lastValue_ = builder_.createConstBool(false);
+        } else if (isNullLiteral(node->left.get()) && isNullLiteral(node->right.get())) {
+            // null !== null is always false
+            lastValue_ = builder_.createConstBool(false);
         } else {
             lastValue_ = useFloat ? builder_.createCmpNeF64(lhs, rhs) : builder_.createCmpNeI64(lhs, rhs);
         }
@@ -2041,66 +2451,159 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         }
 
         // Not a local variable - direct function call
-        // Look up the function to check for default parameters and rest parameters
+        // First check specializations for rest parameters - this info is available
+        // even before the HIR functions are created
         HIRFunction* targetFunc = nullptr;
-        for (auto& f : module_->functions) {
-            if (f->name == ident->name) {
-                targetFunc = f.get();
-                break;
+        std::string callName;
+        bool hasRestParam = false;
+        size_t restParamIndex = 0;
+        std::shared_ptr<HIRType> restElemType = HIRType::makeAny();
+
+        // Track if we found default parameters and should use the specialization's name
+        bool hasDefaultParams = false;
+        size_t requiredParamCount = 0;
+        size_t totalParamCount = 0;
+        ast::FunctionDeclaration* foundFuncNode = nullptr;
+
+        // Look up specialization by original function name to check for rest params and default params
+        if (specializations_) {
+            for (const auto& spec : *specializations_) {
+                if (spec.originalName == ident->name) {
+                    // Found a specialization for this function
+                    if (auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+                        foundFuncNode = funcNode;
+                        totalParamCount = funcNode->parameters.size();
+
+                        // Check if function has rest parameter or default parameters
+                        for (size_t i = 0; i < funcNode->parameters.size(); ++i) {
+                            if (funcNode->parameters[i]->isRest) {
+                                hasRestParam = true;
+                                restParamIndex = i;
+                                // Get the element type from the parameter type annotation
+                                // e.g., "...numbers: number[]" -> element type is number (Float64)
+                                std::string paramType = funcNode->parameters[i]->type;
+                                if (!paramType.empty()) {
+                                    // Extract element type from array type (e.g., "number[]" -> "number")
+                                    if (paramType.size() > 2 && paramType.substr(paramType.size() - 2) == "[]") {
+                                        std::string elemTypeStr = paramType.substr(0, paramType.size() - 2);
+                                        restElemType = convertTypeFromString(elemTypeStr);
+                                    }
+                                }
+                                // Use this specialization's name - it already has the correct mangling
+                                callName = spec.specializedName;
+                                break;
+                            }
+                            // Check for default parameter
+                            if (funcNode->parameters[i]->initializer) {
+                                hasDefaultParams = true;
+                            } else {
+                                // Count required params (params before any with defaults)
+                                if (!hasDefaultParams) {
+                                    requiredParamCount = i + 1;
+                                }
+                            }
+                        }
+
+                        // If we have fewer args than total params but enough for required params,
+                        // and there are default params, use this specialization's name
+                        if (!hasRestParam && hasDefaultParams &&
+                            args.size() < totalParamCount && args.size() >= requiredParamCount) {
+                            callName = spec.specializedName;
+                            // Pad args with undefined for missing default params
+                            for (size_t i = args.size(); i < totalParamCount; ++i) {
+                                args.push_back(builder_.createConstUndefined());
+                            }
+                        }
+                    }
+                    if (hasRestParam || (hasDefaultParams && !callName.empty())) break;
+                }
             }
         }
 
-        if (targetFunc) {
-            // Handle rest parameters: package excess arguments into an array
-            if (targetFunc->hasRestParam) {
-                size_t restIdx = targetFunc->restParamIndex;
-                std::vector<std::shared_ptr<HIRValue>> newArgs;
+        // If we didn't find a rest-parameter function, compute the mangled name based on argument types
+        if (!hasRestParam) {
+            std::vector<std::shared_ptr<ts::Type>> argTypes;
+            for (auto& arg : node->arguments) {
+                argTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<ts::Type>(ts::TypeKind::Any));
+            }
+            std::string mangledName = Monomorphizer::generateMangledName(ident->name, argTypes, node->resolvedTypeArguments);
+            callName = mangledName;
 
-                // Add arguments before the rest parameter
-                for (size_t i = 0; i < restIdx && i < args.size(); ++i) {
-                    newArgs.push_back(args[i]);
+            // Look up the function - try mangled name first, then original name
+            for (auto& f : module_->functions) {
+                if (f->name == mangledName) {
+                    targetFunc = f.get();
+                    break;
                 }
-
-                // Pad with undefined for missing non-rest arguments
-                while (newArgs.size() < restIdx) {
-                    newArgs.push_back(builder_.createConstUndefined());
-                }
-
-                // Create array from remaining arguments
-                auto restElemType = HIRType::makeAny();
-                if (restIdx < targetFunc->params.size()) {
-                    auto& restParamType = targetFunc->params[restIdx].second;
-                    if (restParamType && restParamType->kind == HIRTypeKind::Array && restParamType->elementType) {
-                        restElemType = restParamType->elementType;
+            }
+            // If not found with mangled name, try original name (for runtime functions etc.)
+            if (!targetFunc) {
+                for (auto& f : module_->functions) {
+                    if (f->name == ident->name) {
+                        targetFunc = f.get();
+                        callName = ident->name;  // Use original name
+                        break;
                     }
                 }
+            }
+        }
+        // If still not found, determine if this is a runtime function or user function
+        if (!targetFunc) {
+            // Runtime functions start with "ts_" - use original name
+            // User functions should use the mangled name
+            if (ident->name.substr(0, 3) == "ts_" ||
+                ident->name == "console" ||
+                ident->name == "Math" ||
+                ident->name == "JSON" ||
+                ident->name == "parseInt" ||
+                ident->name == "parseFloat" ||
+                ident->name == "isNaN" ||
+                ident->name == "isFinite") {
+                callName = ident->name;  // Keep original name for runtime functions
+            }
+            // Otherwise keep the mangled name (already set above)
+        }
 
-                // Create the rest array
-                size_t restArgsCount = (args.size() > restIdx) ? args.size() - restIdx : 0;
-                auto lenVal = builder_.createConstInt(static_cast<int64_t>(restArgsCount));
-                auto restArray = builder_.createNewArrayBoxed(lenVal, restElemType);
+        // Handle rest parameters: package excess arguments into an array
+        // We use the hasRestParam flag computed from specializations_ lookup above
+        if (hasRestParam) {
+            std::vector<std::shared_ptr<HIRValue>> newArgs;
 
-                // Add elements to the rest array
-                for (size_t i = restIdx; i < args.size(); ++i) {
-                    auto idxVal = builder_.createConstInt(static_cast<int64_t>(i - restIdx));
-                    builder_.createSetElem(restArray, idxVal, args[i]);
-                }
+            // Add arguments before the rest parameter
+            for (size_t i = 0; i < restParamIndex && i < args.size(); ++i) {
+                newArgs.push_back(args[i]);
+            }
 
-                newArgs.push_back(restArray);
-                args = std::move(newArgs);
-            } else {
-                // If we found the function and have fewer args than params, pad with undefined
-                if (args.size() < targetFunc->params.size()) {
-                    for (size_t i = args.size(); i < targetFunc->params.size(); ++i) {
-                        args.push_back(builder_.createConstUndefined());
-                    }
+            // Pad with undefined for missing non-rest arguments
+            while (newArgs.size() < restParamIndex) {
+                newArgs.push_back(builder_.createConstUndefined());
+            }
+
+            // Create the rest array
+            size_t restArgsCount = (args.size() > restParamIndex) ? args.size() - restParamIndex : 0;
+            auto lenVal = builder_.createConstInt(static_cast<int64_t>(restArgsCount));
+            auto restArray = builder_.createNewArrayBoxed(lenVal, restElemType);
+
+            // Add elements to the rest array
+            for (size_t i = restParamIndex; i < args.size(); ++i) {
+                auto idxVal = builder_.createConstInt(static_cast<int64_t>(i - restParamIndex));
+                builder_.createSetElem(restArray, idxVal, args[i]);
+            }
+
+            newArgs.push_back(restArray);
+            args = std::move(newArgs);
+        } else if (targetFunc) {
+            // If we found the function and have fewer args than params, pad with undefined
+            if (args.size() < targetFunc->params.size()) {
+                for (size_t i = args.size(); i < targetFunc->params.size(); ++i) {
+                    args.push_back(builder_.createConstUndefined());
                 }
             }
         }
 
         // Determine return type from target function if available
         auto returnType = (targetFunc && targetFunc->returnType) ? targetFunc->returnType : HIRType::makeAny();
-        lastValue_ = builder_.createCall(ident->name, args, returnType);
+        lastValue_ = builder_.createCall(callName, args, returnType);
         return;
     }
 
@@ -2421,13 +2924,15 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     if (node->expression && node->expression->inferredType) {
         auto exprType = node->expression->inferredType;
 
-        // Array.length returns a number (f64 for consistency with JS number semantics)
+        // Array.length returns a number - call ts_array_length directly
         if (exprType->kind == ts::TypeKind::Array && node->name == "length") {
-            propType = HIRType::makeFloat64();
+            lastValue_ = builder_.createCall("ts_array_length", {obj}, HIRType::makeInt64());
+            return;
         }
-        // String.length returns a number
+        // String.length returns a number - call ts_string_length directly
         else if (exprType->kind == ts::TypeKind::String && node->name == "length") {
-            propType = HIRType::makeFloat64();
+            lastValue_ = builder_.createCall("ts_string_length", {obj}, HIRType::makeInt64());
+            return;
         }
     }
 
@@ -2974,6 +3479,24 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
             }
         }
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
+
+        // Mark each captured variable in the outer scope as "captured by nested"
+        // so subsequent reads/writes in the outer function also use the cell
+        int captureIdx = 0;
+        for (const auto& cap : innerCaptures) {
+            const std::string& capName = cap.first;
+            size_t scopeIndex = 0;
+            if (!isCapturedVariable(capName, &scopeIndex)) {
+                // Variable is in this function's scope, mark it as captured
+                auto* info = lookupVariableInfo(capName);
+                if (info && !info->isCapturedByNested) {
+                    info->isCapturedByNested = true;
+                    info->closurePtr = lastValue_;
+                    info->captureIndex = captureIdx;
+                }
+            }
+            captureIdx++;
+        }
     } else {
         // No captures, but still wrap in a closure for consistency with call_indirect
         // which always expects a TsClosure* (not a raw function pointer)
@@ -3181,8 +3704,11 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     func->params.push_back({"this", HIRType::makeAny()});
 
     // Handle explicit parameters
+    // For getters/setters, force params to be Any (TsValue*) since they will be called
+    // through the runtime's dynamic dispatch which passes TsValue* arguments
+    bool forceAnyParams = node->isGetter || node->isSetter;
     for (auto& param : node->parameters) {
-        auto paramType = param->type.empty()
+        auto paramType = (forceAnyParams || param->type.empty())
             ? HIRType::makeAny()
             : convertTypeFromString(param->type);
 
@@ -3316,7 +3842,8 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         }
         return builder_.createMakeClosure(funcName, captureValues, closureFuncType);
     } else {
-        return builder_.createLoadFunction(funcName);
+        // Pass the function type so SetPropStatic knows to box it as a function
+        return builder_.createLoadFunction(funcName, closureFuncType);
     }
 }
 
@@ -3484,11 +4011,22 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         // Update variable if operand is an identifier
         auto* ident = dynamic_cast<ast::Identifier*>(node->operand.get());
         if (ident) {
-            auto* info = lookupVariableInfo(ident->name);
-            if (info && info->isAlloca) {
-                builder_.createStore(result, info->value, info->elemType);
+            // Check if this is a captured variable from an outer function
+            size_t scopeIndex = 0;
+            if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
+                // Store to captured variable
+                auto* info = lookupVariableInfo(ident->name);
+                auto type = info && info->elemType ? info->elemType : result->type;
+                registerCapture(ident->name, type, scopeIndex);
+                currentFunction_->hasClosure = true;
+                builder_.createStoreCapture(ident->name, result);
             } else {
-                defineVariable(ident->name, result);
+                auto* info = lookupVariableInfo(ident->name);
+                if (info && info->isAlloca) {
+                    builder_.createStore(result, info->value, info->elemType);
+                } else {
+                    defineVariable(ident->name, result);
+                }
             }
         }
         // Handle property access (e.g., this.#count++ or obj.field++)
@@ -3505,7 +4043,25 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 }
 
 void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
-    // TODO: Proper delete support
+    // Handle delete obj.prop or delete obj["prop"]
+    if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())) {
+        // delete obj.prop
+        auto obj = lowerExpression(propAccess->expression.get());
+        auto key = builder_.createConstString(propAccess->name);
+        lastValue_ = builder_.createCall("ts_object_delete_property", {obj, key}, HIRType::makeBool());
+        return;
+    }
+
+    if (auto* elemAccess = dynamic_cast<ast::ElementAccessExpression*>(node->expression.get())) {
+        // delete obj["prop"] or delete obj[key]
+        auto obj = lowerExpression(elemAccess->expression.get());
+        auto key = lowerExpression(elemAccess->argumentExpression.get());
+        lastValue_ = builder_.createCall("ts_object_delete_property", {obj, key}, HIRType::makeBool());
+        return;
+    }
+
+    // For other cases (like delete x), just return true
+    // JavaScript spec says delete on non-references returns true
     lastValue_ = builder_.createConstBool(true);
 }
 
@@ -3537,11 +4093,22 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
         // Update variable if operand is an identifier
         auto* ident = dynamic_cast<ast::Identifier*>(node->operand.get());
         if (ident) {
-            auto* info = lookupVariableInfo(ident->name);
-            if (info && info->isAlloca) {
-                builder_.createStore(result, info->value, info->elemType);
+            // Check if this is a captured variable from an outer function
+            size_t scopeIndex = 0;
+            if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
+                // Store to captured variable
+                auto* info = lookupVariableInfo(ident->name);
+                auto type = info && info->elemType ? info->elemType : result->type;
+                registerCapture(ident->name, type, scopeIndex);
+                currentFunction_->hasClosure = true;
+                builder_.createStoreCapture(ident->name, result);
             } else {
-                defineVariable(ident->name, result);
+                auto* info = lookupVariableInfo(ident->name);
+                if (info && info->isAlloca) {
+                    builder_.createStore(result, info->value, info->elemType);
+                } else {
+                    defineVariable(ident->name, result);
+                }
             }
         }
         // Handle property access (e.g., this.#count++ or obj.field++)
@@ -3776,6 +4343,77 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             // Add function to module
             module_->functions.push_back(std::move(func));
+        }
+    }
+
+    // If no explicit constructor was defined, but we have property initializers,
+    // generate a default constructor to initialize them
+    if (!hirClass->constructor) {
+        // Check if there are any property initializers
+        bool hasPropertyInitializers = false;
+        for (auto& memberPtr : node->members) {
+            if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
+                if (!propDef->isStatic && propDef->initializer) {
+                    hasPropertyInitializers = true;
+                    break;
+                }
+            }
+        }
+
+        // Also need constructor if we have a base class (to call super())
+        bool needsDefaultConstructor = hasPropertyInitializers || hirClass->baseClass;
+
+        if (needsDefaultConstructor) {
+            std::string ctorName = node->name + "_constructor";
+            auto defaultCtor = std::make_unique<HIRFunction>(ctorName);
+
+            // 'this' is the first parameter
+            defaultCtor->params.push_back({"this", HIRType::makeObject()});
+            defaultCtor->nextValueId = 1;
+
+            // Create entry block
+            HIRBlock* ctorBlock = defaultCtor->createBlock("entry");
+            HIRFunction* savedFunc = currentFunction_;
+            currentFunction_ = defaultCtor.get();
+            builder_.setInsertPoint(ctorBlock);
+            currentBlock_ = ctorBlock;
+            pushScope();
+
+            // Define 'this' in scope
+            auto thisValue = std::make_shared<HIRValue>(0, HIRType::makeObject(), "this");
+            defineVariable("this", thisValue);
+
+            // Call super() if we have a base class
+            if (hirClass->baseClass && hirClass->baseClass->constructor) {
+                std::vector<std::shared_ptr<HIRValue>> superArgs;
+                superArgs.push_back(thisValue);
+                builder_.createCall(hirClass->baseClass->constructor->name, superArgs, HIRType::makeVoid());
+            }
+
+            // Initialize property defaults
+            for (auto& memberPtr : node->members) {
+                if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
+                    if (!propDef->isStatic && propDef->initializer) {
+                        auto initVal = lowerExpression(propDef->initializer.get());
+                        builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                    }
+                }
+            }
+
+            // Return void
+            builder_.createReturnVoid();
+
+            popScope();
+            currentFunction_ = savedFunc;
+            if (savedFunc) {
+                auto* savedBlock = savedFunc->getEntryBlock();
+                builder_.setInsertPoint(savedBlock);
+                currentBlock_ = savedBlock;
+            }
+
+            // Register the default constructor
+            hirClass->constructor = defaultCtor.get();
+            module_->functions.push_back(std::move(defaultCtor));
         }
     }
 
@@ -4015,6 +4653,77 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
             // Add function to module
             module_->functions.push_back(std::move(func));
+        }
+    }
+
+    // If no explicit constructor was defined, but we have property initializers,
+    // generate a default constructor to initialize them
+    if (!hirClass->constructor) {
+        // Check if there are any property initializers
+        bool hasPropertyInitializers = false;
+        for (auto& memberPtr : node->members) {
+            if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
+                if (!propDef->isStatic && propDef->initializer) {
+                    hasPropertyInitializers = true;
+                    break;
+                }
+            }
+        }
+
+        // Also need constructor if we have a base class (to call super())
+        bool needsDefaultConstructor = hasPropertyInitializers || hirClass->baseClass;
+
+        if (needsDefaultConstructor) {
+            std::string ctorName = className + "_constructor";
+            auto defaultCtor = std::make_unique<HIRFunction>(ctorName);
+
+            // 'this' is the first parameter
+            defaultCtor->params.push_back({"this", HIRType::makeObject()});
+            defaultCtor->nextValueId = 1;
+
+            // Create entry block
+            HIRBlock* ctorBlock = defaultCtor->createBlock("entry");
+            HIRFunction* savedFunc = currentFunction_;
+            currentFunction_ = defaultCtor.get();
+            builder_.setInsertPoint(ctorBlock);
+            currentBlock_ = ctorBlock;
+            pushScope();
+
+            // Define 'this' in scope
+            auto thisValue = std::make_shared<HIRValue>(0, HIRType::makeObject(), "this");
+            defineVariable("this", thisValue);
+
+            // Call super() if we have a base class
+            if (hirClass->baseClass && hirClass->baseClass->constructor) {
+                std::vector<std::shared_ptr<HIRValue>> superArgs;
+                superArgs.push_back(thisValue);
+                builder_.createCall(hirClass->baseClass->constructor->name, superArgs, HIRType::makeVoid());
+            }
+
+            // Initialize property defaults
+            for (auto& memberPtr : node->members) {
+                if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
+                    if (!propDef->isStatic && propDef->initializer) {
+                        auto initVal = lowerExpression(propDef->initializer.get());
+                        builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                    }
+                }
+            }
+
+            // Return void
+            builder_.createReturnVoid();
+
+            popScope();
+            currentFunction_ = savedFunc;
+            if (savedFunc) {
+                auto* savedBlock = savedFunc->getEntryBlock();
+                builder_.setInsertPoint(savedBlock);
+                currentBlock_ = savedBlock;
+            }
+
+            // Register the default constructor
+            hirClass->constructor = defaultCtor.get();
+            module_->functions.push_back(std::move(defaultCtor));
         }
     }
 
