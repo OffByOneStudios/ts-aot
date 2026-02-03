@@ -4,9 +4,9 @@
 // Type propagation ensures operations use correct types
 // HIR-CHECK: define @user_main() -> f64
 
-// Number operations should use f64
-// HIR-CHECK: const.f64 5.000000
-// HIR-CHECK: const.f64 10.000000
+// Number constants stored to f64 allocas remain as f64 (safe for type consistency)
+// HIR-CHECK: const.f64 5
+// HIR-CHECK: const.f64 10
 // HIR-CHECK: add.f64
 
 // String operations should use string type

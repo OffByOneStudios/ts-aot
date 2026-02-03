@@ -2,10 +2,11 @@
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64
+// IntegerOptimizationPass converts integer array elements to i64
 // HIR-CHECK: new_array
-// HIR-CHECK: const.f64 1
-// HIR-CHECK: const.f64 2
-// HIR-CHECK: const.f64 3
+// HIR-CHECK: const.i64 1
+// HIR-CHECK: const.i64 2
+// HIR-CHECK: const.i64 3
 // HIR-CHECK: ret
 
 // OUTPUT: 1

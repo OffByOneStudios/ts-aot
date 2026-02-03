@@ -2,8 +2,9 @@
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
 // Instance property with initializer
+// IntegerOptimizationPass converts integer constants not used in f64 context
 // HIR-CHECK: define @Config_constructor
-// HIR-CHECK: const.f64 100
+// HIR-CHECK: const.i64 100
 // HIR-CHECK: set_prop.static {{.*}}, "maxItems"
 // HIR-CHECK: const.bool true
 // HIR-CHECK: set_prop.static {{.*}}, "enabled"

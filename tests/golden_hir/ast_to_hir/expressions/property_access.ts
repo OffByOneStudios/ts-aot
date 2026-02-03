@@ -3,7 +3,8 @@
 
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: new_object_dynamic
-// HIR-CHECK: const.f64 42
+// Object property values optimized to i64 (set_prop.static boxes the value)
+// HIR-CHECK: const.i64 42
 // HIR-CHECK: set_prop.static {{.*}}, "value"
 // HIR-CHECK: get_prop.static {{.*}}, "value"
 // HIR-CHECK: ret

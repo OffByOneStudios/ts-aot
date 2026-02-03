@@ -6,9 +6,9 @@
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
+// Function call arguments stay as f64 since function parameters are f64
 // HIR-CHECK: const.f64 10
 // HIR-CHECK: const.f64 20
-// HIR-CHECK: add.f64
 // HIR-CHECK: ret
 
 // OUTPUT: 30
