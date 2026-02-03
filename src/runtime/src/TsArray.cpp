@@ -357,16 +357,29 @@ void* TsArray::Filter(void* callback, void* thisArg) {
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
 
-    TsArray* result = TsArray::Create();
+    // Preserve the source array's specialized type in the result
+    TsArray* result;
+    if (isSpecialized) {
+        result = TsArray::CreateSpecialized(0, elementSize, isDouble);
+    } else {
+        result = TsArray::Create();
+    }
+
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
-        TsValue* res = ts_call_3(cbVal, v, idx, arr);
+        // Use ts_call_with_arity to respect callback's declared parameter count
+        TsValue* res = ts_call_with_arity(cbVal, v, idx, arr);
 
-        if (res->type == ValueType::BOOLEAN && res->b_val) {
-            // Push the raw element value (works for both int64 and double bit patterns)
-            result->Push(((int64_t*)elements)[i]);
+        // Use JavaScript truthiness, not strict boolean check
+        if (ts_value_to_bool(res)) {
+            // Push the raw element value - use appropriate method based on array type
+            if (isSpecialized && isDouble) {
+                result->PushDouble(((double*)elements)[i]);
+            } else {
+                result->Push(((int64_t*)elements)[i]);
+            }
         }
     }
     return result;
@@ -955,9 +968,12 @@ extern "C" {
         if (maybeBoxed && (uintptr_t)value > 0x10000) {
             uint8_t typeVal = (uint8_t)maybeBoxed->type;
             if (typeVal <= 10) {  // Valid ValueType range (0-10)
-                // It's a boxed TsValue* - keep it boxed for generic arrays
-                // This ensures Join/Get can properly identify the type
-                array->Push(bits);  // Store the TsValue* pointer
+                // It's a boxed TsValue* - COPY to heap to avoid stack pointer issues
+                // The caller may be using a stack-allocated alloca that gets reused in loops
+                TsValue* heapCopy = (TsValue*)ts_alloc(sizeof(TsValue));
+                heapCopy->type = maybeBoxed->type;
+                heapCopy->i_val = maybeBoxed->i_val;  // Copy the union
+                array->Push((int64_t)heapCopy);  // Store the heap-allocated copy
                 return;
             }
         }
@@ -1174,9 +1190,15 @@ extern "C" {
     }
 
     void* ts_array_at(void* arr, int64_t index) {
-        int64_t rawVal = ((TsArray*)arr)->At(index);
-        // Box the raw value as a TsValue so unboxValue can unwrap it properly
-        return (void*)ts_value_make_int(rawVal);
+        TsArray* a = (TsArray*)arr;
+        int64_t len = a->Length();
+        // Handle negative indices
+        if (index < 0) index = len + index;
+        if (index < 0 || index >= len) {
+            return ts_value_make_undefined();
+        }
+        // Return a properly boxed value based on array type
+        return a->GetElementBoxed(index);
     }
 
     void* ts_array_join(void* arr, void* separator) {
