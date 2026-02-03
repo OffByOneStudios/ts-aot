@@ -1147,64 +1147,172 @@ llvm::Value* HIRToLLVM::ensureI64ForBitwise(llvm::Value* val) {
 }
 
 void HIRToLLVM::lowerAndI64(HIRInstruction* inst) {
+    // JavaScript & semantics (ES5 11.10):
+    // Both operands are converted to 32-bit integers, result is signed 32-bit
+
     llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
     llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
-    llvm::Value* result = builder_->CreateAnd(lhs, rhs, "and");
-    // Convert result back to f64 since TypeScript numbers are doubles
-    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
+
+    // Truncate to 32-bit (ToInt32)
+    llvm::Value* lhs32 = builder_->CreateTrunc(lhs, builder_->getInt32Ty(), "toi32_l");
+    llvm::Value* rhs32 = builder_->CreateTrunc(rhs, builder_->getInt32Ty(), "toi32_r");
+
+    // AND on 32-bit values
+    llvm::Value* result32 = builder_->CreateAnd(lhs32, rhs32, "and32");
+
+    // Sign-extend to 64-bit
+    llvm::Value* result64 = builder_->CreateSExt(result32, builder_->getInt64Ty(), "sext64");
+
+    // Convert to f64
+    llvm::Value* result = builder_->CreateSIToFP(result64, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerOrI64(HIRInstruction* inst) {
+    // JavaScript | semantics (ES5 11.10):
+    // Both operands are converted to 32-bit integers, result is signed 32-bit
+
     llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
     llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
-    llvm::Value* result = builder_->CreateOr(lhs, rhs, "or");
-    // Convert result back to f64 since TypeScript numbers are doubles
-    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
+
+    // Truncate to 32-bit (ToInt32)
+    llvm::Value* lhs32 = builder_->CreateTrunc(lhs, builder_->getInt32Ty(), "toi32_l");
+    llvm::Value* rhs32 = builder_->CreateTrunc(rhs, builder_->getInt32Ty(), "toi32_r");
+
+    // OR on 32-bit values
+    llvm::Value* result32 = builder_->CreateOr(lhs32, rhs32, "or32");
+
+    // Sign-extend to 64-bit
+    llvm::Value* result64 = builder_->CreateSExt(result32, builder_->getInt64Ty(), "sext64");
+
+    // Convert to f64
+    llvm::Value* result = builder_->CreateSIToFP(result64, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerXorI64(HIRInstruction* inst) {
+    // JavaScript ^ semantics (ES5 11.10):
+    // Both operands are converted to 32-bit integers, result is signed 32-bit
+
     llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
     llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
-    llvm::Value* result = builder_->CreateXor(lhs, rhs, "xor");
-    // Convert result back to f64 since TypeScript numbers are doubles
-    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
+
+    // Truncate to 32-bit (ToInt32)
+    llvm::Value* lhs32 = builder_->CreateTrunc(lhs, builder_->getInt32Ty(), "toi32_l");
+    llvm::Value* rhs32 = builder_->CreateTrunc(rhs, builder_->getInt32Ty(), "toi32_r");
+
+    // XOR on 32-bit values
+    llvm::Value* result32 = builder_->CreateXor(lhs32, rhs32, "xor32");
+
+    // Sign-extend to 64-bit
+    llvm::Value* result64 = builder_->CreateSExt(result32, builder_->getInt64Ty(), "sext64");
+
+    // Convert to f64
+    llvm::Value* result = builder_->CreateSIToFP(result64, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerShlI64(HIRInstruction* inst) {
+    // JavaScript << semantics (ES5 11.7.1):
+    // 1. ToInt32(lhs) - truncate to 32 bits, treat as signed
+    // 2. Shift amount is rhs & 0x1F (5 bits)
+    // 3. Result is a signed 32-bit integer
+
     llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
     llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
-    llvm::Value* result = builder_->CreateShl(lhs, rhs, "shl");
-    // Convert result back to f64 since TypeScript numbers are doubles
-    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
+
+    // Truncate to 32-bit (ToInt32)
+    llvm::Value* lhs32 = builder_->CreateTrunc(lhs, builder_->getInt32Ty(), "toi32");
+    llvm::Value* rhs32 = builder_->CreateTrunc(rhs, builder_->getInt32Ty(), "shamt32");
+
+    // Mask shift amount to 5 bits
+    rhs32 = builder_->CreateAnd(rhs32,
+        llvm::ConstantInt::get(builder_->getInt32Ty(), 0x1F), "shamt_masked");
+
+    // Left shift on 32-bit value
+    llvm::Value* result32 = builder_->CreateShl(lhs32, rhs32, "shl32");
+
+    // Sign-extend to 64-bit (result is signed 32-bit)
+    llvm::Value* result64 = builder_->CreateSExt(result32, builder_->getInt64Ty(), "sext64");
+
+    // Convert to f64 using signed conversion
+    llvm::Value* result = builder_->CreateSIToFP(result64, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerShrI64(HIRInstruction* inst) {
+    // JavaScript >> semantics (ES5 11.7.2):
+    // 1. ToInt32(lhs) - truncate to 32 bits, treat as signed
+    // 2. Shift amount is rhs & 0x1F (5 bits)
+    // 3. Result is a signed 32-bit integer (arithmetic shift preserves sign)
+
     llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
     llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
-    llvm::Value* result = builder_->CreateAShr(lhs, rhs, "ashr");
-    // Convert result back to f64 since TypeScript numbers are doubles
-    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
+
+    // Truncate to 32-bit (ToInt32)
+    llvm::Value* lhs32 = builder_->CreateTrunc(lhs, builder_->getInt32Ty(), "toi32");
+    llvm::Value* rhs32 = builder_->CreateTrunc(rhs, builder_->getInt32Ty(), "shamt32");
+
+    // Mask shift amount to 5 bits
+    rhs32 = builder_->CreateAnd(rhs32,
+        llvm::ConstantInt::get(builder_->getInt32Ty(), 0x1F), "shamt_masked");
+
+    // Arithmetic (signed) shift right on 32-bit value
+    llvm::Value* result32 = builder_->CreateAShr(lhs32, rhs32, "ashr32");
+
+    // Sign-extend to 64-bit (preserves signed semantics)
+    llvm::Value* result64 = builder_->CreateSExt(result32, builder_->getInt64Ty(), "sext64");
+
+    // Convert to f64 using signed conversion
+    llvm::Value* result = builder_->CreateSIToFP(result64, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerUShrI64(HIRInstruction* inst) {
+    // JavaScript >>> semantics (ES5 11.7.3):
+    // 1. ToUint32(lhs) - truncate to 32 bits, treat as unsigned
+    // 2. Shift amount is rhs & 0x1F (5 bits)
+    // 3. Result is an unsigned 32-bit integer (0 to 4294967295)
+
     llvm::Value* lhs = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
     llvm::Value* rhs = ensureI64ForBitwise(getOperandValue(inst->operands[1]));
-    llvm::Value* result = builder_->CreateLShr(lhs, rhs, "lshr");
-    // Convert result back to f64 since TypeScript numbers are doubles
-    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
+
+    // Truncate to 32-bit (ToUint32 - the truncation gives us the low 32 bits)
+    llvm::Value* lhs32 = builder_->CreateTrunc(lhs, builder_->getInt32Ty(), "tou32");
+    llvm::Value* rhs32 = builder_->CreateTrunc(rhs, builder_->getInt32Ty(), "shamt32");
+
+    // Mask shift amount to 5 bits (JS spec: shift by rhs & 0x1F)
+    rhs32 = builder_->CreateAnd(rhs32,
+        llvm::ConstantInt::get(builder_->getInt32Ty(), 0x1F), "shamt_masked");
+
+    // Logical (unsigned) shift right on 32-bit value
+    llvm::Value* result32 = builder_->CreateLShr(lhs32, rhs32, "lshr32");
+
+    // Zero-extend to 64-bit (preserves unsigned semantics)
+    llvm::Value* result64 = builder_->CreateZExt(result32, builder_->getInt64Ty(), "zext64");
+
+    // Convert to f64 using UNSIGNED conversion (UIToFP) to get correct positive value
+    llvm::Value* result = builder_->CreateUIToFP(result64, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerNotI64(HIRInstruction* inst) {
+    // JavaScript ~ semantics (ES5 11.4.8):
+    // ToInt32(operand), then complement, result is signed 32-bit
+
     llvm::Value* val = ensureI64ForBitwise(getOperandValue(inst->operands[0]));
-    llvm::Value* result = builder_->CreateNot(val, "not");
-    // Convert result back to f64 since TypeScript numbers are doubles
-    result = builder_->CreateSIToFP(result, builder_->getDoubleTy(), "tof64");
+
+    // Truncate to 32-bit (ToInt32)
+    llvm::Value* val32 = builder_->CreateTrunc(val, builder_->getInt32Ty(), "toi32");
+
+    // Bitwise NOT on 32-bit value
+    llvm::Value* result32 = builder_->CreateNot(val32, "not32");
+
+    // Sign-extend to 64-bit
+    llvm::Value* result64 = builder_->CreateSExt(result32, builder_->getInt64Ty(), "sext64");
+
+    // Convert to f64
+    llvm::Value* result = builder_->CreateSIToFP(result64, builder_->getDoubleTy(), "tof64");
     setValue(inst->result, result);
 }
 

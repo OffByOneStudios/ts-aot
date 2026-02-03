@@ -1,6 +1,6 @@
 # PERF-002: Integer Optimization V8/JSC Parity
 
-**Status:** Planning
+**Status:** In Progress (Phases 1-2 Complete)
 **Category:** Performance
 **Priority:** High
 **Related:** IntegerOptimizationPass (src/compiler/hir/passes/IntegerOptimizationPass.cpp)
@@ -48,18 +48,23 @@ Our IntegerOptimizationPass:
 |---------|----|----|----------------|---------------|
 | Integer range | 31-bit | 32-bit | 64-bit | None (better!) |
 | Runtime tagging | Yes | Yes | No | None (AOT advantage) |
-| Overflow detection | Yes | Yes | **No** | **Implement** |
-| Safe integer range | 2^31 | 2^32 | **Unchecked** | **Add checks** |
-| Bitwise ops (32-bit result) | Yes | Yes | **Partial** | **Implement** |
+| Overflow detection | Yes | Yes | ✅ Yes | ~~Implement~~ Done |
+| Safe integer range | 2^31 | 2^32 | ✅ Checked | ~~Add checks~~ Done |
+| Bitwise ops (32-bit result) | Yes | Yes | ✅ Yes | ~~Implement~~ Done |
 | Loop counter opt | Yes | Yes | **Basic** | **Enhance** |
 | Array element kinds | Yes | Yes | **No** | **Future work** |
 | Negative zero handling | Yes | Yes | **No** | **Implement** |
 
 ## Implementation Plan
 
-### Phase 1: Overflow Safety (High Priority)
+### Phase 1: Overflow Safety (High Priority) ✅ COMPLETE
 
 **Goal:** Match V8's overflow detection to prevent incorrect results.
+
+**Implementation (commit 946aa9f):**
+- Added `wouldOverflowI64Add`, `wouldOverflowI64Sub`, `wouldOverflowI64Mul` functions
+- `combineAdd`, `combineSub`, `combineMul` now detect potential overflow and fall back to Float64
+- Tests: `tests/golden_hir/passes/integer_overflow.ts`
 
 1. **Track value ranges with overflow potential**
    ```cpp
@@ -92,9 +97,17 @@ Our IntegerOptimizationPass:
    }
    ```
 
-### Phase 2: Bitwise Operations (High Priority)
+### Phase 2: Bitwise Operations (High Priority) ✅ COMPLETE
 
 **Goal:** Implement correct 32-bit semantics for bitwise operations.
+
+**Implementation:**
+- Updated `HIRToLLVM.cpp` to use proper 32-bit JavaScript semantics:
+  - `lowerAndI64`, `lowerOrI64`, `lowerXorI64`: Truncate to 32-bit, sign-extend result
+  - `lowerShlI64`, `lowerShrI64`: Truncate operands, mask shift amount to 5 bits
+  - `lowerUShrI64`: Truncate to 32-bit, logical shift, zero-extend (UIToFP for unsigned result)
+  - `lowerNotI64`: Truncate to 32-bit, complement, sign-extend
+- Tests: `tests/golden_hir/passes/integer_bitwise.ts`, `integer_bitwise_edge_cases.ts`
 
 JavaScript bitwise operations convert to 32-bit signed integers:
 - `|`, `&`, `^` - produce 32-bit signed result
