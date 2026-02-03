@@ -216,6 +216,26 @@ void IRGenerator::generateClasses(const Analyzer& analyzer, const std::vector<Sp
         }
     }
     
+    // Add local class declarations (classes inside functions) from analyzer
+    for (const auto& classDecl : analyzer.classDeclarations) {
+        if (classDecl->resolvedType && classDecl->resolvedType->kind == TypeKind::Class) {
+            auto classType = std::static_pointer_cast<ClassType>(classDecl->resolvedType);
+            if (classType->typeParameters.empty()) {
+                bool found = false;
+                for (const auto& existing : allClassTypes) {
+                    if (existing->name == classType->name) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    SPDLOG_DEBUG("Found local class declaration: {}", classType->name);
+                    allClassTypes.push_back(classType);
+                }
+            }
+        }
+    }
+
     // Add class expressions from all analyzed expressions
     for (const auto& expr : analyzer.expressions) {
         if (auto classExpr = dynamic_cast<ast::ClassExpression*>(expr)) {

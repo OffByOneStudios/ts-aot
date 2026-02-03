@@ -80,9 +80,10 @@ public:
     void* funcPtr;
     void* context;
     FunctionType type;
+    int arity = -1;  // Number of parameters (excluding context). -1 = unknown/vararg
     TsMap* properties = nullptr;  // For storing properties like _.chunk
-    TsFunction(void* fp, void* ctx = nullptr, FunctionType t = FunctionType::COMPILED) 
-        : funcPtr(fp), context(ctx), type(t) {
+    TsFunction(void* fp, void* ctx = nullptr, FunctionType t = FunctionType::COMPILED, int a = -1)
+        : funcPtr(fp), context(ctx), type(t), arity(a) {
         magic = MAGIC;
     }
 };
@@ -100,12 +101,14 @@ extern "C" {
     TsValue* ts_value_make_array(void* arr);
     TsValue* ts_value_box_any(void* ptr);  // Box any pointer by runtime type detection
     TsValue* ts_value_make_function(void* funcPtr, void* context);
+    TsValue* ts_value_make_function_with_arity(void* funcPtr, void* context, int arity);
     TsValue* ts_value_make_native_function(void* funcPtr, void* context);
     bool ts_value_is_undefined(TsValue* v);
     TsValue* ts_call_0(TsValue* boxedFunc);
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1);
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);
     TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3);
+    TsValue* ts_call_with_arity(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3);  // Respects func's declared arity
     TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4);
     TsValue* ts_call_5(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5);
     TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6);

@@ -3555,28 +3555,28 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
              srcArr = builder->CreateIntToPtr(srcArr, builder->getPtrTy());
          }
          
-         // Create new empty array
-         llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
-         llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
-         llvm::Value* newArr = createCall(createFt, createFn.getCallee(), {});
-         
-         // Concat source array into new array
-         llvm::FunctionType* concatFt = llvm::FunctionType::get(builder->getVoidTy(),
+         // ts_array_concat returns a NEW array - capture and chain the return values
+         llvm::FunctionType* concatFt = llvm::FunctionType::get(builder->getPtrTy(),
                  { builder->getPtrTy(), builder->getPtrTy() }, false);
          llvm::FunctionCallee concatFn = getRuntimeFunction("ts_array_concat", concatFt);
-         createCall(concatFt, concatFn.getCallee(), { newArr, srcArr });
-         
-         // Concat each argument array
+
+         // Create empty array and concat source into it
+         llvm::FunctionType* createFt = llvm::FunctionType::get(builder->getPtrTy(), {}, false);
+         llvm::FunctionCallee createFn = getRuntimeFunction("ts_array_create", createFt);
+         llvm::Value* result = createCall(createFt, createFn.getCallee(), {});
+         result = createCall(concatFt, concatFn.getCallee(), { result, srcArr });
+
+         // Concat each argument array, capturing new array each time
          for (auto& arg : node->arguments) {
              visit(arg.get());
              llvm::Value* argArr = lastValue;
              if (argArr->getType()->isIntegerTy(64)) {
                  argArr = builder->CreateIntToPtr(argArr, builder->getPtrTy());
              }
-             createCall(concatFt, concatFn.getCallee(), { newArr, argArr });
+             result = createCall(concatFt, concatFn.getCallee(), { result, argArr });
          }
-         
-         lastValue = newArr;
+
+         lastValue = result;
          return true;
     } else if (prop->name == "unshift" && prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Array) {
          visit(prop->expression.get());
