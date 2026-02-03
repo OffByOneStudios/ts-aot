@@ -104,6 +104,7 @@ extern "C" {
     TsValue* ts_value_make_function_with_arity(void* funcPtr, void* context, int arity);
     TsValue* ts_value_make_native_function(void* funcPtr, void* context);
     bool ts_value_is_undefined(TsValue* v);
+    bool ts_value_is_null(TsValue* v);
     TsValue* ts_call_0(TsValue* boxedFunc);
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1);
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);
@@ -153,6 +154,7 @@ extern "C" {
     TsValue* ts_array_get_dynamic(TsValue* arr, TsValue* index);
     void ts_array_set_dynamic(TsValue* arr, TsValue* index, TsValue* value);
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);  // Handles both arrays and maps
+    void ts_object_set_property(void* obj, void* key, void* value);  // HIR-friendly wrapper for ts_object_set_dynamic
     bool ts_object_has_prop(TsValue* obj, TsValue* key);
     bool ts_object_delete_prop(TsValue* obj, TsValue* key);
     
