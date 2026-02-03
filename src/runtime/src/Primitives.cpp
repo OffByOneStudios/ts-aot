@@ -568,22 +568,94 @@ bool ts_instanceof(void* obj, void* targetVTable) {
     uintptr_t ptr = (uintptr_t)obj;
     if (ptr > 0x00007FFFFFFFFFFF) return false; // Bitcasted double
 
-    // Check for TsString magic number
-    uint32_t magic = *(uint32_t*)obj;
-    if (magic == 0x53545247) return false; // Strings are not instances of classes (for now)
+    // Check for TsString magic number at offset 0
+    uint32_t magic0 = *(uint32_t*)obj;
+    if (magic0 == 0x53545247) return false; // Strings are not instances of classes
 
-    // TsObject-derived classes (like TsMap) have:
-    // - C++ vtable at offset 0 (from virtual destructor)
-    // - TypeScript vtable at offset 8 (TsObject::vtable member)
-    // Read the TypeScript vtable from offset 8
-    void** vptr = *(void***)((char*)obj + 8);
-    if (!vptr) return false;
+    // Check magic at offset 16 to detect TsObject-derived classes
+    // TsObject layout: [C++ vtable (8), void* vtable (8), uint32_t magic (4), ...]
+    uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
+    bool isTsObjectDerived = (magic16 == 0x4D415053 ||  // TsMap "MAPS"
+                              magic16 == 0x46554E43 ||  // TsFunction "FUNC"
+                              magic16 == 0x574D4150 ||  // TsWeakMap "WMAP"
+                              magic16 == 0x57534554);   // TsWeakSet "WSET"
 
-    // Traverse parent pointers in VTable
-    void** currentVTable = vptr;
-    while (currentVTable) {
-        if (currentVTable == targetVTable) return true;
-        currentVTable = (void**)currentVTable[0]; // Parent VTable is at index 0
+    if (isTsObjectDerived) {
+        // TsObject-derived classes: TypeScript vtable is at offset 8
+        void** vptr8 = *(void***)((char*)obj + 8);
+        if (!vptr8) return false;
+
+        uintptr_t vptr8_val = (uintptr_t)vptr8;
+        if (vptr8_val < 0x1000 || vptr8_val > 0x00007FFFFFFFFFFF) return false;
+
+        // Direct match
+        if (vptr8 == targetVTable) return true;
+
+        // Traverse parent chain
+        void** currentVTable = vptr8;
+        int depth = 0;
+        while (currentVTable && depth < 100) {
+            if (currentVTable == targetVTable) return true;
+            void* parent = currentVTable[0];
+            if (!parent || parent == currentVTable) break;
+            currentVTable = (void**)parent;
+            depth++;
+        }
+        return false;
+    }
+
+    // User-defined classes: TypeScript vtable at offset 0 OR offset 8 (for TsMap-backed objects without magic)
+    // First check offset 8 (HIR objects use TsMap without setting magic)
+    void** vptr8 = *(void***)((char*)obj + 8);
+    if (vptr8) {
+        uintptr_t vptr8_val = (uintptr_t)vptr8;
+        if (vptr8_val > 0x1000 && vptr8_val < 0x00007FFFFFFFFFFF) {
+            // Check if vptr8 points to something that looks like a vtable (not a string)
+            uint32_t vptr8Magic = *(uint32_t*)vptr8;
+            if (vptr8Magic != 0x53545247) { // Not a TsString
+                // Direct match
+                if (vptr8 == targetVTable) return true;
+
+                // Traverse parent chain
+                void** currentVTable = vptr8;
+                int depth = 0;
+                while (currentVTable && depth < 100) {
+                    if (currentVTable == targetVTable) return true;
+                    void* parent = currentVTable[0];
+                    if (!parent || parent == currentVTable) break;
+                    // Check if parent is a valid pointer
+                    uintptr_t parentVal = (uintptr_t)parent;
+                    if (parentVal < 0x1000 || parentVal > 0x00007FFFFFFFFFFF) break;
+                    currentVTable = (void**)parent;
+                    depth++;
+                }
+            }
+        }
+    }
+
+    // Then check offset 0 (non-HIR user-defined classes)
+    void** vptr0 = *(void***)obj;
+    if (vptr0) {
+        uintptr_t vptr0_val = (uintptr_t)vptr0;
+        if (vptr0_val > 0x1000 && vptr0_val < 0x00007FFFFFFFFFFF) {
+            // Check if vptr0 matches target directly
+            if (vptr0 == targetVTable) return true;
+
+            // Traverse from vptr0 (user-defined class vtable)
+            void** currentVTable = vptr0;
+            int depth = 0;
+            while (currentVTable && depth < 100) {
+                if (currentVTable == targetVTable) return true;
+                void* parent = currentVTable[0];
+                if (!parent || parent == currentVTable) break;
+                // Check if parent is a valid pointer in data range
+                uintptr_t parentVal = (uintptr_t)parent;
+                if (parentVal < 0x1000 || parentVal > 0x00007FFFFFFFFFFF) break;
+                // Sanity check: don't read magic if parent looks like garbage
+                currentVTable = (void**)parent;
+                depth++;
+            }
+        }
     }
 
     return false;
