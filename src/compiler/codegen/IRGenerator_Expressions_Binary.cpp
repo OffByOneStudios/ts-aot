@@ -143,8 +143,14 @@ void IRGenerator::visitBinaryExpression(ast::BinaryExpression* node) {
         visit(node->left.get());
         llvm::Value* obj = lastValue;
 
-        // Unbox if it's a boxed value
-        if (node->left->inferredType && node->left->inferredType->kind == TypeKind::Any) {
+        // Unbox if it's a boxed value - check boxedValues set OR if type is Any/Class
+        // Class instances may be boxed even though they have ClassType, not Any
+        bool needsUnbox = boxedValues.count(obj) > 0;
+        if (!needsUnbox && node->left->inferredType) {
+            auto kind = node->left->inferredType->kind;
+            needsUnbox = (kind == TypeKind::Any || kind == TypeKind::Class);
+        }
+        if (needsUnbox) {
             llvm::FunctionType* getObjFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
             llvm::FunctionCallee getObjFn = getRuntimeFunction("ts_value_get_object", getObjFt);
             obj = createCall(getObjFt, getObjFn.getCallee(), { obj });

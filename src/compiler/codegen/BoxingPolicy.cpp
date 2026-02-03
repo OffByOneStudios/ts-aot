@@ -116,6 +116,7 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_value_make_string",    {false}},          // (TsString*) -> TsValue*
     {"ts_value_make_object",    {false}},          // (void*) -> TsValue*
     {"ts_value_make_function",  {false, false}},   // (fn_ptr, closure) -> TsValue*
+    {"ts_value_make_function_with_arity",  {false, false, false}},   // (fn_ptr, closure, arity) -> TsValue*
     {"ts_value_make_native_function", {false, false}}, // (fn_ptr, closure) -> TsValue*
     {"ts_value_make_array",     {false}},          // (arr*) -> TsValue*
     {"ts_value_make_undefined", {}},               // () -> TsValue*

@@ -233,13 +233,20 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
         return std::make_shared<Type>(TypeKind::SetType);
     }
     
-    // Handle Map<K, V> - Note: key/value types are not tracked currently  
+    // Handle Map<K, V> - Note: key/value types are not tracked currently
     if (typeName.starts_with("Map<") && typeName.ends_with(">")) {
         // For now, just return a basic Map type
         // TODO: Create a proper MapType struct with keyType/valueType
         return std::make_shared<Type>(TypeKind::Map);
     }
-    
+
+    // Handle Array<T> - convert to ArrayType (same as T[])
+    if (typeName.starts_with("Array<") && typeName.ends_with(">")) {
+        auto innerName = typeName.substr(6, typeName.size() - 7);  // Extract T from Array<T>
+        auto innerType = parseType(innerName, symbols);
+        return std::make_shared<ArrayType>(innerType);
+    }
+
     // Handle function types: (paramName: paramType, ...) => returnType
     // Look for " => " pattern (with spaces around =>)
     size_t arrowPos = typeName.find(" => ");

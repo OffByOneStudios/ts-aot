@@ -335,7 +335,16 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_value_make_function(void* funcPtr, void* context) {
-        TsFunction* func = new (ts_alloc(sizeof(TsFunction))) TsFunction(funcPtr, context, FunctionType::COMPILED);
+        TsFunction* func = new (ts_alloc(sizeof(TsFunction))) TsFunction(funcPtr, context, FunctionType::COMPILED, -1);
+        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
+        memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
+        v->type = ValueType::FUNCTION_PTR;
+        v->ptr_val = func;
+        return v;
+    }
+
+    TsValue* ts_value_make_function_with_arity(void* funcPtr, void* context, int arity) {
+        TsFunction* func = new (ts_alloc(sizeof(TsFunction))) TsFunction(funcPtr, context, FunctionType::COMPILED, arity);
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::FUNCTION_PTR;
@@ -1125,6 +1134,34 @@ TsValue* ts_value_make_int(int64_t i) {
             return nullptr;
         }
         return func;
+    }
+
+    // Helper to call a function with up to 3 args, respecting the function's declared arity
+    // This is critical for Array.map/filter/etc where JS allows callbacks with fewer params
+    TsValue* ts_call_with_arity(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) {
+            return ts_value_make_undefined();
+        }
+
+        // Use the function's declared arity if known, otherwise default to 3
+        int arity = func->arity;
+        if (arity < 0) {
+            // Arity unknown - default to all 3 args (original behavior)
+            arity = 3;
+        }
+
+        switch (arity) {
+            case 0:
+                return ts_call_0(boxedFunc);
+            case 1:
+                return ts_call_1(boxedFunc, arg1);
+            case 2:
+                return ts_call_2(boxedFunc, arg1, arg2);
+            case 3:
+            default:
+                return ts_call_3(boxedFunc, arg1, arg2, arg3);
+        }
     }
 
     TsValue* ts_call_0(TsValue* boxedFunc) {

@@ -157,11 +157,12 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
         if (auto spread = dynamic_cast<ast::SpreadElement*>(el.get())) {
             visit(spread->expression.get());
             llvm::Value* otherArr = lastValue;
-            
-            llvm::FunctionType* concatFt = llvm::FunctionType::get(llvm::Type::getVoidTy(*context),
+
+            // ts_array_concat returns a NEW array - capture the result
+            llvm::FunctionType* concatFt = llvm::FunctionType::get(builder->getPtrTy(),
                     { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee concatFn = getRuntimeFunction("ts_array_concat", concatFt);
-            createCall(concatFt, concatFn.getCallee(), { arr, otherArr });
+            arr = createCall(concatFt, concatFn.getCallee(), { arr, otherArr });
             continue;
         }
 
