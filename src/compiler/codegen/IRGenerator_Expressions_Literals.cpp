@@ -97,12 +97,30 @@ void IRGenerator::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node)
 
     bool isDouble = false;
 
-    // NOTE: Element kind inference from PackedSmi/PackedDouble is recorded for future
-    // optimizations, but we DON'T use specialized codegen for these yet because
-    // the runtime's push/pop operations expect boxed TsValue* values.
-    // Only use specialized path for explicit Double/Int element types from type annotations.
-    if (elemType) {
-        // Fall back to type-based detection for backwards compatibility
+    // Enable specialized codegen for inferred element kinds.
+    // The runtime has been updated to properly handle both:
+    // 1. Specialized arrays (raw bits via inttoptr)
+    // 2. Non-specialized arrays with element kind tracking (boxed TsValue*)
+    //
+    // We use the specialized path for:
+    // - Explicit type annotations (TypeKind::Double, TypeKind::Int)
+    // - Inferred element kinds (PackedSmi, PackedDouble) from array literals
+
+    // First check inferred element kind from analyzer
+    if (elementKind == ElementKind::PackedSmi || elementKind == ElementKind::HoleySmi) {
+        isSpecialized = true;
+        llvmElemType = llvm::Type::getInt64Ty(*context);
+        elementSize = 8;
+        isDouble = false;
+    } else if (elementKind == ElementKind::PackedDouble || elementKind == ElementKind::HoleyDouble) {
+        isSpecialized = true;
+        llvmElemType = llvm::Type::getDoubleTy(*context);
+        elementSize = 8;
+        isDouble = true;
+    }
+
+    // Fall back to type-based detection for backwards compatibility
+    if (!isSpecialized && elemType) {
         if (elemType->kind == TypeKind::Double) {
             isSpecialized = true;
             llvmElemType = llvm::Type::getDoubleTy(*context);

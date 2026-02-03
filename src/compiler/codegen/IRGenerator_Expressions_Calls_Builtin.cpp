@@ -2890,8 +2890,17 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
                  // If it's a pointer (string), we need to cast it to i64 for the generic array storage
                  search = builder->CreatePtrToInt(search, llvm::Type::getInt64Ty(*context));
              } else if (search->getType()->isDoubleTy()) {
-                 // For specialized double arrays, use bitcast to preserve the bit pattern
-                 search = builder->CreateBitCast(search, llvm::Type::getInt64Ty(*context));
+                 // Check the array's element kind to determine correct conversion
+                 auto arrType = std::dynamic_pointer_cast<ArrayType>(prop->expression->inferredType);
+                 bool isDoubleArray = arrType && (arrType->elementKind == ElementKind::PackedDouble ||
+                                                   arrType->elementKind == ElementKind::HoleyDouble);
+                 if (isDoubleArray) {
+                     // For specialized double arrays, use bitcast to preserve the bit pattern
+                     search = builder->CreateBitCast(search, llvm::Type::getInt64Ty(*context));
+                 } else {
+                     // For integer arrays or generic arrays, convert double to integer
+                     search = builder->CreateFPToSI(search, llvm::Type::getInt64Ty(*context));
+                 }
              }
              llvm::FunctionType* indexOfFt = llvm::FunctionType::get(llvm::Type::getInt64Ty(*context),
                      { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
@@ -3527,16 +3536,25 @@ bool IRGenerator::tryGenerateBuiltinCall(ast::CallExpression* node, ast::Propert
          
          visit(node->arguments[0].get());
          llvm::Value* val = lastValue;
-         // ts_array_includes expects int64_t as bit pattern (not converted)
+         // ts_array_includes expects int64_t
          if (val->getType()->isDoubleTy()) {
-             // For specialized double arrays, use bitcast to preserve the bit pattern
-             val = builder->CreateBitCast(val, llvm::Type::getInt64Ty(*context));
+             // Check the array's element kind to determine correct conversion
+             auto arrType = std::dynamic_pointer_cast<ArrayType>(prop->expression->inferredType);
+             bool isDoubleArray = arrType && (arrType->elementKind == ElementKind::PackedDouble ||
+                                               arrType->elementKind == ElementKind::HoleyDouble);
+             if (isDoubleArray) {
+                 // For specialized double arrays, use bitcast to preserve the bit pattern
+                 val = builder->CreateBitCast(val, llvm::Type::getInt64Ty(*context));
+             } else {
+                 // For integer arrays or generic arrays, convert double to integer
+                 val = builder->CreateFPToSI(val, llvm::Type::getInt64Ty(*context));
+             }
          } else if (val->getType()->isIntegerTy(1)) {
              val = builder->CreateZExt(val, llvm::Type::getInt64Ty(*context));
          } else if (!val->getType()->isIntegerTy(64)) {
              val = builder->CreatePtrToInt(val, llvm::Type::getInt64Ty(*context));
          }
-         
+
          llvm::FunctionType* includesFt = llvm::FunctionType::get(llvm::Type::getInt1Ty(*context),
                  { builder->getPtrTy(), llvm::Type::getInt64Ty(*context) }, false);
          llvm::FunctionCallee fn = getRuntimeFunction("ts_array_includes", includesFt);
