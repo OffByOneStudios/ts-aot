@@ -177,7 +177,20 @@ void TsArray::Sort() {
 }
 
 int64_t TsArray::IndexOf(int64_t value) {
-    // For specialized arrays, we may receive a boxed TsValue* from the codegen.
+    // For PackedDouble arrays, codegen passes raw double bits directly (via bitcast).
+    // Handle this FIRST to avoid trying to dereference double bits as a pointer.
+    if (isSpecialized && isDouble) {
+        // Value is raw IEEE 754 double bits - compare directly
+        double searchVal;
+        memcpy(&searchVal, &value, sizeof(double));
+
+        for (size_t i = 0; i < length; ++i) {
+            if (((double*)elements)[i] == searchVal) return (int64_t)i;
+        }
+        return -1;
+    }
+
+    // For PackedSmi arrays or non-specialized arrays, we may receive a boxed TsValue*.
     // Try to unbox it if it looks like a valid TsValue*.
     int64_t rawValue = value;
     if (isSpecialized && (uintptr_t)value > 0x10000) {
@@ -192,37 +205,9 @@ int64_t TsArray::IndexOf(int64_t value) {
             if (maybeBoxed->type == ValueType::NUMBER_INT) {
                 rawValue = maybeBoxed->i_val;
             } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                // Convert double to the format we need for comparison
-                if (isDouble) {
-                    memcpy(&rawValue, &maybeBoxed->d_val, sizeof(rawValue));
-                } else {
-                    rawValue = (int64_t)maybeBoxed->d_val;
-                }
+                rawValue = (int64_t)maybeBoxed->d_val;
             }
         }
-    }
-
-    if (isSpecialized && isDouble) {
-        // For double arrays, rawValue could be:
-        // 1. A double bit pattern (from bitcast)
-        // 2. An integer literal (small values like 3)
-        // Try both interpretations
-        double searchVal;
-        memcpy(&searchVal, &rawValue, sizeof(double));
-
-        // First try as double bit pattern
-        for (size_t i = 0; i < length; ++i) {
-            if (((double*)elements)[i] == searchVal) return (int64_t)i;
-        }
-
-        // If not found and rawValue looks like a small integer, try as integer->double
-        if (rawValue >= -1000000 && rawValue <= 1000000) {
-            double intAsDouble = (double)rawValue;
-            for (size_t i = 0; i < length; ++i) {
-                if (((double*)elements)[i] == intAsDouble) return (int64_t)i;
-            }
-        }
-        return -1;
     }
 
     // For specialized integer arrays or non-specialized arrays
@@ -233,7 +218,20 @@ int64_t TsArray::IndexOf(int64_t value) {
 }
 
 int64_t TsArray::LastIndexOf(int64_t value) {
-    // For specialized arrays, we may receive a boxed TsValue* from the codegen.
+    // For PackedDouble arrays, codegen passes raw double bits directly (via bitcast).
+    // Handle this FIRST to avoid trying to dereference double bits as a pointer.
+    if (isSpecialized && isDouble) {
+        // Value is raw IEEE 754 double bits - compare directly
+        double searchVal;
+        memcpy(&searchVal, &value, sizeof(double));
+
+        for (size_t i = length; i > 0; --i) {
+            if (((double*)elements)[i - 1] == searchVal) return (int64_t)(i - 1);
+        }
+        return -1;
+    }
+
+    // For PackedSmi arrays or non-specialized arrays, we may receive a boxed TsValue*.
     // Try to unbox it if it looks like a valid TsValue*.
     int64_t rawValue = value;
     if (isSpecialized && (uintptr_t)value > 0x10000) {
@@ -248,36 +246,9 @@ int64_t TsArray::LastIndexOf(int64_t value) {
             if (maybeBoxed->type == ValueType::NUMBER_INT) {
                 rawValue = maybeBoxed->i_val;
             } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                // Convert double to the format we need for comparison
-                if (isDouble) {
-                    memcpy(&rawValue, &maybeBoxed->d_val, sizeof(rawValue));
-                } else {
-                    rawValue = (int64_t)maybeBoxed->d_val;
-                }
+                rawValue = (int64_t)maybeBoxed->d_val;
             }
         }
-    }
-
-    if (isSpecialized && isDouble) {
-        // For double arrays, rawValue could be:
-        // 1. A double bit pattern (from bitcast)
-        // 2. An integer literal (small values like 3)
-        double searchVal;
-        memcpy(&searchVal, &rawValue, sizeof(double));
-
-        // First try as double bit pattern
-        for (size_t i = length; i > 0; --i) {
-            if (((double*)elements)[i - 1] == searchVal) return (int64_t)(i - 1);
-        }
-
-        // If not found and rawValue looks like a small integer, try as integer->double
-        if (rawValue >= -1000000 && rawValue <= 1000000) {
-            double intAsDouble = (double)rawValue;
-            for (size_t i = length; i > 0; --i) {
-                if (((double*)elements)[i - 1] == intAsDouble) return (int64_t)(i - 1);
-            }
-        }
-        return -1;
     }
     for (size_t i = length; i > 0; --i) {
         if (((int64_t*)elements)[i - 1] == rawValue) return (int64_t)(i - 1);

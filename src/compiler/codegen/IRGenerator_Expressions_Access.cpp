@@ -740,13 +740,19 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
         
         visit(node->argumentExpression.get());
         llvm::Value* index = lastValue;
+        auto indexType = node->argumentExpression->inferredType;
 
-        // If index is not an integer, use dynamic access
-        if (index->getType()->isPointerTy() || index->getType()->isDoubleTy()) {
+        // For numeric indices on specialized arrays, convert double to int64
+        // This allows the fast path to be used for common cases like arr[i]
+        if (index->getType()->isDoubleTy()) {
+            index = builder->CreateFPToSI(index, llvm::Type::getInt64Ty(*context));
+        }
+
+        // If index is a pointer type (string), use dynamic access
+        if (index->getType()->isPointerTy()) {
             // Box the index - use inline boxing for string indices
             llvm::Value* boxedIndex = nullptr;
-            auto indexType = node->argumentExpression->inferredType;
-            if (indexType && indexType->kind == TypeKind::String && index->getType()->isPointerTy()) {
+            if (indexType && indexType->kind == TypeKind::String) {
                 // String index - use inline boxing
                 llvm::FunctionType* unboxFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy() }, false);
                 llvm::FunctionCallee unboxFn = getRuntimeFunction("ts_value_get_string", unboxFt);
@@ -755,10 +761,10 @@ void IRGenerator::generateElementAccess(ast::ElementAccessExpression* node) {
             } else {
                 boxedIndex = boxValue(index, indexType);
             }
-            
+
             llvm::FunctionType* getFt = llvm::FunctionType::get(builder->getPtrTy(), { builder->getPtrTy(), builder->getPtrTy() }, false);
             llvm::FunctionCallee getFn = getRuntimeFunction("ts_array_get_dynamic", getFt);
-            
+
             llvm::Value* res = createCall(getFt, getFn.getCallee(), { boxValue(arr, effectiveArrayType), boxedIndex });
             boxedValues.insert(res);
             lastValue = unboxValue(res, elemType);
