@@ -87,6 +87,8 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_array_set",                {false, false, false}},    // (arr*, index, value)
     {"ts_array_length",             {false}},                  // (arr*) -> int
     {"ts_array_get_elements_ptr",   {false}},                  // (arr*) -> void*
+    {"ts_array_is_specialized",     {false}},                  // (arr*) -> bool
+    {"ts_array_is_double",          {false}},                  // (arr*) -> bool
     {"ts_array_sort",               {false}},                  // (arr*)
     {"ts_array_sort_with_comparator", {false, true}},          // (arr*, comparator) - comparator is boxed
     {"ts_array_reverse",            {false}},                  // (arr*) - modifies in place
@@ -201,6 +203,16 @@ const std::unordered_map<std::string, std::vector<bool>> BoxingPolicy::CORE_RUNT
     {"ts_array_entries", {false}},                          // (arr*) -> arr*
     {"ts_array_keys", {false}},                             // (arr*) -> arr*
     {"ts_array_values", {false}},                           // (arr*) -> arr*
+
+    // Element kind API (V8-style optimization)
+    {"ts_array_get_element_kind",   {false}},               // (arr*) -> uint8
+    {"ts_array_set_element_kind",   {false, false}},        // (arr*, kind)
+    {"ts_array_transition_to",      {false, false}},        // (arr*, newKind)
+    {"ts_array_create_with_kind",   {false, false}},        // (size, kind) -> arr*
+    {"ts_array_get_smi",            {false, false}},        // (arr*, index) -> int64
+    {"ts_array_set_smi",            {false, false, false}}, // (arr*, index, value)
+    {"ts_array_get_double_fast",    {false, false}},        // (arr*, index) -> double
+    {"ts_array_set_double_fast",    {false, false, false}}, // (arr*, index, value)
 
     // =========================================================================
     // Map operations - additional

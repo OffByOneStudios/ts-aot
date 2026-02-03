@@ -884,6 +884,67 @@ void* TsArray::Join(void* separator) {
     return TsString::Create(ss.str().c_str());
 }
 
+// ============================================================
+// Element Kind Transitions (V8-style)
+// ============================================================
+
+void TsArray::TransitionTo(ElementKind newKind) {
+    // Don't transition if already at or beyond the target kind
+    if (elementKind_ == newKind) return;
+
+    // Transitions are one-way: more specific -> more general
+    // PackedSmi -> PackedDouble -> PackedAny
+    // HoleySmi -> HoleyDouble -> HoleyAny
+
+    // Get the new element kind by meeting the current and target
+    ElementKind oldKind = elementKind_;
+
+    // Determine if we need to convert element storage
+    bool wasDouble = (oldKind == ElementKind::PackedDouble || oldKind == ElementKind::HoleyDouble || isDouble);
+    bool willBeDouble = (newKind == ElementKind::PackedDouble || newKind == ElementKind::HoleyDouble);
+
+    // Handle SMI -> Double transition: convert int64 to double bits
+    if ((oldKind == ElementKind::PackedSmi || oldKind == ElementKind::HoleySmi) && willBeDouble) {
+        // Convert all SMI values to double
+        for (size_t i = 0; i < length; ++i) {
+            int64_t smiVal = ((int64_t*)elements)[i];
+            double dblVal = (double)smiVal;
+            int64_t bits;
+            memcpy(&bits, &dblVal, sizeof(bits));
+            ((int64_t*)elements)[i] = bits;
+        }
+        isDouble = true;
+    }
+
+    // Handle Double -> Any transition: box all values
+    if (wasDouble && newKind == ElementKind::PackedAny) {
+        // Need to box all double values
+        for (size_t i = 0; i < length; ++i) {
+            int64_t bits = ((int64_t*)elements)[i];
+            double dblVal;
+            memcpy(&dblVal, &bits, sizeof(dblVal));
+            TsValue* boxed = ts_value_make_double(dblVal);
+            ((int64_t*)elements)[i] = (int64_t)boxed;
+        }
+        isDouble = false;
+        isSpecialized = false;
+    }
+
+    // Handle SMI -> Any transition: box all values
+    if ((oldKind == ElementKind::PackedSmi || oldKind == ElementKind::HoleySmi) &&
+        (newKind == ElementKind::PackedAny || newKind == ElementKind::HoleyAny)) {
+        // Box all SMI values
+        for (size_t i = 0; i < length; ++i) {
+            int64_t smiVal = ((int64_t*)elements)[i];
+            TsValue* boxed = ts_value_make_int(smiVal);
+            ((int64_t*)elements)[i] = (int64_t)boxed;
+        }
+        isSpecialized = false;
+    }
+
+    elementKind_ = newKind;
+}
+
 extern "C" {
     void* ts_array_create() {
         return TsArray::Create();
@@ -1747,5 +1808,99 @@ extern "C" {
         }
 
         return values;
+    }
+
+    // ============================================================
+    // Element Kind API (V8-style optimization)
+    // ============================================================
+
+    uint8_t ts_array_get_element_kind(void* arr) {
+        if (!arr) return (uint8_t)ElementKind::Unknown;
+        return (uint8_t)((TsArray*)arr)->GetElementKind();
+    }
+
+    void ts_array_set_element_kind(void* arr, uint8_t kind) {
+        if (!arr) return;
+        ((TsArray*)arr)->SetElementKind((ElementKind)kind);
+    }
+
+    void ts_array_transition_to(void* arr, uint8_t newKind) {
+        if (!arr) return;
+        ((TsArray*)arr)->TransitionTo((ElementKind)newKind);
+    }
+
+    void* ts_array_create_with_kind(int64_t size, uint8_t kind) {
+        TsArray* arr;
+        ElementKind ek = (ElementKind)kind;
+
+        switch (ek) {
+            case ElementKind::PackedSmi:
+            case ElementKind::HoleySmi:
+                // SMI arrays use 8-byte int64_t storage (could optimize to 4-byte later)
+                arr = TsArray::CreateSpecialized(size, 8, false);
+                break;
+            case ElementKind::PackedDouble:
+            case ElementKind::HoleyDouble:
+                // Double arrays use 8-byte double storage
+                arr = TsArray::CreateSpecialized(size, 8, true);
+                break;
+            default:
+                // Generic arrays use 8-byte pointer storage
+                arr = TsArray::CreateSized(size);
+                break;
+        }
+        arr->SetElementKind(ek);
+        return arr;
+    }
+
+    // Fast SMI get - no boxing, returns raw int64
+    int64_t ts_array_get_smi(void* arr, int64_t index) {
+        if (!arr) return 0;
+        TsArray* array = (TsArray*)arr;
+        if (index < 0 || index >= array->Length()) return 0;
+        return array->GetUnchecked(index);
+    }
+
+    // Fast SMI set - no boxing
+    void ts_array_set_smi(void* arr, int64_t index, int64_t value) {
+        if (!arr) return;
+        TsArray* array = (TsArray*)arr;
+        if (index < 0) return;
+        // Extend array if needed
+        if (index >= array->Length()) {
+            // For now, only allow setting at the next position
+            if (index == array->Length()) {
+                array->Push(value);
+            }
+            return;
+        }
+        array->SetUnchecked(index, value);
+    }
+
+    // Fast double get - no boxing
+    double ts_array_get_double_fast(void* arr, int64_t index) {
+        if (!arr) return 0.0;
+        TsArray* array = (TsArray*)arr;
+        if (index < 0 || index >= array->Length()) return 0.0;
+        int64_t bits = array->GetUnchecked(index);
+        double result;
+        memcpy(&result, &bits, sizeof(result));
+        return result;
+    }
+
+    // Fast double set - no boxing
+    void ts_array_set_double_fast(void* arr, int64_t index, double value) {
+        if (!arr) return;
+        TsArray* array = (TsArray*)arr;
+        if (index < 0) return;
+        int64_t bits;
+        memcpy(&bits, &value, sizeof(bits));
+        if (index >= array->Length()) {
+            if (index == array->Length()) {
+                array->Push(bits);
+            }
+            return;
+        }
+        array->SetUnchecked(index, bits);
     }
 }

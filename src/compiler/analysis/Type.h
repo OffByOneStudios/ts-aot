@@ -51,6 +51,99 @@ enum class TypeKind {
     Never
 };
 
+/// Element kinds for V8-style monomorphic array optimizations
+/// Based on V8's PACKED_*_ELEMENTS and HOLEY_*_ELEMENTS
+/// See: https://v8.dev/blog/elements-kinds
+enum class ElementKind {
+    Unknown,           ///< Type not yet determined (uninitialized array)
+    PackedSmi,         ///< Small integers that fit in 31 bits (-2^30 to 2^30-1)
+    PackedDouble,      ///< IEEE 754 doubles (includes all numbers)
+    PackedString,      ///< TsString* pointers only
+    PackedObject,      ///< Homogeneous object type (same class)
+    PackedAny,         ///< Mixed types (current generic path)
+    HoleySmi,          ///< SMI with holes (sparse array)
+    HoleyDouble,       ///< Double with holes
+    HoleyAny           ///< Mixed with holes
+};
+
+/// Check if an element kind has holes (sparse array)
+inline bool hasHoles(ElementKind kind) {
+    return kind == ElementKind::HoleySmi ||
+           kind == ElementKind::HoleyDouble ||
+           kind == ElementKind::HoleyAny;
+}
+
+/// Check if an element kind is a "packed" (dense) kind
+inline bool isPacked(ElementKind kind) {
+    return kind == ElementKind::PackedSmi ||
+           kind == ElementKind::PackedDouble ||
+           kind == ElementKind::PackedString ||
+           kind == ElementKind::PackedObject ||
+           kind == ElementKind::PackedAny;
+}
+
+/// Get the "holey" version of a packed element kind
+inline ElementKind toHoley(ElementKind kind) {
+    switch (kind) {
+        case ElementKind::PackedSmi: return ElementKind::HoleySmi;
+        case ElementKind::PackedDouble: return ElementKind::HoleyDouble;
+        case ElementKind::PackedString:
+        case ElementKind::PackedObject:
+        case ElementKind::PackedAny: return ElementKind::HoleyAny;
+        default: return kind; // Already holey or unknown
+    }
+}
+
+/// Get the more general element kind when two kinds meet
+/// Element kind transitions are one-way: more specific -> more general
+inline ElementKind meetElementKinds(ElementKind a, ElementKind b) {
+    if (a == b) return a;
+    if (a == ElementKind::Unknown) return b;
+    if (b == ElementKind::Unknown) return a;
+
+    // If either has holes, result has holes
+    bool holes = hasHoles(a) || hasHoles(b);
+
+    // Determine base kind (ignoring holes)
+    auto baseA = a;
+    auto baseB = b;
+    if (a == ElementKind::HoleySmi) baseA = ElementKind::PackedSmi;
+    else if (a == ElementKind::HoleyDouble) baseA = ElementKind::PackedDouble;
+    else if (a == ElementKind::HoleyAny) baseA = ElementKind::PackedAny;
+    if (b == ElementKind::HoleySmi) baseB = ElementKind::PackedSmi;
+    else if (b == ElementKind::HoleyDouble) baseB = ElementKind::PackedDouble;
+    else if (b == ElementKind::HoleyAny) baseB = ElementKind::PackedAny;
+
+    // SMI + Double = Double (SMI is subset of Double)
+    ElementKind resultBase;
+    if (baseA == ElementKind::PackedSmi && baseB == ElementKind::PackedDouble) {
+        resultBase = ElementKind::PackedDouble;
+    } else if (baseA == ElementKind::PackedDouble && baseB == ElementKind::PackedSmi) {
+        resultBase = ElementKind::PackedDouble;
+    } else {
+        // Any other combination goes to PackedAny
+        resultBase = ElementKind::PackedAny;
+    }
+
+    return holes ? toHoley(resultBase) : resultBase;
+}
+
+/// Convert element kind to string for debugging
+inline const char* elementKindToString(ElementKind kind) {
+    switch (kind) {
+        case ElementKind::Unknown: return "Unknown";
+        case ElementKind::PackedSmi: return "PackedSmi";
+        case ElementKind::PackedDouble: return "PackedDouble";
+        case ElementKind::PackedString: return "PackedString";
+        case ElementKind::PackedObject: return "PackedObject";
+        case ElementKind::PackedAny: return "PackedAny";
+        case ElementKind::HoleySmi: return "HoleySmi";
+        case ElementKind::HoleyDouble: return "HoleyDouble";
+        case ElementKind::HoleyAny: return "HoleyAny";
+        default: return "Unknown";
+    }
+}
+
 struct Type : public std::enable_shared_from_this<Type> {
     TypeKind kind;
 
@@ -107,8 +200,48 @@ struct NamespaceType : Type {
 
 struct ArrayType : public Type {
     std::shared_ptr<Type> elementType;
+    ElementKind elementKind = ElementKind::Unknown;  ///< V8-style element kind for optimization
+    bool mayHaveHoles = false;  ///< True if array may be sparse (has holes)
+
     ArrayType(std::shared_ptr<Type> elem) : Type(TypeKind::Array), elementType(elem) {}
-    std::string toString() const override { return elementType->toString() + "[]"; }
+    ArrayType(std::shared_ptr<Type> elem, ElementKind kind)
+        : Type(TypeKind::Array), elementType(elem), elementKind(kind) {}
+
+    /// Create an array type with inferred element kind from element type
+    static std::shared_ptr<ArrayType> createWithKind(std::shared_ptr<Type> elem) {
+        auto arr = std::make_shared<ArrayType>(elem);
+        arr->elementKind = inferElementKind(elem);
+        return arr;
+    }
+
+    /// Infer the element kind from the element type
+    static ElementKind inferElementKind(std::shared_ptr<Type> elemType) {
+        if (!elemType) return ElementKind::PackedAny;
+        switch (elemType->kind) {
+            case TypeKind::Int:
+                return ElementKind::PackedSmi;  // Integers use SMI path
+            case TypeKind::Double:
+                return ElementKind::PackedDouble;
+            case TypeKind::String:
+                return ElementKind::PackedString;
+            case TypeKind::Class:
+            case TypeKind::Interface:
+                return ElementKind::PackedObject;
+            case TypeKind::Any:
+            case TypeKind::Unknown:
+                return ElementKind::PackedAny;
+            default:
+                return ElementKind::PackedAny;
+        }
+    }
+
+    std::string toString() const override {
+        std::string result = elementType->toString() + "[]";
+        if (elementKind != ElementKind::Unknown) {
+            result += " [" + std::string(elementKindToString(elementKind)) + "]";
+        }
+        return result;
+    }
 };
 
 struct MapType : public Type {
