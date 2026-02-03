@@ -158,6 +158,7 @@ add_library(tscompiler_lib STATIC
     hir/passes/MethodResolutionPass.cpp
     hir/passes/BuiltinResolutionPass.cpp
     hir/passes/TypePropagationPass.cpp
+    hir/passes/IntegerOptimizationPass.cpp
     hir/passes/ConstantFoldingPass.cpp
     hir/passes/DeadCodeEliminationPass.cpp
     hir/passes/InliningPass.cpp

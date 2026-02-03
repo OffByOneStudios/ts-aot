@@ -12,6 +12,7 @@
 #include "hir/LoweringRegistry.h"
 #include "hir/passes/PassManager.h"
 #include "hir/passes/TypePropagationPass.h"
+#include "hir/passes/IntegerOptimizationPass.h"
 #include "hir/passes/ConstantFoldingPass.h"
 #include "hir/passes/MethodResolutionPass.h"
 #include "hir/passes/BuiltinResolutionPass.h"
@@ -158,6 +159,7 @@ int Driver::run() {
 
             hir::PassManager passManager;
             passManager.addPass(std::make_unique<hir::TypePropagationPass>());
+            passManager.addPass(std::make_unique<hir::IntegerOptimizationPass>());
             passManager.addPass(std::make_unique<hir::ConstantFoldingPass>());
             passManager.addPass(std::make_unique<hir::DeadCodeEliminationPass>());
             passManager.addPass(std::make_unique<hir::InliningPass>());

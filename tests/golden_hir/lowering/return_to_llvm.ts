@@ -3,7 +3,8 @@
 
 // HIR return should generate LLVM ret
 // HIR-CHECK: define @getFortyTwo() -> f64
-// HIR-CHECK: const.f64 42
+// Return values optimized to i64 when not used in f64 context
+// HIR-CHECK: const.i64 42
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
