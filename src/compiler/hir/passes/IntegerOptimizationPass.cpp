@@ -491,17 +491,26 @@ IntegerOptimizationPass::combineAdd(const NumericRange& lhs, const NumericRange&
     bool mayOverflowMin = (rhs.minVal < 0 &&
                           lhs.minVal < NumericRange::MIN_SAFE_INTEGER - rhs.minVal);
 
+    // Negative zero handling for addition:
+    // -0 + -0 = -0, but -0 + 0 = 0 (positive)
+    // So result may be -0 only if BOTH operands may be -0
+    bool resultMayBeNegativeZero = lhs.mayBeNegativeZero && rhs.mayBeNegativeZero;
+
     if (mayOverflowMax || mayOverflowMin) {
         // Compute the range anyway for tracking, but mark as may overflow
         int64_t newMin = lhs.minVal + rhs.minVal;
         int64_t newMax = lhs.maxVal + rhs.maxVal;
-        return NumericRange::makeMayOverflow(newMin, newMax);
+        auto result = NumericRange::makeMayOverflow(newMin, newMax);
+        result.mayBeNegativeZero = resultMayBeNegativeZero;
+        return result;
     }
 
     int64_t newMin = lhs.minVal + rhs.minVal;
     int64_t newMax = lhs.maxVal + rhs.maxVal;
 
-    return NumericRange::makeRange(newMin, newMax);
+    auto result = NumericRange::makeRange(newMin, newMax);
+    result.mayBeNegativeZero = resultMayBeNegativeZero;
+    return result;
 }
 
 IntegerOptimizationPass::NumericRange
@@ -517,16 +526,26 @@ IntegerOptimizationPass::combineSub(const NumericRange& lhs, const NumericRange&
     bool mayOverflowMin = (rhs.maxVal > 0 &&
                           lhs.minVal < NumericRange::MIN_SAFE_INTEGER + rhs.maxVal);
 
+    // Negative zero handling for subtraction:
+    // -0 - 0 = -0, but -0 - (-0) = 0 (positive)
+    // Result may be -0 if lhs may be -0 AND rhs could be +0
+    bool rhsCouldBeZero = (rhs.minVal <= 0 && rhs.maxVal >= 0);
+    bool resultMayBeNegativeZero = lhs.mayBeNegativeZero && rhsCouldBeZero;
+
     if (mayOverflowMax || mayOverflowMin) {
         int64_t newMin = lhs.minVal - rhs.maxVal;
         int64_t newMax = lhs.maxVal - rhs.minVal;
-        return NumericRange::makeMayOverflow(newMin, newMax);
+        auto result = NumericRange::makeMayOverflow(newMin, newMax);
+        result.mayBeNegativeZero = resultMayBeNegativeZero;
+        return result;
     }
 
     int64_t newMin = lhs.minVal - rhs.maxVal;
     int64_t newMax = lhs.maxVal - rhs.minVal;
 
-    return NumericRange::makeRange(newMin, newMax);
+    auto result = NumericRange::makeRange(newMin, newMax);
+    result.mayBeNegativeZero = resultMayBeNegativeZero;
+    return result;
 }
 
 /// Check if multiplication would overflow int64_t (before even checking JS safe integer range)
@@ -564,6 +583,23 @@ IntegerOptimizationPass::combineMul(const NumericRange& lhs, const NumericRange&
         return NumericRange::makeFloat();
     }
 
+    // Check for negative zero production:
+    // In JavaScript, 0 * negative = -0, and -0 * anything = -0 (unless the other is +0)
+    // We need to track this because -0 cannot be represented as int64_t
+    // (1/-0 = -Infinity but 1/0 = +Infinity)
+    bool lhsCouldBeZero = (lhs.minVal <= 0 && lhs.maxVal >= 0);
+    bool rhsCouldBeZero = (rhs.minVal <= 0 && rhs.maxVal >= 0);
+    bool lhsCouldBeNegative = (lhs.minVal < 0);
+    bool rhsCouldBeNegative = (rhs.minVal < 0);
+
+    // Result may be -0 if:
+    // 1. One operand could be zero and the other could be negative, OR
+    // 2. Either operand may already be -0
+    bool resultMayBeNegativeZero =
+        (lhsCouldBeZero && rhsCouldBeNegative) ||
+        (rhsCouldBeZero && lhsCouldBeNegative) ||
+        lhs.mayBeNegativeZero || rhs.mayBeNegativeZero;
+
     // Compute all four corner products to find min/max
     int64_t products[4] = {
         lhs.minVal * rhs.minVal,
@@ -578,10 +614,14 @@ IntegerOptimizationPass::combineMul(const NumericRange& lhs, const NumericRange&
     // Check if result exceeds JS safe integer range
     if (newMin < NumericRange::MIN_SAFE_INTEGER ||
         newMax > NumericRange::MAX_SAFE_INTEGER) {
-        return NumericRange::makeMayOverflow(newMin, newMax);
+        auto result = NumericRange::makeMayOverflow(newMin, newMax);
+        result.mayBeNegativeZero = resultMayBeNegativeZero;
+        return result;
     }
 
-    return NumericRange::makeRange(newMin, newMax);
+    auto result = NumericRange::makeRange(newMin, newMax);
+    result.mayBeNegativeZero = resultMayBeNegativeZero;
+    return result;
 }
 
 bool IntegerOptimizationPass::isExactInteger(double val) {
