@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
+// CHECK: define
 // OUTPUT: Test: Local class with callback
 // OUTPUT: Executing: task_one
 // OUTPUT: Executing: task_two

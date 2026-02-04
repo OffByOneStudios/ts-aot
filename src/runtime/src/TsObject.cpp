@@ -14,6 +14,7 @@
 #include "TsHttp.h"
 #include "TsRegExp.h"
 #include "TsBoundFunction.h"
+#include "TsClosure.h"
 #include "TsProxy.h"
 #include "GC.h"
 #include "TsRuntime.h"
@@ -1176,7 +1177,15 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_0(TsValue* boxedFunc) {
-        // Check for Proxy first
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn0)(void*);
+            return ((Fn0)closure->func_ptr)(closure);
+        }
+
+        // Check for Proxy
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             // Create empty args array and call apply trap
@@ -1199,7 +1208,17 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {
-        // Check for Proxy first
+        // Check for TsClosure first (raw closure pointer)
+        // TsClosure has magic 0x434C5352 at offset 8 (after vtable)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            // Call the closure's function with the closure as context
+            typedef TsValue* (*Fn1)(void*, TsValue*);
+            return ((Fn1)closure->func_ptr)(closure, arg1);
+        }
+
+        // Check for Proxy
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(1);
@@ -1221,7 +1240,15 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2) {
-        // Check for Proxy first
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
+            return ((Fn2)closure->func_ptr)(closure, arg1, arg2);
+        }
+
+        // Check for Proxy
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(2);
@@ -1244,6 +1271,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
+            return ((Fn3)closure->func_ptr)(closure, arg1, arg2, arg3);
+        }
+
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(3);
@@ -1262,6 +1297,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn4)closure->func_ptr)(closure, arg1, arg2, arg3, arg4);
+        }
+
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(4);
@@ -1280,6 +1323,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_5(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn5)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5);
+        }
+
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(5);
@@ -1298,6 +1349,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn6)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6);
+        }
+
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(6);
@@ -1316,6 +1375,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_7(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn7)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+        }
+
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(7);
@@ -1334,6 +1401,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_8(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn8)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+        }
+
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(8);
@@ -1352,6 +1427,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_9(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9) {
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn9)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn9)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+        }
+
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(9);
@@ -1370,6 +1453,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_10(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9, TsValue* arg10) {
+        // Check for TsClosure first (raw closure pointer)
+        TsObject* obj = (TsObject*)boxedFunc;
+        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
+            TsClosure* closure = (TsClosure*)obj;
+            typedef TsValue* (*Fn10)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn10)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+        }
+
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
             TsArray* argsArr = TsArray::Create(10);

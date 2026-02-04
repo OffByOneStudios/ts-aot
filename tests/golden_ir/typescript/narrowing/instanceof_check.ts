@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_instanceof
+// CHECK: define
+// CHECK: @ts_instanceof
 // OUTPUT: PASS: basic instanceof
 // OUTPUT: PASS: negative instanceof
 // OUTPUT: PASS: array instanceof

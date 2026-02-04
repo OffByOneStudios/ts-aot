@@ -4,9 +4,9 @@ for (let i = 0; i < 3; i++) {
 }
 
 // CHECK: alloca
-// CHECK: fcmp {{.*}} olt
+// CHECK: fcmp olt
 // CHECK: br i1
-// CHECK: add i64
+// CHECK: fadd
 
 // OUTPUT: 0
 // OUTPUT: 1

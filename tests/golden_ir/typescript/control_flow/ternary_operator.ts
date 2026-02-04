@@ -7,7 +7,7 @@ console.log(max);
 const min = x < y ? x : y;
 console.log(min);
 
-// CHECK: icmp
+// CHECK: fcmp
 // CHECK: select
 
 // OUTPUT: 10

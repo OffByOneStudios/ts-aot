@@ -137,8 +137,11 @@ int Driver::run() {
         monomorphizer.monomorphize(program.get(), analyzer);
 
         // Choose between HIR pipeline and traditional IRGenerator
+        // IMPORTANT: Declaration order matters for destruction!
+        // Context must be declared BEFORE Module so Module is destroyed first.
         llvm::Module* modulePtr = nullptr;
-        std::unique_ptr<llvm::Module> hirOwnedModule;  // Only used for HIR pipeline
+        std::unique_ptr<llvm::LLVMContext> hirContext; // LLVM context for HIR pipeline (destroyed LAST)
+        std::unique_ptr<llvm::Module> hirOwnedModule;  // Only used for HIR pipeline (destroyed BEFORE context)
         std::unique_ptr<ts::IRGenerator> irGen;        // Only used for traditional pipeline
 
         if (options.useHir) {
@@ -150,7 +153,7 @@ int Driver::run() {
 
             std::string moduleName = std::filesystem::path(tsFile).stem().string();
             hir::ASTToHIR astToHir;
-            auto hirModule = astToHir.lower(program.get(), moduleName);
+            auto hirModule = astToHir.lower(program.get(), monomorphizer.getSpecializations(), moduleName);
 
             // Run HIR optimization passes
             if (options.verbose) {
@@ -182,9 +185,9 @@ int Driver::run() {
                 SPDLOG_INFO("Lowering HIR to LLVM IR...");
             }
 
-            // Create LLVM context for HIR pipeline (owned by this scope)
-            static llvm::LLVMContext hirContext;
-            hir::HIRToLLVM hirToLlvm(hirContext);
+            // Create LLVM context for HIR pipeline (must outlive the module)
+            hirContext = std::make_unique<llvm::LLVMContext>();
+            hir::HIRToLLVM hirToLlvm(*hirContext);
             hirOwnedModule = hirToLlvm.lower(hirModule.get(), moduleName);
             modulePtr = hirOwnedModule.get();
 
@@ -215,8 +218,8 @@ int Driver::run() {
 
         std::string objFile;
         if (options.compileOnly) {
-            objFile = options.outputFile.empty() ? 
-                std::filesystem::path(tsFile).replace_extension(".obj").string() : 
+            objFile = options.outputFile.empty() ?
+                std::filesystem::path(tsFile).replace_extension(".obj").string() :
                 options.outputFile;
         } else {
             objFile = std::filesystem::path(tsFile).replace_extension(".obj").string();
@@ -231,8 +234,8 @@ int Driver::run() {
         }
 
         if (!options.compileOnly) {
-            std::string exeOutput = options.outputFile.empty() ? 
-                std::filesystem::path(tsFile).replace_extension(".exe").string() : 
+            std::string exeOutput = options.outputFile.empty() ?
+                std::filesystem::path(tsFile).replace_extension(".exe").string() :
                 options.outputFile;
 
             if (options.verbose) {
@@ -341,7 +344,7 @@ int Driver::run() {
                 }
                 return 1;
             }
-            
+
             // Clean up temporary object file
             try {
                 std::filesystem::remove(objFile);

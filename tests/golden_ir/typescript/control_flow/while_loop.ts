@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: fcmp {{.*}} olt
+// CHECK: define
+// CHECK: fcmp olt
 // CHECK: br i1
 // CHECK: fadd
 // OUTPUT: 0

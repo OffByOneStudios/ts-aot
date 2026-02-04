@@ -88,6 +88,10 @@ struct HIRType {
         return t;
     }
 
+    static std::shared_ptr<HIRType> makeFunction() {
+        return std::make_shared<HIRType>(HIRTypeKind::Function);
+    }
+
     std::string toString() const;
     bool operator==(const HIRType& other) const;
 };
@@ -255,6 +259,8 @@ enum class HIROpcode {
     MakeClosure,        // %r = make_closure @funcName, (%v1, %v2, ...) (create closure object)
     LoadCapture,        // %r = load_capture "varName" (load captured variable from closure env)
     StoreCapture,       // store_capture "varName", %val (store to captured variable in closure env)
+    LoadCaptureFromClosure,  // %r = load_capture_from_closure %closure, index (load from specific closure)
+    StoreCaptureFromClosure, // store_capture_from_closure %closure, index, %val (store to specific closure)
 
     // Control flow (terminators)
     Branch,             // br %target

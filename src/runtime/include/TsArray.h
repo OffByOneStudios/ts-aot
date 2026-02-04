@@ -124,8 +124,8 @@ extern "C" {
     TsValue ts_array_get_v(void* arr, int64_t index);
     void ts_array_set_v(void* arr, int64_t index, TsValue value);
     int64_t ts_array_length(void* arr);
-    void ts_array_sort(void* arr);
-    void ts_array_sort_with_comparator(void* arr, void* comparator);
+    void* ts_array_sort(void* arr, void* comparator);  // Returns array, handles TsClosure
+    void ts_array_sort_with_comparator(void* arr, void* comparator);  // Legacy
     void* ts_array_slice(void* arr, int64_t start, int64_t end);
     void* ts_array_flat(void* arr, int64_t depth);
     void* ts_array_flatMap(void* arr, void* callback, void* thisArg);

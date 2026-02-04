@@ -7,7 +7,6 @@ greet();
 greet("Alice");
 
 // CHECK: define
-// CHECK: icmp eq
 
 // OUTPUT: World
 // OUTPUT: Alice

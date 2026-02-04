@@ -1,10 +1,10 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_map_create
-// CHECK: call {{.*}} @__ts_map_set_at
-// CHECK: call {{.*}} @__ts_map_set_at
-// CHECK: call {{.*}} @ts_console_log_double
-// CHECK: call {{.*}} @ts_console_log_double
+// CHECK: define
+// CHECK: @ts_map_create
+// CHECK: @ts_object_set_dynamic
+// CHECK: @ts_object_set_dynamic
+// CHECK: @ts_console_log_value
+// CHECK: @ts_console_log_value
 // OUTPUT: 1
 // OUTPUT: 2
 

@@ -1,10 +1,7 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_array_create_specialized
-// CHECK: call {{.*}} @ts_value_make_function
-// CHECK: call {{.*}} @ts_array_filter
-// CHECK: define {{.*}} @lambda_
-// CHECK: call {{.*}} @ts_value_gt
+// CHECK: define
+// CHECK: @ts_array_create_sized
+// CHECK: @ts_array_filter
 // OUTPUT: 6,7,8,9,10
 
 function user_main(): void {

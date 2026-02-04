@@ -33,6 +33,7 @@ extern "C" {
 
     // Comparison
     bool ts_bigint_eq(void* a, void* b);
+    bool ts_bigint_ne(void* a, void* b);
     bool ts_bigint_lt(void* a, void* b);
     bool ts_bigint_gt(void* a, void* b);
     bool ts_bigint_le(void* a, void* b);

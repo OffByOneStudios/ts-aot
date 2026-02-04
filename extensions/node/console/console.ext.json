@@ -1,0 +1,210 @@
+{
+  "name": "console",
+  "version": "1.0.0",
+  "modules": [],
+  "objects": {
+    "console": {
+      "methods": {
+        "log": {
+          "call": "ts_console_log",
+          "hirName": "ts_console_log",
+          "params": [{ "name": "data", "type": "any", "rest": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "error": {
+          "call": "ts_console_error",
+          "hirName": "ts_console_error",
+          "params": [{ "name": "data", "type": "any", "rest": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "warn": {
+          "call": "ts_console_warn",
+          "hirName": "ts_console_warn",
+          "params": [{ "name": "data", "type": "any", "rest": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "info": {
+          "call": "ts_console_info",
+          "hirName": "ts_console_info",
+          "params": [{ "name": "data", "type": "any", "rest": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "debug": {
+          "call": "ts_console_debug",
+          "hirName": "ts_console_debug",
+          "params": [{ "name": "data", "type": "any", "rest": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "dir": {
+          "call": "ts_console_dir",
+          "hirName": "ts_console_dir",
+          "params": [{ "name": "obj", "type": "any" }],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "dirxml": {
+          "call": "ts_console_dir",
+          "hirName": "ts_console_dirxml",
+          "params": [{ "name": "data", "type": "any", "rest": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "table": {
+          "call": "ts_console_table",
+          "hirName": "ts_console_table",
+          "params": [
+            { "name": "data", "type": "any" },
+            { "name": "properties", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "trace": {
+          "call": "ts_console_trace",
+          "hirName": "ts_console_trace",
+          "params": [{ "name": "data", "type": "any", "rest": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "assert": {
+          "call": "ts_console_assert",
+          "hirName": "ts_console_assert",
+          "params": [
+            { "name": "condition", "type": "boolean" },
+            { "name": "data", "type": "any", "rest": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "count": {
+          "call": "ts_console_count",
+          "hirName": "ts_console_count",
+          "params": [{ "name": "label", "type": "string", "optional": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "countReset": {
+          "call": "ts_console_count_reset",
+          "hirName": "ts_console_countReset",
+          "params": [{ "name": "label", "type": "string", "optional": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "time": {
+          "call": "ts_console_time",
+          "hirName": "ts_console_time",
+          "params": [{ "name": "label", "type": "string", "optional": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "timeEnd": {
+          "call": "ts_console_time_end",
+          "hirName": "ts_console_timeEnd",
+          "params": [{ "name": "label", "type": "string", "optional": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "timeLog": {
+          "call": "ts_console_time_log",
+          "hirName": "ts_console_timeLog",
+          "params": [
+            { "name": "label", "type": "string", "optional": true },
+            { "name": "data", "type": "any", "rest": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "void"
+          }
+        },
+        "group": {
+          "call": "ts_console_group",
+          "hirName": "ts_console_group",
+          "params": [{ "name": "label", "type": "any", "rest": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "groupCollapsed": {
+          "call": "ts_console_group_collapsed",
+          "hirName": "ts_console_groupCollapsed",
+          "params": [{ "name": "label", "type": "any", "rest": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "groupEnd": {
+          "call": "ts_console_group_end",
+          "hirName": "ts_console_groupEnd",
+          "params": [],
+          "returns": "void",
+          "lowering": {
+            "args": [],
+            "returns": "void"
+          }
+        },
+        "clear": {
+          "call": "ts_console_clear",
+          "hirName": "ts_console_clear",
+          "params": [],
+          "returns": "void",
+          "lowering": {
+            "args": [],
+            "returns": "void"
+          }
+        }
+      }
+    }
+  }
+}

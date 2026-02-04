@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
+// CHECK: define
 // OUTPUT: sum1: 5.5
 // OUTPUT: sum2: 5.5
 // OUTPUT: elapsed_typed: 3

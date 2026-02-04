@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @lambda_
+// CHECK: define {{.*}} @__arrow_fn
 // OUTPUT: 10
 
 function user_main(): void {

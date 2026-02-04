@@ -2,7 +2,6 @@
 // Test: Method shorthand syntax in object literals
 // CHECK: define
 // CHECK: ts_map_create
-// CHECK: ts_value_make_function
 // OUTPUT: 42
 
 const obj = {

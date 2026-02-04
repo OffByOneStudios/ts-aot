@@ -10,4 +10,6 @@ console.log(result.length);
 
 // OUTPUT: 6
 // CHECK: define
-// CHECK: ts_array_create_specialized
+// CHECK: ts_array_create_sized
+// CHECK: ts_array_concat
+// CHECK: ts_array_concat

@@ -76,4 +76,8 @@ extern "C" {
     // Invoke a closure with one double argument, returns bool
     // Used for find/filter/some/every callbacks with number arrays
     bool ts_closure_invoke_1d_bool(TsClosure* closure, double arg1);
+
+    // Invoke a closure with two TsValue* arguments, returns TsValue*
+    // Used for reduce callbacks (accumulator, current value)
+    TsValue* ts_closure_invoke_2v(TsClosure* closure, TsValue* arg1, TsValue* arg2);
 }

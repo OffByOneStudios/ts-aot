@@ -1,0 +1,619 @@
+{
+  "name": "util",
+  "version": "1.0.0",
+  "modules": ["util", "node:util"],
+  "objects": {
+    "util": {
+      "methods": {
+        "format": {
+          "call": "ts_util_format",
+          "hirName": "ts_util_format",
+          "params": [
+            { "name": "format", "type": "string" },
+            { "name": "args", "type": "any", "rest": true }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "formatWithOptions": {
+          "call": "ts_util_format_with_options",
+          "hirName": "ts_util_formatWithOptions",
+          "params": [
+            { "name": "options", "type": "any" },
+            { "name": "format", "type": "string" },
+            { "name": "args", "type": "any", "rest": true }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["boxed", "ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "inspect": {
+          "call": "ts_util_inspect",
+          "hirName": "ts_util_inspect",
+          "params": [
+            { "name": "object", "type": "any" },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "isDeepStrictEqual": {
+          "call": "ts_util_is_deep_strict_equal",
+          "hirName": "ts_util_isDeepStrictEqual",
+          "params": [
+            { "name": "val1", "type": "any" },
+            { "name": "val2", "type": "any" }
+          ],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["boxed", "boxed"],
+            "returns": "i1"
+          }
+        },
+        "promisify": {
+          "call": "ts_util_promisify",
+          "hirName": "ts_util_promisify",
+          "params": [{ "name": "fn", "type": "Function" }],
+          "returns": "Function",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "ptr"
+          }
+        },
+        "callbackify": {
+          "call": "ts_util_callbackify",
+          "hirName": "ts_util_callbackify",
+          "params": [{ "name": "fn", "type": "Function" }],
+          "returns": "Function",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "ptr"
+          }
+        },
+        "inherits": {
+          "call": "ts_util_inherits",
+          "hirName": "ts_util_inherits",
+          "params": [
+            { "name": "constructor", "type": "Function" },
+            { "name": "superConstructor", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "deprecate": {
+          "call": "ts_util_deprecate",
+          "hirName": "ts_util_deprecate",
+          "params": [
+            { "name": "fn", "type": "Function" },
+            { "name": "msg", "type": "string" }
+          ],
+          "returns": "Function",
+          "lowering": {
+            "args": ["boxed", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "stripVTControlCharacters": {
+          "call": "ts_util_strip_vt_control_characters",
+          "hirName": "ts_util_stripVTControlCharacters",
+          "params": [{ "name": "str", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "toUSVString": {
+          "call": "ts_util_to_usv_string",
+          "hirName": "ts_util_toUSVString",
+          "params": [{ "name": "str", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "getSystemErrorName": {
+          "call": "ts_util_get_system_error_name",
+          "hirName": "ts_util_getSystemErrorName",
+          "params": [{ "name": "err", "type": "number" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["i64"],
+            "returns": "ptr"
+          }
+        },
+        "getSystemErrorMap": {
+          "call": "ts_util_get_system_error_map",
+          "hirName": "ts_util_getSystemErrorMap",
+          "params": [],
+          "returns": "Map",
+          "lowering": {
+            "args": [],
+            "returns": "ptr"
+          }
+        },
+        "styleText": {
+          "call": "ts_util_style_text",
+          "hirName": "ts_util_styleText",
+          "params": [
+            { "name": "format", "type": "any" },
+            { "name": "text", "type": "string" }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["boxed", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "debuglog": {
+          "call": "ts_util_debuglog",
+          "hirName": "ts_util_debuglog",
+          "params": [{ "name": "section", "type": "string" }],
+          "returns": "Function",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "parseArgs": {
+          "call": "ts_util_parse_args",
+          "hirName": "ts_util_parseArgs",
+          "params": [{ "name": "config", "type": "any", "optional": true }],
+          "returns": "any",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "ptr"
+          }
+        },
+        "parseEnv": {
+          "call": "ts_util_parse_env",
+          "hirName": "ts_util_parseEnv",
+          "params": [{ "name": "content", "type": "string" }],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "transferableAbortController": {
+          "call": "ts_util_transferable_abort_controller",
+          "hirName": "ts_util_transferableAbortController",
+          "params": [],
+          "returns": "any",
+          "lowering": {
+            "args": [],
+            "returns": "ptr"
+          }
+        },
+        "transferableAbortSignal": {
+          "call": "ts_util_transferable_abort_signal",
+          "hirName": "ts_util_transferableAbortSignal",
+          "params": [{ "name": "signal", "type": "any" }],
+          "returns": "any",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "ptr"
+          }
+        }
+      },
+      "nestedObjects": {
+        "types": {
+          "methods": {
+            "isPromise": {
+              "call": "ts_util_types_is_promise",
+              "hirName": "ts_util_types_isPromise",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isTypedArray": {
+              "call": "ts_util_types_is_typed_array",
+              "hirName": "ts_util_types_isTypedArray",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isArrayBuffer": {
+              "call": "ts_util_types_is_array_buffer",
+              "hirName": "ts_util_types_isArrayBuffer",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isArrayBufferView": {
+              "call": "ts_util_types_is_array_buffer_view",
+              "hirName": "ts_util_types_isArrayBufferView",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isAsyncFunction": {
+              "call": "ts_util_types_is_async_function",
+              "hirName": "ts_util_types_isAsyncFunction",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isDate": {
+              "call": "ts_util_types_is_date",
+              "hirName": "ts_util_types_isDate",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isMap": {
+              "call": "ts_util_types_is_map",
+              "hirName": "ts_util_types_isMap",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isSet": {
+              "call": "ts_util_types_is_set",
+              "hirName": "ts_util_types_isSet",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isRegExp": {
+              "call": "ts_util_types_is_reg_exp",
+              "hirName": "ts_util_types_isRegExp",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isNativeError": {
+              "call": "ts_util_types_is_native_error",
+              "hirName": "ts_util_types_isNativeError",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isGeneratorFunction": {
+              "call": "ts_util_types_is_generator_function",
+              "hirName": "ts_util_types_isGeneratorFunction",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isGeneratorObject": {
+              "call": "ts_util_types_is_generator_object",
+              "hirName": "ts_util_types_isGeneratorObject",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isInt8Array": {
+              "call": "ts_util_types_is_int8_array",
+              "hirName": "ts_util_types_isInt8Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isInt16Array": {
+              "call": "ts_util_types_is_int16_array",
+              "hirName": "ts_util_types_isInt16Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isInt32Array": {
+              "call": "ts_util_types_is_int32_array",
+              "hirName": "ts_util_types_isInt32Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isUint8Array": {
+              "call": "ts_util_types_is_uint8_array",
+              "hirName": "ts_util_types_isUint8Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isUint8ClampedArray": {
+              "call": "ts_util_types_is_uint8_clamped_array",
+              "hirName": "ts_util_types_isUint8ClampedArray",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isUint16Array": {
+              "call": "ts_util_types_is_uint16_array",
+              "hirName": "ts_util_types_isUint16Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isUint32Array": {
+              "call": "ts_util_types_is_uint32_array",
+              "hirName": "ts_util_types_isUint32Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isFloat32Array": {
+              "call": "ts_util_types_is_float32_array",
+              "hirName": "ts_util_types_isFloat32Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isFloat64Array": {
+              "call": "ts_util_types_is_float64_array",
+              "hirName": "ts_util_types_isFloat64Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isBigInt64Array": {
+              "call": "ts_util_types_is_big_int64_array",
+              "hirName": "ts_util_types_isBigInt64Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isBigUint64Array": {
+              "call": "ts_util_types_is_big_uint64_array",
+              "hirName": "ts_util_types_isBigUint64Array",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isDataView": {
+              "call": "ts_util_types_is_data_view",
+              "hirName": "ts_util_types_isDataView",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isProxy": {
+              "call": "ts_util_types_is_proxy",
+              "hirName": "ts_util_types_isProxy",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isWeakMap": {
+              "call": "ts_util_types_is_weak_map",
+              "hirName": "ts_util_types_isWeakMap",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isWeakSet": {
+              "call": "ts_util_types_is_weak_set",
+              "hirName": "ts_util_types_isWeakSet",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isAnyArrayBuffer": {
+              "call": "ts_util_types_is_any_array_buffer",
+              "hirName": "ts_util_types_isAnyArrayBuffer",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isBooleanObject": {
+              "call": "ts_util_types_is_boolean_object",
+              "hirName": "ts_util_types_isBooleanObject",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isNumberObject": {
+              "call": "ts_util_types_is_number_object",
+              "hirName": "ts_util_types_isNumberObject",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isStringObject": {
+              "call": "ts_util_types_is_string_object",
+              "hirName": "ts_util_types_isStringObject",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isSymbolObject": {
+              "call": "ts_util_types_is_symbol_object",
+              "hirName": "ts_util_types_isSymbolObject",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isBoxedPrimitive": {
+              "call": "ts_util_types_is_boxed_primitive",
+              "hirName": "ts_util_types_isBoxedPrimitive",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isCryptoKey": {
+              "call": "ts_util_types_is_crypto_key",
+              "hirName": "ts_util_types_isCryptoKey",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isExternal": {
+              "call": "ts_util_types_is_external",
+              "hirName": "ts_util_types_isExternal",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isKeyObject": {
+              "call": "ts_util_types_is_key_object",
+              "hirName": "ts_util_types_isKeyObject",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isMapIterator": {
+              "call": "ts_util_types_is_map_iterator",
+              "hirName": "ts_util_types_isMapIterator",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isModuleNamespaceObject": {
+              "call": "ts_util_types_is_module_namespace_object",
+              "hirName": "ts_util_types_isModuleNamespaceObject",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isSetIterator": {
+              "call": "ts_util_types_is_set_iterator",
+              "hirName": "ts_util_types_isSetIterator",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            },
+            "isSharedArrayBuffer": {
+              "call": "ts_util_types_is_shared_array_buffer",
+              "hirName": "ts_util_types_isSharedArrayBuffer",
+              "params": [{ "name": "value", "type": "any" }],
+              "returns": "boolean",
+              "lowering": {
+                "args": ["boxed"],
+                "returns": "i1"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

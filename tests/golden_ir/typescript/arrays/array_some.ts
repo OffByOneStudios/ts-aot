@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define
-// CHECK: ts_array_create_specialized
+// CHECK: ts_array_create_sized
 // OUTPUT: true
 // OUTPUT: false
 

@@ -256,6 +256,13 @@ private:
     void lowerMakeClosure(HIRInstruction* inst);
     void lowerLoadCapture(HIRInstruction* inst);
     void lowerStoreCapture(HIRInstruction* inst);
+    void lowerLoadCaptureFromClosure(HIRInstruction* inst);
+    void lowerStoreCaptureFromClosure(HIRInstruction* inst);
+
+    // Function trampolines for dynamic calls
+    // Generates a trampoline that converts a function's native calling convention
+    // to the closure calling convention (context pointer, returns TsValue*)
+    llvm::Function* getOrCreateTrampoline(llvm::Function* originalFunc);
 
     // Control flow
     void lowerBranch(HIRInstruction* inst);
@@ -305,6 +312,7 @@ private:
     llvm::FunctionCallee getTsValueMakeBool();
     llvm::FunctionCallee getTsValueMakeString();
     llvm::FunctionCallee getTsValueMakeObject();
+    llvm::FunctionCallee getTsValueMakeFunction();
     llvm::FunctionCallee getTsValueGetInt();
     llvm::FunctionCallee getTsValueGetDouble();
     llvm::FunctionCallee getTsValueGetBool();

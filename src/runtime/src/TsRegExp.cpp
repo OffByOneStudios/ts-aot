@@ -306,9 +306,12 @@ extern "C" {
     }
 
     void* RegExp_exec(void* re, void* str) {
+        if (!re || !str) {
+            return nullptr;
+        }
         TsRegExp* r = (TsRegExp*)re;
         TsString* s = (TsString*)str;
-        return r->Exec(s);
+        return r->Exec(s);  // Return raw result array or null
     }
 
     int64_t RegExp_get_lastIndex(void* re) {
