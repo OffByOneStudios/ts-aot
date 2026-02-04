@@ -164,175 +164,176 @@ void LoweringRegistry::registerBuiltinsImpl() {
     // ========================================
     // Math functions (using libm directly where possible)
     // ========================================
+    // Math functions - use ArgConversion::ToF64 since HIR may pass i64 literals
     reg.registerLowering("ts_math_abs",
         lowering("ts_math_abs")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_floor",
         lowering("floor")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_ceil",
         lowering("ceil")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_round",
         lowering("round")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_trunc",
         lowering("trunc")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_sqrt",
         lowering("sqrt")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_cbrt",
         lowering("cbrt")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_sin",
         lowering("sin")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_cos",
         lowering("cos")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_tan",
         lowering("tan")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_asin",
         lowering("asin")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_acos",
         lowering("acos")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_atan",
         lowering("atan")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_atan2",
         lowering("atan2")
             .returnsF64()
-            .f64Arg()   // y
-            .f64Arg()   // x
+            .f64Arg(ArgConversion::ToF64)   // y
+            .f64Arg(ArgConversion::ToF64)   // x
             .build());
 
     reg.registerLowering("ts_math_sinh",
         lowering("sinh")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_cosh",
         lowering("cosh")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_tanh",
         lowering("tanh")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_asinh",
         lowering("asinh")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_acosh",
         lowering("acosh")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_atanh",
         lowering("atanh")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_exp",
         lowering("exp")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_expm1",
         lowering("expm1")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_log",
         lowering("log")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_log10",
         lowering("log10")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_log2",
         lowering("log2")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_log1p",
         lowering("log1p")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_pow",
         lowering("pow")
             .returnsF64()
-            .f64Arg()   // base
-            .f64Arg()   // exponent
+            .f64Arg(ArgConversion::ToF64)   // base
+            .f64Arg(ArgConversion::ToF64)   // exponent
             .build());
 
     reg.registerLowering("ts_math_hypot",
         lowering("hypot")
             .returnsF64()
-            .f64Arg()   // x
-            .f64Arg()   // y
+            .f64Arg(ArgConversion::ToF64)   // x
+            .f64Arg(ArgConversion::ToF64)   // y
             .build());
 
     reg.registerLowering("ts_math_random",
@@ -343,26 +344,26 @@ void LoweringRegistry::registerBuiltinsImpl() {
     reg.registerLowering("ts_math_sign",
         lowering("ts_math_sign")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_fround",
         lowering("ts_math_fround")
             .returnsF64()
-            .f64Arg()
+            .f64Arg(ArgConversion::ToF64)
             .build());
 
     reg.registerLowering("ts_math_clz32",
         lowering("ts_math_clz32")
             .returnsI64()
-            .i64Arg()
+            .i64Arg(ArgConversion::ToI64)
             .build());
 
     reg.registerLowering("ts_math_imul",
         lowering("ts_math_imul")
             .returnsI64()
-            .i64Arg()
-            .i64Arg()
+            .i64Arg(ArgConversion::ToI64)
+            .i64Arg(ArgConversion::ToI64)
             .build());
 
     // ts_math_min and ts_math_max need variadic or array handling - skip for now
@@ -668,6 +669,14 @@ void LoweringRegistry::registerBuiltinsImpl() {
     // ========================================
     // String methods
     // ========================================
+
+    // String() constructor - converts any value to string
+    reg.registerLowering("ts_to_string",
+        lowering("ts_string_from_value")
+            .returnsPtr()
+            .boxedArg()    // value to convert (box it first)
+            .build());
+
     reg.registerLowering("ts_string_length",
         lowering("ts_string_length")
             .returnsI64()
@@ -724,6 +733,16 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_indexOf",
+        lowering("ts_string_indexOf")
+            .returnsI64()
+            .ptrArg()      // string
+            .ptrArg()      // searchString
+            .build());
+
+    // Workaround: ts_path_indexOf is generated when a variable named 'path'
+    // (which is a string) has indexOf called on it - ASTToHIR confuses it
+    // with the path module. Map to ts_string_indexOf.
+    reg.registerLowering("ts_path_indexOf",
         lowering("ts_string_indexOf")
             .returnsI64()
             .ptrArg()      // string
@@ -1003,7 +1022,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
     reg.registerLowering("ts_json_stringify",
         lowering("ts_json_stringify")
             .returnsPtr()
-            .ptrArg()      // object
+            .boxedArg()    // object (box primitives like int, bool, double)
             .ptrArg()      // replacer (null)
             .ptrArg()      // space (null)
             .build());

@@ -10,7 +10,7 @@
 | Suite | Passed | Failed | Total | Pass Rate | Command |
 |-------|--------|--------|-------|-----------|---------|
 | golden_ir | 121 | 25 | 146 | 82.9% | `python tests/golden_ir/runner.py tests/golden_ir` |
-| node | 156 | 124 | 280 | 55.7% | `python tests/node/run_tests.py` |
+| node | 176 | 104 | 280 | 62.9% | `python tests/node/run_tests.py` |
 | golden_hir | N/A | N/A | 100+ | N/A | Runner does not exist |
 
 **Note:** golden_hir has 100+ test files but no runner.py. Tests are manually validated via `--dump-hir`.
@@ -23,7 +23,11 @@
 - After ts_array_isArray fix: 152/280 (54.3%), 82 compile errors
 - After fetch/require fix: 155/280 (55.4%), 75 compile errors
 - After Array.from fix: 156/280 (55.7%), 74 compile errors
-- Delta from session start: +58 tests, -77 compile errors
+- After ts_to_string/ts_path_indexOf fix: 157/280 (56.1%), 72 compile errors
+- After Math/JSON fixes: 160/280 (57.1%), 67 compile errors
+- After timer function fixes: 174/280 (62.1%), 50 compile errors
+- After try/catch block restore fix: 176/280 (62.9%), 48 compile errors
+- Delta from session start: +78 tests, -103 compile errors
 
 ---
 
@@ -128,8 +132,8 @@
 
 ## Node Test Failures Summary
 
-**74 compile errors** - mostly due to missing runtime functions or naming mismatches
-**50 runtime failures** - various issues including access violations
+**48 compile errors** - closure capture in user_main, variadic args, type mismatches
+**56 runtime failures** - various issues including access violations
 
 ### Fixed Issues (this session):
 1. Added missing console functions (ts_console_assert, ts_console_warn, ts_console_info, ts_console_debug)
@@ -144,23 +148,26 @@
 10. Added lowering registrations for fetch -> ts_fetch and require -> ts_require
 11. Added ArgConversion::ToI64 for array method index params (toSpliced, with, splice)
 12. Added ts_array_from lowering registration
+13. Fixed Math function type mismatches (Math.sign, Math.trunc expect f64, not i64)
+14. Fixed JSON.stringify type mismatch (needs boxing)
+15. Added hardcoded handlers for timer functions (setTimeout, setInterval, setImmediate, clearTimeout, clearInterval, clearImmediate) in HIRToLLVM to handle mangled names and type conversions (double→i64 for delay)
+16. Fixed try/catch block restore bug in visitFunctionDeclaration - nested functions inside try blocks now properly restore currentBlock_ instead of entry block
 
-### Remaining compile error categories (74 errors):
-- Undefined symbol: ts_to_string (1 test)
-- Undefined symbol: ts_path_indexOf (1 test)
+### Remaining compile error categories (48 errors):
+- Closure capture in user_main: "no closure parameter available" errors
 - Variadic args not packed into array: Array.of, toSpliced with items
-- Missing basic block terminators in try/catch: async tests, crypto tests
-- Type mismatches in various other calls
+- Call parameter type mismatches: assert_bool/assert_dbl expecting ptr instead of native types
 
 ---
 
 ## Last Action
 
-Added type conversions and lowering registrations:
-1. Added `ArgConversion::ToI64` for array method index parameters (toSpliced, with, splice)
-2. Added `ts_array_from` lowering registration with proper 3-arg signature
+Fixed try/catch block restore bug in ASTToHIR.cpp visitFunctionDeclaration:
+- Problem: When a function is declared inside a try block (e.g., `async function getString() {...}`), the code saved `currentFunction_` but restored `currentBlock_` to the entry block instead of the try block
+- Solution: Save and restore both `currentFunction_` AND `currentBlock_`
+- Impact: Async tests with nested function declarations inside try blocks now compile
 
-Result: Node tests improved from 155/280 (55.4%) to 156/280 (55.7%)
+Result: Node tests improved from 174/280 (62.1%) to 176/280 (62.9%), +2 tests
 
 ---
 
@@ -168,34 +175,34 @@ Result: Node tests improved from 155/280 (55.4%) to 156/280 (55.7%)
 
 Continue improving Node test pass rate:
 
-### Priority 1: Fix Remaining Compile Errors (74 total)
+### Priority 1: Fix Remaining Compile Errors (48 total)
 
-**Undefined symbols (2 tests):**
-- `ts_to_string` - needs lowering registration
-- `ts_path_indexOf` - needs lowering registration
+**Closure capture in user_main (~20 errors):**
+- Error: "LoadCapture 'varname': no closure parameter available"
+- Cause: Tests use arrow functions that capture variables from user_main
+- Arrow functions in user_main try to capture variables but user_main is not a closure
+- May need to promote captured vars to allocas or handle user_main specially
 
-**Variadic argument handling (multiple tests):**
-- `Array.of()` - requires runtime implementation with variadic support
+**Variadic argument handling (~7 errors):**
+- `Array.of()` - ts_array_of needs to be variadic or use array packing
 - `arr.toSpliced(start, count, ...items)` - items need to be packed into array
 
-**Try/catch terminator issues (multiple tests):**
-- Basic blocks in try/catch don't have terminators
-- Affects async tests, some crypto tests
+**Assert function type mismatches:**
+- `assert_bool`/`assert_dbl` expected to take ptr but receiving native types
+- Need to register proper lowering for assert functions
 
-### Priority 2: Fix Runtime Failures (~50 tests)
+### Priority 2: Fix Runtime Failures (~56 tests)
 
 **Common patterns:**
 - Access violations in buffer operations (Buffer.alloc, Buffer.fill, etc.)
 - Access violations in WeakSet/WeakMap operations
 - Incorrect output in assert module tests
+- Timer-related runtime issues (event loop not running, callback not invoked)
 
 ### Priority 3: Implement Missing Runtime Functions
 
 **Array static methods:**
-- `ts_array_of` - Array.of(...items) static method
-
-**String methods:**
-- `ts_to_string` - generic toString conversion
+- `ts_array_of` - Array.of(...items) static method needs variadic support
 
 ---
 

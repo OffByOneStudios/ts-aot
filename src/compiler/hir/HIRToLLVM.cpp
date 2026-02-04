@@ -2965,8 +2965,20 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         funcName == "ts_math_abs" || funcName == "ts_math_sqrt" ||
         funcName == "ts_math_sin" || funcName == "ts_math_cos" ||
         funcName == "ts_math_tan" || funcName == "ts_math_log" ||
-        funcName == "ts_math_exp") {
+        funcName == "ts_math_exp" || funcName == "ts_math_sign" ||
+        funcName == "ts_math_fround" || funcName == "ts_math_cbrt" ||
+        funcName == "ts_math_sinh" || funcName == "ts_math_cosh" ||
+        funcName == "ts_math_tanh" || funcName == "ts_math_asinh" ||
+        funcName == "ts_math_acosh" || funcName == "ts_math_atanh" ||
+        funcName == "ts_math_asin" || funcName == "ts_math_acos" ||
+        funcName == "ts_math_atan" || funcName == "ts_math_expm1" ||
+        funcName == "ts_math_log10" || funcName == "ts_math_log2" ||
+        funcName == "ts_math_log1p") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
+        // Convert i64 to double if needed (JS numbers are doubles)
+        if (arg->getType()->isIntegerTy()) {
+            arg = builder_->CreateSIToFP(arg, builder_->getDoubleTy(), "i64_to_f64");
+        }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getDoubleTy(), { builder_->getDoubleTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
@@ -2977,10 +2989,17 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
-    // Handle Math.pow - takes two double arguments
-    if (funcName == "ts_math_pow") {
+    // Handle Math.pow, atan2, hypot - takes two double arguments
+    if (funcName == "ts_math_pow" || funcName == "ts_math_atan2" || funcName == "ts_math_hypot") {
         llvm::Value* base = getOperandValue(inst->operands[1]);
         llvm::Value* exp = getOperandValue(inst->operands[2]);
+        // Convert i64 to double if needed
+        if (base->getType()->isIntegerTy()) {
+            base = builder_->CreateSIToFP(base, builder_->getDoubleTy(), "i64_to_f64");
+        }
+        if (exp->getType()->isIntegerTy()) {
+            exp = builder_->CreateSIToFP(exp, builder_->getDoubleTy(), "i64_to_f64");
+        }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getDoubleTy(), { builder_->getDoubleTy(), builder_->getDoubleTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
@@ -2995,6 +3014,13 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     if (funcName == "ts_math_min" || funcName == "ts_math_max") {
         llvm::Value* a = getOperandValue(inst->operands[1]);
         llvm::Value* b = getOperandValue(inst->operands[2]);
+        // Convert i64 to double if needed
+        if (a->getType()->isIntegerTy()) {
+            a = builder_->CreateSIToFP(a, builder_->getDoubleTy(), "i64_to_f64");
+        }
+        if (b->getType()->isIntegerTy()) {
+            b = builder_->CreateSIToFP(b, builder_->getDoubleTy(), "i64_to_f64");
+        }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getDoubleTy(), { builder_->getDoubleTy(), builder_->getDoubleTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
@@ -3013,6 +3039,126 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), {});
         if (inst->result) {
             setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Math.clz32 - takes one i64 argument, returns i64
+    if (funcName == "ts_math_clz32") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        // Convert double to i64 if needed
+        if (arg->getType()->isDoubleTy()) {
+            arg = builder_->CreateFPToSI(arg, builder_->getInt64Ty(), "f64_to_i64");
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt64Ty(), { builder_->getInt64Ty() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Math.imul - takes two i64 arguments, returns i64
+    if (funcName == "ts_math_imul") {
+        llvm::Value* a = getOperandValue(inst->operands[1]);
+        llvm::Value* b = getOperandValue(inst->operands[2]);
+        // Convert double to i64 if needed
+        if (a->getType()->isDoubleTy()) {
+            a = builder_->CreateFPToSI(a, builder_->getInt64Ty(), "f64_to_i64");
+        }
+        if (b->getType()->isDoubleTy()) {
+            b = builder_->CreateFPToSI(b, builder_->getInt64Ty(), "f64_to_i64");
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt64Ty(), { builder_->getInt64Ty(), builder_->getInt64Ty() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { a, b });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle setTimeout/setInterval - mangled names like setTimeout_any_dbl
+    // Runtime function: ts_set_timeout(TsValue* callback, int64_t delay) -> TsValue*
+    if (funcName.rfind("setTimeout", 0) == 0 || funcName.rfind("setInterval", 0) == 0) {
+        bool isTimeout = funcName.rfind("setTimeout", 0) == 0;
+        std::string runtimeFunc = isTimeout ? "ts_set_timeout" : "ts_set_interval";
+
+        llvm::Value* callback = getOperandValue(inst->operands[1]);
+        llvm::Value* delay = getOperandValue(inst->operands[2]);
+
+        // Box callback if needed
+        if (!callback->getType()->isPointerTy()) {
+            if (callback->getType()->isIntegerTy(64)) {
+                auto boxFn = getTsValueMakeInt();
+                callback = builder_->CreateCall(boxFn, { callback });
+            }
+        }
+
+        // Convert delay from double to i64 if needed
+        if (delay->getType()->isDoubleTy()) {
+            delay = builder_->CreateFPToSI(delay, builder_->getInt64Ty(), "delay_to_i64");
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getInt64Ty() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(runtimeFunc, ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { callback, delay });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle setImmediate - mangled names like setImmediate_any
+    // Runtime function: ts_set_immediate(TsValue* callback) -> TsValue*
+    if (funcName.rfind("setImmediate", 0) == 0 && funcName.rfind("clearImmediate", 0) != 0) {
+        llvm::Value* callback = getOperandValue(inst->operands[1]);
+
+        // Box callback if needed
+        if (!callback->getType()->isPointerTy()) {
+            if (callback->getType()->isIntegerTy(64)) {
+                auto boxFn = getTsValueMakeInt();
+                callback = builder_->CreateCall(boxFn, { callback });
+            }
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_set_immediate", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { callback });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle clearTimeout/clearInterval/clearImmediate - mangled names
+    // Runtime function: ts_clear_timer(TsValue* timerId) -> void
+    if (funcName.rfind("clearTimeout", 0) == 0 || funcName.rfind("clearInterval", 0) == 0 ||
+        funcName.rfind("clearImmediate", 0) == 0) {
+        llvm::Value* timerId = getOperandValue(inst->operands[1]);
+
+        // Box timerId if needed - it should be a TsValue* (timer handle)
+        if (timerId->getType()->isDoubleTy()) {
+            // Convert double to i64 first, then box
+            timerId = builder_->CreateFPToSI(timerId, builder_->getInt64Ty(), "timer_to_i64");
+            auto boxFn = getTsValueMakeInt();
+            timerId = builder_->CreateCall(boxFn, { timerId });
+        } else if (timerId->getType()->isIntegerTy(64)) {
+            auto boxFn = getTsValueMakeInt();
+            timerId = builder_->CreateCall(boxFn, { timerId });
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getVoidTy(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_clear_timer", ft);
+        builder_->CreateCall(ft, fn.getCallee(), { timerId });
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
         }
         return;
     }
@@ -3601,6 +3747,27 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         // ts_json_stringify(void* obj, void* replacer, void* space) -> TsString*
         // replacer and space are optional - pass null if not provided
         llvm::Value* obj = getOperandValue(inst->operands[1]);
+        // Box the object if it's a primitive type (int, bool, double)
+        if (obj->getType()->isIntegerTy(64)) {
+            // Box integer as TsValue
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+            llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFt);
+            obj = builder_->CreateCall(boxFt, boxFn.getCallee(), { obj });
+        } else if (obj->getType()->isIntegerTy(1)) {
+            // Box boolean as TsValue
+            llvm::Value* extended = builder_->CreateZExt(obj, builder_->getInt64Ty());
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+            llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_bool", boxFt);
+            obj = builder_->CreateCall(boxFt, boxFn.getCallee(), { builder_->CreateTrunc(extended, builder_->getInt1Ty()) });
+        } else if (obj->getType()->isDoubleTy()) {
+            // Box double as TsValue
+            llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+            llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_double", boxFt);
+            obj = builder_->CreateCall(boxFt, boxFn.getCallee(), { obj });
+        }
         llvm::Value* replacer = llvm::ConstantPointerNull::get(builder_->getPtrTy());
         llvm::Value* space = llvm::ConstantPointerNull::get(builder_->getPtrTy());
         if (inst->operands.size() > 2) {
