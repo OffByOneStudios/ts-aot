@@ -208,14 +208,21 @@ Fixed function hoisting, default params, and variadic arg packing:
 
 ## Next Action
 
-Continue improving test pass rate. Priorities:
+### Priority 0: Variadic Registry Architecture (HIR-003)
+
+**See:** [HIR-003-variadic-registry-architecture.md](HIR-003-variadic-registry-architecture.md)
+
+Implement registry-driven variadic function handling to eliminate hardcoded
+string checks in ASTToHIR and HIRToLLVM. 8 phases, each independently testable.
+
+**Current Phase:** Not Started
 
 ### Priority 1: Fix Remaining Compile Errors (29 total)
 
-**Variadic argument handling:**
-- `Array.of()` - needs variadic support or array packing
-- `arr.toSpliced(start, count, ...items)` - items need to be packed into array
-- `util.format` - PARTIALLY FIXED (packing works, but needs testing)
+**After HIR-003 completion:**
+- `Array.of()` - will be handled by registry
+- `arr.toSpliced(start, count, ...items)` - will be handled by registry
+- `util.format` - will be handled by registry
 
 **Generator crashes:**
 - async generator and function* patterns cause compilation failures
