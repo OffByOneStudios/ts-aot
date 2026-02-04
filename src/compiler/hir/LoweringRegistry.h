@@ -32,6 +32,14 @@ enum class ReturnHandling {
     BoxResult,      // Box the raw result before returning
 };
 
+/// How to handle variadic/rest parameters
+enum class VariadicHandling {
+    None,           // Fixed args, no special handling
+    PackArray,      // Pack rest args into TsArray before call
+    TypeDispatch,   // Emit type-specific calls (ts_console_log_int, etc.)
+    Inline          // Handled inline in HIRToLLVM (Math.max, etc.)
+};
+
 /// Type factory for LLVM types
 using LLVMTypeFactory = std::function<llvm::Type*(llvm::LLVMContext&)>;
 
@@ -51,8 +59,14 @@ struct LoweringSpec {
     // How to handle return value
     ReturnHandling returnHandling = ReturnHandling::Raw;
 
-    // Whether function is variadic
+    // Whether function is variadic (LLVM-level varargs)
     bool isVariadic = false;
+
+    // How to handle variadic/rest parameters at HIR level
+    VariadicHandling variadicHandling = VariadicHandling::None;
+
+    // Index where rest parameters start (SIZE_MAX if none)
+    size_t restParamIndex = SIZE_MAX;
 };
 
 /// Builder pattern for creating LoweringSpec
@@ -153,6 +167,12 @@ public:
 
     LoweringSpecBuilder& variadic() {
         spec_.isVariadic = true;
+        return *this;
+    }
+
+    LoweringSpecBuilder& variadicHandling(VariadicHandling handling, size_t restIndex = 0) {
+        spec_.variadicHandling = handling;
+        spec_.restParamIndex = restIndex;
         return *this;
     }
 
