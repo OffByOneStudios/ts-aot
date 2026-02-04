@@ -99,6 +99,7 @@ extern "C" {
     TsValue* ts_value_make_object(void* obj);
     TsValue* ts_value_make_promise(void* promise);
     TsValue* ts_value_make_array(void* arr);
+    TsValue* ts_ensure_boxed(void* v);     // Ensure value is boxed TsValue* (for default params)
     TsValue* ts_value_box_any(void* ptr);  // Box any pointer by runtime type detection
     TsValue* ts_value_make_function(void* funcPtr, void* context);
     TsValue* ts_value_make_function_with_arity(void* funcPtr, void* context, int arity);

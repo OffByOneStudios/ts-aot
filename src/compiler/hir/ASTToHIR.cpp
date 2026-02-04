@@ -117,6 +117,11 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     paramType = HIRType::makeAny();
                 }
 
+                // If parameter has a default value, it must be Any type to receive undefined
+                if (param->initializer) {
+                    paramType = HIRType::makeAny();
+                }
+
                 // Get parameter name
                 std::string paramName;
                 if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
@@ -177,6 +182,12 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     currentBlock_ = defaultBB;
                     auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
                     auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
+                    // Force box the default value if parameter type is Any
+                    // We use forceBoxValue because the expression might be a function call
+                    // that gets inlined later, changing its type from Any to a concrete type
+                    if (paramType->kind == HIRTypeKind::Any) {
+                        defaultVal = forceBoxValue(defaultVal);
+                    }
                     builder_.createStore(defaultVal, allocaVal);
                     builder_.createBranch(mergeBB);
 
@@ -198,11 +209,49 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
 
-            // Lower function body
+            // JavaScript function hoisting: pre-declare nested function names as variables
+            // This allows functions to be called before they appear in source order.
+            // We create allocas for function names, which will be filled when the function
+            // declaration is processed. Calls to these names will use indirect call.
             for (auto& stmt : funcNode->body) {
-                lowerStatement(stmt.get());
-                if (builder_.isBlockTerminated()) {
-                    break;
+                if (auto* nestedFunc = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                    // Create a function type for the closure
+                    auto nestedFuncType = std::make_shared<HIRType>(HIRTypeKind::Function);
+                    for (auto& param : nestedFunc->parameters) {
+                        std::shared_ptr<HIRType> paramType = HIRType::makeAny();
+                        if (!param->type.empty()) {
+                            paramType = convertTypeFromString(param->type);
+                        }
+                        nestedFuncType->paramTypes.push_back(paramType);
+                    }
+                    nestedFuncType->returnType = nestedFunc->returnType.empty()
+                        ? HIRType::makeAny()
+                        : convertTypeFromString(nestedFunc->returnType);
+
+                    // Create an alloca for the function variable (will hold closure or function ptr)
+                    auto allocaVal = builder_.createAlloca(nestedFuncType, nestedFunc->name);
+                    // Initialize with null - will be set when the function is processed
+                    builder_.createStore(builder_.createConstNull(), allocaVal);
+                    defineVariableAlloca(nestedFunc->name, allocaVal, nestedFuncType);
+                }
+            }
+
+            // Lower function body in two passes for proper JavaScript function hoisting:
+            // FIRST PASS: Process FunctionDeclarations to create closures
+            // This ensures nested functions are available before any other code runs.
+            for (auto& stmt : funcNode->body) {
+                if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                    lowerStatement(stmt.get());
+                }
+            }
+
+            // SECOND PASS: Process non-FunctionDeclaration statements in order
+            for (auto& stmt : funcNode->body) {
+                if (!dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                    lowerStatement(stmt.get());
+                    if (builder_.isBlockTerminated()) {
+                        break;
+                    }
                 }
             }
 
@@ -277,10 +326,19 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
             func->nextValueId = static_cast<uint32_t>(func->params.size());
 
+            // Two-pass for function hoisting: FIRST process FunctionDeclarations
             for (auto& stmt : methodNode->body) {
-                lowerStatement(stmt.get());
-                if (builder_.isBlockTerminated()) {
-                    break;
+                if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                    lowerStatement(stmt.get());
+                }
+            }
+            // SECOND pass: process non-FunctionDeclaration statements
+            for (auto& stmt : methodNode->body) {
+                if (!dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                    lowerStatement(stmt.get());
+                    if (builder_.isBlockTerminated()) {
+                        break;
+                    }
                 }
             }
 
@@ -489,6 +547,38 @@ std::shared_ptr<HIRValue> ASTToHIR::boxValueIfNeeded(std::shared_ptr<HIRValue> v
     }
 }
 
+std::shared_ptr<HIRValue> ASTToHIR::forceBoxValue(std::shared_ptr<HIRValue> value) {
+    // Force boxing regardless of the current type
+    // This is needed for cases where the type at HIR level might be Any
+    // but after inlining the actual value could be an unboxed primitive
+    if (!value->type) {
+        return value;  // No type info, return as-is
+    }
+
+    switch (value->type->kind) {
+        case HIRTypeKind::Int64:
+            return builder_.createBoxInt(value);
+        case HIRTypeKind::Float64:
+            return builder_.createBoxFloat(value);
+        case HIRTypeKind::Bool:
+            return builder_.createBoxBool(value);
+        case HIRTypeKind::String:
+            return builder_.createBoxString(value);
+        case HIRTypeKind::Object:
+        case HIRTypeKind::Array:
+        case HIRTypeKind::Function:
+        case HIRTypeKind::Class:
+            return builder_.createBoxObject(value);
+        case HIRTypeKind::Any:
+        case HIRTypeKind::Ptr:
+            // Type says it's already a pointer, but after inlining it might not be
+            // Use runtime check: ts_ensure_boxed will check and box if needed
+            return builder_.createCall("ts_ensure_boxed", {value}, HIRType::makeAny());
+        default:
+            return value;
+    }
+}
+
 //==============================================================================
 // Type Conversion
 //==============================================================================
@@ -674,6 +764,11 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             ? HIRType::makeAny()
             : convertTypeFromString(param->type);
 
+        // If parameter has a default value, it must be Any type to receive undefined
+        if (param->initializer) {
+            paramType = HIRType::makeAny();
+        }
+
         // Get parameter name from NodePtr (it's a unique_ptr<Node>)
         std::string paramName;
         if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
@@ -704,7 +799,10 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // Save current function AND current block (needed for nested functions in try/catch)
     HIRFunction* savedFunc = currentFunction_;
     HIRBlock* savedBlock = currentBlock_;
+    auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
+
     currentFunction_ = func.get();
+    clearPendingCaptures();  // Start fresh for this function
 
     // Create entry block
     auto entryBlock = func->createBlock("entry");
@@ -753,6 +851,12 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             currentBlock_ = defaultBB;
             auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
             auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
+            // Force box the default value if parameter type is Any
+            // We use forceBoxValue because the expression might be a function call
+            // that gets inlined later, changing its type from Any to a concrete type
+            if (paramType->kind == HIRTypeKind::Any) {
+                defaultVal = forceBoxValue(defaultVal);
+            }
             builder_.createStore(defaultVal, allocaVal);
             builder_.createBranch(mergeBB);
 
@@ -779,14 +883,54 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         emitDeferredStaticInits();
     }
 
-    // Lower function body
+    // JavaScript function hoisting: pre-declare nested function names as variables
+    // This allows functions to be called before they appear in source order.
+    // We create allocas for function names, which will be filled when the function
+    // declaration is processed. Calls to these names will use indirect call.
+    for (auto& stmt : node->body) {
+        if (auto* funcDecl = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            // Create a function type for the closure
+            auto funcType = std::make_shared<HIRType>(HIRTypeKind::Function);
+            for (auto& param : funcDecl->parameters) {
+                std::shared_ptr<HIRType> paramType = HIRType::makeAny();
+                if (!param->type.empty()) {
+                    paramType = convertTypeFromString(param->type);
+                }
+                funcType->paramTypes.push_back(paramType);
+            }
+            funcType->returnType = funcDecl->returnType.empty()
+                ? HIRType::makeAny()
+                : convertTypeFromString(funcDecl->returnType);
+
+            // Create an alloca for the function variable (will hold closure or function ptr)
+            auto allocaVal = builder_.createAlloca(funcType, funcDecl->name);
+            // Initialize with null - will be set when the function is processed
+            builder_.createStore(builder_.createConstNull(), allocaVal);
+            defineVariableAlloca(funcDecl->name, allocaVal, funcType);
+        }
+    }
+
+    // Lower function body in two passes for proper JavaScript function hoisting:
+    // FIRST PASS: Process FunctionDeclarations to create closures
+    // This ensures nested functions are available before any other code runs,
+    // matching JavaScript semantics where function declarations are hoisted.
     for (size_t i = 0; i < node->body.size(); ++i) {
         auto& stmt = node->body[i];
-        lowerStatement(stmt.get());
-        // Stop processing statements after a terminator (return, throw, etc.)
-        // This prevents dead code from being emitted after control flow ends
-        if (builder_.isBlockTerminated()) {
-            break;
+        if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            lowerStatement(stmt.get());
+        }
+    }
+
+    // SECOND PASS: Process non-FunctionDeclaration statements in order
+    for (size_t i = 0; i < node->body.size(); ++i) {
+        auto& stmt = node->body[i];
+        if (!dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            lowerStatement(stmt.get());
+            // Stop processing statements after a terminator (return, throw, etc.)
+            // This prevents dead code from being emitted after control flow ends
+            if (builder_.isBlockTerminated()) {
+                break;
+            }
         }
     }
 
@@ -795,17 +939,133 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         builder_.createReturnVoid();
     }
 
+    // Copy pending captures to the function's captures list
+    for (const auto& cap : pendingCaptures_) {
+        func->captures.push_back({cap.name, cap.type});
+    }
+    bool hasClosure = !pendingCaptures_.empty();
+
+    // Save the captures list for later use (after we restore context)
+    std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> innerCaptures = func->captures;
+
     popScope();
+
+    // Get the function pointer before we move it
+    HIRFunction* funcPtr = func.get();
 
     // Restore saved function and block
     currentFunction_ = savedFunc;
-    if (savedFunc && savedBlock) {
+    currentBlock_ = savedBlock;
+    pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
+    if (savedBlock) {
         builder_.setInsertPoint(savedBlock);
-        currentBlock_ = savedBlock;
     }
 
     // Add function to module
     module_->functions.push_back(std::move(func));
+
+    // For nested functions (when savedFunc != nullptr), we need to handle closures
+    // If this is a nested function with captures, create a closure and define
+    // the function name as a closure variable in the outer scope
+    if (savedFunc && hasClosure) {
+        // Build function type for the closure
+        auto closureFuncType = std::make_shared<HIRType>(HIRTypeKind::Function);
+        for (const auto& [paramName, paramType] : funcPtr->params) {
+            closureFuncType->paramTypes.push_back(paramType);
+        }
+        closureFuncType->returnType = funcPtr->returnType;
+
+        // Create a closure with captured values
+        std::vector<std::shared_ptr<HIRValue>> captureValues;
+        for (const auto& cap : innerCaptures) {
+            const std::string& capName = cap.first;
+            const auto& capType = cap.second;
+
+            // Check if this variable requires capture propagation
+            size_t scopeIndex = 0;
+            bool needsCapturePropagation = isCapturedVariable(capName, &scopeIndex);
+
+            if (needsCapturePropagation) {
+                // Variable is in an outer function's scope - propagate the capture
+                registerCapture(capName, capType, scopeIndex);
+                currentFunction_->hasClosure = true;
+                bool alreadyInCaptures = false;
+                for (const auto& existingCap : currentFunction_->captures) {
+                    if (existingCap.first == capName) {
+                        alreadyInCaptures = true;
+                        break;
+                    }
+                }
+                if (!alreadyInCaptures) {
+                    currentFunction_->captures.push_back({capName, capType});
+                }
+                auto val = builder_.createLoadCapture(capName, capType);
+                captureValues.push_back(val);
+            } else {
+                // Variable is directly accessible in the current function's scope
+                auto* info = lookupVariableInfo(capName);
+                if (info) {
+                    std::shared_ptr<HIRValue> val;
+                    if (info->isAlloca && info->elemType) {
+                        val = builder_.createLoad(info->elemType, info->value);
+                    } else {
+                        val = info->value;
+                    }
+                    captureValues.push_back(val);
+                } else {
+                    captureValues.push_back(builder_.createConstNull());
+                }
+            }
+        }
+
+        auto closureVal = builder_.createMakeClosure(node->name, captureValues, closureFuncType);
+
+        // Mark captured variables as "captured by nested"
+        int captureIdx = 0;
+        for (const auto& cap : innerCaptures) {
+            const std::string& capName = cap.first;
+            size_t scopeIndex = 0;
+            if (!isCapturedVariable(capName, &scopeIndex)) {
+                auto* info = lookupVariableInfo(capName);
+                if (info && !info->isCapturedByNested) {
+                    info->isCapturedByNested = true;
+                    info->closurePtr = closureVal;
+                    info->captureIndex = captureIdx;
+                }
+            }
+            captureIdx++;
+        }
+
+        // Store the closure into the pre-created alloca (if it exists)
+        // This enables function hoisting - the alloca was created before processing statements
+        auto* existingInfo = lookupVariableInfo(node->name);
+        if (existingInfo && existingInfo->isAlloca) {
+            builder_.createStore(closureVal, existingInfo->value);
+        } else {
+            // No pre-created alloca, define the function name as a closure variable
+            defineVariable(node->name, closureVal);
+        }
+    } else if (savedFunc) {
+        // Nested function without captures - still store it so it can be called
+        // Build function type
+        auto funcType = std::make_shared<HIRType>(HIRTypeKind::Function);
+        for (const auto& [paramName, paramType] : funcPtr->params) {
+            funcType->paramTypes.push_back(paramType);
+        }
+        funcType->returnType = funcPtr->returnType;
+
+        // Create a closure with no captures (for call_indirect compatibility)
+        std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
+        auto closureVal = builder_.createMakeClosure(node->name, emptyCaptureValues, funcType);
+
+        // Store into pre-created alloca or define new variable
+        auto* existingInfo = lookupVariableInfo(node->name);
+        if (existingInfo && existingInfo->isAlloca) {
+            builder_.createStore(closureVal, existingInfo->value);
+        } else {
+            defineVariable(node->name, closureVal);
+        }
+    }
 }
 
 void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
@@ -2329,8 +2589,55 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // Check against ExtensionRegistry instead of hardcoded list
             auto& registry = ext::ExtensionRegistry::instance();
             if (registry.isRegisteredModule(classNameIdent->name) || registry.isRegisteredObject(classNameIdent->name)) {
-                // Emit direct call to ts_<module>_<method>
+                // Check if the method has rest parameters that need array packing
+                const ext::MethodDefinition* methodDef = registry.findObjectMethod(classNameIdent->name, propAccess->name);
                 std::string runtimeFunc = "ts_" + classNameIdent->name + "_" + propAccess->name;
+
+                if (methodDef) {
+                    // Find if there's a rest parameter and at what position
+                    size_t restParamIndex = SIZE_MAX;
+                    for (size_t i = 0; i < methodDef->params.size(); ++i) {
+                        if (methodDef->params[i].rest) {
+                            restParamIndex = i;
+                            break;
+                        }
+                    }
+
+                    // Skip array packing for console functions - they have special type-dispatch
+                    // handling in HIRToLLVM that expects individual arguments, not an array
+                    bool isConsoleFunctionWithSpecialHandling =
+                        classNameIdent->name == "console" &&
+                        (propAccess->name == "log" || propAccess->name == "error" ||
+                         propAccess->name == "warn" || propAccess->name == "info" ||
+                         propAccess->name == "debug");
+
+                    if (restParamIndex != SIZE_MAX && args.size() >= restParamIndex &&
+                        !isConsoleFunctionWithSpecialHandling) {
+                        // Pack all arguments from restParamIndex onwards into an array
+                        std::vector<std::shared_ptr<HIRValue>> packedArgs;
+
+                        // Copy non-rest arguments
+                        for (size_t i = 0; i < restParamIndex; ++i) {
+                            packedArgs.push_back(args[i]);
+                        }
+
+                        // Create array for rest arguments
+                        auto zero = builder_.createConstInt(0);
+                        auto restArray = builder_.createCall("ts_array_create", {}, HIRType::makeArray(HIRType::makeAny(), false));
+
+                        // Push rest arguments into the array (boxed)
+                        for (size_t i = restParamIndex; i < args.size(); ++i) {
+                            auto boxedArg = boxValueIfNeeded(args[i]);
+                            builder_.createCall("ts_array_push", {restArray, boxedArg}, HIRType::makeInt64());
+                        }
+
+                        packedArgs.push_back(restArray);
+                        lastValue_ = builder_.createCall(runtimeFunc, packedArgs, HIRType::makeAny());
+                        return;
+                    }
+                }
+
+                // No rest parameter or not enough args - emit direct call
                 lastValue_ = builder_.createCall(runtimeFunc, args, HIRType::makeAny());
                 return;
             }
@@ -2345,6 +2652,29 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     // Handle direct function call
     auto* ident = dynamic_cast<ast::Identifier*>(node->callee.get());
     if (ident) {
+        // First check if this is a captured variable from an outer function
+        size_t scopeIndex = 0;
+        if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
+            // Look up the variable info to get its type
+            auto* info = lookupVariableInfo(ident->name);
+            if (info) {
+                auto type = info->elemType ? info->elemType : (info->value ? info->value->type : HIRType::makeAny());
+                // Register this capture for the current function
+                registerCapture(ident->name, type, scopeIndex);
+                // Mark the function as having closures
+                currentFunction_->hasClosure = true;
+                // Use LoadCapture for captured variables
+                auto funcPtr = builder_.createLoadCapture(ident->name, type);
+                // Get return type from function type if available
+                std::shared_ptr<HIRType> resultType = HIRType::makeAny();
+                if (type && type->kind == HIRTypeKind::Function && type->returnType) {
+                    resultType = type->returnType;
+                }
+                lastValue_ = builder_.createCallIndirect(funcPtr, args, resultType);
+                return;
+            }
+        }
+
         // Check if this is a local variable (might be a closure)
         auto* info = lookupVariableInfo(ident->name);
         if (info) {
@@ -2503,14 +2833,22 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                             }
                         }
 
-                        // If we have fewer args than total params but enough for required params,
-                        // and there are default params, use this specialization's name
-                        if (!hasRestParam && hasDefaultParams &&
-                            args.size() < totalParamCount && args.size() >= requiredParamCount) {
+                        // If function has default params, always use the specialization name
+                        // because params with defaults are now Any type
+                        if (!hasRestParam && hasDefaultParams) {
                             callName = spec.specializedName;
+                            // Look up the HIR function to get param types for boxing
+                            for (auto& f : module_->functions) {
+                                if (f->name == spec.specializedName) {
+                                    targetFunc = f.get();
+                                    break;
+                                }
+                            }
                             // Pad args with undefined for missing default params
-                            for (size_t i = args.size(); i < totalParamCount; ++i) {
-                                args.push_back(builder_.createConstUndefined());
+                            if (args.size() < totalParamCount) {
+                                for (size_t i = args.size(); i < totalParamCount; ++i) {
+                                    args.push_back(builder_.createConstUndefined());
+                                }
                             }
                         }
                     }
@@ -2519,8 +2857,9 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
         }
 
-        // If we didn't find a rest-parameter function, compute the mangled name based on argument types
-        if (!hasRestParam) {
+        // If we didn't find a rest-parameter function or function with default params,
+        // compute the mangled name based on argument types
+        if (!hasRestParam && callName.empty()) {
             std::vector<std::shared_ptr<ts::Type>> argTypes;
             for (auto& arg : node->arguments) {
                 argTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<ts::Type>(ts::TypeKind::Any));
@@ -2598,6 +2937,17 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             if (args.size() < targetFunc->params.size()) {
                 for (size_t i = args.size(); i < targetFunc->params.size(); ++i) {
                     args.push_back(builder_.createConstUndefined());
+                }
+            }
+        }
+
+        // Box arguments when target parameter is Any type but argument has concrete type
+        if (targetFunc) {
+            for (size_t i = 0; i < args.size() && i < targetFunc->params.size(); ++i) {
+                const auto& [paramName, paramType] = targetFunc->params[i];
+                if (paramType && paramType->kind == HIRTypeKind::Any) {
+                    // Parameter is Any, need to box the argument if it has a concrete type
+                    args[i] = boxValueIfNeeded(args[i]);
                 }
             }
         }

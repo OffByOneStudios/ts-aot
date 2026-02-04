@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define
-// CHECK: @ts_console_log_int
+// CHECK: @ts_console_log_double
 // OUTPUT: 0
 // OUTPUT: 1
 // OUTPUT: 2
