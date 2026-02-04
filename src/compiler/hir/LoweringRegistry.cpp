@@ -394,6 +394,16 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // value to check
             .build());
 
+    reg.registerLowering("ts_array_from",
+        lowering("ts_array_from")
+            .returnsPtr()
+            .ptrArg()      // arrayLike
+            .ptrArg()      // mapFn (optional)
+            .ptrArg()      // thisArg (optional)
+            .build());
+
+    // Note: ts_array_of requires runtime implementation with variadic support
+
     reg.registerLowering("ts_array_push",
         lowering("ts_array_push")
             .returnsI64()
@@ -612,8 +622,8 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_array_splice")
             .returnsPtr()
             .ptrArg()      // array
-            .i64Arg()      // start
-            .i64Arg()      // deleteCount
+            .i64Arg(ArgConversion::ToI64)  // start - convert from double
+            .i64Arg(ArgConversion::ToI64)  // deleteCount - convert from double
             .ptrArg()      // items array (or null)
             .build());
 
@@ -635,8 +645,8 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_array_toSpliced")
             .returnsPtr()
             .ptrArg()      // array
-            .i64Arg()      // start
-            .i64Arg()      // deleteCount
+            .i64Arg(ArgConversion::ToI64)  // start - convert from double
+            .i64Arg(ArgConversion::ToI64)  // deleteCount - convert from double
             .ptrArg()      // items array
             .build());
 
@@ -644,7 +654,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_array_with")
             .returnsPtr()
             .ptrArg()      // array
-            .i64Arg()      // index
+            .i64Arg(ArgConversion::ToI64)  // index - convert from double
             .boxedArg()    // value
             .build());
 
