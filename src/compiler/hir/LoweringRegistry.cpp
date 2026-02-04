@@ -53,34 +53,41 @@ void LoweringRegistry::registerBuiltinsImpl() {
     // ========================================
     // Console functions
     // ========================================
+    // These five have TypeDispatch variadic handling - HIRToLLVM emits
+    // type-specific calls (ts_console_log_int, ts_console_log_double, etc.)
     reg.registerLowering("ts_console_log",
         lowering("ts_console_log")
             .returnsVoid()
             .boxedArg()
+            .variadicHandling(VariadicHandling::TypeDispatch, 0)
             .build());
 
     reg.registerLowering("ts_console_error",
         lowering("ts_console_error")
             .returnsVoid()
             .boxedArg()
+            .variadicHandling(VariadicHandling::TypeDispatch, 0)
             .build());
 
     reg.registerLowering("ts_console_warn",
         lowering("ts_console_warn")
             .returnsVoid()
             .boxedArg()
+            .variadicHandling(VariadicHandling::TypeDispatch, 0)
             .build());
 
     reg.registerLowering("ts_console_info",
         lowering("ts_console_info")
             .returnsVoid()
             .boxedArg()
+            .variadicHandling(VariadicHandling::TypeDispatch, 0)
             .build());
 
     reg.registerLowering("ts_console_debug",
         lowering("ts_console_debug")
             .returnsVoid()
             .boxedArg()
+            .variadicHandling(VariadicHandling::TypeDispatch, 0)
             .build());
 
     reg.registerLowering("ts_console_dir",
