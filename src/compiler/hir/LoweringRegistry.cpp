@@ -867,7 +867,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_string_at")
             .returnsPtr()
             .ptrArg()      // string
-            .i64Arg()      // index
+            .i64Arg(ArgConversion::ToI64)  // index - convert from double
             .build());
 
     // ========================================
@@ -1182,6 +1182,62 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_error_create")
             .returnsBoxed()  // Already boxed TsValue*
             .ptrArg()        // message string
+            .build());
+
+    // ========================================
+    // Crypto functions
+    // ========================================
+    reg.registerLowering("ts_crypto_randomBytes",
+        lowering("ts_crypto_randomBytes")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)  // size - convert from double
+            .build());
+
+    reg.registerLowering("ts_crypto_randomInt",
+        lowering("ts_crypto_randomInt")
+            .returnsI64()
+            .i64Arg(ArgConversion::ToI64)  // min - convert from double
+            .i64Arg(ArgConversion::ToI64)  // max - convert from double
+            .build());
+
+    reg.registerLowering("ts_crypto_pbkdf2Sync",
+        lowering("ts_crypto_pbkdf2Sync")
+            .returnsPtr()
+            .ptrArg()                      // password
+            .ptrArg()                      // salt
+            .i64Arg(ArgConversion::ToI64)  // iterations - convert from double
+            .i64Arg(ArgConversion::ToI64)  // keylen - convert from double
+            .ptrArg()                      // digest
+            .build());
+
+    reg.registerLowering("ts_crypto_pbkdf2",
+        lowering("ts_crypto_pbkdf2")
+            .returnsVoid()
+            .ptrArg()                      // password
+            .ptrArg()                      // salt
+            .i64Arg(ArgConversion::ToI64)  // iterations - convert from double
+            .i64Arg(ArgConversion::ToI64)  // keylen - convert from double
+            .ptrArg()                      // digest
+            .ptrArg()                      // callback
+            .build());
+
+    reg.registerLowering("ts_crypto_scryptSync",
+        lowering("ts_crypto_scryptSync")
+            .returnsPtr()
+            .ptrArg()                      // password
+            .ptrArg()                      // salt
+            .i64Arg(ArgConversion::ToI64)  // keylen - convert from double
+            .ptrArg()                      // options
+            .build());
+
+    reg.registerLowering("ts_crypto_scrypt",
+        lowering("ts_crypto_scrypt")
+            .returnsVoid()
+            .ptrArg()                      // password
+            .ptrArg()                      // salt
+            .i64Arg(ArgConversion::ToI64)  // keylen - convert from double
+            .ptrArg()                      // options
+            .ptrArg()                      // callback
             .build());
 
     // ========================================

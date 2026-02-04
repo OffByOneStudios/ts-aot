@@ -3163,6 +3163,195 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Handle Number.isFinite - inline implementation (not a runtime call)
+    // Returns true if value is finite (not NaN, not Infinity)
+    if (funcName == "ts_number_isFinite") {
+        llvm::Value* val = getOperandValue(inst->operands[1]);
+        // Cast to double if needed
+        if (val->getType()->isIntegerTy(64)) {
+            val = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "to_dbl");
+        } else if (val->getType()->isIntegerTy(1)) {
+            // Boolean to double
+            val = builder_->CreateUIToFP(val, builder_->getDoubleTy(), "bool_to_dbl");
+        } else if (val->getType()->isPointerTy()) {
+            // Boxed value - return false (strict Number.isFinite doesn't do type coercion)
+            if (inst->result) {
+                setValue(inst->result, builder_->getInt1(false));
+            }
+            return;
+        }
+        // A number is finite if it's not NaN and not infinite
+        llvm::Value* isNotNaN = builder_->CreateFCmpOEQ(val, val);
+        llvm::Value* posInf = llvm::ConstantFP::getInfinity(builder_->getDoubleTy(), false);
+        llvm::Value* negInf = llvm::ConstantFP::getInfinity(builder_->getDoubleTy(), true);
+        llvm::Value* notPosInf = builder_->CreateFCmpONE(val, posInf);
+        llvm::Value* notNegInf = builder_->CreateFCmpONE(val, negInf);
+        llvm::Value* result = builder_->CreateAnd(isNotNaN, builder_->CreateAnd(notPosInf, notNegInf));
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Number.isNaN - inline implementation
+    // Returns true only if value is NaN
+    if (funcName == "ts_number_isNaN") {
+        llvm::Value* val = getOperandValue(inst->operands[1]);
+        // Cast to double if needed
+        if (val->getType()->isIntegerTy(64)) {
+            val = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "to_dbl");
+        } else if (val->getType()->isIntegerTy(1)) {
+            val = builder_->CreateUIToFP(val, builder_->getDoubleTy(), "bool_to_dbl");
+        } else if (val->getType()->isPointerTy()) {
+            // Boxed value - return false (strict Number.isNaN doesn't do type coercion)
+            if (inst->result) {
+                setValue(inst->result, builder_->getInt1(false));
+            }
+            return;
+        }
+        // NaN is the only value that is not equal to itself
+        llvm::Value* result = builder_->CreateFCmpUNO(val, val);
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Number.isInteger - inline implementation
+    // Returns true if value is an integer (finite and floor(value) == value)
+    if (funcName == "ts_number_isInteger") {
+        llvm::Value* val = getOperandValue(inst->operands[1]);
+        // Cast to double if needed
+        if (val->getType()->isIntegerTy(64)) {
+            // Integers are always integers
+            if (inst->result) {
+                setValue(inst->result, builder_->getInt1(true));
+            }
+            return;
+        } else if (val->getType()->isIntegerTy(1)) {
+            // Booleans converted to 0/1 are integers
+            if (inst->result) {
+                setValue(inst->result, builder_->getInt1(true));
+            }
+            return;
+        } else if (val->getType()->isPointerTy()) {
+            // Boxed value - return false (strict Number.isInteger doesn't do type coercion)
+            if (inst->result) {
+                setValue(inst->result, builder_->getInt1(false));
+            }
+            return;
+        }
+        // For doubles: isInteger = isFinite && floor(value) == value
+        llvm::Value* isNotNaN = builder_->CreateFCmpOEQ(val, val);
+        llvm::Value* posInf = llvm::ConstantFP::getInfinity(builder_->getDoubleTy(), false);
+        llvm::Value* negInf = llvm::ConstantFP::getInfinity(builder_->getDoubleTy(), true);
+        llvm::Value* notPosInf = builder_->CreateFCmpONE(val, posInf);
+        llvm::Value* notNegInf = builder_->CreateFCmpONE(val, negInf);
+        llvm::Value* isFinite = builder_->CreateAnd(isNotNaN, builder_->CreateAnd(notPosInf, notNegInf));
+        // Check floor(val) == val using intrinsic
+        llvm::Function* floorFn = llvm::Intrinsic::getDeclaration(module_.get(), llvm::Intrinsic::floor, {builder_->getDoubleTy()});
+        llvm::Value* floorVal = builder_->CreateCall(floorFn, {val});
+        llvm::Value* isWholeNumber = builder_->CreateFCmpOEQ(val, floorVal);
+        llvm::Value* result = builder_->CreateAnd(isFinite, isWholeNumber);
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Number.isSafeInteger - inline implementation
+    // Returns true if value is a safe integer (-2^53+1 to 2^53-1)
+    if (funcName == "ts_number_isSafeInteger") {
+        llvm::Value* val = getOperandValue(inst->operands[1]);
+        // Cast to double if needed
+        if (val->getType()->isIntegerTy(64)) {
+            // i64 can hold values outside safe range, need to check
+            val = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "to_dbl");
+        } else if (val->getType()->isIntegerTy(1)) {
+            // Booleans (0/1) are always safe integers
+            if (inst->result) {
+                setValue(inst->result, builder_->getInt1(true));
+            }
+            return;
+        } else if (val->getType()->isPointerTy()) {
+            // Boxed value - return false
+            if (inst->result) {
+                setValue(inst->result, builder_->getInt1(false));
+            }
+            return;
+        }
+        // isSafeInteger = isInteger && abs(value) <= MAX_SAFE_INTEGER
+        llvm::Value* isNotNaN = builder_->CreateFCmpOEQ(val, val);
+        llvm::Value* posInf = llvm::ConstantFP::getInfinity(builder_->getDoubleTy(), false);
+        llvm::Value* negInf = llvm::ConstantFP::getInfinity(builder_->getDoubleTy(), true);
+        llvm::Value* notPosInf = builder_->CreateFCmpONE(val, posInf);
+        llvm::Value* notNegInf = builder_->CreateFCmpONE(val, negInf);
+        llvm::Value* isFinite = builder_->CreateAnd(isNotNaN, builder_->CreateAnd(notPosInf, notNegInf));
+        llvm::Function* floorFn = llvm::Intrinsic::getDeclaration(module_.get(), llvm::Intrinsic::floor, {builder_->getDoubleTy()});
+        llvm::Value* floorVal = builder_->CreateCall(floorFn, {val});
+        llvm::Value* isWholeNumber = builder_->CreateFCmpOEQ(val, floorVal);
+        llvm::Value* isInteger = builder_->CreateAnd(isFinite, isWholeNumber);
+        // MAX_SAFE_INTEGER = 2^53 - 1 = 9007199254740991
+        llvm::Value* maxSafe = llvm::ConstantFP::get(builder_->getDoubleTy(), 9007199254740991.0);
+        llvm::Value* minSafe = llvm::ConstantFP::get(builder_->getDoubleTy(), -9007199254740991.0);
+        llvm::Value* notTooLarge = builder_->CreateFCmpOLE(val, maxSafe);
+        llvm::Value* notTooSmall = builder_->CreateFCmpOGE(val, minSafe);
+        llvm::Value* inRange = builder_->CreateAnd(notTooLarge, notTooSmall);
+        llvm::Value* result = builder_->CreateAnd(isInteger, inRange);
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle Object.is(value1, value2) - needs to box both arguments
+    if (funcName == "ts_object_is") {
+        llvm::Value* val1 = getOperandValue(inst->operands[1]);
+        llvm::Value* val2 = getOperandValue(inst->operands[2]);
+
+        // Box val1 based on type
+        if (val1->getType()->isIntegerTy(64)) {
+            val1 = builder_->CreateCall(getTsValueMakeInt(), { val1 });
+        } else if (val1->getType()->isDoubleTy()) {
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
+            val1 = builder_->CreateCall(ft, fn.getCallee(), { val1 });
+        } else if (val1->getType()->isIntegerTy(1)) {
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+            val1 = builder_->CreateCall(ft, fn.getCallee(), { val1 });
+        }
+        // For pointers, assume already boxed or wrap if needed
+        if (!val1->getType()->isPointerTy()) {
+            val1 = builder_->CreateIntToPtr(val1, builder_->getPtrTy());
+        }
+
+        // Box val2 based on type
+        if (val2->getType()->isIntegerTy(64)) {
+            val2 = builder_->CreateCall(getTsValueMakeInt(), { val2 });
+        } else if (val2->getType()->isDoubleTy()) {
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
+            val2 = builder_->CreateCall(ft, fn.getCallee(), { val2 });
+        } else if (val2->getType()->isIntegerTy(1)) {
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+            val2 = builder_->CreateCall(ft, fn.getCallee(), { val2 });
+        }
+        if (!val2->getType()->isPointerTy()) {
+            val2 = builder_->CreateIntToPtr(val2, builder_->getPtrTy());
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_object_is", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { val1, val2 });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Handle BigInt creation - ts_bigint_create_str(const char*, int32_t)
     if (funcName == "ts_bigint_create_str") {
         llvm::Value* strArg = getOperandValue(inst->operands[1]);
