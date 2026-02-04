@@ -72,6 +72,7 @@ int64_t ts_string_length(void* str);
 
 // --- Array ---
 int64_t ts_array_length(void* arr);
+bool ts_array_isArray(void* value);
 
 // --- Value Length ---
 int64_t ts_value_length(TsValue* val);

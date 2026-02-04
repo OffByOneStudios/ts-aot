@@ -10,7 +10,7 @@
 | Suite | Passed | Failed | Total | Pass Rate | Command |
 |-------|--------|--------|-------|-----------|---------|
 | golden_ir | 121 | 25 | 146 | 82.9% | `python tests/golden_ir/runner.py tests/golden_ir` |
-| node | 148 | 132 | 280 | 52.9% | `python tests/node/run_tests.py` |
+| node | 155 | 125 | 280 | 55.4% | `python tests/node/run_tests.py` |
 | golden_hir | N/A | N/A | 100+ | N/A | Runner does not exist |
 
 **Note:** golden_hir has 100+ test files but no runner.py. Tests are manually validated via `--dump-hir`.
@@ -20,7 +20,9 @@
 - After console fixes: 121/280 (43.2%), 117 compile errors
 - After comparison fixes: 141/280 (50.4%), 95 compile errors
 - After boxing fixes: 148/280 (52.9%), 87 compile errors
-- Delta from session start: +50 tests, -64 compile errors
+- After ts_array_isArray fix: 152/280 (54.3%), 82 compile errors
+- After fetch/require fix: 155/280 (55.4%), 75 compile errors
+- Delta from session start: +57 tests, -76 compile errors
 
 ---
 
@@ -125,8 +127,8 @@
 
 ## Node Test Failures Summary
 
-**87 compile errors** - mostly due to missing runtime functions or naming mismatches
-**45 runtime failures** - various issues including access violations
+**75 compile errors** - mostly due to missing runtime functions or naming mismatches
+**50 runtime failures** - various issues including access violations
 
 ### Fixed Issues (this session):
 1. Added missing console functions (ts_console_assert, ts_console_warn, ts_console_info, ts_console_debug)
@@ -136,26 +138,25 @@
 5. Fixed lowerBoxObject to handle all LLVM types (bool, int, double, pointer)
 6. Fixed boolean boxing in closure capture (lowerClosureCreate, emitCaptureStore)
 7. Fixed ts_value_make_bool signature mismatch in ArgConversion::Box path
+8. Added ts_array_isArray runtime function and lowering registration
+9. Added fetch and require as global functions in ASTToHIR
+10. Added lowering registrations for fetch -> ts_fetch and require -> ts_require
 
 ### Remaining compile error categories:
-- Some `util.types.*` methods still have issues
-- Undefined symbol: ts_to_string
-- Undefined symbol: ts_array_isArray
-- Various async-related functions still undefined
-- Some module methods still need LoweringRegistry entries
+- Undefined symbol: ts_to_string (1 test)
+- Undefined symbol: ts_path_indexOf (1 test)
+- Various other module methods still need LoweringRegistry entries
 
 ---
 
 ## Last Action
 
-Fixed LLVM type mismatch bugs in HIRToLLVM.cpp:
-1. Added i64/i1 conversion in lowerCmpEqI64 and lowerCmpNeI64
-2. Added type-safe boolean conversion in lowerLogicalAnd and lowerLogicalOr
-3. Fixed lowerBoxObject to handle boolean, integer, double types properly
-4. Fixed boolean boxing in closure capture operations
-5. Fixed ts_value_make_bool signature in ArgConversion::Box path (i1 vs i32)
+Fixed undefined symbols for fetch and require:
+1. Added `fetch` and `require` to the list of known globals in ASTToHIR.cpp
+2. Added lowering registrations in LoweringRegistry.cpp for fetch -> ts_fetch and require -> ts_require
+3. Added ts_array_isArray runtime implementation and lowering registration
 
-Result: Node tests improved from 98/280 (35.0%) to 148/280 (52.9%)
+Result: Node tests improved from 148/280 (52.9%) to 155/280 (55.4%)
 
 ---
 
@@ -164,10 +165,9 @@ Result: Node tests improved from 98/280 (35.0%) to 148/280 (52.9%)
 Continue improving Node test pass rate:
 
 Recommended priority order:
-1. **Fix remaining undefined symbols** - ts_to_string, ts_array_isArray, etc.
-2. **Add more module registrations to LoweringRegistry** - for remaining compile errors
-3. **Fix runtime failures** - investigate access violations
-4. **Handle nested property access patterns** - util.types.*, path.posix.*, etc.
+1. **Fix remaining undefined symbols** - ts_to_string (1 test), ts_path_indexOf (1 test)
+2. **Fix runtime failures** - investigate the 50 tests with access violations
+3. **Continue lowering registry migration** - add more module method registrations
 
 ---
 
