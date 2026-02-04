@@ -10,7 +10,7 @@
 | Suite | Passed | Failed | Total | Pass Rate | Command |
 |-------|--------|--------|-------|-----------|---------|
 | golden_ir | 121 | 25 | 146 | 82.9% | `python tests/golden_ir/runner.py tests/golden_ir` |
-| node | 155 | 125 | 280 | 55.4% | `python tests/node/run_tests.py` |
+| node | 156 | 124 | 280 | 55.7% | `python tests/node/run_tests.py` |
 | golden_hir | N/A | N/A | 100+ | N/A | Runner does not exist |
 
 **Note:** golden_hir has 100+ test files but no runner.py. Tests are manually validated via `--dump-hir`.
@@ -22,7 +22,8 @@
 - After boxing fixes: 148/280 (52.9%), 87 compile errors
 - After ts_array_isArray fix: 152/280 (54.3%), 82 compile errors
 - After fetch/require fix: 155/280 (55.4%), 75 compile errors
-- Delta from session start: +57 tests, -76 compile errors
+- After Array.from fix: 156/280 (55.7%), 74 compile errors
+- Delta from session start: +58 tests, -77 compile errors
 
 ---
 
@@ -127,7 +128,7 @@
 
 ## Node Test Failures Summary
 
-**75 compile errors** - mostly due to missing runtime functions or naming mismatches
+**74 compile errors** - mostly due to missing runtime functions or naming mismatches
 **50 runtime failures** - various issues including access violations
 
 ### Fixed Issues (this session):
@@ -141,22 +142,25 @@
 8. Added ts_array_isArray runtime function and lowering registration
 9. Added fetch and require as global functions in ASTToHIR
 10. Added lowering registrations for fetch -> ts_fetch and require -> ts_require
+11. Added ArgConversion::ToI64 for array method index params (toSpliced, with, splice)
+12. Added ts_array_from lowering registration
 
-### Remaining compile error categories:
+### Remaining compile error categories (74 errors):
 - Undefined symbol: ts_to_string (1 test)
 - Undefined symbol: ts_path_indexOf (1 test)
-- Various other module methods still need LoweringRegistry entries
+- Variadic args not packed into array: Array.of, toSpliced with items
+- Missing basic block terminators in try/catch: async tests, crypto tests
+- Type mismatches in various other calls
 
 ---
 
 ## Last Action
 
-Fixed undefined symbols for fetch and require:
-1. Added `fetch` and `require` to the list of known globals in ASTToHIR.cpp
-2. Added lowering registrations in LoweringRegistry.cpp for fetch -> ts_fetch and require -> ts_require
-3. Added ts_array_isArray runtime implementation and lowering registration
+Added type conversions and lowering registrations:
+1. Added `ArgConversion::ToI64` for array method index parameters (toSpliced, with, splice)
+2. Added `ts_array_from` lowering registration with proper 3-arg signature
 
-Result: Node tests improved from 148/280 (52.9%) to 155/280 (55.4%)
+Result: Node tests improved from 155/280 (55.4%) to 156/280 (55.7%)
 
 ---
 
@@ -164,10 +168,34 @@ Result: Node tests improved from 148/280 (52.9%) to 155/280 (55.4%)
 
 Continue improving Node test pass rate:
 
-Recommended priority order:
-1. **Fix remaining undefined symbols** - ts_to_string (1 test), ts_path_indexOf (1 test)
-2. **Fix runtime failures** - investigate the 50 tests with access violations
-3. **Continue lowering registry migration** - add more module method registrations
+### Priority 1: Fix Remaining Compile Errors (74 total)
+
+**Undefined symbols (2 tests):**
+- `ts_to_string` - needs lowering registration
+- `ts_path_indexOf` - needs lowering registration
+
+**Variadic argument handling (multiple tests):**
+- `Array.of()` - requires runtime implementation with variadic support
+- `arr.toSpliced(start, count, ...items)` - items need to be packed into array
+
+**Try/catch terminator issues (multiple tests):**
+- Basic blocks in try/catch don't have terminators
+- Affects async tests, some crypto tests
+
+### Priority 2: Fix Runtime Failures (~50 tests)
+
+**Common patterns:**
+- Access violations in buffer operations (Buffer.alloc, Buffer.fill, etc.)
+- Access violations in WeakSet/WeakMap operations
+- Incorrect output in assert module tests
+
+### Priority 3: Implement Missing Runtime Functions
+
+**Array static methods:**
+- `ts_array_of` - Array.of(...items) static method
+
+**String methods:**
+- `ts_to_string` - generic toString conversion
 
 ---
 
