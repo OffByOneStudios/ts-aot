@@ -2327,7 +2327,8 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // Case 4: Node.js builtin module method call - path.basename(...), fs.readFileSync(...), etc.
             static const std::set<std::string> nodeModules = {
                 "path", "fs", "os", "url", "util", "crypto", "http", "https", "net", "dgram",
-                "dns", "tls", "zlib", "stream", "events", "querystring", "assert", "child_process"
+                "dns", "tls", "zlib", "stream", "events", "querystring", "assert", "child_process",
+                "performance"  // Global performance object for perf_hooks
             };
             if (nodeModules.count(classNameIdent->name)) {
                 // Emit direct call to ts_<module>_<method>

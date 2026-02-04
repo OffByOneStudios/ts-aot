@@ -368,6 +368,19 @@ void LoweringRegistry::registerBuiltinsImpl() {
     // ts_math_min and ts_math_max need variadic or array handling - skip for now
 
     // ========================================
+    // Performance functions (perf_hooks)
+    // ========================================
+    reg.registerLowering("ts_performance_now",
+        lowering("ts_performance_now")
+            .returnsF64()
+            .build());
+
+    reg.registerLowering("ts_performance_timeOrigin",
+        lowering("ts_performance_time_origin")
+            .returnsF64()
+            .build());
+
+    // ========================================
     // Array methods
     // ========================================
     reg.registerLowering("ts_array_create",
@@ -633,7 +646,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_array_at")
             .returnsBoxed()
             .ptrArg()      // array
-            .i64Arg()      // index
+            .i64Arg(ArgConversion::ToI64)  // index - convert from double
             .build());
 
     // ========================================
