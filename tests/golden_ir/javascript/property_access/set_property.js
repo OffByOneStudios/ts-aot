@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @__module_init_{{.*}}_any
-// CHECK: call {{.*}} @__ts_map_set_at
+// CHECK: define
+// CHECK: @ts_object_set_dynamic
 // OUTPUT: 42
 
 var obj = {};

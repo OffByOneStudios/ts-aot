@@ -4,7 +4,7 @@ console.log(arr[0]);
 console.log(arr[1]);
 console.log(arr[2]);
 
-// CHECK: ts_array_create_specialized
+// CHECK: ts_array_create_sized
 
 // OUTPUT: 1
 // OUTPUT: 2

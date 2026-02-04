@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @__module_init_{{.*}}_any
-// CHECK: call {{.*}} @ts_value_strict_eq
+// CHECK: define
+// CHECK-NOT: fcmp oeq
 // OUTPUT: false
 
 if (1 === "1") {

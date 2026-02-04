@@ -9,4 +9,4 @@ console.log(arr.includes(6));  // Should print: false
 // OUTPUT: true
 // OUTPUT: false
 // CHECK: define
-// CHECK: ts_array_create_specialized
+// CHECK: ts_array_create_sized

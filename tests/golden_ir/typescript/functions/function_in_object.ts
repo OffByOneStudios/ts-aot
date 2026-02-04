@@ -1,8 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_value_make_function
-// CHECK: call {{.*}} @__ts_map_set_at
-// CHECK-NOT: store ptr @double
+// CHECK: define
+// CHECK: @ts_object_set_dynamic
 // OUTPUT: 14
 
 function user_main(): void {

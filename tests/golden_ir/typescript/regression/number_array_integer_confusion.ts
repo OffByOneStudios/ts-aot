@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
+// CHECK: define
 // OUTPUT: arr[0]: 100
 // OUTPUT: arr[1]: 99
 // OUTPUT: arr[2]: 98

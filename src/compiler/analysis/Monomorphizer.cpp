@@ -411,9 +411,42 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 ast::FunctionDeclaration* funcNode = findFunction(analyzer, name, call.modulePath);
                 if (!funcNode) continue;
 
+                // Check if function has a rest parameter and transform argTypes accordingly
+                std::vector<std::shared_ptr<Type>> adjustedArgTypes = call.argTypes;
+                size_t restParamIndex = SIZE_MAX;
+                for (size_t i = 0; i < funcNode->parameters.size(); ++i) {
+                    if (funcNode->parameters[i]->isRest) {
+                        restParamIndex = i;
+                        break;
+                    }
+                }
+
+                if (restParamIndex != SIZE_MAX) {
+                    // Function has rest parameter - package trailing call arguments into array type
+                    std::vector<std::shared_ptr<Type>> newArgTypes;
+
+                    // Add arguments before the rest parameter
+                    for (size_t i = 0; i < restParamIndex && i < call.argTypes.size(); ++i) {
+                        newArgTypes.push_back(call.argTypes[i]);
+                    }
+
+                    // Determine the element type for the rest array
+                    std::shared_ptr<Type> elemType = std::make_shared<Type>(TypeKind::Any);
+                    if (restParamIndex < call.argTypes.size()) {
+                        // Use the first rest argument's type as the element type
+                        elemType = call.argTypes[restParamIndex];
+                    }
+
+                    // Create an array type for the rest parameter
+                    auto arrayType = std::make_shared<ArrayType>(elemType);
+                    newArgTypes.push_back(arrayType);
+
+                    adjustedArgTypes = newArgTypes;
+                }
+
                 // Include module path in the specialization key to distinguish same-named functions
                 // in different modules with the same argument types
-                std::string mangled = generateMangledName(name, call.argTypes, call.typeArguments);
+                std::string mangled = generateMangledName(name, adjustedArgTypes, call.typeArguments);
                 std::string specKey = call.modulePath.empty() ? mangled : (call.modulePath + "::" + mangled);
                 if (processedSpecializations.count(specKey)) continue;
 
@@ -428,12 +461,12 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     spec.specializedName = "__ts_main";
                 }
 
-                spec.argTypes = call.argTypes;
+                spec.argTypes = adjustedArgTypes;
                 spec.typeArguments = call.typeArguments;
                 spec.node = funcNode;
 
                 // Infer return type - this might record NEW usages in analyzer.functionUsages
-                spec.returnType = analyzer.analyzeFunctionBody(funcNode, call.argTypes, call.typeArguments);
+                spec.returnType = analyzer.analyzeFunctionBody(funcNode, adjustedArgTypes, call.typeArguments);
 
                 specializations.push_back(spec);
             }

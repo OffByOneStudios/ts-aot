@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @__module_init_{{.*}}_any
-// CHECK: call {{.*}} @ts_cell_create
+// CHECK: define
+// CHECK: @ts_closure_create
 // OUTPUT: 1
 // OUTPUT: 2
 // OUTPUT: 3

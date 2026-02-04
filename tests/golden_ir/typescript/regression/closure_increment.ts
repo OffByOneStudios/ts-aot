@@ -1,8 +1,9 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_cell_create
-// CHECK: call {{.*}} @ts_cell_get
-// CHECK: call {{.*}} @ts_cell_set
+// CHECK: define
+// CHECK: @ts_closure_create
+// CHECK: @ts_closure_init_capture
+// CHECK: @ts_closure_get_cell
+// CHECK: @ts_cell_get
 // OUTPUT: 2,2,2,0
 
 // This test verifies that ++ and -- operators work correctly in closures

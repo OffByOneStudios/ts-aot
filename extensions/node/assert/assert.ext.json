@@ -1,0 +1,244 @@
+{
+  "name": "assert",
+  "version": "1.0.0",
+  "modules": ["assert", "node:assert"],
+  "objects": {
+    "assert": {
+      "methods": {
+        "ok": {
+          "call": "ts_assert_ok",
+          "hirName": "ts_assert_ok",
+          "params": [
+            { "name": "value", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "equal": {
+          "call": "ts_assert_equal",
+          "hirName": "ts_assert_equal",
+          "params": [
+            { "name": "actual", "type": "any" },
+            { "name": "expected", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "notEqual": {
+          "call": "ts_assert_not_equal",
+          "hirName": "ts_assert_notEqual",
+          "params": [
+            { "name": "actual", "type": "any" },
+            { "name": "expected", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "strictEqual": {
+          "call": "ts_assert_strict_equal",
+          "hirName": "ts_assert_strictEqual",
+          "params": [
+            { "name": "actual", "type": "any" },
+            { "name": "expected", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "notStrictEqual": {
+          "call": "ts_assert_not_strict_equal",
+          "hirName": "ts_assert_notStrictEqual",
+          "params": [
+            { "name": "actual", "type": "any" },
+            { "name": "expected", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "deepEqual": {
+          "call": "ts_assert_deep_equal",
+          "hirName": "ts_assert_deepEqual",
+          "params": [
+            { "name": "actual", "type": "any" },
+            { "name": "expected", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "notDeepEqual": {
+          "call": "ts_assert_not_deep_equal",
+          "hirName": "ts_assert_notDeepEqual",
+          "params": [
+            { "name": "actual", "type": "any" },
+            { "name": "expected", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "deepStrictEqual": {
+          "call": "ts_assert_deep_strict_equal",
+          "hirName": "ts_assert_deepStrictEqual",
+          "params": [
+            { "name": "actual", "type": "any" },
+            { "name": "expected", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "notDeepStrictEqual": {
+          "call": "ts_assert_not_deep_strict_equal",
+          "hirName": "ts_assert_notDeepStrictEqual",
+          "params": [
+            { "name": "actual", "type": "any" },
+            { "name": "expected", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "throws": {
+          "call": "ts_assert_throws",
+          "hirName": "ts_assert_throws",
+          "params": [
+            { "name": "fn", "type": "Function" },
+            { "name": "error", "type": "any", "optional": true },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "doesNotThrow": {
+          "call": "ts_assert_does_not_throw",
+          "hirName": "ts_assert_doesNotThrow",
+          "params": [
+            { "name": "fn", "type": "Function" },
+            { "name": "error", "type": "any", "optional": true },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "rejects": {
+          "call": "ts_assert_rejects",
+          "hirName": "ts_assert_rejects",
+          "params": [
+            { "name": "asyncFn", "type": "Function" },
+            { "name": "error", "type": "any", "optional": true },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "Promise",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "doesNotReject": {
+          "call": "ts_assert_does_not_reject",
+          "hirName": "ts_assert_doesNotReject",
+          "params": [
+            { "name": "asyncFn", "type": "Function" },
+            { "name": "error", "type": "any", "optional": true },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "Promise",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "fail": {
+          "call": "ts_assert_fail",
+          "hirName": "ts_assert_fail",
+          "params": [
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "ifError": {
+          "call": "ts_assert_if_error",
+          "hirName": "ts_assert_ifError",
+          "params": [
+            { "name": "value", "type": "any" }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "void"
+          }
+        },
+        "match": {
+          "call": "ts_assert_match",
+          "hirName": "ts_assert_match",
+          "params": [
+            { "name": "str", "type": "string" },
+            { "name": "regexp", "type": "RegExp" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "doesNotMatch": {
+          "call": "ts_assert_does_not_match",
+          "hirName": "ts_assert_doesNotMatch",
+          "params": [
+            { "name": "str", "type": "string" },
+            { "name": "regexp", "type": "RegExp" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "boxed"],
+            "returns": "void"
+          }
+        }
+      }
+    }
+  }
+}

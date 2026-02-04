@@ -4,6 +4,7 @@
 #include "HIR.h"
 #include "HIRBuilder.h"
 #include "../analysis/Type.h"
+#include "../analysis/Monomorphizer.h"
 
 #include <map>
 #include <stack>
@@ -26,8 +27,13 @@ public:
     ASTToHIR();
     ~ASTToHIR() override = default;
 
-    // Main entry point - lower a program to HIR module
+    // Main entry point - lower a program to HIR module (legacy interface)
     std::unique_ptr<HIRModule> lower(ast::Program* program, const std::string& moduleName);
+
+    // New interface with specializations from Monomorphizer
+    std::unique_ptr<HIRModule> lower(ast::Program* program,
+                                     const std::vector<Specialization>& specializations,
+                                     const std::string& moduleName);
 
 private:
     //==========================================================================
@@ -38,6 +44,9 @@ private:
     HIRFunction* currentFunction_ = nullptr;
     HIRBlock* currentBlock_ = nullptr;
     HIRBuilder builder_;
+
+    // Store specializations for looking up function info during call generation
+    const std::vector<Specialization>* specializations_ = nullptr;
 
     // Value counter for SSA names (%v0, %v1, etc.)
     int valueCounter_ = 0;
@@ -50,6 +59,11 @@ private:
         std::shared_ptr<HIRValue> value;
         std::shared_ptr<HIRType> elemType;  // For allocas: the stored type; null for direct values
         bool isAlloca = false;
+        // Closure capture tracking: when a variable is captured by a nested function,
+        // we need to also access it via the closure's cell in the outer function.
+        bool isCapturedByNested = false;
+        std::shared_ptr<HIRValue> closurePtr = nullptr;  // The closure that owns the cell
+        int captureIndex = -1;  // Index of this variable in the closure's captures array
     };
     struct Scope {
         std::map<std::string, VariableInfo> variables;

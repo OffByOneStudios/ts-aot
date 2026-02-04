@@ -5,11 +5,11 @@
 
 extern "C" {
 
-int64_t ts_math_min(int64_t a, int64_t b) {
+double ts_math_min(double a, double b) {
     return std::min(a, b);
 }
 
-int64_t ts_math_max(int64_t a, int64_t b) {
+double ts_math_max(double a, double b) {
     return std::max(a, b);
 }
 

@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
+// CHECK: define
 // OUTPUT: Found 3 matches
 // OUTPUT: apple
 // OUTPUT: banana

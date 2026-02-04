@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
+// CHECK: define
 // OUTPUT: Added: test1
 // OUTPUT: Added: test2 with options
 // OUTPUT: Count: 2

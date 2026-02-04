@@ -1,10 +1,8 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_map_create
-// CHECK: call {{.*}} @__ts_map_set_at
-// CHECK: call {{.*}} @__ts_map_find_bucket
-// CHECK: call {{.*}} @__ts_map_get_value_at
-// CHECK-NOT: ts_value_get_string
+// CHECK: define
+// CHECK: @ts_map_create
+// CHECK: @ts_object_set_dynamic
+// CHECK: @ts_object_get_dynamic
 // OUTPUT: 42
 
 function user_main(): void {

@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define
-// CHECK: ts_value_make_function
+// CHECK: @ts_closure_create
 // OUTPUT: 15
 
 function multiplier(factor: number) {

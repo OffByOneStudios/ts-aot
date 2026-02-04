@@ -80,6 +80,7 @@ struct PropertyDefinition {
 
 struct MethodDefinition {
     std::string call;                              // Runtime function name
+    std::optional<std::string> hirName;            // HIR function name (if different from call)
     std::vector<ParameterDefinition> params;
     TypeReference returns;
     std::vector<std::string> typeParams;           // Generic type parameters

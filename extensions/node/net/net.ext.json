@@ -1,0 +1,549 @@
+{
+  "name": "net",
+  "version": "1.0.0",
+  "modules": ["net", "node:net"],
+  "objects": {
+    "net": {
+      "methods": {
+        "createServer": {
+          "call": "ts_net_create_server",
+          "hirName": "ts_net_createServer",
+          "params": [{ "name": "callback", "type": "Function", "optional": true }],
+          "returns": "Server",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "ptr"
+          }
+        },
+        "createConnection": {
+          "call": "ts_net_create_connection",
+          "hirName": "ts_net_createConnection",
+          "params": [
+            { "name": "options", "type": "any" },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "Socket",
+          "lowering": {
+            "args": ["boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "connect": {
+          "call": "ts_net_connect",
+          "hirName": "ts_net_connect",
+          "params": [
+            { "name": "options", "type": "any" },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "Socket",
+          "lowering": {
+            "args": ["boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "isIP": {
+          "call": "ts_net_is_ip",
+          "hirName": "ts_net_isIP",
+          "params": [{ "name": "input", "type": "string" }],
+          "returns": "number",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        },
+        "isIPv4": {
+          "call": "ts_net_is_ipv4",
+          "hirName": "ts_net_isIPv4",
+          "params": [{ "name": "input", "type": "string" }],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i1"
+          }
+        },
+        "isIPv6": {
+          "call": "ts_net_is_ipv6",
+          "hirName": "ts_net_isIPv6",
+          "params": [{ "name": "input", "type": "string" }],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i1"
+          }
+        },
+        "getDefaultAutoSelectFamily": {
+          "call": "ts_net_get_default_auto_select_family",
+          "hirName": "ts_net_getDefaultAutoSelectFamily",
+          "params": [],
+          "returns": "boolean",
+          "lowering": {
+            "args": [],
+            "returns": "i1"
+          }
+        },
+        "setDefaultAutoSelectFamily": {
+          "call": "ts_net_set_default_auto_select_family",
+          "hirName": "ts_net_setDefaultAutoSelectFamily",
+          "params": [{ "name": "value", "type": "boolean" }],
+          "returns": "void",
+          "lowering": {
+            "args": ["i1"],
+            "returns": "void"
+          }
+        },
+        "getDefaultAutoSelectFamilyAttemptTimeout": {
+          "call": "ts_net_get_default_auto_select_family_attempt_timeout",
+          "hirName": "ts_net_getDefaultAutoSelectFamilyAttemptTimeout",
+          "params": [],
+          "returns": "number",
+          "lowering": {
+            "args": [],
+            "returns": "i64"
+          }
+        },
+        "setDefaultAutoSelectFamilyAttemptTimeout": {
+          "call": "ts_net_set_default_auto_select_family_attempt_timeout",
+          "hirName": "ts_net_setDefaultAutoSelectFamilyAttemptTimeout",
+          "params": [{ "name": "value", "type": "number" }],
+          "returns": "void",
+          "lowering": {
+            "args": ["i64"],
+            "returns": "void"
+          }
+        }
+      }
+    }
+  },
+  "types": {
+    "Server": {
+      "kind": "class",
+      "methods": {
+        "listen": {
+          "call": "ts_net_server_listen",
+          "hirName": "ts_net_server_listen",
+          "params": [
+            { "name": "port", "type": "number" },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "close": {
+          "call": "ts_net_server_close",
+          "hirName": "ts_net_server_close",
+          "params": [{ "name": "callback", "type": "Function", "optional": true }],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "void"
+          }
+        },
+        "address": {
+          "call": "ts_net_server_address",
+          "hirName": "ts_net_server_address",
+          "params": [],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "ref": {
+          "call": "ts_net_server_ref",
+          "hirName": "ts_net_server_ref",
+          "params": [],
+          "returns": "Server",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "unref": {
+          "call": "ts_net_server_unref",
+          "hirName": "ts_net_server_unref",
+          "params": [],
+          "returns": "Server",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "getConnections": {
+          "call": "ts_net_server_get_connections",
+          "hirName": "ts_net_server_getConnections",
+          "params": [{ "name": "callback", "type": "Function" }],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "void"
+          }
+        }
+      },
+      "properties": {
+        "maxConnections": {
+          "getter": "ts_net_server_get_maxConnections",
+          "setter": "ts_net_server_set_maxConnections",
+          "type": "number",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        }
+      }
+    },
+    "Socket": {
+      "kind": "class",
+      "methods": {
+        "connect": {
+          "call": "ts_net_socket_connect",
+          "hirName": "ts_net_socket_connect",
+          "params": [
+            { "name": "port", "type": "number" },
+            { "name": "host", "type": "string", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "Socket",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "write": {
+          "call": "ts_net_socket_write",
+          "hirName": "ts_net_socket_write",
+          "params": [{ "name": "data", "type": "any" }],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "i1"
+          }
+        },
+        "end": {
+          "call": "ts_net_socket_end",
+          "hirName": "ts_net_socket_end",
+          "params": [],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "address": {
+          "call": "ts_net_socket_address",
+          "hirName": "ts_net_socket_address",
+          "params": [],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "setTimeout": {
+          "call": "ts_net_socket_set_timeout",
+          "hirName": "ts_net_socket_setTimeout",
+          "params": [
+            { "name": "timeout", "type": "number" },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "Socket",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "setNoDelay": {
+          "call": "ts_net_socket_set_no_delay",
+          "hirName": "ts_net_socket_setNoDelay",
+          "params": [{ "name": "noDelay", "type": "boolean", "optional": true }],
+          "returns": "Socket",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "setKeepAlive": {
+          "call": "ts_net_socket_set_keep_alive",
+          "hirName": "ts_net_socket_setKeepAlive",
+          "params": [
+            { "name": "enable", "type": "boolean", "optional": true },
+            { "name": "initialDelay", "type": "number", "optional": true }
+          ],
+          "returns": "Socket",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "ref": {
+          "call": "ts_net_socket_ref",
+          "hirName": "ts_net_socket_ref",
+          "params": [],
+          "returns": "Socket",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "unref": {
+          "call": "ts_net_socket_unref",
+          "hirName": "ts_net_socket_unref",
+          "params": [],
+          "returns": "Socket",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      },
+      "properties": {
+        "remoteAddress": {
+          "getter": "ts_net_socket_get_remote_address",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "remotePort": {
+          "getter": "ts_net_socket_get_remote_port",
+          "type": "number",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        },
+        "remoteFamily": {
+          "getter": "ts_net_socket_get_remote_family",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "localAddress": {
+          "getter": "ts_net_socket_get_local_address",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "localPort": {
+          "getter": "ts_net_socket_get_local_port",
+          "type": "number",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        },
+        "localFamily": {
+          "getter": "ts_net_socket_get_local_family",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "bytesRead": {
+          "getter": "ts_net_socket_get_bytes_read",
+          "type": "number",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        },
+        "bytesWritten": {
+          "getter": "ts_net_socket_get_bytes_written",
+          "type": "number",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        },
+        "connecting": {
+          "getter": "ts_net_socket_get_connecting",
+          "type": "boolean",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i1"
+          }
+        },
+        "destroyed": {
+          "getter": "ts_net_socket_get_destroyed",
+          "type": "boolean",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i1"
+          }
+        },
+        "pending": {
+          "getter": "ts_net_socket_get_pending",
+          "type": "boolean",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i1"
+          }
+        },
+        "readyState": {
+          "getter": "ts_net_socket_get_ready_state",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    },
+    "SocketAddress": {
+      "kind": "class",
+      "staticMethods": {
+        "parse": {
+          "call": "ts_net_socket_address_parse",
+          "hirName": "ts_net_SocketAddress_parse",
+          "params": [{ "name": "input", "type": "string" }],
+          "returns": "SocketAddress",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      },
+      "constructor": {
+        "call": "ts_net_socket_address_create",
+        "hirName": "ts_net_SocketAddress_create",
+        "params": [{ "name": "options", "type": "any", "optional": true }],
+        "lowering": {
+          "args": ["boxed"],
+          "returns": "ptr"
+        }
+      },
+      "properties": {
+        "address": {
+          "getter": "ts_net_socket_address_get_address",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "family": {
+          "getter": "ts_net_socket_address_get_family",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "flowlabel": {
+          "getter": "ts_net_socket_address_get_flowlabel",
+          "type": "number",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        },
+        "port": {
+          "getter": "ts_net_socket_address_get_port",
+          "type": "number",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        }
+      }
+    },
+    "BlockList": {
+      "kind": "class",
+      "staticMethods": {
+        "isBlockList": {
+          "call": "ts_net_block_list_is_block_list",
+          "hirName": "ts_net_BlockList_isBlockList",
+          "params": [{ "name": "value", "type": "any" }],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "i1"
+          }
+        }
+      },
+      "constructor": {
+        "call": "ts_net_block_list_create",
+        "hirName": "ts_net_BlockList_create",
+        "params": [],
+        "lowering": {
+          "args": [],
+          "returns": "ptr"
+        }
+      },
+      "methods": {
+        "addAddress": {
+          "call": "ts_net_block_list_add_address",
+          "hirName": "ts_net_BlockList_addAddress",
+          "params": [
+            { "name": "address", "type": "string" },
+            { "name": "type", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "void"
+          }
+        },
+        "addRange": {
+          "call": "ts_net_block_list_add_range",
+          "hirName": "ts_net_BlockList_addRange",
+          "params": [
+            { "name": "start", "type": "string" },
+            { "name": "end", "type": "string" },
+            { "name": "type", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr", "ptr"],
+            "returns": "void"
+          }
+        },
+        "addSubnet": {
+          "call": "ts_net_block_list_add_subnet",
+          "hirName": "ts_net_BlockList_addSubnet",
+          "params": [
+            { "name": "net", "type": "string" },
+            { "name": "prefix", "type": "number" },
+            { "name": "type", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "ptr", "i64", "ptr"],
+            "returns": "void"
+          }
+        },
+        "check": {
+          "call": "ts_net_block_list_check",
+          "hirName": "ts_net_BlockList_check",
+          "params": [
+            { "name": "address", "type": "string" },
+            { "name": "type", "type": "string", "optional": true }
+          ],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "i1"
+          }
+        },
+        "rules": {
+          "call": "ts_net_block_list_get_rules",
+          "hirName": "ts_net_BlockList_getRules",
+          "params": [],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    }
+  }
+}

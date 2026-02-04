@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_array_slice
+// CHECK: define
+// CHECK: @ts_array_slice
 // OUTPUT: slice1: 20,30
 // OUTPUT: slice2: 30,40,50
 // OUTPUT: first: 20

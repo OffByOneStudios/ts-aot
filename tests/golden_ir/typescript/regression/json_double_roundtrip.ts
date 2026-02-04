@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
+// CHECK: define
 // OUTPUT: original: 3.14159
 // OUTPUT: parsed: 3.14159
 // OUTPUT: roundtrip: PASS

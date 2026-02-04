@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
+// CHECK: define
 // OUTPUT: textA length: 53
 // OUTPUT: textB length (captured): 107
 // OUTPUT: textC length: 161

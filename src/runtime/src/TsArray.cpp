@@ -190,29 +190,68 @@ int64_t TsArray::IndexOf(int64_t value) {
         return -1;
     }
 
-    // For PackedSmi arrays or non-specialized arrays, we may receive a boxed TsValue*.
-    // Try to unbox it if it looks like a valid TsValue*.
-    int64_t rawValue = value;
-    if (isSpecialized && (uintptr_t)value > 0x10000) {
-        // Check if value looks like a TsValue* (type byte <= 10, padding bytes are 0)
-        TsValue* maybeBoxed = (TsValue*)value;
-        uint8_t typeVal = *(uint8_t*)maybeBoxed;
-        uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-        uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
-        uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
-        if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
-            // It's a boxed TsValue* - extract the value
-            if (maybeBoxed->type == ValueType::NUMBER_INT) {
-                rawValue = maybeBoxed->i_val;
-            } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                rawValue = (int64_t)maybeBoxed->d_val;
+    // For specialized integer arrays (PackedSmi), unbox the search value and compare directly
+    if (isSpecialized) {
+        int64_t rawValue = value;
+        if ((uintptr_t)value > 0x10000) {
+            TsValue* maybeBoxed = (TsValue*)value;
+            uint8_t typeVal = *(uint8_t*)maybeBoxed;
+            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+            if (typeVal <= 10 && byte1 == 0) {
+                if (maybeBoxed->type == ValueType::NUMBER_INT) {
+                    rawValue = maybeBoxed->i_val;
+                } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
+                    rawValue = (int64_t)maybeBoxed->d_val;
+                }
             }
         }
+        for (size_t i = 0; i < length; ++i) {
+            if (((int64_t*)elements)[i] == rawValue) return (int64_t)i;
+        }
+        return -1;
     }
 
-    // For specialized integer arrays or non-specialized arrays
+    // For non-specialized (generic) arrays, elements are TsValue* pointers stored as int64.
+    // The search value is also a TsValue* - we need to compare values, not addresses.
+    TsValue* searchVal = (TsValue*)value;
+    if (!searchVal) return -1;
+
     for (size_t i = 0; i < length; ++i) {
-        if (((int64_t*)elements)[i] == rawValue) return (int64_t)i;
+        TsValue* elemVal = (TsValue*)((int64_t*)elements)[i];
+        if (!elemVal) continue;
+
+        // Compare by type and value
+        if (elemVal->type == searchVal->type) {
+            switch (elemVal->type) {
+                case ValueType::NUMBER_INT:
+                    if (elemVal->i_val == searchVal->i_val) return (int64_t)i;
+                    break;
+                case ValueType::NUMBER_DBL:
+                    if (elemVal->d_val == searchVal->d_val) return (int64_t)i;
+                    break;
+                case ValueType::STRING_PTR:
+                    // Compare string pointers or values
+                    if (elemVal->ptr_val == searchVal->ptr_val) return (int64_t)i;
+                    // Also try comparing string contents
+                    if (elemVal->ptr_val && searchVal->ptr_val) {
+                        TsString* s1 = (TsString*)elemVal->ptr_val;
+                        TsString* s2 = (TsString*)searchVal->ptr_val;
+                        if (s1->Equals(s2)) return (int64_t)i;
+                    }
+                    break;
+                case ValueType::OBJECT_PTR:
+                case ValueType::ARRAY_PTR:
+                    // For objects/arrays, compare by pointer identity
+                    if (elemVal->ptr_val == searchVal->ptr_val) return (int64_t)i;
+                    break;
+                case ValueType::BOOLEAN:
+                    if (elemVal->b_val == searchVal->b_val) return (int64_t)i;
+                    break;
+                default:
+                    if (elemVal->i_val == searchVal->i_val) return (int64_t)i;
+                    break;
+            }
+        }
     }
     return -1;
 }
@@ -231,27 +270,65 @@ int64_t TsArray::LastIndexOf(int64_t value) {
         return -1;
     }
 
-    // For PackedSmi arrays or non-specialized arrays, we may receive a boxed TsValue*.
-    // Try to unbox it if it looks like a valid TsValue*.
-    int64_t rawValue = value;
-    if (isSpecialized && (uintptr_t)value > 0x10000) {
-        // Check if value looks like a TsValue* (type byte <= 10, padding bytes are 0)
-        TsValue* maybeBoxed = (TsValue*)value;
-        uint8_t typeVal = *(uint8_t*)maybeBoxed;
-        uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-        uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
-        uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
-        if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
-            // It's a boxed TsValue* - extract the value
-            if (maybeBoxed->type == ValueType::NUMBER_INT) {
-                rawValue = maybeBoxed->i_val;
-            } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                rawValue = (int64_t)maybeBoxed->d_val;
+    // For specialized integer arrays (PackedSmi), unbox the search value and compare directly
+    if (isSpecialized) {
+        int64_t rawValue = value;
+        if ((uintptr_t)value > 0x10000) {
+            TsValue* maybeBoxed = (TsValue*)value;
+            uint8_t typeVal = *(uint8_t*)maybeBoxed;
+            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+            if (typeVal <= 10 && byte1 == 0) {
+                if (maybeBoxed->type == ValueType::NUMBER_INT) {
+                    rawValue = maybeBoxed->i_val;
+                } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
+                    rawValue = (int64_t)maybeBoxed->d_val;
+                }
             }
         }
+        for (size_t i = length; i > 0; --i) {
+            if (((int64_t*)elements)[i - 1] == rawValue) return (int64_t)(i - 1);
+        }
+        return -1;
     }
+
+    // For non-specialized (generic) arrays, elements are TsValue* pointers stored as int64.
+    // The search value is also a TsValue* - we need to compare values, not addresses.
+    TsValue* searchVal = (TsValue*)value;
+    if (!searchVal) return -1;
+
     for (size_t i = length; i > 0; --i) {
-        if (((int64_t*)elements)[i - 1] == rawValue) return (int64_t)(i - 1);
+        TsValue* elemVal = (TsValue*)((int64_t*)elements)[i - 1];
+        if (!elemVal) continue;
+
+        // Compare by type and value
+        if (elemVal->type == searchVal->type) {
+            switch (elemVal->type) {
+                case ValueType::NUMBER_INT:
+                    if (elemVal->i_val == searchVal->i_val) return (int64_t)(i - 1);
+                    break;
+                case ValueType::NUMBER_DBL:
+                    if (elemVal->d_val == searchVal->d_val) return (int64_t)(i - 1);
+                    break;
+                case ValueType::STRING_PTR:
+                    if (elemVal->ptr_val == searchVal->ptr_val) return (int64_t)(i - 1);
+                    if (elemVal->ptr_val && searchVal->ptr_val) {
+                        TsString* s1 = (TsString*)elemVal->ptr_val;
+                        TsString* s2 = (TsString*)searchVal->ptr_val;
+                        if (s1->Equals(s2)) return (int64_t)(i - 1);
+                    }
+                    break;
+                case ValueType::OBJECT_PTR:
+                case ValueType::ARRAY_PTR:
+                    if (elemVal->ptr_val == searchVal->ptr_val) return (int64_t)(i - 1);
+                    break;
+                case ValueType::BOOLEAN:
+                    if (elemVal->b_val == searchVal->b_val) return (int64_t)(i - 1);
+                    break;
+                default:
+                    if (elemVal->i_val == searchVal->i_val) return (int64_t)(i - 1);
+                    break;
+            }
+        }
     }
     return -1;
 }
@@ -409,6 +486,24 @@ void* TsArray::Filter(void* callback, void* thisArg) {
 }
 
 void* TsArray::Reduce(void* callback, void* initialValue) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        TsValue* accumulator = (TsValue*)initialValue;
+        size_t startIdx = 0;
+        if (!accumulator && length > 0) {
+            accumulator = GetElementBoxed(0);
+            startIdx = 1;
+        }
+        for (size_t i = startIdx; i < length; ++i) {
+            TsValue* v = GetElementBoxed(i);
+            // HIR reduce callback takes (acc, val), not (acc, val, idx, arr)
+            accumulator = ts_closure_invoke_2v(closure, accumulator, v);
+        }
+        return accumulator;
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
 
@@ -429,6 +524,24 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
 }
 
 void* TsArray::ReduceRight(void* callback, void* initialValue) {
+    // Check if callback is a TsClosure (from HIR path)
+    if (ts_is_closure(callback)) {
+        TsClosure* closure = (TsClosure*)callback;
+        TsValue* accumulator = (TsValue*)initialValue;
+        size_t startIdx = length;
+        if (!accumulator && length > 0) {
+            accumulator = GetElementBoxed(length - 1);
+            startIdx = length - 1;
+        }
+        for (size_t i = startIdx; i > 0; --i) {
+            TsValue* v = GetElementBoxed(i - 1);
+            // HIR reduce callback takes (acc, val), not (acc, val, idx, arr)
+            accumulator = ts_closure_invoke_2v(closure, accumulator, v);
+        }
+        return accumulator;
+    }
+
+    // Standard TsValue/TsFunction path
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
 
@@ -996,7 +1109,28 @@ extern "C" {
     }
 
     void ts_array_push(void* arr, void* value) {
-        TsArray* array = (TsArray*)arr;
+        // Unbox arr if it's a TsValue* pointing to an array
+        void* rawArr = arr;
+        if (arr && (uintptr_t)arr > 0x10000) {
+            TsValue* maybeBoxed = (TsValue*)arr;
+            uint8_t typeVal = *(uint8_t*)maybeBoxed;
+            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+            uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
+            uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
+            // Check if it's a proper TsValue* (type <= 10, padding bytes are 0)
+            if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
+                if (maybeBoxed->type == ValueType::OBJECT_PTR || maybeBoxed->type == ValueType::ARRAY_PTR) {
+                    rawArr = maybeBoxed->ptr_val;
+                }
+            }
+        }
+
+        if (!rawArr) {
+            std::cerr << "ts_array_push: null array pointer" << std::endl;
+            return;
+        }
+
+        TsArray* array = (TsArray*)rawArr;
         int64_t bits = (int64_t)value;
         ElementKind kind = array->GetElementKind();
 
@@ -1366,13 +1500,21 @@ extern "C" {
     static TsArray* unboxArrayIfNeeded(void* arr) {
         if (!arr) return nullptr;
 
-        // Check if this is a boxed TsValue* with ARRAY_PTR type
-        // TsValue first byte is the type enum (0-10)
-        uint8_t firstByte = *(uint8_t*)arr;
-        if (firstByte == (uint8_t)ValueType::ARRAY_PTR) {
-            // It's a boxed TsValue*, extract the ptr_val (at offset 8 due to alignment)
-            TsValue* val = (TsValue*)arr;
-            return (TsArray*)val->ptr_val;
+        // Check if this is a boxed TsValue* with ARRAY_PTR or OBJECT_PTR type
+        // Arrays stored as object properties get boxed as OBJECT_PTR
+        // TsValue first byte is the type enum (0-10), with zero padding bytes
+        if ((uintptr_t)arr > 0x10000) {
+            uint8_t typeVal = *(uint8_t*)arr;
+            uint8_t byte1 = *((uint8_t*)arr + 1);
+            uint8_t byte2 = *((uint8_t*)arr + 2);
+            uint8_t byte3 = *((uint8_t*)arr + 3);
+            // Check if it's a proper TsValue* (type <= 10, padding bytes are 0)
+            if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
+                TsValue* val = (TsValue*)arr;
+                if (val->type == ValueType::ARRAY_PTR || val->type == ValueType::OBJECT_PTR) {
+                    return (TsArray*)val->ptr_val;
+                }
+            }
         }
 
         // It's already a raw array pointer
@@ -1394,12 +1536,21 @@ extern "C" {
     int64_t ts_array_length(void* arr) {
         if (!arr) return 0;
 
-        // Check if this is a boxed TsValue* with ARRAY_PTR type
-        uint8_t firstByte = *(uint8_t*)arr;
-        if (firstByte == (uint8_t)ValueType::ARRAY_PTR) {
-            TsValue* val = (TsValue*)arr;
-            arr = val->ptr_val;
-            if (!arr) return 0;
+        // Check if this is a boxed TsValue* with ARRAY_PTR or OBJECT_PTR type
+        // (arrays get boxed as OBJECT_PTR when stored via ts_value_make_object)
+        if ((uintptr_t)arr > 0x10000) {
+            TsValue* maybeBoxed = (TsValue*)arr;
+            uint8_t typeVal = *(uint8_t*)maybeBoxed;
+            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+            uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
+            uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
+            // Check if it's a proper TsValue* (type <= 10, padding bytes are 0)
+            if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
+                if (maybeBoxed->type == ValueType::ARRAY_PTR || maybeBoxed->type == ValueType::OBJECT_PTR) {
+                    arr = maybeBoxed->ptr_val;
+                    if (!arr) return 0;
+                }
+            }
         }
 
         // Check magic to handle TsRegExpMatchArray
@@ -1410,43 +1561,90 @@ extern "C" {
         return ((TsArray*)arr)->Length();
     }
 
-    void ts_array_sort(void* arr) {
-        ((TsArray*)arr)->Sort();
-    }
+    // Thread-local comparator state for use in std::sort
+    static thread_local void* g_current_comparator = nullptr;
+    static thread_local bool g_comparator_is_closure = false;
 
-    // Thread-local comparator for use in std::sort
-    static thread_local TsValue* g_current_comparator = nullptr;
-
-    static bool comparator_wrapper(int64_t a, int64_t b) {
+    // Comparator wrapper for arrays with boxed elements (TsValue* stored as int64)
+    static bool comparator_wrapper_boxed(int64_t a, int64_t b) {
         if (!g_current_comparator) return a < b;
-        
-        // Create boxed values for a and b
-        TsValue* aVal = ts_value_make_int(a);
-        TsValue* bVal = ts_value_make_int(b);
-        
-        // Call the comparator function using ts_call_2
-        TsValue* result = ts_call_2(g_current_comparator, aVal, bVal);
+
+        // a and b are actually TsValue* pointers stored as int64
+        TsValue* aVal = (TsValue*)a;
+        TsValue* bVal = (TsValue*)b;
+
+        TsValue* result;
+        if (g_comparator_is_closure) {
+            // HIR-generated closure path
+            result = ts_closure_invoke_2v((TsClosure*)g_current_comparator, aVal, bVal);
+        } else {
+            // Standard TsValue/TsFunction path
+            result = ts_call_2((TsValue*)g_current_comparator, aVal, bVal);
+        }
         if (!result) return a < b;
-        
+
         // Get the result as an int (negative = a < b, zero = equal, positive = a > b)
         int64_t cmp = ts_value_get_int(result);
         return cmp < 0;
     }
 
-    void ts_array_sort_with_comparator(void* arr, void* comparator) {
-        if (!comparator) {
-            ((TsArray*)arr)->Sort();
-            return;
+    // Comparator wrapper for raw int64 arrays
+    static bool comparator_wrapper_int(int64_t a, int64_t b) {
+        if (!g_current_comparator) return a < b;
+
+        // Create boxed values for a and b
+        TsValue* aVal = ts_value_make_int(a);
+        TsValue* bVal = ts_value_make_int(b);
+
+        TsValue* result;
+        if (g_comparator_is_closure) {
+            // HIR-generated closure path
+            result = ts_closure_invoke_2v((TsClosure*)g_current_comparator, aVal, bVal);
+        } else {
+            // Standard TsValue/TsFunction path
+            result = ts_call_2((TsValue*)g_current_comparator, aVal, bVal);
         }
-        
+        if (!result) return a < b;
+
+        // Get the result as an int (negative = a < b, zero = equal, positive = a > b)
+        int64_t cmp = ts_value_get_int(result);
+        return cmp < 0;
+    }
+
+    // ts_array_sort - HIR calls this with (array, comparator) and expects array to be returned
+    void* ts_array_sort(void* arr, void* comparator) {
         TsArray* array = (TsArray*)arr;
-        g_current_comparator = (TsValue*)comparator;
-        
+
+        if (!comparator) {
+            array->Sort();
+            return array;
+        }
+
+        // Check if comparator is a TsClosure (from HIR path)
+        if (ts_is_closure(comparator)) {
+            g_current_comparator = comparator;
+            g_comparator_is_closure = true;
+        } else {
+            g_current_comparator = comparator;
+            g_comparator_is_closure = false;
+        }
+
         int64_t* elements = (int64_t*)array->GetElementsPtr();
         size_t len = array->Length();
-        std::sort(elements, elements + len, comparator_wrapper);
-        
+
+        // HIR creates arrays with boxed TsValue* elements, use boxed wrapper
+        // Non-specialized arrays store TsValue* as int64
+        std::sort(elements, elements + len, comparator_wrapper_boxed);
+
         g_current_comparator = nullptr;
+        g_comparator_is_closure = false;
+
+        return array;  // Return the array (sort mutates in place)
+    }
+
+    // Legacy function - keep for backward compatibility
+    void ts_array_sort_with_comparator(void* arr, void* comparator) {
+        ts_array_sort(arr, comparator);
     }
 
     void* ts_array_slice(void* arr, int64_t start, int64_t end) {

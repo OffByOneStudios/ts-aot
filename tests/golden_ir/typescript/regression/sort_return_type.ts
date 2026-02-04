@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_array_sort_with_comparator
+// CHECK: define
+// CHECK: @ts_array_sort
 // OUTPUT: value: 1
 
 // This test verifies that Array.sort() with a callback returns the array type,

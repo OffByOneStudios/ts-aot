@@ -1,0 +1,582 @@
+{
+  "name": "crypto",
+  "version": "1.0.0",
+  "modules": ["crypto", "node:crypto"],
+  "objects": {
+    "crypto": {
+      "methods": {
+        "createHash": {
+          "call": "ts_crypto_createHash",
+          "hirName": "ts_crypto_createHash",
+          "params": [{ "name": "algorithm", "type": "string" }],
+          "returns": "Hash",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "createHmac": {
+          "call": "ts_crypto_createHmac",
+          "hirName": "ts_crypto_createHmac",
+          "params": [
+            { "name": "algorithm", "type": "string" },
+            { "name": "key", "type": "any" }
+          ],
+          "returns": "Hmac",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "randomBytes": {
+          "call": "ts_crypto_randomBytes",
+          "hirName": "ts_crypto_randomBytes",
+          "params": [{ "name": "size", "type": "number" }],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["i64"],
+            "returns": "ptr"
+          }
+        },
+        "randomFillSync": {
+          "call": "ts_crypto_randomFillSync",
+          "hirName": "ts_crypto_randomFillSync",
+          "params": [
+            { "name": "buffer", "type": "Buffer" },
+            { "name": "offset", "type": "number", "optional": true },
+            { "name": "size", "type": "number", "optional": true }
+          ],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["ptr", "i64", "i64"],
+            "returns": "ptr"
+          }
+        },
+        "randomFill": {
+          "call": "ts_crypto_randomFill",
+          "hirName": "ts_crypto_randomFill",
+          "params": [
+            { "name": "buffer", "type": "Buffer" },
+            { "name": "offset", "type": "number" },
+            { "name": "size", "type": "number" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "i64", "i64", "boxed"],
+            "returns": "void"
+          }
+        },
+        "randomInt": {
+          "call": "ts_crypto_randomInt",
+          "hirName": "ts_crypto_randomInt",
+          "params": [
+            { "name": "min", "type": "number" },
+            { "name": "max", "type": "number" }
+          ],
+          "returns": "number",
+          "lowering": {
+            "args": ["i64", "i64"],
+            "returns": "i64"
+          }
+        },
+        "randomUUID": {
+          "call": "ts_crypto_randomUUID",
+          "hirName": "ts_crypto_randomUUID",
+          "params": [],
+          "returns": "string",
+          "lowering": {
+            "args": [],
+            "returns": "ptr"
+          }
+        },
+        "pbkdf2Sync": {
+          "call": "ts_crypto_pbkdf2Sync",
+          "hirName": "ts_crypto_pbkdf2Sync",
+          "params": [
+            { "name": "password", "type": "any" },
+            { "name": "salt", "type": "any" },
+            { "name": "iterations", "type": "number" },
+            { "name": "keylen", "type": "number" },
+            { "name": "digest", "type": "string" }
+          ],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["boxed", "boxed", "i64", "i64", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "pbkdf2": {
+          "call": "ts_crypto_pbkdf2",
+          "hirName": "ts_crypto_pbkdf2",
+          "params": [
+            { "name": "password", "type": "any" },
+            { "name": "salt", "type": "any" },
+            { "name": "iterations", "type": "number" },
+            { "name": "keylen", "type": "number" },
+            { "name": "digest", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "i64", "i64", "ptr", "boxed"],
+            "returns": "void"
+          }
+        },
+        "scryptSync": {
+          "call": "ts_crypto_scryptSync",
+          "hirName": "ts_crypto_scryptSync",
+          "params": [
+            { "name": "password", "type": "any" },
+            { "name": "salt", "type": "any" },
+            { "name": "keylen", "type": "number" },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["boxed", "boxed", "i64", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "scrypt": {
+          "call": "ts_crypto_scrypt",
+          "hirName": "ts_crypto_scrypt",
+          "params": [
+            { "name": "password", "type": "any" },
+            { "name": "salt", "type": "any" },
+            { "name": "keylen", "type": "number" },
+            { "name": "options", "type": "any" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed", "i64", "boxed", "boxed"],
+            "returns": "void"
+          }
+        },
+        "timingSafeEqual": {
+          "call": "ts_crypto_timingSafeEqual",
+          "hirName": "ts_crypto_timingSafeEqual",
+          "params": [
+            { "name": "a", "type": "Buffer" },
+            { "name": "b", "type": "Buffer" }
+          ],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "i1"
+          }
+        },
+        "getHashes": {
+          "call": "ts_crypto_getHashes",
+          "hirName": "ts_crypto_getHashes",
+          "params": [],
+          "returns": "string[]",
+          "lowering": {
+            "args": [],
+            "returns": "ptr"
+          }
+        },
+        "getCiphers": {
+          "call": "ts_crypto_getCiphers",
+          "hirName": "ts_crypto_getCiphers",
+          "params": [],
+          "returns": "string[]",
+          "lowering": {
+            "args": [],
+            "returns": "ptr"
+          }
+        },
+        "createCipheriv": {
+          "call": "ts_crypto_createCipheriv",
+          "hirName": "ts_crypto_createCipheriv",
+          "params": [
+            { "name": "algorithm", "type": "string" },
+            { "name": "key", "type": "any" },
+            { "name": "iv", "type": "any" }
+          ],
+          "returns": "Cipher",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "createDecipheriv": {
+          "call": "ts_crypto_createDecipheriv",
+          "hirName": "ts_crypto_createDecipheriv",
+          "params": [
+            { "name": "algorithm", "type": "string" },
+            { "name": "key", "type": "any" },
+            { "name": "iv", "type": "any" }
+          ],
+          "returns": "Decipher",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "createSign": {
+          "call": "ts_crypto_createSign",
+          "hirName": "ts_crypto_createSign",
+          "params": [{ "name": "algorithm", "type": "string" }],
+          "returns": "Sign",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "createVerify": {
+          "call": "ts_crypto_createVerify",
+          "hirName": "ts_crypto_createVerify",
+          "params": [{ "name": "algorithm", "type": "string" }],
+          "returns": "Verify",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "sign": {
+          "call": "ts_crypto_sign_oneshot",
+          "hirName": "ts_crypto_sign",
+          "params": [
+            { "name": "algorithm", "type": "string" },
+            { "name": "data", "type": "any" },
+            { "name": "key", "type": "any" }
+          ],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "verify": {
+          "call": "ts_crypto_verify_oneshot",
+          "hirName": "ts_crypto_verify",
+          "params": [
+            { "name": "algorithm", "type": "string" },
+            { "name": "data", "type": "any" },
+            { "name": "key", "type": "any" },
+            { "name": "signature", "type": "any" }
+          ],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed", "boxed"],
+            "returns": "i1"
+          }
+        },
+        "generateKeyPairSync": {
+          "call": "ts_crypto_generateKeyPairSync",
+          "hirName": "ts_crypto_generateKeyPairSync",
+          "params": [
+            { "name": "type", "type": "string" },
+            { "name": "options", "type": "any" }
+          ],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr", "i64", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "generateKeyPair": {
+          "call": "ts_crypto_generateKeyPair",
+          "hirName": "ts_crypto_generateKeyPair",
+          "params": [
+            { "name": "type", "type": "string" },
+            { "name": "options", "type": "any" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "i64", "ptr", "boxed"],
+            "returns": "void"
+          }
+        },
+        "generateKeySync": {
+          "call": "ts_crypto_generateKeySync",
+          "hirName": "ts_crypto_generateKeySync",
+          "params": [
+            { "name": "type", "type": "string" },
+            { "name": "options", "type": "any" }
+          ],
+          "returns": "KeyObject",
+          "lowering": {
+            "args": ["ptr", "i64"],
+            "returns": "ptr"
+          }
+        },
+        "generateKey": {
+          "call": "ts_crypto_generateKey",
+          "hirName": "ts_crypto_generateKey",
+          "params": [
+            { "name": "type", "type": "string" },
+            { "name": "options", "type": "any" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "i64", "boxed"],
+            "returns": "void"
+          }
+        },
+        "createPrivateKey": {
+          "call": "ts_crypto_createPrivateKey",
+          "hirName": "ts_crypto_createPrivateKey",
+          "params": [{ "name": "key", "type": "any" }],
+          "returns": "KeyObject",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "ptr"
+          }
+        },
+        "createPublicKey": {
+          "call": "ts_crypto_createPublicKey",
+          "hirName": "ts_crypto_createPublicKey",
+          "params": [{ "name": "key", "type": "any" }],
+          "returns": "KeyObject",
+          "lowering": {
+            "args": ["boxed"],
+            "returns": "ptr"
+          }
+        },
+        "createSecretKey": {
+          "call": "ts_crypto_createSecretKey",
+          "hirName": "ts_crypto_createSecretKey",
+          "params": [
+            { "name": "key", "type": "any" },
+            { "name": "encoding", "type": "string", "optional": true }
+          ],
+          "returns": "KeyObject",
+          "lowering": {
+            "args": ["boxed", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "hkdfSync": {
+          "call": "ts_crypto_hkdfSync",
+          "hirName": "ts_crypto_hkdfSync",
+          "params": [
+            { "name": "digest", "type": "string" },
+            { "name": "ikm", "type": "any" },
+            { "name": "salt", "type": "any" },
+            { "name": "info", "type": "any" },
+            { "name": "keylen", "type": "number" }
+          ],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed", "boxed", "i64"],
+            "returns": "ptr"
+          }
+        }
+      }
+    }
+  },
+  "types": {
+    "Hash": {
+      "kind": "class",
+      "methods": {
+        "update": {
+          "call": "ts_crypto_hash_update",
+          "hirName": "ts_Hash_update",
+          "params": [{ "name": "data", "type": "any" }],
+          "returns": "Hash",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "digest": {
+          "call": "ts_crypto_hash_digest",
+          "hirName": "ts_Hash_digest",
+          "params": [{ "name": "encoding", "type": "string", "optional": true }],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "copy": {
+          "call": "ts_crypto_hash_copy",
+          "hirName": "ts_Hash_copy",
+          "params": [],
+          "returns": "Hash",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    },
+    "Hmac": {
+      "kind": "class",
+      "methods": {
+        "update": {
+          "call": "ts_crypto_hmac_update",
+          "hirName": "ts_Hmac_update",
+          "params": [{ "name": "data", "type": "any" }],
+          "returns": "Hmac",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "digest": {
+          "call": "ts_crypto_hmac_digest",
+          "hirName": "ts_Hmac_digest",
+          "params": [{ "name": "encoding", "type": "string", "optional": true }],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    },
+    "Cipher": {
+      "kind": "class",
+      "methods": {
+        "update": {
+          "call": "ts_crypto_cipher_update",
+          "hirName": "ts_Cipher_update",
+          "params": [{ "name": "data", "type": "any" }],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "final": {
+          "call": "ts_crypto_cipher_final",
+          "hirName": "ts_Cipher_final",
+          "params": [],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "getAuthTag": {
+          "call": "ts_crypto_cipher_getAuthTag",
+          "hirName": "ts_Cipher_getAuthTag",
+          "params": [],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "setAAD": {
+          "call": "ts_crypto_cipher_setAAD",
+          "hirName": "ts_Cipher_setAAD",
+          "params": [{ "name": "buffer", "type": "Buffer" }],
+          "returns": "Cipher",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    },
+    "Decipher": {
+      "kind": "class",
+      "methods": {
+        "update": {
+          "call": "ts_crypto_decipher_update",
+          "hirName": "ts_Decipher_update",
+          "params": [{ "name": "data", "type": "any" }],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "final": {
+          "call": "ts_crypto_decipher_final",
+          "hirName": "ts_Decipher_final",
+          "params": [],
+          "returns": "Buffer",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "setAuthTag": {
+          "call": "ts_crypto_decipher_setAuthTag",
+          "hirName": "ts_Decipher_setAuthTag",
+          "params": [{ "name": "tag", "type": "Buffer" }],
+          "returns": "Decipher",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "setAAD": {
+          "call": "ts_crypto_decipher_setAAD",
+          "hirName": "ts_Decipher_setAAD",
+          "params": [{ "name": "buffer", "type": "Buffer" }],
+          "returns": "Decipher",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    },
+    "Sign": {
+      "kind": "class",
+      "methods": {
+        "update": {
+          "call": "ts_crypto_sign_update",
+          "hirName": "ts_Sign_update",
+          "params": [{ "name": "data", "type": "any" }],
+          "returns": "Sign",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "sign": {
+          "call": "ts_crypto_sign_sign",
+          "hirName": "ts_Sign_sign",
+          "params": [
+            { "name": "privateKey", "type": "any" },
+            { "name": "outputEncoding", "type": "string", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr", "boxed", "ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    },
+    "Verify": {
+      "kind": "class",
+      "methods": {
+        "update": {
+          "call": "ts_crypto_verify_update",
+          "hirName": "ts_Verify_update",
+          "params": [{ "name": "data", "type": "any" }],
+          "returns": "Verify",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "verify": {
+          "call": "ts_crypto_verify_verify",
+          "hirName": "ts_Verify_verify",
+          "params": [
+            { "name": "publicKey", "type": "any" },
+            { "name": "signature", "type": "any" },
+            { "name": "signatureEncoding", "type": "string", "optional": true }
+          ],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed", "ptr"],
+            "returns": "i1"
+          }
+        }
+      }
+    }
+  }
+}

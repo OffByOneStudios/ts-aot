@@ -1038,26 +1038,26 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // object
             .build());
 
-    reg.registerLowering("ts_object_is_frozen",
-        lowering("ts_object_is_frozen")
+    reg.registerLowering("ts_object_isFrozen",
+        lowering("ts_object_isFrozen")
             .returnsBool()
             .ptrArg()      // object
             .build());
 
-    reg.registerLowering("ts_object_is_sealed",
-        lowering("ts_object_is_sealed")
+    reg.registerLowering("ts_object_isSealed",
+        lowering("ts_object_isSealed")
             .returnsBool()
             .ptrArg()      // object
             .build());
 
-    reg.registerLowering("ts_object_is_extensible",
-        lowering("ts_object_is_extensible")
+    reg.registerLowering("ts_object_isExtensible",
+        lowering("ts_object_isExtensible")
             .returnsBool()
             .ptrArg()      // object
             .build());
 
-    reg.registerLowering("ts_object_prevent_extensions",
-        lowering("ts_object_prevent_extensions")
+    reg.registerLowering("ts_object_preventExtensions",
+        lowering("ts_object_preventExtensions")
             .returnsPtr()
             .ptrArg()      // object
             .build());
@@ -1164,6 +1164,128 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // object
             .ptrArg()      // constructor
             .build());
+
+    // ========================================
+    // Assert and Zlib modules - loaded dynamically from JSON extensions
+    // See: extensions/node/assert/assert.ext.json
+    // See: extensions/node/zlib/zlib.ext.json
+    // ========================================
+}
+
+// Helper to build a LoweringSpec from extension lowering info
+static void buildLoweringSpec(LoweringSpecBuilder& builder, const ext::LoweringSpec& lowering) {
+    // Set return type
+    switch (lowering.returns) {
+        case ext::LoweringType::Void:
+            builder.returnsVoid();
+            break;
+        case ext::LoweringType::Ptr:
+            builder.returnsPtr();
+            break;
+        case ext::LoweringType::I64:
+            builder.returnsI64();
+            break;
+        case ext::LoweringType::I32:
+            builder.returns([](llvm::LLVMContext& ctx) {
+                return llvm::Type::getInt32Ty(ctx);
+            });
+            break;
+        case ext::LoweringType::F64:
+            builder.returnsF64();
+            break;
+        case ext::LoweringType::I1:
+            builder.returnsBool();
+            break;
+        case ext::LoweringType::Boxed:
+            builder.returnsBoxed();
+            break;
+    }
+
+    // Set argument types
+    for (const auto& argType : lowering.args) {
+        switch (argType) {
+            case ext::LoweringType::Ptr:
+                builder.ptrArg();
+                break;
+            case ext::LoweringType::I64:
+                builder.i64Arg();
+                break;
+            case ext::LoweringType::I32:
+                builder.i32Arg();
+                break;
+            case ext::LoweringType::F64:
+                builder.f64Arg();
+                break;
+            case ext::LoweringType::I1:
+                builder.boolArg();
+                break;
+            case ext::LoweringType::Boxed:
+                builder.boxedArg();
+                break;
+            case ext::LoweringType::Void:
+                // Void doesn't make sense for args, ignore
+                break;
+        }
+    }
+}
+
+// Helper to register object methods (for module namespaces like assert, zlib)
+static void registerObjectMethods(
+    LoweringRegistry& reg,
+    const std::string& objectName,
+    const ext::ObjectDefinition& obj,
+    int& registeredCount
+) {
+    for (const auto& [methodName, method] : obj.methods) {
+        if (!method.lowering || method.call.empty()) continue;
+
+        // Determine the HIR name - either explicit or derived from object.method
+        std::string hirName;
+        if (method.hirName) {
+            hirName = *method.hirName;
+        } else {
+            // Derive HIR name: ts_<objectName>_<methodName>
+            hirName = "ts_" + objectName + "_" + methodName;
+        }
+
+        // Skip if already registered (builtins take precedence)
+        if (reg.hasLowering(hirName)) continue;
+
+        LoweringSpecBuilder builder(method.call);
+        buildLoweringSpec(builder, *method.lowering);
+
+        reg.registerLowering(hirName, builder.build());
+        registeredCount++;
+        SPDLOG_DEBUG("Registered lowering from extension: {} -> {} (object {}.{})",
+                     hirName, method.call, objectName, methodName);
+    }
+
+    // Process nested objects (e.g., path.win32, path.posix)
+    for (const auto& [nestedName, nestedObj] : obj.nestedObjects) {
+        if (!nestedObj) continue;
+
+        for (const auto& [methodName, method] : nestedObj->methods) {
+            if (!method.lowering || method.call.empty()) continue;
+
+            // Derive HIR name: ts_<objectName>_<nestedName>_<methodName>
+            std::string hirName;
+            if (method.hirName) {
+                hirName = *method.hirName;
+            } else {
+                hirName = "ts_" + objectName + "_" + nestedName + "_" + methodName;
+            }
+
+            if (reg.hasLowering(hirName)) continue;
+
+            LoweringSpecBuilder builder(method.call);
+            buildLoweringSpec(builder, *method.lowering);
+
+            reg.registerLowering(hirName, builder.build());
+            registeredCount++;
+            SPDLOG_DEBUG("Registered lowering from extension: {} -> {} (nested object {}.{}.{})",
+                         hirName, method.call, objectName, nestedName, methodName);
+        }
+    }
 }
 
 void LoweringRegistry::registerFromExtensions() {
@@ -1181,68 +1303,19 @@ void LoweringRegistry::registerFromExtensions() {
             for (const auto& [methodName, method] : typeDef.methods) {
                 if (!method.lowering || method.call.empty()) continue;
 
+                // Determine the HIR name
+                std::string hirName = method.hirName ? *method.hirName : method.call;
+
                 // Skip if already registered (builtins take precedence)
-                if (hasLowering(method.call)) continue;
+                if (hasLowering(hirName)) continue;
 
                 LoweringSpecBuilder builder(method.call);
+                buildLoweringSpec(builder, *method.lowering);
 
-                // Set return type
-                switch (method.lowering->returns) {
-                    case ext::LoweringType::Void:
-                        builder.returnsVoid();
-                        break;
-                    case ext::LoweringType::Ptr:
-                        builder.returnsPtr();
-                        break;
-                    case ext::LoweringType::I64:
-                        builder.returnsI64();
-                        break;
-                    case ext::LoweringType::I32:
-                        builder.returns([](llvm::LLVMContext& ctx) {
-                            return llvm::Type::getInt32Ty(ctx);
-                        });
-                        break;
-                    case ext::LoweringType::F64:
-                        builder.returnsF64();
-                        break;
-                    case ext::LoweringType::I1:
-                        builder.returnsBool();
-                        break;
-                    case ext::LoweringType::Boxed:
-                        builder.returnsBoxed();
-                        break;
-                }
-
-                // Set argument types
-                for (const auto& argType : method.lowering->args) {
-                    switch (argType) {
-                        case ext::LoweringType::Ptr:
-                            builder.ptrArg();
-                            break;
-                        case ext::LoweringType::I64:
-                            builder.i64Arg();
-                            break;
-                        case ext::LoweringType::I32:
-                            builder.i32Arg();
-                            break;
-                        case ext::LoweringType::F64:
-                            builder.f64Arg();
-                            break;
-                        case ext::LoweringType::I1:
-                            builder.boolArg();
-                            break;
-                        case ext::LoweringType::Boxed:
-                            builder.boxedArg();
-                            break;
-                        case ext::LoweringType::Void:
-                            // Void doesn't make sense for args, ignore
-                            break;
-                    }
-                }
-
-                registerLowering(method.call, builder.build());
+                registerLowering(hirName, builder.build());
                 registeredCount++;
-                SPDLOG_DEBUG("Registered lowering from extension: {} -> {}", method.call, typeName + "." + methodName);
+                SPDLOG_DEBUG("Registered lowering from extension: {} -> {} (type {}.{})",
+                             hirName, method.call, typeName, methodName);
             }
         }
 
@@ -1253,61 +1326,16 @@ void LoweringRegistry::registerFromExtensions() {
             if (hasLowering(func.call)) continue;
 
             LoweringSpecBuilder builder(func.call);
-
-            switch (func.lowering->returns) {
-                case ext::LoweringType::Void:
-                    builder.returnsVoid();
-                    break;
-                case ext::LoweringType::Ptr:
-                    builder.returnsPtr();
-                    break;
-                case ext::LoweringType::I64:
-                    builder.returnsI64();
-                    break;
-                case ext::LoweringType::I32:
-                    builder.returns([](llvm::LLVMContext& ctx) {
-                        return llvm::Type::getInt32Ty(ctx);
-                    });
-                    break;
-                case ext::LoweringType::F64:
-                    builder.returnsF64();
-                    break;
-                case ext::LoweringType::I1:
-                    builder.returnsBool();
-                    break;
-                case ext::LoweringType::Boxed:
-                    builder.returnsBoxed();
-                    break;
-            }
-
-            for (const auto& argType : func.lowering->args) {
-                switch (argType) {
-                    case ext::LoweringType::Ptr:
-                        builder.ptrArg();
-                        break;
-                    case ext::LoweringType::I64:
-                        builder.i64Arg();
-                        break;
-                    case ext::LoweringType::I32:
-                        builder.i32Arg();
-                        break;
-                    case ext::LoweringType::F64:
-                        builder.f64Arg();
-                        break;
-                    case ext::LoweringType::I1:
-                        builder.boolArg();
-                        break;
-                    case ext::LoweringType::Boxed:
-                        builder.boxedArg();
-                        break;
-                    case ext::LoweringType::Void:
-                        break;
-                }
-            }
+            buildLoweringSpec(builder, *func.lowering);
 
             registerLowering(func.call, builder.build());
             registeredCount++;
             SPDLOG_DEBUG("Registered lowering from extension: {} (function {})", func.call, funcName);
+        }
+
+        // Register lowerings from object methods (module namespaces)
+        for (const auto& [objectName, obj] : contract.objects) {
+            registerObjectMethods(*this, objectName, obj, registeredCount);
         }
     }
 

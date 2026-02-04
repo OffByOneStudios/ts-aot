@@ -178,6 +178,10 @@ bool ts_bigint_eq(void* a, void* b) {
     return mp_cmp(&((TsBigInt*)a)->value, &((TsBigInt*)b)->value) == MP_EQ;
 }
 
+bool ts_bigint_ne(void* a, void* b) {
+    return !ts_bigint_eq(a, b);
+}
+
 bool ts_bigint_lt(void* a, void* b) {
     if (!a || !b) return false;
     return mp_cmp(&((TsBigInt*)a)->value, &((TsBigInt*)b)->value) == MP_LT;

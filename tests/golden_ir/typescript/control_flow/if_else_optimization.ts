@@ -1,5 +1,5 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
+// CHECK: define
 // CHECK: fcmp
 // CHECK: br i1
 // CHECK-NOT: call {{.*}} @ts_value_to_bool

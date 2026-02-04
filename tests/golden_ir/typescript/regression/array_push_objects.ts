@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_array_push
+// CHECK: define
+// CHECK: @ts_array_push
 // OUTPUT: Push object literal: length=1
 // OUTPUT: Push object variable: length=1
 // OUTPUT: Push with Array<T> syntax: length=1

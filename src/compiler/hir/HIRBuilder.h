@@ -888,7 +888,8 @@ public:
     // Load a function pointer by name
     std::shared_ptr<HIRValue> createLoadFunction(const std::string& name,
                                                    std::shared_ptr<HIRType> funcType = nullptr) {
-        auto type = funcType ? funcType : HIRType::makePtr();
+        // Default to Function type so the lowering knows to use ts_value_make_function
+        auto type = funcType ? funcType : HIRType::makeFunction();
         auto result = createValue(type);
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::LoadFunction);
         inst->result = result;
@@ -935,6 +936,31 @@ public:
     void createStoreCapture(const std::string& varName, std::shared_ptr<HIRValue> val) {
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::StoreCapture);
         inst->operands.push_back(varName);
+        inst->operands.push_back(val);
+        emit(std::move(inst));
+    }
+
+    // Load a captured variable from a specific closure (for outer function accessing
+    // a variable that's been captured by a nested closure)
+    std::shared_ptr<HIRValue> createLoadCaptureFromClosure(std::shared_ptr<HIRValue> closurePtr,
+                                                           int captureIndex,
+                                                           std::shared_ptr<HIRType> type) {
+        auto result = createValue(type);
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::LoadCaptureFromClosure);
+        inst->result = result;
+        inst->operands.push_back(closurePtr);
+        inst->operands.push_back(captureIndex);
+        emit(std::move(inst));
+        return result;
+    }
+
+    // Store to a captured variable in a specific closure
+    void createStoreCaptureFromClosure(std::shared_ptr<HIRValue> closurePtr,
+                                       int captureIndex,
+                                       std::shared_ptr<HIRValue> val) {
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::StoreCaptureFromClosure);
+        inst->operands.push_back(closurePtr);
+        inst->operands.push_back(captureIndex);
         inst->operands.push_back(val);
         emit(std::move(inst));
     }

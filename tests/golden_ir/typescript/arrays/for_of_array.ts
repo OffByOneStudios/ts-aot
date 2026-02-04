@@ -1,7 +1,7 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
-// CHECK: define {{.*}} @user_main
-// CHECK: call {{.*}} @ts_array_create_specialized
-// CHECK: call {{.*}} @ts_array_length
+// CHECK: define
+// CHECK: ts_array_create_sized
+// CHECK: ts_array_length
 // CHECK: icmp slt
 // CHECK: br i1
 // OUTPUT: 1
