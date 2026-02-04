@@ -266,6 +266,13 @@ TsValue* ts_value_make_int(int64_t i) {
         return val;
     }
 
+    TsValue* ts_ensure_boxed(void* v) {
+        // Ensure that the value is boxed (TsValue*)
+        // This is used for default parameters where inlining may change types
+        // ts_value_make_object already handles detecting already-boxed values
+        return ts_value_make_object(v);
+    }
+
     bool ts_value_is_undefined(TsValue* v) {
         if (!v) {
             return true;

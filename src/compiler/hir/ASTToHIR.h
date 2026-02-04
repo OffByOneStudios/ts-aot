@@ -267,6 +267,9 @@ private:
     // Box a value to Any/ptr type if needed for select instructions
     std::shared_ptr<HIRValue> boxValueIfNeeded(std::shared_ptr<HIRValue> value);
 
+    // Force box a value - used for default params where inlining may change the actual type
+    std::shared_ptr<HIRValue> forceBoxValue(std::shared_ptr<HIRValue> value);
+
     // Lower a MethodDefinition to a function value (for object literal methods including getters/setters)
     std::shared_ptr<HIRValue> lowerMethodDefinitionToFunction(ast::MethodDefinition* method);
 
