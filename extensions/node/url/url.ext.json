@@ -1,0 +1,367 @@
+{
+  "name": "url",
+  "version": "1.0.0",
+  "modules": ["url", "node:url"],
+  "objects": {
+    "url": {
+      "methods": {
+        "fileURLToPath": {
+          "call": "ts_url_file_url_to_path",
+          "hirName": "ts_url_fileURLToPath",
+          "params": [{ "name": "url", "type": "string | URL" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "pathToFileURL": {
+          "call": "ts_url_path_to_file_url",
+          "hirName": "ts_url_pathToFileURL",
+          "params": [{ "name": "path", "type": "string" }],
+          "returns": "URL",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "urlToHttpOptions": {
+          "call": "ts_url_to_http_options",
+          "hirName": "ts_url_urlToHttpOptions",
+          "params": [{ "name": "url", "type": "URL" }],
+          "returns": "object",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "format": {
+          "call": "ts_url_format",
+          "hirName": "ts_url_format",
+          "params": [
+            { "name": "urlObject", "type": "URL | object" },
+            { "name": "options", "type": "object", "optional": true }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "resolve": {
+          "call": "ts_url_resolve",
+          "hirName": "ts_url_resolve",
+          "params": [
+            { "name": "from", "type": "string" },
+            { "name": "to", "type": "string" }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    }
+  },
+  "types": {
+    "URL": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_url_create",
+        "hirName": "ts_URL_create",
+        "params": [
+          { "name": "url", "type": "string" },
+          { "name": "base", "type": "string", "optional": true }
+        ],
+        "lowering": {
+          "args": ["ptr", "ptr", "ptr"],
+          "returns": "ptr"
+        }
+      },
+      "properties": {
+        "href": {
+          "getter": "ts_url_get_href",
+          "setter": "ts_url_set_href",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "origin": {
+          "getter": "ts_url_get_origin",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "protocol": {
+          "getter": "ts_url_get_protocol",
+          "setter": "ts_url_set_protocol",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "host": {
+          "getter": "ts_url_get_host",
+          "setter": "ts_url_set_host",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "hostname": {
+          "getter": "ts_url_get_hostname",
+          "setter": "ts_url_set_hostname",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "port": {
+          "getter": "ts_url_get_port",
+          "setter": "ts_url_set_port",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "pathname": {
+          "getter": "ts_url_get_pathname",
+          "setter": "ts_url_set_pathname",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "search": {
+          "getter": "ts_url_get_search",
+          "setter": "ts_url_set_search",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "hash": {
+          "getter": "ts_url_get_hash",
+          "setter": "ts_url_set_hash",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "username": {
+          "getter": "ts_url_get_username",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "password": {
+          "getter": "ts_url_get_password",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "searchParams": {
+          "getter": "ts_url_get_search_params",
+          "hirName": "ts_url_get_searchParams",
+          "type": "URLSearchParams",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      },
+      "methods": {
+        "toString": {
+          "call": "ts_url_to_string",
+          "hirName": "ts_URL_toString",
+          "params": [],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "toJSON": {
+          "call": "ts_url_to_json",
+          "hirName": "ts_URL_toJSON",
+          "params": [],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    },
+    "URLSearchParams": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_url_search_params_create",
+        "hirName": "ts_URLSearchParams_create",
+        "params": [{ "name": "init", "type": "string", "optional": true }],
+        "lowering": {
+          "args": ["ptr"],
+          "returns": "ptr"
+        }
+      },
+      "methods": {
+        "append": {
+          "call": "ts_url_search_params_append",
+          "hirName": "ts_URLSearchParams_append",
+          "params": [
+            { "name": "name", "type": "string" },
+            { "name": "value", "type": "string" }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "void"
+          }
+        },
+        "delete": {
+          "call": "ts_url_search_params_delete",
+          "hirName": "ts_URLSearchParams_delete",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "void"
+          }
+        },
+        "get": {
+          "call": "ts_url_search_params_get",
+          "hirName": "ts_URLSearchParams_get",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "string | null",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "getAll": {
+          "call": "ts_url_search_params_get_all",
+          "hirName": "ts_URLSearchParams_getAll",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "string[]",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "has": {
+          "call": "ts_url_search_params_has",
+          "hirName": "ts_URLSearchParams_has",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr", "ptr"],
+            "returns": "i1"
+          }
+        },
+        "set": {
+          "call": "ts_url_search_params_set",
+          "hirName": "ts_URLSearchParams_set",
+          "params": [
+            { "name": "name", "type": "string" },
+            { "name": "value", "type": "string" }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "void"
+          }
+        },
+        "sort": {
+          "call": "ts_url_search_params_sort",
+          "hirName": "ts_URLSearchParams_sort",
+          "params": [],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "toString": {
+          "call": "ts_url_search_params_to_string",
+          "hirName": "ts_URLSearchParams_toString",
+          "params": [],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "entries": {
+          "call": "ts_url_search_params_entries",
+          "hirName": "ts_URLSearchParams_entries",
+          "params": [],
+          "returns": "IterableIterator<[string, string]>",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "keys": {
+          "call": "ts_url_search_params_keys",
+          "hirName": "ts_URLSearchParams_keys",
+          "params": [],
+          "returns": "IterableIterator<string>",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "values": {
+          "call": "ts_url_search_params_values",
+          "hirName": "ts_URLSearchParams_values",
+          "params": [],
+          "returns": "IterableIterator<string>",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "forEach": {
+          "call": "ts_url_search_params_for_each",
+          "hirName": "ts_URLSearchParams_forEach",
+          "params": [
+            { "name": "callback", "type": "Function" },
+            { "name": "thisArg", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "void"
+          }
+        }
+      },
+      "properties": {
+        "size": {
+          "getter": "ts_url_search_params_size",
+          "hirName": "ts_URLSearchParams_size",
+          "type": "number",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        }
+      }
+    }
+  }
+}

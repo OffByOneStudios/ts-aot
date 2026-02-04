@@ -104,6 +104,15 @@ public:
     // Find a property on a nested object (for path.win32.sep)
     const PropertyDefinition* findNestedObjectProperty(const std::string& objectName, const std::string& nestedName, const std::string& propName) const;
 
+    // Check if a name is registered as an object (console, Math, JSON, etc.)
+    bool isRegisteredObject(const std::string& name) const;
+
+    // Check if a name is registered as a module (path, fs, url, etc.)
+    bool isRegisteredModule(const std::string& name) const;
+
+    // Check if a name is registered as an object OR module (for visitIdentifier)
+    bool isRegisteredGlobalOrModule(const std::string& name) const;
+
 private:
     ExtensionRegistry() = default;
     std::vector<ExtensionContract> contracts_;

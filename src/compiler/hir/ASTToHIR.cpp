@@ -1,4 +1,5 @@
 #include "ASTToHIR.h"
+#include "../extensions/ExtensionLoader.h"
 #include <cmath>
 #include <limits>
 #include <set>
@@ -2325,12 +2326,9 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
 
             // Case 4: Node.js builtin module method call - path.basename(...), fs.readFileSync(...), etc.
-            static const std::set<std::string> nodeModules = {
-                "path", "fs", "os", "url", "util", "crypto", "http", "https", "net", "dgram",
-                "dns", "tls", "zlib", "stream", "events", "querystring", "assert", "child_process",
-                "performance"  // Global performance object for perf_hooks
-            };
-            if (nodeModules.count(classNameIdent->name)) {
+            // Check against ExtensionRegistry instead of hardcoded list
+            auto& registry = ext::ExtensionRegistry::instance();
+            if (registry.isRegisteredModule(classNameIdent->name) || registry.isRegisteredObject(classNameIdent->name)) {
                 // Emit direct call to ts_<module>_<method>
                 std::string runtimeFunc = "ts_" + classNameIdent->name + "_" + propAccess->name;
                 lastValue_ = builder_.createCall(runtimeFunc, args, HIRType::makeAny());
@@ -3099,8 +3097,48 @@ void ASTToHIR::visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment
 
     auto val = lookupVariable(node->name);
     if (!val) {
-        val = createValue(HIRType::makeAny());
-        builder_.createConstUndefined(val);
+        // Variable not found - check if it's a function name in the module
+        for (const auto& func : module_->functions) {
+            if (func->name == node->name) {
+                // Found a function with this name - load it as a function value
+                auto funcType = HIRType::makeFunction();
+                funcType->returnType = func->returnType;
+                for (const auto& param : func->params) {
+                    funcType->paramTypes.push_back(param.second);
+                }
+                val = builder_.createLoadFunction(node->name, funcType);
+                break;
+            }
+        }
+
+        // Also check specializations - functions might be pending compilation
+        if (!val && specializations_) {
+            for (const auto& spec : *specializations_) {
+                if (spec.originalName == node->name || spec.specializedName == node->name) {
+                    // Found a function declaration - use LoadFunction
+                    auto funcType = HIRType::makeFunction();
+                    if (auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+                        if (!funcNode->returnType.empty()) {
+                            funcType->returnType = convertTypeFromString(funcNode->returnType);
+                        }
+                        for (const auto& param : funcNode->parameters) {
+                            auto paramType = param->type.empty()
+                                ? HIRType::makeAny()
+                                : convertTypeFromString(param->type);
+                            funcType->paramTypes.push_back(paramType);
+                        }
+                    }
+                    val = builder_.createLoadFunction(spec.specializedName, funcType);
+                    break;
+                }
+            }
+        }
+
+        // If still not found, create undefined
+        if (!val) {
+            val = createValue(HIRType::makeAny());
+            builder_.createConstUndefined(val);
+        }
     }
 
     if (obj) {
@@ -3163,34 +3201,79 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
-    // Check for known global objects
-    static const std::set<std::string> knownGlobals = {
-        "console", "Math", "JSON", "Object", "Array", "String", "Number",
-        "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
-        "process", "global", "globalThis", "undefined", "NaN", "Infinity",
-        // Node.js builtin modules
-        "path", "fs", "os", "url", "util", "crypto", "http", "https", "net", "dgram",
-        "dns", "tls", "zlib", "stream", "events", "querystring", "assert", "child_process"
-    };
+    // Handle special constants first (these are always hardcoded)
+    if (node->name == "undefined") {
+        lastValue_ = builder_.createConstUndefined();
+        return;
+    }
+    if (node->name == "NaN") {
+        lastValue_ = builder_.createConstFloat(std::nan(""));
+        return;
+    }
+    if (node->name == "Infinity") {
+        lastValue_ = builder_.createConstFloat(std::numeric_limits<double>::infinity());
+        return;
+    }
 
-    if (knownGlobals.count(node->name)) {
-        // Handle special constants
-        if (node->name == "undefined") {
-            lastValue_ = builder_.createConstUndefined();
-            return;
-        }
-        if (node->name == "NaN") {
-            lastValue_ = builder_.createConstFloat(std::nan(""));
-            return;
-        }
-        if (node->name == "Infinity") {
-            lastValue_ = builder_.createConstFloat(std::numeric_limits<double>::infinity());
-            return;
-        }
-
+    // Check ExtensionRegistry for registered objects/modules/globals
+    // These include: console, Math, JSON, Object, Array, String, Number, Boolean,
+    // Date, RegExp, Promise, Error, Buffer, process, global, globalThis,
+    // and Node.js modules like path, fs, os, url, util, crypto, http, https, net, etc.
+    auto& registry = ext::ExtensionRegistry::instance();
+    if (registry.isRegisteredGlobalOrModule(node->name)) {
         // Emit LoadGlobal for global objects
         lastValue_ = builder_.createLoadGlobal(node->name);
         return;
+    }
+
+    // Fallback: Check for known JavaScript built-in objects not yet in extension files
+    // This maintains backwards compatibility while migrating to registry-based lookups
+    static const std::set<std::string> builtinObjects = {
+        "Math", "JSON", "Object", "Array", "String", "Number",
+        "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
+        "process", "global", "globalThis"
+    };
+    if (builtinObjects.count(node->name)) {
+        lastValue_ = builder_.createLoadGlobal(node->name);
+        return;
+    }
+
+    // Check if this is a function name in the module
+    // Functions are declared at module level and can be referenced as values
+    for (const auto& func : module_->functions) {
+        if (func->name == node->name) {
+            // Found a function with this name - load it as a function value
+            auto funcType = HIRType::makeFunction();
+            funcType->returnType = func->returnType;
+            for (const auto& param : func->params) {
+                funcType->paramTypes.push_back(param.second);
+            }
+            lastValue_ = builder_.createLoadFunction(node->name, funcType);
+            return;
+        }
+    }
+
+    // Also check specializations - functions might be pending compilation
+    if (specializations_) {
+        for (const auto& spec : *specializations_) {
+            if (spec.originalName == node->name || spec.specializedName == node->name) {
+                // Found a function declaration - use LoadFunction
+                auto funcType = HIRType::makeFunction();
+                if (auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+                    if (!funcNode->returnType.empty()) {
+                        funcType->returnType = convertTypeFromString(funcNode->returnType);
+                    }
+                    for (const auto& param : funcNode->parameters) {
+                        auto paramType = param->type.empty()
+                            ? HIRType::makeAny()
+                            : convertTypeFromString(param->type);
+                        funcType->paramTypes.push_back(paramType);
+                    }
+                }
+                lastValue_ = builder_.createLoadFunction(spec.specializedName, funcType);
+                return;
+            }
+        }
     }
 
     // Unknown variable - create undefined

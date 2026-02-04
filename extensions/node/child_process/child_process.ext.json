@@ -1,0 +1,307 @@
+{
+  "name": "child_process",
+  "version": "1.0.0",
+  "modules": ["child_process", "node:child_process"],
+  "objects": {
+    "child_process": {
+      "methods": {
+        "spawn": {
+          "call": "ts_child_process_spawn",
+          "hirName": "ts_child_process_spawn",
+          "params": [
+            { "name": "command", "type": "string" },
+            { "name": "args", "type": "string[]", "optional": true },
+            { "name": "options", "type": "object", "optional": true }
+          ],
+          "returns": "ChildProcess",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "spawnSync": {
+          "call": "ts_child_process_spawn_sync",
+          "hirName": "ts_child_process_spawnSync",
+          "params": [
+            { "name": "command", "type": "string" },
+            { "name": "args", "type": "string[]", "optional": true },
+            { "name": "options", "type": "object", "optional": true }
+          ],
+          "returns": "SpawnSyncReturns",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "exec": {
+          "call": "ts_child_process_exec",
+          "hirName": "ts_child_process_exec",
+          "params": [
+            { "name": "command", "type": "string" },
+            { "name": "options", "type": "object", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "ChildProcess",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "execSync": {
+          "call": "ts_child_process_exec_sync",
+          "hirName": "ts_child_process_execSync",
+          "params": [
+            { "name": "command", "type": "string" },
+            { "name": "options", "type": "object", "optional": true }
+          ],
+          "returns": "string | Buffer",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "execFile": {
+          "call": "ts_child_process_exec_file",
+          "hirName": "ts_child_process_execFile",
+          "params": [
+            { "name": "file", "type": "string" },
+            { "name": "args", "type": "string[]", "optional": true },
+            { "name": "options", "type": "object", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "ChildProcess",
+          "lowering": {
+            "args": ["ptr", "ptr", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "execFileSync": {
+          "call": "ts_child_process_exec_file_sync",
+          "hirName": "ts_child_process_execFileSync",
+          "params": [
+            { "name": "file", "type": "string" },
+            { "name": "args", "type": "string[]", "optional": true },
+            { "name": "options", "type": "object", "optional": true }
+          ],
+          "returns": "string | Buffer",
+          "lowering": {
+            "args": ["ptr", "ptr", "boxed"],
+            "returns": "ptr"
+          }
+        },
+        "fork": {
+          "call": "ts_child_process_fork",
+          "hirName": "ts_child_process_fork",
+          "params": [
+            { "name": "modulePath", "type": "string" },
+            { "name": "args", "type": "string[]", "optional": true },
+            { "name": "options", "type": "object", "optional": true }
+          ],
+          "returns": "ChildProcess",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    }
+  },
+  "types": {
+    "ChildProcess": {
+      "kind": "class",
+      "properties": {
+        "pid": {
+          "getter": "ts_child_process_get_pid",
+          "hirName": "ts_ChildProcess_pid",
+          "type": "number | undefined",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i64"
+          }
+        },
+        "connected": {
+          "getter": "ts_child_process_get_connected",
+          "hirName": "ts_ChildProcess_connected",
+          "type": "boolean",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i1"
+          }
+        },
+        "killed": {
+          "getter": "ts_child_process_get_killed",
+          "hirName": "ts_ChildProcess_killed",
+          "type": "boolean",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "i1"
+          }
+        },
+        "exitCode": {
+          "getter": "ts_child_process_get_exit_code",
+          "hirName": "ts_ChildProcess_exitCode",
+          "type": "number | null",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "signalCode": {
+          "getter": "ts_child_process_get_signal_code",
+          "hirName": "ts_ChildProcess_signalCode",
+          "type": "string | null",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "spawnfile": {
+          "getter": "ts_child_process_get_spawnfile",
+          "hirName": "ts_ChildProcess_spawnfile",
+          "type": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "spawnargs": {
+          "getter": "ts_child_process_get_spawnargs",
+          "hirName": "ts_ChildProcess_spawnargs",
+          "type": "string[]",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "stdin": {
+          "getter": "ts_child_process_get_stdin",
+          "hirName": "ts_ChildProcess_stdin",
+          "type": "Writable | null",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "stdout": {
+          "getter": "ts_child_process_get_stdout",
+          "hirName": "ts_ChildProcess_stdout",
+          "type": "Readable | null",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "stderr": {
+          "getter": "ts_child_process_get_stderr",
+          "hirName": "ts_ChildProcess_stderr",
+          "type": "Readable | null",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "stdio": {
+          "getter": "ts_child_process_get_stdio",
+          "hirName": "ts_ChildProcess_stdio",
+          "type": "[Writable | null, Readable | null, Readable | null]",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "channel": {
+          "getter": "ts_child_process_get_channel",
+          "hirName": "ts_ChildProcess_channel",
+          "type": "object | null",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      },
+      "methods": {
+        "kill": {
+          "call": "ts_child_process_kill",
+          "hirName": "ts_ChildProcess_kill",
+          "params": [
+            { "name": "signal", "type": "string | number", "optional": true }
+          ],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr", "boxed"],
+            "returns": "i1"
+          }
+        },
+        "send": {
+          "call": "ts_child_process_send",
+          "hirName": "ts_ChildProcess_send",
+          "params": [
+            { "name": "message", "type": "any" },
+            { "name": "sendHandle", "type": "any", "optional": true }
+          ],
+          "returns": "boolean",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "i1"
+          }
+        },
+        "disconnect": {
+          "call": "ts_child_process_disconnect",
+          "hirName": "ts_ChildProcess_disconnect",
+          "params": [],
+          "returns": "void",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "void"
+          }
+        },
+        "ref": {
+          "call": "ts_child_process_ref",
+          "hirName": "ts_ChildProcess_ref",
+          "params": [],
+          "returns": "ChildProcess",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "unref": {
+          "call": "ts_child_process_unref",
+          "hirName": "ts_ChildProcess_unref",
+          "params": [],
+          "returns": "ChildProcess",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    },
+    "SpawnSyncReturns": {
+      "kind": "interface",
+      "properties": {
+        "pid": {
+          "type": "number"
+        },
+        "output": {
+          "type": "(Buffer | string | null)[]"
+        },
+        "stdout": {
+          "type": "Buffer | string"
+        },
+        "stderr": {
+          "type": "Buffer | string"
+        },
+        "status": {
+          "type": "number | null"
+        },
+        "signal": {
+          "type": "string | null"
+        },
+        "error": {
+          "type": "Error | undefined"
+        }
+      }
+    }
+  }
+}
