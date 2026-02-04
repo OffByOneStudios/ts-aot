@@ -701,8 +701,9 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         ? HIRType::makeAny()
         : convertTypeFromString(node->returnType);
 
-    // Save current function and create entry block
+    // Save current function AND current block (needed for nested functions in try/catch)
     HIRFunction* savedFunc = currentFunction_;
+    HIRBlock* savedBlock = currentBlock_;
     currentFunction_ = func.get();
 
     // Create entry block
@@ -796,10 +797,9 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
     popScope();
 
-    // Restore saved function
+    // Restore saved function and block
     currentFunction_ = savedFunc;
-    if (savedFunc) {
-        auto* savedBlock = savedFunc->getEntryBlock();
+    if (savedFunc && savedBlock) {
         builder_.setInsertPoint(savedBlock);
         currentBlock_ = savedBlock;
     }
