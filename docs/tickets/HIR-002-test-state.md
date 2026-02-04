@@ -10,7 +10,7 @@
 | Suite | Passed | Failed | Total | Pass Rate | Command |
 |-------|--------|--------|-------|-----------|---------|
 | golden_ir | 121 | 25 | 146 | 82.9% | `python tests/golden_ir/runner.py tests/golden_ir` |
-| node | 180 | 100 | 280 | 64.3% | `python tests/node/run_tests.py` |
+| node | 186 | 94 | 280 | 66.4% | `python tests/node/run_tests.py` |
 | golden_hir | N/A | N/A | 100+ | N/A | Runner does not exist |
 
 **Note:** golden_hir has 100+ test files but no runner.py. Tests are manually validated via `--dump-hir`.
@@ -29,7 +29,8 @@
 - After try/catch block restore fix: 176/280 (62.9%), 48 compile errors
 - After Number.isFinite/isNaN/etc inline handlers: 178/280 (63.6%), 45 compile errors
 - After crypto ToI64 conversions: 180/280 (64.3%), 43 compile errors
-- Delta from original start: +82 tests, -108 compile errors
+- After CallMethod 4-6 args extension: 186/280 (66.4%), 37 compile errors
+- Delta from original start: +88 tests, -114 compile errors
 
 ---
 
@@ -134,7 +135,7 @@
 
 ## Node Test Failures Summary
 
-**43 compile errors** - closure capture in user_main, variadic args, type mismatches, generator crashes
+**37 compile errors** - closure capture in user_main, variadic args, type mismatches, CallMethod boolean boxing, generator crashes
 **57 runtime failures** - various issues including access violations, incorrect output
 
 ### Fixed Issues (cumulative):
@@ -158,28 +159,27 @@
 18. Added inline LLVM IR handlers for Number.isFinite, Number.isNaN, Number.isInteger, Number.isSafeInteger in HIRToLLVM
 19. Fixed ts_object_is to box both arguments before calling runtime function
 20. Added crypto function ToI64 conversions (randomBytes, randomInt, pbkdf2Sync, pbkdf2, scryptSync, scrypt) in LoweringRegistry
+21. Extended CallMethod to support 4-6 arguments: added ts_call_with_this_4/5/6 to runtime and HIRToLLVM
 
-### Remaining compile error categories (43 errors):
-- Closure capture in user_main: "no closure parameter available" errors (~20)
+### Remaining compile error categories (37 errors):
+- Closure capture in user_main: "no closure parameter available" errors (~15)
 - Variadic args not packed into array: Array.of, toSpliced with items (~7)
-- Call parameter type mismatches: local functions expecting ptr but receiving native types
-- dgram tests: CallMethod with 6 args not implemented
-- Generator compilation crashes: async generators and function* patterns
+- Call parameter type mismatches: local functions expecting ptr but receiving native types (~5)
+- CallMethod boolean arg boxing: i1 passed where ptr expected (~3)
+- Generator compilation crashes: async generators and function* patterns (~3)
+- HIRValue mapping issues: values not found in valueMap_ (~2)
 
 ---
 
 ## Last Action
 
-Added crypto function ToI64 conversions in LoweringRegistry.cpp:
-- Added registrations for ts_crypto_randomBytes, ts_crypto_randomInt, ts_crypto_pbkdf2Sync, ts_crypto_pbkdf2, ts_crypto_scryptSync, ts_crypto_scrypt
-- All use ArgConversion::ToI64 for integer parameters (size, min, max, iterations, keylen)
+Extended CallMethod to support 4-6 arguments:
+1. Added ts_call_with_this_4, ts_call_with_this_5, ts_call_with_this_6 declarations to TsObject.h
+2. Added implementations to TsObject.cpp following the existing pattern
+3. Updated HIRToLLVM.cpp visitCallMethod to handle argCount == 4, 5, 6
 
-Also fixed in this session:
-- ts_string_at index type conversion (double to i64)
-- Inline LLVM IR handlers for Number.isFinite/isNaN/isInteger/isSafeInteger
-- ts_object_is boxing for both arguments
-
-Result: Node tests improved from 176/280 (62.9%) to 180/280 (64.3%), +4 tests, -5 compile errors
+Result: Node tests improved from 180/280 (64.3%) to 186/280 (66.4%), +6 tests, -6 compile errors
+Most dgram tests now pass (8/10 dgram tests now passing)
 
 ---
 
@@ -187,9 +187,9 @@ Result: Node tests improved from 176/280 (62.9%) to 180/280 (64.3%), +4 tests, -
 
 Continue improving Node test pass rate:
 
-### Priority 1: Fix Remaining Compile Errors (43 total)
+### Priority 1: Fix Remaining Compile Errors (37 total)
 
-**Closure capture in user_main (~20 errors):**
+**Closure capture in user_main (~15 errors):**
 - Error: "LoadCapture 'varname': no closure parameter available"
 - Cause: Tests use arrow functions that capture variables from user_main
 - Arrow functions in user_main try to capture variables but user_main is not a closure
@@ -203,13 +203,18 @@ Continue improving Node test pass rate:
 - Functions like `test_str_any(ptr, i1)` receiving wrong types
 - Need to analyze calling context and fix type conversions
 
-**dgram CallMethod errors (~3 errors):**
-- CallMethod with 6+ args not implemented in HIRToLLVM
-- Need to extend visitCallMethod to handle more argument counts
+**CallMethod boolean arg boxing (~3 errors):**
+- `i1 true` being passed where `ptr` is expected
+- Need to box boolean arguments in CallMethod before calling ts_call_with_this_N
+- Affects: dgram_broadcast.ts and similar tests
 
 **Generator crashes (~3 errors):**
 - async generator and function* patterns cause compilation failures
 - Likely state machine transformation issues
+
+**HIRValue mapping issues (~2 errors):**
+- "HIRValue id=X not found in valueMap_"
+- Values created in HIR not properly tracked to LLVM values
 
 ### Priority 2: Fix Runtime Failures (~57 tests)
 

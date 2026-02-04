@@ -1548,6 +1548,57 @@ TsValue* ts_value_make_int(int64_t i) {
         return result;
     }
 
+    TsValue* ts_call_with_this_4(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return ts_value_make_undefined();
+
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_call_4(boxedFunc, arg1, arg2, arg3, arg4);
+
+        if (patchedCtx) func->context = savedCtx;
+        return result;
+    }
+
+    TsValue* ts_call_with_this_5(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return ts_value_make_undefined();
+
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_call_5(boxedFunc, arg1, arg2, arg3, arg4, arg5);
+
+        if (patchedCtx) func->context = savedCtx;
+        return result;
+    }
+
+    TsValue* ts_call_with_this_6(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return ts_value_make_undefined();
+
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_call_6(boxedFunc, arg1, arg2, arg3, arg4, arg5, arg6);
+
+        if (patchedCtx) func->context = savedCtx;
+        return result;
+    }
+
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv) {
         if (argc == 0) return ts_call_0(boxedFunc);
         if (argc == 1) return ts_call_1(boxedFunc, argv[0]);
