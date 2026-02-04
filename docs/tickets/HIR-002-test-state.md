@@ -10,13 +10,13 @@
 | Suite | Passed | Failed | Total | Pass Rate | Command |
 |-------|--------|--------|-------|-----------|---------|
 | golden_ir | 121 | 25 | 146 | 82.9% | `python tests/golden_ir/runner.py tests/golden_ir` |
-| node | 176 | 104 | 280 | 62.9% | `python tests/node/run_tests.py` |
+| node | 180 | 100 | 280 | 64.3% | `python tests/node/run_tests.py` |
 | golden_hir | N/A | N/A | 100+ | N/A | Runner does not exist |
 
 **Note:** golden_hir has 100+ test files but no runner.py. Tests are manually validated via `--dump-hir`.
 
-**Node Test Progress (this session):**
-- Previous session: 98/280 (35.0%), 151 compile errors
+**Node Test Progress (cumulative):**
+- Previous session start: 98/280 (35.0%), 151 compile errors
 - After console fixes: 121/280 (43.2%), 117 compile errors
 - After comparison fixes: 141/280 (50.4%), 95 compile errors
 - After boxing fixes: 148/280 (52.9%), 87 compile errors
@@ -27,7 +27,9 @@
 - After Math/JSON fixes: 160/280 (57.1%), 67 compile errors
 - After timer function fixes: 174/280 (62.1%), 50 compile errors
 - After try/catch block restore fix: 176/280 (62.9%), 48 compile errors
-- Delta from session start: +78 tests, -103 compile errors
+- After Number.isFinite/isNaN/etc inline handlers: 178/280 (63.6%), 45 compile errors
+- After crypto ToI64 conversions: 180/280 (64.3%), 43 compile errors
+- Delta from original start: +82 tests, -108 compile errors
 
 ---
 
@@ -132,10 +134,10 @@
 
 ## Node Test Failures Summary
 
-**48 compile errors** - closure capture in user_main, variadic args, type mismatches
-**56 runtime failures** - various issues including access violations
+**43 compile errors** - closure capture in user_main, variadic args, type mismatches, generator crashes
+**57 runtime failures** - various issues including access violations, incorrect output
 
-### Fixed Issues (this session):
+### Fixed Issues (cumulative):
 1. Added missing console functions (ts_console_assert, ts_console_warn, ts_console_info, ts_console_debug)
 2. Fixed Object method naming: BuiltinRegistry now uses snake_case (ts_object_has_own, ts_object_from_entries)
 3. Fixed i64/i1 type mismatch in comparison operations (lowerCmpEqI64, lowerCmpNeI64)
@@ -152,22 +154,32 @@
 14. Fixed JSON.stringify type mismatch (needs boxing)
 15. Added hardcoded handlers for timer functions (setTimeout, setInterval, setImmediate, clearTimeout, clearInterval, clearImmediate) in HIRToLLVM to handle mangled names and type conversions (double→i64 for delay)
 16. Fixed try/catch block restore bug in visitFunctionDeclaration - nested functions inside try blocks now properly restore currentBlock_ instead of entry block
+17. Fixed ts_string_at index type conversion (double to i64) in LoweringRegistry
+18. Added inline LLVM IR handlers for Number.isFinite, Number.isNaN, Number.isInteger, Number.isSafeInteger in HIRToLLVM
+19. Fixed ts_object_is to box both arguments before calling runtime function
+20. Added crypto function ToI64 conversions (randomBytes, randomInt, pbkdf2Sync, pbkdf2, scryptSync, scrypt) in LoweringRegistry
 
-### Remaining compile error categories (48 errors):
-- Closure capture in user_main: "no closure parameter available" errors
-- Variadic args not packed into array: Array.of, toSpliced with items
-- Call parameter type mismatches: assert_bool/assert_dbl expecting ptr instead of native types
+### Remaining compile error categories (43 errors):
+- Closure capture in user_main: "no closure parameter available" errors (~20)
+- Variadic args not packed into array: Array.of, toSpliced with items (~7)
+- Call parameter type mismatches: local functions expecting ptr but receiving native types
+- dgram tests: CallMethod with 6 args not implemented
+- Generator compilation crashes: async generators and function* patterns
 
 ---
 
 ## Last Action
 
-Fixed try/catch block restore bug in ASTToHIR.cpp visitFunctionDeclaration:
-- Problem: When a function is declared inside a try block (e.g., `async function getString() {...}`), the code saved `currentFunction_` but restored `currentBlock_` to the entry block instead of the try block
-- Solution: Save and restore both `currentFunction_` AND `currentBlock_`
-- Impact: Async tests with nested function declarations inside try blocks now compile
+Added crypto function ToI64 conversions in LoweringRegistry.cpp:
+- Added registrations for ts_crypto_randomBytes, ts_crypto_randomInt, ts_crypto_pbkdf2Sync, ts_crypto_pbkdf2, ts_crypto_scryptSync, ts_crypto_scrypt
+- All use ArgConversion::ToI64 for integer parameters (size, min, max, iterations, keylen)
 
-Result: Node tests improved from 174/280 (62.1%) to 176/280 (62.9%), +2 tests
+Also fixed in this session:
+- ts_string_at index type conversion (double to i64)
+- Inline LLVM IR handlers for Number.isFinite/isNaN/isInteger/isSafeInteger
+- ts_object_is boxing for both arguments
+
+Result: Node tests improved from 176/280 (62.9%) to 180/280 (64.3%), +4 tests, -5 compile errors
 
 ---
 
@@ -175,7 +187,7 @@ Result: Node tests improved from 174/280 (62.1%) to 176/280 (62.9%), +2 tests
 
 Continue improving Node test pass rate:
 
-### Priority 1: Fix Remaining Compile Errors (48 total)
+### Priority 1: Fix Remaining Compile Errors (43 total)
 
 **Closure capture in user_main (~20 errors):**
 - Error: "LoadCapture 'varname': no closure parameter available"
@@ -187,17 +199,26 @@ Continue improving Node test pass rate:
 - `Array.of()` - ts_array_of needs to be variadic or use array packing
 - `arr.toSpliced(start, count, ...items)` - items need to be packed into array
 
-**Assert function type mismatches:**
-- `assert_bool`/`assert_dbl` expected to take ptr but receiving native types
-- Need to register proper lowering for assert functions
+**Local function type mismatches (~5 errors):**
+- Functions like `test_str_any(ptr, i1)` receiving wrong types
+- Need to analyze calling context and fix type conversions
 
-### Priority 2: Fix Runtime Failures (~56 tests)
+**dgram CallMethod errors (~3 errors):**
+- CallMethod with 6+ args not implemented in HIRToLLVM
+- Need to extend visitCallMethod to handle more argument counts
+
+**Generator crashes (~3 errors):**
+- async generator and function* patterns cause compilation failures
+- Likely state machine transformation issues
+
+### Priority 2: Fix Runtime Failures (~57 tests)
 
 **Common patterns:**
 - Access violations in buffer operations (Buffer.alloc, Buffer.fill, etc.)
 - Access violations in WeakSet/WeakMap operations
 - Incorrect output in assert module tests
 - Timer-related runtime issues (event loop not running, callback not invoked)
+- crypto function runtime issues (hash, hmac returning null/undefined)
 
 ### Priority 3: Implement Missing Runtime Functions
 
