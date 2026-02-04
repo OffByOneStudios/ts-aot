@@ -1387,6 +1387,76 @@ TsValue* ts_value_make_int(int64_t i) {
         }
     }
 
+    // ts_call_with_this_X functions: call a function with a specific 'this' binding
+    // These temporarily patch the function's context before calling
+    TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg) {
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return ts_value_make_undefined();
+
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_call_0(boxedFunc);
+
+        if (patchedCtx) func->context = savedCtx;
+        return result;
+    }
+
+    TsValue* ts_call_with_this_1(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1) {
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return ts_value_make_undefined();
+
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_call_1(boxedFunc, arg1);
+
+        if (patchedCtx) func->context = savedCtx;
+        return result;
+    }
+
+    TsValue* ts_call_with_this_2(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2) {
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return ts_value_make_undefined();
+
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_call_2(boxedFunc, arg1, arg2);
+
+        if (patchedCtx) func->context = savedCtx;
+        return result;
+    }
+
+    TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return ts_value_make_undefined();
+
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_call_3(boxedFunc, arg1, arg2, arg3);
+
+        if (patchedCtx) func->context = savedCtx;
+        return result;
+    }
+
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv) {
         if (argc == 0) return ts_call_0(boxedFunc);
         if (argc == 1) return ts_call_1(boxedFunc, argv[0]);
@@ -3268,27 +3338,26 @@ TsValue* ts_value_make_int(int64_t i) {
         if (argc < 1 || !argv[0]) {
             return ts_value_make_bool(false);
         }
-        
+
         // 'this' is passed as context for method calls
         if (!ctx) {
             return ts_value_make_bool(false);
         }
-        
+
         // Try to get the object from context (could be boxed TsValue or raw pointer)
         void* obj = ts_value_get_object((TsValue*)ctx);
         if (!obj) obj = ctx;
-        
+
         // Check if it's a TsMap
         TsMap* map = dynamic_cast<TsMap*>((TsObject*)obj);
         if (!map) {
             return ts_value_make_bool(false);
         }
-        
-        // Get the property key as TsValue
+
+        // Get the property key as TsValue and check if the property exists
         TsValue* keyVal = argv[0];
-        
-        // Check if the property exists in the map using TsValue directly
-        return ts_value_make_bool(map->Has(*keyVal));
+        bool result = map->Has(*keyVal);
+        return ts_value_make_bool(result);
     }
     
     // Object.prototype.toString() - returns "[object Object]"

@@ -108,10 +108,15 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
 }
 
 void HIRToLLVM::createMainFunction() {
-    // Look for user_main function
-    llvm::Function* userMain = module_->getFunction("user_main");
+    // Look for the synthetic user_main first (created by Monomorphizer),
+    // fall back to user-defined user_main (same pattern as legacy IRGenerator)
+    llvm::Function* userMain = module_->getFunction("__synthetic_user_main");
     if (!userMain) {
-        SPDLOG_WARN("No user_main function found, skipping main entry point generation");
+        userMain = module_->getFunction("user_main");
+    }
+
+    if (!userMain) {
+        SPDLOG_WARN("No __synthetic_user_main or user_main function found, skipping main entry point generation");
         return;
     }
 
@@ -704,6 +709,8 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::MakeClosure:   lowerMakeClosure(inst); break;
         case HIROpcode::LoadCapture:   lowerLoadCapture(inst); break;
         case HIROpcode::StoreCapture:  lowerStoreCapture(inst); break;
+        case HIROpcode::LoadCaptureFromClosure:  lowerLoadCaptureFromClosure(inst); break;
+        case HIROpcode::StoreCaptureFromClosure: lowerStoreCaptureFromClosure(inst); break;
 
         // Control flow
         case HIROpcode::Branch:      lowerBranch(inst); break;
@@ -796,6 +803,17 @@ void HIRToLLVM::lowerConstUndefined(HIRInstruction* inst) {
 void HIRToLLVM::lowerAddI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateAdd(lhs, rhs, "add");
     setValue(inst->result, result);
 }
@@ -803,6 +821,17 @@ void HIRToLLVM::lowerAddI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerSubI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateSub(lhs, rhs, "sub");
     setValue(inst->result, result);
 }
@@ -810,6 +839,17 @@ void HIRToLLVM::lowerSubI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerMulI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateMul(lhs, rhs, "mul");
     setValue(inst->result, result);
 }
@@ -817,6 +857,17 @@ void HIRToLLVM::lowerMulI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerDivI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateSDiv(lhs, rhs, "div");
     setValue(inst->result, result);
 }
@@ -824,12 +875,30 @@ void HIRToLLVM::lowerDivI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerModI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateSRem(lhs, rhs, "mod");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerNegI64(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (val->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        val = builder_->CreateCall(unboxFn, {val}, "unbox_val");
+    }
+
     llvm::Value* result = builder_->CreateNeg(val, "neg");
     setValue(inst->result, result);
 }
@@ -1110,7 +1179,15 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
             llvm::Value* trueVal = builder_->CreateCall(strFn, {trueStr});
             llvm::Value* falseVal = builder_->CreateCall(strFn, {falseStr});
             llvm::Value* boolVal = val;
-            if (val->getType()->isIntegerTy(64)) {
+            if (val->getType()->isPointerTy()) {
+                // Unbox the boolean from TsValue*
+                auto unboxFn = getOrDeclareRuntimeFunction(
+                    "ts_value_get_bool",
+                    builder_->getInt1Ty(),
+                    { builder_->getPtrTy() }
+                );
+                boolVal = builder_->CreateCall(unboxFn, { val }, "unbox_bool");
+            } else if (val->getType()->isIntegerTy(64)) {
                 boolVal = builder_->CreateICmpNE(val, llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
             }
             return builder_->CreateSelect(boolVal, trueVal, falseVal);
@@ -1138,10 +1215,15 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
 // Bitwise Operations
 //==============================================================================
 
-// Helper to ensure value is i64 for bitwise operations (convert from f64 if needed)
+// Helper to ensure value is i64 for bitwise operations (convert from f64 or unbox if needed)
 llvm::Value* HIRToLLVM::ensureI64ForBitwise(llvm::Value* val) {
     if (val->getType()->isDoubleTy()) {
         return builder_->CreateFPToSI(val, builder_->getInt64Ty(), "toi64");
+    }
+    if (val->getType()->isPointerTy()) {
+        // Unbox pointer (TsValue*) to i64
+        auto unboxFn = getTsValueGetInt();
+        return builder_->CreateCall(unboxFn, {val}, "unbox_i64");
     }
     return val;
 }
@@ -1323,6 +1405,57 @@ void HIRToLLVM::lowerNotI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Check if this is a pointer comparison with null
+    // Use LLVM-level check: if both are pointers and one is ConstantPointerNull
+    bool lhsIsPointer = lhs->getType()->isPointerTy();
+    bool rhsIsPointer = rhs->getType()->isPointerTy();
+    bool lhsIsNull = llvm::isa<llvm::ConstantPointerNull>(lhs);
+    bool rhsIsNull = llvm::isa<llvm::ConstantPointerNull>(rhs);
+
+    if (lhsIsPointer && rhsIsPointer && (lhsIsNull || rhsIsNull)) {
+        // Direct pointer comparison for obj === null or null === obj
+        llvm::Value* result = builder_->CreateICmpEQ(lhs, rhs, "ptreq");
+        setValue(inst->result, result);
+        return;
+    }
+
+    // Also check HIR types for object/class comparisons (e.g., obj1 === obj2)
+    std::shared_ptr<HIRType> lhsType = nullptr;
+    std::shared_ptr<HIRType> rhsType = nullptr;
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*hirVal) lhsType = (*hirVal)->type;
+    }
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[1])) {
+        if (*hirVal) rhsType = (*hirVal)->type;
+    }
+
+    bool isObjectComparison = (lhsType && (lhsType->kind == HIRTypeKind::Class ||
+                                           lhsType->kind == HIRTypeKind::Object ||
+                                           lhsType->kind == HIRTypeKind::Array ||
+                                           lhsType->kind == HIRTypeKind::Ptr)) ||
+                              (rhsType && (rhsType->kind == HIRTypeKind::Class ||
+                                           rhsType->kind == HIRTypeKind::Object ||
+                                           rhsType->kind == HIRTypeKind::Array ||
+                                           rhsType->kind == HIRTypeKind::Ptr));
+
+    if (lhsIsPointer && rhsIsPointer && isObjectComparison) {
+        // Direct pointer comparison for object === object checks
+        llvm::Value* result = builder_->CreateICmpEQ(lhs, rhs, "ptreq");
+        setValue(inst->result, result);
+        return;
+    }
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhsIsPointer) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhsIsPointer) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateICmpEQ(lhs, rhs, "eq");
     setValue(inst->result, result);
 }
@@ -1330,6 +1463,57 @@ void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Check if this is a pointer comparison with null
+    // Use LLVM-level check: if both are pointers and one is ConstantPointerNull
+    bool lhsIsPointer = lhs->getType()->isPointerTy();
+    bool rhsIsPointer = rhs->getType()->isPointerTy();
+    bool lhsIsNull = llvm::isa<llvm::ConstantPointerNull>(lhs);
+    bool rhsIsNull = llvm::isa<llvm::ConstantPointerNull>(rhs);
+
+    if (lhsIsPointer && rhsIsPointer && (lhsIsNull || rhsIsNull)) {
+        // Direct pointer comparison for obj !== null or null !== obj
+        llvm::Value* result = builder_->CreateICmpNE(lhs, rhs, "ptrne");
+        setValue(inst->result, result);
+        return;
+    }
+
+    // Also check HIR types for object/class comparisons (e.g., obj1 !== obj2)
+    std::shared_ptr<HIRType> lhsType = nullptr;
+    std::shared_ptr<HIRType> rhsType = nullptr;
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*hirVal) lhsType = (*hirVal)->type;
+    }
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[1])) {
+        if (*hirVal) rhsType = (*hirVal)->type;
+    }
+
+    bool isObjectComparison = (lhsType && (lhsType->kind == HIRTypeKind::Class ||
+                                           lhsType->kind == HIRTypeKind::Object ||
+                                           lhsType->kind == HIRTypeKind::Array ||
+                                           lhsType->kind == HIRTypeKind::Ptr)) ||
+                              (rhsType && (rhsType->kind == HIRTypeKind::Class ||
+                                           rhsType->kind == HIRTypeKind::Object ||
+                                           rhsType->kind == HIRTypeKind::Array ||
+                                           rhsType->kind == HIRTypeKind::Ptr));
+
+    if (lhsIsPointer && rhsIsPointer && isObjectComparison) {
+        // Direct pointer comparison for object !== object checks
+        llvm::Value* result = builder_->CreateICmpNE(lhs, rhs, "ptrne");
+        setValue(inst->result, result);
+        return;
+    }
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhsIsPointer) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhsIsPointer) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateICmpNE(lhs, rhs, "ne");
     setValue(inst->result, result);
 }
@@ -1337,6 +1521,17 @@ void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpLtI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateICmpSLT(lhs, rhs, "lt");
     setValue(inst->result, result);
 }
@@ -1344,6 +1539,17 @@ void HIRToLLVM::lowerCmpLtI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpLeI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateICmpSLE(lhs, rhs, "le");
     setValue(inst->result, result);
 }
@@ -1351,6 +1557,17 @@ void HIRToLLVM::lowerCmpLeI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpGtI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateICmpSGT(lhs, rhs, "gt");
     setValue(inst->result, result);
 }
@@ -1358,6 +1575,17 @@ void HIRToLLVM::lowerCmpGtI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpGeI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Handle boxed values (pointers) by unboxing to i64
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetInt();
+        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
     llvm::Value* result = builder_->CreateICmpSGE(lhs, rhs, "ge");
     setValue(inst->result, result);
 }
@@ -1369,6 +1597,19 @@ void HIRToLLVM::lowerCmpGeI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpEqF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    // Type coercion: convert i64 to f64 if needed
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        lhs = builder_->CreateCall(unboxFn, {lhs});
+    } else if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        rhs = builder_->CreateCall(unboxFn, {rhs});
+    } else if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
     llvm::Value* result = builder_->CreateFCmpOEQ(lhs, rhs, "feq");
     setValue(inst->result, result);
 }
@@ -1376,6 +1617,19 @@ void HIRToLLVM::lowerCmpEqF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpNeF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    // Type coercion: convert i64 to f64 if needed
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        lhs = builder_->CreateCall(unboxFn, {lhs});
+    } else if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        rhs = builder_->CreateCall(unboxFn, {rhs});
+    } else if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
     llvm::Value* result = builder_->CreateFCmpONE(lhs, rhs, "fne");
     setValue(inst->result, result);
 }
@@ -1383,6 +1637,19 @@ void HIRToLLVM::lowerCmpNeF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpLtF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    // Type coercion: convert i64 to f64 if needed
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        lhs = builder_->CreateCall(unboxFn, {lhs});
+    } else if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        rhs = builder_->CreateCall(unboxFn, {rhs});
+    } else if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
     llvm::Value* result = builder_->CreateFCmpOLT(lhs, rhs, "flt");
     setValue(inst->result, result);
 }
@@ -1390,6 +1657,19 @@ void HIRToLLVM::lowerCmpLtF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpLeF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    // Type coercion: convert i64 to f64 if needed
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        lhs = builder_->CreateCall(unboxFn, {lhs});
+    } else if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        rhs = builder_->CreateCall(unboxFn, {rhs});
+    } else if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
     llvm::Value* result = builder_->CreateFCmpOLE(lhs, rhs, "fle");
     setValue(inst->result, result);
 }
@@ -1397,6 +1677,19 @@ void HIRToLLVM::lowerCmpLeF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpGtF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    // Type coercion: convert i64 to f64 if needed
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        lhs = builder_->CreateCall(unboxFn, {lhs});
+    } else if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        rhs = builder_->CreateCall(unboxFn, {rhs});
+    } else if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
     llvm::Value* result = builder_->CreateFCmpOGT(lhs, rhs, "fgt");
     setValue(inst->result, result);
 }
@@ -1404,6 +1697,19 @@ void HIRToLLVM::lowerCmpGtF64(HIRInstruction* inst) {
 void HIRToLLVM::lowerCmpGeF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+    // Type coercion: convert i64 to f64 if needed
+    if (lhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        lhs = builder_->CreateCall(unboxFn, {lhs});
+    } else if (lhs->getType()->isIntegerTy()) {
+        lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy());
+    }
+    if (rhs->getType()->isPointerTy()) {
+        auto unboxFn = getTsValueGetDouble();
+        rhs = builder_->CreateCall(unboxFn, {rhs});
+    } else if (rhs->getType()->isIntegerTy()) {
+        rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
+    }
     llvm::Value* result = builder_->CreateFCmpOGE(lhs, rhs, "fge");
     setValue(inst->result, result);
 }
@@ -1590,6 +1896,23 @@ void HIRToLLVM::lowerTypeCheck(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerTypeOf(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
+
+    // ts_typeof expects a boxed TsValue*, so we need to box primitives
+    if (val->getType()->isDoubleTy()) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_double", ft);
+        val = builder_->CreateCall(ft, boxFn.getCallee(), { val });
+    } else if (val->getType()->isIntegerTy(64)) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_int", ft);
+        val = builder_->CreateCall(ft, boxFn.getCallee(), { val });
+    } else if (val->getType()->isIntegerTy(1)) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+        val = builder_->CreateCall(ft, boxFn.getCallee(), { val });
+    }
+    // If val is already a pointer, pass it directly
+
     auto fn = getTsTypeOf();
     llvm::Value* result = builder_->CreateCall(fn, {val});
     setValue(inst->result, result);
@@ -1955,20 +2278,55 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
         if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[2])) {
             if (*hirVal) {
                 valHirType = (*hirVal)->type;
+                SPDLOG_DEBUG("lowerSetPropStatic: prop={} valHirType->kind={}", propName, static_cast<int>(valHirType->kind));
             }
+        } else {
+            SPDLOG_DEBUG("lowerSetPropStatic: prop={} operand[2] is not an HIRValue", propName);
         }
 
-        if (valHirType) {
+        // Workaround: if prop starts with __getter_ or __setter_, always use function boxing
+        if (propName.rfind("__getter_", 0) == 0 || propName.rfind("__setter_", 0) == 0) {
+            SPDLOG_DEBUG("lowerSetPropStatic: forcing function boxing for getter/setter prop={}", propName);
+            auto fn = getTsValueMakeFunction();
+            llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            val = builder_->CreateCall(fn, {val, nullContext});
+        } else if (valHirType) {
             if (valHirType->kind == HIRTypeKind::String) {
                 auto fn = getTsValueMakeString();
                 val = builder_->CreateCall(fn, {val});
+            } else if (valHirType->kind == HIRTypeKind::Function) {
+                // Functions (including getters/setters) need to be wrapped in TsFunction
+                // ts_value_make_function creates a proper TsFunction object with magic number
+                SPDLOG_DEBUG("lowerSetPropStatic: boxing function for prop={}", propName);
+                auto fn = getTsValueMakeFunction();
+                llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+                val = builder_->CreateCall(fn, {val, nullContext});
             } else if (valHirType->kind == HIRTypeKind::Object ||
                        valHirType->kind == HIRTypeKind::Class ||
                        valHirType->kind == HIRTypeKind::Array) {
+                // Objects, classes, and arrays need to be boxed as objects
+                SPDLOG_DEBUG("lowerSetPropStatic: boxing object for prop={}", propName);
+                auto fn = getTsValueMakeObject();
+                val = builder_->CreateCall(fn, {val});
+            } else if (valHirType->kind == HIRTypeKind::Ptr) {
+                // Raw pointer - also box as object for safety
+                SPDLOG_DEBUG("lowerSetPropStatic: boxing raw ptr for prop={}", propName);
                 auto fn = getTsValueMakeObject();
                 val = builder_->CreateCall(fn, {val});
             }
             // Any type is already boxed, no action needed
+        } else {
+            // Fallback: if no type info and property starts with __getter_ or __setter_, use function boxing
+            if (propName.rfind("__getter_", 0) == 0 || propName.rfind("__setter_", 0) == 0) {
+                SPDLOG_DEBUG("lowerSetPropStatic: no type info for prop={}, detected getter/setter, boxing as function", propName);
+                auto fn = getTsValueMakeFunction();
+                llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+                val = builder_->CreateCall(fn, {val, nullContext});
+            } else {
+                SPDLOG_DEBUG("lowerSetPropStatic: no type info for prop={}, boxing as object", propName);
+                auto fn = getTsValueMakeObject();
+                val = builder_->CreateCall(fn, {val});
+            }
         }
     }
 
@@ -2014,9 +2372,17 @@ void HIRToLLVM::lowerSetPropDynamic(HIRInstruction* inst) {
             if (valHirType->kind == HIRTypeKind::String) {
                 auto fn = getTsValueMakeString();
                 val = builder_->CreateCall(fn, {val});
+            } else if (valHirType->kind == HIRTypeKind::Function) {
+                // Functions (including getters/setters) need to be wrapped in TsFunction
+                // ts_value_make_function creates a proper TsFunction object with magic number
+                SPDLOG_DEBUG("lowerSetPropDynamic: boxing function value");
+                auto fn = getTsValueMakeFunction();
+                llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+                val = builder_->CreateCall(fn, {val, nullContext});
             } else if (valHirType->kind == HIRTypeKind::Object ||
                        valHirType->kind == HIRTypeKind::Class ||
                        valHirType->kind == HIRTypeKind::Array) {
+                // Objects, classes, and arrays need to be boxed as objects
                 auto fn = getTsValueMakeObject();
                 val = builder_->CreateCall(fn, {val});
             }
@@ -2068,13 +2434,25 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
     llvm::Value* arr = getOperandValue(inst->operands[0]);
     llvm::Value* idx = getOperandValue(inst->operands[1]);
 
-    // Convert index to i64 if it's a double (numeric literal indices come through as f64)
-    if (idx->getType()->isDoubleTy()) {
-        idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
-    }
+    llvm::Value* result;
 
-    auto fn = getTsArrayGet();
-    llvm::Value* result = builder_->CreateCall(fn, {arr, idx});
+    // Check if index is a string/pointer (dynamic property access) vs numeric (array index)
+    if (idx->getType()->isPointerTy()) {
+        // Dynamic property access: obj[stringKey] - call ts_object_get_dynamic
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(),
+                                          {builder_->getPtrTy(), builder_->getPtrTy()}, false);
+        auto fn = module_->getOrInsertFunction("ts_object_get_dynamic", ft);
+        result = builder_->CreateCall(ft, fn.getCallee(), {arr, idx});
+    } else {
+        // Array index access
+        // Convert index to i64 if it's a double (numeric literal indices come through as f64)
+        if (idx->getType()->isDoubleTy()) {
+            idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+        }
+
+        auto fn = getTsArrayGet();
+        result = builder_->CreateCall(fn, {arr, idx});
+    }
 
     // If the expected result type is a primitive, unbox the value
     if (inst->result && inst->result->type) {
@@ -2100,12 +2478,7 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
     llvm::Value* idx = getOperandValue(inst->operands[1]);
     llvm::Value* val = getOperandValue(inst->operands[2]);
 
-    // Convert index to i64 if it's a double (numeric literal indices come through as f64)
-    if (idx->getType()->isDoubleTy()) {
-        idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
-    }
-
-    // ts_array_set expects (ptr, i64, ptr) - need to box value if not a pointer
+    // Box value if not a pointer (needed for both array and dynamic set)
     if (!val->getType()->isPointerTy()) {
         if (val->getType()->isIntegerTy(64)) {
             // Box integer
@@ -2127,8 +2500,23 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
         }
     }
 
-    auto fn = getTsArraySet();
-    builder_->CreateCall(fn, {arr, idx, val});
+    // Check if index is a string/pointer (dynamic property access) vs numeric (array index)
+    if (idx->getType()->isPointerTy()) {
+        // Dynamic property set: obj[stringKey] = val - call ts_object_set_dynamic
+        auto ft = llvm::FunctionType::get(builder_->getVoidTy(),
+                                          {builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy()}, false);
+        auto fn = module_->getOrInsertFunction("ts_object_set_dynamic", ft);
+        builder_->CreateCall(ft, fn.getCallee(), {arr, idx, val});
+    } else {
+        // Array index set
+        // Convert index to i64 if it's a double (numeric literal indices come through as f64)
+        if (idx->getType()->isDoubleTy()) {
+            idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+        }
+
+        auto fn = getTsArraySet();
+        builder_->CreateCall(fn, {arr, idx, val});
+    }
 }
 
 void HIRToLLVM::lowerGetElemTyped(HIRInstruction* inst) {
@@ -2265,6 +2653,20 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Handle ts_object_has_property - returns bool (i1), not ptr
+    if (funcName == "ts_object_has_property") {
+        llvm::Value* obj = getOperandValue(inst->operands[1]);
+        llvm::Value* key = getOperandValue(inst->operands[2]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_object_has_property", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, key });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Handle string conversion functions - they take specific types, not ptr
     if (funcName == "ts_string_from_int") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
@@ -2328,12 +2730,20 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 
     if (funcName == "ts_array_concat") {
         // ts_array_concat(void* arr, void* other) - returns new array
-        llvm::Value* arr = getOperandValue(inst->operands[1]);
-        llvm::Value* other = getOperandValue(inst->operands[2]);
+        // JavaScript concat() can take multiple arguments: arr.concat(a, b, c)
+        // We chain calls: concat(concat(concat(arr, a), b), c)
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_concat", ft);
-        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arr, other });
+
+        llvm::Value* result = getOperandValue(inst->operands[1]); // Start with the source array
+
+        // Chain concat calls for each argument (operands[2], operands[3], ...)
+        for (size_t i = 2; i < inst->operands.size(); ++i) {
+            llvm::Value* other = getOperandValue(inst->operands[i]);
+            result = builder_->CreateCall(ft, fn.getCallee(), { result, other });
+        }
+
         if (inst->result) {
             setValue(inst->result, result);
         }
@@ -2372,14 +2782,21 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 
     if (funcName == "ts_object_assign") {
         // ts_object_assign(TsValue* target, TsValue* source) - returns TsValue*
+        // Object.assign can have multiple sources: Object.assign(target, src1, src2, ...)
+        // We need to call ts_object_assign for each source in sequence
         llvm::Value* target = getOperandValue(inst->operands[1]);
-        llvm::Value* source = getOperandValue(inst->operands[2]);
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_object_assign", ft);
-        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { target, source });
+
+        // Loop through all sources (operands[2] onward)
+        for (size_t i = 2; i < inst->operands.size(); ++i) {
+            llvm::Value* source = getOperandValue(inst->operands[i]);
+            target = builder_->CreateCall(ft, fn.getCallee(), { target, source });
+        }
+
         if (inst->result) {
-            setValue(inst->result, result);
+            setValue(inst->result, target);
         }
         return;
     }
@@ -3106,6 +3523,23 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
         llvmArgs.push_back(arg);
     }
 
+    // Pad missing optional arguments with null/zero values
+    size_t numProvidedArgs = inst->operands.size() - 1;  // -1 for function name
+    while (llvmArgs.size() < argTys.size()) {
+        size_t idx = llvmArgs.size();
+        llvm::Type* expectedType = argTys[idx];
+        if (expectedType->isPointerTy()) {
+            llvmArgs.push_back(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(expectedType)));
+        } else if (expectedType->isIntegerTy()) {
+            llvmArgs.push_back(llvm::ConstantInt::get(expectedType, 0));
+        } else if (expectedType->isDoubleTy()) {
+            llvmArgs.push_back(llvm::ConstantFP::get(expectedType, 0.0));
+        } else {
+            // Fallback to null pointer for unknown types
+            llvmArgs.push_back(llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+    }
+
     // Standard call
     llvm::Value* result;
     if (retTy->isVoidTy()) {
@@ -3459,6 +3893,77 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
+    if (methodName == "push") {
+        // ts_array_push(void* arr, void* value) -> int64_t (new length)
+        if (inst->operands.size() > 2) {
+            llvm::Value* val = getOperandValue(inst->operands[2]);
+
+            // Box the value if needed
+            if (!val->getType()->isPointerTy()) {
+                if (val->getType()->isIntegerTy(64)) {
+                    auto boxFn = getTsValueMakeInt();
+                    val = builder_->CreateCall(boxFn, {val});
+                } else if (val->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    val = builder_->CreateCall(boxFn, {val});
+                } else if (val->getType()->isIntegerTy(1)) {
+                    auto boxFn = getTsValueMakeBool();
+                    llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
+                    val = builder_->CreateCall(boxFn, {extended});
+                }
+            }
+
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getInt64Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_push", ft);
+            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, val });
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+        }
+        return;
+    }
+
+    // Handle RegExp.exec method
+    if (methodName == "exec") {
+        // RegExp_exec(void* regexp, void* string) -> void* (array or null)
+        llvm::Value* str = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            str = getOperandValue(inst->operands[2]);
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("RegExp_exec", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, str });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle RegExp.test method
+    if (methodName == "test") {
+        // RegExp_test(void* regexp, void* string) -> int32_t (boolean as int)
+        llvm::Value* str = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 2) {
+            str = getOperandValue(inst->operands[2]);
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt32Ty(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("RegExp_test", ft);
+        llvm::Value* result32 = builder_->CreateCall(ft, fn.getCallee(), { obj, str });
+        // Convert to i1 for boolean
+        llvm::Value* result = builder_->CreateICmpNE(result32, builder_->getInt32(0));
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Helper lambda to box a value for Map/Set operations
     // Returns TsValue* from the LLVM value based on its HIR type
     auto boxValueForMapSet = [this](HIROperand& operand) -> llvm::Value* {
@@ -3685,9 +4190,195 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
+    // Try to call a function stored as an object property
+    // This handles cases like task.fn() where fn is a function property
+    // IMPORTANT: Use ts_call_with_this_X to pass 'this' binding for methods like hasOwnProperty
+    {
+        // Get the property value (the function)
+        // ts_object_get_property_static(void* obj, const char* key) -> TsValue*
+        llvm::FunctionType* getFt = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee getFn = module_->getOrInsertFunction("ts_object_get_property", getFt);
+
+        // Create method name as global string
+        llvm::Constant* methodNameStr = builder_->CreateGlobalStringPtr(methodName, "method_name");
+
+        // Get the function property
+        llvm::Value* funcVal = builder_->CreateCall(getFt, getFn.getCallee(), { obj, methodNameStr });
+
+        // Box obj if needed for thisArg
+        llvm::Value* thisArg = obj;
+        if (!obj->getType()->isPointerTy()) {
+            thisArg = builder_->CreateIntToPtr(obj, builder_->getPtrTy());
+        }
+        // Box thisArg as TsValue for ts_call_with_this_X
+        llvm::FunctionType* boxObjFt = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee boxObjFn = module_->getOrInsertFunction("ts_value_make_object", boxObjFt);
+        thisArg = builder_->CreateCall(boxObjFt, boxObjFn.getCallee(), { thisArg });
+
+        // Call the function with 'this' binding
+        // Use ts_call_with_this_X to properly bind 'this' for methods like hasOwnProperty
+        size_t argCount = inst->operands.size() - 2;  // Subtract obj and method name
+        llvm::Value* result;
+
+        if (argCount == 0) {
+            llvm::FunctionType* callFt = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_0", callFt);
+            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg });
+        } else if (argCount == 1) {
+            llvm::Value* arg1 = getOperandValue(inst->operands[2]);
+            // Box arg1 if needed - check both LLVM type and HIR type
+            if (!arg1->getType()->isPointerTy()) {
+                if (arg1->getType()->isIntegerTy(64)) {
+                    auto boxFn = getTsValueMakeInt();
+                    arg1 = builder_->CreateCall(boxFn, {arg1});
+                } else if (arg1->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    arg1 = builder_->CreateCall(boxFn, {arg1});
+                }
+            } else {
+                // Pointer type - check HIR type to determine boxing
+                if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[2])) {
+                    auto hirType = (*hirVal)->type;
+                    if (hirType && hirType->kind == HIRTypeKind::String) {
+                        auto boxFn = getTsValueMakeString();
+                        arg1 = builder_->CreateCall(boxFn, {arg1});
+                    } else if (hirType && (hirType->kind == HIRTypeKind::Object ||
+                                           hirType->kind == HIRTypeKind::Array ||
+                                           hirType->kind == HIRTypeKind::Class ||
+                                           hirType->kind == HIRTypeKind::Map)) {
+                        // Box objects with ts_value_make_object
+                        llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                        llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_object", boxFt);
+                        arg1 = builder_->CreateCall(boxFt, boxFn.getCallee(), {arg1});
+                    }
+                    // For Any type, it might already be boxed - pass as-is
+                }
+            }
+            llvm::FunctionType* callFt = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_1", callFt);
+            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg, arg1 });
+        } else if (argCount == 2) {
+            llvm::Value* arg1 = getOperandValue(inst->operands[2]);
+            llvm::Value* arg2 = getOperandValue(inst->operands[3]);
+            // Box args if needed
+            if (!arg1->getType()->isPointerTy()) {
+                if (arg1->getType()->isIntegerTy(64)) {
+                    auto boxFn = getTsValueMakeInt();
+                    arg1 = builder_->CreateCall(boxFn, {arg1});
+                } else if (arg1->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    arg1 = builder_->CreateCall(boxFn, {arg1});
+                }
+            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[2])) {
+                auto hirType = (*hirVal)->type;
+                if (hirType && hirType->kind == HIRTypeKind::String) {
+                    auto boxFn = getTsValueMakeString();
+                    arg1 = builder_->CreateCall(boxFn, {arg1});
+                }
+            }
+            if (!arg2->getType()->isPointerTy()) {
+                if (arg2->getType()->isIntegerTy(64)) {
+                    auto boxFn = getTsValueMakeInt();
+                    arg2 = builder_->CreateCall(boxFn, {arg2});
+                } else if (arg2->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    arg2 = builder_->CreateCall(boxFn, {arg2});
+                }
+            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[3])) {
+                auto hirType = (*hirVal)->type;
+                if (hirType && hirType->kind == HIRTypeKind::String) {
+                    auto boxFn = getTsValueMakeString();
+                    arg2 = builder_->CreateCall(boxFn, {arg2});
+                }
+            }
+            llvm::FunctionType* callFt = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_2", callFt);
+            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg, arg1, arg2 });
+        } else if (argCount == 3) {
+            llvm::Value* arg1 = getOperandValue(inst->operands[2]);
+            llvm::Value* arg2 = getOperandValue(inst->operands[3]);
+            llvm::Value* arg3 = getOperandValue(inst->operands[4]);
+            // Box args if needed
+            if (!arg1->getType()->isPointerTy()) {
+                if (arg1->getType()->isIntegerTy(64)) {
+                    auto boxFn = getTsValueMakeInt();
+                    arg1 = builder_->CreateCall(boxFn, {arg1});
+                } else if (arg1->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    arg1 = builder_->CreateCall(boxFn, {arg1});
+                }
+            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[2])) {
+                auto hirType = (*hirVal)->type;
+                if (hirType && hirType->kind == HIRTypeKind::String) {
+                    auto boxFn = getTsValueMakeString();
+                    arg1 = builder_->CreateCall(boxFn, {arg1});
+                }
+            }
+            if (!arg2->getType()->isPointerTy()) {
+                if (arg2->getType()->isIntegerTy(64)) {
+                    auto boxFn = getTsValueMakeInt();
+                    arg2 = builder_->CreateCall(boxFn, {arg2});
+                } else if (arg2->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    arg2 = builder_->CreateCall(boxFn, {arg2});
+                }
+            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[3])) {
+                auto hirType = (*hirVal)->type;
+                if (hirType && hirType->kind == HIRTypeKind::String) {
+                    auto boxFn = getTsValueMakeString();
+                    arg2 = builder_->CreateCall(boxFn, {arg2});
+                }
+            }
+            if (!arg3->getType()->isPointerTy()) {
+                if (arg3->getType()->isIntegerTy(64)) {
+                    auto boxFn = getTsValueMakeInt();
+                    arg3 = builder_->CreateCall(boxFn, {arg3});
+                } else if (arg3->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    arg3 = builder_->CreateCall(boxFn, {arg3});
+                }
+            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[4])) {
+                auto hirType = (*hirVal)->type;
+                if (hirType && hirType->kind == HIRTypeKind::String) {
+                    auto boxFn = getTsValueMakeString();
+                    arg3 = builder_->CreateCall(boxFn, {arg3});
+                }
+            }
+            llvm::FunctionType* callFt = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_3", callFt);
+            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg, arg1, arg2, arg3 });
+        } else {
+            // For more arguments, fall back to null (we'd need ts_function_call_with_this with array)
+            SPDLOG_WARN("CallMethod with {} args not fully implemented: {}", argCount, methodName);
+            result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        }
+
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Generic method call - fall back to dynamic dispatch
     // Call ts_object_call_method(obj, methodName, argsArray, argCount)
-    SPDLOG_WARN("CallMethod not fully implemented: {}", methodName);
+    // SPDLOG_WARN("CallMethod not fully implemented: {}", methodName);
 
     // Return null for now
     if (inst->result) {
@@ -4251,6 +4942,170 @@ void HIRToLLVM::lowerStoreCapture(HIRInstruction* inst) {
     builder_->CreateCall(cellSetFt, cellSet.getCallee(), { cell, boxedValue });
 }
 
+void HIRToLLVM::lowerLoadCaptureFromClosure(HIRInstruction* inst) {
+    // LoadCaptureFromClosure loads a captured variable from a specific closure
+    // Operand 0: closure pointer (HIRValue)
+    // Operand 1: capture index (int64_t)
+    // Result: the loaded value
+
+    llvm::Value* closurePtr = getOperandValue(inst->operands[0]);
+    int64_t captureIndex = getOperandInt(inst->operands[1]);
+
+    if (!closurePtr) {
+        SPDLOG_ERROR("LoadCaptureFromClosure: closure pointer is null");
+        if (inst->result) {
+            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        }
+        return;
+    }
+
+    // Declare runtime functions
+    // ts_closure_get_cell(TsClosure* closure, int64_t index) -> TsCell*
+    auto getCellFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy(), builder_->getInt64Ty() },
+        false
+    );
+    auto getCell = module_->getOrInsertFunction("ts_closure_get_cell", getCellFt);
+
+    // ts_cell_get(TsCell* cell) -> TsValue*
+    auto cellGetFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto cellGet = module_->getOrInsertFunction("ts_cell_get", cellGetFt);
+
+    // ts_value_get_int(TsValue*) -> int64_t
+    auto getIntFt = llvm::FunctionType::get(
+        builder_->getInt64Ty(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto getInt = module_->getOrInsertFunction("ts_value_get_int", getIntFt);
+
+    // ts_value_get_double(TsValue*) -> double
+    auto getDoubleFt = llvm::FunctionType::get(
+        builder_->getDoubleTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto getDouble = module_->getOrInsertFunction("ts_value_get_double", getDoubleFt);
+
+    // ts_value_get_object(TsValue*) -> void*
+    auto getObjectFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto getObject = module_->getOrInsertFunction("ts_value_get_object", getObjectFt);
+
+    // Get the cell: cell = ts_closure_get_cell(closure, index)
+    llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), captureIndex);
+    llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { closurePtr, indexVal });
+
+    // Get the boxed value from the cell: boxedValue = ts_cell_get(cell)
+    llvm::Value* boxedValue = builder_->CreateCall(cellGetFt, cellGet.getCallee(), { cell });
+
+    // Unbox based on the expected type
+    llvm::Value* result = nullptr;
+    if (inst->result && inst->result->type) {
+        HIRTypeKind kind = inst->result->type->kind;
+        if (kind == HIRTypeKind::Int64) {
+            result = builder_->CreateCall(getIntFt, getInt.getCallee(), { boxedValue });
+        } else if (kind == HIRTypeKind::Float64) {
+            result = builder_->CreateCall(getDoubleFt, getDouble.getCallee(), { boxedValue });
+        } else {
+            // For pointers/objects, use ts_value_get_object
+            result = builder_->CreateCall(getObjectFt, getObject.getCallee(), { boxedValue });
+        }
+    } else {
+        // Default: return the boxed value as-is
+        result = boxedValue;
+    }
+
+    if (inst->result) {
+        setValue(inst->result, result);
+    }
+}
+
+void HIRToLLVM::lowerStoreCaptureFromClosure(HIRInstruction* inst) {
+    // StoreCaptureFromClosure stores a value to a captured variable in a specific closure
+    // Operand 0: closure pointer (HIRValue)
+    // Operand 1: capture index (int64_t)
+    // Operand 2: value to store (HIRValue)
+
+    llvm::Value* closurePtr = getOperandValue(inst->operands[0]);
+    int64_t captureIndex = getOperandInt(inst->operands[1]);
+    llvm::Value* valueToStore = getOperandValue(inst->operands[2]);
+
+    if (!closurePtr) {
+        SPDLOG_ERROR("StoreCaptureFromClosure: closure pointer is null");
+        return;
+    }
+
+    // Declare runtime functions
+    // ts_closure_get_cell(TsClosure* closure, int64_t index) -> TsCell*
+    auto getCellFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy(), builder_->getInt64Ty() },
+        false
+    );
+    auto getCell = module_->getOrInsertFunction("ts_closure_get_cell", getCellFt);
+
+    // ts_cell_set(TsCell* cell, TsValue* value) -> void
+    auto cellSetFt = llvm::FunctionType::get(
+        builder_->getVoidTy(),
+        { builder_->getPtrTy(), builder_->getPtrTy() },
+        false
+    );
+    auto cellSet = module_->getOrInsertFunction("ts_cell_set", cellSetFt);
+
+    // ts_value_make_int(int64_t) -> TsValue*
+    auto makeIntFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getInt64Ty() },
+        false
+    );
+    auto makeInt = module_->getOrInsertFunction("ts_value_make_int", makeIntFt);
+
+    // ts_value_make_double(double) -> TsValue*
+    auto makeDoubleFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getDoubleTy() },
+        false
+    );
+    auto makeDouble = module_->getOrInsertFunction("ts_value_make_double", makeDoubleFt);
+
+    // ts_value_make_object(void*) -> TsValue*
+    auto makeObjectFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto makeObject = module_->getOrInsertFunction("ts_value_make_object", makeObjectFt);
+
+    // Get the cell: cell = ts_closure_get_cell(closure, index)
+    llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), captureIndex);
+    llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { closurePtr, indexVal });
+
+    // Box the value based on its LLVM type
+    llvm::Value* boxedValue = nullptr;
+    llvm::Type* valType = valueToStore->getType();
+
+    if (valType->isIntegerTy(64)) {
+        boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { valueToStore });
+    } else if (valType->isDoubleTy()) {
+        boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { valueToStore });
+    } else {
+        // For pointers/objects, box as object
+        boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
+    }
+
+    // Store the value in the cell: ts_cell_set(cell, boxedValue)
+    builder_->CreateCall(cellSetFt, cellSet.getCallee(), { cell, boxedValue });
+}
+
 //==============================================================================
 // Control Flow
 //==============================================================================
@@ -4325,7 +5180,28 @@ void HIRToLLVM::lowerSwitch(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
+    SPDLOG_INFO("      lowerReturn: entered, operands.size()={}", inst->operands.size());
+    if (inst->operands.empty()) {
+        SPDLOG_ERROR("      lowerReturn: no operands!");
+        builder_->CreateRet(llvm::UndefValue::get(currentFunction_->getReturnType()));
+        return;
+    }
     llvm::Value* val = getOperandValue(inst->operands[0]);
+    SPDLOG_INFO("      lowerReturn: val={}", val ? "non-null" : "null");
+
+    // Handle null value (e.g., from null HIRValue shared_ptr)
+    if (!val) {
+        SPDLOG_WARN("      lowerReturn: null value, using undefined");
+        // If function returns void, just create void return
+        if (currentFunction_->getReturnType()->isVoidTy()) {
+            builder_->CreateRetVoid();
+            return;
+        }
+        // Otherwise use undefined value
+        val = llvm::UndefValue::get(currentFunction_->getReturnType());
+        builder_->CreateRet(val);
+        return;
+    }
 
     // For async generator functions, mark the async generator as done with the return value
     if (isAsyncFunction_ && isGeneratorFunction_ && generatorObject_) {
@@ -4434,10 +5310,35 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
             val = builder_->CreateFPToSI(val, expectedRetType);
         } else if (val->getType()->isPointerTy() && expectedRetType->isIntegerTy()) {
             // Ptr to Int (for Any/Object → Int conversion)
-            val = builder_->CreatePtrToInt(val, expectedRetType);
+            auto unboxFn = getOrDeclareRuntimeFunction("ts_value_get_int",
+                builder_->getInt64Ty(), { builder_->getPtrTy() });
+            val = builder_->CreateCall(unboxFn, { val }, "unbox_int_ret");
+            if (expectedRetType != builder_->getInt64Ty()) {
+                val = builder_->CreateTrunc(val, expectedRetType);
+            }
+        } else if (val->getType()->isPointerTy() && expectedRetType->isDoubleTy()) {
+            // Ptr to Double (for Any/Object → number conversion, needs unboxing)
+            auto unboxFn = getOrDeclareRuntimeFunction("ts_value_get_double",
+                builder_->getDoubleTy(), { builder_->getPtrTy() });
+            val = builder_->CreateCall(unboxFn, { val }, "unbox_double_ret");
         } else if (val->getType()->isIntegerTy() && expectedRetType->isPointerTy()) {
-            // Int to Ptr (for Int → Any/Object conversion)
-            val = builder_->CreateIntToPtr(val, expectedRetType);
+            // Int to Ptr (for Int → Any/Object conversion) - need to box
+            if (val->getType()->isIntegerTy(1)) {
+                // Bool needs boxing
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
+                    builder_->getPtrTy(), { builder_->getInt1Ty() });
+                val = builder_->CreateCall(boxFn, { val }, "boxed_bool_ret");
+            } else {
+                // Integer needs boxing
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
+                    builder_->getPtrTy(), { builder_->getInt64Ty() });
+                val = builder_->CreateCall(boxFn, { val }, "boxed_int_ret");
+            }
+        } else if (val->getType()->isDoubleTy() && expectedRetType->isPointerTy()) {
+            // Double to Ptr (for number → Any/Object conversion, needs boxing)
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
+                builder_->getPtrTy(), { builder_->getDoubleTy() });
+            val = builder_->CreateCall(boxFn, { val }, "boxed_double_ret");
         }
         // If types still don't match after conversion attempts, LLVM will error
     }
@@ -4500,7 +5401,30 @@ void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
         return;
     }
 
-    builder_->CreateRetVoid();
+    // Check if the function's return type is void or non-void
+    llvm::Type* expectedRetType = currentFunction_->getReturnType();
+    if (expectedRetType->isVoidTy()) {
+        builder_->CreateRetVoid();
+    } else {
+        // Function expects a non-void return but we have ReturnVoid
+        // Return a default value (undefined for ptr, 0 for int, 0.0 for double)
+        if (expectedRetType->isPointerTy()) {
+            // Return undefined (boxed)
+            auto undefFn = getOrDeclareRuntimeFunction("ts_value_make_undefined",
+                builder_->getPtrTy(), {});
+            llvm::Value* undefinedVal = builder_->CreateCall(undefFn, {}, "undefined");
+            builder_->CreateRet(undefinedVal);
+        } else if (expectedRetType->isDoubleTy()) {
+            builder_->CreateRet(llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0));
+        } else if (expectedRetType->isIntegerTy(64)) {
+            builder_->CreateRet(llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
+        } else if (expectedRetType->isIntegerTy(1)) {
+            builder_->CreateRet(llvm::ConstantInt::get(builder_->getInt1Ty(), 0));
+        } else {
+            // For any other type, return a null pointer (best effort)
+            builder_->CreateRet(llvm::Constant::getNullValue(expectedRetType));
+        }
+    }
 }
 
 void HIRToLLVM::lowerUnreachable(HIRInstruction* inst) {
@@ -4530,6 +5454,20 @@ void HIRToLLVM::lowerSelect(HIRInstruction* inst) {
     llvm::Value* cond = getOperandValue(inst->operands[0]);
     llvm::Value* trueVal = getOperandValue(inst->operands[1]);
     llvm::Value* falseVal = getOperandValue(inst->operands[2]);
+
+    // Ensure condition is i1 (boolean) - LLVM select requires i1 for first operand
+    if (!cond->getType()->isIntegerTy(1)) {
+        if (cond->getType()->isPointerTy()) {
+            // Convert pointer to boolean (non-null check)
+            cond = builder_->CreateICmpNE(cond, llvm::ConstantPointerNull::get(builder_->getPtrTy()), "cond_bool");
+        } else if (cond->getType()->isIntegerTy()) {
+            // Convert integer to boolean (non-zero check)
+            cond = builder_->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0), "cond_bool");
+        } else if (cond->getType()->isDoubleTy()) {
+            // Convert double to boolean (non-zero and not NaN)
+            cond = builder_->CreateFCmpONE(cond, llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0), "cond_bool");
+        }
+    }
 
     llvm::Value* result = builder_->CreateSelect(cond, trueVal, falseVal, "select");
     setValue(inst->result, result);
@@ -4818,6 +5756,11 @@ llvm::FunctionCallee HIRToLLVM::getTsValueMakeObject() {
     return getOrDeclareRuntimeFunction("ts_value_make_object", builder_->getPtrTy(), {builder_->getPtrTy()});
 }
 
+llvm::FunctionCallee HIRToLLVM::getTsValueMakeFunction() {
+    // ts_value_make_function(void* funcPtr, void* context) -> TsValue*
+    return getOrDeclareRuntimeFunction("ts_value_make_function", builder_->getPtrTy(), {builder_->getPtrTy(), builder_->getPtrTy()});
+}
+
 llvm::FunctionCallee HIRToLLVM::getTsValueGetInt() {
     return getOrDeclareRuntimeFunction("ts_value_get_int", builder_->getInt64Ty(), {builder_->getPtrTy()});
 }
@@ -4894,8 +5837,14 @@ llvm::FunctionCallee HIRToLLVM::getTsInstanceOf() {
 //==============================================================================
 
 llvm::Value* HIRToLLVM::getOperandValue(const HIROperand& operand) {
+    SPDLOG_INFO("getOperandValue: operand.index()={}", operand.index());
     if (auto* val = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
-        return getValue(*val);
+        SPDLOG_INFO("getOperandValue: got HIRValue, val={}", (*val) ? std::to_string((*val)->id) : "null");
+        auto result = getValue(*val);
+        if (!result && *val) {
+            SPDLOG_WARN("getOperandValue: HIRValue id={} not found in valueMap_", (*val)->id);
+        }
+        return result;
     }
     if (auto* i = std::get_if<int64_t>(&operand)) {
         return llvm::ConstantInt::get(builder_->getInt64Ty(), *i);
@@ -4906,6 +5855,7 @@ llvm::Value* HIRToLLVM::getOperandValue(const HIROperand& operand) {
     if (auto* b = std::get_if<bool>(&operand)) {
         return llvm::ConstantInt::get(builder_->getInt1Ty(), *b ? 1 : 0);
     }
+    SPDLOG_WARN("getOperandValue: unknown operand type index={}", operand.index());
     return nullptr;
 }
 
