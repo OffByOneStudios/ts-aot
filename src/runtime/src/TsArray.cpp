@@ -1561,6 +1561,37 @@ extern "C" {
         return ((TsArray*)arr)->Length();
     }
 
+    bool ts_array_isArray(void* value) {
+        if (!value) return false;
+
+        // Check if this is a boxed TsValue*
+        if ((uintptr_t)value > 0x10000) {
+            TsValue* maybeBoxed = (TsValue*)value;
+            uint8_t typeVal = *(uint8_t*)maybeBoxed;
+            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
+            uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
+            uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
+            // Check if it's a proper TsValue* (type <= 10, padding bytes are 0)
+            if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
+                if (maybeBoxed->type == ValueType::ARRAY_PTR) {
+                    return true;
+                }
+                if (maybeBoxed->type == ValueType::OBJECT_PTR) {
+                    void* inner = maybeBoxed->ptr_val;
+                    if (inner) {
+                        uint32_t magic = *(uint32_t*)inner;
+                        return magic == TsArray::MAGIC || magic == 0x524D4154; // TsRegExpMatchArray
+                    }
+                }
+                return false;
+            }
+        }
+
+        // Direct object pointer - check magic
+        uint32_t magic = *(uint32_t*)value;
+        return magic == TsArray::MAGIC || magic == 0x524D4154; // TsRegExpMatchArray::MAGIC
+    }
+
     // Thread-local comparator state for use in std::sort
     static thread_local void* g_current_comparator = nullptr;
     static thread_local bool g_comparator_is_closure = false;

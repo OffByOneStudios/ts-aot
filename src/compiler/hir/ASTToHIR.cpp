@@ -2557,7 +2557,9 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 ident->name == "parseInt" ||
                 ident->name == "parseFloat" ||
                 ident->name == "isNaN" ||
-                ident->name == "isFinite") {
+                ident->name == "isFinite" ||
+                ident->name == "fetch" ||
+                ident->name == "require") {
                 callName = ident->name;  // Keep original name for runtime functions
             }
             // Otherwise keep the mangled name (already set above)

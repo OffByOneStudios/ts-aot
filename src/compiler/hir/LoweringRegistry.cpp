@@ -388,6 +388,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .build());
 
+    reg.registerLowering("ts_array_isArray",
+        lowering("ts_array_isArray")
+            .returnsBool()
+            .ptrArg()      // value to check
+            .build());
+
     reg.registerLowering("ts_array_push",
         lowering("ts_array_push")
             .returnsI64()
@@ -582,8 +588,8 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .ptrArg()      // array
             .boxedArg()    // value
-            .i64Arg()      // start
-            .i64Arg()      // end
+            .i64Arg(ArgConversion::ToI64)      // start (convert f64 to i64)
+            .i64Arg(ArgConversion::ToI64)      // end (convert f64 to i64)
             .build());
 
     reg.registerLowering("ts_array_copyWithin",
@@ -1170,6 +1176,24 @@ void LoweringRegistry::registerBuiltinsImpl() {
     // See: extensions/node/assert/assert.ext.json
     // See: extensions/node/zlib/zlib.ext.json
     // ========================================
+
+    // ========================================
+    // Global functions (fetch, require)
+    // ========================================
+    reg.registerLowering("fetch",
+        lowering("ts_fetch")
+            .returnsPtr()      // Returns Promise*
+            .ptrArg()          // vtable (null for now)
+            .ptrArg()          // url
+            .ptrArg()          // options
+            .build());
+
+    reg.registerLowering("require",
+        lowering("ts_require")
+            .returnsPtr()      // Returns module exports
+            .ptrArg()          // specifier
+            .ptrArg()          // referrerPath
+            .build());
 }
 
 // Helper to build a LoweringSpec from extension lowering info
