@@ -1,0 +1,87 @@
+{
+  "name": "querystring",
+  "version": "1.0.0",
+  "modules": ["querystring", "node:querystring"],
+  "objects": {
+    "querystring": {
+      "methods": {
+        "parse": {
+          "call": "ts_querystring_parse",
+          "hirName": "ts_querystring_parse",
+          "params": [
+            { "name": "str", "type": "string" },
+            { "name": "sep", "type": "string", "optional": true },
+            { "name": "eq", "type": "string", "optional": true }
+          ],
+          "returns": "object",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "stringify": {
+          "call": "ts_querystring_stringify",
+          "hirName": "ts_querystring_stringify",
+          "params": [
+            { "name": "obj", "type": "object" },
+            { "name": "sep", "type": "string", "optional": true },
+            { "name": "eq", "type": "string", "optional": true }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "escape": {
+          "call": "ts_querystring_escape",
+          "hirName": "ts_querystring_escape",
+          "params": [{ "name": "str", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "unescape": {
+          "call": "ts_querystring_unescape",
+          "hirName": "ts_querystring_unescape",
+          "params": [{ "name": "str", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "encode": {
+          "call": "ts_querystring_stringify",
+          "hirName": "ts_querystring_encode",
+          "params": [
+            { "name": "obj", "type": "object" },
+            { "name": "sep", "type": "string", "optional": true },
+            { "name": "eq", "type": "string", "optional": true }
+          ],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "ptr"
+          }
+        },
+        "decode": {
+          "call": "ts_querystring_parse",
+          "hirName": "ts_querystring_decode",
+          "params": [
+            { "name": "str", "type": "string" },
+            { "name": "sep", "type": "string", "optional": true },
+            { "name": "eq", "type": "string", "optional": true }
+          ],
+          "returns": "object",
+          "lowering": {
+            "args": ["ptr", "ptr", "ptr"],
+            "returns": "ptr"
+          }
+        }
+      }
+    }
+  }
+}

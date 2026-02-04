@@ -163,6 +163,11 @@ MethodDefinition ExtensionLoader::parseMethod(const json& j) {
     MethodDefinition method;
     method.call = j.value("call", "");
 
+    // Parse optional HIR name (if different from call)
+    if (j.contains("hirName") && !j["hirName"].is_null()) {
+        method.hirName = j["hirName"].get<std::string>();
+    }
+
     if (j.contains("params") && j["params"].is_array()) {
         for (const auto& p : j["params"]) {
             method.params.push_back(parseParameter(p));
@@ -522,6 +527,24 @@ const PropertyDefinition* ExtensionRegistry::findNestedObjectProperty(const std:
 
     auto propIt = nested->properties.find(propName);
     return propIt != nested->properties.end() ? &propIt->second : nullptr;
+}
+
+bool ExtensionRegistry::isRegisteredObject(const std::string& name) const {
+    return objectCache_.find(name) != objectCache_.end();
+}
+
+bool ExtensionRegistry::isRegisteredModule(const std::string& name) const {
+    return moduleCache_.find(name) != moduleCache_.end();
+}
+
+bool ExtensionRegistry::isRegisteredGlobalOrModule(const std::string& name) const {
+    // Check if it's a registered object (console, Math, JSON, Buffer, etc.)
+    if (objectCache_.find(name) != objectCache_.end()) return true;
+    // Check if it's a registered module (path, fs, url, etc.)
+    if (moduleCache_.find(name) != moduleCache_.end()) return true;
+    // Check if it's a registered global (process, global, globalThis, etc.)
+    if (globalCache_.find(name) != globalCache_.end()) return true;
+    return false;
 }
 
 } // namespace ext
