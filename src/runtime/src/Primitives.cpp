@@ -254,6 +254,38 @@ void ts_console_table(TsValue* data, TsValue* properties) {
     std::fflush(stdout);
 }
 
+// Forward declaration
+bool ts_value_to_bool(TsValue* v);
+
+void ts_console_assert(TsValue* condition, TsValue* data) {
+    // If condition is falsy, print assertion failed
+    if (!condition || !ts_value_to_bool(condition)) {
+        printConsoleIndent(stderr);
+        std::fprintf(stderr, "Assertion failed");
+        if (data && data->type != ValueType::UNDEFINED) {
+            std::fprintf(stderr, ": ");
+            ts_console_print_value_to_stream(data, stderr);
+        }
+        std::fprintf(stderr, "\n");
+        std::fflush(stderr);
+    }
+}
+
+void ts_console_warn(TsValue* val) {
+    // warn is same as error - outputs to stderr
+    ts_console_error_value(val);
+}
+
+void ts_console_info(TsValue* val) {
+    // info is same as log - outputs to stdout
+    ts_console_log_value(val);
+}
+
+void ts_console_debug(TsValue* val) {
+    // debug is same as log - outputs to stdout
+    ts_console_log_value(val);
+}
+
 int32_t ts_double_to_int32(double d) {
     if (std::isnan(d) || std::isinf(d)) return 0;
     double i = std::trunc(std::fmod(d, 4294967296.0));

@@ -1456,6 +1456,15 @@ void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
         rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
     }
 
+    // Handle type mismatch between i64 and i1 (boolean literal comparisons like x === true)
+    if (lhs->getType()->isIntegerTy(64) && rhs->getType()->isIntegerTy(1)) {
+        // Extend i1 to i64 for comparison
+        rhs = builder_->CreateZExt(rhs, builder_->getInt64Ty(), "bool_to_i64");
+    } else if (lhs->getType()->isIntegerTy(1) && rhs->getType()->isIntegerTy(64)) {
+        // Extend i1 to i64 for comparison
+        lhs = builder_->CreateZExt(lhs, builder_->getInt64Ty(), "bool_to_i64");
+    }
+
     llvm::Value* result = builder_->CreateICmpEQ(lhs, rhs, "eq");
     setValue(inst->result, result);
 }
@@ -1512,6 +1521,15 @@ void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
     if (rhsIsPointer) {
         auto unboxFn = getTsValueGetInt();
         rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+    }
+
+    // Handle type mismatch between i64 and i1 (boolean literal comparisons like x !== true)
+    if (lhs->getType()->isIntegerTy(64) && rhs->getType()->isIntegerTy(1)) {
+        // Extend i1 to i64 for comparison
+        rhs = builder_->CreateZExt(rhs, builder_->getInt64Ty(), "bool_to_i64");
+    } else if (lhs->getType()->isIntegerTy(1) && rhs->getType()->isIntegerTy(64)) {
+        // Extend i1 to i64 for comparison
+        lhs = builder_->CreateZExt(lhs, builder_->getInt64Ty(), "bool_to_i64");
     }
 
     llvm::Value* result = builder_->CreateICmpNE(lhs, rhs, "ne");
@@ -1739,6 +1757,30 @@ void HIRToLLVM::lowerCmpNePtr(HIRInstruction* inst) {
 void HIRToLLVM::lowerLogicalAnd(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Convert both operands to i1 (boolean) for logical AND
+    auto convertToBool = [this](llvm::Value* val) -> llvm::Value* {
+        if (val->getType()->isPointerTy()) {
+            // For pointers (boxed values), call ts_value_to_bool
+            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(
+                builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+            llvm::FunctionCallee toBoolFn = module_->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+            return builder_->CreateCall(toBoolFt, toBoolFn.getCallee(), { val }, "tobool");
+        } else if (val->getType()->isIntegerTy(1)) {
+            return val;  // Already boolean
+        } else if (val->getType()->isIntegerTy()) {
+            // Integer - convert to bool (non-zero check)
+            return builder_->CreateICmpNE(val, llvm::ConstantInt::get(val->getType(), 0), "tobool");
+        } else if (val->getType()->isDoubleTy()) {
+            // Float - convert to bool (non-zero check)
+            return builder_->CreateFCmpONE(val, llvm::ConstantFP::get(val->getType(), 0.0), "tobool");
+        }
+        return val;
+    };
+
+    lhs = convertToBool(lhs);
+    rhs = convertToBool(rhs);
+
     llvm::Value* result = builder_->CreateAnd(lhs, rhs, "land");
     setValue(inst->result, result);
 }
@@ -1746,6 +1788,30 @@ void HIRToLLVM::lowerLogicalAnd(HIRInstruction* inst) {
 void HIRToLLVM::lowerLogicalOr(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
+
+    // Convert both operands to i1 (boolean) for logical OR
+    auto convertToBool = [this](llvm::Value* val) -> llvm::Value* {
+        if (val->getType()->isPointerTy()) {
+            // For pointers (boxed values), call ts_value_to_bool
+            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(
+                builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+            llvm::FunctionCallee toBoolFn = module_->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+            return builder_->CreateCall(toBoolFt, toBoolFn.getCallee(), { val }, "tobool");
+        } else if (val->getType()->isIntegerTy(1)) {
+            return val;  // Already boolean
+        } else if (val->getType()->isIntegerTy()) {
+            // Integer - convert to bool (non-zero check)
+            return builder_->CreateICmpNE(val, llvm::ConstantInt::get(val->getType(), 0), "tobool");
+        } else if (val->getType()->isDoubleTy()) {
+            // Float - convert to bool (non-zero check)
+            return builder_->CreateFCmpONE(val, llvm::ConstantFP::get(val->getType(), 0.0), "tobool");
+        }
+        return val;
+    };
+
+    lhs = convertToBool(lhs);
+    rhs = convertToBool(rhs);
+
     llvm::Value* result = builder_->CreateOr(lhs, rhs, "lor");
     setValue(inst->result, result);
 }
@@ -1837,8 +1903,35 @@ void HIRToLLVM::lowerBoxString(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerBoxObject(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
-    auto fn = getTsValueMakeObject();
-    llvm::Value* result = builder_->CreateCall(fn, {val});
+
+    llvm::Value* result;
+    if (val->getType()->isPointerTy()) {
+        // Actual pointer - use ts_value_make_object
+        auto fn = getTsValueMakeObject();
+        result = builder_->CreateCall(fn, {val});
+    } else if (val->getType()->isIntegerTy(1)) {
+        // Boolean - use ts_value_make_bool
+        auto fn = getTsValueMakeBool();
+        llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty(), "bool_ext");
+        result = builder_->CreateCall(fn, {extended});
+    } else if (val->getType()->isIntegerTy(64)) {
+        // Integer - use ts_value_make_int
+        auto fn = getTsValueMakeInt();
+        result = builder_->CreateCall(fn, {val});
+    } else if (val->getType()->isDoubleTy()) {
+        // Double - use ts_value_make_double
+        auto fn = getTsValueMakeDouble();
+        result = builder_->CreateCall(fn, {val});
+    } else if (val->getType()->isIntegerTy(32)) {
+        // i32 - extend to i64 and box as int
+        auto fn = getTsValueMakeInt();
+        llvm::Value* extended = builder_->CreateSExt(val, builder_->getInt64Ty(), "i32_ext");
+        result = builder_->CreateCall(fn, {extended});
+    } else {
+        // Fall back to treating it as a pointer (may fail)
+        auto fn = getTsValueMakeObject();
+        result = builder_->CreateCall(fn, {val});
+    }
     setValue(inst->result, result);
 }
 
@@ -2284,23 +2377,68 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
             SPDLOG_DEBUG("lowerSetPropStatic: prop={} operand[2] is not an HIRValue", propName);
         }
 
+        // Check if val is an LLVM function pointer - if so, always use function boxing
+        // This is a fallback for when HIR type info is lost (e.g., after inlining)
+        bool isLLVMFunction = llvm::isa<llvm::Function>(val);
+        if (isLLVMFunction) {
+            SPDLOG_DEBUG("lowerSetPropStatic: detected LLVM Function for prop={}, boxing as function", propName);
+        }
+
         // Workaround: if prop starts with __getter_ or __setter_, always use function boxing
         if (propName.rfind("__getter_", 0) == 0 || propName.rfind("__setter_", 0) == 0) {
             SPDLOG_DEBUG("lowerSetPropStatic: forcing function boxing for getter/setter prop={}", propName);
+
+            // Create a trampoline for getter/setter functions
+            llvm::Value* funcToBox = val;
+            if (llvm::Function* originalFunc = llvm::dyn_cast<llvm::Function>(val)) {
+                llvm::Function* trampoline = getOrCreateTrampoline(originalFunc);
+                if (trampoline && trampoline != originalFunc) {
+                    funcToBox = trampoline;
+                    SPDLOG_DEBUG("lowerSetPropStatic: created trampoline {} for getter/setter {}", trampoline->getName().str(), originalFunc->getName().str());
+                }
+            }
+
             auto fn = getTsValueMakeFunction();
             llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
-            val = builder_->CreateCall(fn, {val, nullContext});
+            val = builder_->CreateCall(fn, {funcToBox, nullContext});
+        } else if (isLLVMFunction) {
+            // Fallback: LLVM value is a function pointer, box it as a function with trampoline
+            SPDLOG_DEBUG("lowerSetPropStatic: boxing LLVM function for prop={}", propName);
+
+            // Create a trampoline that converts the function's calling convention
+            llvm::Value* funcToBox = val;
+            if (llvm::Function* originalFunc = llvm::dyn_cast<llvm::Function>(val)) {
+                llvm::Function* trampoline = getOrCreateTrampoline(originalFunc);
+                if (trampoline && trampoline != originalFunc) {
+                    funcToBox = trampoline;
+                    SPDLOG_DEBUG("lowerSetPropStatic: created trampoline {} for {}", trampoline->getName().str(), originalFunc->getName().str());
+                }
+            }
+
+            auto fn = getTsValueMakeFunction();
+            llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            val = builder_->CreateCall(fn, {funcToBox, nullContext});
         } else if (valHirType) {
             if (valHirType->kind == HIRTypeKind::String) {
                 auto fn = getTsValueMakeString();
                 val = builder_->CreateCall(fn, {val});
             } else if (valHirType->kind == HIRTypeKind::Function) {
-                // Functions (including getters/setters) need to be wrapped in TsFunction
-                // ts_value_make_function creates a proper TsFunction object with magic number
+                // Functions need to be wrapped in TsFunction with a trampoline for proper calling convention
                 SPDLOG_DEBUG("lowerSetPropStatic: boxing function for prop={}", propName);
+
+                // If val is a function, create a trampoline that converts its calling convention
+                llvm::Value* funcToBox = val;
+                if (llvm::Function* originalFunc = llvm::dyn_cast<llvm::Function>(val)) {
+                    llvm::Function* trampoline = getOrCreateTrampoline(originalFunc);
+                    if (trampoline && trampoline != originalFunc) {
+                        funcToBox = trampoline;
+                        SPDLOG_DEBUG("lowerSetPropStatic: created trampoline {} for {}", trampoline->getName().str(), originalFunc->getName().str());
+                    }
+                }
+
                 auto fn = getTsValueMakeFunction();
                 llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
-                val = builder_->CreateCall(fn, {val, nullContext});
+                val = builder_->CreateCall(fn, {funcToBox, nullContext});
             } else if (valHirType->kind == HIRTypeKind::Object ||
                        valHirType->kind == HIRTypeKind::Class ||
                        valHirType->kind == HIRTypeKind::Array) {
@@ -2319,9 +2457,19 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
             // Fallback: if no type info and property starts with __getter_ or __setter_, use function boxing
             if (propName.rfind("__getter_", 0) == 0 || propName.rfind("__setter_", 0) == 0) {
                 SPDLOG_DEBUG("lowerSetPropStatic: no type info for prop={}, detected getter/setter, boxing as function", propName);
+
+                // Create trampoline if val is a function
+                llvm::Value* funcToBox = val;
+                if (llvm::Function* originalFunc = llvm::dyn_cast<llvm::Function>(val)) {
+                    llvm::Function* trampoline = getOrCreateTrampoline(originalFunc);
+                    if (trampoline && trampoline != originalFunc) {
+                        funcToBox = trampoline;
+                    }
+                }
+
                 auto fn = getTsValueMakeFunction();
                 llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
-                val = builder_->CreateCall(fn, {val, nullContext});
+                val = builder_->CreateCall(fn, {funcToBox, nullContext});
             } else {
                 SPDLOG_DEBUG("lowerSetPropStatic: no type info for prop={}, boxing as object", propName);
                 auto fn = getTsValueMakeObject();
@@ -2373,12 +2521,22 @@ void HIRToLLVM::lowerSetPropDynamic(HIRInstruction* inst) {
                 auto fn = getTsValueMakeString();
                 val = builder_->CreateCall(fn, {val});
             } else if (valHirType->kind == HIRTypeKind::Function) {
-                // Functions (including getters/setters) need to be wrapped in TsFunction
-                // ts_value_make_function creates a proper TsFunction object with magic number
+                // Functions need to be wrapped in TsFunction with a trampoline for proper calling convention
                 SPDLOG_DEBUG("lowerSetPropDynamic: boxing function value");
+
+                // If val is a function, create a trampoline that converts its calling convention
+                llvm::Value* funcToBox = val;
+                if (llvm::Function* originalFunc = llvm::dyn_cast<llvm::Function>(val)) {
+                    llvm::Function* trampoline = getOrCreateTrampoline(originalFunc);
+                    if (trampoline && trampoline != originalFunc) {
+                        funcToBox = trampoline;
+                        SPDLOG_DEBUG("lowerSetPropDynamic: created trampoline {} for {}", trampoline->getName().str(), originalFunc->getName().str());
+                    }
+                }
+
                 auto fn = getTsValueMakeFunction();
                 llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
-                val = builder_->CreateCall(fn, {val, nullContext});
+                val = builder_->CreateCall(fn, {funcToBox, nullContext});
             } else if (valHirType->kind == HIRTypeKind::Object ||
                        valHirType->kind == HIRTypeKind::Class ||
                        valHirType->kind == HIRTypeKind::Array) {
@@ -3571,9 +3729,10 @@ llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) 
                 auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
                 return builder_->CreateCall(ft, fn.getCallee(), { arg });
             } else if (argType->isIntegerTy(1)) {
-                auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
-                auto fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
-                return builder_->CreateCall(ft, fn.getCallee(), { arg });
+                // ts_value_make_bool expects i32, extend i1 to i32
+                auto fn = getTsValueMakeBool();
+                llvm::Value* extended = builder_->CreateZExt(arg, builder_->getInt32Ty(), "bool_ext");
+                return builder_->CreateCall(fn, { extended });
             } else if (argType->isPointerTy()) {
                 // Already a pointer, box as object
                 auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
@@ -4376,13 +4535,100 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
-    // Generic method call - fall back to dynamic dispatch
-    // Call ts_object_call_method(obj, methodName, argsArray, argCount)
-    // SPDLOG_WARN("CallMethod not fully implemented: {}", methodName);
+    // Generic method call - fall back to dynamic dispatch via property access
+    // 1. Get the property from the object (returns a boxed function)
+    // 2. Box the object as 'this'
+    // 3. Call ts_call_with_this_N with the function, this, and args
 
-    // Return null for now
+    // Create global constant for the method name string
+    llvm::Constant* methodNameStr = builder_->CreateGlobalStringPtr(methodName, ".methodname");
+
+    // Call ts_object_get_property(obj, methodName) to get the function
+    llvm::FunctionType* getPropFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy(), builder_->getPtrTy() },
+        false);
+    llvm::FunctionCallee getPropFn = module_->getOrInsertFunction("ts_object_get_property", getPropFt);
+    llvm::Value* func = builder_->CreateCall(getPropFt, getPropFn.getCallee(), { obj, methodNameStr });
+
+    // Box the object as 'thisArg' using ts_value_make_object
+    llvm::FunctionType* boxObjFt = llvm::FunctionType::get(
+        builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+    llvm::FunctionCallee boxObjFn = module_->getOrInsertFunction("ts_value_make_object", boxObjFt);
+    llvm::Value* thisArg = builder_->CreateCall(boxObjFt, boxObjFn.getCallee(), { obj });
+
+    // Collect and box arguments
+    std::vector<llvm::Value*> callArgs;
+    callArgs.push_back(func);
+    callArgs.push_back(thisArg);
+
+    size_t argCount = inst->operands.size() - 2; // Subtract obj and methodName
+    for (size_t i = 2; i < inst->operands.size(); ++i) {
+        llvm::Value* arg = getOperandValue(inst->operands[i]);
+        // Box the argument if needed
+        if (!arg->getType()->isPointerTy()) {
+            if (arg->getType()->isIntegerTy(64)) {
+                auto boxFn = getTsValueMakeInt();
+                arg = builder_->CreateCall(boxFn, {arg});
+            } else if (arg->getType()->isDoubleTy()) {
+                auto boxFn = getTsValueMakeDouble();
+                arg = builder_->CreateCall(boxFn, {arg});
+            } else if (arg->getType()->isIntegerTy(1)) {
+                auto boxFn = getTsValueMakeBool();
+                llvm::Value* extended = builder_->CreateZExt(arg, builder_->getInt32Ty());
+                arg = builder_->CreateCall(boxFn, {extended});
+            }
+        } else {
+            // Check HIR type for string boxing
+            if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[i])) {
+                auto hirType = (*hirVal)->type;
+                if (hirType && hirType->kind == HIRTypeKind::String) {
+                    auto boxFn = getTsValueMakeString();
+                    arg = builder_->CreateCall(boxFn, {arg});
+                }
+            }
+        }
+        callArgs.push_back(arg);
+    }
+
+    // Call the appropriate ts_call_with_this_N function based on argument count
+    llvm::Value* result;
+    if (argCount == 0) {
+        llvm::FunctionType* callFt = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_0", callFt);
+        result = builder_->CreateCall(callFt, callFn.getCallee(), { func, thisArg });
+    } else if (argCount == 1) {
+        llvm::FunctionType* callFt = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_1", callFt);
+        result = builder_->CreateCall(callFt, callFn.getCallee(), { func, thisArg, callArgs[2] });
+    } else if (argCount == 2) {
+        llvm::FunctionType* callFt = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_2", callFt);
+        result = builder_->CreateCall(callFt, callFn.getCallee(), { func, thisArg, callArgs[2], callArgs[3] });
+    } else if (argCount == 3) {
+        llvm::FunctionType* callFt = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_3", callFt);
+        result = builder_->CreateCall(callFt, callFn.getCallee(), { func, thisArg, callArgs[2], callArgs[3], callArgs[4] });
+    } else {
+        // For more arguments, we'd need ts_function_call_with_this with array
+        SPDLOG_WARN("Generic method call with {} args not fully implemented: {}", argCount, methodName);
+        result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    }
+
     if (inst->result) {
-        setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        setValue(inst->result, result);
     }
 }
 
@@ -4442,55 +4688,75 @@ void HIRToLLVM::lowerCallVirtual(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
-    // CallIndirect is used to call closures or function pointers
-    // For closures (TsClosure*):
-    //   1. Extract the function pointer using ts_closure_get_func
-    //   2. Pass the closure as the first argument
+    // CallIndirect is used to call closures or function pointers dynamically
+    // We use ts_call_N runtime functions which handle different function types:
+    // - TsClosure: passes closure as context
+    // - TsFunction: handles compiled functions with various signatures
     //
-    // Operand 0: closure/function pointer
-    // Operand 1+: regular arguments
+    // Operand 0: closure/function pointer (boxed TsValue*)
+    // Operand 1+: regular arguments (boxed TsValue*)
 
-    llvm::Value* closureOrFnPtr = getOperandValue(inst->operands[0]);
+    llvm::Value* callablePtr = getOperandValue(inst->operands[0]);
 
-    // Gather regular arguments
+    // Gather regular arguments - ensure they're boxed for the ts_call_N interface
     std::vector<llvm::Value*> regularArgs;
     for (size_t i = 1; i < inst->operands.size(); ++i) {
-        regularArgs.push_back(getOperandValue(inst->operands[i]));
+        llvm::Value* arg = getOperandValue(inst->operands[i]);
+        // Box the argument if it's not already a pointer
+        if (!arg->getType()->isPointerTy()) {
+            if (arg->getType()->isDoubleTy()) {
+                auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_double", boxFt);
+                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg });
+            } else if (arg->getType()->isIntegerTy(64)) {
+                auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFt);
+                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg });
+            } else if (arg->getType()->isIntegerTy(1)) {
+                // Convert i1 to i64 for boxing
+                llvm::Value* extended = builder_->CreateZExt(arg, builder_->getInt64Ty());
+                auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", boxFt);
+                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { extended });
+            }
+        }
+        regularArgs.push_back(arg);
     }
 
-    // ts_closure_get_func(TsClosure* closure) -> void*
-    auto getClosureFuncFt = llvm::FunctionType::get(
-        builder_->getPtrTy(),
-        { builder_->getPtrTy() },
-        false
-    );
-    auto getClosureFunc = module_->getOrInsertFunction("ts_closure_get_func", getClosureFuncFt);
+    // Use ts_call_N based on argument count
+    // All ts_call_N functions take boxed TsValue* arguments and return TsValue*
+    llvm::Value* result = nullptr;
+    size_t argCount = regularArgs.size();
 
-    // Extract the actual function pointer from the closure
-    llvm::Value* funcPtr = builder_->CreateCall(getClosureFuncFt, getClosureFunc.getCallee(), { closureOrFnPtr });
-
-    // Build argument list: closure first, then regular arguments
-    std::vector<llvm::Value*> allArgs;
-    allArgs.push_back(closureOrFnPtr);  // Closure context as first argument
-    allArgs.insert(allArgs.end(), regularArgs.begin(), regularArgs.end());
-
-    // Create function type for the call
-    // First argument (closure context) is always a pointer
-    // Other arguments use the actual LLVM types of the arguments
-    std::vector<llvm::Type*> paramTypes;
-    for (auto& arg : allArgs) {
-        paramTypes.push_back(arg->getType());
+    if (argCount == 0) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_call_0", ft);
+        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr });
+    } else if (argCount == 1) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_call_1", ft);
+        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr, regularArgs[0] });
+    } else if (argCount == 2) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_call_2", ft);
+        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr, regularArgs[0], regularArgs[1] });
+    } else if (argCount == 3) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_call_3", ft);
+        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr, regularArgs[0], regularArgs[1], regularArgs[2] });
+    } else {
+        // For more arguments, fall back to ts_call_N with array
+        // TODO: Implement ts_call_n(callable, argc, argv) for >3 args
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_call_0", ft);
+        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr });
     }
 
-    // Determine return type from the instruction's result type
-    llvm::Type* returnType = builder_->getVoidTy();
-    if (inst->result && inst->result->type) {
-        returnType = getLLVMType(inst->result->type);
-    }
+    // ts_call_N returns a boxed TsValue*
+    // Note: HIR pipeline tracks boxing through HIR types, not a separate set
 
-    llvm::FunctionType* ft = llvm::FunctionType::get(returnType, paramTypes, false);
-
-    llvm::Value* result = builder_->CreateCall(ft, funcPtr, allArgs);
     if (inst->result) {
         setValue(inst->result, result);
     }
@@ -4637,6 +4903,179 @@ void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
 }
 
 //==============================================================================
+// Function Trampolines
+//==============================================================================
+
+llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
+    if (!originalFunc) return nullptr;
+
+    // Check if we already created a trampoline for this function
+    std::string trampolineName = originalFunc->getName().str() + "$trampoline";
+    if (llvm::Function* existing = module_->getFunction(trampolineName)) {
+        return existing;
+    }
+
+    llvm::FunctionType* origFT = originalFunc->getFunctionType();
+    unsigned numOrigParams = origFT->getNumParams();
+
+    // Check if the function already matches the closure convention:
+    // (ptr context, TsValue* args...) -> ptr
+    // A function matches if: first param is ptr (context), all other params are ptr (TsValue*), returns ptr
+    bool alreadyMatches = origFT->getReturnType()->isPointerTy();
+    if (alreadyMatches && numOrigParams >= 1) {
+        // First param must be context pointer
+        alreadyMatches = origFT->getParamType(0)->isPointerTy();
+        // All other params must be pointers (TsValue*)
+        for (unsigned i = 1; i < numOrigParams && alreadyMatches; ++i) {
+            alreadyMatches = origFT->getParamType(i)->isPointerTy();
+        }
+    }
+    if (alreadyMatches && numOrigParams >= 1) {
+        // No trampoline needed, function already has closure convention
+        return originalFunc;
+    }
+
+    // Determine how many user-visible parameters the original function has
+    // (i.e., parameters that aren't leading context pointers)
+    // For closures, the first N pointer parameters are closure contexts,
+    // and the remaining parameters are actual user parameters.
+    unsigned numContextParams = 0;
+    for (unsigned i = 0; i < numOrigParams; ++i) {
+        if (origFT->getParamType(i)->isPointerTy()) {
+            numContextParams++;
+        } else {
+            // First non-pointer param marks start of user params
+            break;
+        }
+    }
+    unsigned numUserParams = numOrigParams - numContextParams;
+
+    SPDLOG_DEBUG("getOrCreateTrampoline: {} has {} total params, {} context params, {} user params",
+                 originalFunc->getName().str(), numOrigParams, numContextParams, numUserParams);
+
+    // Create trampoline: (ptr %ctx, TsValue* %arg1, TsValue* %arg2, ...) -> ptr
+    // The trampoline accepts boxed arguments and returns a boxed result
+    std::vector<llvm::Type*> trampolineParams;
+    trampolineParams.push_back(builder_->getPtrTy());  // context
+    for (unsigned i = 0; i < numUserParams; ++i) {
+        trampolineParams.push_back(builder_->getPtrTy());  // TsValue* for each arg
+    }
+
+    llvm::FunctionType* trampolineFT = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        trampolineParams,
+        false
+    );
+
+    llvm::Function* trampoline = llvm::Function::Create(
+        trampolineFT,
+        llvm::GlobalValue::PrivateLinkage,
+        trampolineName,
+        module_.get()
+    );
+
+    SPDLOG_DEBUG("getOrCreateTrampoline: creating trampoline {} for {} with {} user params",
+                 trampolineName, originalFunc->getName().str(), numUserParams);
+
+    // Save current insertion point
+    llvm::BasicBlock* savedBB = builder_->GetInsertBlock();
+    llvm::BasicBlock::iterator savedPt = builder_->GetInsertPoint();
+
+    // Create entry block for trampoline
+    llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "entry", trampoline);
+    builder_->SetInsertPoint(entryBB);
+
+    // Build arguments for the original function call
+    std::vector<llvm::Value*> callArgs;
+
+    // Get trampoline arguments iterator
+    auto trampolineArg = trampoline->arg_begin();
+    llvm::Value* ctxArg = trampolineArg++;  // Skip context argument
+
+    // First, pass the context to all context parameters of the original function
+    for (unsigned i = 0; i < numContextParams; ++i) {
+        callArgs.push_back(ctxArg);
+    }
+
+    // Unbox each user argument and add to callArgs
+    for (unsigned i = 0; i < numUserParams; ++i) {
+        llvm::Value* boxedArg = trampolineArg++;
+        llvm::Type* expectedType = origFT->getParamType(numContextParams + i);
+
+        llvm::Value* unboxedArg;
+        if (expectedType->isDoubleTy()) {
+            // Unbox to double
+            auto unboxFT = llvm::FunctionType::get(builder_->getDoubleTy(), { builder_->getPtrTy() }, false);
+            auto unboxFn = module_->getOrInsertFunction("ts_value_get_double", unboxFT);
+            unboxedArg = builder_->CreateCall(unboxFT, unboxFn.getCallee(), { boxedArg });
+        } else if (expectedType->isIntegerTy(64)) {
+            // Unbox to i64
+            auto unboxFT = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+            auto unboxFn = module_->getOrInsertFunction("ts_value_get_int", unboxFT);
+            unboxedArg = builder_->CreateCall(unboxFT, unboxFn.getCallee(), { boxedArg });
+        } else if (expectedType->isIntegerTy(1)) {
+            // Unbox to bool
+            auto unboxFT = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+            auto unboxFn = module_->getOrInsertFunction("ts_value_get_bool", unboxFT);
+            llvm::Value* boolAsInt = builder_->CreateCall(unboxFT, unboxFn.getCallee(), { boxedArg });
+            unboxedArg = builder_->CreateICmpNE(boolAsInt, llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
+        } else if (expectedType->isPointerTy()) {
+            // Unbox to object pointer
+            auto unboxFT = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+            auto unboxFn = module_->getOrInsertFunction("ts_value_get_object", unboxFT);
+            unboxedArg = builder_->CreateCall(unboxFT, unboxFn.getCallee(), { boxedArg });
+        } else {
+            // Unknown type, pass through as-is (hope it's a pointer)
+            unboxedArg = boxedArg;
+        }
+        callArgs.push_back(unboxedArg);
+    }
+
+    // Call the original function
+    llvm::Value* result = builder_->CreateCall(origFT, originalFunc, callArgs);
+
+    // Box the result based on return type
+    llvm::Value* boxedResult;
+    llvm::Type* returnType = origFT->getReturnType();
+
+    if (returnType->isPointerTy()) {
+        // Already a pointer, might be TsValue* or raw object
+        boxedResult = result;
+    } else if (returnType->isDoubleTy()) {
+        auto boxFT = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_double", boxFT);
+        boxedResult = builder_->CreateCall(boxFT, boxFn.getCallee(), { result });
+    } else if (returnType->isIntegerTy(64)) {
+        auto boxFT = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFT);
+        boxedResult = builder_->CreateCall(boxFT, boxFn.getCallee(), { result });
+    } else if (returnType->isIntegerTy(1)) {
+        llvm::Value* extended = builder_->CreateZExt(result, builder_->getInt64Ty());
+        auto boxFT = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", boxFT);
+        boxedResult = builder_->CreateCall(boxFT, boxFn.getCallee(), { extended });
+    } else if (returnType->isVoidTy()) {
+        auto undefFT = llvm::FunctionType::get(builder_->getPtrTy(), {}, false);
+        auto undefFn = module_->getOrInsertFunction("ts_value_make_undefined", undefFT);
+        boxedResult = builder_->CreateCall(undefFT, undefFn.getCallee(), {});
+    } else {
+        // Fallback: return undefined
+        auto undefFT = llvm::FunctionType::get(builder_->getPtrTy(), {}, false);
+        auto undefFn = module_->getOrInsertFunction("ts_value_make_undefined", undefFT);
+        boxedResult = builder_->CreateCall(undefFT, undefFn.getCallee(), {});
+    }
+
+    builder_->CreateRet(boxedResult);
+
+    // Restore insertion point
+    if (savedBB) {
+        builder_->SetInsertPoint(savedBB, savedPt);
+    }
+
+    return trampoline;
+}
+
+//==============================================================================
 // Closures
 //==============================================================================
 
@@ -4702,8 +5141,13 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     auto makeObject = module_->getOrInsertFunction("ts_value_make_object", makeObjectFt);
 
     // Create the closure: ts_closure_create(funcPtr, numCaptures)
+    // The function needs a trampoline to convert from native calling convention
+    // to closure calling convention: (ptr ctx, TsValue* arg1, ...) -> TsValue*
+    llvm::Function* trampolineFunc = getOrCreateTrampoline(fn);
+    llvm::Value* funcPtrToUse = trampolineFunc ? (llvm::Value*)trampolineFunc : (llvm::Value*)fn;
+
     llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), numCaptures);
-    llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { fn, numCapturesVal });
+    llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal });
 
     // Initialize each capture cell with its value
     for (size_t i = 0; i < numCaptures; ++i) {
@@ -4711,21 +5155,28 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), i);
 
         // Get the type of the captured value to box it properly
-        auto* hirValue = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[i + 1]);
+        // Use LLVM type as the primary source of truth
         llvm::Value* boxedValue = nullptr;
+        llvm::Type* valType = capturedValue->getType();
 
-        if (hirValue && (*hirValue)->type) {
-            HIRTypeKind kind = (*hirValue)->type->kind;
-            if (kind == HIRTypeKind::Int64) {
-                boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { capturedValue });
-            } else if (kind == HIRTypeKind::Float64) {
-                boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { capturedValue });
-            } else {
-                // For pointers/objects, box as object
-                boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
-            }
+        if (valType->isIntegerTy(64)) {
+            boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { capturedValue });
+        } else if (valType->isDoubleTy()) {
+            boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { capturedValue });
+        } else if (valType->isIntegerTy(1)) {
+            // Boolean - use ts_value_make_bool with i32
+            auto makeBool = getTsValueMakeBool();
+            llvm::Value* extended = builder_->CreateZExt(capturedValue, builder_->getInt32Ty(), "bool_ext");
+            boxedValue = builder_->CreateCall(makeBool, { extended });
+        } else if (valType->isIntegerTy(32)) {
+            // i32 - extend to i64 and use makeInt
+            llvm::Value* extended = builder_->CreateSExt(capturedValue, builder_->getInt64Ty(), "i32_ext");
+            boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
+        } else if (valType->isPointerTy()) {
+            // For pointers/objects, box as object
+            boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
         } else {
-            // Default: box as object (ptr)
+            // Default: box as object (may fail for non-pointer types)
             boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
         }
 
@@ -4921,20 +5372,28 @@ void HIRToLLVM::lowerStoreCapture(HIRInstruction* inst) {
     llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), captureIndex);
     llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { closureParam_, indexVal });
 
-    // Box the value based on its type
+    // Box the value based on its LLVM type
     llvm::Value* boxedValue = nullptr;
-    if (captureType) {
-        HIRTypeKind kind = captureType->kind;
-        if (kind == HIRTypeKind::Int64) {
-            boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { valueToStore });
-        } else if (kind == HIRTypeKind::Float64) {
-            boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { valueToStore });
-        } else {
-            // For pointers/objects, box as object
-            boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
-        }
+    llvm::Type* valType = valueToStore->getType();
+
+    if (valType->isIntegerTy(64)) {
+        boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { valueToStore });
+    } else if (valType->isDoubleTy()) {
+        boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { valueToStore });
+    } else if (valType->isIntegerTy(1)) {
+        // Boolean - use ts_value_make_bool with i32
+        auto makeBool = getTsValueMakeBool();
+        llvm::Value* extended = builder_->CreateZExt(valueToStore, builder_->getInt32Ty(), "bool_ext");
+        boxedValue = builder_->CreateCall(makeBool, { extended });
+    } else if (valType->isIntegerTy(32)) {
+        // i32 - extend to i64 and use makeInt
+        llvm::Value* extended = builder_->CreateSExt(valueToStore, builder_->getInt64Ty(), "i32_ext");
+        boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
+    } else if (valType->isPointerTy()) {
+        // For pointers/objects, box as object
+        boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
     } else {
-        // Default: box as object (ptr)
+        // Default: box as object (may fail for non-pointer types)
         boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
     }
 
@@ -5097,8 +5556,20 @@ void HIRToLLVM::lowerStoreCaptureFromClosure(HIRInstruction* inst) {
         boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { valueToStore });
     } else if (valType->isDoubleTy()) {
         boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { valueToStore });
-    } else {
+    } else if (valType->isIntegerTy(1)) {
+        // Boolean - use ts_value_make_bool with i32
+        auto makeBool = getTsValueMakeBool();
+        llvm::Value* extended = builder_->CreateZExt(valueToStore, builder_->getInt32Ty(), "bool_ext");
+        boxedValue = builder_->CreateCall(makeBool, { extended });
+    } else if (valType->isIntegerTy(32)) {
+        // i32 - extend to i64 and use makeInt
+        llvm::Value* extended = builder_->CreateSExt(valueToStore, builder_->getInt64Ty(), "i32_ext");
+        boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
+    } else if (valType->isPointerTy()) {
         // For pointers/objects, box as object
+        boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
+    } else {
+        // Default: box as object (may fail for non-pointer types)
         boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
     }
 
