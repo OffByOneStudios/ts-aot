@@ -282,10 +282,10 @@ void BuiltinRegistry::registerStringMethods() {
 
     // Match methods
     methodTable_[{HIRTypeKind::String, "match"}] =
-        MethodResolution::makeRuntimeCall("ts_string_match", 1);
+        MethodResolution::makeRuntimeCall("ts_string_match_regexp", 1);
 
     methodTable_[{HIRTypeKind::String, "matchAll"}] =
-        MethodResolution::makeRuntimeCall("ts_string_matchAll", 1);
+        MethodResolution::makeRuntimeCall("ts_string_matchAll_regexp", 1);
 
     methodTable_[{HIRTypeKind::String, "search"}] =
         MethodResolution::makeRuntimeCall("ts_string_search", 1, intType);
@@ -373,10 +373,10 @@ void BuiltinRegistry::registerObjectMethods() {
         BuiltinResolution::makeRuntimeCall("ts_object_assign", objectType);
 
     globalTable_[{"Object", "hasOwn"}] =
-        BuiltinResolution::makeRuntimeCall("ts_object_hasOwn", boolType);
+        BuiltinResolution::makeRuntimeCall("ts_object_has_own", boolType);
 
     globalTable_[{"Object", "fromEntries"}] =
-        BuiltinResolution::makeRuntimeCall("ts_object_fromEntries", objectType);
+        BuiltinResolution::makeRuntimeCall("ts_object_from_entries", objectType);
 
     globalTable_[{"Object", "getOwnPropertyNames"}] =
         BuiltinResolution::makeRuntimeCall("ts_object_getOwnPropertyNames", stringArrayType);
