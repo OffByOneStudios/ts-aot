@@ -161,6 +161,8 @@ add_library(tscompiler_lib STATIC
     hir/handlers/TimerHandler.cpp
     hir/handlers/BigIntHandler.cpp
     hir/handlers/PathHandler.cpp
+    hir/handlers/GeneratorHandler.cpp
+    hir/handlers/RegExpHandler.cpp
     hir/passes/HIRPass.cpp
     hir/passes/PassManager.cpp
     hir/passes/MethodResolutionPass.cpp
