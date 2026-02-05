@@ -1,8 +1,9 @@
 # HIR-004: Handler Registration Pattern for Builtin Functions
 
-**Status:** In Progress
+**Status:** Phase 5 Complete, Phase 6 Ready
 **Category:** Architecture / Refactoring
 **Priority:** High
+**Last Updated:** 2026-02-04
 
 ## Problem Statement
 
@@ -181,8 +182,33 @@ Functions extracted from `lowerCall`:
 - [ ] ValueHandler - ts_value_* boxing operations
 - [ ] ObjectHandler - ts_object_* operations
 
-### Phase 6: Cleanup
-- [ ] Remove empty cases from lowerCall/lowerCallMethod
+### Phase 6: Cleanup (Ready to Execute)
+
+The HandlerRegistry check (line 2733) now catches handled functions BEFORE inline code.
+Dead inline code in `lowerCall` that can be safely removed:
+
+| Handler | Lines | Dead Code Size |
+|---------|-------|----------------|
+| ConsoleHandler | 2741-2782 | ~42 lines |
+| ArrayHandler | 2909-2970, 3436-3544 | ~175 lines |
+| MathHandler | 2993-3113, 3197-3336 | ~260 lines |
+| TimerHandler | 3115-3195 | ~81 lines |
+| BigIntHandler | 3386-3434 | ~49 lines |
+| MapSetHandler | 3546-3826 | ~281 lines |
+| PathHandler | 3828-3963 | ~136 lines |
+| **Total** | | **~1024 lines** |
+
+Code that must REMAIN in `lowerCall`:
+- ts_value_to_bool, ts_value_is_undefined, ts_value_is_nullish (2784-2821)
+- ts_object_has_property (2823-2835)
+- ts_string_from_* functions (2837-2906)
+- ts_object_assign (2972-2991)
+- ts_object_is (3338-3384)
+- ts_json_stringify (3965-4009)
+- Generic function call handling (4020-4043)
+
+Tasks:
+- [ ] Remove dead handler inline code (~1024 lines)
 - [ ] Update documentation
 - [ ] Final verification of all test suites
 
