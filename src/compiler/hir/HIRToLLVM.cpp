@@ -2843,6 +2843,25 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Handle ts_value_is_null - returns bool, not ptr
+    // Also generates a raw null pointer check (icmp eq ptr, null) since runtime functions
+    // like RegExp_exec return raw nullptr (not boxed null TsValue) for "no match"
+    if (funcName == "ts_value_is_null") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        // Generate: ts_value_is_null(arg) || arg == null
+        // This handles both boxed null (TsValue with OBJECT_PTR/nullptr) and raw null pointers
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_null", ft);
+        llvm::Value* boxedCheck = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        llvm::Value* rawNullCheck = builder_->CreateICmpEQ(arg, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        llvm::Value* result = builder_->CreateOr(boxedCheck, rawNullCheck);
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Handle ts_value_is_nullish - returns bool, not ptr
     if (funcName == "ts_value_is_nullish") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
