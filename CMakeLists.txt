@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 
+# Use static libraries with dynamic CRT (/MD) - no DLLs needed at runtime
+if(NOT DEFINED VCPKG_TARGET_TRIPLET)
+    set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "")
+endif()
+
+# Use vcpkg_installed in project root (not build directory)
+# This avoids rebuilding packages on each clean build
+set(VCPKG_INSTALLED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed" CACHE PATH "")
+
 project(ts-aot LANGUAGES CXX)
 
 # Force Release mode only
@@ -28,6 +37,11 @@ endif()
 if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 endif()
+
+# Ensure packages in vcpkg_installed are found
+# Set _VCPKG_INSTALLED_DIR for packages that use it (like unofficial-sodium)
+set(_VCPKG_INSTALLED_DIR "${VCPKG_INSTALLED_DIR}" CACHE PATH "" FORCE)
+list(APPEND CMAKE_PREFIX_PATH "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
 
 # Add subdirectories
 add_subdirectory(src/runtime)

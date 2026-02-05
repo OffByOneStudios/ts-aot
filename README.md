@@ -80,7 +80,7 @@ build/src/compiler/Release/ts-aot.exe examples/benchmarks/compute/fibonacci_simp
 - **CMake** 3.20+
 - **LLVM 18**
 - **vcpkg** for dependencies
-- **C++20** compatible compiler
+- **C++20** compatible compiler (MSVC 2022 recommended on Windows)
 
 ### Build Steps
 
@@ -89,9 +89,85 @@ build/src/compiler/Release/ts-aot.exe examples/benchmarks/compute/fibonacci_simp
 git clone https://github.com/cgrinker/ts-aoc.git
 cd ts-aoc
 
+# Install vcpkg dependencies (static libraries, dynamic CRT)
+vcpkg install --triplet x64-windows-static-md
+
 # Configure and build
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake
+cmake -B build -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
 cmake --build build --config Release
+```
+
+### Static Linking Configuration
+
+ts-aot uses **static linking for all dependencies** while using the **dynamic C runtime** (`/MD`). This produces standalone executables that don't require any DLLs at runtime (except standard Windows system DLLs).
+
+#### vcpkg Triplet: `x64-windows-static-md`
+
+The project uses the `x64-windows-static-md` triplet which provides:
+- **Static libraries** (`.lib`) - all dependencies are statically linked
+- **Dynamic CRT** (`/MD`) - uses the shared Microsoft C runtime
+
+This is different from:
+- `x64-windows` - Dynamic libraries (requires DLLs at runtime)
+- `x64-windows-static` - Static libraries with static CRT (`/MT`) - can cause conflicts
+
+#### vcpkg Installation Location
+
+Dependencies are installed to `vcpkg_installed/` in the project root (not the build directory). This avoids rebuilding packages on clean builds:
+
+```
+ts-aot/
+├── vcpkg_installed/
+│   └── x64-windows-static-md/
+│       ├── include/
+│       └── lib/
+```
+
+#### Key CMake Configuration
+
+The root `CMakeLists.txt` configures:
+
+```cmake
+# Use static libraries with dynamic CRT
+set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "")
+
+# Point to project-root vcpkg_installed
+set(VCPKG_INSTALLED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed" CACHE PATH "")
+```
+
+#### Boehm GC Static Linking
+
+When using static Boehm GC with dynamic CRT (`/MD`), the `GC_NOT_DLL` macro must be defined to prevent dllimport declarations:
+
+```cmake
+target_compile_definitions(tsruntime PUBLIC GC_NOT_DLL)
+```
+
+Without this, the GC headers auto-detect `/MD` and incorrectly assume DLL linkage.
+
+#### Dependencies Linked Statically
+
+| Library | Purpose |
+|---------|---------|
+| libuv | Event loop and async I/O |
+| Boehm GC | Garbage collection |
+| ICU | Unicode string handling |
+| OpenSSL | TLS/crypto |
+| llhttp | HTTP parsing |
+| c-ares | Async DNS |
+| zlib | Compression |
+| brotli | Brotli compression |
+| libsodium | Cryptographic primitives |
+| libtommath | BigInt support |
+| nghttp2 | HTTP/2 |
+
+#### Verifying Static Linking
+
+Compiled executables should only depend on Windows system DLLs:
+
+```powershell
+dumpbin /dependents your_program.exe
+# Should show only: KERNEL32.dll, ADVAPI32.dll, WS2_32.dll, etc.
 ```
 
 ## Project Structure
