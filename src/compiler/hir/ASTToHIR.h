@@ -232,6 +232,9 @@ private:
     void visitOmittedExpression(ast::OmittedExpression* node) override;
     void visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) override;
     void visitEnumDeclaration(ast::EnumDeclaration* node) override;
+    std::pair<bool, int64_t> constEvalEnumExpr(
+        ast::Node* expr, const std::map<std::string, EnumValue>& members,
+        const std::string& enumName);
 
     // JSX
     void visitJsxElement(ast::JsxElement* node) override;
