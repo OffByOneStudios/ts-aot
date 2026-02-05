@@ -3713,6 +3713,13 @@ void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
 // Globals
 //==============================================================================
 
+// REFACTOR-NEEDED: lowerLoadGlobal
+// This function has grown with many if-else branches for each global object.
+// DO NOT ADD MORE CODE HERE. Instead:
+// 1. Create a GlobalRegistry similar to HandlerRegistry/LoweringRegistry
+// 2. Register global objects declaratively with their runtime function names
+// 3. Replace this if-else chain with a registry lookup
+// When you encounter this function, ASK THE USER before making changes.
 void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
     std::string globalName = getOperandString(inst->operands[0]);
 
