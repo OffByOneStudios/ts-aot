@@ -121,11 +121,12 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 - [x] Handler takes precedence over old code (no removal needed yet)
 - [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
 
-### Phase 4: Extract Array Handler
-- [ ] Create ArrayHandler.cpp
-- [ ] Move Array.isArray, Array.from, etc.
-- [ ] Move typed array methods
-- [ ] Verify no regression
+### Phase 4: Extract Array Handler (Complete)
+- [x] Create ArrayHandler.cpp
+- [x] Move ts_array_create, ts_array_concat, ts_array_push
+- [x] Move ts_array_find, ts_array_findLast, ts_array_findIndex, ts_array_findLastIndex
+- [x] Move ts_array_some, ts_array_every, ts_array_slice
+- [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
 
 ### Phase 5: Extract Remaining Handlers
 - [ ] MapSetHandler (Map, Set, WeakMap, WeakSet)
@@ -149,7 +150,7 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 | `src/compiler/hir/handlers/HandlerRegistry.cpp` | Created ✓ |
 | `src/compiler/hir/handlers/MathHandler.cpp` | Created ✓ (Phase 2) |
 | `src/compiler/hir/handlers/ConsoleHandler.cpp` | Created ✓ (Phase 3) |
-| `src/compiler/hir/handlers/ArrayHandler.cpp` | Create (Phase 4) |
+| `src/compiler/hir/handlers/ArrayHandler.cpp` | Created ✓ (Phase 4) |
 | `src/compiler/hir/CMakeLists.txt` | Modify (add handlers/) |
 | `src/compiler/hir/HIRToLLVM.cpp` | Modify (use registry) |
 | `src/compiler/hir/HIRToLLVM.h` | Modify (add friend class) |

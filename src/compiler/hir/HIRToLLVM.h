@@ -21,6 +21,7 @@ namespace ts::hir {
 // Forward declarations for handler classes
 class MathHandler;
 class ConsoleHandler;
+class ArrayHandler;
 
 //==============================================================================
 // HIRToLLVM - Lower HIR to LLVM IR
@@ -37,6 +38,7 @@ class HIRToLLVM {
     // Friend declarations for builtin handlers
     friend class MathHandler;
     friend class ConsoleHandler;
+    friend class ArrayHandler;
 
 public:
     HIRToLLVM(llvm::LLVMContext& ctx);

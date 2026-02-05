@@ -6,6 +6,7 @@ namespace ts::hir {
 // Factory functions for handlers (defined in their respective .cpp files)
 std::unique_ptr<BuiltinHandler> createMathHandler();
 std::unique_ptr<BuiltinHandler> createConsoleHandler();
+std::unique_ptr<BuiltinHandler> createArrayHandler();
 
 bool HandlerRegistry::builtinsRegistered_ = false;
 
@@ -58,9 +59,11 @@ void HandlerRegistry::registerBuiltinHandlers() {
     // Phase 3: ConsoleHandler - console.* functions with type dispatch
     reg.registerHandler(createConsoleHandler());
 
+    // Phase 4: ArrayHandler - Array.* functions
+    reg.registerHandler(createArrayHandler());
+
     // Future phases:
-    //   Phase 4: ArrayHandler
-    //   etc.
+    //   Phase 5: MapSetHandler, PathHandler, TimerHandler, etc.
 
     SPDLOG_DEBUG("HandlerRegistry: builtin handlers registered (count={})",
                  reg.handlerCount());
