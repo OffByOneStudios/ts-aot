@@ -58,36 +58,36 @@ void LoweringRegistry::registerBuiltinsImpl() {
     reg.registerLowering("ts_console_log",
         lowering("ts_console_log")
             .returnsVoid()
-            .boxedArg()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
+            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
             .build());
 
     reg.registerLowering("ts_console_error",
         lowering("ts_console_error")
             .returnsVoid()
-            .boxedArg()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
+            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
             .build());
 
     reg.registerLowering("ts_console_warn",
         lowering("ts_console_warn")
             .returnsVoid()
-            .boxedArg()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
+            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
             .build());
 
     reg.registerLowering("ts_console_info",
         lowering("ts_console_info")
             .returnsVoid()
-            .boxedArg()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
+            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
             .build());
 
     reg.registerLowering("ts_console_debug",
         lowering("ts_console_debug")
             .returnsVoid()
-            .boxedArg()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
+            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
             .build());
 
     reg.registerLowering("ts_console_dir",
@@ -373,7 +373,19 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .i64Arg(ArgConversion::ToI64)
             .build());
 
-    // ts_math_min and ts_math_max need variadic or array handling - skip for now
+    // Math.min and Math.max with inline handling (accumulator pattern)
+    // These are handled specially in HIRToLLVM since they need arg-by-arg comparison
+    reg.registerLowering("ts_math_min",
+        lowering("ts_math_min")
+            .returnsF64()
+            .variadicHandling(VariadicHandling::Inline, 0)
+            .build());
+
+    reg.registerLowering("ts_math_max",
+        lowering("ts_math_max")
+            .returnsF64()
+            .variadicHandling(VariadicHandling::Inline, 0)
+            .build());
 
     // ========================================
     // Performance functions (perf_hooks)

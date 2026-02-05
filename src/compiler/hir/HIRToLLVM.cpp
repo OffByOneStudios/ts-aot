@@ -4038,6 +4038,22 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 //==============================================================================
 
 llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec) {
+    // Check for variadic handling
+    if (spec.variadicHandling != ::hir::VariadicHandling::None) {
+        switch (spec.variadicHandling) {
+            case ::hir::VariadicHandling::TypeDispatch:
+                return lowerTypeDispatchCall(inst, spec);
+            case ::hir::VariadicHandling::PackArray:
+                return lowerPackArrayCall(inst, spec);
+            case ::hir::VariadicHandling::Inline:
+                // Inline handling is done elsewhere (e.g., Math.min/max)
+                // Fall through to standard handling for now
+                break;
+            default:
+                break;
+        }
+    }
+
     // Build LLVM function type
     llvm::Type* retTy = spec.returnType
         ? spec.returnType(context_)
@@ -4200,48 +4216,212 @@ llvm::Value* HIRToLLVM::handleReturn(llvm::Value* result, ::hir::ReturnHandling 
     return result;
 }
 
+//==============================================================================
+// Variadic Function Lowering Helpers
+//==============================================================================
+
+std::string HIRToLLVM::getTypeSuffix(llvm::Value* arg, const ::hir::LoweringSpec& spec) {
+    llvm::Type* argType = arg->getType();
+
+    // Check available suffixes in spec
+    const auto& suffixes = spec.typeDispatchSuffixes;
+
+    if (argType->isIntegerTy(64)) {
+        // Check for _int suffix
+        for (const auto& suffix : suffixes) {
+            if (suffix == "_int") return "_int";
+        }
+    } else if (argType->isDoubleTy()) {
+        // Check for _double suffix
+        for (const auto& suffix : suffixes) {
+            if (suffix == "_double") return "_double";
+        }
+    } else if (argType->isIntegerTy(1)) {
+        // Check for _bool suffix
+        for (const auto& suffix : suffixes) {
+            if (suffix == "_bool") return "_bool";
+        }
+    } else if (argType->isPointerTy()) {
+        // Could be string or object - try _string first, then _object
+        for (const auto& suffix : suffixes) {
+            if (suffix == "_string") return "_string";
+        }
+        for (const auto& suffix : suffixes) {
+            if (suffix == "_object") return "_object";
+        }
+        // For pointers without specific suffix, use _value if available
+        for (const auto& suffix : suffixes) {
+            if (suffix == "_value") return "_value";
+        }
+    }
+
+    // Return default suffix if no specific match
+    return spec.defaultSuffix;
+}
+
+llvm::Value* HIRToLLVM::lowerTypeDispatchCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec) {
+    // TypeDispatch: Call type-specific functions for each variadic argument
+    // e.g., console.log(42, "hello") -> ts_console_log_int(42); ts_console_log_string("hello");
+
+    size_t restIndex = spec.restParamIndex;
+    llvm::Value* lastResult = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+
+    // Process each argument starting at restParamIndex
+    // operands[0] is the function/method name, operands[1+] are arguments
+    for (size_t i = restIndex + 1; i < inst->operands.size(); ++i) {
+        llvm::Value* arg = getOperandValue(inst->operands[i]);
+
+        // Determine the type suffix for this argument
+        std::string suffix = getTypeSuffix(arg, spec);
+
+        // Build the type-specific function name
+        std::string funcName = spec.runtimeFuncName + suffix;
+
+        // Determine the LLVM type for this argument
+        llvm::Type* argType = arg->getType();
+        llvm::Type* paramType = argType;
+
+        // Get the return type from spec
+        llvm::Type* retTy = spec.returnType
+            ? spec.returnType(context_)
+            : builder_->getVoidTy();
+
+        // Create function type and call
+        llvm::FunctionType* ft = llvm::FunctionType::get(retTy, { paramType }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+        lastResult = builder_->CreateCall(ft, fn.getCallee(), { arg });
+    }
+
+    return handleReturn(lastResult, spec.returnHandling);
+}
+
+llvm::Value* HIRToLLVM::lowerPackArrayCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec) {
+    // PackArray: Pack rest arguments into a TsArray, then call the runtime function
+    // e.g., Array.of(1, 2, 3) -> arr = ts_array_create(); ts_array_push(arr, 1); ts_array_push(arr, 2); ...
+
+    size_t restIndex = spec.restParamIndex;
+
+    // Create a new array for the rest arguments
+    auto createFt = llvm::FunctionType::get(builder_->getPtrTy(), {}, false);
+    auto createFn = module_->getOrInsertFunction("ts_array_create", createFt);
+    llvm::Value* restArray = builder_->CreateCall(createFt, createFn.getCallee(), {});
+
+    // Push each rest argument to the array
+    auto pushFt = llvm::FunctionType::get(builder_->getInt64Ty(),
+        { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+    auto pushFn = module_->getOrInsertFunction("ts_array_push", pushFt);
+
+    // operands[0] is the function name, operands[1+] are arguments
+    for (size_t i = restIndex + 1; i < inst->operands.size(); ++i) {
+        llvm::Value* arg = getOperandValue(inst->operands[i]);
+
+        // Box the argument if needed
+        arg = convertArg(arg, ::hir::ArgConversion::Box);
+
+        // Push to array
+        builder_->CreateCall(pushFt, pushFn.getCallee(), { restArray, arg });
+    }
+
+    // Now call the actual runtime function with the packed array
+    // Build fixed arguments (before restParamIndex) + the rest array
+    std::vector<llvm::Value*> llvmArgs;
+
+    // Add fixed arguments (if any)
+    for (size_t i = 1; i <= restIndex && i < inst->operands.size(); ++i) {
+        llvm::Value* arg = getOperandValue(inst->operands[i]);
+        if (i - 1 < spec.argConversions.size()) {
+            arg = convertArg(arg, spec.argConversions[i - 1]);
+        }
+        llvmArgs.push_back(arg);
+    }
+
+    // Add the rest array
+    llvmArgs.push_back(restArray);
+
+    // Build LLVM function type
+    llvm::Type* retTy = spec.returnType
+        ? spec.returnType(context_)
+        : builder_->getVoidTy();
+
+    std::vector<llvm::Type*> argTys;
+    for (size_t i = 0; i < spec.argTypes.size(); ++i) {
+        argTys.push_back(spec.argTypes[i](context_));
+    }
+
+    // If spec doesn't include the rest array type, add it
+    if (argTys.size() < llvmArgs.size()) {
+        argTys.push_back(builder_->getPtrTy());
+    }
+
+    auto* ft = llvm::FunctionType::get(retTy, argTys, false);
+    auto fn = module_->getOrInsertFunction(spec.runtimeFuncName, ft);
+
+    // Call the function
+    llvm::Value* result;
+    if (retTy->isVoidTy()) {
+        builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+        result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    } else {
+        result = builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+    }
+
+    return handleReturn(result, spec.returnHandling);
+}
+
 void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
     // operands[0] = object, operands[1] = methodName, operands[2..] = args
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     std::string methodName = getOperandString(inst->operands[1]);
 
-    // Handle console.log / console.error / console.warn / console.info / console.debug
+    // Handle console.log / console.error / console.warn / console.info / console.debug via registry
     if (methodName == "log" || methodName == "error" || methodName == "warn" ||
         methodName == "info" || methodName == "debug") {
 
-        // Get the arguments (starting at index 2)
-        for (size_t i = 2; i < inst->operands.size(); ++i) {
-            llvm::Value* arg = getOperandValue(inst->operands[i]);
+        // Determine the base runtime function name
+        std::string baseFuncName = (methodName == "error" || methodName == "warn")
+            ? "ts_console_error" : "ts_console_log";
 
-            // Determine the right runtime function based on LLVM argument type
-            std::string funcName = (methodName == "error" || methodName == "warn")
-                ? "ts_console_error" : "ts_console_log";
-            llvm::Type* paramType = builder_->getPtrTy();
+        // Look up the lowering spec from the registry
+        auto& registry = ::hir::LoweringRegistry::instance();
+        const ::hir::LoweringSpec* spec = registry.lookup(baseFuncName);
 
-            llvm::Type* argType = arg->getType();
-            if (argType->isIntegerTy(64)) {
-                funcName = (methodName == "error" || methodName == "warn")
-                    ? "ts_console_error_int" : "ts_console_log_int";
-                paramType = builder_->getInt64Ty();
-            } else if (argType->isDoubleTy()) {
-                funcName = (methodName == "error" || methodName == "warn")
-                    ? "ts_console_error_double" : "ts_console_log_double";
-                paramType = builder_->getDoubleTy();
-            } else if (argType->isIntegerTy(1)) {
-                funcName = (methodName == "error" || methodName == "warn")
-                    ? "ts_console_error_bool" : "ts_console_log_bool";
-                paramType = builder_->getInt1Ty();
-            } else if (argType->isPointerTy()) {
-                // For pointers, use the generic value function
-                funcName = (methodName == "error" || methodName == "warn")
-                    ? "ts_console_error_value" : "ts_console_log_value";
+        if (spec && spec->variadicHandling == ::hir::VariadicHandling::TypeDispatch) {
+            // Use registry-driven type dispatch
+            // For console methods, operands[2..] are the arguments (skip object and methodName)
+            for (size_t i = 2; i < inst->operands.size(); ++i) {
+                llvm::Value* arg = getOperandValue(inst->operands[i]);
+
+                // Get type suffix based on argument type
+                std::string suffix = getTypeSuffix(arg, *spec);
+                std::string funcName = baseFuncName + suffix;
+
+                // Get the LLVM type for this argument
+                llvm::Type* paramType = arg->getType();
+
+                // Emit the call
+                llvm::FunctionType* ft = llvm::FunctionType::get(
+                    builder_->getVoidTy(), { paramType }, false);
+                llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+                builder_->CreateCall(ft, fn.getCallee(), { arg });
             }
+        } else {
+            // Fallback for non-registered functions (shouldn't happen with proper registration)
+            for (size_t i = 2; i < inst->operands.size(); ++i) {
+                llvm::Value* arg = getOperandValue(inst->operands[i]);
 
-            // Emit the call
-            llvm::FunctionType* ft = llvm::FunctionType::get(
-                builder_->getVoidTy(), { paramType }, false);
-            llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
-            builder_->CreateCall(ft, fn.getCallee(), { arg });
+                std::string funcName = baseFuncName + "_value";
+                llvm::Type* paramType = builder_->getPtrTy();
+
+                // Convert to pointer type if needed
+                if (!arg->getType()->isPointerTy()) {
+                    arg = convertArg(arg, ::hir::ArgConversion::Box);
+                }
+
+                llvm::FunctionType* ft = llvm::FunctionType::get(
+                    builder_->getVoidTy(), { paramType }, false);
+                llvm::FunctionCallee fn = module_->getOrInsertFunction(funcName, ft);
+                builder_->CreateCall(ft, fn.getCallee(), { arg });
+            }
         }
 
         // console.log returns undefined

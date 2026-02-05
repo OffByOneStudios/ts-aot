@@ -248,6 +248,11 @@ private:
     llvm::Value* convertArg(llvm::Value* arg, ::hir::ArgConversion conv);
     llvm::Value* handleReturn(llvm::Value* result, ::hir::ReturnHandling handling);
 
+    // Variadic function lowering helpers
+    llvm::Value* lowerTypeDispatchCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec);
+    llvm::Value* lowerPackArrayCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec);
+    std::string getTypeSuffix(llvm::Value* arg, const ::hir::LoweringSpec& spec);
+
     // Globals
     void lowerLoadGlobal(HIRInstruction* inst);
     void lowerLoadFunction(HIRInstruction* inst);
