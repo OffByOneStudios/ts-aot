@@ -1,8 +1,8 @@
 # HIR Test State
 
-**Last Updated:** 2026-02-04
+**Last Updated:** 2026-02-05
 **Last Build:** Success
-**Last Commit:** 42fea4c
+**Last Commit:** (pending)
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Suite | Passed | Failed | Total | Pass Rate | Command |
 |-------|--------|--------|-------|-----------|---------|
-| golden_ir | 120 | 26 | 146 | 82.2% | `python tests/golden_ir/runner.py tests/golden_ir` |
+| golden_ir | 135 | 11 | 146 | 92.5% | `python tests/golden_ir/runner.py tests/golden_ir` |
 | node | 190 | 90 | 280 | 67.9% | `python tests/node/run_tests.py` |
 | golden_hir | N/A | N/A | 100+ | N/A | Runner does not exist |
 
@@ -41,11 +41,12 @@
 
 ---
 
-## Golden IR Failures (25 tests) - VERIFIED LIST
+## Golden IR Failures (11 tests) - VERIFIED LIST
 
 **Recently Fixed:**
-- typescript/functions/function_in_object.ts - Fixed i64→f64 conversion before boxing in CallMethod
+- typescript/functions/function_in_object.ts - Fixed TsClosure boxing and extraction in dynamic method calls
 - typescript/objects/enum_basic.ts - Updated CHECK pattern to use @ts_console_log_double (enums are correctly f64)
+- Many decorator tests (5 of 6 now pass) - Fixed decorator invocation patterns
 
 ### Category 1: IIFE Call Patterns (3 tests)
 **Root cause:** IIFE .call() pattern returns undefined
@@ -186,23 +187,21 @@
 
 ## Last Action
 
-Fixed function hoisting, default params, and variadic arg packing:
+Fixed TsClosure boxing in object properties and dynamic method calls:
 
-1. **Function hoisting:** Added two-pass function lowering for JavaScript function hoisting
-   - Nested functions are now available before other code runs
-   - Applied to both regular functions and class method specializations
+1. **TsClosure boxing in lowerSetPropStatic:** When HIR type is Function but value is NOT an LLVM Function (i.e., it's a TsClosure pointer from `make_closure`), box it as OBJECT_PTR instead of using `ts_value_make_function`. This prevents wrapping a closure struct pointer as a function pointer.
 
-2. **Default parameters:** Params with defaults now use Any type to properly receive undefined
+2. **ts_extract_closure helper:** New helper function in TsObject.cpp that extracts TsClosure from both:
+   - Raw TsClosure pointers (magic check at offset 8)
+   - TsValue wrappers with OBJECT_PTR type containing TsClosure
 
-3. **Variadic argument packing:** Added support for rest parameters using ExtensionRegistry
-   - Functions like `util.format` now correctly pack extra args into an array
-   - Console functions are explicitly skipped (they have special type-dispatch in HIRToLLVM)
+3. **Updated ts_call_N functions (0-7):** All now use ts_extract_closure helper to detect boxed closures properly, instead of directly casting TsValue* to TsObject*.
 
-4. **Captured variables:** Fixed call expressions to use `createLoadCapture` for captured variables
+4. **Updated ts_call_with_this_N functions (0-6):** Check for TsClosure first before trying ts_extract_function. Closures already have captured context, so they call directly without TsFunction context patching.
 
-**Commit:** 42fea4c
+**Result:** Golden IR tests improved from 120/146 (82.2%) to 135/146 (92.5%)
 
-**Note:** Node test count dropped from 199/280 to 190/280. This is a trade-off from the function hoisting changes. The current state is STABLE and committed.
+**Commit:** (pending)
 
 ---
 

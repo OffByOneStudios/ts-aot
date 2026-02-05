@@ -1183,11 +1183,31 @@ TsValue* ts_value_make_int(int64_t i) {
         }
     }
 
-    TsValue* ts_call_0(TsValue* boxedFunc) {
-        // Check for TsClosure first (raw closure pointer)
+    // Helper to extract TsClosure from a boxed or raw value
+    static TsClosure* ts_extract_closure(TsValue* boxedFunc) {
+        if (!boxedFunc) return nullptr;
+
+        // Check if boxedFunc is a raw TsClosure pointer (magic at offset 8)
         TsObject* obj = (TsObject*)boxedFunc;
         if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+            return (TsClosure*)obj;
+        }
+
+        // Check if boxedFunc is a TsValue wrapping a TsClosure (OBJECT_PTR)
+        if (boxedFunc->type == ValueType::OBJECT_PTR && boxedFunc->ptr_val) {
+            TsObject* inner = (TsObject*)boxedFunc->ptr_val;
+            if (inner && inner->magic == 0x434C5352) {  // 'CLSR'
+                return (TsClosure*)inner;
+            }
+        }
+
+        return nullptr;
+    }
+
+    TsValue* ts_call_0(TsValue* boxedFunc) {
+        // Check for TsClosure first (raw or boxed)
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn0)(void*);
             return ((Fn0)closure->func_ptr)(closure);
         }
@@ -1215,11 +1235,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {
-        // Check for TsClosure first (raw closure pointer)
-        // TsClosure has magic 0x434C5352 at offset 8 (after vtable)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        // Check for TsClosure first (raw or boxed)
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             // Call the closure's function with the closure as context
             typedef TsValue* (*Fn1)(void*, TsValue*);
             return ((Fn1)closure->func_ptr)(closure, arg1);
@@ -1247,10 +1265,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2) {
-        // Check for TsClosure first (raw closure pointer)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        // Check for TsClosure first (raw or boxed)
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
             return ((Fn2)closure->func_ptr)(closure, arg1, arg2);
         }
@@ -1278,10 +1295,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
-        // Check for TsClosure first (raw closure pointer)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        // Check for TsClosure first (raw or boxed)
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
             return ((Fn3)closure->func_ptr)(closure, arg1, arg2, arg3);
         }
@@ -1304,10 +1320,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
-        // Check for TsClosure first (raw closure pointer)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        // Check for TsClosure first (raw or boxed)
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn4)closure->func_ptr)(closure, arg1, arg2, arg3, arg4);
         }
@@ -1330,10 +1345,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_5(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
-        // Check for TsClosure first (raw closure pointer)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        // Check for TsClosure first (raw or boxed)
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn5)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5);
         }
@@ -1356,10 +1370,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
-        // Check for TsClosure first (raw closure pointer)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        // Check for TsClosure first (raw or boxed)
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn6)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6);
         }
@@ -1382,10 +1395,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_7(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
-        // Check for TsClosure first (raw closure pointer)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        // Check for TsClosure first (raw or boxed)
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn7)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
         }
@@ -1488,6 +1500,13 @@ TsValue* ts_value_make_int(int64_t i) {
     // ts_call_with_this_X functions: call a function with a specific 'this' binding
     // These temporarily patch the function's context before calling
     TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg) {
+        // Check for TsClosure first - closures already have captured context
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            typedef TsValue* (*Fn0)(void*);
+            return ((Fn0)closure->func_ptr)(closure);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
 
@@ -1505,6 +1524,13 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_with_this_1(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1) {
+        // Check for TsClosure first - closures already have captured context
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            typedef TsValue* (*Fn1)(void*, TsValue*);
+            return ((Fn1)closure->func_ptr)(closure, arg1);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
 
@@ -1522,6 +1548,13 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_with_this_2(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2) {
+        // Check for TsClosure first - closures already have captured context
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
+            return ((Fn2)closure->func_ptr)(closure, arg1, arg2);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
 
@@ -1539,6 +1572,13 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_with_this_3(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
+        // Check for TsClosure first - closures already have captured context
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
+            return ((Fn3)closure->func_ptr)(closure, arg1, arg2, arg3);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
 
@@ -1556,6 +1596,13 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_with_this_4(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
+        // Check for TsClosure first - closures already have captured context
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn4)closure->func_ptr)(closure, arg1, arg2, arg3, arg4);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
 
@@ -1573,6 +1620,13 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_with_this_5(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
+        // Check for TsClosure first - closures already have captured context
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn5)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
 
@@ -1590,6 +1644,13 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_with_this_6(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
+        // Check for TsClosure first - closures already have captured context
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((Fn6)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6);
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) return ts_value_make_undefined();
 

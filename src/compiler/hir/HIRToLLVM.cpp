@@ -2469,19 +2469,25 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
                 // Functions need to be wrapped in TsFunction with a trampoline for proper calling convention
                 SPDLOG_DEBUG("lowerSetPropStatic: boxing function for prop={}", propName);
 
-                // If val is a function, create a trampoline that converts its calling convention
-                llvm::Value* funcToBox = val;
+                // If val is an LLVM Function, create a trampoline that converts its calling convention
                 if (llvm::Function* originalFunc = llvm::dyn_cast<llvm::Function>(val)) {
+                    llvm::Value* funcToBox = val;
                     llvm::Function* trampoline = getOrCreateTrampoline(originalFunc);
                     if (trampoline && trampoline != originalFunc) {
                         funcToBox = trampoline;
                         SPDLOG_DEBUG("lowerSetPropStatic: created trampoline {} for {}", trampoline->getName().str(), originalFunc->getName().str());
                     }
-                }
 
-                auto fn = getTsValueMakeFunction();
-                llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
-                val = builder_->CreateCall(fn, {funcToBox, nullContext});
+                    auto fn = getTsValueMakeFunction();
+                    llvm::Value* nullContext = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+                    val = builder_->CreateCall(fn, {funcToBox, nullContext});
+                } else {
+                    // Not an LLVM Function - likely a TsClosure pointer from make_closure
+                    // Box as OBJECT_PTR so ts_call_N can detect it via 'CLSR' magic
+                    SPDLOG_DEBUG("lowerSetPropStatic: boxing closure/runtime function as object for prop={}", propName);
+                    auto fn = getTsValueMakeObject();
+                    val = builder_->CreateCall(fn, {val});
+                }
             } else if (valHirType->kind == HIRTypeKind::Object ||
                        valHirType->kind == HIRTypeKind::Class ||
                        valHirType->kind == HIRTypeKind::Array) {
