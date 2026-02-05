@@ -1,6 +1,6 @@
 # HIR-004: Handler Registration Pattern for Builtin Functions
 
-**Status:** Phase 7a Complete (Interface Extension), Phase 7b Pending (MapSetHandler Methods)
+**Status:** Phase 7d Complete (Generator and RegExp Handlers)
 **Category:** Architecture / Refactoring
 **Priority:** High
 **Last Updated:** 2026-02-04
@@ -176,8 +176,8 @@ Functions extracted from `lowerCall`:
 - [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
 
 #### 5e: Future Handlers (Lower Priority)
-- [ ] GeneratorHandler - Generator functions (if present)
-- [ ] RegExpHandler - RegExp operations (if present)
+- [x] GeneratorHandler - Generator/AsyncGenerator method handling (moved to Phase 7d)
+- [x] RegExpHandler - RegExp method handling (moved to Phase 7d)
 - [ ] StringHandler - String methods not in LoweringRegistry
 - [ ] ValueHandler - ts_value_* boxing operations
 - [ ] ObjectHandler - ts_object_* operations
@@ -214,9 +214,9 @@ Tasks:
 
 **Note:** Phase 6 only cleaned up `lowerCall`. Success criteria #3 (lowerCallMethod to ~50 lines) is NOT met.
 
-### Phase 7: MethodHandler Support (Pending)
+### Phase 7: MethodHandler Support (In Progress)
 
-`lowerCallMethod` is still ~928 lines (lines 3384-4312) with inline handling for:
+`lowerCallMethod` is now ~700 lines (down from ~928) with inline handling for:
 
 | Category | Methods | Lines | Status |
 |----------|---------|-------|--------|
@@ -224,9 +224,9 @@ Tasks:
 | Generator | next() | ~94 | Inline |
 | RegExp | test(), exec() | ~60 | Inline (test duplicated!) |
 | Array fallback | join, push | ~45 | Inline |
-| Map methods | set, get, has, delete, clear | ~90 | Inline |
-| Set methods | add, has, delete, clear | ~65 | Inline |
-| boxValueForMapSet | lambda helper | ~46 | DUPLICATE of removed lowerCall code |
+| Map methods | set, get, has, delete, clear | ~90 | ✓ Moved to MapSetHandler |
+| Set methods | add, has, delete, clear | ~65 | ✓ Moved to MapSetHandler |
+| boxValueForMapSet | lambda helper | ~46 | ✓ Removed (uses handler's boxForMapSet) |
 | Dynamic dispatch | ts_call_with_this_N | ~400 | Inline, highly repetitive |
 
 #### Phase 7a: Interface Extension
@@ -339,19 +339,12 @@ llvm::Value* lowerMethod(const std::string& methodName,
 ```
 
 **Tasks:**
-- [ ] Implement `canHandleMethod` in MapSetHandler
-- [ ] Implement `lowerMethod` in MapSetHandler with Map methods (set, get, has, delete, clear)
-- [ ] Implement Set methods (add, has, delete, clear)
-- [ ] Add registry call at start of `lowerCallMethod`:
-  ```cpp
-  if (auto* result = HandlerRegistry::instance().tryLowerMethod(methodName, className, inst, *this)) {
-      if (inst->result) setValue(inst->result, result);
-      return;
-  }
-  ```
-- [ ] Verify tests pass (120/146 baseline)
-- [ ] Remove inline Map/Set code from lowerCallMethod (~200 lines)
-- [ ] Run tests again to confirm no regression
+- [x] Implement `canHandleMethod` in MapSetHandler
+- [x] Implement `lowerMethod` in MapSetHandler with Map methods (set, get, has, delete, clear)
+- [x] Implement Set methods (add, has, delete, clear)
+- [x] Add registry call in `lowerCallMethod` after className extraction
+- [x] Remove inline Map/Set code from lowerCallMethod (~225 lines removed)
+- [x] Verify tests pass (120/146, 82.2% - no regression)
 
 #### Phase 7c: Extract Dynamic Dispatch Helper
 
@@ -387,37 +380,42 @@ llvm::Value* HIRToLLVM::emitDynamicMethodCall(llvm::Value* funcVal, llvm::Value*
 ```
 
 **Tasks:**
-- [ ] Create `boxArgumentForCall` helper for consistent argument boxing
-- [ ] Create `emitDynamicMethodCall` helper
-- [ ] Replace inline `ts_call_with_this_N` blocks with helper call
-- [ ] Verify tests pass
+- [x] Create `boxArgumentForDynamicCall` helper for consistent argument boxing
+- [x] Create `emitDynamicMethodCall` helper
+- [x] Replace inline `ts_call_with_this_N` blocks with helper call
+- [x] Verify tests pass (120/146, 82.2% - no regression)
 
-#### Phase 7d: Additional Method Handlers (Optional)
+#### Phase 7d: Additional Method Handlers (Complete)
 
 **Goal:** Extract remaining method-specific code.
 
-**Candidates:**
+**Implemented handlers:**
+- GeneratorHandler: `next()`, `return()`, `throw()` methods for Generator and AsyncGenerator
 - RegExpHandler: `test()`, `exec()` methods
-- GeneratorHandler: `next()` method
-- ArrayMethodHandler: `join()`, `push()` fallbacks
+
+**Note:** Array `join()` and `push()` fallbacks intentionally left inline since they handle Any-typed values.
 
 **Tasks:**
-- [ ] Create or extend RegExpHandler with method support
-- [ ] Create GeneratorHandler for `next()` method
-- [ ] Extend ArrayHandler with method fallbacks
-- [ ] Remove inline code from lowerCallMethod
+- [x] Create GeneratorHandler for Generator/AsyncGenerator methods (next, return, throw)
+- [x] Create RegExpHandler for RegExp methods (test, exec)
+- [x] Register handlers in HandlerRegistry
+- [x] Remove ~165 lines of inline code from lowerCallMethod
+- [x] Verify tests pass (120/146, 82.2% - no regression)
 
 #### Phase 7 Summary
 
-| Sub-Phase | Description | Lines Removed | Complexity |
-|-----------|-------------|---------------|------------|
-| 7a | Interface extension | 0 | Low |
-| 7b | MapSetHandler methods | ~200 | Medium |
-| 7c | Dynamic dispatch helper | ~400 | Medium |
-| 7d | Additional handlers | ~200 | Low |
-| **Total** | | **~800** | |
+| Sub-Phase | Description | Lines Removed | Complexity | Status |
+|-----------|-------------|---------------|------------|--------|
+| 7a | Interface extension | 0 | Low | ✓ Complete |
+| 7b | MapSetHandler methods | ~225 | Medium | ✓ Complete |
+| 7c | Dynamic dispatch helper | ~254 | Medium | ✓ Complete |
+| 7d | Generator + RegExp handlers | ~165 | Low | ✓ Complete |
+| **Total** | | **~644** | | |
 
-**Expected result:** `lowerCallMethod` reduced from ~928 lines to ~130 lines.
+**Phase 7 Complete:** `lowerCallMethod` reduced from ~928 lines to ~285 lines.
+- GeneratorHandler: Handles Generator/AsyncGenerator next/return/throw methods
+- RegExpHandler: Handles RegExp test/exec methods
+- Array join/push fallbacks intentionally left inline (Any-typed value handling)
 
 ## Files to Create/Modify
 
@@ -433,8 +431,8 @@ llvm::Value* HIRToLLVM::emitDynamicMethodCall(llvm::Value* funcVal, llvm::Value*
 | `src/compiler/hir/handlers/TimerHandler.cpp` | Created ✓ | 5b |
 | `src/compiler/hir/handlers/BigIntHandler.cpp` | Created ✓ | 5c |
 | `src/compiler/hir/handlers/PathHandler.cpp` | Created ✓ | 5d |
-| `src/compiler/hir/handlers/RegExpHandler.cpp` | Create (method support) | 7d |
-| `src/compiler/hir/handlers/GeneratorHandler.cpp` | Create (method support) | 7d |
+| `src/compiler/hir/handlers/RegExpHandler.cpp` | Created ✓ (method support) | 7d |
+| `src/compiler/hir/handlers/GeneratorHandler.cpp` | Created ✓ (method support) | 7d |
 | `src/compiler/hir/CMakeLists.txt` | Modified ✓ | 1-5, 7d |
 | `src/compiler/hir/HIRToLLVM.cpp` | Modified ✓ (dead code removed), Modify (remove method inline code) | 6, 7b-7d |
 | `src/compiler/hir/HIRToLLVM.h` | Modified ✓, Modify (add emitDynamicMethodCall) | 1-5, 7c |
@@ -445,11 +443,11 @@ llvm::Value* HIRToLLVM::emitDynamicMethodCall(llvm::Value* funcVal, llvm::Value*
 |---|----------|--------|----------------|
 | 1 | All test suites maintain or improve pass rates | ✓ Met (120/146, 82.2%) | Maintain |
 | 2 | lowerCall reduced from ~1300 lines to ~100 lines | ✓ Met (~300 lines remaining) | - |
-| 3 | lowerCallMethod reduced from ~600 lines to ~50 lines | ❌ NOT MET (~928 lines) | ~130 lines |
-| 4 | Each handler is independently testable | ✓ Met | Extend to methods |
-| 5 | Adding new builtins requires only creating new handler file | ✓ Met (for function calls) | Include methods |
+| 3 | lowerCallMethod reduced from ~600 lines to ~50 lines | ⚠️ Improved (~285 lines, was ~928) | ~130 lines |
+| 4 | Each handler is independently testable | ✓ Met | ✓ Extend to methods |
+| 5 | Adding new builtins requires only creating new handler file | ✓ Met (for function calls) | ✓ Include methods |
 
-**Note:** Criteria #3 requires Phase 7 implementation. Target is ~130 lines (console via registry + user-defined lookup + generic fallback).
+**Progress:** Phase 7 complete. lowerCallMethod reduced from ~928 lines to ~285 lines (-69%). Remaining code handles dynamic dispatch for user functions, console fallback, and Any-typed array operations.
 
 ## Related Work
 
