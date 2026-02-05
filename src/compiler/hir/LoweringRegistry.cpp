@@ -1298,6 +1298,22 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()          // specifier
             .ptrArg()          // referrerPath
             .build());
+
+    // =========================================================================
+    // RegExp
+    // =========================================================================
+    reg.registerLowering("ts_regexp_from_literal",
+        lowering("ts_regexp_from_literal")
+            .returnsPtr()      // Returns TsRegExp* (raw pointer)
+            .ptrArg()          // literal string (raw TsString*, NOT boxed)
+            .build());
+
+    reg.registerLowering("ts_regexp_create",
+        lowering("ts_regexp_create")
+            .returnsPtr()      // Returns TsRegExp*
+            .ptrArg()          // pattern (raw TsString*)
+            .ptrArg()          // flags (raw TsString*)
+            .build());
 }
 
 // Helper to build a LoweringSpec from extension lowering info
