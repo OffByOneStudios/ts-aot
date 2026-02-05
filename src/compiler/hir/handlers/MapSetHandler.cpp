@@ -17,6 +17,10 @@ class MapSetHandler : public BuiltinHandler {
 public:
     const char* name() const override { return "MapSetHandler"; }
 
+    //==========================================================================
+    // Function call interface (for lowerCall - e.g., ts_map_set(map, key, val))
+    //==========================================================================
+
     bool canHandle(const std::string& funcName, HIRInstruction* inst) const override {
         static const std::unordered_set<std::string> mapSetFuncs = {
             // Map functions
@@ -73,6 +77,63 @@ public:
         }
         if (funcName == "ts_set_size") {
             return lowerSetSize(inst, lowerer);
+        }
+
+        return nullptr;
+    }
+
+    //==========================================================================
+    // Method call interface (for lowerCallMethod - e.g., map.set(key, val))
+    //==========================================================================
+
+    bool canHandleMethod(const std::string& methodName,
+                         const std::string& className,
+                         HIRInstruction* inst) const override {
+        // Map methods
+        if (className == "Map" || className.empty()) {
+            if (methodName == "set" || methodName == "get" ||
+                methodName == "has" || methodName == "delete" ||
+                methodName == "clear") {
+                return true;
+            }
+        }
+        // Set methods
+        if (className == "Set" || className.empty()) {
+            if (methodName == "add" || methodName == "has" ||
+                methodName == "delete" || methodName == "clear") {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    llvm::Value* lowerMethod(const std::string& methodName,
+                             HIRInstruction* inst,
+                             HIRToLLVM& lowerer) override {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        // For method calls: operands[0] = object, operands[1] = methodName, operands[2..] = args
+        llvm::Value* obj = lowerer.getOperandValue(inst->operands[0]);
+
+        // Map methods
+        if (methodName == "set") {
+            return lowerMethodMapSet(inst, obj, lowerer);
+        }
+        if (methodName == "get") {
+            return lowerMethodMapGet(inst, obj, lowerer);
+        }
+        if (methodName == "has") {
+            return lowerMethodHas(inst, obj, lowerer);
+        }
+        if (methodName == "delete") {
+            return lowerMethodDelete(inst, obj, lowerer);
+        }
+        if (methodName == "clear") {
+            return lowerMethodClear(inst, obj, lowerer);
+        }
+        if (methodName == "add") {
+            return lowerMethodSetAdd(inst, obj, lowerer);
         }
 
         return nullptr;
@@ -368,6 +429,122 @@ private:
             false);
         llvm::FunctionCallee fn = module.getOrInsertFunction("ts_set_size", ft);
         return builder.CreateCall(ft, fn.getCallee(), { set });
+    }
+
+    //==========================================================================
+    // Method-specific lowering functions (for lowerCallMethod)
+    // These use *_wrapper functions which return TsValue* for chaining
+    //==========================================================================
+
+    // map.set(key, value) -> TsValue* (returns map for chaining)
+    llvm::Value* lowerMethodMapSet(HIRInstruction* inst, llvm::Value* obj, HIRToLLVM& lowerer) {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        llvm::Value* key = llvm::ConstantPointerNull::get(builder.getPtrTy());
+        llvm::Value* value = llvm::ConstantPointerNull::get(builder.getPtrTy());
+
+        if (inst->operands.size() > 2) {
+            key = boxForMapSet(lowerer.getOperandValue(inst->operands[2]), inst->operands[2], lowerer);
+        }
+        if (inst->operands.size() > 3) {
+            value = boxForMapSet(lowerer.getOperandValue(inst->operands[3]), inst->operands[3], lowerer);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder.getPtrTy(),
+            { builder.getPtrTy(), builder.getPtrTy(), builder.getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_set_wrapper", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { obj, key, value });
+    }
+
+    // map.get(key) -> TsValue*
+    llvm::Value* lowerMethodMapGet(HIRInstruction* inst, llvm::Value* obj, HIRToLLVM& lowerer) {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        llvm::Value* key = llvm::ConstantPointerNull::get(builder.getPtrTy());
+        if (inst->operands.size() > 2) {
+            key = boxForMapSet(lowerer.getOperandValue(inst->operands[2]), inst->operands[2], lowerer);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder.getPtrTy(),
+            { builder.getPtrTy(), builder.getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_get_wrapper", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { obj, key });
+    }
+
+    // map.has(key) or set.has(value) -> TsValue* (boxed bool)
+    llvm::Value* lowerMethodHas(HIRInstruction* inst, llvm::Value* obj, HIRToLLVM& lowerer) {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        llvm::Value* key = llvm::ConstantPointerNull::get(builder.getPtrTy());
+        if (inst->operands.size() > 2) {
+            key = boxForMapSet(lowerer.getOperandValue(inst->operands[2]), inst->operands[2], lowerer);
+        }
+
+        // Use ts_map_has_wrapper - works for both Map and Set (runtime dispatches appropriately)
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder.getPtrTy(),
+            { builder.getPtrTy(), builder.getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_has_wrapper", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { obj, key });
+    }
+
+    // map.delete(key) or set.delete(value) -> TsValue* (boxed bool)
+    llvm::Value* lowerMethodDelete(HIRInstruction* inst, llvm::Value* obj, HIRToLLVM& lowerer) {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        llvm::Value* key = llvm::ConstantPointerNull::get(builder.getPtrTy());
+        if (inst->operands.size() > 2) {
+            key = boxForMapSet(lowerer.getOperandValue(inst->operands[2]), inst->operands[2], lowerer);
+        }
+
+        // Use ts_map_delete_wrapper - works for both Map and Set
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder.getPtrTy(),
+            { builder.getPtrTy(), builder.getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_delete_wrapper", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { obj, key });
+    }
+
+    // map.clear() or set.clear() -> TsValue* (undefined)
+    llvm::Value* lowerMethodClear(HIRInstruction* inst, llvm::Value* obj, HIRToLLVM& lowerer) {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        // Use ts_map_clear_wrapper - works for both Map and Set
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder.getPtrTy(),
+            { builder.getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_clear_wrapper", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { obj });
+    }
+
+    // set.add(value) -> TsValue* (returns set for chaining)
+    llvm::Value* lowerMethodSetAdd(HIRInstruction* inst, llvm::Value* obj, HIRToLLVM& lowerer) {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        llvm::Value* value = llvm::ConstantPointerNull::get(builder.getPtrTy());
+        if (inst->operands.size() > 2) {
+            value = boxForMapSet(lowerer.getOperandValue(inst->operands[2]), inst->operands[2], lowerer);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder.getPtrTy(),
+            { builder.getPtrTy(), builder.getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_set_add_wrapper", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { obj, value });
     }
 };
 
