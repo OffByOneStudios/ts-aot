@@ -11,6 +11,8 @@ std::unique_ptr<BuiltinHandler> createMapSetHandler();
 std::unique_ptr<BuiltinHandler> createTimerHandler();
 std::unique_ptr<BuiltinHandler> createBigIntHandler();
 std::unique_ptr<BuiltinHandler> createPathHandler();
+std::unique_ptr<BuiltinHandler> createGeneratorHandler();
+std::unique_ptr<BuiltinHandler> createRegExpHandler();
 
 bool HandlerRegistry::builtinsRegistered_ = false;
 
@@ -102,6 +104,12 @@ void HandlerRegistry::registerBuiltinHandlers() {
 
     // Phase 5d: PathHandler - path module functions
     reg.registerHandler(createPathHandler());
+
+    // Phase 7d: GeneratorHandler - Generator and AsyncGenerator methods
+    reg.registerHandler(createGeneratorHandler());
+
+    // Phase 7d: RegExpHandler - RegExp test/exec methods
+    reg.registerHandler(createRegExpHandler());
 
     SPDLOG_DEBUG("HandlerRegistry: builtin handlers registered (count={})",
                  reg.handlerCount());
