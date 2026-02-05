@@ -67,6 +67,13 @@ struct LoweringSpec {
 
     // Index where rest parameters start (SIZE_MAX if none)
     size_t restParamIndex = SIZE_MAX;
+
+    // Type dispatch configuration (for VariadicHandling::TypeDispatch)
+    // Suffixes like "_int", "_double", "_string", "_bool", "_object"
+    std::vector<std::string> typeDispatchSuffixes;
+
+    // Default suffix when no specific type matches (usually "_object")
+    std::string defaultSuffix = "_object";
 };
 
 /// Builder pattern for creating LoweringSpec
@@ -173,6 +180,16 @@ public:
     LoweringSpecBuilder& variadicHandling(VariadicHandling handling, size_t restIndex = 0) {
         spec_.variadicHandling = handling;
         spec_.restParamIndex = restIndex;
+        return *this;
+    }
+
+    LoweringSpecBuilder& typeDispatchSuffixes(std::initializer_list<std::string> suffixes) {
+        spec_.typeDispatchSuffixes = suffixes;
+        return *this;
+    }
+
+    LoweringSpecBuilder& defaultSuffix(const std::string& suffix) {
+        spec_.defaultSuffix = suffix;
         return *this;
     }
 
