@@ -111,20 +111,23 @@ double ts_closure_invoke_1d(TsClosure* closure, double arg1) {
 // Used for forEach callbacks with number arrays
 void ts_closure_invoke_1d_void(TsClosure* closure, double arg1) {
     if (!closure || !closure->func_ptr) return;
-    // HIR-generated closures expect (ptr, ptr) -> void, where params are boxed
-    typedef void (*Fn)(void*, TsValue*);
+    // HIR-generated closures use trampolines with signature (ptr, ptr) -> ptr
+    // where params AND return values are boxed (void returns undefined TsValue*)
+    typedef TsValue* (*Fn)(void*, TsValue*);
     TsValue* boxedArg = ts_value_make_double(arg1);
-    ((Fn)closure->func_ptr)(closure, boxedArg);
+    ((Fn)closure->func_ptr)(closure, boxedArg);  // Ignore return value
 }
 
 // Invoke a closure with one double argument, returns bool
 // Used for find/filter/some/every callbacks with number arrays
 bool ts_closure_invoke_1d_bool(TsClosure* closure, double arg1) {
     if (!closure || !closure->func_ptr) return false;
-    // HIR-generated closures expect (ptr, ptr) -> i1, where params are boxed
-    typedef bool (*Fn)(void*, TsValue*);
+    // HIR-generated closures use trampolines with signature (ptr, ptr) -> ptr
+    // where params AND return values are boxed as TsValue*
+    typedef TsValue* (*Fn)(void*, TsValue*);
     TsValue* boxedArg = ts_value_make_double(arg1);
-    return ((Fn)closure->func_ptr)(closure, boxedArg);
+    TsValue* result = ((Fn)closure->func_ptr)(closure, boxedArg);
+    return ts_value_get_bool(result);
 }
 
 // Invoke a closure with two TsValue* arguments, returns TsValue*

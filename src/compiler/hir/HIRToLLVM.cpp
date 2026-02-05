@@ -268,8 +268,12 @@ void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
     llvm::Type* returnType = (fn->isAsync || fn->isGenerator) ? builder_->getPtrTy() : getLLVMType(fn->returnType);
     std::vector<llvm::Type*> paramTypes;
 
-    // If this function has captures, add a hidden first parameter for the closure context
-    if (!fn->captures.empty()) {
+    // Check if the function already has a hidden closure parameter from ASTToHIR
+    // Arrow functions and function expressions add __closure__ as first param for call_indirect
+    bool hasHiddenClosureParam = (!fn->params.empty() && fn->params[0].first == "__closure__");
+
+    // If this function has captures AND doesn't already have a closure param, add one
+    if (!fn->captures.empty() && !hasHiddenClosureParam) {
         paramTypes.push_back(builder_->getPtrTy());  // TsClosure* __closure
     }
 
@@ -288,6 +292,11 @@ void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
 
 void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     SPDLOG_INFO("Lowering function: {}", fn->mangledName);
+
+    // Check if the function already has a hidden closure parameter from ASTToHIR
+    // Arrow functions and function expressions add __closure__ as first param for call_indirect
+    bool hasHiddenClosureParam = (!fn->params.empty() && fn->params[0].first == "__closure__");
+
     // Get the forward-declared function (or create it if not yet declared)
     llvm::Function* llvmFunc = module_->getFunction(fn->mangledName);
     if (!llvmFunc) {
@@ -296,7 +305,8 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         llvm::Type* returnType = (fn->isAsync || fn->isGenerator) ? builder_->getPtrTy() : getLLVMType(fn->returnType);
         std::vector<llvm::Type*> paramTypes;
 
-        if (!fn->captures.empty()) {
+        // Only add implicit closure param if function has captures AND doesn't already have one
+        if (!fn->captures.empty() && !hasHiddenClosureParam) {
             paramTypes.push_back(builder_->getPtrTy());  // TsClosure* __closure
         }
 
@@ -313,6 +323,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         );
     }
 
+    // Has closure context if captures exist, either from implicit param or explicit __closure__ param
     bool hasCaptureParams = !fn->captures.empty();
 
     // Set current function
@@ -528,8 +539,8 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     // Map function parameters to values
     auto argIt = llvmFunc->arg_begin();
 
-    // If we have captures, the first argument is the closure context
-    if (hasCaptureParams) {
+    // If we have captures AND no explicit __closure__ param, the first LLVM argument is the implicit closure context
+    if (hasCaptureParams && !hasHiddenClosureParam) {
         argIt->setName("__closure");
         closureParam_ = &*argIt;
         ++argIt;
@@ -540,6 +551,11 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         // Create a value mapping for the parameter
         // Parameters are represented as values with IDs starting from 0
         valueMap_[static_cast<uint32_t>(i)] = &*argIt;
+
+        // If this is the explicit __closure__ param, also set it as the closure context
+        if (fn->params[i].first == "__closure__" && hasCaptureParams) {
+            closureParam_ = &*argIt;
+        }
     }
 
     // Lower each block
@@ -3557,16 +3573,44 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         // Create method name as global string
         llvm::Constant* methodNameStr = builder_->CreateGlobalStringPtr(methodName, "method_name");
 
+        // Box primitive types before property lookup (e.g., x.toString() where x is a number)
+        llvm::Value* boxedObj = obj;
+        if (obj->getType()->isDoubleTy()) {
+            // Box double to TsValue*
+            auto boxFn = getTsValueMakeDouble();
+            boxedObj = builder_->CreateCall(boxFn, { obj }, "box_double_for_method");
+        } else if (obj->getType()->isIntegerTy(64)) {
+            // Box i64 to TsValue*
+            auto boxFn = getTsValueMakeInt();
+            boxedObj = builder_->CreateCall(boxFn, { obj }, "box_int_for_method");
+        } else if (obj->getType()->isIntegerTy(1)) {
+            // Box bool to TsValue*
+            auto boxFn = getTsValueMakeBool();
+            boxedObj = builder_->CreateCall(boxFn, { obj }, "box_bool_for_method");
+        } else if (!obj->getType()->isPointerTy()) {
+            // Other non-pointer types: cast to ptr (shouldn't normally happen)
+            boxedObj = builder_->CreateIntToPtr(obj, builder_->getPtrTy(), "cast_to_ptr_for_method");
+        }
+
         // Get the function property
-        llvm::Value* funcVal = builder_->CreateCall(getFt, getFn.getCallee(), { obj, methodNameStr });
+        llvm::Value* funcVal = builder_->CreateCall(getFt, getFn.getCallee(), { boxedObj, methodNameStr });
 
         // Box obj as thisArg for ts_call_with_this_N
-        llvm::Value* thisArg = obj;
-        if (!obj->getType()->isPointerTy()) {
-            thisArg = builder_->CreateIntToPtr(obj, builder_->getPtrTy());
+        // For primitives, boxedObj is already the correct boxed TsValue*
+        // For objects, we need to wrap with ts_value_make_object
+        llvm::Value* thisArg;
+        if (obj->getType()->isDoubleTy() || obj->getType()->isIntegerTy(64) || obj->getType()->isIntegerTy(1)) {
+            // Primitive was already boxed above
+            thisArg = boxedObj;
+        } else {
+            // Object: wrap with ts_value_make_object
+            llvm::Value* objPtr = obj;
+            if (!obj->getType()->isPointerTy()) {
+                objPtr = builder_->CreateIntToPtr(obj, builder_->getPtrTy());
+            }
+            auto boxObjFn = getTsValueMakeObject();
+            thisArg = builder_->CreateCall(boxObjFn, { objPtr });
         }
-        auto boxObjFn = getTsValueMakeObject();
-        thisArg = builder_->CreateCall(boxObjFn, { thisArg });
 
         // Use helper to emit the dynamic call with boxed arguments
         // Arguments start at operands[2] (after obj and methodName)
@@ -3701,10 +3745,31 @@ void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
         result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr });
     }
 
-    // ts_call_N returns a boxed TsValue*
-    // Note: HIR pipeline tracks boxing through HIR types, not a separate set
+    // ts_call_N returns a boxed TsValue* - we may need to unbox based on expected HIR type
+    if (inst->result && inst->result->type) {
+        auto expectedType = inst->result->type;
 
-    if (inst->result) {
+        // Unbox the result based on expected HIR type
+        if (expectedType->kind == HIRTypeKind::Int64) {
+            // Unbox to i64
+            auto unboxFt = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+            auto unboxFn = module_->getOrInsertFunction("ts_value_get_int", unboxFt);
+            result = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { result }, "unbox_int");
+        } else if (expectedType->kind == HIRTypeKind::Float64) {
+            // Unbox to f64
+            auto unboxFt = llvm::FunctionType::get(builder_->getDoubleTy(), { builder_->getPtrTy() }, false);
+            auto unboxFn = module_->getOrInsertFunction("ts_value_get_double", unboxFt);
+            result = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { result }, "unbox_double");
+        } else if (expectedType->kind == HIRTypeKind::Bool) {
+            // Unbox to i1
+            auto unboxFt = llvm::FunctionType::get(builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+            auto unboxFn = module_->getOrInsertFunction("ts_value_get_bool", unboxFt);
+            result = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { result }, "unbox_bool");
+        }
+        // For String, Any, Object, Class - keep as ptr (already boxed TsValue*)
+
+        setValue(inst->result, result);
+    } else if (inst->result) {
         setValue(inst->result, result);
     }
 }
@@ -3890,16 +3955,63 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
     }
 
     // Determine how many user-visible parameters the original function has
-    // (i.e., parameters that aren't leading context pointers)
-    // For closures, the first N pointer parameters are closure contexts,
-    // and the remaining parameters are actual user parameters.
+    // (i.e., parameters that aren't the closure context pointer)
+    //
+    // For closure functions (identified by naming convention), we know:
+    // - The first parameter is ALWAYS the closure context (ptr %__closure__)
+    // - ALL other parameters are user parameters, even if they're pointers (e.g., any type)
+    //
+    // For getter/setter functions:
+    // - Getters: __getter_<prop>_<id>(ptr %this) -> first param is context, no user params
+    // - Setters: __setter_<prop>_<id>(ptr %this, ptr %v) -> first param is context, second is user param
+    //
+    // For regular functions, we use a heuristic: count leading pointer params as context.
+    std::string funcName = originalFunc->getName().str();
+    bool isClosureFunction = (funcName.find("__arrow_fn_") == 0) ||
+                             (funcName.find("__closure_") == 0) ||
+                             (funcName.find("__anon_fn_") == 0) ||
+                             (funcName.find("__lambda_") == 0);
+    bool isSetterFunction = (funcName.find("__setter_") == 0);
+    bool isGetterFunction = (funcName.find("__getter_") == 0);
+
     unsigned numContextParams = 0;
-    for (unsigned i = 0; i < numOrigParams; ++i) {
-        if (origFT->getParamType(i)->isPointerTy()) {
-            numContextParams++;
+    if (isClosureFunction && numOrigParams >= 1) {
+        // For closures, first param is always the closure context, rest are user params
+        numContextParams = 1;
+    } else if (isSetterFunction && numOrigParams >= 2) {
+        // For setters: first param is 'this' (context), second param is value (user param)
+        numContextParams = 1;
+        SPDLOG_DEBUG("getOrCreateTrampoline: detected setter function {}, using 1 context param", funcName);
+    } else if (isGetterFunction && numOrigParams >= 1) {
+        // For getters: first param is 'this' (context), no user params
+        numContextParams = 1;
+        SPDLOG_DEBUG("getOrCreateTrampoline: detected getter function {}, using 1 context param", funcName);
+    } else {
+        // For other functions, check if the first parameter is a closure context parameter
+        // Function expressions like __fn_expr_0 have a __closure__ param but don't match
+        // the naming patterns above. We need to check the actual parameter name.
+        bool firstParamIsClosure = false;
+        if (numOrigParams >= 1) {
+            auto firstArg = originalFunc->arg_begin();
+            std::string firstParamName = firstArg->getName().str();
+            firstParamIsClosure = (firstParamName == "__closure__" || firstParamName == "__closure");
+        }
+
+        if (firstParamIsClosure) {
+            // Function has an explicit closure parameter, treat it as context
+            numContextParams = 1;
+            SPDLOG_DEBUG("getOrCreateTrampoline: function {} has __closure__ param, using 1 context param", funcName);
         } else {
-            // First non-pointer param marks start of user params
-            break;
+            // For regular functions used as closures (without closure param),
+            // ALL parameters are user parameters. The closure context is NOT passed to the
+            // original function - it's only used by the closure mechanism itself.
+            // This handles cases like:
+            //   function foo(x: {a: number}): void { ... }
+            //   const fn = foo;  // make_closure wraps foo
+            //   fn({a: 42});     // Call via ts_call_1
+            // In this case, foo's 'x' parameter is the user's argument, not a closure context.
+            numContextParams = 0;
+            SPDLOG_DEBUG("getOrCreateTrampoline: regular function {}, all {} params are user params", funcName, numOrigParams);
         }
     }
     unsigned numUserParams = numOrigParams - numContextParams;
@@ -3974,10 +4086,10 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
             llvm::Value* boolAsInt = builder_->CreateCall(unboxFT, unboxFn.getCallee(), { boxedArg });
             unboxedArg = builder_->CreateICmpNE(boolAsInt, llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
         } else if (expectedType->isPointerTy()) {
-            // Unbox to object pointer
-            auto unboxFT = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
-            auto unboxFn = module_->getOrInsertFunction("ts_value_get_object", unboxFT);
-            unboxedArg = builder_->CreateCall(unboxFT, unboxFn.getCallee(), { boxedArg });
+            // For pointer parameters (including 'any' type), pass the TsValue* directly.
+            // The original function handles its own unboxing (e.g., calling ts_value_get_double).
+            // This is critical for closures where the HIR generates unboxing code in the function body.
+            unboxedArg = boxedArg;
         } else {
             // Unknown type, pass through as-is (hope it's a pointer)
             unboxedArg = boxedArg;
