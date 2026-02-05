@@ -1928,25 +1928,83 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
         }
     }
 
-    // Build switch cases
-    std::vector<std::pair<int64_t, HIRBlock*>> cases;
-    size_t blockIdx = 0;
+    // Detect if any case uses string literals
+    bool hasStringCases = false;
     for (auto& clause : node->clauses) {
         auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());
         if (caseClause && caseClause->expression) {
-            // Try to get constant value
-            auto* numLit = dynamic_cast<ast::NumericLiteral*>(caseClause->expression.get());
-            if (numLit && blockIdx < caseBlocks.size()) {
-                cases.push_back({static_cast<int64_t>(numLit->value), caseBlocks[blockIdx]});
+            if (dynamic_cast<ast::StringLiteral*>(caseClause->expression.get())) {
+                hasStringCases = true;
+                break;
             }
         }
-        blockIdx++;
     }
 
-    builder_.createSwitch(switchVal, defaultBlock, cases);
+    if (hasStringCases) {
+        // Lower string switch to if-else chain with string comparisons.
+        // switchVal may be boxed (any/TsValue*) from get_prop.static.
+        // HIRToLLVM's ts_string_eq handler already extracts raw TsString*
+        // from boxed values via ts_value_get_string, so this is safe.
+        size_t blockIdx = 0;
+        for (auto& clause : node->clauses) {
+            auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());
+
+            if (caseClause && caseClause->expression && blockIdx < caseBlocks.size()) {
+                auto* strLit = dynamic_cast<ast::StringLiteral*>(caseClause->expression.get());
+                if (strLit) {
+                    auto caseStr = builder_.createConstString(strLit->value);
+                    auto cmpResult = builder_.createCall("ts_string_eq",
+                        {switchVal, caseStr}, HIRType::makeBool());
+
+                    // Determine the "next check" block
+                    HIRBlock* nextCheckBlock = nullptr;
+                    for (size_t j = blockIdx + 1; j < node->clauses.size(); ++j) {
+                        auto* nextCase = dynamic_cast<ast::CaseClause*>(node->clauses[j].get());
+                        if (nextCase && nextCase->expression) {
+                            nextCheckBlock = createBlock("switch.check");
+                            break;
+                        }
+                    }
+                    if (!nextCheckBlock) nextCheckBlock = defaultBlock;
+
+                    builder_.createCondBranch(cmpResult, caseBlocks[blockIdx], nextCheckBlock);
+
+                    // Continue emitting checks from the next check block
+                    builder_.setInsertPoint(nextCheckBlock);
+                    currentBlock_ = nextCheckBlock;
+                }
+            }
+            blockIdx++;
+        }
+
+        // If we're in a check block (not the default block itself) without
+        // a terminator, branch to default. The last condbr's false branch
+        // already points to defaultBlock, so this only applies if some case
+        // had a non-string expression and was skipped.
+        if (!hasTerminator() && currentBlock_ != defaultBlock) {
+            builder_.createBranch(defaultBlock);
+        }
+    } else {
+        // Build integer switch cases
+        std::vector<std::pair<int64_t, HIRBlock*>> cases;
+        size_t blockIdx = 0;
+        for (auto& clause : node->clauses) {
+            auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());
+            if (caseClause && caseClause->expression) {
+                // Try to get constant value
+                auto* numLit = dynamic_cast<ast::NumericLiteral*>(caseClause->expression.get());
+                if (numLit && blockIdx < caseBlocks.size()) {
+                    cases.push_back({static_cast<int64_t>(numLit->value), caseBlocks[blockIdx]});
+                }
+            }
+            blockIdx++;
+        }
+
+        builder_.createSwitch(switchVal, defaultBlock, cases);
+    }
 
     // Generate code for each case
-    blockIdx = 0;
+    size_t blockIdx = 0;
     for (auto& clause : node->clauses) {
         auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());
         auto* defaultClause = dynamic_cast<ast::DefaultClause*>(clause.get());
@@ -5536,6 +5594,102 @@ void ASTToHIR::visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) {
     // Type aliases are type-only, nothing to generate
 }
 
+// Compile-time constant expression evaluator for enum member initializers.
+// Returns {true, value} on success, {false, 0} if expression cannot be evaluated.
+std::pair<bool, int64_t> ASTToHIR::constEvalEnumExpr(
+    ast::Node* expr, const std::map<std::string, EnumValue>& members,
+    const std::string& enumName) {
+
+    if (auto* numLit = dynamic_cast<ast::NumericLiteral*>(expr)) {
+        return {true, static_cast<int64_t>(numLit->value)};
+    }
+
+    if (auto* binExpr = dynamic_cast<ast::BinaryExpression*>(expr)) {
+        auto [lok, lval] = constEvalEnumExpr(binExpr->left.get(), members, enumName);
+        auto [rok, rval] = constEvalEnumExpr(binExpr->right.get(), members, enumName);
+        if (!lok || !rok) return {false, 0};
+
+        if (binExpr->op == "+") return {true, lval + rval};
+        if (binExpr->op == "-") return {true, lval - rval};
+        if (binExpr->op == "*") return {true, lval * rval};
+        if (binExpr->op == "/" && rval != 0) return {true, lval / rval};
+        if (binExpr->op == "%") return {true, lval % rval};
+        if (binExpr->op == "<<") return {true, lval << rval};
+        if (binExpr->op == ">>") return {true, lval >> rval};
+        if (binExpr->op == "|") return {true, lval | rval};
+        if (binExpr->op == "&") return {true, lval & rval};
+        if (binExpr->op == "^") return {true, lval ^ rval};
+        return {false, 0};
+    }
+
+    // Identifier referencing another enum member
+    if (auto* ident = dynamic_cast<ast::Identifier*>(expr)) {
+        auto it = members.find(ident->name);
+        if (it != members.end() && !it->second.isString) {
+            return {true, it->second.numValue};
+        }
+        return {false, 0};
+    }
+
+    // PropertyAccess: "hello".length or EnumName.Member
+    if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(expr)) {
+        if (propAccess->name == "length") {
+            if (auto* strLit = dynamic_cast<ast::StringLiteral*>(propAccess->expression.get())) {
+                return {true, static_cast<int64_t>(strLit->value.size())};
+            }
+        }
+        // EnumName.Member reference
+        if (auto* ident = dynamic_cast<ast::Identifier*>(propAccess->expression.get())) {
+            if (ident->name == enumName) {
+                auto it = members.find(propAccess->name);
+                if (it != members.end() && !it->second.isString) {
+                    return {true, it->second.numValue};
+                }
+            }
+        }
+        return {false, 0};
+    }
+
+    // Math.floor/ceil/round/trunc/abs(expr)
+    if (auto* callExpr = dynamic_cast<ast::CallExpression*>(expr)) {
+        auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(callExpr->callee.get());
+        if (prop) {
+            auto* obj = dynamic_cast<ast::Identifier*>(prop->expression.get());
+            if (obj && obj->name == "Math" && callExpr->arguments.size() == 1) {
+                auto [ok, val] = constEvalEnumExpr(callExpr->arguments[0].get(), members, enumName);
+                if (!ok) return {false, 0};
+                double dval = static_cast<double>(val);
+                // Also handle float literal arguments directly
+                if (auto* flit = dynamic_cast<ast::NumericLiteral*>(callExpr->arguments[0].get())) {
+                    dval = flit->value;
+                }
+                if (prop->name == "floor") return {true, static_cast<int64_t>(std::floor(dval))};
+                if (prop->name == "ceil") return {true, static_cast<int64_t>(std::ceil(dval))};
+                if (prop->name == "round") return {true, static_cast<int64_t>(std::round(dval))};
+                if (prop->name == "trunc") return {true, static_cast<int64_t>(std::trunc(dval))};
+                if (prop->name == "abs") return {true, static_cast<int64_t>(std::abs(dval))};
+            }
+        }
+        return {false, 0};
+    }
+
+    // Unary prefix: -expr, ~expr
+    if (auto* prefix = dynamic_cast<ast::PrefixUnaryExpression*>(expr)) {
+        auto [ok, val] = constEvalEnumExpr(prefix->operand.get(), members, enumName);
+        if (!ok) return {false, 0};
+        if (prefix->op == "-") return {true, -val};
+        if (prefix->op == "~") return {true, ~val};
+        return {false, 0};
+    }
+
+    // Parenthesized expression
+    if (auto* paren = dynamic_cast<ast::ParenthesizedExpression*>(expr)) {
+        return constEvalEnumExpr(paren->expression.get(), members, enumName);
+    }
+
+    return {false, 0};
+}
+
 void ASTToHIR::visitEnumDeclaration(ast::EnumDeclaration* node) {
     // Process enum members and store values
     std::map<std::string, EnumValue> members;
@@ -5548,21 +5702,27 @@ void ASTToHIR::visitEnumDeclaration(ast::EnumDeclaration* node) {
         if (member.initializer) {
             // Has an explicit initializer
             if (auto* numLit = dynamic_cast<ast::NumericLiteral*>(member.initializer.get())) {
-                // Numeric initializer
                 ev.isString = false;
                 ev.numValue = static_cast<int64_t>(numLit->value);
-                autoValue = ev.numValue + 1;  // Next auto value
+                autoValue = ev.numValue + 1;
                 reverseMap[ev.numValue] = member.name;
             } else if (auto* strLit = dynamic_cast<ast::StringLiteral*>(member.initializer.get())) {
-                // String initializer
                 ev.isString = true;
                 ev.strValue = strLit->value;
-                // String enums don't have reverse mapping
             } else {
-                // Other expression - treat as numeric for now (TODO: const eval)
-                ev.isString = false;
-                ev.numValue = autoValue++;
-                reverseMap[ev.numValue] = member.name;
+                // Try const-eval for computed initializers
+                auto [ok, val] = constEvalEnumExpr(member.initializer.get(), members, node->name);
+                if (ok) {
+                    ev.isString = false;
+                    ev.numValue = val;
+                    autoValue = val + 1;
+                    reverseMap[ev.numValue] = member.name;
+                } else {
+                    // Fallback to auto-increment
+                    ev.isString = false;
+                    ev.numValue = autoValue++;
+                    reverseMap[ev.numValue] = member.name;
+                }
             }
         } else {
             // Auto-increment numeric value
