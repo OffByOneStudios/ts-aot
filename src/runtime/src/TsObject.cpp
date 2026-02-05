@@ -152,7 +152,22 @@ static std::string resolve_node_module(const std::string& spec, const std::strin
 
 // Currently empty, as TsObject.h only defines structs/enums for now.
 
+// Global 'this' context for Function.prototype.call/apply support.
+// Set before calling a function via .call(thisArg), read by function
+// expressions that reference 'this'.
+static void* ts_call_this_value = nullptr;
+
 extern "C" {
+
+void ts_set_call_this(void* thisArg) {
+    ts_call_this_value = thisArg;
+}
+
+void* ts_get_call_this() {
+    void* result = ts_call_this_value;
+    ts_call_this_value = nullptr;  // Clear after read to avoid leaking
+    return result;
+}
 
 TsValue* ts_value_make_undefined() {
     TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
