@@ -388,6 +388,27 @@ private:
 
     // Create a global string constant
     llvm::Value* createGlobalString(const std::string& str);
+
+    //==========================================================================
+    // Dynamic Method Call Helpers
+    //==========================================================================
+
+    /// Box an argument value for use in dynamic dispatch (ts_call_with_this_N).
+    /// Examines LLVM type and HIR type to determine appropriate boxing.
+    /// @param arg The LLVM value to box
+    /// @param operand The HIR operand for type information
+    /// @return The boxed TsValue* or original value if already suitable
+    llvm::Value* boxArgumentForDynamicCall(llvm::Value* arg, const HIROperand& operand);
+
+    /// Emit a dynamic method call using ts_call_with_this_N.
+    /// Boxes arguments and calls the appropriate runtime function.
+    /// @param funcVal The function value (TsValue* from property lookup)
+    /// @param thisArg The boxed 'this' value
+    /// @param inst The HIR instruction containing operands
+    /// @param argStartIdx Index of first argument in inst->operands
+    /// @return The result of the call (TsValue*)
+    llvm::Value* emitDynamicMethodCall(llvm::Value* funcVal, llvm::Value* thisArg,
+                                       HIRInstruction* inst, size_t argStartIdx);
 };
 
 } // namespace ts::hir

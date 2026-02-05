@@ -3704,12 +3704,11 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
 
     // Map/Set methods are handled by MapSetHandler via HandlerRegistry (above)
 
-    // Try to call a function stored as an object property
+    // Dynamic method dispatch: call function stored as object property
     // This handles cases like task.fn() where fn is a function property
-    // IMPORTANT: Use ts_call_with_this_X to pass 'this' binding for methods like hasOwnProperty
+    // Uses ts_call_with_this_N to properly bind 'this' for methods like hasOwnProperty
     {
-        // Get the property value (the function)
-        // ts_object_get_property_static(void* obj, const char* key) -> TsValue*
+        // Get the function property from the object
         llvm::FunctionType* getFt = llvm::FunctionType::get(
             builder_->getPtrTy(),
             { builder_->getPtrTy(), builder_->getPtrTy() },
@@ -3722,376 +3721,22 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         // Get the function property
         llvm::Value* funcVal = builder_->CreateCall(getFt, getFn.getCallee(), { obj, methodNameStr });
 
-        // Box obj if needed for thisArg
+        // Box obj as thisArg for ts_call_with_this_N
         llvm::Value* thisArg = obj;
         if (!obj->getType()->isPointerTy()) {
             thisArg = builder_->CreateIntToPtr(obj, builder_->getPtrTy());
         }
-        // Box thisArg as TsValue for ts_call_with_this_X
-        llvm::FunctionType* boxObjFt = llvm::FunctionType::get(
-            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
-        llvm::FunctionCallee boxObjFn = module_->getOrInsertFunction("ts_value_make_object", boxObjFt);
-        thisArg = builder_->CreateCall(boxObjFt, boxObjFn.getCallee(), { thisArg });
+        auto boxObjFn = getTsValueMakeObject();
+        thisArg = builder_->CreateCall(boxObjFn, { thisArg });
 
-        // Call the function with 'this' binding
-        // Use ts_call_with_this_X to properly bind 'this' for methods like hasOwnProperty
-        size_t argCount = inst->operands.size() - 2;  // Subtract obj and method name
-        llvm::Value* result;
-
-        if (argCount == 0) {
-            llvm::FunctionType* callFt = llvm::FunctionType::get(
-                builder_->getPtrTy(),
-                { builder_->getPtrTy(), builder_->getPtrTy() },
-                false);
-            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_0", callFt);
-            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg });
-        } else if (argCount == 1) {
-            llvm::Value* arg1 = getOperandValue(inst->operands[2]);
-            // Box arg1 if needed - check both LLVM type and HIR type
-            if (!arg1->getType()->isPointerTy()) {
-                if (arg1->getType()->isIntegerTy(64)) {
-                    auto boxFn = getTsValueMakeInt();
-                    arg1 = builder_->CreateCall(boxFn, {arg1});
-                } else if (arg1->getType()->isDoubleTy()) {
-                    auto boxFn = getTsValueMakeDouble();
-                    arg1 = builder_->CreateCall(boxFn, {arg1});
-                }
-            } else {
-                // Pointer type - check HIR type to determine boxing
-                if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[2])) {
-                    auto hirType = (*hirVal)->type;
-                    if (hirType && hirType->kind == HIRTypeKind::String) {
-                        auto boxFn = getTsValueMakeString();
-                        arg1 = builder_->CreateCall(boxFn, {arg1});
-                    } else if (hirType && (hirType->kind == HIRTypeKind::Object ||
-                                           hirType->kind == HIRTypeKind::Array ||
-                                           hirType->kind == HIRTypeKind::Class ||
-                                           hirType->kind == HIRTypeKind::Map)) {
-                        // Box objects with ts_value_make_object
-                        llvm::FunctionType* boxFt = llvm::FunctionType::get(
-                            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
-                        llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_object", boxFt);
-                        arg1 = builder_->CreateCall(boxFt, boxFn.getCallee(), {arg1});
-                    }
-                    // For Any type, it might already be boxed - pass as-is
-                }
-            }
-            llvm::FunctionType* callFt = llvm::FunctionType::get(
-                builder_->getPtrTy(),
-                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
-                false);
-            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_1", callFt);
-            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg, arg1 });
-        } else if (argCount == 2) {
-            llvm::Value* arg1 = getOperandValue(inst->operands[2]);
-            llvm::Value* arg2 = getOperandValue(inst->operands[3]);
-            // Box args if needed
-            if (!arg1->getType()->isPointerTy()) {
-                if (arg1->getType()->isIntegerTy(64)) {
-                    auto boxFn = getTsValueMakeInt();
-                    arg1 = builder_->CreateCall(boxFn, {arg1});
-                } else if (arg1->getType()->isDoubleTy()) {
-                    auto boxFn = getTsValueMakeDouble();
-                    arg1 = builder_->CreateCall(boxFn, {arg1});
-                }
-            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[2])) {
-                auto hirType = (*hirVal)->type;
-                if (hirType && hirType->kind == HIRTypeKind::String) {
-                    auto boxFn = getTsValueMakeString();
-                    arg1 = builder_->CreateCall(boxFn, {arg1});
-                }
-            }
-            if (!arg2->getType()->isPointerTy()) {
-                if (arg2->getType()->isIntegerTy(64)) {
-                    auto boxFn = getTsValueMakeInt();
-                    arg2 = builder_->CreateCall(boxFn, {arg2});
-                } else if (arg2->getType()->isDoubleTy()) {
-                    auto boxFn = getTsValueMakeDouble();
-                    arg2 = builder_->CreateCall(boxFn, {arg2});
-                }
-            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[3])) {
-                auto hirType = (*hirVal)->type;
-                if (hirType && hirType->kind == HIRTypeKind::String) {
-                    auto boxFn = getTsValueMakeString();
-                    arg2 = builder_->CreateCall(boxFn, {arg2});
-                }
-            }
-            llvm::FunctionType* callFt = llvm::FunctionType::get(
-                builder_->getPtrTy(),
-                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
-                false);
-            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_2", callFt);
-            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg, arg1, arg2 });
-        } else if (argCount == 3) {
-            llvm::Value* arg1 = getOperandValue(inst->operands[2]);
-            llvm::Value* arg2 = getOperandValue(inst->operands[3]);
-            llvm::Value* arg3 = getOperandValue(inst->operands[4]);
-            // Box args if needed
-            if (!arg1->getType()->isPointerTy()) {
-                if (arg1->getType()->isIntegerTy(64)) {
-                    auto boxFn = getTsValueMakeInt();
-                    arg1 = builder_->CreateCall(boxFn, {arg1});
-                } else if (arg1->getType()->isDoubleTy()) {
-                    auto boxFn = getTsValueMakeDouble();
-                    arg1 = builder_->CreateCall(boxFn, {arg1});
-                }
-            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[2])) {
-                auto hirType = (*hirVal)->type;
-                if (hirType && hirType->kind == HIRTypeKind::String) {
-                    auto boxFn = getTsValueMakeString();
-                    arg1 = builder_->CreateCall(boxFn, {arg1});
-                }
-            }
-            if (!arg2->getType()->isPointerTy()) {
-                if (arg2->getType()->isIntegerTy(64)) {
-                    auto boxFn = getTsValueMakeInt();
-                    arg2 = builder_->CreateCall(boxFn, {arg2});
-                } else if (arg2->getType()->isDoubleTy()) {
-                    auto boxFn = getTsValueMakeDouble();
-                    arg2 = builder_->CreateCall(boxFn, {arg2});
-                }
-            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[3])) {
-                auto hirType = (*hirVal)->type;
-                if (hirType && hirType->kind == HIRTypeKind::String) {
-                    auto boxFn = getTsValueMakeString();
-                    arg2 = builder_->CreateCall(boxFn, {arg2});
-                }
-            }
-            if (!arg3->getType()->isPointerTy()) {
-                if (arg3->getType()->isIntegerTy(64)) {
-                    auto boxFn = getTsValueMakeInt();
-                    arg3 = builder_->CreateCall(boxFn, {arg3});
-                } else if (arg3->getType()->isDoubleTy()) {
-                    auto boxFn = getTsValueMakeDouble();
-                    arg3 = builder_->CreateCall(boxFn, {arg3});
-                }
-            } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[4])) {
-                auto hirType = (*hirVal)->type;
-                if (hirType && hirType->kind == HIRTypeKind::String) {
-                    auto boxFn = getTsValueMakeString();
-                    arg3 = builder_->CreateCall(boxFn, {arg3});
-                }
-            }
-            llvm::FunctionType* callFt = llvm::FunctionType::get(
-                builder_->getPtrTy(),
-                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
-                false);
-            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_3", callFt);
-            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg, arg1, arg2, arg3 });
-        } else if (argCount == 4) {
-            llvm::Value* arg1 = getOperandValue(inst->operands[2]);
-            llvm::Value* arg2 = getOperandValue(inst->operands[3]);
-            llvm::Value* arg3 = getOperandValue(inst->operands[4]);
-            llvm::Value* arg4 = getOperandValue(inst->operands[5]);
-            // Box args if needed
-            auto boxArg = [&](llvm::Value* arg, size_t operandIdx) -> llvm::Value* {
-                if (!arg->getType()->isPointerTy()) {
-                    if (arg->getType()->isIntegerTy(64)) {
-                        auto boxFn = getTsValueMakeInt();
-                        return builder_->CreateCall(boxFn, {arg});
-                    } else if (arg->getType()->isDoubleTy()) {
-                        auto boxFn = getTsValueMakeDouble();
-                        return builder_->CreateCall(boxFn, {arg});
-                    }
-                } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[operandIdx])) {
-                    auto hirType = (*hirVal)->type;
-                    if (hirType && hirType->kind == HIRTypeKind::String) {
-                        auto boxFn = getTsValueMakeString();
-                        return builder_->CreateCall(boxFn, {arg});
-                    }
-                }
-                return arg;
-            };
-            arg1 = boxArg(arg1, 2);
-            arg2 = boxArg(arg2, 3);
-            arg3 = boxArg(arg3, 4);
-            arg4 = boxArg(arg4, 5);
-            llvm::FunctionType* callFt = llvm::FunctionType::get(
-                builder_->getPtrTy(),
-                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
-                false);
-            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_4", callFt);
-            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg, arg1, arg2, arg3, arg4 });
-        } else if (argCount == 5) {
-            llvm::Value* arg1 = getOperandValue(inst->operands[2]);
-            llvm::Value* arg2 = getOperandValue(inst->operands[3]);
-            llvm::Value* arg3 = getOperandValue(inst->operands[4]);
-            llvm::Value* arg4 = getOperandValue(inst->operands[5]);
-            llvm::Value* arg5 = getOperandValue(inst->operands[6]);
-            // Box args if needed
-            auto boxArg = [&](llvm::Value* arg, size_t operandIdx) -> llvm::Value* {
-                if (!arg->getType()->isPointerTy()) {
-                    if (arg->getType()->isIntegerTy(64)) {
-                        auto boxFn = getTsValueMakeInt();
-                        return builder_->CreateCall(boxFn, {arg});
-                    } else if (arg->getType()->isDoubleTy()) {
-                        auto boxFn = getTsValueMakeDouble();
-                        return builder_->CreateCall(boxFn, {arg});
-                    }
-                } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[operandIdx])) {
-                    auto hirType = (*hirVal)->type;
-                    if (hirType && hirType->kind == HIRTypeKind::String) {
-                        auto boxFn = getTsValueMakeString();
-                        return builder_->CreateCall(boxFn, {arg});
-                    }
-                }
-                return arg;
-            };
-            arg1 = boxArg(arg1, 2);
-            arg2 = boxArg(arg2, 3);
-            arg3 = boxArg(arg3, 4);
-            arg4 = boxArg(arg4, 5);
-            arg5 = boxArg(arg5, 6);
-            llvm::FunctionType* callFt = llvm::FunctionType::get(
-                builder_->getPtrTy(),
-                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
-                false);
-            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_5", callFt);
-            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg, arg1, arg2, arg3, arg4, arg5 });
-        } else if (argCount == 6) {
-            llvm::Value* arg1 = getOperandValue(inst->operands[2]);
-            llvm::Value* arg2 = getOperandValue(inst->operands[3]);
-            llvm::Value* arg3 = getOperandValue(inst->operands[4]);
-            llvm::Value* arg4 = getOperandValue(inst->operands[5]);
-            llvm::Value* arg5 = getOperandValue(inst->operands[6]);
-            llvm::Value* arg6 = getOperandValue(inst->operands[7]);
-            // Box args if needed
-            auto boxArg = [&](llvm::Value* arg, size_t operandIdx) -> llvm::Value* {
-                if (!arg->getType()->isPointerTy()) {
-                    if (arg->getType()->isIntegerTy(64)) {
-                        auto boxFn = getTsValueMakeInt();
-                        return builder_->CreateCall(boxFn, {arg});
-                    } else if (arg->getType()->isDoubleTy()) {
-                        auto boxFn = getTsValueMakeDouble();
-                        return builder_->CreateCall(boxFn, {arg});
-                    }
-                } else if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[operandIdx])) {
-                    auto hirType = (*hirVal)->type;
-                    if (hirType && hirType->kind == HIRTypeKind::String) {
-                        auto boxFn = getTsValueMakeString();
-                        return builder_->CreateCall(boxFn, {arg});
-                    }
-                }
-                return arg;
-            };
-            arg1 = boxArg(arg1, 2);
-            arg2 = boxArg(arg2, 3);
-            arg3 = boxArg(arg3, 4);
-            arg4 = boxArg(arg4, 5);
-            arg5 = boxArg(arg5, 6);
-            arg6 = boxArg(arg6, 7);
-            llvm::FunctionType* callFt = llvm::FunctionType::get(
-                builder_->getPtrTy(),
-                { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
-                false);
-            llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_6", callFt);
-            result = builder_->CreateCall(callFt, callFn.getCallee(), { funcVal, thisArg, arg1, arg2, arg3, arg4, arg5, arg6 });
-        } else {
-            // For more than 6 arguments, fall back to null (we'd need ts_function_call_with_this with array)
-            SPDLOG_WARN("CallMethod with {} args not fully implemented: {}", argCount, methodName);
-            result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
-        }
+        // Use helper to emit the dynamic call with boxed arguments
+        // Arguments start at operands[2] (after obj and methodName)
+        llvm::Value* result = emitDynamicMethodCall(funcVal, thisArg, inst, 2);
 
         if (inst->result) {
             setValue(inst->result, result);
         }
         return;
-    }
-
-    // Generic method call - fall back to dynamic dispatch via property access
-    // 1. Get the property from the object (returns a boxed function)
-    // 2. Box the object as 'this'
-    // 3. Call ts_call_with_this_N with the function, this, and args
-
-    // Create global constant for the method name string
-    llvm::Constant* methodNameStr = builder_->CreateGlobalStringPtr(methodName, ".methodname");
-
-    // Call ts_object_get_property(obj, methodName) to get the function
-    llvm::FunctionType* getPropFt = llvm::FunctionType::get(
-        builder_->getPtrTy(),
-        { builder_->getPtrTy(), builder_->getPtrTy() },
-        false);
-    llvm::FunctionCallee getPropFn = module_->getOrInsertFunction("ts_object_get_property", getPropFt);
-    llvm::Value* func = builder_->CreateCall(getPropFt, getPropFn.getCallee(), { obj, methodNameStr });
-
-    // Box the object as 'thisArg' using ts_value_make_object
-    llvm::FunctionType* boxObjFt = llvm::FunctionType::get(
-        builder_->getPtrTy(), { builder_->getPtrTy() }, false);
-    llvm::FunctionCallee boxObjFn = module_->getOrInsertFunction("ts_value_make_object", boxObjFt);
-    llvm::Value* thisArg = builder_->CreateCall(boxObjFt, boxObjFn.getCallee(), { obj });
-
-    // Collect and box arguments
-    std::vector<llvm::Value*> callArgs;
-    callArgs.push_back(func);
-    callArgs.push_back(thisArg);
-
-    size_t argCount = inst->operands.size() - 2; // Subtract obj and methodName
-    for (size_t i = 2; i < inst->operands.size(); ++i) {
-        llvm::Value* arg = getOperandValue(inst->operands[i]);
-        // Box the argument if needed
-        if (!arg->getType()->isPointerTy()) {
-            if (arg->getType()->isIntegerTy(64)) {
-                auto boxFn = getTsValueMakeInt();
-                arg = builder_->CreateCall(boxFn, {arg});
-            } else if (arg->getType()->isDoubleTy()) {
-                auto boxFn = getTsValueMakeDouble();
-                arg = builder_->CreateCall(boxFn, {arg});
-            } else if (arg->getType()->isIntegerTy(1)) {
-                auto boxFn = getTsValueMakeBool();
-                llvm::Value* extended = builder_->CreateZExt(arg, builder_->getInt32Ty());
-                arg = builder_->CreateCall(boxFn, {extended});
-            }
-        } else {
-            // Check HIR type for string boxing
-            if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[i])) {
-                auto hirType = (*hirVal)->type;
-                if (hirType && hirType->kind == HIRTypeKind::String) {
-                    auto boxFn = getTsValueMakeString();
-                    arg = builder_->CreateCall(boxFn, {arg});
-                }
-            }
-        }
-        callArgs.push_back(arg);
-    }
-
-    // Call the appropriate ts_call_with_this_N function based on argument count
-    llvm::Value* result;
-    if (argCount == 0) {
-        llvm::FunctionType* callFt = llvm::FunctionType::get(
-            builder_->getPtrTy(),
-            { builder_->getPtrTy(), builder_->getPtrTy() },
-            false);
-        llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_0", callFt);
-        result = builder_->CreateCall(callFt, callFn.getCallee(), { func, thisArg });
-    } else if (argCount == 1) {
-        llvm::FunctionType* callFt = llvm::FunctionType::get(
-            builder_->getPtrTy(),
-            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
-            false);
-        llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_1", callFt);
-        result = builder_->CreateCall(callFt, callFn.getCallee(), { func, thisArg, callArgs[2] });
-    } else if (argCount == 2) {
-        llvm::FunctionType* callFt = llvm::FunctionType::get(
-            builder_->getPtrTy(),
-            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
-            false);
-        llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_2", callFt);
-        result = builder_->CreateCall(callFt, callFn.getCallee(), { func, thisArg, callArgs[2], callArgs[3] });
-    } else if (argCount == 3) {
-        llvm::FunctionType* callFt = llvm::FunctionType::get(
-            builder_->getPtrTy(),
-            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() },
-            false);
-        llvm::FunctionCallee callFn = module_->getOrInsertFunction("ts_call_with_this_3", callFt);
-        result = builder_->CreateCall(callFt, callFn.getCallee(), { func, thisArg, callArgs[2], callArgs[3], callArgs[4] });
-    } else {
-        // For more arguments, we'd need ts_function_call_with_this with array
-        SPDLOG_WARN("Generic method call with {} args not fully implemented: {}", argCount, methodName);
-        result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
-    }
-
-    if (inst->result) {
-        setValue(inst->result, result);
     }
 }
 
@@ -5824,6 +5469,86 @@ std::shared_ptr<HIRType> HIRToLLVM::getOperandType(const HIROperand& operand) {
 llvm::Value* HIRToLLVM::createGlobalString(const std::string& str) {
     // Create a global string constant
     return builder_->CreateGlobalStringPtr(str);
+}
+
+//==============================================================================
+// Dynamic Method Call Helpers
+//==============================================================================
+
+llvm::Value* HIRToLLVM::boxArgumentForDynamicCall(llvm::Value* arg, const HIROperand& operand) {
+    // Box based on LLVM type first
+    if (!arg->getType()->isPointerTy()) {
+        if (arg->getType()->isIntegerTy(64)) {
+            auto boxFn = getTsValueMakeInt();
+            return builder_->CreateCall(boxFn, {arg});
+        } else if (arg->getType()->isDoubleTy()) {
+            auto boxFn = getTsValueMakeDouble();
+            return builder_->CreateCall(boxFn, {arg});
+        } else if (arg->getType()->isIntegerTy(1)) {
+            auto boxFn = getTsValueMakeBool();
+            llvm::Value* extended = builder_->CreateZExt(arg, builder_->getInt32Ty());
+            return builder_->CreateCall(boxFn, {extended});
+        }
+    } else {
+        // Pointer type - check HIR type to determine boxing
+        if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
+            auto hirType = (*hirVal)->type;
+            if (hirType) {
+                if (hirType->kind == HIRTypeKind::String) {
+                    auto boxFn = getTsValueMakeString();
+                    return builder_->CreateCall(boxFn, {arg});
+                } else if (hirType->kind == HIRTypeKind::Object ||
+                           hirType->kind == HIRTypeKind::Array ||
+                           hirType->kind == HIRTypeKind::Class ||
+                           hirType->kind == HIRTypeKind::Map) {
+                    // Box objects with ts_value_make_object
+                    auto boxFn = getTsValueMakeObject();
+                    return builder_->CreateCall(boxFn, {arg});
+                }
+                // For Any type, it might already be boxed - pass as-is
+            }
+        }
+    }
+    return arg;
+}
+
+llvm::Value* HIRToLLVM::emitDynamicMethodCall(llvm::Value* funcVal, llvm::Value* thisArg,
+                                              HIRInstruction* inst, size_t argStartIdx) {
+    size_t argCount = inst->operands.size() - argStartIdx;
+
+    // Collect and box all arguments
+    std::vector<llvm::Value*> boxedArgs;
+    for (size_t i = argStartIdx; i < inst->operands.size(); ++i) {
+        llvm::Value* arg = getOperandValue(inst->operands[i]);
+        arg = boxArgumentForDynamicCall(arg, inst->operands[i]);
+        boxedArgs.push_back(arg);
+    }
+
+    // Build call args: [funcVal, thisArg, arg0, arg1, ...]
+    std::vector<llvm::Value*> callArgs;
+    callArgs.push_back(funcVal);
+    callArgs.push_back(thisArg);
+    for (auto* arg : boxedArgs) {
+        callArgs.push_back(arg);
+    }
+
+    // Build the function type: all args are ptr (TsValue*)
+    std::vector<llvm::Type*> paramTypes(callArgs.size(), builder_->getPtrTy());
+    llvm::FunctionType* callFt = llvm::FunctionType::get(
+        builder_->getPtrTy(), paramTypes, false);
+
+    // Get the appropriate ts_call_with_this_N function
+    std::string fnName;
+    if (argCount <= 6) {
+        fnName = "ts_call_with_this_" + std::to_string(argCount);
+    } else {
+        // For more than 6 arguments, fall back to null (need array-based version)
+        SPDLOG_WARN("Dynamic method call with {} args not fully implemented", argCount);
+        return llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    }
+
+    llvm::FunctionCallee callFn = module_->getOrInsertFunction(fnName, callFt);
+    return builder_->CreateCall(callFt, callFn.getCallee(), callArgs);
 }
 
 } // namespace ts::hir
