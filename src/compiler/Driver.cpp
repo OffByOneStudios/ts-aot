@@ -280,12 +280,16 @@ int Driver::run() {
             }
             
             // vcpkg paths (relative to root) - debug vs release
+            // Priority: x64-windows-static-md (static libs, dynamic CRT) > x64-windows-static > x64-windows
             std::filesystem::path rootPath = compilerPath / ".." / ".." / ".." / "..";
+            std::filesystem::path vcpkgPath = rootPath / "vcpkg_installed";
             if (options.debugRuntime) {
-                linkOpts.libraryPaths.push_back((rootPath / "vcpkg_installed" / "x64-windows-static" / "debug" / "lib").string());
+                linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows-static-md" / "debug" / "lib").string());
+                linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows-static" / "debug" / "lib").string());
             }
-            linkOpts.libraryPaths.push_back((rootPath / "vcpkg_installed" / "x64-windows-static" / "lib").string());
-            linkOpts.libraryPaths.push_back((rootPath / "vcpkg_installed" / "x64-windows" / "lib").string());
+            linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows-static-md" / "lib").string());
+            linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows-static" / "lib").string());
+            linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows" / "lib").string());
 
             for (const auto& path : options.libraryPaths) {
                 linkOpts.libraryPaths.push_back(path);
@@ -328,7 +332,23 @@ int Driver::run() {
                 linkOpts.libraries.push_back("spdlog.lib");
                 linkOpts.libraries.push_back("fmt.lib");
             }
-            
+
+            // vcpkg dependencies
+            linkOpts.libraries.push_back("libuv.lib");        // libuv
+            linkOpts.libraries.push_back("gc.lib");           // Boehm GC
+            linkOpts.libraries.push_back("icuuc.lib");        // ICU Unicode
+            linkOpts.libraries.push_back("icuin.lib");        // ICU i18n
+            linkOpts.libraries.push_back("icudt.lib");        // ICU data
+            linkOpts.libraries.push_back("libsodium.lib");    // libsodium
+            linkOpts.libraries.push_back("llhttp.lib");       // llhttp
+            linkOpts.libraries.push_back("libssl.lib");       // OpenSSL SSL
+            linkOpts.libraries.push_back("libcrypto.lib");    // OpenSSL Crypto
+            linkOpts.libraries.push_back("cares.lib");        // c-ares DNS
+            linkOpts.libraries.push_back("zlib.lib");         // zlib
+            linkOpts.libraries.push_back("brotlicommon.lib"); // Brotli common
+            linkOpts.libraries.push_back("brotlidec.lib");    // Brotli decoder
+            linkOpts.libraries.push_back("brotlienc.lib");    // Brotli encoder
+
             // Windows system libraries
             linkOpts.libraries.push_back("ws2_32.lib");
             linkOpts.libraries.push_back("user32.lib");

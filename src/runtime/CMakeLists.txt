@@ -52,7 +52,7 @@ find_package(unofficial-brotli CONFIG REQUIRED)
 if (TARGET libtommath)
     get_target_property(TOMMATH_INC libtommath INTERFACE_INCLUDE_DIRECTORIES)
     if (NOT EXISTS "${TOMMATH_INC}")
-        set_target_properties(libtommath PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../vcpkg_installed/x64-windows-static/include")
+        set_target_properties(libtommath PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
     endif()
 endif()
 
@@ -163,7 +163,10 @@ else()
     target_compile_definitions(tsruntime PUBLIC TS_ICU_NONE)
 endif()
 
-target_compile_definitions(tsruntime PUBLIC TS_RUNTIME_EXPORT)
+# GC_NOT_DLL: Use static Boehm GC library (prevents dllimport when /MD is used)
+# This is needed because with dynamic CRT (/MD), _DLL is defined which would
+# auto-enable GC_DLL in gc_config_macros.h, causing dllimport mismatch
+target_compile_definitions(tsruntime PUBLIC TS_RUNTIME_EXPORT GC_NOT_DLL)
 
 if (TS_FAT_RUNTIME AND MSVC)
     # List of dependencies to merge
