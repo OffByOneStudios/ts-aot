@@ -5,6 +5,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <spdlog/spdlog.h>
 
 namespace ts::hir {
 
@@ -728,6 +729,227 @@ void ASTToHIR::emitDeferredStaticInits() {
         }
     }
     deferredStaticBlocks_.clear();  // Only emit once
+}
+
+void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
+                                                 const std::vector<ast::Decorator>& classDecorators,
+                                                 const std::vector<ast::NodePtr>& members) {
+    // Check if there are any decorators (class, method, property, or parameter)
+    bool hasDecorators = !classDecorators.empty();
+    if (!hasDecorators) {
+        for (const auto& member : members) {
+            if (auto* method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                if (!method->decorators.empty()) { hasDecorators = true; break; }
+                for (const auto& param : method->parameters) {
+                    if (!param->decorators.empty()) { hasDecorators = true; break; }
+                }
+            } else if (auto* prop = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                if (!prop->decorators.empty()) { hasDecorators = true; break; }
+            }
+            if (hasDecorators) break;
+        }
+    }
+    if (!hasDecorators) return;
+
+    SPDLOG_DEBUG("Generating decorator static init for class: {}", className);
+
+    // Create a static init function for this class
+    std::string initFuncName = className + "___static_init";
+    auto initFunc = std::make_unique<HIRFunction>(initFuncName);
+
+    // Function takes a context parameter (void*) for consistency with legacy
+    initFunc->params.push_back({"ctx", HIRType::makePtr()});
+    initFunc->returnType = HIRType::makeVoid();
+    initFunc->nextValueId = 1;
+
+    // Save current function and set up for the init function
+    HIRFunction* savedFunc = currentFunction_;
+    currentFunction_ = initFunc.get();
+
+    // Create entry block
+    auto entryBlock = initFunc->createBlock("entry");
+    builder_.setInsertPoint(entryBlock);
+    currentBlock_ = entryBlock;
+
+    pushScope();
+
+    // Create a class descriptor object with 'name' property
+    // 1. Create map: ts_map_create() -> map_ptr
+    auto classDescriptor = builder_.createCall("ts_map_create", {}, HIRType::makeMap());
+
+    // 2. Create the class name string: ts_string_create("ClassName")
+    auto classNameStr = builder_.createConstString(className);
+
+    // 3. Set the 'name' property: ts_map_set_cstr_string(map, "name", classNameStr)
+    // Note: key is a C string pointer, value is a TsString*
+    auto nameKey = builder_.createConstCString("name");
+    builder_.createCall("ts_map_set_cstr_string", {classDescriptor, nameKey, classNameStr}, HIRType::makeVoid());
+
+    // 4. Box the class descriptor: ts_value_make_object(map) -> boxed_descriptor
+    auto boxedDescriptor = builder_.createCall("ts_value_make_object", {classDescriptor}, HIRType::makeAny());
+
+    // 5. Call each decorator in reverse order (innermost first, per TypeScript spec)
+    for (auto it = classDecorators.rbegin(); it != classDecorators.rend(); ++it) {
+        const auto& decorator = *it;
+
+        if (!decorator.expression) continue;
+
+        // If it's a simple identifier (not a factory), call it directly
+        if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
+            // Decorator function takes (target) and returns target
+            // The mangled name is "decoratorName_any" for class decorators
+            // Note: Regular functions in HIR don't have an implicit context parameter
+            std::string mangledDecoratorName = id->name + "_any";
+
+            SPDLOG_DEBUG("  Calling class decorator: {} (mangled: {})", decorator.name, mangledDecoratorName);
+
+            // Call the decorator: result = decorator_any(boxedDescriptor)
+            auto result = builder_.createCall(mangledDecoratorName, {boxedDescriptor}, HIRType::makeAny());
+
+            // For now, we ignore the return value since we can't replace the class in AOT
+            (void)result;
+        }
+        // Handle decorator factories @decorator(args)
+        else if (auto* call = dynamic_cast<ast::CallExpression*>(decorator.expression.get())) {
+            // Get the factory function name
+            auto* factoryIdent = dynamic_cast<ast::Identifier*>(call->callee.get());
+            if (!factoryIdent) {
+                SPDLOG_DEBUG("  Decorator factory with complex callee not supported: {}", decorator.name);
+                continue;
+            }
+
+            std::string factoryName = factoryIdent->name;
+            SPDLOG_DEBUG("  Calling decorator factory: {}", factoryName);
+
+            // Lower each argument - box them for the _any variant
+            std::vector<std::shared_ptr<HIRValue>> factoryArgs;
+            for (auto& arg : call->arguments) {
+                auto argVal = lowerExpression(arg.get());
+                // Box the argument since we're calling the _any variant
+                auto boxedArg = boxValueIfNeeded(argVal);
+                factoryArgs.push_back(boxedArg);
+            }
+
+            // Decorator factories are called with _any suffix since monomorphizer
+            // doesn't track decorator usage and generates the _any variant
+            std::string mangledFactoryName = factoryName + "_any";
+            SPDLOG_DEBUG("    Mangled factory name: {}", mangledFactoryName);
+
+            auto decoratorFunc = builder_.createCall(mangledFactoryName, factoryArgs, HIRType::makeAny());
+
+            // Call the returned decorator with the class descriptor
+            auto result = builder_.createCallIndirect(decoratorFunc, {boxedDescriptor}, HIRType::makeAny());
+            (void)result;
+        }
+    }
+
+    // Process property decorators: @decorator on class properties
+    // Property decorators receive (target, propertyKey)
+    for (const auto& member : members) {
+        auto* prop = dynamic_cast<ast::PropertyDefinition*>(member.get());
+        if (!prop || prop->decorators.empty()) continue;
+
+        SPDLOG_DEBUG("  Processing property decorators for: {}", prop->name);
+
+        // For _any_str, pass raw TsString* (not boxed)
+        auto propertyKey = builder_.createConstString(prop->name);
+
+        for (auto it = prop->decorators.rbegin(); it != prop->decorators.rend(); ++it) {
+            const auto& decorator = *it;
+            if (!decorator.expression) continue;
+
+            if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
+                // Property decorator: (target: any, propertyKey: string) -> _any_str
+                std::string mangledName = id->name + "_any_str";
+                SPDLOG_DEBUG("    Calling property decorator: {} (mangled: {})", id->name, mangledName);
+                builder_.createCall(mangledName, {boxedDescriptor, propertyKey}, HIRType::makeVoid());
+            }
+        }
+    }
+
+    // Process method decorators: @decorator on class methods
+    // Method decorators receive (target, propertyKey, descriptor)
+    for (const auto& member : members) {
+        auto* method = dynamic_cast<ast::MethodDefinition*>(member.get());
+        if (!method || method->decorators.empty()) continue;
+
+        SPDLOG_DEBUG("  Processing method decorators for: {}", method->name);
+
+        // For _any_str_any, pass raw TsString* for propertyKey (not boxed)
+        auto propertyKey = builder_.createConstString(method->name);
+
+        // Create a minimal PropertyDescriptor object with 'value' property set to true
+        auto descriptorMap = builder_.createCall("ts_map_create", {}, HIRType::makeMap());
+        auto valueKey = builder_.createConstCString("value");
+        // Use int constant (1) for true since ts_value_make_bool expects i32
+        auto trueVal = builder_.createConstInt(1);
+        auto boxedTrue = builder_.createCall("ts_value_make_bool", {trueVal}, HIRType::makeAny());
+        // Use ts_map_set_cstr to set property by C string key
+        builder_.createCall("ts_map_set_cstr", {descriptorMap, valueKey, boxedTrue}, HIRType::makeVoid());
+        auto boxedDescriptorMap = builder_.createCall("ts_value_make_object", {descriptorMap}, HIRType::makeAny());
+
+        for (auto it = method->decorators.rbegin(); it != method->decorators.rend(); ++it) {
+            const auto& decorator = *it;
+            if (!decorator.expression) continue;
+
+            if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
+                // Method decorator: (target: any, propertyKey: string, descriptor: PropertyDescriptor) -> _any_str_any
+                std::string mangledName = id->name + "_any_str_any";
+                SPDLOG_DEBUG("    Calling method decorator: {} (mangled: {})", id->name, mangledName);
+                builder_.createCall(mangledName, {boxedDescriptor, propertyKey, boxedDescriptorMap}, HIRType::makeVoid());
+            }
+        }
+    }
+
+    // Process parameter decorators: @decorator on method parameters
+    // Parameter decorators receive (target, propertyKey, parameterIndex)
+    for (const auto& member : members) {
+        auto* method = dynamic_cast<ast::MethodDefinition*>(member.get());
+        if (!method) continue;
+
+        for (size_t paramIdx = 0; paramIdx < method->parameters.size(); ++paramIdx) {
+            const auto& param = method->parameters[paramIdx];
+            if (param->decorators.empty()) continue;
+
+            SPDLOG_DEBUG("  Processing parameter decorators for: {}[{}]", method->name, paramIdx);
+
+            // For _any_str_int, pass raw TsString* and raw int (not boxed)
+            auto propertyKey = builder_.createConstString(method->name);
+            auto paramIndex = builder_.createConstInt(static_cast<int64_t>(paramIdx));
+
+            for (auto it = param->decorators.rbegin(); it != param->decorators.rend(); ++it) {
+                const auto& decorator = *it;
+                if (!decorator.expression) continue;
+
+                if (auto* id = dynamic_cast<ast::Identifier*>(decorator.expression.get())) {
+                    // Parameter decorator: (target: any, propertyKey: string, parameterIndex: number) -> _any_str_int
+                    std::string mangledName = id->name + "_any_str_int";
+                    SPDLOG_DEBUG("    Calling parameter decorator: {} (mangled: {})", id->name, mangledName);
+                    builder_.createCall(mangledName, {boxedDescriptor, propertyKey, paramIndex}, HIRType::makeVoid());
+                }
+            }
+        }
+    }
+
+    // Return void
+    builder_.createReturnVoid();
+
+    popScope();
+
+    // Restore saved function
+    currentFunction_ = savedFunc;
+    if (savedFunc) {
+        auto* savedBlock = savedFunc->getEntryBlock();
+        if (savedBlock) {
+            builder_.setInsertPoint(savedBlock);
+            currentBlock_ = savedBlock;
+        }
+    }
+
+    // Add the static init function to the module
+    module_->functions.push_back(std::move(initFunc));
+
+    SPDLOG_DEBUG("Generated decorator static init function: {}", initFuncName);
 }
 
 //==============================================================================
@@ -4852,6 +5074,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             module_->functions.push_back(std::move(defaultCtor));
         }
     }
+
+    // Generate decorator static init function if class has any decorators
+    // (class decorators, method decorators, property decorators, or parameter decorators)
+    generateClassDecoratorStaticInit(node->name, node->decorators, node->members);
 
     // Restore class context
     currentClass_ = savedClass;
