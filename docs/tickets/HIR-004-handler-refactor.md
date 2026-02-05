@@ -129,12 +129,57 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 - [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
 
 ### Phase 5: Extract Remaining Handlers
-- [ ] MapSetHandler (Map, Set, WeakMap, WeakSet)
-- [ ] PathHandler (path.join, path.resolve, etc.)
-- [ ] TimerHandler (setTimeout, setInterval)
-- [ ] BigIntHandler
-- [ ] GeneratorHandler
-- [ ] RegExpHandler
+
+#### 5a: MapSetHandler (Complete)
+Functions extracted from `lowerCall`:
+- [x] `ts_map_set` - Set key-value pair
+- [x] `ts_map_get` - Get value by key (with boxing)
+- [x] `ts_map_has` - Check key existence
+- [x] `ts_map_delete` - Delete key
+- [x] `ts_map_clear` - Clear all entries
+- [x] `ts_map_size` - Get entry count
+- [x] `ts_set_add` - Add value to Set
+- [x] `ts_set_has` - Check value existence
+- [x] `ts_set_delete` - Delete value
+- [x] `ts_set_clear` - Clear all entries
+- [x] `ts_set_size` - Get entry count
+- [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
+
+#### 5b: TimerHandler (Complete)
+Functions extracted (use prefix matching):
+- [x] `setTimeout*` variants - Delay callback execution
+- [x] `setInterval*` variants - Repeat callback execution
+- [x] `setImmediate*` variants - Next tick execution
+- [x] `clearTimeout`, `clearInterval`, `clearImmediate` - Cancel timers
+- [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
+
+#### 5c: BigIntHandler (Complete)
+Functions extracted from `lowerCall`:
+- [x] `ts_bigint_create_str` - Create from string
+- [x] `ts_bigint_add`, `ts_bigint_sub` - Arithmetic
+- [x] `ts_bigint_mul`, `ts_bigint_div`, `ts_bigint_mod` - Arithmetic
+- [x] `ts_bigint_lt`, `ts_bigint_le`, `ts_bigint_gt`, `ts_bigint_ge` - Comparison
+- [x] `ts_bigint_eq`, `ts_bigint_ne` - Equality
+- [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
+
+#### 5d: PathHandler (Complete)
+Functions extracted from `lowerCall`:
+- [x] `ts_path_basename` - Extract filename
+- [x] `ts_path_dirname` - Extract directory
+- [x] `ts_path_extname` - Extract extension
+- [x] `ts_path_join` - Join path segments
+- [x] `ts_path_normalize` - Normalize path
+- [x] `ts_path_resolve` - Resolve to absolute
+- [x] `ts_path_relative` - Compute relative path
+- [x] `ts_path_isAbsolute` - Check if absolute
+- [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
+
+#### 5e: Future Handlers (Lower Priority)
+- [ ] GeneratorHandler - Generator functions (if present)
+- [ ] RegExpHandler - RegExp operations (if present)
+- [ ] StringHandler - String methods not in LoweringRegistry
+- [ ] ValueHandler - ts_value_* boxing operations
+- [ ] ObjectHandler - ts_object_* operations
 
 ### Phase 6: Cleanup
 - [ ] Remove empty cases from lowerCall/lowerCallMethod
@@ -143,17 +188,21 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 
 ## Files to Create/Modify
 
-| File | Action |
-|------|--------|
-| `src/compiler/hir/handlers/BuiltinHandler.h` | Created ✓ |
-| `src/compiler/hir/handlers/HandlerRegistry.h` | Created ✓ |
-| `src/compiler/hir/handlers/HandlerRegistry.cpp` | Created ✓ |
-| `src/compiler/hir/handlers/MathHandler.cpp` | Created ✓ (Phase 2) |
-| `src/compiler/hir/handlers/ConsoleHandler.cpp` | Created ✓ (Phase 3) |
-| `src/compiler/hir/handlers/ArrayHandler.cpp` | Created ✓ (Phase 4) |
-| `src/compiler/hir/CMakeLists.txt` | Modify (add handlers/) |
-| `src/compiler/hir/HIRToLLVM.cpp` | Modify (use registry) |
-| `src/compiler/hir/HIRToLLVM.h` | Modify (add friend class) |
+| File | Action | Phase |
+|------|--------|-------|
+| `src/compiler/hir/handlers/BuiltinHandler.h` | Created ✓ | 1 |
+| `src/compiler/hir/handlers/HandlerRegistry.h` | Created ✓ | 1 |
+| `src/compiler/hir/handlers/HandlerRegistry.cpp` | Created ✓ | 1 |
+| `src/compiler/hir/handlers/MathHandler.cpp` | Created ✓ | 2 |
+| `src/compiler/hir/handlers/ConsoleHandler.cpp` | Created ✓ | 3 |
+| `src/compiler/hir/handlers/ArrayHandler.cpp` | Created ✓ | 4 |
+| `src/compiler/hir/handlers/MapSetHandler.cpp` | Created ✓ | 5a |
+| `src/compiler/hir/handlers/TimerHandler.cpp` | Created ✓ | 5b |
+| `src/compiler/hir/handlers/BigIntHandler.cpp` | Created ✓ | 5c |
+| `src/compiler/hir/handlers/PathHandler.cpp` | Created ✓ | 5d |
+| `src/compiler/hir/CMakeLists.txt` | Modified ✓ | 1-5 |
+| `src/compiler/hir/HIRToLLVM.cpp` | Modify (use registry) | 6 |
+| `src/compiler/hir/HIRToLLVM.h` | Modified ✓ (add friend classes) | 1-5 |
 
 ## Success Criteria
 
@@ -167,6 +216,65 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 
 - HIR-003: Registry-Driven Variadic Function Handling (completed for console)
 - LoweringRegistry: Declarative runtime call specifications
+
+## Phase 5 Implementation Order
+
+Recommended sequence based on complexity and test coverage:
+
+1. **MapSetHandler** (5a) - High priority, significant code volume (~130 lines)
+   - Straightforward extraction, well-defined function signatures
+   - Map/Set operations are commonly used in tests
+
+2. **TimerHandler** (5b) - High priority, medium complexity (~80 lines)
+   - Uses prefix matching for setTimeout*/setInterval*/etc.
+   - Some functions are variadic
+
+3. **BigIntHandler** (5c) - Medium priority, simpler (~50 lines)
+   - Arithmetic and comparison operations
+   - All follow similar patterns
+
+4. **PathHandler** (5d) - Medium priority, variadic handling (~140 lines)
+   - path.join and path.resolve are variadic
+   - Others are simple ptr→ptr functions
+
+5. **Future Handlers** (5e) - Lower priority
+   - Extract only if significant code reduction justifies it
+   - StringHandler, ValueHandler, ObjectHandler candidates
+
+## Implementation Template
+
+Each new handler should follow this pattern:
+
+```cpp
+// In handlers/XxxHandler.cpp
+#include "BuiltinHandler.h"
+#include "../HIRToLLVM.h"
+#include <unordered_set>
+
+namespace ts::hir {
+
+class XxxHandler : public BuiltinHandler {
+public:
+    const char* name() const override { return "XxxHandler"; }
+
+    bool canHandle(const std::string& funcName, HIRInstruction* inst) const override {
+        static const std::unordered_set<std::string> funcs = { /* ... */ };
+        return funcs.count(funcName) > 0;
+    }
+
+    llvm::Value* lower(const std::string& funcName, HIRInstruction* inst,
+                       HIRToLLVM& lowerer) override {
+        // Dispatch to specific lowering methods
+        return nullptr;
+    }
+};
+
+std::unique_ptr<BuiltinHandler> createXxxHandler() {
+    return std::make_unique<XxxHandler>();
+}
+
+} // namespace ts::hir
+```
 
 ## Notes
 
