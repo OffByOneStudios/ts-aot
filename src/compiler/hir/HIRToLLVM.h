@@ -10,12 +10,16 @@
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Intrinsics.h>
 
 #include <memory>
 #include <map>
 #include <string>
 
 namespace ts::hir {
+
+// Forward declarations for handler classes
+class MathHandler;
 
 //==============================================================================
 // HIRToLLVM - Lower HIR to LLVM IR
@@ -29,12 +33,31 @@ namespace ts::hir {
 //==============================================================================
 
 class HIRToLLVM {
+    // Friend declarations for builtin handlers
+    friend class MathHandler;
+
 public:
     HIRToLLVM(llvm::LLVMContext& ctx);
     ~HIRToLLVM() = default;
 
     // Main entry point - lower an HIR module to LLVM module
     std::unique_ptr<llvm::Module> lower(HIRModule* hirModule, const std::string& moduleName);
+
+    //==========================================================================
+    // Handler Accessors - Used by BuiltinHandler implementations
+    //==========================================================================
+
+    /// Get the LLVM IRBuilder
+    llvm::IRBuilder<>& builder() { return *builder_; }
+
+    /// Get the LLVM Module
+    llvm::Module& module() { return *module_; }
+
+    /// Get an operand value from an HIR instruction
+    llvm::Value* getOperandValue(const HIROperand& operand);
+
+    /// Set the result value for an HIR instruction
+    void setValue(const std::shared_ptr<HIRValue>& hirValue, llvm::Value* llvmValue);
 
 private:
     llvm::LLVMContext& context_;
@@ -91,7 +114,6 @@ private:
 
     // Get or create LLVM value for HIR value
     llvm::Value* getValue(const std::shared_ptr<HIRValue>& hirValue);
-    void setValue(const std::shared_ptr<HIRValue>& hirValue, llvm::Value* llvmValue);
 
     // Get or create a global variable
     llvm::GlobalVariable* getOrCreateGlobal(const std::string& name, std::shared_ptr<HIRType> type);
@@ -339,9 +361,6 @@ private:
     //==========================================================================
     // Helper Methods
     //==========================================================================
-
-    // Get operand value from instruction
-    llvm::Value* getOperandValue(const HIROperand& operand);
 
     // Get operand as integer constant
     int64_t getOperandInt(const HIROperand& operand);

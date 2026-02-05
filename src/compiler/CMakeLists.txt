@@ -154,6 +154,7 @@ add_library(tscompiler_lib STATIC
     hir/BuiltinRegistry.cpp
     hir/LoweringRegistry.cpp
     hir/handlers/HandlerRegistry.cpp
+    hir/handlers/MathHandler.cpp
     hir/passes/HIRPass.cpp
     hir/passes/PassManager.cpp
     hir/passes/MethodResolutionPass.cpp

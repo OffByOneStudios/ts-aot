@@ -3,6 +3,9 @@
 
 namespace ts::hir {
 
+// Factory functions for handlers (defined in their respective .cpp files)
+std::unique_ptr<BuiltinHandler> createMathHandler();
+
 bool HandlerRegistry::builtinsRegistered_ = false;
 
 HandlerRegistry& HandlerRegistry::instance() {
@@ -46,15 +49,18 @@ bool HandlerRegistry::hasHandler(const std::string& funcName, HIRInstruction* in
 }
 
 void HandlerRegistry::registerBuiltinHandlers() {
-    // Phase 1: Empty registry - no handlers registered yet
-    // Handlers will be added in subsequent phases:
-    //   Phase 2: MathHandler
+    auto& reg = instance();
+
+    // Phase 2: MathHandler - Math.* and Number.* functions
+    reg.registerHandler(createMathHandler());
+
+    // Future phases:
     //   Phase 3: ConsoleHandler
     //   Phase 4: ArrayHandler
     //   etc.
 
     SPDLOG_DEBUG("HandlerRegistry: builtin handlers registered (count={})",
-                 instance().handlerCount());
+                 reg.handlerCount());
 }
 
 } // namespace ts::hir
