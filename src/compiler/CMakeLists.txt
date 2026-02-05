@@ -153,6 +153,7 @@ add_library(tscompiler_lib STATIC
     hir/HIRToLLVM.cpp
     hir/BuiltinRegistry.cpp
     hir/LoweringRegistry.cpp
+    hir/handlers/HandlerRegistry.cpp
     hir/passes/HIRPass.cpp
     hir/passes/PassManager.cpp
     hir/passes/MethodResolutionPass.cpp
