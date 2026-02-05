@@ -7,6 +7,10 @@ namespace ts::hir {
 std::unique_ptr<BuiltinHandler> createMathHandler();
 std::unique_ptr<BuiltinHandler> createConsoleHandler();
 std::unique_ptr<BuiltinHandler> createArrayHandler();
+std::unique_ptr<BuiltinHandler> createMapSetHandler();
+std::unique_ptr<BuiltinHandler> createTimerHandler();
+std::unique_ptr<BuiltinHandler> createBigIntHandler();
+std::unique_ptr<BuiltinHandler> createPathHandler();
 
 bool HandlerRegistry::builtinsRegistered_ = false;
 
@@ -62,8 +66,17 @@ void HandlerRegistry::registerBuiltinHandlers() {
     // Phase 4: ArrayHandler - Array.* functions
     reg.registerHandler(createArrayHandler());
 
-    // Future phases:
-    //   Phase 5: MapSetHandler, PathHandler, TimerHandler, etc.
+    // Phase 5a: MapSetHandler - Map and Set operations
+    reg.registerHandler(createMapSetHandler());
+
+    // Phase 5b: TimerHandler - setTimeout, setInterval, setImmediate, clear*
+    reg.registerHandler(createTimerHandler());
+
+    // Phase 5c: BigIntHandler - BigInt operations
+    reg.registerHandler(createBigIntHandler());
+
+    // Phase 5d: PathHandler - path module functions
+    reg.registerHandler(createPathHandler());
 
     SPDLOG_DEBUG("HandlerRegistry: builtin handlers registered (count={})",
                  reg.handlerCount());

@@ -157,6 +157,10 @@ add_library(tscompiler_lib STATIC
     hir/handlers/MathHandler.cpp
     hir/handlers/ConsoleHandler.cpp
     hir/handlers/ArrayHandler.cpp
+    hir/handlers/MapSetHandler.cpp
+    hir/handlers/TimerHandler.cpp
+    hir/handlers/BigIntHandler.cpp
+    hir/handlers/PathHandler.cpp
     hir/passes/HIRPass.cpp
     hir/passes/PassManager.cpp
     hir/passes/MethodResolutionPass.cpp

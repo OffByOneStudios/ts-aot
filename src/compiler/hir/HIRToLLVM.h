@@ -22,6 +22,10 @@ namespace ts::hir {
 class MathHandler;
 class ConsoleHandler;
 class ArrayHandler;
+class MapSetHandler;
+class TimerHandler;
+class BigIntHandler;
+class PathHandler;
 
 //==============================================================================
 // HIRToLLVM - Lower HIR to LLVM IR
@@ -39,6 +43,10 @@ class HIRToLLVM {
     friend class MathHandler;
     friend class ConsoleHandler;
     friend class ArrayHandler;
+    friend class MapSetHandler;
+    friend class TimerHandler;
+    friend class BigIntHandler;
+    friend class PathHandler;
 
 public:
     HIRToLLVM(llvm::LLVMContext& ctx);
