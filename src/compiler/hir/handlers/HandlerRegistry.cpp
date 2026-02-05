@@ -54,6 +54,31 @@ bool HandlerRegistry::hasHandler(const std::string& funcName, HIRInstruction* in
     return false;
 }
 
+llvm::Value* HandlerRegistry::tryLowerMethod(const std::string& methodName,
+                                              const std::string& className,
+                                              HIRInstruction* inst,
+                                              HIRToLLVM& lowerer) {
+    for (auto& handler : handlers_) {
+        if (handler->canHandleMethod(methodName, className, inst)) {
+            SPDLOG_DEBUG("HandlerRegistry: {} handling method '{}.{}'",
+                         handler->name(), className, methodName);
+            return handler->lowerMethod(methodName, inst, lowerer);
+        }
+    }
+    return nullptr;  // No handler matched
+}
+
+bool HandlerRegistry::hasMethodHandler(const std::string& methodName,
+                                        const std::string& className,
+                                        HIRInstruction* inst) const {
+    for (const auto& handler : handlers_) {
+        if (handler->canHandleMethod(methodName, className, inst)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void HandlerRegistry::registerBuiltinHandlers() {
     auto& reg = instance();
 

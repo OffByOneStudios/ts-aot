@@ -44,6 +44,26 @@ public:
     /// Check if any handler can handle the given function
     bool hasHandler(const std::string& funcName, HIRInstruction* inst) const;
 
+    //==========================================================================
+    // Method call interface (for lowerCallMethod - e.g., map.set(key, val))
+    //==========================================================================
+
+    /// Try to lower a method call using registered handlers.
+    /// @param methodName The method name (e.g., "set", "get", "push")
+    /// @param className The class/receiver type name (e.g., "Map", "Set", "Array")
+    /// @param inst The HIR call instruction
+    /// @param lowerer Reference to the HIRToLLVM lowerer
+    /// @return The result value if a handler succeeded, nullptr if no handler matched
+    llvm::Value* tryLowerMethod(const std::string& methodName,
+                                const std::string& className,
+                                HIRInstruction* inst,
+                                HIRToLLVM& lowerer);
+
+    /// Check if any handler can handle the given method call
+    bool hasMethodHandler(const std::string& methodName,
+                          const std::string& className,
+                          HIRInstruction* inst) const;
+
     /// Get the number of registered handlers (for debugging/testing)
     size_t handlerCount() const { return handlers_.size(); }
 

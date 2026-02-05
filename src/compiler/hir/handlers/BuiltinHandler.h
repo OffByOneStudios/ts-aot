@@ -42,6 +42,29 @@ public:
     virtual llvm::Value* lower(const std::string& funcName,
                                HIRInstruction* inst,
                                HIRToLLVM& lowerer) = 0;
+
+    //==========================================================================
+    // Method call interface (for lowerCallMethod - e.g., map.set(key, val))
+    //==========================================================================
+
+    /// Check if this handler can handle the given method call.
+    /// @param methodName The method name (e.g., "set", "get", "push")
+    /// @param className The class/receiver type name (e.g., "Map", "Set", "Array")
+    /// @param inst The HIR call instruction
+    /// @return true if this handler will handle the method call
+    virtual bool canHandleMethod(const std::string& methodName,
+                                 const std::string& className,
+                                 HIRInstruction* inst) const { return false; }
+
+    /// Lower the method call to LLVM IR.
+    /// Only called if canHandleMethod() returned true.
+    /// @param methodName The method name being called
+    /// @param inst The HIR call instruction
+    /// @param lowerer Reference to the HIRToLLVM lowerer for helper access
+    /// @return The LLVM Value representing the result, or nullptr for void
+    virtual llvm::Value* lowerMethod(const std::string& methodName,
+                                     HIRInstruction* inst,
+                                     HIRToLLVM& lowerer) { return nullptr; }
 };
 
 } // namespace ts::hir
