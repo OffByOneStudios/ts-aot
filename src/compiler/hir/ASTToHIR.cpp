@@ -907,14 +907,24 @@ void ASTToHIR::generateClassDecoratorStaticInit(const std::string& className,
         // For _any_str_any, pass raw TsString* for propertyKey (not boxed)
         auto propertyKey = builder_.createConstString(method->name);
 
-        // Create a minimal PropertyDescriptor object with 'value' property set to true
+        // Create a PropertyDescriptor object appropriate for the member type
         auto descriptorMap = builder_.createCall("ts_map_create", {}, HIRType::makeMap());
-        auto valueKey = builder_.createConstCString("value");
-        // Use int constant (1) for true since ts_value_make_bool expects i32
         auto trueVal = builder_.createConstInt(1);
         auto boxedTrue = builder_.createCall("ts_value_make_bool", {trueVal}, HIRType::makeAny());
-        // Use ts_map_set_cstr to set property by C string key
-        builder_.createCall("ts_map_set_cstr", {descriptorMap, valueKey, boxedTrue}, HIRType::makeVoid());
+
+        if (method->isGetter || method->isSetter) {
+            // Accessor descriptor: set 'get' and/or 'set' properties
+            // For a getter, set 'get' to true; for a setter, set 'set' to true
+            // Since getters/setters on the same property share a descriptor, set both
+            auto getKey = builder_.createConstCString("get");
+            builder_.createCall("ts_map_set_cstr", {descriptorMap, getKey, boxedTrue}, HIRType::makeVoid());
+            auto setKey = builder_.createConstCString("set");
+            builder_.createCall("ts_map_set_cstr", {descriptorMap, setKey, boxedTrue}, HIRType::makeVoid());
+        } else {
+            // Data descriptor: set 'value' property
+            auto valueKey = builder_.createConstCString("value");
+            builder_.createCall("ts_map_set_cstr", {descriptorMap, valueKey, boxedTrue}, HIRType::makeVoid());
+        }
         auto boxedDescriptorMap = builder_.createCall("ts_value_make_object", {descriptorMap}, HIRType::makeAny());
 
         for (auto it = method->decorators.rbegin(); it != method->decorators.rend(); ++it) {
@@ -2987,6 +2997,19 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
         }
 
+        // Handle Function.prototype.call(thisArg, ...args)
+        if (propAccess->name == "call" && !args.empty()) {
+            auto func = lowerExpression(propAccess->expression.get());
+            // First arg to .call() is the thisArg
+            auto thisArg = args[0];
+            // Set the this context before calling
+            builder_.createCall("ts_set_call_this", {thisArg}, HIRType::makeVoid());
+            // Remaining args are the actual function arguments
+            std::vector<std::shared_ptr<HIRValue>> callArgs(args.begin() + 1, args.end());
+            lastValue_ = builder_.createCallIndirect(func, callArgs, HIRType::makeAny());
+            return;
+        }
+
         // Fallback: Dynamic method call
         auto obj = lowerExpression(propAccess->expression.get());
         lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
@@ -3869,8 +3892,9 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         if (lastValue_) {
             return;
         }
-        // If not found, return null (e.g., in static context)
-        lastValue_ = builder_.createConstNull();
+        // If not found in scope, check the dynamic this context
+        // (set by Function.prototype.call/apply)
+        lastValue_ = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
         return;
     }
 

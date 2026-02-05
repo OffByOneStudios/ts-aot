@@ -997,6 +997,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         ast::ClassDeclaration* classNode = findClass(analyzer, name);
         if (!classNode) continue;
 
+        // Skip non-generic classes - they are already handled by earlier loops
+        if (classNode->typeParameters.empty()) continue;
+
         // Deduplicate by type argument strings
         std::map<std::string, std::vector<std::shared_ptr<Type>>> uniqueInstances;
         for (const auto& inst : instances) {
@@ -1026,7 +1029,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
                     Specialization spec;
                     spec.originalName = method->name;
-                    spec.specializedName = mangled + "_" + method->name;
+                    spec.specializedName = mangled + "_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + method->name;
                     spec.typeArguments = typeArgs;
                     spec.classType = specializedClass;
                     spec.node = method;

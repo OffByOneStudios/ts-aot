@@ -932,6 +932,22 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // map
             .build());
 
+    reg.registerLowering("ts_map_set_cstr_string",
+        lowering("ts_map_set_cstr_string")
+            .returnsVoid()
+            .ptrArg()      // map (raw TsMap*)
+            .ptrArg()      // key (raw C string)
+            .ptrArg()      // value (raw TsString*, NOT boxed)
+            .build());
+
+    reg.registerLowering("ts_map_set_cstr",
+        lowering("ts_map_set_cstr")
+            .returnsVoid()
+            .ptrArg()      // map (raw TsMap*)
+            .ptrArg()      // key (raw C string)
+            .ptrArg()      // value (raw pointer)
+            .build());
+
     reg.registerLowering("ts_map_size",
         lowering("ts_map_size")
             .returnsI64()
@@ -1297,6 +1313,20 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()      // Returns module exports
             .ptrArg()          // specifier
             .ptrArg()          // referrerPath
+            .build());
+
+    // =========================================================================
+    // Function.prototype.call/apply this binding
+    // =========================================================================
+    reg.registerLowering("ts_set_call_this",
+        lowering("ts_set_call_this")
+            .returnsVoid()
+            .ptrArg()          // thisArg (raw pointer)
+            .build());
+
+    reg.registerLowering("ts_get_call_this",
+        lowering("ts_get_call_this")
+            .returnsPtr()      // Returns stored thisArg
             .build());
 
     // =========================================================================
