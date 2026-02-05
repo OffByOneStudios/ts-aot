@@ -281,6 +281,8 @@ private:
     // Registry-based call lowering
     llvm::Value* lowerRegisteredCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec);
     llvm::Value* convertArg(llvm::Value* arg, ::hir::ArgConversion conv);
+    llvm::Value* coerceArgToType(llvm::Value* arg, llvm::Type* expectedType,
+                                  const HIROperand& operand);
     llvm::Value* handleReturn(llvm::Value* result, ::hir::ReturnHandling handling);
 
     // Variadic function lowering helpers
