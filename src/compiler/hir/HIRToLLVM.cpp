@@ -2646,10 +2646,14 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
     // Check if index is a string/pointer (dynamic property access) vs numeric (array index)
     if (idx->getType()->isPointerTy()) {
         // Dynamic property access: obj[stringKey] - call ts_object_get_dynamic
+        // Box the string key to TsValue* since ts_object_get_dynamic expects TsValue* args
+        auto boxKeyFn = getTsValueMakeString();
+        llvm::Value* boxedKey = builder_->CreateCall(boxKeyFn, {idx});
+
         auto ft = llvm::FunctionType::get(builder_->getPtrTy(),
                                           {builder_->getPtrTy(), builder_->getPtrTy()}, false);
         auto fn = module_->getOrInsertFunction("ts_object_get_dynamic", ft);
-        result = builder_->CreateCall(ft, fn.getCallee(), {arr, idx});
+        result = builder_->CreateCall(ft, fn.getCallee(), {arr, boxedKey});
     } else {
         // Array index access
         // Convert index to i64 if it's a double (numeric literal indices come through as f64)
@@ -2710,10 +2714,35 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
     // Check if index is a string/pointer (dynamic property access) vs numeric (array index)
     if (idx->getType()->isPointerTy()) {
         // Dynamic property set: obj[stringKey] = val - call ts_object_set_dynamic
+        // Box the string key to TsValue* since ts_object_set_dynamic expects TsValue* args
+        auto boxKeyFn = getTsValueMakeString();
+        llvm::Value* boxedKey = builder_->CreateCall(boxKeyFn, {idx});
+
+        // Box the value too if it's a raw pointer (could be TsString* from const.string)
+        // We need to check the HIR type of the value operand to determine the right boxing
+        llvm::Value* boxedVal = val;
+        if (val->getType()->isPointerTy()) {
+            // Check HIR type of value operand to determine boxing type
+            bool boxedAsString = false;
+            if (inst->operands.size() > 2) {
+                if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[2])) {
+                    if (*hirVal && (*hirVal)->type && (*hirVal)->type->kind == HIRTypeKind::String) {
+                        boxedVal = builder_->CreateCall(boxKeyFn, {val});
+                        boxedAsString = true;
+                    }
+                }
+            }
+            if (!boxedAsString) {
+                // For other pointer types (objects, etc.), box as object
+                auto boxObjFn = getTsValueMakeObject();
+                boxedVal = builder_->CreateCall(boxObjFn, {val});
+            }
+        }
+
         auto ft = llvm::FunctionType::get(builder_->getVoidTy(),
                                           {builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy()}, false);
         auto fn = module_->getOrInsertFunction("ts_object_set_dynamic", ft);
-        builder_->CreateCall(ft, fn.getCallee(), {arr, idx, val});
+        builder_->CreateCall(ft, fn.getCallee(), {arr, boxedKey, boxedVal});
     } else {
         // Array index set
         // Convert index to i64 if it's a double (numeric literal indices come through as f64)
@@ -2840,6 +2869,41 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             builder_->getPtrTy(), { builder_->getInt32Ty() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
         llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_string_eq / ts_string_ne - returns bool (i1), not ptr
+    // Arguments may be boxed TsValue* (from get_prop.static on dynamic objects) -
+    // need to extract raw TsString* via ts_value_get_string before comparing.
+    // ts_value_get_string handles both raw TsString* (magic check) and boxed TsValue*
+    // (STRING_PTR type), so it's safe to always call.
+    if (funcName == "ts_string_eq" || funcName == "ts_string_ne") {
+        llvm::Value* a = getOperandValue(inst->operands[1]);
+        llvm::Value* b = getOperandValue(inst->operands[2]);
+
+        // Always extract raw TsString* via ts_value_get_string - it handles both
+        // raw TsString* (by checking magic at offset 0) and boxed TsValue*
+        // (by checking type field). This is safe and idempotent.
+        llvm::FunctionType* getStrFt = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+        auto getStrFn = module_->getOrInsertFunction("ts_value_get_string", getStrFt);
+        if (a->getType()->isPointerTy()) {
+            a = builder_->CreateCall(getStrFt, getStrFn.getCallee(), { a }, "str_a");
+        }
+        if (b->getType()->isPointerTy()) {
+            b = builder_->CreateCall(getStrFt, getStrFn.getCallee(), { b }, "str_b");
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_string_eq", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { a, b });
+        if (funcName == "ts_string_ne") {
+            result = builder_->CreateNot(result, "str_ne");
+        }
         if (inst->result) {
             setValue(inst->result, result);
         }
