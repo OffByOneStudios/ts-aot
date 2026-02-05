@@ -109,11 +109,11 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 - [x] Add CMake configuration for handlers/
 - [x] Test with empty registry (no functional change)
 
-### Phase 2: Extract Math Handler
-- [ ] Create MathHandler.cpp
-- [ ] Move Math.min, Math.max, Math.floor, etc. from lowerCall
-- [ ] Move Number.isNaN, Number.isFinite, etc.
-- [ ] Verify no regression in golden IR tests
+### Phase 2: Extract Math Handler (Complete)
+- [x] Create MathHandler.cpp
+- [x] Move Math.min, Math.max, Math.floor, etc. from lowerCall
+- [x] Move Number.isNaN, Number.isFinite, etc.
+- [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
 
 ### Phase 3: Extract Console Handler
 - [ ] Create ConsoleHandler.cpp
@@ -144,10 +144,10 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 
 | File | Action |
 |------|--------|
-| `src/compiler/hir/handlers/BuiltinHandler.h` | Create |
-| `src/compiler/hir/handlers/HandlerRegistry.h` | Create |
-| `src/compiler/hir/handlers/HandlerRegistry.cpp` | Create |
-| `src/compiler/hir/handlers/MathHandler.cpp` | Create (Phase 2) |
+| `src/compiler/hir/handlers/BuiltinHandler.h` | Created ✓ |
+| `src/compiler/hir/handlers/HandlerRegistry.h` | Created ✓ |
+| `src/compiler/hir/handlers/HandlerRegistry.cpp` | Created ✓ |
+| `src/compiler/hir/handlers/MathHandler.cpp` | Created ✓ (Phase 2) |
 | `src/compiler/hir/handlers/ConsoleHandler.cpp` | Create (Phase 3) |
 | `src/compiler/hir/handlers/ArrayHandler.cpp` | Create (Phase 4) |
 | `src/compiler/hir/CMakeLists.txt` | Modify (add handlers/) |

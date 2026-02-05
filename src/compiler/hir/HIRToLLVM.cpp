@@ -3,6 +3,7 @@
 //==============================================================================
 
 #include "HIRToLLVM.h"
+#include "handlers/HandlerRegistry.h"
 
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -2727,6 +2728,14 @@ void HIRToLLVM::lowerArrayPush(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     std::string funcName = getOperandString(inst->operands[0]);
+
+    // Try handler registry first - this is the new modular approach
+    if (auto* result = HandlerRegistry::instance().tryLower(funcName, inst, *this)) {
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
 
     // Handle console functions specially - they need type-specific dispatch
     if (funcName == "ts_console_log" || funcName == "ts_console_error" ||
