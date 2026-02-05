@@ -105,6 +105,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             func->isAsync = funcNode->isAsync;
             func->isGenerator = funcNode->isGenerator;
 
+            // Collect destructured parameter patterns for later extraction
+            struct SpecDestructuredParam {
+                size_t paramIndex;
+                ast::ObjectBindingPattern* objPattern = nullptr;
+                ast::ArrayBindingPattern* arrPattern = nullptr;
+            };
+            std::vector<SpecDestructuredParam> specDestructuredParams;
+
             // Handle parameters
             for (size_t paramIdx = 0; paramIdx < funcNode->parameters.size(); ++paramIdx) {
                 auto& param = funcNode->parameters[paramIdx];
@@ -127,6 +135,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 std::string paramName;
                 if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
                     paramName = ident->name;
+                } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(param->name.get())) {
+                    paramName = "param" + std::to_string(func->params.size());
+                    paramType = HIRType::makeAny();
+                    specDestructuredParams.push_back({func->params.size(), objPat, nullptr});
+                } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(param->name.get())) {
+                    paramName = "param" + std::to_string(func->params.size());
+                    paramType = HIRType::makeAny();
+                    specDestructuredParams.push_back({func->params.size(), nullptr, arrPat});
                 } else {
                     paramName = "param" + std::to_string(func->params.size());
                 }
@@ -207,6 +223,19 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 } else {
                     // No default value - just register the parameter directly
                     defineVariable(paramName, paramValue);
+                }
+            }
+
+            // Emit destructuring extraction for parameters with binding patterns
+            for (auto& dp : specDestructuredParams) {
+                auto paramValue = std::make_shared<HIRValue>(
+                    static_cast<uint32_t>(dp.paramIndex),
+                    HIRType::makeAny(),
+                    func->params[dp.paramIndex].first);
+                if (dp.objPattern) {
+                    lowerObjectBindingPattern(dp.objPattern, paramValue);
+                } else if (dp.arrPattern) {
+                    lowerArrayBindingPattern(dp.arrPattern, paramValue);
                 }
             }
 
@@ -978,6 +1007,14 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     func->isAsync = node->isAsync;
     func->isGenerator = node->isGenerator;
 
+    // Collect destructured parameter patterns for later extraction
+    struct DestructuredParam {
+        size_t paramIndex;
+        ast::ObjectBindingPattern* objPattern = nullptr;
+        ast::ArrayBindingPattern* arrPattern = nullptr;
+    };
+    std::vector<DestructuredParam> destructuredParams;
+
     // Handle parameters
     for (size_t paramIdx = 0; paramIdx < node->parameters.size(); ++paramIdx) {
         auto& param = node->parameters[paramIdx];
@@ -995,6 +1032,15 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         std::string paramName;
         if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
             paramName = ident->name;
+        } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(param->name.get())) {
+            paramName = "param" + std::to_string(func->params.size());
+            // Force Any type for destructured params (we extract properties at function entry)
+            paramType = HIRType::makeAny();
+            destructuredParams.push_back({func->params.size(), objPat, nullptr});
+        } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(param->name.get())) {
+            paramName = "param" + std::to_string(func->params.size());
+            paramType = HIRType::makeAny();
+            destructuredParams.push_back({func->params.size(), nullptr, arrPat});
         } else {
             paramName = "param" + std::to_string(func->params.size());
         }
@@ -1097,6 +1143,20 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         } else {
             // No default value - just register the parameter directly
             defineVariable(paramName, paramValue);
+        }
+    }
+
+    // Emit destructuring extraction for parameters with binding patterns
+    for (auto& dp : destructuredParams) {
+        // Get the parameter value by its index
+        auto paramValue = std::make_shared<HIRValue>(
+            static_cast<uint32_t>(dp.paramIndex),
+            HIRType::makeAny(),
+            func->params[dp.paramIndex].first);
+        if (dp.objPattern) {
+            lowerObjectBindingPattern(dp.objPattern, paramValue);
+        } else if (dp.arrPattern) {
+            lowerArrayBindingPattern(dp.arrPattern, paramValue);
         }
     }
 
@@ -2288,6 +2348,10 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         } else if (useBigInt) {
             // BigInt addition via runtime call
             lastValue_ = builder_.createCall("ts_bigint_add", {lhs, rhs}, HIRType::makeObject());
+        } else if (isAnyOrNullish(lhs, node->left.get()) && isAnyOrNullish(rhs, node->right.get())) {
+            // Dynamic dispatch for any-typed operands - runtime handles number vs string
+            // Only when BOTH operands are any to avoid breaking concrete typed cases
+            lastValue_ = builder_.createCall("ts_value_add", {lhs, rhs}, HIRType::makeAny());
         } else if (useFloat) {
             lastValue_ = builder_.createAddF64(lhs, rhs);
         } else {
@@ -3970,6 +4034,14 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     // call_indirect always passes the closure as the first argument
     func->params.push_back({"__closure__", HIRType::makePtr()});
 
+    // Collect destructured parameter patterns for later extraction
+    struct ArrowDestructuredParam {
+        size_t paramIndex;
+        ast::ObjectBindingPattern* objPattern = nullptr;
+        ast::ArrayBindingPattern* arrPattern = nullptr;
+    };
+    std::vector<ArrowDestructuredParam> arrowDestructuredParams;
+
     // Handle parameters - use inferred types from function type if available
     for (size_t i = 0; i < node->parameters.size(); ++i) {
         auto& param = node->parameters[i];
@@ -3991,6 +4063,14 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         std::string paramName;
         if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
             paramName = ident->name;
+        } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(param->name.get())) {
+            paramName = "param" + std::to_string(func->params.size());
+            paramType = HIRType::makeAny();
+            arrowDestructuredParams.push_back({func->params.size(), objPat, nullptr});
+        } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(param->name.get())) {
+            paramName = "param" + std::to_string(func->params.size());
+            paramType = HIRType::makeAny();
+            arrowDestructuredParams.push_back({func->params.size(), nullptr, arrPat});
         } else {
             paramName = "param" + std::to_string(func->params.size());
         }
@@ -4027,6 +4107,19 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         defineVariable(paramName, paramValue);
     }
     func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+    // Emit destructuring extraction for parameters with binding patterns
+    for (auto& dp : arrowDestructuredParams) {
+        auto paramValue = std::make_shared<HIRValue>(
+            static_cast<uint32_t>(dp.paramIndex),
+            HIRType::makeAny(),
+            func->params[dp.paramIndex].first);
+        if (dp.objPattern) {
+            lowerObjectBindingPattern(dp.objPattern, paramValue);
+        } else if (dp.arrPattern) {
+            lowerArrayBindingPattern(dp.arrPattern, paramValue);
+        }
+    }
 
     // Lower function body
     // The body can be either a BlockStatement or an Expression (implicit return)

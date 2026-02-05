@@ -3165,10 +3165,17 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
     }
 
-    // Gather arguments
+    // Gather arguments, converting types to match function signature
     std::vector<llvm::Value*> args;
+    llvm::FunctionType* fnType = fn->getFunctionType();
     for (size_t i = 1; i < inst->operands.size(); ++i) {
-        args.push_back(getOperandValue(inst->operands[i]));
+        llvm::Value* arg = getOperandValue(inst->operands[i]);
+        size_t paramIdx = i - 1;
+        if (paramIdx < fnType->getNumParams()) {
+            llvm::Type* expectedType = fnType->getParamType(paramIdx);
+            arg = coerceArgToType(arg, expectedType, inst->operands[i]);
+        }
+        args.push_back(arg);
     }
 
     llvm::Value* result = builder_->CreateCall(fn, args);
@@ -3322,6 +3329,64 @@ llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) 
 
         case ::hir::ArgConversion::IntToPtr:
             return builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+    }
+    return arg;
+}
+
+llvm::Value* HIRToLLVM::coerceArgToType(llvm::Value* arg, llvm::Type* expectedType,
+                                        const HIROperand& operand) {
+    llvm::Type* argType = arg->getType();
+
+    // When both are ptr, check HIR type to see if we need to box a concrete value
+    // for an 'any' parameter. A raw TsString* or TsObject* needs to be boxed to TsValue*.
+    if (argType == expectedType && argType->isPointerTy()) {
+        // Check if the operand has a concrete HIR type that needs boxing
+        if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
+            if (*hirVal && (*hirVal)->type) {
+                auto hirKind = (*hirVal)->type->kind;
+                if (hirKind == HIRTypeKind::String) {
+                    auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                    auto fn = module_->getOrInsertFunction("ts_value_make_string", ft);
+                    return builder_->CreateCall(ft, fn.getCallee(), { arg });
+                }
+                // For other concrete types (Object, Array, Function, etc.),
+                // they may already be boxed or need object boxing
+            }
+        }
+        return arg;
+    }
+
+    if (argType == expectedType) return arg;
+
+    // Need to convert: arg type doesn't match expected
+    if (expectedType->isPointerTy()) {
+        // Expected ptr (Any/object param) - box the concrete value
+        if (argType->isDoubleTy()) {
+            return convertArg(arg, ::hir::ArgConversion::Box);
+        } else if (argType->isIntegerTy(64)) {
+            return convertArg(arg, ::hir::ArgConversion::Box);
+        } else if (argType->isIntegerTy(1)) {
+            return convertArg(arg, ::hir::ArgConversion::Box);
+        }
+    } else if (expectedType->isDoubleTy()) {
+        // Expected double but got something else
+        if (argType->isIntegerTy(64)) {
+            return builder_->CreateSIToFP(arg, builder_->getDoubleTy());
+        } else if (argType->isPointerTy()) {
+            // Unbox ptr to double
+            auto ft = llvm::FunctionType::get(builder_->getDoubleTy(), { builder_->getPtrTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_get_double", ft);
+            return builder_->CreateCall(ft, fn.getCallee(), { arg });
+        }
+    } else if (expectedType->isIntegerTy(64)) {
+        // Expected i64 but got something else
+        if (argType->isDoubleTy()) {
+            return builder_->CreateFPToSI(arg, builder_->getInt64Ty());
+        } else if (argType->isPointerTy()) {
+            auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_get_int", ft);
+            return builder_->CreateCall(ft, fn.getCallee(), { arg });
+        }
     }
     return arg;
 }
@@ -3606,10 +3671,17 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         llvm::Function* fn = module_->getFunction(funcName);
         if (fn) {
             // Found the method function - call it with 'this' and arguments
+            llvm::FunctionType* fnType = fn->getFunctionType();
             std::vector<llvm::Value*> args;
-            args.push_back(obj);  // 'this' pointer
+            args.push_back(obj);  // 'this' pointer (param 0)
             for (size_t i = 2; i < inst->operands.size(); ++i) {
-                args.push_back(getOperandValue(inst->operands[i]));
+                llvm::Value* arg = getOperandValue(inst->operands[i]);
+                size_t paramIdx = i - 2 + 1;  // +1 for 'this' param
+                if (paramIdx < fnType->getNumParams()) {
+                    llvm::Type* expectedType = fnType->getParamType(paramIdx);
+                    arg = coerceArgToType(arg, expectedType, inst->operands[i]);
+                }
+                args.push_back(arg);
             }
 
             llvm::Value* result = builder_->CreateCall(fn, args);
