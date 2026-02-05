@@ -1,7 +1,7 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define
 // CHECK: @ts_closure_create
-// CHECK: @ts_closure_get_func
+// CHECK: @ts_closure_get_cell
 // OUTPUT: 1
 // OUTPUT: 2
 // OUTPUT: 3

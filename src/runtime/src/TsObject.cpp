@@ -3074,6 +3074,19 @@ TsValue* ts_value_make_int(int64_t i) {
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) {
         if (!obj || !key || !value) return;
 
+        // Detect if obj is a raw pointer (not a boxed TsValue*) by checking magic values
+        // A TsObject/TsMap has magic "MAPS" (0x4D415053) at offset 16
+        {
+            uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
+            if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC || magic16 == 0x54415252) {
+                // This is a raw TsObject* - wrap it as TsValue and continue
+                TsValue* wrapped = (TsValue*)ts_alloc(sizeof(TsValue));
+                wrapped->type = ValueType::OBJECT_PTR;
+                wrapped->ptr_val = (void*)obj;
+                obj = wrapped;
+            }
+        }
+
         // Check if this is a Proxy - dispatch through proxy trap
         void* rawObj = ts_value_get_object(obj);
         if (rawObj) {
