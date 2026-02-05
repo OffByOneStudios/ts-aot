@@ -149,6 +149,23 @@ void HIRToLLVM::createMainFunction() {
     llvm::Value* argc = mainFn->getArg(0);
     llvm::Value* argv = mainFn->getArg(1);
 
+    // Call all ___static_init functions before ts_main (for decorators, etc.)
+    // Static init signature: void ClassName___static_init(void* ctx)
+    llvm::FunctionType* staticInitFt = llvm::FunctionType::get(
+        builder_->getVoidTy(),
+        { builder_->getPtrTy() },  // ctx parameter
+        false
+    );
+    llvm::Value* nullCtx = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+
+    for (auto& fn : module_->functions()) {
+        std::string fnName = fn.getName().str();
+        if (fnName.size() > 14 && fnName.substr(fnName.size() - 14) == "___static_init") {
+            SPDLOG_DEBUG("Calling static init: {}", fnName);
+            builder_->CreateCall(staticInitFt, &fn, { nullCtx });
+        }
+    }
+
     // Call ts_main(argc, argv, user_main)
     llvm::Value* result = builder_->CreateCall(
         tsMainFt, tsMain.getCallee(),
@@ -598,6 +615,7 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::ConstFloat:     lowerConstFloat(inst); break;
         case HIROpcode::ConstBool:      lowerConstBool(inst); break;
         case HIROpcode::ConstString:    lowerConstString(inst); break;
+        case HIROpcode::ConstCString:   lowerConstCString(inst); break;
         case HIROpcode::ConstNull:      lowerConstNull(inst); break;
         case HIROpcode::ConstUndefined: lowerConstUndefined(inst); break;
 
@@ -799,6 +817,14 @@ void HIRToLLVM::lowerConstString(HIRInstruction* inst) {
     // Call ts_string_create to create TsString*
     auto fn = getTsStringCreate();
     llvm::Value* result = builder_->CreateCall(fn, {strPtr});
+    setValue(inst->result, result);
+}
+
+void HIRToLLVM::lowerConstCString(HIRInstruction* inst) {
+    std::string value = getOperandString(inst->operands[0]);
+
+    // Create global string constant (raw C string, no TsString wrapper)
+    llvm::Value* result = createGlobalString(value);
     setValue(inst->result, result);
 }
 
@@ -2788,6 +2814,25 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_nullish", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_value_make_bool - takes i32, returns ptr
+    if (funcName == "ts_value_make_bool") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        // Truncate i64 to i32 if needed
+        if (arg->getType()->isIntegerTy(64)) {
+            arg = builder_->CreateTrunc(arg, builder_->getInt32Ty(), "trunc_to_i32");
+        } else if (arg->getType()->isIntegerTy(1)) {
+            arg = builder_->CreateZExt(arg, builder_->getInt32Ty(), "zext_to_i32");
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getInt32Ty() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
         llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
         if (inst->result) {
             setValue(inst->result, result);

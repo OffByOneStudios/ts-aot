@@ -154,6 +154,7 @@ private:
     void lowerConstFloat(HIRInstruction* inst);
     void lowerConstBool(HIRInstruction* inst);
     void lowerConstString(HIRInstruction* inst);
+    void lowerConstCString(HIRInstruction* inst);
     void lowerConstNull(HIRInstruction* inst);
     void lowerConstUndefined(HIRInstruction* inst);
 

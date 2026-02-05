@@ -145,6 +145,16 @@ public:
         return result;
     }
 
+    // Create a raw C string pointer (const char*) - useful for C APIs
+    std::shared_ptr<HIRValue> createConstCString(const std::string& value) {
+        auto result = createValue(HIRType::makePtr());
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::ConstCString);
+        inst->result = result;
+        inst->operands.push_back(value);
+        emit(std::move(inst));
+        return result;
+    }
+
     std::shared_ptr<HIRValue> createConstNull() {
         auto result = createValue(HIRType::makePtr());
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::ConstNull);

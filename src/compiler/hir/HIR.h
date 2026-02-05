@@ -130,6 +130,7 @@ enum class HIROpcode {
     ConstFloat,         // %r = const.f64 <value>
     ConstBool,          // %r = const.bool <value>
     ConstString,        // %r = const.string "<value>"
+    ConstCString,       // %r = const.cstring "<value>" (raw C string pointer)
     ConstNull,          // %r = const.null
     ConstUndefined,     // %r = const.undefined
 

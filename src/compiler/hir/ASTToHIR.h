@@ -141,8 +141,21 @@ private:
     // Deferred static blocks (to be emitted at the start of user_main)
     std::vector<ast::StaticBlock*> deferredStaticBlocks_;
 
+    // Deferred decorator invocations - classes with decorators need static init functions
+    struct DeferredDecorator {
+        std::string className;                      // Name of the class being decorated
+        std::vector<ast::Decorator> decorators;     // Decorators to apply (in declaration order)
+    };
+    std::vector<DeferredDecorator> deferredDecorators_;
+
     // Emit deferred static initializations and static blocks
     void emitDeferredStaticInits();
+
+    // Generate static init function for a class with decorators
+    // (class, method, property, and parameter decorators)
+    void generateClassDecoratorStaticInit(const std::string& className,
+                                          const std::vector<ast::Decorator>& classDecorators,
+                                          const std::vector<ast::NodePtr>& members);
 
     //==========================================================================
     // Visitor Implementation - Statements
