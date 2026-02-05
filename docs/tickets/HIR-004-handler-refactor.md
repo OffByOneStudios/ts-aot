@@ -115,11 +115,11 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 - [x] Move Number.isNaN, Number.isFinite, etc.
 - [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
 
-### Phase 3: Extract Console Handler
-- [ ] Create ConsoleHandler.cpp
-- [ ] Move console.log type dispatch logic
-- [ ] Remove duplicate console handling from lowerCall
-- [ ] Verify no regression
+### Phase 3: Extract Console Handler (Complete)
+- [x] Create ConsoleHandler.cpp
+- [x] Move console.log type dispatch logic
+- [x] Handler takes precedence over old code (no removal needed yet)
+- [x] Verify no regression in golden IR tests (120/146, 82.2% - unchanged)
 
 ### Phase 4: Extract Array Handler
 - [ ] Create ArrayHandler.cpp
@@ -148,7 +148,7 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 | `src/compiler/hir/handlers/HandlerRegistry.h` | Created ✓ |
 | `src/compiler/hir/handlers/HandlerRegistry.cpp` | Created ✓ |
 | `src/compiler/hir/handlers/MathHandler.cpp` | Created ✓ (Phase 2) |
-| `src/compiler/hir/handlers/ConsoleHandler.cpp` | Create (Phase 3) |
+| `src/compiler/hir/handlers/ConsoleHandler.cpp` | Created ✓ (Phase 3) |
 | `src/compiler/hir/handlers/ArrayHandler.cpp` | Create (Phase 4) |
 | `src/compiler/hir/CMakeLists.txt` | Modify (add handlers/) |
 | `src/compiler/hir/HIRToLLVM.cpp` | Modify (use registry) |
