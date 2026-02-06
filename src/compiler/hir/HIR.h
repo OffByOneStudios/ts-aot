@@ -317,6 +317,9 @@ struct HIRInstruction {
     std::vector<std::pair<int64_t, HIRBlock*>> switchCases;
     HIRBlock* switchDefault = nullptr;
 
+    // Escape analysis
+    bool escapes = true;            // Conservative default: object escapes function scope
+
     // Metadata
     uint32_t sourceLocation = 0;    // Line number for debugging
 

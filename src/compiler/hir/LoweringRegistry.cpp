@@ -408,6 +408,13 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .build());
 
+    reg.registerLowering("ts_array_init_inplace",
+        lowering("ts_array_init_inplace")
+            .returnsVoid()
+            .ptrArg()      // mem (caller-provided)
+            .i64Arg()      // initial_capacity
+            .build());
+
     reg.registerLowering("ts_array_isArray",
         lowering("ts_array_isArray")
             .returnsBool()
@@ -895,6 +902,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
     reg.registerLowering("ts_map_create",
         lowering("ts_map_create")
             .returnsPtr()
+            .build());
+
+    reg.registerLowering("ts_map_init_inplace",
+        lowering("ts_map_init_inplace")
+            .returnsVoid()
+            .ptrArg()      // mem (caller-provided)
             .build());
 
     reg.registerLowering("ts_map_get",

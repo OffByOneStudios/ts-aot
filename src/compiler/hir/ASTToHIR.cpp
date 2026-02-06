@@ -3461,6 +3461,11 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         newObj = builder_.createNewObjectDynamic();
     }
 
+    // Propagate escape analysis from AST
+    if (!node->escapes) {
+        builder_.markLastNonEscaping();
+    }
+
     if (hirClass && hirClass->constructor) {
         // Build constructor call args: [this, ...args]
         std::vector<std::shared_ptr<HIRValue>> ctorArgs;

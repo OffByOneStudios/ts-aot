@@ -15,6 +15,11 @@ TsArray* TsArray::Create(size_t initialCapacity) {
     return new(mem) TsArray(initialCapacity, 8);
 }
 
+void TsArray::InitInPlace(void* mem, size_t initialCapacity) {
+    if (!mem) return;
+    new(mem) TsArray(initialCapacity, 8);
+}
+
 TsArray* TsArray::CreateSized(size_t size) {
     void* mem = ts_alloc(sizeof(TsArray));
     TsArray* arr = new(mem) TsArray(size, 8);
@@ -1088,6 +1093,10 @@ extern "C" {
 
     void* ts_array_create_sized(int64_t size) {
         return TsArray::CreateSized((size_t)size);
+    }
+
+    void ts_array_init_inplace(void* mem, int64_t initial_capacity) {
+        TsArray::InitInPlace(mem, initial_capacity > 0 ? (size_t)initial_capacity : 8);
     }
 
     void* ts_array_create_specialized(int64_t size, int64_t elementSize, bool isDouble) {

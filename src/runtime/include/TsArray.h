@@ -93,6 +93,9 @@ public:
     /// Transition to a more general element kind
     void TransitionTo(ElementKind newKind);
 
+    // Init-in-place for stack allocation (escape analysis)
+    static void InitInPlace(void* mem, size_t initialCapacity);
+
 private:
     TsArray(size_t initialCapacity, size_t elementSize = 8);
 
@@ -109,6 +112,7 @@ private:
 extern "C" {
     void* ts_array_create();
     void* ts_array_create_sized(int64_t size);
+    void ts_array_init_inplace(void* mem, int64_t initial_capacity);  // Placement-new at caller-provided memory
     void* ts_array_create_specialized(int64_t size, int64_t elementSize, bool isDouble);
     void* ts_array_get_elements_ptr(void* arr);
     void ts_array_push(void* arr, void* value);

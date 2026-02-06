@@ -84,6 +84,14 @@ private:
     // This is set when lowering a function with captures
     llvm::Value* closureParam_ = nullptr;
 
+    // Escape analysis: stack allocation tracking per function
+    int stackAllocCount_ = 0;           // Number of stack-allocated objects in current function
+    int stackAllocBytes_ = 0;           // Total bytes of stack-allocated objects in current function
+    static constexpr int kMaxStackAllocObjects = 4;
+    static constexpr int kMaxStackAllocBytes = 512;
+    static constexpr int kSizeOfTsMap = 64;
+    static constexpr int kSizeOfTsArray = 56;
+
     // For async functions
     bool isAsyncFunction_ = false;
     llvm::Value* asyncPromise_ = nullptr;  // The Promise to resolve/reject

@@ -86,6 +86,13 @@ public:
     HIRBlock* getInsertBlock() const { return currentBlock_; }
     HIRFunction* getCurrentFunction() const { return currentFunction_; }
 
+    // Mark the last emitted instruction as non-escaping (for escape analysis)
+    void markLastNonEscaping() {
+        if (currentBlock_ && !currentBlock_->instructions.empty()) {
+            currentBlock_->instructions.back()->escapes = false;
+        }
+    }
+
     // Check if the current block already has a terminator (return, branch, throw, etc.)
     bool isBlockTerminated() const {
         return currentBlock_ && currentBlock_->getTerminator() != nullptr;
