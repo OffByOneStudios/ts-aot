@@ -2,12 +2,13 @@
 """Node.js API Test Runner - Compiles and runs Node.js API tests."""
 
 import argparse
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -49,6 +50,8 @@ def color_text(text: str, color: str) -> str:
 class NodeTestRunner:
     """Main test runner for Node.js API tests."""
 
+    BASELINE_FILE = '.node_test_baseline.json'
+
     def __init__(self, test_pattern: str = "**/*.ts", verbose: bool = False):
         self.script_dir = Path(__file__).parent
         self.root_dir = self.script_dir.parent.parent
@@ -64,6 +67,12 @@ class NodeTestRunner:
         self.compile_errors = 0
 
         self.results: List[TestResult] = []
+
+        # Per-test results for baseline tracking
+        self.test_statuses: Dict[str, str] = {}
+        self.previous_baseline: Dict[str, str] = {}
+        self.regressions: List[str] = []
+        self.fixes: List[str] = []
 
     def check_compiler_exists(self) -> bool:
         """Verify that the compiler exists."""
@@ -225,10 +234,60 @@ class NodeTestRunner:
                 for line in lines[-5:]:
                     print(f"    {line}")
 
+    def _baseline_path(self) -> Path:
+        """Return the path to the baseline JSON file."""
+        return self.script_dir / self.BASELINE_FILE
+
+    def _load_baseline(self):
+        """Load the previous test baseline if it exists."""
+        path = self._baseline_path()
+        if path.exists():
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    self.previous_baseline = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                self.previous_baseline = {}
+
+    def _save_baseline(self):
+        """Save the current test results as the new baseline."""
+        path = self._baseline_path()
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(self.test_statuses, f, indent=2, sort_keys=True)
+
+    def _compare_baseline(self):
+        """Compare current results against previous baseline to find regressions and fixes."""
+        if not self.previous_baseline:
+            return
+
+        for test_name, current_status in self.test_statuses.items():
+            prev_status = self.previous_baseline.get(test_name)
+            if prev_status is None:
+                continue  # New test, no comparison
+            if prev_status == 'pass' and current_status != 'pass':
+                self.regressions.append(test_name)
+            elif prev_status != 'pass' and current_status == 'pass':
+                self.fixes.append(test_name)
+
+    def _classify_result(self, result: TestResult) -> str:
+        """Classify a test result into a status string for baseline tracking."""
+        if result.compile_error:
+            return 'compile_error'
+        elif result.blocked:
+            return 'blocked'
+        elif result.skipped:
+            return 'skipped'
+        elif result.passed:
+            return 'pass'
+        else:
+            return 'fail'
+
     def run_all_tests(self):
         """Run all tests and report results."""
         if not self.check_compiler_exists():
             return 1
+
+        # Load previous baseline for comparison
+        self._load_baseline()
 
         print(color_text("\n=== Node.js API Test Suite ===\n", Colors.BOLD))
 
@@ -245,6 +304,10 @@ class NodeTestRunner:
             self.results.append(result)
             self.print_test_result(result)
 
+            # Normalize test name for baseline key
+            test_name = result.name.replace('\\', '/')
+            self.test_statuses[test_name] = self._classify_result(result)
+
             self.total_tests += 1
             if result.compile_error:
                 self.compile_errors += 1
@@ -257,6 +320,10 @@ class NodeTestRunner:
                 self.passed_tests += 1
             else:
                 self.failed_tests += 1
+
+        # Compare against baseline and save new results
+        self._compare_baseline()
+        self._save_baseline()
 
         self.print_summary()
 
@@ -276,6 +343,33 @@ class NodeTestRunner:
         if self.passed_tests > 0:
             pass_rate = (self.passed_tests / (self.total_tests - self.blocked_tests - self.skipped_tests)) * 100 if (self.total_tests - self.blocked_tests - self.skipped_tests) > 0 else 0
             print(f"\nPass rate (excluding blocked/skipped): {pass_rate:.1f}%")
+
+        # Show regression/fix comparison against baseline
+        if self.previous_baseline:
+            prev_pass = sum(1 for s in self.previous_baseline.values() if s == 'pass')
+            prev_total = len(self.previous_baseline)
+            print(f"Previous:          {prev_pass}/{prev_total} passed")
+
+            if self.regressions:
+                print()
+                print(color_text(f"REGRESSIONS ({len(self.regressions)}):", Colors.RED))
+                for name in sorted(self.regressions):
+                    prev = self.previous_baseline.get(name, '?')
+                    curr = self.test_statuses.get(name, '?')
+                    print(color_text(f"  - {name}  ({prev} -> {curr})", Colors.RED))
+
+            if self.fixes:
+                print()
+                print(color_text(f"Fixes ({len(self.fixes)}):", Colors.GREEN))
+                for name in sorted(self.fixes):
+                    prev = self.previous_baseline.get(name, '?')
+                    curr = self.test_statuses.get(name, '?')
+                    print(color_text(f"  + {name}  ({prev} -> {curr})", Colors.GREEN))
+
+            if not self.regressions and not self.fixes:
+                print(color_text("No regressions.", Colors.GREEN))
+        else:
+            print(color_text("\nNo previous baseline found. This run will be saved as the baseline.", Colors.YELLOW))
 
 
 def main():

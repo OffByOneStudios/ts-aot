@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -155,6 +156,8 @@ def color_text(text: str, color: str) -> str:
 class GoldenIRRunner:
     """Main test runner class."""
 
+    BASELINE_FILE = '.golden_ir_baseline.json'
+
     def __init__(self, test_path: str, show_details: bool = False):
         self.script_dir = Path(__file__).parent
         self.root_dir = self.script_dir.parent.parent
@@ -167,6 +170,12 @@ class GoldenIRRunner:
         self.passed_tests = 0
         self.failed_tests = 0
         self.failure_details = []
+
+        # Per-test results for baseline tracking: {test_name: "pass"|"fail"}
+        self.test_results: Dict[str, str] = {}
+        self.previous_baseline: Dict[str, str] = {}
+        self.regressions: List[str] = []
+        self.fixes: List[str] = []
 
     def check_compiler_exists(self) -> bool:
         """Verify that the compiler exists."""
@@ -598,6 +607,9 @@ class GoldenIRRunner:
                 test_name = str(test_file.relative_to(self.root_dir))
             except ValueError:
                 test_name = str(test_file)
+        # Normalize path separators for consistent baseline keys
+        test_name = test_name.replace('\\', '/')
+
         print(color_text(f"[{self.total_tests}] Testing: {test_name}", Colors.BLUE))
 
         test = self.parse_test_file(test_file)
@@ -619,6 +631,7 @@ class GoldenIRRunner:
                     'stage': result.stage,
                     'error': result.error
                 })
+                self.test_results[test_name] = 'fail'
                 return
 
             # Check HIR patterns first (if any)
@@ -635,6 +648,7 @@ class GoldenIRRunner:
                         'stage': 'HIR-CHECK Patterns',
                         'failures': hir_check_result.failures
                     })
+                    self.test_results[test_name] = 'fail'
                     return
 
             # Check LLVM IR patterns
@@ -651,6 +665,7 @@ class GoldenIRRunner:
                         'stage': 'CHECK Patterns',
                         'failures': check_result.failures
                     })
+                    self.test_results[test_name] = 'fail'
                     return
 
             # Check output
@@ -672,17 +687,53 @@ class GoldenIRRunner:
                         'stage': 'Output',
                         'failures': output_result.failures
                     })
+                    self.test_results[test_name] = 'fail'
                     return
 
             # Test passed
             print(color_text('  + PASSED', Colors.GREEN))
             self.passed_tests += 1
+            self.test_results[test_name] = 'pass'
 
         finally:
             # Clean up temp directory
             if temp_dir.exists():
                 import shutil
                 shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _baseline_path(self) -> Path:
+        """Return the path to the baseline JSON file."""
+        return self.script_dir / self.BASELINE_FILE
+
+    def _load_baseline(self):
+        """Load the previous test baseline if it exists."""
+        path = self._baseline_path()
+        if path.exists():
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    self.previous_baseline = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                self.previous_baseline = {}
+
+    def _save_baseline(self):
+        """Save the current test results as the new baseline."""
+        path = self._baseline_path()
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(self.test_results, f, indent=2, sort_keys=True)
+
+    def _compare_baseline(self):
+        """Compare current results against previous baseline to find regressions and fixes."""
+        if not self.previous_baseline:
+            return
+
+        for test_name, current_status in self.test_results.items():
+            prev_status = self.previous_baseline.get(test_name)
+            if prev_status is None:
+                continue  # New test, no comparison
+            if prev_status == 'pass' and current_status == 'fail':
+                self.regressions.append(test_name)
+            elif prev_status == 'fail' and current_status == 'pass':
+                self.fixes.append(test_name)
 
     def show_summary(self):
         """Display test summary."""
@@ -703,6 +754,29 @@ class GoldenIRRunner:
         color = Colors.GREEN if pass_rate == 100 else Colors.YELLOW
         print(color_text(f"Pass Rate: {pass_rate:.1f}%", color))
 
+        # Show regression/fix comparison against baseline
+        if self.previous_baseline:
+            prev_pass = sum(1 for s in self.previous_baseline.values() if s == 'pass')
+            prev_total = len(self.previous_baseline)
+            print(f"Previous:   {prev_pass}/{prev_total} passed")
+
+            if self.regressions:
+                print()
+                print(color_text(f"REGRESSIONS ({len(self.regressions)}):", Colors.RED))
+                for name in sorted(self.regressions):
+                    print(color_text(f"  - {name}", Colors.RED))
+
+            if self.fixes:
+                print()
+                print(color_text(f"Fixes ({len(self.fixes)}):", Colors.GREEN))
+                for name in sorted(self.fixes):
+                    print(color_text(f"  + {name}", Colors.GREEN))
+
+            if not self.regressions and not self.fixes:
+                print(color_text("No regressions.", Colors.GREEN))
+        else:
+            print(color_text("No previous baseline found. This run will be saved as the baseline.", Colors.YELLOW))
+
         print('=' * 60)
 
     def run(self) -> int:
@@ -712,6 +786,9 @@ class GoldenIRRunner:
 
         test_files = self.get_test_files()
 
+        # Load previous baseline for comparison
+        self._load_baseline()
+
         print()
         print(color_text('Golden IR Test Runner', Colors.CYAN))
         print(color_text(f"Running {len(test_files)} tests.", Colors.CYAN))
@@ -719,6 +796,10 @@ class GoldenIRRunner:
 
         for test_file in test_files:
             self.run_single_test(test_file)
+
+        # Compare against baseline and save new results
+        self._compare_baseline()
+        self._save_baseline()
 
         self.show_summary()
 
