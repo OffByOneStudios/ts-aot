@@ -106,13 +106,22 @@ extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
 TsMap* TsMap::Create() {
     void* mem = ts_alloc(sizeof(TsMap));
     TsMap* map = new(mem) TsMap();
-    
+
     if (!TsMap_VTable[1]) {
         TsMap_VTable[1] = (void*)ts_map_get_property;
     }
     map->vtable = TsMap_VTable;
-    
+
     return map;
+}
+
+void TsMap::InitInPlace(void* mem) {
+    if (!mem) return;
+    TsMap* map = new(mem) TsMap();
+    if (!TsMap_VTable[1]) {
+        TsMap_VTable[1] = (void*)ts_map_get_property;
+    }
+    map->vtable = TsMap_VTable;
 }
 
 TsMap::TsMap() {
@@ -284,6 +293,10 @@ extern void* g_debug_lodash_module_map;
 
 void* ts_map_create() {
     return TsMap::Create();
+}
+
+void ts_map_init_inplace(void* mem) {
+    TsMap::InitInPlace(mem);
 }
 
 void* ts_map_create_explicit() {

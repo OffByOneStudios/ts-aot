@@ -348,6 +348,8 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     currentHIRFunction_ = fn;
     isAsyncFunction_ = fn->isAsync;
     isGeneratorFunction_ = fn->isGenerator;
+    stackAllocCount_ = 0;
+    stackAllocBytes_ = 0;
     valueMap_.clear();
     blockMap_.clear();
     closureParam_ = nullptr;
@@ -2236,9 +2238,39 @@ void HIRToLLVM::lowerNewObject(HIRInstruction* inst) {
         className = getOperandString(inst->operands[0]);
     }
 
-    // Always create a TsMap-based object first (compatible with property access)
-    auto createFn = getTsObjectCreate();
-    llvm::Value* result = builder_->CreateCall(createFn, {});
+    llvm::Value* result;
+
+    // Check if we can stack-allocate this object
+    bool canStackAlloc = !inst->escapes &&
+                         !isAsyncFunction_ &&
+                         !isGeneratorFunction_ &&
+                         stackAllocCount_ < kMaxStackAllocObjects &&
+                         (stackAllocBytes_ + kSizeOfTsMap) <= kMaxStackAllocBytes;
+
+    if (canStackAlloc) {
+        // Stack allocate: emit alloca at function entry block
+        {
+            llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+            llvm::BasicBlock* entryBB = &currentFunction_->getEntryBlock();
+            builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
+            auto* allocaInst = builder_->CreateAlloca(
+                llvm::ArrayType::get(builder_->getInt8Ty(), kSizeOfTsMap),
+                nullptr, "stack.obj");
+            allocaInst->setAlignment(llvm::Align(16));
+            result = allocaInst;
+        }
+        // Guard restored insert point; now initialize in-place at current position
+        auto initFn = getOrDeclareRuntimeFunction("ts_map_init_inplace",
+            builder_->getVoidTy(), {builder_->getPtrTy()});
+        builder_->CreateCall(initFn, {result});
+
+        stackAllocCount_++;
+        stackAllocBytes_ += kSizeOfTsMap;
+    } else {
+        // Heap allocation (original path)
+        auto createFn = getTsObjectCreate();
+        result = builder_->CreateCall(createFn, {});
+    }
 
     // Look up the vtable global for this class
     std::string vtableGlobalName = className + "_VTable_Global";
@@ -2627,8 +2659,40 @@ void HIRToLLVM::lowerDeleteProp(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerNewArrayBoxed(HIRInstruction* inst) {
     llvm::Value* len = getOperandValue(inst->operands[0]);
-    auto fn = getTsArrayCreate();
-    llvm::Value* result = builder_->CreateCall(fn, {len});
+
+    // Check if we can stack-allocate this array
+    bool canStackAlloc = !inst->escapes &&
+                         !isAsyncFunction_ &&
+                         !isGeneratorFunction_ &&
+                         stackAllocCount_ < kMaxStackAllocObjects &&
+                         (stackAllocBytes_ + kSizeOfTsArray) <= kMaxStackAllocBytes;
+
+    llvm::Value* result;
+    if (canStackAlloc) {
+        // Stack allocate: emit alloca at function entry block
+        {
+            llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+            llvm::BasicBlock* entryBB = &currentFunction_->getEntryBlock();
+            builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
+            auto* allocaInst = builder_->CreateAlloca(
+                llvm::ArrayType::get(builder_->getInt8Ty(), kSizeOfTsArray),
+                nullptr, "stack.arr");
+            allocaInst->setAlignment(llvm::Align(16));
+            result = allocaInst;
+        }
+        // Guard restored insert point; initialize in-place at current position
+        auto initFn = getOrDeclareRuntimeFunction("ts_array_init_inplace",
+            builder_->getVoidTy(), {builder_->getPtrTy(), builder_->getInt64Ty()});
+        builder_->CreateCall(initFn, {result, len});
+
+        stackAllocCount_++;
+        stackAllocBytes_ += kSizeOfTsArray;
+    } else {
+        // Heap allocation (original path)
+        auto fn = getTsArrayCreate();
+        result = builder_->CreateCall(fn, {len});
+    }
+
     setValue(inst->result, result);
 }
 

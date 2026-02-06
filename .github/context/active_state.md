@@ -12,10 +12,16 @@
 2. **Next: Unboxed Arrays** - Highest impact/effort ratio optimization
 
 ## Recent Accomplishments (2026-02-05)
+*   **Escape Analysis Pass (Phase 5 perf roadmap):** Stack allocation for non-escaping objects
+    - SSA-based EscapeAnalysisPass analyzes def-use chains to find non-escaping NewObject/NewArrayBoxed
+    - `alloca` + `ts_map_init_inplace`/`ts_array_init_inplace` replaces `ts_alloc` for non-escaping objects
+    - Safety limits: max 4 stack objects, 512 bytes per function; disabled for async/generators
+    - sizeof(TsMap)=64, sizeof(TsArray)=56; align 16 on all stack allocations
+    - Golden IR tests: 146/146 (100%) - no regressions
 *   **Golden IR Tests 100%:** All 146/146 golden IR tests passing
-*   **RegExp exec/literal fix:** Added `ts_value_is_null` special case in HIRToLLVM (handles both boxed null and raw nullptr); registered `ts_regexp_from_literal` and `ts_regexp_create` in LoweringRegistry
-*   **Decorator fixes (all 3 tests):** Fixed Monomorphizer triple-processing of non-generic classes; registered `ts_map_set_cstr_string` and `ts_map_set_cstr` in LoweringRegistry; added get/set descriptor properties for accessor decorators
-*   **IIFE .call() support:** Added `ts_set_call_this`/`ts_get_call_this` runtime functions; ASTToHIR detects `.call(thisArg)` pattern; function expressions resolve `this` via `ts_get_call_this()`
+*   **RegExp exec/literal fix:** Added `ts_value_is_null` special case in HIRToLLVM
+*   **Decorator fixes (all 3 tests):** Fixed Monomorphizer triple-processing of non-generic classes
+*   **IIFE .call() support:** Added `ts_set_call_this`/`ts_get_call_this` runtime functions
 *   **String switch lowering:** Fixed computed enum const-eval in HIR pipeline
 *   **Destructured parameters:** Fixed function overloads in HIR pipeline
 *   **Index signatures:** Fixed string comparison in HIR pipeline
@@ -50,7 +56,7 @@
 | 2 | SMI (Tagged Integers) | 3-5x cumulative | Planned |
 | 3 | Hidden Classes/Shapes | 5-10x cumulative | Planned |
 | 4 | Method Inline Cache | 6-12x cumulative | Planned |
-| 5 | Escape Analysis | Variable | Planned |
+| 5 | Escape Analysis | Variable | **Done** |
 | 6 | String Interning | +10-20% | Planned |
 | 7 | Custom Generational GC | Better latency | Future |
 

@@ -41,6 +41,9 @@ public:
     void SetExplicitMap(bool value) { isExplicitMap = value; }
     bool IsExplicitMap() const { return isExplicitMap; }
 
+    // Init-in-place for stack allocation (escape analysis)
+    static void InitInPlace(void* mem);
+
 protected:
     TsMap();
 private:
@@ -55,6 +58,7 @@ private:
 extern "C" {
     void* ts_map_create();
     void* ts_map_create_explicit();  // Creates a Map object (new Map())
+    void ts_map_init_inplace(void* mem);  // Placement-new a TsMap at caller-provided memory
 
     // Helper for CommonJS module initialization - sets a property by C string key
     void ts_map_set_cstr(void* map, const char* key, void* value);

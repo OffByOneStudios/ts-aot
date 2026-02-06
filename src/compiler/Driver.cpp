@@ -17,6 +17,7 @@
 #include "hir/passes/BuiltinResolutionPass.h"
 #include "hir/passes/DeadCodeEliminationPass.h"
 #include "hir/passes/InliningPass.h"
+#include "hir/passes/EscapeAnalysisPass.h"
 #include <fmt/core.h>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
@@ -161,6 +162,7 @@ int Driver::run() {
         passManager.addPass(std::make_unique<hir::ConstantFoldingPass>());
         passManager.addPass(std::make_unique<hir::DeadCodeEliminationPass>());
         passManager.addPass(std::make_unique<hir::InliningPass>());
+        passManager.addPass(std::make_unique<hir::EscapeAnalysisPass>());
         passManager.addPass(std::make_unique<hir::MethodResolutionPass>());
         passManager.addPass(std::make_unique<hir::BuiltinResolutionPass>());
 
