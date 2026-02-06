@@ -1489,6 +1489,21 @@ static std::shared_ptr<Type> convertExtTypeRef(const ext::TypeReference& ref) {
     if (name == "symbol") return std::make_shared<Type>(TypeKind::Symbol);
     if (name == "never") return std::make_shared<Type>(TypeKind::Never);
 
+    // Function type with callback parameter types
+    // e.g., {"name": "function", "typeArgs": [{"name": "IncomingMessage"}, {"name": "ServerResponse"}]}
+    // The typeArgs represent the callback's parameter types; last one is return type if > 0 args
+    if (name == "function" || name == "Function") {
+        auto funcType = std::make_shared<FunctionType>();
+        if (ref.isGeneric()) {
+            // typeArgs encode callback parameter types
+            for (const auto& typeArg : ref.typeArgs) {
+                funcType->paramTypes.push_back(convertExtTypeRef(typeArg));
+            }
+        }
+        funcType->returnType = std::make_shared<Type>(TypeKind::Void);
+        return funcType;
+    }
+
     // Generic types with type arguments
     if (ref.isGeneric()) {
         if (name == "Array") {
@@ -1571,6 +1586,17 @@ void Analyzer::registerTypesFromExtensions() {
 
     SPDLOG_DEBUG("Registering types from {} extension contracts", contracts.size());
 
+    // =========================================================================
+    // Pass 1: Register all types, globals, and objects (skip inheritance)
+    // =========================================================================
+    // We collect pending inheritance info to resolve in pass 2, after all types
+    // from all contracts are in the symbol table.
+    struct PendingInheritance {
+        std::string typeName;
+        std::string baseName;
+    };
+    std::vector<PendingInheritance> pendingInheritance;
+
     for (const auto& contract : contracts) {
         SPDLOG_DEBUG("Processing extension: {} v{}", contract.name, contract.version);
 
@@ -1608,8 +1634,13 @@ void Analyzer::registerTypesFromExtensions() {
                 classType->staticMethods[methodName] = convertExtMethod(methodDef);
             }
 
-            // Register the type
+            // Register the type (without base class for now)
             symbols.defineType(typeName, classType);
+
+            // Queue inheritance for pass 2
+            if (typeDef.extends) {
+                pendingInheritance.push_back({typeName, typeDef.extends->name});
+            }
         }
 
         // Register globals (variables and functions)
@@ -1680,6 +1711,24 @@ void Analyzer::registerTypesFromExtensions() {
             }
 
             symbols.define(objName, objType);
+        }
+    }
+
+    // =========================================================================
+    // Pass 2: Resolve inheritance (all types are now in symbol table)
+    // =========================================================================
+    for (const auto& pending : pendingInheritance) {
+        auto derivedType = symbols.lookupType(pending.typeName);
+        auto baseType = symbols.lookupType(pending.baseName);
+        if (derivedType && baseType) {
+            auto derivedClass = std::dynamic_pointer_cast<ClassType>(derivedType);
+            if (derivedClass) {
+                derivedClass->baseClass = std::dynamic_pointer_cast<ClassType>(baseType);
+                SPDLOG_DEBUG("  Resolved inheritance: {} extends {}", pending.typeName, pending.baseName);
+            }
+        } else {
+            SPDLOG_DEBUG("  Failed to resolve inheritance: {} extends {} (base not found)",
+                         pending.typeName, pending.baseName);
         }
     }
 

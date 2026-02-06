@@ -60,7 +60,7 @@ Run the test suite BEFORE implementing and capture results:
 $ python tests/node/run_tests.py
 Results: XX/XX passed (XX%)
 
-$ python tests/golden_ir/runner.py
+$ python tests/golden_ir/runner.py tests/golden_ir
 Results: XX passed, X failed, X XFAIL
 ```
 
@@ -145,7 +145,7 @@ Follow the standard development workflow:
    python tests/node/run_tests.py
 
    # Golden IR tests
-   python tests/golden_ir/runner.py
+   python tests/golden_ir/runner.py tests/golden_ir
    ```
 
 3. **Verify no regressions:**
@@ -161,7 +161,7 @@ Follow the standard development workflow:
    $ python tests/node/run_tests.py
    Results: XX/XX passed (XX%)  # Should be >= baseline
 
-   $ python tests/golden_ir/runner.py
+   $ python tests/golden_ir/runner.py tests/golden_ir
    Results: XX passed, X failed, X XFAIL  # No new failures
    ```
    ```

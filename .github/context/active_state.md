@@ -1,17 +1,27 @@
 # Active Project State
 
-**Last Updated:** 2026-02-05
-**Current Phase:** Performance Optimization
+**Last Updated:** 2026-02-06
+**Current Phase:** Extension System Migration
 
 ## Current Focus
-1. Optimizing runtime performance to achieve parity with Node.js
-2. Golden IR test suite complete - 146/146 (100%)
+1. Migrating Node.js-specific code from core analyzer/runtime to extension system
+2. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
 
 ## Active Tasks
-1. **Performance Epic** - Planning complete, see `docs/epics/EPIC-PERF-001-performance-parity.md`
-2. **Next: Unboxed Arrays** - Highest impact/effort ratio optimization
+1. **Extension Migration Epic** - Phase 1 complete, Phase 2 in progress
+2. **Phase 2: Create missing .ext.json contracts** - 12 modules need contracts
 
-## Recent Accomplishments (2026-02-05)
+## Recent Accomplishments (2026-02-06)
+*   **Extension Migration Phase 1 (Analyzer Infrastructure) - COMPLETE**
+    - Step 1.1: Two-pass inheritance resolution in `registerTypesFromExtensions()`
+    - Step 1.2: Function-typed parameter conversion in `convertExtTypeRef()` for callback inference
+    - Step 1.3: Replaced hardcoded `BUILTIN_MODULES` list with `ExtensionRegistry::isRegisteredModule()` query
+    - Step 1.4: `getExpectedCallbackType()` now checks registered method signatures before hardcoded patterns
+    - Golden IR: 146/146 (100%), Node tests: 216/280 (77.1%) - no regressions
+*   **Test Runner Baseline Tracking** - Both golden IR and node test runners now save/load JSON baselines for regression detection
+*   **Documentation** - Audit of all Node.js-specific analyzer code (`docs/extensions/audit-nodejs-hardcoding.md`, `docs/extensions/analyzer-hardcoding-analysis.md`)
+
+## Previous Accomplishments (2026-02-05)
 *   **Escape Analysis Pass (Phase 5 perf roadmap):** Stack allocation for non-escaping objects
     - SSA-based EscapeAnalysisPass analyzes def-use chains to find non-escaping NewObject/NewArrayBoxed
     - `alloca` + `ts_map_init_inplace`/`ts_array_init_inplace` replaces `ts_alloc` for non-escaping objects

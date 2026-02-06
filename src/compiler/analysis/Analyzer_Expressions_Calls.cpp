@@ -183,13 +183,45 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         // Check if this is an arrow function that needs contextual typing
         bool isArrowOrFn = (arg->getKind() == "ArrowFunction" || arg->getKind() == "FunctionExpression");
         if (isArrowOrFn) {
-            // Try to get expected callback type
+            // Try to get expected callback type from multiple sources
             std::shared_ptr<FunctionType> expectedCb = nullptr;
-            
-            // First try known API patterns
-            expectedCb = getExpectedCallbackType(objName, methodName, i);
 
-            // Check for Promise.then() / Promise.catch() contextual typing
+            // 1. Try from callee's registered function type params (includes extension-registered types).
+            //    This is the primary path — extensions define full method signatures with
+            //    function-typed parameters that carry callback param types.
+            if (!expectedParamTypes.empty()) {
+                // Exact index match
+                if (i < expectedParamTypes.size() && expectedParamTypes[i] &&
+                    expectedParamTypes[i]->kind == TypeKind::Function) {
+                    auto funcParam = std::static_pointer_cast<FunctionType>(expectedParamTypes[i]);
+                    if (!funcParam->paramTypes.empty()) {
+                        expectedCb = funcParam;
+                    }
+                }
+                // If exact index has no function type, scan for the nearest function-typed
+                // param at or after index i. This handles optional params before the callback
+                // (e.g., http.createServer has optional 'options' at index 0, callback at index 1,
+                // but callers typically pass the callback as arg 0).
+                if (!expectedCb) {
+                    for (size_t j = i; j < expectedParamTypes.size(); j++) {
+                        if (expectedParamTypes[j] && expectedParamTypes[j]->kind == TypeKind::Function) {
+                            auto funcParam = std::static_pointer_cast<FunctionType>(expectedParamTypes[j]);
+                            if (!funcParam->paramTypes.empty()) {
+                                expectedCb = funcParam;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Fallback: hardcoded API patterns (legacy — will be removed once all
+            //    extensions carry full callback signatures in their method definitions).
+            if (!expectedCb) {
+                expectedCb = getExpectedCallbackType(objName, methodName, i);
+            }
+
+            // 3. Check for Promise.then() / Promise.catch() contextual typing
             if (!expectedCb) {
                 if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
                     // Get the type of the object (the promise)
@@ -218,11 +250,6 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                 }
             }
 
-            // Then try from callee's function type
-            if (!expectedCb && i < expectedParamTypes.size() && expectedParamTypes[i]->kind == TypeKind::Function) {
-                expectedCb = std::static_pointer_cast<FunctionType>(expectedParamTypes[i]);
-            }
-            
             if (expectedCb) {
                 pushContextualType(expectedCb);
                 visit(arg.get());

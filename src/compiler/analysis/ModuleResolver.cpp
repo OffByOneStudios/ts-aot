@@ -1,4 +1,5 @@
 #include "ModuleResolver.h"
+#include "../extensions/ExtensionLoader.h"
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -19,13 +20,11 @@ const std::vector<std::string> ModuleResolver::INDEX_FILES = {
     "index.ts", "index.tsx", "index.d.ts", "index.js", "index.jsx"
 };
 
-// Builtin modules that don't need resolution
-static const std::vector<std::string> BUILTIN_MODULES = {
-    "fs", "path", "crypto", "os", "http", "https", "events", "net",
-    "stream", "util", "url", "buffer", "process", "child_process",
-    "cluster", "dgram", "dns", "domain", "readline", "repl", "tls",
-    "tty", "v8", "vm", "zlib", "assert", "async_hooks", "console",
-    "constants", "module", "perf_hooks", "querystring", "string_decoder",
+// Fallback builtin modules that don't have extension contracts yet
+// These are kept for modules that aren't defined through the extension system.
+static const std::vector<std::string> FALLBACK_BUILTIN_MODULES = {
+    "buffer", "process", "https",
+    "domain", "repl", "constants",
     "timers", "timers/promises", "trace_events", "worker_threads"
 };
 
@@ -44,11 +43,22 @@ bool ModuleResolver::isBuiltinModule(const std::string& specifier) {
     if (name.starts_with("node:")) {
         name = name.substr(5);
     }
-    return std::find(BUILTIN_MODULES.begin(), BUILTIN_MODULES.end(), name) != BUILTIN_MODULES.end();
+
+    // Check the extension registry first (covers all extension-defined modules)
+    auto& registry = ext::ExtensionRegistry::instance();
+    if (registry.isRegisteredModule(name)) {
+        return true;
+    }
+
+    // Fallback for modules without extension contracts
+    return std::find(FALLBACK_BUILTIN_MODULES.begin(), FALLBACK_BUILTIN_MODULES.end(), name)
+        != FALLBACK_BUILTIN_MODULES.end();
 }
 
 const std::vector<std::string>& ModuleResolver::getBuiltinModules() {
-    return BUILTIN_MODULES;
+    // This returns the fallback list for compatibility; callers that need
+    // the full list should query the extension registry directly.
+    return FALLBACK_BUILTIN_MODULES;
 }
 
 ResolvedModule ModuleResolver::resolve(const std::string& specifier, const fs::path& fromFile) {
