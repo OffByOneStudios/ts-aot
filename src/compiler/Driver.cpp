@@ -2,7 +2,6 @@
 #include "ast/AstLoader.h"
 #include "analysis/Analyzer.h"
 #include "analysis/Monomorphizer.h"
-#include "codegen/IRGenerator.h"
 #include "codegen/CodeGenerator.h"
 #include "codegen/LinkerDriver.h"
 #include "extensions/ExtensionLoader.h"
@@ -136,84 +135,59 @@ int Driver::run() {
         ts::Monomorphizer monomorphizer;
         monomorphizer.monomorphize(program.get(), analyzer);
 
-        // Choose between HIR pipeline and traditional IRGenerator
         // IMPORTANT: Declaration order matters for destruction!
         // Context must be declared BEFORE Module so Module is destroyed first.
         llvm::Module* modulePtr = nullptr;
-        std::unique_ptr<llvm::LLVMContext> hirContext; // LLVM context for HIR pipeline (destroyed LAST)
-        std::unique_ptr<llvm::Module> hirOwnedModule;  // Only used for HIR pipeline (destroyed BEFORE context)
-        std::unique_ptr<ts::IRGenerator> irGen;        // Only used for traditional pipeline
+        std::unique_ptr<llvm::LLVMContext> hirContext; // LLVM context (destroyed LAST)
+        std::unique_ptr<llvm::Module> hirOwnedModule;  // LLVM module (destroyed BEFORE context)
 
-        if (options.useHir) {
-            // HIR Pipeline: AST -> HIR -> LLVM IR
-            if (options.verbose) {
-                SPDLOG_INFO("Using HIR pipeline...");
-                SPDLOG_INFO("Lowering AST to HIR...");
-            }
+        // HIR Pipeline: AST -> HIR -> LLVM IR
+        if (options.verbose) {
+            SPDLOG_INFO("Lowering AST to HIR...");
+        }
 
-            std::string moduleName = std::filesystem::path(tsFile).stem().string();
-            hir::ASTToHIR astToHir;
-            auto hirModule = astToHir.lower(program.get(), monomorphizer.getSpecializations(), moduleName);
+        std::string moduleName = std::filesystem::path(tsFile).stem().string();
+        hir::ASTToHIR astToHir;
+        auto hirModule = astToHir.lower(program.get(), monomorphizer.getSpecializations(), moduleName);
 
-            // Run HIR optimization passes
-            if (options.verbose) {
-                SPDLOG_INFO("Running HIR passes...");
-            }
+        // Run HIR optimization passes
+        if (options.verbose) {
+            SPDLOG_INFO("Running HIR passes...");
+        }
 
-            hir::PassManager passManager;
-            passManager.addPass(std::make_unique<hir::TypePropagationPass>());
-            passManager.addPass(std::make_unique<hir::IntegerOptimizationPass>());
-            passManager.addPass(std::make_unique<hir::ConstantFoldingPass>());
-            passManager.addPass(std::make_unique<hir::DeadCodeEliminationPass>());
-            passManager.addPass(std::make_unique<hir::InliningPass>());
-            passManager.addPass(std::make_unique<hir::MethodResolutionPass>());
-            passManager.addPass(std::make_unique<hir::BuiltinResolutionPass>());
+        hir::PassManager passManager;
+        passManager.addPass(std::make_unique<hir::TypePropagationPass>());
+        passManager.addPass(std::make_unique<hir::IntegerOptimizationPass>());
+        passManager.addPass(std::make_unique<hir::ConstantFoldingPass>());
+        passManager.addPass(std::make_unique<hir::DeadCodeEliminationPass>());
+        passManager.addPass(std::make_unique<hir::InliningPass>());
+        passManager.addPass(std::make_unique<hir::MethodResolutionPass>());
+        passManager.addPass(std::make_unique<hir::BuiltinResolutionPass>());
 
-            auto passResult = passManager.run(*hirModule);
-            if (!passResult.success()) {
-                SPDLOG_ERROR("HIR pass failed: {}", passResult.error);
-                return 1;
-            }
+        auto passResult = passManager.run(*hirModule);
+        if (!passResult.success()) {
+            SPDLOG_ERROR("HIR pass failed: {}", passResult.error);
+            return 1;
+        }
 
-            // Dump final HIR (after all optimization passes)
-            if (options.dumpHir) {
-                hir::HIRPrinter printer(std::cout);
-                printer.print(*hirModule);
-            }
+        // Dump final HIR (after all optimization passes)
+        if (options.dumpHir) {
+            hir::HIRPrinter printer(std::cout);
+            printer.print(*hirModule);
+        }
 
-            if (options.verbose) {
-                SPDLOG_INFO("Lowering HIR to LLVM IR...");
-            }
+        if (options.verbose) {
+            SPDLOG_INFO("Lowering HIR to LLVM IR...");
+        }
 
-            // Create LLVM context for HIR pipeline (must outlive the module)
-            hirContext = std::make_unique<llvm::LLVMContext>();
-            hir::HIRToLLVM hirToLlvm(*hirContext);
-            hirOwnedModule = hirToLlvm.lower(hirModule.get(), moduleName);
-            modulePtr = hirOwnedModule.get();
+        // Create LLVM context (must outlive the module)
+        hirContext = std::make_unique<llvm::LLVMContext>();
+        hir::HIRToLLVM hirToLlvm(*hirContext);
+        hirOwnedModule = hirToLlvm.lower(hirModule.get(), moduleName);
+        modulePtr = hirOwnedModule.get();
 
-            if (options.dumpIR) {
-                modulePtr->print(llvm::outs(), nullptr);
-            }
-        } else {
-            // Traditional Pipeline: AST -> LLVM IR directly
-            if (options.verbose) {
-                SPDLOG_INFO("Generating IR...");
-            }
-            irGen = std::make_unique<ts::IRGenerator>();
-            irGen->setVerbose(options.verbose);
-            irGen->setOptLevel(options.optLevel);
-            if (!options.runtimeBitcode.empty()) {
-                irGen->setRuntimeBitcode(options.runtimeBitcode);
-            }
-            irGen->setDebug(options.debug);
-            irGen->setDebugRuntime(options.debugRuntime);
-            irGen->generate(program.get(), monomorphizer.getSpecializations(), analyzer, tsFile);
-
-            if (options.dumpIR) {
-                irGen->dumpIR();
-            }
-
-            modulePtr = irGen->getModule();
+        if (options.dumpIR) {
+            modulePtr->print(llvm::outs(), nullptr);
         }
 
         std::string objFile;

@@ -13,7 +13,7 @@ class Analyzer;
  * The AsyncTransformer is responsible for transforming async functions into
  * state machines that can be executed by the runtime.
  * 
- * For now, we will implement a simplified version that works with the IRGenerator
+ * For now, we will implement a simplified version that works with the HIR pipeline
  * to produce the necessary state machine logic.
  */
 class AsyncTransformer {

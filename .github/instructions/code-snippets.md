@@ -117,29 +117,7 @@ if (objName == "myModule" && methodName == "myMethod" && argIndex == 0) {
 
 ---
 
-## 8. Add Builtin Call Handler (IRGenerator)
-
-In `IRGenerator_Expressions_Calls_Builtin_XXX.cpp`:
-
-```cpp
-if (methodName == "myMethod") {
-    // Get arguments
-    llvm::Value* arg0 = visitExpression(call->arguments[0].get());
-    
-    // Declare and call runtime function
-    auto ft = llvm::FunctionType::get(
-        builder->getPtrTy(),  // return type
-        { builder->getPtrTy() },  // arg types
-        false
-    );
-    auto fn = module->getOrInsertFunction("ts_my_runtime_function", ft);
-    return builder->CreateCall(ft, fn.getCallee(), { arg0 });
-}
-```
-
----
-
-## 9. Cast Between Stream Types
+## 8. Cast Between Stream Types
 
 ```cpp
 // From void* to TsSocket

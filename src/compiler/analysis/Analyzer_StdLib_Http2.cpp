@@ -73,7 +73,7 @@ void Analyzer::registerHTTP2() {
     http2SessionClass->fields["socket"] = socketClass ? socketClass : std::make_shared<Type>(TypeKind::Any);
     http2SessionClass->fields["type"] = std::make_shared<Type>(TypeKind::Int);
 
-    // Methods (types for codegen dispatch, actual implementations in IRGenerator)
+    // Methods (types for codegen dispatch, actual implementations in runtime)
     auto closeMethod = std::make_shared<FunctionType>();
     closeMethod->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any)); // callback
     closeMethod->returnType = std::make_shared<Type>(TypeKind::Void);

@@ -5,8 +5,7 @@
 | Task | File(s) |
 |------|---------|
 | Register types for `foo` module | `src/compiler/analysis/Analyzer_StdLib_Foo.cpp` |
-| Register HIR builtin lowering | `src/compiler/hir/LoweringRegistry.cpp` (preferred) |
-| Generate calls for `foo.bar()` (legacy) | `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_Foo.cpp` |
+| Register builtin lowering | `src/compiler/hir/LoweringRegistry.cpp` |
 | Implement `ts_foo_bar()` runtime | `src/runtime/src/TsFoo.cpp` + `src/runtime/include/TsFoo.h` |
 
 ## Type Patterns
@@ -97,9 +96,6 @@ cmake --build build --target tsruntime --config Release
 build/src/compiler/Release/ts-aot.exe tmp/test.ts -o tmp/test.exe
 ./tmp/test.exe
 
-# Compile with HIR pipeline (preferred)
-build/src/compiler/Release/ts-aot.exe tmp/test.ts --use-hir -o tmp/test.exe
-
 # Debug type inference
 build/src/compiler/Release/ts-aot.exe tmp/test.ts --dump-types
 
@@ -107,5 +103,5 @@ build/src/compiler/Release/ts-aot.exe tmp/test.ts --dump-types
 build/src/compiler/Release/ts-aot.exe tmp/test.ts --dump-ir
 
 # Debug HIR output
-build/src/compiler/Release/ts-aot.exe tmp/test.ts --use-hir --dump-hir
+build/src/compiler/Release/ts-aot.exe tmp/test.ts --dump-hir
 ```

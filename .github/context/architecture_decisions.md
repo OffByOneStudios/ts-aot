@@ -30,11 +30,18 @@
 *   **HTTP:** `llhttp` (Node.js parser) + `libuv` TCP handles.
 *   **HTTPS:** OpenSSL for TLS + BIO memory buffers for non-blocking I/O.
 
-## 6. Type System (Dec 2025)
+## 6. Compilation Pipeline (Feb 2026)
+*   **Single Pipeline:** HIR (High-level IR) is the sole compilation pipeline.
+    *   AST → HIR (`ASTToHIR.cpp`) → HIR Passes → LLVM IR (`HIRToLLVM.cpp`)
+    *   The legacy direct AST-to-LLVM pipeline (IRGenerator) was removed in Feb 2026.
+    *   Builtin calls are registered declaratively in `LoweringRegistry.cpp` (182+ functions).
+*   **HIR Passes:** TypePropagation, IntegerOptimization, ConstantFolding, DeadCodeElimination, Inlining, MethodResolution, BuiltinResolution.
+
+## 7. Type System (Dec 2025)
 *   **Contextual Typing:** Arrow function parameters infer types from call context.
     *   *Mechanism:* `contextualTypeStack` in Analyzer, pushed before visiting callbacks.
     *   *Coverage:* http, https, net, fs, and EventEmitter patterns.
-*   **Boxing Convention:** 
+*   **Boxing Convention:**
     *   Compiler tracks boxed values in `boxedValues` set.
     *   Runtime uses `ts_value_get_*` helpers for consistent unboxing.
 *   **Virtual Inheritance Casting:**

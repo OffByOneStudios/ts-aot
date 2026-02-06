@@ -91,7 +91,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         }
     }
 
-    // Second pass: generate functions from specializations (like legacy IRGenerator)
+    // Second pass: generate functions from specializations
     for (const auto& spec : specializations) {
         if (spec.specializedName.find("lambda") != std::string::npos) {
             // Skip lambda specializations - they'll be generated when encountered

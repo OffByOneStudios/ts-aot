@@ -26,8 +26,11 @@ src/runtime/      - The target runtime library (linked into generated code)
 
 1. **Parse**: TypeScript → AST via `dump_ast.js`
 2. **Analyze**: Type inference (`Analyzer*.cpp`)
-3. **Codegen**: AST → LLVM IR (`IRGenerator*.cpp`)
-4. **Link**: LLVM IR + `tsruntime.lib` → Executable
+3. **HIR Lowering**: AST → HIR (`ASTToHIR.cpp`)
+4. **HIR Passes**: Optimization passes (type propagation, constant folding, DCE, inlining, etc.)
+5. **LLVM Lowering**: HIR → LLVM IR (`HIRToLLVM.cpp`)
+6. **Emit**: LLVM IR → Object file (`CodeGenerator.cpp`)
+7. **Link**: Object file + `tsruntime.lib` → Executable (`LinkerDriver.cpp`)
 
 ---
 
@@ -151,7 +154,7 @@ extern "C" {
 
 ### Boxing in Codegen
 
-Track boxed values in `IRGenerator`:
+Track boxed values in `HIRToLLVM`:
 
 ```cpp
 // After creating a boxed value
@@ -344,12 +347,11 @@ lastValue = ts_error_create(msg);  // Already boxed
    
 2. **Contextual Typing**: Add callback signatures in `getExpectedCallbackType()`
    
-3. **Codegen**: Handle calls in `IRGenerator_Expressions_Calls_Builtin_*.cpp`
-   - Use correct boxing/unboxing
-   - Track boxed values
-   
+3. **HIR Lowering**: Register builtins in `LoweringRegistry.cpp`
+   - Use correct return/arg types and conversions
+
 4. **Runtime**: Implement C API in `src/runtime/src/`
    - Use standard unboxing pattern
    - Use `dynamic_cast` for stream classes
-   
-5. **Test**: Create example in `examples/` and verify end-to-end
+
+5. **Test**: Create test in `tmp/` and verify end-to-end

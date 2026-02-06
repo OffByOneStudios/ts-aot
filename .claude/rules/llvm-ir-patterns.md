@@ -1,5 +1,5 @@
 ---
-paths: src/compiler/codegen/**
+paths: src/compiler/codegen/**,src/compiler/hir/**
 priority: high
 ---
 
@@ -112,8 +112,8 @@ llvm::Value* result = createCall(ft, fn.getCallee(), { arrayPtr, indexValue });
 
 ### Common Type Mappings
 
-| TypeScript/Runtime | Analyzer | IRGenerator | LLVM Type |
-|-------------------|----------|-------------|-----------|
+| TypeScript/Runtime | Analyzer | HIRToLLVM | LLVM Type |
+|-------------------|----------|-----------|-----------|
 | `number` | `TypeKind::Number` | N/A | `builder->getDoubleTy()` |
 | `int` (runtime) | `TypeKind::Int` | N/A | `builder->getInt64Ty()` |
 | `boolean` | `TypeKind::Boolean` | N/A | `builder->getInt1Ty()` |

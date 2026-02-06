@@ -59,7 +59,8 @@ src/
 ├── compiler/           # Host compiler (runs on dev machine)
 │   ├── analysis/      # Type inference and semantic analysis
 │   ├── ast/           # AST loading and processing
-│   └── codegen/       # LLVM IR generation
+│   ├── codegen/       # Object file emission and linking
+│   └── hir/           # HIR pipeline (AST → HIR → LLVM IR)
 ├── runtime/           # Target runtime (linked into generated code)
 │   ├── include/       # Runtime headers
 │   └── src/           # Runtime implementation
