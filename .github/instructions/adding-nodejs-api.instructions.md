@@ -4,27 +4,17 @@ This guide explains the 3-layer architecture for adding any new Node.js API to t
 
 ## Architecture Overview
 
-There are two compilation pipelines:
-
-### Legacy Pipeline (AST → LLVM)
 ```
-TypeScript Code → Analyzer → IRGenerator → Runtime
-     (types)       (LLVM IR)     (C++ impl)
+TypeScript Code → Analyzer → ASTToHIR → HIR Passes → HIRToLLVM → Runtime
+     (types)        (HIR)                    (LLVM IR)    (C++ impl)
 ```
 
-### HIR Pipeline (AST → HIR → LLVM) - Preferred for new work
-```
-TypeScript Code → Analyzer → ASTToHIR → HIRToLLVM → Runtime
-     (types)        (HIR)      (LLVM IR)    (C++ impl)
-```
-
-Each API needs changes in **3-4 layers** depending on pipeline:
+Each API needs changes in **3 layers**:
 
 | Layer | File Pattern | Purpose |
 |-------|--------------|---------|
 | **Analysis** | `src/compiler/analysis/Analyzer_StdLib_<Module>.cpp` | Register types and method signatures |
-| **HIR Lowering** | `src/compiler/hir/LoweringRegistry.cpp` | Register HIR-to-LLVM call specifications (HIR pipeline) |
-| **Codegen** | `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_<Module>.cpp` | Generate LLVM IR (legacy pipeline) |
+| **HIR Lowering** | `src/compiler/hir/LoweringRegistry.cpp` | Register HIR-to-LLVM call specifications |
 | **Runtime** | `src/runtime/src/*.cpp` + `src/runtime/include/*.h` | Implement the actual functionality |
 
 ---
@@ -102,94 +92,11 @@ void Analyzer::registerBuiltins() {
 
 ---
 
-## Step 2: Generate IR in Codegen
-
-**File:** `src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_<Module>.cpp`
-
-**Purpose:** When the compiler sees `myModule.doSomething(x)`, generate a call to `ts_my_module_do_something(x)`.
-
-### Template: Builtin Call Handler
-
-```cpp
-#include "IRGenerator.h"
-#include "spdlog/spdlog.h"
-
-namespace ts {
-
-// Static helper to register this module's runtime functions once
-static bool myModuleFunctionsRegistered = false;
-static void ensureMyModuleFunctionsRegistered(BoxingPolicy& bp) {
-    if (myModuleFunctionsRegistered) return;
-    myModuleFunctionsRegistered = true;
-    
-    // Register each runtime function with its boxing requirements:
-    // - argBoxing: which arguments need to be boxed (true = needs TsValue*)
-    // - returnsBoxed: true if function returns TsValue*, false if raw
-    bp.registerRuntimeApi("ts_my_module_do_something", {true}, false);  // 1 boxed arg, returns raw int64
-    bp.registerRuntimeApi("ts_my_module_get_info", {}, true);           // no args, returns boxed
-}
-
-bool IRGenerator::tryGenerateMyModuleCall(ast::CallExpression* node, ast::PropertyAccessExpression* prop) {
-    auto id = std::dynamic_pointer_cast<ast::Identifier>(prop->expression);
-    if (!id || id->name != "myModule") return false;
-    
-    // Register boxing info for this module's functions
-    ensureMyModuleFunctionsRegistered(boxingPolicy);
-    
-    const std::string& methodName = prop->name;
-    
-    if (methodName == "doSomething") {
-        // Get argument
-        llvm::Value* arg = visitExpression(node->arguments[0].get());
-        
-        // Declare runtime function
-        auto ft = llvm::FunctionType::get(
-            builder->getInt64Ty(),    // return type
-            { builder->getPtrTy() },  // arg types (string is ptr)
-            false
-        );
-        // Use getRuntimeFunction for enforcement, or getOrInsertFunction if not enforcing yet
-        auto fn = module->getOrInsertFunction("ts_my_module_do_something", ft);
-        
-        // Create call - use boxingPolicy to determine if args need boxing
-        llvm::Value* boxedArg = boxingPolicy.needsArgBoxed("ts_my_module_do_something", 0) 
-            ? boxValue(arg, node->arguments[0]->inferredType)
-            : arg;
-        
-        lastValue = builder->CreateCall(ft, fn.getCallee(), { boxedArg });
-        return true;
-    }
-    
-    return false;  // Not handled
-}
-
-} // namespace ts
-```
-
-### Don't Forget!
-
-1. **Declare in header:** Add `bool tryGenerateMyModuleCall(...)` to `IRGenerator.h`
-
-2. **Call from dispatcher:** In `IRGenerator_Expressions_Calls_Builtin.cpp`:
-```cpp
-bool IRGenerator::tryGenerateBuiltinCall(...) {
-    // ... existing handlers ...
-    if (auto result = tryGenerateMyModuleCall(node, prop)) return result;
-}
-```
-
-3. **Register boxing info:** Each runtime function MUST be registered with `BoxingPolicy::registerRuntimeApi()`:
-   - First arg: function name (e.g., `"ts_my_module_do_something"`)
-   - Second arg: vector of bools for which args need boxing (e.g., `{true, false}`)
-   - Third arg: whether the return value is boxed (true = TsValue*, false = raw)
-
----
-
-## Step 2b: Register in LoweringRegistry (HIR Pipeline)
+## Step 2: Register in LoweringRegistry
 
 **File:** `src/compiler/hir/LoweringRegistry.cpp`
 
-**Purpose:** When using the HIR pipeline (`--use-hir`), builtins are lowered via a declarative registry instead of inline code.
+**Purpose:** Builtins are lowered via a declarative registry that maps HIR call instructions to LLVM IR.
 
 ### Template: Register a Builtin
 
@@ -273,7 +180,7 @@ Keep inline in HIRToLLVM for:
 
 ---
 
-## Step 3: Implement in Runtime
+## Step 3: Implement in Runtime (unchanged)
 
 **Files:** 
 - `src/runtime/include/TsMyModule.h` (header)
@@ -334,25 +241,15 @@ add_library(tsruntime STATIC
 
 ## Checklist Before Committing
 
-### For Both Pipelines
 - [ ] Analyzer: Types registered in `Analyzer_StdLib_<Module>.cpp`
 - [ ] Analyzer: `register<Module>()` called from `registerBuiltins()`
-- [ ] Runtime: `extern "C"` functions implemented
-- [ ] Runtime: Source file added to `CMakeLists.txt`
-- [ ] Build: `cmake --build build --target ts-aot --config Release` succeeds
-- [ ] Test: Create `tmp/test_<feature>.ts` and verify output
-
-### Legacy Pipeline (IRGenerator)
-- [ ] Codegen: Handler in `IRGenerator_Expressions_Calls_Builtin_<Module>.cpp`
-- [ ] Codegen: Handler declared in `IRGenerator.h`
-- [ ] Codegen: Handler called from `tryGenerateBuiltinCall()`
-- [ ] Codegen: Boxing info registered via `boxingPolicy.registerRuntimeApi()`
-
-### HIR Pipeline (LoweringRegistry) - Preferred
 - [ ] HIR: Builtin registered in `LoweringRegistry::registerBuiltins()` in `src/compiler/hir/LoweringRegistry.cpp`
 - [ ] HIR: Correct return type (`.returnsVoid()`, `.returnsI64()`, `.returnsBoxed()`, etc.)
 - [ ] HIR: Correct argument types and conversions (`.ptrArg()`, `.boxedArg()`, `.i64Arg()`, etc.)
-- [ ] Test with `--use-hir` flag: `ts-aot tmp/test.ts --use-hir -o tmp/test.exe`
+- [ ] Runtime: `extern "C"` functions implemented
+- [ ] Runtime: Source file added to `CMakeLists.txt`
+- [ ] Build: `cmake --build build --config Release` succeeds
+- [ ] Test: Create `tmp/test_<feature>.ts` and verify output
 
 ---
 

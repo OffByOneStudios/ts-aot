@@ -570,7 +570,7 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         
         if (resolvedTypeArguments.empty() && !func->typeParameters.empty()) {
             resolvedTypeArguments = inferTypeArguments(func->typeParameters, func->paramTypes, argTypes);
-            // Update node with inferred type arguments so IRGenerator can use them
+            // Update node with inferred type arguments so codegen can use them
             node->resolvedTypeArguments = resolvedTypeArguments;
         }
 

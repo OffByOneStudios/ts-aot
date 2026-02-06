@@ -67,14 +67,14 @@ Results: XX passed, X failed, X XFAIL
 ## Implementation Plan
 
 1. [ ] Analyzer changes (if any)
-2. [ ] Codegen changes (if any)
+2. [ ] HIR/LoweringRegistry changes (if any)
 3. [ ] Runtime changes (if any)
 4. [ ] Test file(s) to create/modify
 
 ## Files to Modify
 
 - `src/compiler/analysis/Analyzer_*.cpp`
-- `src/compiler/codegen/IRGenerator_*.cpp`
+- `src/compiler/hir/LoweringRegistry.cpp`
 - `src/runtime/src/*.cpp`
 - `src/runtime/include/*.h`
 

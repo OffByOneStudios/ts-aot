@@ -22,7 +22,6 @@ struct DriverOptions {
     bool runAfterLink = false;
     bool smallIcu = false;
     bool verbose = false;
-    bool useHir = true;         // Use HIR pipeline instead of direct IRGenerator
     std::string runtimeBitcode;
     std::vector<std::string> libraryPaths;
 };

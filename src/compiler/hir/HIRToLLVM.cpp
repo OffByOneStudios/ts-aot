@@ -110,7 +110,7 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
 
 void HIRToLLVM::createMainFunction() {
     // Look for the synthetic user_main first (created by Monomorphizer),
-    // fall back to user-defined user_main (same pattern as legacy IRGenerator)
+    // fall back to user-defined user_main
     llvm::Function* userMain = module_->getFunction("__synthetic_user_main");
     if (!userMain) {
         userMain = module_->getFunction("user_main");

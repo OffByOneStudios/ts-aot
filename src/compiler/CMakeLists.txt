@@ -97,56 +97,7 @@ add_library(tscompiler_lib STATIC
     analysis/Monomorphizer.cpp
     Driver.cpp
     codegen/CodeGenerator.cpp
-    codegen/BoxingPolicy.cpp
     codegen/LinkerDriver.cpp
-    codegen/IRGenerator.cpp
-    codegen/IRGenerator_Core.cpp
-    codegen/IRGenerator_Classes.cpp
-    codegen/IRGenerator_Functions.cpp
-    codegen/IRGenerator_Statements.cpp
-    codegen/IRGenerator_Statements_Loops.cpp
-    codegen/IRGenerator_Expressions_Binary.cpp
-    codegen/IRGenerator_Expressions_Unary.cpp
-    codegen/IRGenerator_Expressions_Calls.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_FS.cpp
-    # Path module now handled via extension contract (path.ext.json)
-    # codegen/IRGenerator_Expressions_Calls_Builtin_Path.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Events.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Promise.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Stream.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Buffer.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Net.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_HTTP.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Process.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_TextEncoding.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_URL.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Util.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_QueryString.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_OS.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_VM.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_V8.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Assert.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_StringDecoder.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_PerfHooks.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_AsyncHooks.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_ChildProcess.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Cluster.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_DNS.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Dgram.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Inspector.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Readline.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Tls.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_TTY.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Http2.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Zlib.cpp
-    codegen/IRGenerator_Expressions_Calls_Builtin_Module.cpp
-    codegen/IRGenerator_Expressions_Calls_Member.cpp
-    codegen/IRGenerator_Extensions.cpp
-    codegen/IRGenerator_Expressions_Literals.cpp
-    codegen/IRGenerator_Expressions_Access.cpp
-    codegen/IRGenerator_Expressions_Async.cpp
-    codegen/IRGenerator_JSX.cpp
     hir/HIR.cpp
     hir/ASTToHIR.cpp
     hir/HIRPrinter.cpp

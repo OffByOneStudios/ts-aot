@@ -175,7 +175,7 @@ obj["key"] = 123;   // When loading 'obj', the LLVM Value is DIFFERENT
 
 Do NOT check `boxedValues.count(value)` for `any` typed values - it will return false after the value has been stored and reloaded.
 
-### Correct Pattern (in IRGenerator)
+### Correct Pattern (in HIRToLLVM)
 ```cpp
 // When emitting code that uses an 'any' typed value as an object:
 if (type->kind == TypeKind::Any) {
@@ -200,7 +200,7 @@ This means calling it unconditionally is safe and correct.
 
 ### Places This Pattern Applies
 
-1. **Element assignment** (`obj[key] = value`) - see `IRGenerator_Expressions_Binary.cpp`
+1. **Element assignment** (`obj[key] = value`) - see `HIRToLLVM.cpp`
 2. **Method calls** on `any` typed objects
 3. **Property access** on `any` typed objects
 4. **Spread operator** with `any` typed objects

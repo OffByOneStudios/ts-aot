@@ -75,7 +75,17 @@ ts-aoc/
 └──────┬──────────────────────────┘
        ↓
 ┌─────────────────────────────────┐
-│ IRGenerator::generate()         │  LLVM IR
+│ ASTToHIR::lower()               │  HIR
+│ → HIR module                    │
+└──────┬──────────────────────────┘
+       ↓
+┌─────────────────────────────────┐
+│ HIR Passes                      │  Optimize HIR
+│ → Optimized HIR module          │
+└──────┬──────────────────────────┘
+       ↓
+┌─────────────────────────────────┐
+│ HIRToLLVM::lower()              │  LLVM IR
 │ → .ll file                      │
 └──────┬──────────────────────────┘
        ↓
@@ -99,8 +109,9 @@ ts-aoc/
 | `Analyzer` | `src/compiler/analysis/Analyzer.h` | Type inference engine |
 | `Type` | `src/compiler/analysis/Type.h` | Type system (25+ kinds) |
 | `SymbolTable` | `src/compiler/analysis/SymbolTable.h` | Scope & symbol tracking |
-| `IRGenerator` | `src/compiler/codegen/IRGenerator.h` | LLVM IR builder |
-| `BoxingPolicy` | `src/compiler/codegen/BoxingPolicy.h` | Boxing decisions |
+| `ASTToHIR` | `src/compiler/hir/ASTToHIR.cpp` | AST to HIR lowering |
+| `HIRToLLVM` | `src/compiler/hir/HIRToLLVM.cpp` | HIR to LLVM IR lowering |
+| `LoweringRegistry` | `src/compiler/hir/LoweringRegistry.cpp` | Builtin call specifications |
 
 ### Runtime Core
 
@@ -124,20 +135,20 @@ ts-aoc/
 ### "Where is [feature] implemented?"
 
 **TypeScript Feature:**
-1. **Classes** → `analysis/Analyzer_Classes.cpp` → `codegen/IRGenerator_Classes.cpp`
-2. **Functions** → `analysis/Analyzer_Functions.cpp` → `codegen/IRGenerator_Functions.cpp`
-3. **Expressions** → `analysis/Analyzer_Expressions.cpp` → `codegen/IRGenerator_Expressions.cpp`
+1. **Classes** → `analysis/Analyzer_Classes.cpp` → `hir/ASTToHIR.cpp` → `hir/HIRToLLVM.cpp`
+2. **Functions** → `analysis/Analyzer_Functions.cpp` → `hir/ASTToHIR.cpp` → `hir/HIRToLLVM.cpp`
+3. **Expressions** → `analysis/Analyzer_Expressions.cpp` → `hir/ASTToHIR.cpp` → `hir/HIRToLLVM.cpp`
 4. **Type inference** → `analysis/Type.h` + `Analyzer_*.cpp`
 
 **Node.js API:**
 1. **Types** → `analysis/Analyzer_StdLib_<Module>.cpp`
-2. **Codegen** → `codegen/IRGenerator_Expressions_Calls_Builtin_<Module>.cpp`
+2. **Lowering** → `hir/LoweringRegistry.cpp`
 3. **Runtime** → `src/runtime/src/node/<module>.cpp` or `src/runtime/src/Ts<Type>.cpp`
 
 **Examples:**
-- **fs.readFileSync** → `Analyzer_StdLib_FS.cpp` (types) → `IRGenerator_...Builtin_FS.cpp` (IR) → `node/fs.cpp` (impl)
-- **Array.map** → `Analyzer_Expressions_Calls.cpp` (typing) → `IRGenerator_Expressions_Calls_Member.cpp` (IR) → `TsArray.cpp::Map()`
-- **Classes** → `Analyzer_Classes.cpp` (analysis) → `IRGenerator_Classes.cpp` (codegen)
+- **fs.readFileSync** → `Analyzer_StdLib_FS.cpp` (types) → `LoweringRegistry.cpp` (lowering) → `node/fs.cpp` (impl)
+- **Array.map** → `Analyzer_Expressions_Calls.cpp` (typing) → `LoweringRegistry.cpp` (lowering) → `TsArray.cpp::Map()`
+- **Classes** → `Analyzer_Classes.cpp` (analysis) → `ASTToHIR.cpp` + `HIRToLLVM.cpp` (codegen)
 
 ### "Where is [symbol] defined?"
 
@@ -334,20 +345,13 @@ llvm::Type* ptrType = builder->getPtrTy();
    fsClass->fields["existsSync"] = existsSyncFunc;
    ```
 
-2. **IR generation** (`src/compiler/codegen/IRGenerator_Expressions_Calls_Builtin_FS.cpp`):
+2. **HIR lowering** (`src/compiler/hir/LoweringRegistry.cpp`):
    ```cpp
-   if (methodName == "existsSync") {
-       llvm::Value* pathArg = visitExpression(call->arguments[0].get());
-
-       llvm::FunctionType* ft = llvm::FunctionType::get(
-           builder->getInt1Ty(),
-           { builder->getPtrTy() },
-           false
-       );
-       llvm::FunctionCallee fn = module->getOrInsertFunction("ts_fs_exists_sync", ft);
-       lastValue = builder->CreateCall(ft, fn.getCallee(), { pathArg });
-       return;
-   }
+   reg.registerLowering("ts_fs_exists_sync",
+       lowering("ts_fs_exists_sync")
+           .returnsBool()
+           .ptrArg()
+           .build());
    ```
 
 3. **Runtime implementation** (`src/runtime/src/node/fs.cpp`):
