@@ -9,9 +9,8 @@
 #include "TsWeakSet.h"
 #include "TsJSON.h"
 #include "TsString.h"
-#include "TsBuffer.h"
+#include "TsBuffer.h"  // For TsTypedArray and TsDataView (TsBuffer itself uses virtual dispatch)
 #include "TsEventEmitter.h"
-#include "TsHttp.h"
 #include "TsRegExp.h"
 #include "TsBoundFunction.h"
 #include "TsClosure.h"
@@ -28,6 +27,9 @@
 #include <unordered_map>
 #include <string>
 #include <cmath>
+#ifdef _MSC_VER
+#include <excpt.h>
+#endif
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
@@ -241,8 +243,11 @@ TsValue* ts_value_make_int(int64_t i) {
                     magic == 0x42554646 || magic8 == 0x42554646 || magic16 == 0x42554646;      // TsBuffer
 
                 if (!isKnownObject) {
-                    uint8_t firstByte = *(uint8_t*)o;
-                    if (firstByte <= 10) {
+                    // Check if it's already a TsValue*. A TsValue has type (0-10) in byte 0
+                    // and 7 zero padding bytes, so the first 8 bytes are a small value (0-10).
+                    // Real objects have a C++ vtable pointer which is a large address.
+                    uint64_t first8 = *(uint64_t*)o;
+                    if (first8 <= 10) {
                         // Already a TsValue* (types 0-10), return as-is
                         return (TsValue*)o;
                     }
@@ -351,10 +356,11 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         
         // Check if it's already a TsValue* (types 0-10)
-        // Do this AFTER TsObject magic checks to avoid misclassifying TsFunction*/TsMap*
-        // (their vtable pointers can have a low byte <= 10).
-        uint8_t firstByte = *(uint8_t*)ptr;
-        if (firstByte <= 10) {
+        // A TsValue has type (0-10) in byte 0 and 7 zero padding bytes,
+        // so the first 8 bytes are a small value (0-10).
+        // Real objects have a C++ vtable pointer which is a large address.
+        uint64_t first8check = *(uint64_t*)ptr;
+        if (first8check <= 10) {
             return (TsValue*)ptr;
         }
 
@@ -727,8 +733,8 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_array_get_as_value(rawPtr, index);
         }
 
-        uint32_t magic8 = *(uint32_t*)((char*)rawPtr + 8);
-        if (magic8 == 0x42554646) { // TsBuffer::MAGIC
+        uint32_t magic8b = *(uint32_t*)((char*)rawPtr + 8);
+        if (magic8b == 0x42554646) { // TsBuffer::MAGIC
             TsBuffer* buf = (TsBuffer*)rawPtr;
             if (index < 0 || (size_t)index >= buf->GetLength()) {
                 return ts_value_make_undefined();
@@ -736,8 +742,8 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_int(buf->GetData()[index]);
         }
 
-        uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
-        if (magic16 == 0x42554646) { // TsBuffer::MAGIC
+        uint32_t magic16b = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic16b == 0x42554646) { // TsBuffer::MAGIC
             TsBuffer* buf = (TsBuffer*)rawPtr;
             if (index < 0 || (size_t)index >= buf->GetLength()) {
                 return ts_value_make_undefined();
@@ -757,6 +763,28 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv);
     static TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv);
 
+    // Separate function for virtual property dispatch to allow __try/__except on MSVC
+    // (cannot mix __try with C++ objects that have destructors in the same function)
+    static TsValue ts_try_virtual_property_dispatch(void* obj, const char* keyStr) {
+        TsValue undefined;
+        undefined.type = ValueType::UNDEFINED;
+        undefined.i_val = 0;
+#ifdef _MSC_VER
+        __try {
+#endif
+            TsObject* tsObj = (TsObject*)obj;
+            TsValue result = tsObj->GetPropertyVirtual(keyStr);
+            if (result.type != ValueType::UNDEFINED) {
+                return result;
+            }
+#ifdef _MSC_VER
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            // Not a valid TsObject - fall through
+        }
+#endif
+        return undefined;
+    }
+
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
         if (!obj) {
             return ts_value_make_undefined();
@@ -765,13 +793,13 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!keyStr) {
             return ts_value_make_undefined();
         }
-        
+
         // Try to detect TsValue* at the start
-        // TsValue has type enum (0-10) at offset 0, then padding, then value at offset 8
-        // Real object pointers have vtable at offset 0 which is a large address
-        // Check if first byte is a valid ValueType and if the "ptr_val" (at offset 8) looks reasonable
-        uint8_t firstByte = *(uint8_t*)obj;
-        if (firstByte <= 10) {  // Could be a valid ValueType
+        // TsValue has type enum (0-10) at offset 0, then 7 zero padding bytes, then value at offset 8
+        // Real object pointers have a C++ vtable pointer at offset 0 which is a large 8-byte address
+        // Use the full 8-byte value to distinguish: TsValue type+padding = 0-10, vtable ptr = large address
+        uint64_t first8 = *(uint64_t*)obj;
+        if (first8 <= 10) {  // TsValue: type (0-10) + 7 zero padding bytes = small value
             TsValue* maybeVal = (TsValue*)obj;
             // Additional check: for UNDEFINED, ptr_val should be null/zero
             if (maybeVal->type == ValueType::UNDEFINED) {
@@ -945,13 +973,6 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_int(((TsString*)obj)->Length());
             }
         }
-        if (magic0 == 0x42554646 || magic8 == 0x42554646 || magic16 == 0x42554646) { // TsBuffer::MAGIC ("BUFF")
-            if (strcmp(keyStr, "length") == 0) {
-                TsBuffer* buf = (TsBuffer*)obj;
-                return ts_value_make_int(buf->GetLength());
-            }
-        }
-        
         if (magic8 == 0x48454144 || magic16 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
             struct FakeHeaders { void* vtable; uint32_t magic; TsMap* map; };
             TsMap* map = ((FakeHeaders*)obj)->map;
@@ -1043,33 +1064,17 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
-        // Only try dynamic_cast for TsIncomingMessage AFTER all magic checks.
-        // TsIncomingMessage inherits from TsObject, so this is safe.
-        // Do NOT do dynamic_cast on arbitrary pointers - they may not be polymorphic types!
-        // Check if this could be a TsIncomingMessage by looking for typical vtable pattern
-        // TsIncomingMessage has a vtable, and doesn't have magic at common offsets
-        if (magic0 != 0x52454758 && magic0 != 0x41525259 && magic0 != 0x53545247 &&
-            magic0 != 0x42554646 && magic0 != 0x4D415053) {
-            // Might be a polymorphic TsObject - try dynamic_cast carefully
-            try {
-                TsObject* tsObj = (TsObject*)obj;
-                TsIncomingMessage* incomingMsg = dynamic_cast<TsIncomingMessage*>(tsObj);
-                if (incomingMsg) {
-                    if (strcmp(keyStr, "statusCode") == 0) {
-                        return ts_value_make_int(incomingMsg->statusCode);
-                    }
-                    if (strcmp(keyStr, "method") == 0) {
-                        return ts_value_make_string(incomingMsg->method);
-                    }
-                    if (strcmp(keyStr, "url") == 0) {
-                        return ts_value_make_string(incomingMsg->url);
-                    }
-                    if (strcmp(keyStr, "headers") == 0) {
-                        return ts_value_make_object(incomingMsg->headers);
-                    }
-                }
-            } catch (...) {
-                // dynamic_cast failed - not a polymorphic type
+        // Virtual property dispatch for polymorphic TsObject subclasses
+        // (e.g., TsBuffer, TsIncomingMessage) that override GetPropertyVirtual()
+        // Only attempt this on objects that are NOT known non-TsObject types
+        // (TsArray, TsString are NOT TsObject subclasses and would crash on virtual call)
+        if (magic0 != 0x41525259 && magic8 != 0x41525259 && magic16 != 0x41525259 &&  // TsArray
+            magic0 != 0x53545247 && magic8 != 0x53545247 &&                              // TsString
+            magic0 != 0x52454758 &&                                                       // TsRegExp
+            magic8 != 0x48454144 && magic16 != 0x48454144) {                              // TsHeaders
+            TsValue result = ts_try_virtual_property_dispatch(obj, keyStr);
+            if (result.type != ValueType::UNDEFINED) {
+                return ts_property_return_value(result);
             }
         }
 

@@ -62,7 +62,12 @@ public:
     virtual TsTransform* AsTransform() { return nullptr; }
     virtual TsSocket* AsSocket() { return nullptr; }
     virtual TsServer* AsServer() { return nullptr; }
-    
+
+    // Virtual property dispatch - subclasses override to handle their own properties
+    virtual TsValue GetPropertyVirtual(const char* key) { TsValue v; v.type = ValueType::UNDEFINED; v.i_val = 0; return v; }
+    virtual int64_t GetLengthVirtual() { return -1; }
+    virtual TsValue GetElementVirtual(int64_t index) { TsValue v; v.type = ValueType::UNDEFINED; v.i_val = 0; return v; }
+
     void* vtable;
     uint32_t magic;
 };

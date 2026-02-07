@@ -45,6 +45,34 @@ TsIncomingMessage* TsIncomingMessage::Create() {
     return new (mem) TsIncomingMessage();
 }
 
+TsValue TsIncomingMessage::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "statusCode") == 0) {
+        TsValue v;
+        v.type = ValueType::NUMBER_INT;
+        v.i_val = statusCode;
+        return v;
+    }
+    if (strcmp(key, "method") == 0) {
+        TsValue v;
+        v.type = ValueType::STRING_PTR;
+        v.ptr_val = method;
+        return v;
+    }
+    if (strcmp(key, "url") == 0) {
+        TsValue v;
+        v.type = ValueType::STRING_PTR;
+        v.ptr_val = url;
+        return v;
+    }
+    if (strcmp(key, "headers") == 0) {
+        TsValue v;
+        v.type = ValueType::OBJECT_PTR;
+        v.ptr_val = headers;
+        return v;
+    }
+    return TsObject::GetPropertyVirtual(key);
+}
+
 void TsIncomingMessage::Pause() {
     TsReadable::Pause();
 }
