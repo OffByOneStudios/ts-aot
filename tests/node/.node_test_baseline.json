@@ -263,7 +263,7 @@
   "util/util_inspect_simple.ts": "pass",
   "util/util_parseArgs.ts": "pass",
   "util/util_parse_env.ts": "pass",
-  "util/util_promisify.ts": "fail",
+  "util/util_promisify.ts": "compile_error",
   "util/util_strip_vt.ts": "pass",
   "util/util_types_all_typed_arrays.ts": "pass",
   "util/util_types_bigint_symbol.ts": "pass",

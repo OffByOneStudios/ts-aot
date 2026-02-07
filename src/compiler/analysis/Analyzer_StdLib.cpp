@@ -1441,7 +1441,7 @@ Analyzer::Analyzer() {
     registerHTTP();
     registerHTTPS();
     registerHTTP2();
-    registerUtil();
+    // registerUtil() - removed, now handled by extensions/node/util/util.ext.json
     // registerOS() - removed, now handled by extensions/node/os/os.ext.json
     registerCrypto();
     registerURLModule();
