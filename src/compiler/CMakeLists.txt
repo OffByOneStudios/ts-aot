@@ -59,7 +59,7 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_StdLib_Net.cpp
     analysis/Analyzer_StdLib_HTTP.cpp
     analysis/Analyzer_StdLib_Process.cpp
-    analysis/Analyzer_StdLib_Util.cpp
+    # analysis/Analyzer_StdLib_Util.cpp - removed, now handled by extensions/node/util/util.ext.json
     # analysis/Analyzer_StdLib_OS.cpp - removed, now handled by extensions/node/os/os.ext.json
     analysis/Analyzer_StdLib_Crypto.cpp
     # analysis/Analyzer_StdLib_VM.cpp - removed, now handled by extensions/node/vm/vm.ext.json
