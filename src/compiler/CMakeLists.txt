@@ -52,31 +52,6 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer.cpp
     analysis/Analyzer_Core.cpp
     analysis/Analyzer_StdLib.cpp
-    # analysis/Analyzer_StdLib_FS.cpp - removed, now handled by extensions/node/fs/fs.ext.json
-    # analysis/Analyzer_StdLib_Events.cpp - removed, now handled by extensions/node/events/events.ext.json
-    # analysis/Analyzer_StdLib_Stream.cpp - removed, now handled by extensions/node/stream/stream.ext.json
-    # analysis/Analyzer_StdLib_Buffer.cpp - removed, now handled by extensions/node/buffer/buffer.ext.json
-    # analysis/Analyzer_StdLib_Net.cpp - removed, now handled by extensions/node/net/net.ext.json
-    # analysis/Analyzer_StdLib_HTTP.cpp - removed, now handled by extensions/node/http/http.ext.json
-    # analysis/Analyzer_StdLib_Process.cpp - removed, now handled by extensions/node/process/process.ext.json
-    # analysis/Analyzer_StdLib_Util.cpp - removed, now handled by extensions/node/util/util.ext.json
-    # analysis/Analyzer_StdLib_OS.cpp - removed, now handled by extensions/node/os/os.ext.json
-    # analysis/Analyzer_StdLib_Crypto.cpp - removed, now handled by extensions/node/crypto/crypto.ext.json
-    # analysis/Analyzer_StdLib_VM.cpp - removed, now handled by extensions/node/vm/vm.ext.json
-    # analysis/Analyzer_StdLib_V8.cpp - removed, now handled by extensions/node/v8/v8.ext.json
-    # analysis/Analyzer_StdLib_StringDecoder.cpp - removed, now handled by extensions/node/string_decoder/string_decoder.ext.json
-    # analysis/Analyzer_StdLib_AsyncHooks.cpp - removed, now handled by extensions/node/async_hooks/async_hooks.ext.json
-    # analysis/Analyzer_StdLib_ChildProcess.cpp - removed, now handled by extensions/node/child_process/child_process.ext.json
-    # analysis/Analyzer_StdLib_Cluster.cpp - removed, now handled by extensions/node/cluster/cluster.ext.json
-    # analysis/Analyzer_StdLib_DNS.cpp - removed, now handled by extensions/node/dns/dns.ext.json
-    # analysis/Analyzer_StdLib_Dgram.cpp - removed, now handled by extensions/node/dgram/dgram.ext.json
-    # analysis/Analyzer_StdLib_Inspector.cpp - removed, now handled by extensions/node/inspector/inspector.ext.json
-    # analysis/Analyzer_StdLib_Readline.cpp - removed, now handled by extensions/node/readline/readline.ext.json
-    # analysis/Analyzer_StdLib_Tls.cpp - removed, now handled by extensions/node/tls/tls.ext.json
-    # analysis/Analyzer_StdLib_TTY.cpp - removed, now handled by extensions/node/tty/tty.ext.json
-    # analysis/Analyzer_StdLib_Http2.cpp - removed, now handled by extensions/node/http2/http2.ext.json
-    # analysis/Analyzer_StdLib_Zlib.cpp - removed, now handled by extensions/node/zlib/zlib.ext.json
-    # analysis/Analyzer_StdLib_Module.cpp - removed, now handled by extensions/node/module/module.ext.json
     analysis/Analyzer_Declarations.cpp
     analysis/Analyzer_Helpers.cpp
     analysis/Analyzer_Classes.cpp
