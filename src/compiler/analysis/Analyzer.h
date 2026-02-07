@@ -66,7 +66,7 @@ public:
     // void registerUtil(); - removed, now handled by extensions/node/util/util.ext.json
     // registerOS() - removed, now handled by extensions/node/os/os.ext.json
     // void registerCrypto(); - removed, now handled by extensions/node/crypto/crypto.ext.json
-    void registerURLModule();
+    // void registerURLModule(); - removed, now handled by extensions/node/url/url.ext.json
     // registerVM() - removed, now handled by extensions/node/vm/vm.ext.json
     // registerV8() - removed, now handled by extensions/node/v8/v8.ext.json
     // registerStringDecoder() - removed, now handled by extensions/node/string_decoder/string_decoder.ext.json
