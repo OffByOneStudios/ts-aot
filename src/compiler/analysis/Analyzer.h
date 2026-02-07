@@ -58,7 +58,7 @@ public:
     // void registerEvents(); - removed, now handled by extensions/node/events/events.ext.json
     // void registerStreams(); - removed, now handled by extensions/node/stream/stream.ext.json
     void registerProcess();
-    void registerBuffer();
+    // void registerBuffer(); - removed, now handled by extensions/node/buffer/buffer.ext.json
     // void registerNet(); - removed, now handled by extensions/node/net/net.ext.json
     void registerHTTP();
     void registerHTTPS();
