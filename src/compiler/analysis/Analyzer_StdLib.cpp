@@ -1436,7 +1436,7 @@ Analyzer::Analyzer() {
     // registerStreams() - removed, now handled by extensions/node/stream/stream.ext.json
     // registerProcess() - removed, now handled by extensions/node/process/process.ext.json
     // registerBuffer() - removed, now handled by extensions/node/buffer/buffer.ext.json
-    registerFS();
+    // registerFS() - removed, now handled by extensions/node/fs/fs.ext.json
     // registerNet() - removed, now handled by extensions/node/net/net.ext.json
     // registerHTTP() - removed, now handled by extensions/node/http/http.ext.json
     // registerHTTPS() - removed, now handled by extensions/node/http/http.ext.json
