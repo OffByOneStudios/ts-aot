@@ -1434,7 +1434,7 @@ Analyzer::Analyzer() {
 
     // registerEvents() - removed, now handled by extensions/node/events/events.ext.json
     // registerStreams() - removed, now handled by extensions/node/stream/stream.ext.json
-    registerProcess();
+    // registerProcess() - removed, now handled by extensions/node/process/process.ext.json
     // registerBuffer() - removed, now handled by extensions/node/buffer/buffer.ext.json
     registerFS();
     // registerNet() - removed, now handled by extensions/node/net/net.ext.json
