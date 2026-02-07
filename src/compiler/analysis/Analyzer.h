@@ -59,7 +59,7 @@ public:
     void registerStreams();
     void registerProcess();
     void registerBuffer();
-    void registerNet();
+    // void registerNet(); - removed, now handled by extensions/node/net/net.ext.json
     void registerHTTP();
     void registerHTTPS();
     void registerHTTP2();

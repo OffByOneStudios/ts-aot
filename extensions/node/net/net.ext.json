@@ -196,6 +196,7 @@
     },
     "Socket": {
       "kind": "class",
+      "extends": "Duplex",
       "methods": {
         "connect": {
           "call": "ts_net_socket_connect",
