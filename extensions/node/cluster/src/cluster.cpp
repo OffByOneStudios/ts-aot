@@ -18,6 +18,12 @@
 #include <unistd.h>
 #endif
 
+// Register ts_cluster_init as the Node.js init hook via static initializer.
+// This runs before main(), so ts_node_init_hook is set by the time ts_main() calls it.
+static struct ClusterHookRegistrar {
+    ClusterHookRegistrar() { ts_node_init_hook = &ts_cluster_init; }
+} s_cluster_hook_registrar;
+
 // ============================================================================
 // C API Implementation
 // ============================================================================
