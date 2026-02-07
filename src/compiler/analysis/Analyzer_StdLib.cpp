@@ -1440,7 +1440,7 @@ Analyzer::Analyzer() {
     // registerNet() - removed, now handled by extensions/node/net/net.ext.json
     // registerHTTP() - removed, now handled by extensions/node/http/http.ext.json
     // registerHTTPS() - removed, now handled by extensions/node/http/http.ext.json
-    registerHTTP2();
+    // registerHTTP2() - removed, now handled by extensions/node/http2/http2.ext.json
     // registerUtil() - removed, now handled by extensions/node/util/util.ext.json
     // registerOS() - removed, now handled by extensions/node/os/os.ext.json
     // registerCrypto() - removed, now handled by extensions/node/crypto/crypto.ext.json

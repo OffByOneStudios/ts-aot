@@ -62,7 +62,7 @@ public:
     // void registerNet(); - removed, now handled by extensions/node/net/net.ext.json
     // void registerHTTP(); - removed, now handled by extensions/node/http/http.ext.json
     // void registerHTTPS(); - removed, now handled by extensions/node/http/http.ext.json
-    void registerHTTP2();
+    // void registerHTTP2(); - removed, now handled by extensions/node/http2/http2.ext.json
     // void registerUtil(); - removed, now handled by extensions/node/util/util.ext.json
     // registerOS() - removed, now handled by extensions/node/os/os.ext.json
     // void registerCrypto(); - removed, now handled by extensions/node/crypto/crypto.ext.json

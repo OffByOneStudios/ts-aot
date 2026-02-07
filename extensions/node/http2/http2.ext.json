@@ -1,0 +1,552 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "http2",
+  "version": "1.0.0",
+  "modules": ["http2", "node:http2"],
+
+  "types": {
+    "Http2Settings": {
+      "kind": "interface",
+      "properties": {
+        "headerTableSize": { "type": "int" },
+        "enablePush": { "type": "boolean" },
+        "maxConcurrentStreams": { "type": "int" },
+        "initialWindowSize": { "type": "int" },
+        "maxFrameSize": { "type": "int" },
+        "maxHeaderListSize": { "type": "int" }
+      }
+    },
+
+    "Http2Stream": {
+      "kind": "class",
+      "properties": {
+        "aborted": {
+          "type": "boolean",
+          "getter": "ts_http2_stream_get_aborted",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "bufferSize": {
+          "type": "int",
+          "getter": "ts_http2_stream_get_buffer_size",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        },
+        "closed": {
+          "type": "boolean",
+          "getter": "ts_http2_stream_get_closed",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "destroyed": {
+          "type": "boolean",
+          "getter": "ts_http2_stream_get_destroyed",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "endAfterHeaders": {
+          "type": "boolean",
+          "getter": "ts_http2_stream_get_end_after_headers",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "id": {
+          "type": "int",
+          "getter": "ts_http2_stream_get_id",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        },
+        "pending": {
+          "type": "boolean",
+          "getter": "ts_http2_stream_get_pending",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "rstCode": {
+          "type": "int",
+          "getter": "ts_http2_stream_get_rst_code",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        },
+        "sentHeaders": {
+          "type": "any",
+          "getter": "ts_http2_stream_get_sent_headers",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "sentInfoHeaders": {
+          "type": "any[]",
+          "getter": "ts_http2_stream_get_sent_info_headers",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "sentTrailers": {
+          "type": "any",
+          "getter": "ts_http2_stream_get_sent_trailers",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "session": {
+          "type": "Http2Session",
+          "getter": "ts_http2_stream_get_session",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      },
+      "methods": {
+        "close": {
+          "call": "ts_http2_stream_close",
+          "hirName": "ts_Http2Stream_close",
+          "params": [
+            { "name": "code", "type": "number", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "i64", "ptr"], "returns": "void" }
+        },
+        "priority": {
+          "call": "ts_http2_stream_priority",
+          "hirName": "ts_Http2Stream_priority",
+          "params": [
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "setTimeout": {
+          "call": "ts_http2_stream_set_timeout",
+          "hirName": "ts_Http2Stream_setTimeout",
+          "params": [
+            { "name": "msecs", "type": "number" },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "i64", "ptr"], "returns": "void" }
+        }
+      }
+    },
+
+    "ServerHttp2Stream": {
+      "kind": "class",
+      "extends": "Http2Stream",
+      "properties": {
+        "headersSent": {
+          "type": "boolean",
+          "getter": "ts_http2_server_stream_get_headers_sent",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "pushAllowed": {
+          "type": "boolean",
+          "getter": "ts_http2_server_stream_get_push_allowed",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        }
+      },
+      "methods": {
+        "respond": {
+          "call": "ts_http2_server_stream_respond",
+          "hirName": "ts_ServerHttp2Stream_respond",
+          "params": [
+            { "name": "headers", "type": "any", "optional": true },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+        },
+        "respondWithFD": {
+          "call": "ts_http2_server_stream_respond_with_fd",
+          "hirName": "ts_ServerHttp2Stream_respondWithFD",
+          "params": [
+            { "name": "fd", "type": "number" },
+            { "name": "headers", "type": "any", "optional": true },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "i64", "ptr", "ptr"], "returns": "void" }
+        },
+        "respondWithFile": {
+          "call": "ts_http2_server_stream_respond_with_file",
+          "hirName": "ts_ServerHttp2Stream_respondWithFile",
+          "params": [
+            { "name": "path", "type": "string" },
+            { "name": "headers", "type": "any", "optional": true },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "ptr", "ptr"], "returns": "void" }
+        },
+        "additionalHeaders": {
+          "call": "ts_http2_server_stream_additional_headers",
+          "hirName": "ts_ServerHttp2Stream_additionalHeaders",
+          "params": [
+            { "name": "headers", "type": "any" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "pushStream": {
+          "call": "ts_http2_server_stream_push_stream",
+          "hirName": "ts_ServerHttp2Stream_pushStream",
+          "params": [
+            { "name": "headers", "type": "any" },
+            { "name": "options", "type": "any", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "ptr", "ptr"], "returns": "void" }
+        }
+      }
+    },
+
+    "ClientHttp2Stream": {
+      "kind": "class",
+      "extends": "Http2Stream"
+    },
+
+    "Http2Session": {
+      "kind": "class",
+      "properties": {
+        "alpnProtocol": {
+          "type": "string",
+          "getter": "ts_http2_session_get_alpn_protocol",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "closed": {
+          "type": "boolean",
+          "getter": "ts_http2_session_get_closed",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "connecting": {
+          "type": "boolean",
+          "getter": "ts_http2_session_get_connecting",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "destroyed": {
+          "type": "boolean",
+          "getter": "ts_http2_session_get_destroyed",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "encrypted": {
+          "type": "boolean",
+          "getter": "ts_http2_session_get_encrypted",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "localSettings": {
+          "type": "Http2Settings",
+          "getter": "ts_http2_session_get_local_settings",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "remoteSettings": {
+          "type": "Http2Settings",
+          "getter": "ts_http2_session_get_remote_settings",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "socket": {
+          "type": "Socket",
+          "getter": "ts_http2_session_get_socket",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "type": {
+          "type": "int",
+          "getter": "ts_http2_session_get_type",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        }
+      },
+      "methods": {
+        "close": {
+          "call": "ts_http2_session_close",
+          "hirName": "ts_Http2Session_close",
+          "params": [
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "destroy": {
+          "call": "ts_http2_session_destroy",
+          "hirName": "ts_Http2Session_destroy",
+          "params": [
+            { "name": "error", "type": "any", "optional": true },
+            { "name": "code", "type": "number", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "i64"], "returns": "void" }
+        },
+        "goaway": {
+          "call": "ts_http2_session_goaway",
+          "hirName": "ts_Http2Session_goaway",
+          "params": [
+            { "name": "code", "type": "number", "optional": true },
+            { "name": "lastStreamId", "type": "number", "optional": true },
+            { "name": "data", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "i64", "i64", "ptr"], "returns": "void" }
+        },
+        "ping": {
+          "call": "ts_http2_session_ping",
+          "hirName": "ts_Http2Session_ping",
+          "params": [
+            { "name": "payload", "type": "any", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "i1" }
+        },
+        "ref": {
+          "call": "ts_http2_session_ref",
+          "hirName": "ts_Http2Session_ref",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "unref": {
+          "call": "ts_http2_session_unref",
+          "hirName": "ts_Http2Session_unref",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "setTimeout": {
+          "call": "ts_http2_session_set_timeout",
+          "hirName": "ts_Http2Session_setTimeout",
+          "params": [
+            { "name": "msecs", "type": "number" },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "i64", "ptr"], "returns": "void" }
+        },
+        "settings": {
+          "call": "ts_http2_session_settings",
+          "hirName": "ts_Http2Session_settings",
+          "params": [
+            { "name": "settings", "type": "any" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        }
+      }
+    },
+
+    "ServerHttp2Session": {
+      "kind": "class",
+      "extends": "Http2Session",
+      "methods": {
+        "altsvc": {
+          "call": "ts_http2_server_session_altsvc",
+          "hirName": "ts_ServerHttp2Session_altsvc",
+          "params": [
+            { "name": "alt", "type": "string" },
+            { "name": "origin", "type": "string" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+        },
+        "origin": {
+          "call": "ts_http2_server_session_origin",
+          "hirName": "ts_ServerHttp2Session_origin",
+          "params": [
+            { "name": "origins", "type": "any" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        }
+      }
+    },
+
+    "ClientHttp2Session": {
+      "kind": "class",
+      "extends": "Http2Session",
+      "methods": {
+        "request": {
+          "call": "ts_http2_client_session_request",
+          "hirName": "ts_ClientHttp2Session_request",
+          "params": [
+            { "name": "headers", "type": "any", "optional": true },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "ClientHttp2Stream",
+          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "ptr" }
+        }
+      }
+    },
+
+    "Http2Server": {
+      "kind": "class",
+      "methods": {
+        "listen": {
+          "call": "ts_http2_server_listen",
+          "hirName": "ts_Http2Server_listen",
+          "params": [
+            { "name": "port", "type": "number" },
+            { "name": "host", "type": "string", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "Http2Server",
+          "lowering": { "args": ["ptr", "i64", "ptr", "ptr"], "returns": "ptr" }
+        },
+        "close": {
+          "call": "ts_http2_server_close",
+          "hirName": "ts_Http2Server_close",
+          "params": [
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "address": {
+          "call": "ts_http2_server_address",
+          "hirName": "ts_Http2Server_address",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "setTimeout": {
+          "call": "ts_http2_server_set_timeout",
+          "hirName": "ts_Http2Server_setTimeout",
+          "params": [
+            { "name": "msecs", "type": "number" },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "i64", "ptr"], "returns": "void" }
+        }
+      }
+    },
+
+    "Http2SecureServer": {
+      "kind": "class",
+      "methods": {
+        "listen": {
+          "call": "ts_http2_server_listen",
+          "hirName": "ts_Http2SecureServer_listen",
+          "params": [
+            { "name": "port", "type": "number" },
+            { "name": "host", "type": "string", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "Http2SecureServer",
+          "lowering": { "args": ["ptr", "i64", "ptr", "ptr"], "returns": "ptr" }
+        },
+        "close": {
+          "call": "ts_http2_server_close",
+          "hirName": "ts_Http2SecureServer_close",
+          "params": [
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "address": {
+          "call": "ts_http2_server_address",
+          "hirName": "ts_Http2SecureServer_address",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "setTimeout": {
+          "call": "ts_http2_server_set_timeout",
+          "hirName": "ts_Http2SecureServer_setTimeout",
+          "params": [
+            { "name": "msecs", "type": "number" },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "i64", "ptr"], "returns": "void" }
+        }
+      }
+    }
+  },
+
+  "objects": {
+    "http2": {
+      "properties": {
+        "sensitiveHeaders": {
+          "type": "any",
+          "getter": "ts_http2_get_sensitive_headers",
+          "lowering": { "returns": "ptr" }
+        }
+      },
+      "methods": {
+        "createServer": {
+          "call": "ts_http2_create_server",
+          "hirName": "ts_http2_createServer",
+          "params": [
+            { "name": "options", "type": "any", "optional": true },
+            { "name": "callback", "type": {"name": "function", "typeArgs": [{"name": "ServerHttp2Stream"}, {"name": "any"}]} }
+          ],
+          "returns": "Http2Server",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "createSecureServer": {
+          "call": "ts_http2_create_secure_server",
+          "hirName": "ts_http2_createSecureServer",
+          "params": [
+            { "name": "options", "type": "any", "optional": true },
+            { "name": "callback", "type": {"name": "function", "typeArgs": [{"name": "ServerHttp2Stream"}, {"name": "any"}]} }
+          ],
+          "returns": "Http2SecureServer",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "connect": {
+          "call": "ts_http2_connect",
+          "hirName": "ts_http2_connect",
+          "params": [
+            { "name": "authority", "type": "string" },
+            { "name": "options", "type": "any", "optional": true },
+            { "name": "listener", "type": "Function", "optional": true }
+          ],
+          "returns": "ClientHttp2Session",
+          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "ptr" }
+        },
+        "getDefaultSettings": {
+          "call": "ts_http2_get_default_settings",
+          "hirName": "ts_http2_getDefaultSettings",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "getPackedSettings": {
+          "call": "ts_http2_get_packed_settings",
+          "hirName": "ts_http2_getPackedSettings",
+          "params": [
+            { "name": "settings", "type": "any" }
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "getUnpackedSettings": {
+          "call": "ts_http2_get_unpacked_settings",
+          "hirName": "ts_http2_getUnpackedSettings",
+          "params": [
+            { "name": "buffer", "type": "any" }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      },
+      "nestedObjects": {
+        "constants": {
+          "properties": {
+            "NGHTTP2_NO_ERROR": { "type": "int" },
+            "NGHTTP2_PROTOCOL_ERROR": { "type": "int" },
+            "NGHTTP2_INTERNAL_ERROR": { "type": "int" },
+            "NGHTTP2_FLOW_CONTROL_ERROR": { "type": "int" },
+            "NGHTTP2_SETTINGS_TIMEOUT": { "type": "int" },
+            "NGHTTP2_STREAM_CLOSED": { "type": "int" },
+            "NGHTTP2_FRAME_SIZE_ERROR": { "type": "int" },
+            "NGHTTP2_REFUSED_STREAM": { "type": "int" },
+            "NGHTTP2_CANCEL": { "type": "int" },
+            "NGHTTP2_COMPRESSION_ERROR": { "type": "int" },
+            "NGHTTP2_CONNECT_ERROR": { "type": "int" },
+            "NGHTTP2_ENHANCE_YOUR_CALM": { "type": "int" },
+            "NGHTTP2_INADEQUATE_SECURITY": { "type": "int" },
+            "NGHTTP2_HTTP_1_1_REQUIRED": { "type": "int" },
+            "NGHTTP2_SETTINGS_HEADER_TABLE_SIZE": { "type": "int" },
+            "NGHTTP2_SETTINGS_ENABLE_PUSH": { "type": "int" },
+            "NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS": { "type": "int" },
+            "NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE": { "type": "int" },
+            "NGHTTP2_SETTINGS_MAX_FRAME_SIZE": { "type": "int" },
+            "NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE": { "type": "int" },
+            "NGHTTP2_SESSION_SERVER": { "type": "int" },
+            "NGHTTP2_SESSION_CLIENT": { "type": "int" },
+            "DEFAULT_SETTINGS_HEADER_TABLE_SIZE": { "type": "int" },
+            "DEFAULT_SETTINGS_ENABLE_PUSH": { "type": "int" },
+            "DEFAULT_SETTINGS_MAX_CONCURRENT_STREAMS": { "type": "int" },
+            "DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE": { "type": "int" },
+            "DEFAULT_SETTINGS_MAX_FRAME_SIZE": { "type": "int" },
+            "DEFAULT_SETTINGS_MAX_HEADER_LIST_SIZE": { "type": "int" }
+          }
+        }
+      }
+    }
+  }
+}
