@@ -54,7 +54,7 @@ public:
     std::shared_ptr<Type> analyzeMethodBody(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType, const std::vector<std::shared_ptr<Type>>& typeArguments);
 
     void registerStdLib();
-    void registerFS();
+    // void registerFS(); - removed, now handled by extensions/node/fs/fs.ext.json
     // void registerEvents(); - removed, now handled by extensions/node/events/events.ext.json
     // void registerStreams(); - removed, now handled by extensions/node/stream/stream.ext.json
     // void registerProcess(); - removed, now handled by extensions/node/process/process.ext.json
