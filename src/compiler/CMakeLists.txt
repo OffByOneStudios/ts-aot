@@ -72,7 +72,7 @@ add_library(tscompiler_lib STATIC
     # analysis/Analyzer_StdLib_Dgram.cpp - removed, now handled by extensions/node/dgram/dgram.ext.json
     # analysis/Analyzer_StdLib_Inspector.cpp - removed, now handled by extensions/node/inspector/inspector.ext.json
     # analysis/Analyzer_StdLib_Readline.cpp - removed, now handled by extensions/node/readline/readline.ext.json
-    analysis/Analyzer_StdLib_Tls.cpp
+    # analysis/Analyzer_StdLib_Tls.cpp - removed, now handled by extensions/node/tls/tls.ext.json
     # analysis/Analyzer_StdLib_TTY.cpp - removed, now handled by extensions/node/tty/tty.ext.json
     analysis/Analyzer_StdLib_Http2.cpp
     # analysis/Analyzer_StdLib_Zlib.cpp - removed, now handled by extensions/node/zlib/zlib.ext.json
