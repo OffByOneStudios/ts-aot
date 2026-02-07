@@ -1430,36 +1430,6 @@ Analyzer::Analyzer() {
     symbols.define("String", stringGlobalType);
 
 
-    // Register URL class
-
-    // registerEvents() - removed, now handled by extensions/node/events/events.ext.json
-    // registerStreams() - removed, now handled by extensions/node/stream/stream.ext.json
-    // registerProcess() - removed, now handled by extensions/node/process/process.ext.json
-    // registerBuffer() - removed, now handled by extensions/node/buffer/buffer.ext.json
-    // registerFS() - removed, now handled by extensions/node/fs/fs.ext.json
-    // registerNet() - removed, now handled by extensions/node/net/net.ext.json
-    // registerHTTP() - removed, now handled by extensions/node/http/http.ext.json
-    // registerHTTPS() - removed, now handled by extensions/node/http/http.ext.json
-    // registerHTTP2() - removed, now handled by extensions/node/http2/http2.ext.json
-    // registerUtil() - removed, now handled by extensions/node/util/util.ext.json
-    // registerOS() - removed, now handled by extensions/node/os/os.ext.json
-    // registerCrypto() - removed, now handled by extensions/node/crypto/crypto.ext.json
-    // registerURLModule() - removed, now handled by extensions/node/url/url.ext.json
-    // registerVM() - removed, now handled by extensions/node/vm/vm.ext.json
-    // registerV8() - removed, now handled by extensions/node/v8/v8.ext.json
-    // registerStringDecoder() - removed, now handled by extensions/node/string_decoder/string_decoder.ext.json
-    // registerAsyncHooks() - removed, now handled by extensions/node/async_hooks/async_hooks.ext.json
-    // registerChildProcess() - removed, now handled by extensions/node/child_process/child_process.ext.json
-    // registerCluster() - removed, now handled by extensions/node/cluster/cluster.ext.json
-    // registerDNS() - removed, now handled by extensions/node/dns/dns.ext.json
-    // registerDgram() - removed, now handled by extensions/node/dgram/dgram.ext.json
-    // registerInspector() - removed, now handled by extensions/node/inspector/inspector.ext.json
-    // registerReadline() - removed, now handled by extensions/node/readline/readline.ext.json
-    // registerTls() - removed, now handled by extensions/node/tls/tls.ext.json
-    // registerTTY() - removed, now handled by extensions/node/tty/tty.ext.json
-    // registerZlib() - removed, now handled by extensions/node/zlib/zlib.ext.json
-    // registerModule() - removed, now handled by extensions/node/module/module.ext.json
-
     // Register types from extension contracts (JSON-defined APIs)
     registerTypesFromExtensions();
 }

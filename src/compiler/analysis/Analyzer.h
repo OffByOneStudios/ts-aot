@@ -54,33 +54,6 @@ public:
     std::shared_ptr<Type> analyzeMethodBody(ast::MethodDefinition* node, std::shared_ptr<ClassType> classType, const std::vector<std::shared_ptr<Type>>& typeArguments);
 
     void registerStdLib();
-    // void registerFS(); - removed, now handled by extensions/node/fs/fs.ext.json
-    // void registerEvents(); - removed, now handled by extensions/node/events/events.ext.json
-    // void registerStreams(); - removed, now handled by extensions/node/stream/stream.ext.json
-    // void registerProcess(); - removed, now handled by extensions/node/process/process.ext.json
-    // void registerBuffer(); - removed, now handled by extensions/node/buffer/buffer.ext.json
-    // void registerNet(); - removed, now handled by extensions/node/net/net.ext.json
-    // void registerHTTP(); - removed, now handled by extensions/node/http/http.ext.json
-    // void registerHTTPS(); - removed, now handled by extensions/node/http/http.ext.json
-    // void registerHTTP2(); - removed, now handled by extensions/node/http2/http2.ext.json
-    // void registerUtil(); - removed, now handled by extensions/node/util/util.ext.json
-    // registerOS() - removed, now handled by extensions/node/os/os.ext.json
-    // void registerCrypto(); - removed, now handled by extensions/node/crypto/crypto.ext.json
-    // void registerURLModule(); - removed, now handled by extensions/node/url/url.ext.json
-    // registerVM() - removed, now handled by extensions/node/vm/vm.ext.json
-    // registerV8() - removed, now handled by extensions/node/v8/v8.ext.json
-    // registerStringDecoder() - removed, now handled by extensions/node/string_decoder/string_decoder.ext.json
-    // registerAsyncHooks() - removed, now handled by extensions/node/async_hooks/async_hooks.ext.json
-    // void registerChildProcess(); - removed, now handled by extensions/node/child_process/child_process.ext.json
-    // registerCluster() - removed, now handled by extensions/node/cluster/cluster.ext.json
-    // registerDNS() - removed, now handled by extensions/node/dns/dns.ext.json
-    // registerDgram() - removed, now handled by extensions/node/dgram/dgram.ext.json
-    // registerInspector() - removed, now handled by extensions/node/inspector/inspector.ext.json
-    // registerReadline() - removed, now handled by extensions/node/readline/readline.ext.json
-    // void registerTls(); - removed, now handled by extensions/node/tls/tls.ext.json
-    // registerTTY() - removed, now handled by extensions/node/tty/tty.ext.json
-    // registerZlib() - removed, now handled by extensions/node/zlib/zlib.ext.json
-    // registerModule() - removed, now handled by extensions/node/module/module.ext.json
 
     // Register types from extension contracts (loaded via ExtensionRegistry)
     void registerTypesFromExtensions();
