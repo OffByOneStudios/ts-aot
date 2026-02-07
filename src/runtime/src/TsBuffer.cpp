@@ -9,6 +9,29 @@
 #include <unicode/unistr.h>
 #include <cstdio>
 
+TsValue TsBuffer::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "length") == 0) {
+        TsValue v;
+        v.type = ValueType::NUMBER_INT;
+        v.i_val = (int64_t)GetLength();
+        return v;
+    }
+    return TsObject::GetPropertyVirtual(key);
+}
+
+TsValue TsBuffer::GetElementVirtual(int64_t index) {
+    if (index < 0 || (size_t)index >= length) {
+        TsValue v;
+        v.type = ValueType::UNDEFINED;
+        v.i_val = 0;
+        return v;
+    }
+    TsValue v;
+    v.type = ValueType::NUMBER_INT;
+    v.i_val = data[index];
+    return v;
+}
+
 TsBuffer* TsBuffer::Create(size_t length) {
     void* mem = ts_alloc(sizeof(TsBuffer));
     TsBuffer* buf = new(mem) TsBuffer(length);

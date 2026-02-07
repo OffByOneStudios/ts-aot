@@ -19,6 +19,11 @@ public:
     uint8_t* GetData() { return data; }
     size_t GetLength() { return length; }
 
+    // Virtual dispatch for nodecore decoupling
+    TsValue GetPropertyVirtual(const char* key) override;
+    int64_t GetLengthVirtual() override { return (int64_t)length; }
+    TsValue GetElementVirtual(int64_t index) override;
+
     // TypedArray-like properties
     size_t GetByteLength() { return length; }
     size_t GetByteOffset() { return 0; }  // Buffer always starts at offset 0

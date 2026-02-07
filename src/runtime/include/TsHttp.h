@@ -54,6 +54,9 @@ public:
     TsMap* trailers = nullptr;  // Object with trailer headers (lowercase keys)
     TsSocket* socket = nullptr;  // Underlying socket connection
 
+    // Virtual property dispatch for nodecore decoupling
+    TsValue GetPropertyVirtual(const char* key) override;
+
     // TsReadable implementation
     virtual void Pause() override;
     virtual void Resume() override;
