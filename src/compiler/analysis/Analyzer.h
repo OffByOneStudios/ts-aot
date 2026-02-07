@@ -77,7 +77,7 @@ public:
     // registerDgram() - removed, now handled by extensions/node/dgram/dgram.ext.json
     // registerInspector() - removed, now handled by extensions/node/inspector/inspector.ext.json
     // registerReadline() - removed, now handled by extensions/node/readline/readline.ext.json
-    void registerTls();
+    // void registerTls(); - removed, now handled by extensions/node/tls/tls.ext.json
     // registerTTY() - removed, now handled by extensions/node/tty/tty.ext.json
     // registerZlib() - removed, now handled by extensions/node/zlib/zlib.ext.json
     // registerModule() - removed, now handled by extensions/node/module/module.ext.json
