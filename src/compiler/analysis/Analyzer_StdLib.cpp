@@ -1442,23 +1442,23 @@ Analyzer::Analyzer() {
     registerHTTPS();
     registerHTTP2();
     registerUtil();
-    registerOS();
+    // registerOS() - removed, now handled by extensions/node/os/os.ext.json
     registerCrypto();
     registerURLModule();
-    registerVM();
-    registerV8();
+    // registerVM() - removed, now handled by extensions/node/vm/vm.ext.json
+    // registerV8() - removed, now handled by extensions/node/v8/v8.ext.json
     registerStringDecoder();
     registerAsyncHooks();
     registerChildProcess();
     registerCluster();
     registerDNS();
     registerDgram();
-    registerInspector();
+    // registerInspector() - removed, now handled by extensions/node/inspector/inspector.ext.json
     registerReadline();
     registerTls();
     registerTTY();
     registerZlib();
-    registerModule();
+    // registerModule() - removed, now handled by extensions/node/module/module.ext.json
 
     // Register types from extension contracts (JSON-defined APIs)
     registerTypesFromExtensions();
@@ -1688,21 +1688,25 @@ void Analyzer::registerTypesFromExtensions() {
                 objType->fields[methodName] = convertExtMethod(methodDef);
             }
 
-            // Register nested objects (e.g., path.win32, path.posix)
-            for (const auto& [nestedName, nestedObj] : objDef.nestedObjects) {
+            // Register nested objects recursively (e.g., path.win32, os.constants.signals)
+            std::function<std::shared_ptr<ObjectType>(const ext::ObjectDefinition&)> buildNestedObject;
+            buildNestedObject = [&](const ext::ObjectDefinition& nested) -> std::shared_ptr<ObjectType> {
                 auto nestedObjType = std::make_shared<ObjectType>();
-
-                // Register nested properties
-                for (const auto& [propName, propDef] : nestedObj->properties) {
+                for (const auto& [propName, propDef] : nested.properties) {
                     nestedObjType->fields[propName] = convertExtTypeRef(propDef.type);
                 }
-
-                // Register nested methods
-                for (const auto& [methodName, methodDef] : nestedObj->methods) {
+                for (const auto& [methodName, methodDef] : nested.methods) {
                     nestedObjType->fields[methodName] = convertExtMethod(methodDef);
                 }
-
-                objType->fields[nestedName] = nestedObjType;
+                for (const auto& [subName, subObj] : nested.nestedObjects) {
+                    if (subObj) {
+                        nestedObjType->fields[subName] = buildNestedObject(*subObj);
+                    }
+                }
+                return nestedObjType;
+            };
+            for (const auto& [nestedName, nestedObj] : objDef.nestedObjects) {
+                objType->fields[nestedName] = buildNestedObject(*nestedObj);
                 SPDLOG_DEBUG("    Registered nested object: {}.{}", objName, nestedName);
             }
 

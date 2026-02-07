@@ -177,7 +177,7 @@
   "operators/in_operator.ts": "pass",
   "operators/logical_assign.ts": "pass",
   "os/os_available_parallelism.ts": "pass",
-  "os/os_basic.ts": "fail",
+  "os/os_basic.ts": "pass",
   "os/os_constants.ts": "pass",
   "path/path_basic.js": "pass",
   "path/path_basic.ts": "pass",

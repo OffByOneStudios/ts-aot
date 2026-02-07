@@ -1,0 +1,90 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "module",
+  "version": "1.0.0",
+  "modules": ["module", "node:module"],
+
+  "types": {
+    "SourceMap": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_module_sourcemap_create",
+        "hirName": "ts_SourceMap_create",
+        "params": [{ "name": "payload", "type": "any" }],
+        "lowering": {
+          "args": ["boxed"],
+          "returns": "ptr"
+        }
+      },
+      "methods": {
+        "findEntry": {
+          "call": "ts_module_sourcemap_find_entry",
+          "hirName": "ts_SourceMap_findEntry",
+          "params": [
+            { "name": "lineNumber", "type": "number" },
+            { "name": "columnNumber", "type": "number" }
+          ],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr", "boxed", "boxed"],
+            "returns": "ptr"
+          }
+        }
+      },
+      "properties": {
+        "payload": { "type": "any" }
+      }
+    }
+  },
+
+  "objects": {
+    "module": {
+      "methods": {
+        "isBuiltin": {
+          "call": "ts_module_is_builtin",
+          "params": [{ "name": "moduleName", "type": "string" }],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr"], "returns": "i32" }
+        },
+        "createRequire": {
+          "call": "ts_module_create_require",
+          "params": [{ "name": "filename", "type": "string" }],
+          "returns": "Function",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "syncBuiltinESMExports": {
+          "call": "ts_module_sync_builtin_esm_exports",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        },
+        "register": {
+          "call": "ts_module_register_loader",
+          "params": [
+            { "name": "specifier", "type": "string" },
+            { "name": "parentURL", "type": "string", "optional": true },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "boxed"], "returns": "void" }
+        },
+        "registerHooks": {
+          "call": "ts_module_register_hooks",
+          "params": [{ "name": "hooks", "type": "any" }],
+          "returns": "any",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "findPackageJSON": {
+          "call": "ts_module_find_package_json",
+          "params": [{ "name": "startPath", "type": "string", "optional": true }],
+          "returns": "string",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      },
+      "properties": {
+        "builtinModules": { "type": "string[]" },
+        "SourceMap": { "type": "SourceMap" }
+      }
+    }
+  }
+}
