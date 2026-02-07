@@ -5,6 +5,19 @@
   "objects": {
     "assert": {
       "methods": {
+        "default": {
+          "call": "ts_assert_ok",
+          "hirName": "ts_assert_ok",
+          "params": [
+            { "name": "value", "type": "any" },
+            { "name": "message", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": {
+            "args": ["boxed", "boxed"],
+            "returns": "void"
+          }
+        },
         "ok": {
           "call": "ts_assert_ok",
           "hirName": "ts_assert_ok",

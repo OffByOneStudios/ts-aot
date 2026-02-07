@@ -53,7 +53,6 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_Core.cpp
     analysis/Analyzer_StdLib.cpp
     analysis/Analyzer_StdLib_FS.cpp
-    analysis/Analyzer_StdLib_Path.cpp
     analysis/Analyzer_StdLib_Events.cpp
     analysis/Analyzer_StdLib_Stream.cpp
     analysis/Analyzer_StdLib_Buffer.cpp
@@ -63,12 +62,9 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_StdLib_Util.cpp
     analysis/Analyzer_StdLib_OS.cpp
     analysis/Analyzer_StdLib_Crypto.cpp
-    analysis/Analyzer_StdLib_QueryString.cpp
     analysis/Analyzer_StdLib_VM.cpp
     analysis/Analyzer_StdLib_V8.cpp
-    analysis/Analyzer_StdLib_Assert.cpp
     analysis/Analyzer_StdLib_StringDecoder.cpp
-    analysis/Analyzer_StdLib_PerfHooks.cpp
     analysis/Analyzer_StdLib_AsyncHooks.cpp
     analysis/Analyzer_StdLib_ChildProcess.cpp
     analysis/Analyzer_StdLib_Cluster.cpp

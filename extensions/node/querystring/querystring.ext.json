@@ -13,7 +13,7 @@
             { "name": "sep", "type": "string", "optional": true },
             { "name": "eq", "type": "string", "optional": true }
           ],
-          "returns": "object",
+          "returns": "any",
           "lowering": {
             "args": ["ptr", "ptr", "ptr"],
             "returns": "ptr"
@@ -23,7 +23,7 @@
           "call": "ts_querystring_stringify",
           "hirName": "ts_querystring_stringify",
           "params": [
-            { "name": "obj", "type": "object" },
+            { "name": "obj", "type": "any" },
             { "name": "sep", "type": "string", "optional": true },
             { "name": "eq", "type": "string", "optional": true }
           ],
@@ -57,7 +57,7 @@
           "call": "ts_querystring_stringify",
           "hirName": "ts_querystring_encode",
           "params": [
-            { "name": "obj", "type": "object" },
+            { "name": "obj", "type": "any" },
             { "name": "sep", "type": "string", "optional": true },
             { "name": "eq", "type": "string", "optional": true }
           ],
@@ -75,7 +75,7 @@
             { "name": "sep", "type": "string", "optional": true },
             { "name": "eq", "type": "string", "optional": true }
           ],
-          "returns": "object",
+          "returns": "any",
           "lowering": {
             "args": ["ptr", "ptr", "ptr"],
             "returns": "ptr"

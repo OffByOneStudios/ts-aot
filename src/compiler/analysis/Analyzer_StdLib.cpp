@@ -1437,7 +1437,6 @@ Analyzer::Analyzer() {
     registerProcess();
     registerBuffer();
     registerFS();
-    registerPath();
     registerNet();
     registerHTTP();
     registerHTTPS();
@@ -1445,13 +1444,10 @@ Analyzer::Analyzer() {
     registerUtil();
     registerOS();
     registerCrypto();
-    registerQueryString();
     registerURLModule();
     registerVM();
     registerV8();
-    registerAssert();
     registerStringDecoder();
-    registerPerfHooks();
     registerAsyncHooks();
     registerChildProcess();
     registerCluster();
