@@ -1,0 +1,250 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "stream",
+  "version": "1.0.0",
+  "modules": ["stream", "node:stream"],
+
+  "types": {
+    "Stream": {
+      "kind": "class",
+      "extends": "EventEmitter"
+    },
+    "Readable": {
+      "kind": "class",
+      "extends": "Stream",
+      "properties": {
+        "destroyed": { "type": "boolean", "getter": "ts_readable_destroyed", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "readable": { "type": "boolean", "getter": "ts_readable_readable", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "readableEnded": { "type": "boolean", "getter": "ts_readable_readable_ended", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "readableFlowing": { "type": "boolean", "getter": "ts_readable_readable_flowing", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "readableHighWaterMark": { "type": "number", "getter": "ts_readable_readable_high_water_mark", "lowering": { "args": ["ptr"], "returns": "i64" } },
+        "readableLength": { "type": "number", "getter": "ts_readable_readable_length", "lowering": { "args": ["ptr"], "returns": "i64" } },
+        "readableObjectMode": { "type": "boolean", "getter": "ts_readable_readable_object_mode", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "readableAborted": { "type": "boolean", "getter": "ts_readable_readable_aborted", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "readableDidRead": { "type": "boolean", "getter": "ts_readable_readable_did_read", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "readableEncoding": { "type": "string", "getter": "ts_readable_readable_encoding", "lowering": { "args": ["ptr"], "returns": "ptr" } }
+      },
+      "methods": {
+        "read": {
+          "call": "ts_readable_read",
+          "hirName": "ts_Readable_read",
+          "params": [
+            { "name": "size", "type": "number", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["ptr", "i64"], "returns": "ptr" }
+        },
+        "resume": {
+          "call": "ts_stream_resume",
+          "hirName": "ts_Readable_resume",
+          "params": [],
+          "returns": "Readable",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "pause": {
+          "call": "ts_stream_pause",
+          "hirName": "ts_Readable_pause",
+          "params": [],
+          "returns": "Readable",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "pipe": {
+          "call": "ts_stream_pipe",
+          "hirName": "ts_Readable_pipe",
+          "params": [
+            { "name": "destination", "type": "any" }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "isPaused": {
+          "call": "ts_readable_is_paused",
+          "hirName": "ts_Readable_isPaused",
+          "params": [],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "unpipe": {
+          "call": "ts_readable_unpipe",
+          "hirName": "ts_Readable_unpipe",
+          "params": [],
+          "returns": "Readable",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "destroy": {
+          "call": "ts_readable_destroyed",
+          "hirName": "ts_Readable_destroy",
+          "params": [],
+          "returns": "Readable",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "unshift": {
+          "call": "ts_readable_unshift",
+          "hirName": "ts_Readable_unshift",
+          "params": [
+            { "name": "chunk", "type": "any" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "setEncoding": {
+          "call": "ts_readable_set_encoding",
+          "hirName": "ts_Readable_setEncoding",
+          "params": [
+            { "name": "encoding", "type": "string" }
+          ],
+          "returns": "Readable",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "wrap": {
+          "call": "ts_readable_wrap",
+          "hirName": "ts_Readable_wrap",
+          "params": [
+            { "name": "oldStream", "type": "any" }
+          ],
+          "returns": "Readable",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        }
+      },
+      "staticMethods": {
+        "from": {
+          "call": "ts_readable_from",
+          "hirName": "ts_Readable_from",
+          "params": [
+            { "name": "iterable", "type": "any" }
+          ],
+          "returns": "Readable",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      }
+    },
+    "Writable": {
+      "kind": "class",
+      "extends": "Stream",
+      "properties": {
+        "destroyed": { "type": "boolean", "getter": "ts_writable_destroyed", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "writable": { "type": "boolean", "getter": "ts_writable_writable", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "writableEnded": { "type": "boolean", "getter": "ts_writable_writable_ended", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "writableFinished": { "type": "boolean", "getter": "ts_writable_writable_finished", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "writableNeedDrain": { "type": "boolean", "getter": "ts_writable_writable_need_drain", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "writableHighWaterMark": { "type": "number", "getter": "ts_writable_writable_high_water_mark", "lowering": { "args": ["ptr"], "returns": "i64" } },
+        "writableLength": { "type": "number", "getter": "ts_writable_writable_length", "lowering": { "args": ["ptr"], "returns": "i64" } },
+        "writableObjectMode": { "type": "boolean", "getter": "ts_writable_writable_object_mode", "lowering": { "args": ["ptr"], "returns": "i1" } },
+        "writableAborted": { "type": "boolean", "getter": "ts_writable_writable_aborted", "lowering": { "args": ["ptr"], "returns": "i1" } }
+      },
+      "methods": {
+        "write": {
+          "call": "ts_writable_write",
+          "hirName": "ts_Writable_write",
+          "params": [
+            { "name": "chunk", "type": "any" },
+            { "name": "encoding", "type": "string", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "i1" }
+        },
+        "end": {
+          "call": "ts_writable_end",
+          "hirName": "ts_Writable_end",
+          "params": [
+            { "name": "chunk", "type": "any", "optional": true },
+            { "name": "encoding", "type": "string", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "Writable",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "destroy": {
+          "call": "ts_writable_destroyed",
+          "hirName": "ts_Writable_destroy",
+          "params": [],
+          "returns": "Writable",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "cork": {
+          "call": "ts_writable_cork",
+          "hirName": "ts_Writable_cork",
+          "params": [],
+          "returns": "Writable",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "uncork": {
+          "call": "ts_writable_uncork",
+          "hirName": "ts_Writable_uncork",
+          "params": [],
+          "returns": "Writable",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "setDefaultEncoding": {
+          "call": "ts_writable_set_default_encoding",
+          "hirName": "ts_Writable_setDefaultEncoding",
+          "params": [
+            { "name": "encoding", "type": "string" }
+          ],
+          "returns": "Writable",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        }
+      }
+    },
+    "Duplex": {
+      "kind": "class",
+      "extends": "Readable"
+    },
+    "Transform": {
+      "kind": "class",
+      "extends": "Duplex"
+    },
+    "ReadStream": {
+      "kind": "class",
+      "extends": "Readable",
+      "properties": {
+        "bytesRead": { "type": "number", "getter": "ts_read_stream_bytes_read", "lowering": { "args": ["ptr"], "returns": "i64" } },
+        "path": { "type": "string", "getter": "ts_read_stream_path", "lowering": { "args": ["ptr"], "returns": "ptr" } },
+        "pending": { "type": "boolean", "getter": "ts_read_stream_pending", "lowering": { "args": ["ptr"], "returns": "i1" } }
+      }
+    },
+    "WriteStream": {
+      "kind": "class",
+      "extends": "Writable",
+      "properties": {
+        "bytesWritten": { "type": "number", "getter": "ts_write_stream_bytes_written", "lowering": { "args": ["ptr"], "returns": "i64" } },
+        "path": { "type": "string", "getter": "ts_write_stream_path", "lowering": { "args": ["ptr"], "returns": "ptr" } },
+        "pending": { "type": "boolean", "getter": "ts_write_stream_pending", "lowering": { "args": ["ptr"], "returns": "i1" } }
+      }
+    }
+  },
+
+  "objects": {
+    "stream": {
+      "methods": {
+        "pipeline": {
+          "call": "ts_stream_pipeline",
+          "params": [
+            { "name": "streams", "type": "any" },
+            { "name": "callback", "type": "any", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["boxed", "boxed"], "returns": "ptr" }
+        },
+        "finished": {
+          "call": "ts_stream_finished",
+          "params": [
+            { "name": "stream", "type": "any" },
+            { "name": "optionsOrCallback", "type": "any" },
+            { "name": "callback", "type": "any", "optional": true }
+          ],
+          "returns": "Function",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "ptr" }
+        }
+      },
+      "properties": {
+        "Stream": { "type": "Stream" },
+        "Readable": { "type": "Readable" },
+        "Writable": { "type": "Writable" },
+        "Duplex": { "type": "Duplex" },
+        "Transform": { "type": "Transform" }
+      }
+    }
+  }
+}

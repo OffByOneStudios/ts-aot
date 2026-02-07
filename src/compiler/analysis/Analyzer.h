@@ -56,7 +56,7 @@ public:
     void registerStdLib();
     void registerFS();
     // void registerEvents(); - removed, now handled by extensions/node/events/events.ext.json
-    void registerStreams();
+    // void registerStreams(); - removed, now handled by extensions/node/stream/stream.ext.json
     void registerProcess();
     void registerBuffer();
     // void registerNet(); - removed, now handled by extensions/node/net/net.ext.json

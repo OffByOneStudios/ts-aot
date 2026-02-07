@@ -54,7 +54,7 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_StdLib.cpp
     analysis/Analyzer_StdLib_FS.cpp
     # analysis/Analyzer_StdLib_Events.cpp - removed, now handled by extensions/node/events/events.ext.json
-    analysis/Analyzer_StdLib_Stream.cpp
+    # analysis/Analyzer_StdLib_Stream.cpp - removed, now handled by extensions/node/stream/stream.ext.json
     analysis/Analyzer_StdLib_Buffer.cpp
     # analysis/Analyzer_StdLib_Net.cpp - removed, now handled by extensions/node/net/net.ext.json
     analysis/Analyzer_StdLib_HTTP.cpp
