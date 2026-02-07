@@ -320,6 +320,7 @@ int Driver::run() {
             linkOpts.libraries.push_back("libssl.lib");       // OpenSSL SSL
             linkOpts.libraries.push_back("libcrypto.lib");    // OpenSSL Crypto
             linkOpts.libraries.push_back("cares.lib");        // c-ares DNS
+            linkOpts.libraries.push_back("nghttp2.lib");     // nghttp2 (HTTP/2)
             linkOpts.libraries.push_back("zlib.lib");         // zlib
             linkOpts.libraries.push_back("brotlicommon.lib"); // Brotli common
             linkOpts.libraries.push_back("brotlidec.lib");    // Brotli decoder
