@@ -64,23 +64,23 @@ public:
     void registerHTTPS();
     void registerHTTP2();
     void registerUtil();
-    void registerOS();
+    // registerOS() - removed, now handled by extensions/node/os/os.ext.json
     void registerCrypto();
     void registerURLModule();
-    void registerVM();
-    void registerV8();
+    // registerVM() - removed, now handled by extensions/node/vm/vm.ext.json
+    // registerV8() - removed, now handled by extensions/node/v8/v8.ext.json
     void registerStringDecoder();
     void registerAsyncHooks();
     void registerChildProcess();
     void registerCluster();
     void registerDNS();
     void registerDgram();
-    void registerInspector();
+    // registerInspector() - removed, now handled by extensions/node/inspector/inspector.ext.json
     void registerReadline();
     void registerTls();
     void registerTTY();
     void registerZlib();
-    void registerModule();
+    // registerModule() - removed, now handled by extensions/node/module/module.ext.json
 
     // Register types from extension contracts (loaded via ExtensionRegistry)
     void registerTypesFromExtensions();

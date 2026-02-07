@@ -1,0 +1,121 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "vm",
+  "version": "1.0.0",
+  "modules": ["vm", "node:vm"],
+
+  "types": {
+    "Script": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_vm_not_supported",
+        "hirName": "ts_Script_create",
+        "params": [{ "name": "code", "type": "string" }],
+        "lowering": {
+          "args": ["ptr"],
+          "returns": "ptr"
+        }
+      },
+      "methods": {
+        "runInContext": {
+          "call": "ts_vm_not_supported",
+          "hirName": "ts_Script_runInContext",
+          "params": [
+            { "name": "contextifiedObject", "type": "any" },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "ptr" }
+        },
+        "runInNewContext": {
+          "call": "ts_vm_not_supported",
+          "hirName": "ts_Script_runInNewContext",
+          "params": [
+            { "name": "contextObject", "type": "any", "optional": true },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "ptr" }
+        },
+        "runInThisContext": {
+          "call": "ts_vm_not_supported",
+          "hirName": "ts_Script_runInThisContext",
+          "params": [{ "name": "options", "type": "any", "optional": true }],
+          "returns": "any",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "createCachedData": {
+          "call": "ts_vm_not_supported",
+          "hirName": "ts_Script_createCachedData",
+          "params": [],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      }
+    }
+  },
+
+  "objects": {
+    "vm": {
+      "methods": {
+        "createContext": {
+          "call": "ts_vm_not_supported",
+          "params": [
+            { "name": "contextObject", "type": "any", "optional": true },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["boxed", "boxed"], "returns": "ptr" }
+        },
+        "isContext": {
+          "call": "ts_vm_not_supported",
+          "params": [{ "name": "object", "type": "any" }],
+          "returns": "boolean",
+          "lowering": { "args": ["boxed"], "returns": "i32" }
+        },
+        "runInContext": {
+          "call": "ts_vm_not_supported",
+          "params": [
+            { "name": "code", "type": "string" },
+            { "name": "contextifiedObject", "type": "any" },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["boxed", "boxed", "boxed"], "returns": "ptr" }
+        },
+        "runInNewContext": {
+          "call": "ts_vm_not_supported",
+          "params": [
+            { "name": "code", "type": "string" },
+            { "name": "contextObject", "type": "any", "optional": true },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["boxed", "boxed", "boxed"], "returns": "ptr" }
+        },
+        "runInThisContext": {
+          "call": "ts_vm_not_supported",
+          "params": [
+            { "name": "code", "type": "string" },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["boxed", "boxed"], "returns": "ptr" }
+        },
+        "compileFunction": {
+          "call": "ts_vm_not_supported",
+          "params": [
+            { "name": "code", "type": "string" },
+            { "name": "params", "type": "string[]", "optional": true },
+            { "name": "options", "type": "any", "optional": true }
+          ],
+          "returns": "Function",
+          "lowering": { "args": ["boxed", "boxed", "boxed"], "returns": "ptr" }
+        }
+      },
+      "properties": {
+        "Script": { "type": "Script" }
+      }
+    }
+  }
+}

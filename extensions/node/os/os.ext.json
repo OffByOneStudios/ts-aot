@@ -1,125 +1,237 @@
 {
+  "$schema": "../extension-contract.schema.json",
   "name": "os",
   "version": "1.0.0",
-  "module": "os",
-  "description": "Node.js os module - operating system information",
-  "methods": {
-    "platform": {
-      "native": "ts_os_platform",
-      "args": [],
-      "returns": { "type": "Ptr" }
+  "modules": ["os", "node:os"],
+
+  "types": {
+    "CpuInfo": {
+      "kind": "interface",
+      "properties": {
+        "model": { "type": "string" },
+        "speed": { "type": "number" },
+        "times": { "type": "CpuTimes" }
+      }
     },
-    "arch": {
-      "native": "ts_os_arch",
-      "args": [],
-      "returns": { "type": "Ptr" }
+    "CpuTimes": {
+      "kind": "interface",
+      "properties": {
+        "user": { "type": "number" },
+        "nice": { "type": "number" },
+        "sys": { "type": "number" },
+        "idle": { "type": "number" },
+        "irq": { "type": "number" }
+      }
     },
-    "type": {
-      "native": "ts_os_type",
-      "args": [],
-      "returns": { "type": "Ptr" }
+    "NetworkInterfaceInfo": {
+      "kind": "interface",
+      "properties": {
+        "address": { "type": "string" },
+        "netmask": { "type": "string" },
+        "family": { "type": "string" },
+        "mac": { "type": "string" },
+        "internal": { "type": "boolean" },
+        "cidr": { "type": "string" },
+        "scopeid": { "type": "number" }
+      }
     },
-    "release": {
-      "native": "ts_os_release",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "version": {
-      "native": "ts_os_version",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "hostname": {
-      "native": "ts_os_hostname",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "machine": {
-      "native": "ts_os_machine",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "homedir": {
-      "native": "ts_os_homedir",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "tmpdir": {
-      "native": "ts_os_tmpdir",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "totalmem": {
-      "native": "ts_os_totalmem",
-      "args": [],
-      "returns": { "type": "I64" }
-    },
-    "freemem": {
-      "native": "ts_os_freemem",
-      "args": [],
-      "returns": { "type": "I64" }
-    },
-    "availableParallelism": {
-      "native": "ts_os_availableParallelism",
-      "args": [],
-      "returns": { "type": "I64" }
-    },
-    "uptime": {
-      "native": "ts_os_uptime",
-      "args": [],
-      "returns": { "type": "F64" }
-    },
-    "loadavg": {
-      "native": "ts_os_loadavg",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "cpus": {
-      "native": "ts_os_cpus",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "endianness": {
-      "native": "ts_os_endianness",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "networkInterfaces": {
-      "native": "ts_os_networkInterfaces",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "userInfo": {
-      "native": "ts_os_userInfo",
-      "args": [],
-      "returns": { "type": "Ptr" }
-    },
-    "getPriority": {
-      "native": "ts_os_getPriority",
-      "args": [{ "name": "pid", "type": "I64" }],
-      "returns": { "type": "I64" }
-    },
-    "setPriority": {
-      "native": "ts_os_setPriority",
-      "args": [
-        { "name": "pid", "type": "I64" },
-        { "name": "priority", "type": "I64" }
-      ],
-      "returns": { "type": "Void" }
+    "UserInfo": {
+      "kind": "interface",
+      "properties": {
+        "uid": { "type": "number" },
+        "gid": { "type": "number" },
+        "username": { "type": "string" },
+        "homedir": { "type": "string" },
+        "shell": { "type": "string" }
+      }
     }
   },
-  "properties": {
-    "EOL": {
-      "native": "ts_os_get_eol",
-      "type": "Ptr"
-    },
-    "devNull": {
-      "native": "ts_os_get_devnull",
-      "type": "Ptr"
-    },
-    "constants": {
-      "native": "ts_os_get_constants",
-      "type": "Ptr"
+
+  "objects": {
+    "os": {
+      "methods": {
+        "platform": {
+          "call": "ts_os_platform",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "arch": {
+          "call": "ts_os_arch",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "type": {
+          "call": "ts_os_type",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "release": {
+          "call": "ts_os_release",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "version": {
+          "call": "ts_os_version",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "hostname": {
+          "call": "ts_os_hostname",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "machine": {
+          "call": "ts_os_machine",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "homedir": {
+          "call": "ts_os_homedir",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "tmpdir": {
+          "call": "ts_os_tmpdir",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "totalmem": {
+          "call": "ts_os_totalmem",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "freemem": {
+          "call": "ts_os_freemem",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "availableParallelism": {
+          "call": "ts_os_availableParallelism",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "uptime": {
+          "call": "ts_os_uptime",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "f64" }
+        },
+        "loadavg": {
+          "call": "ts_os_loadavg",
+          "params": [],
+          "returns": "number[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "cpus": {
+          "call": "ts_os_cpus",
+          "params": [],
+          "returns": "CpuInfo[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "endianness": {
+          "call": "ts_os_endianness",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "networkInterfaces": {
+          "call": "ts_os_networkInterfaces",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "userInfo": {
+          "call": "ts_os_userInfo",
+          "params": [],
+          "returns": "UserInfo",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "getPriority": {
+          "call": "ts_os_getPriority",
+          "params": [{ "name": "pid", "type": "number" }],
+          "returns": "number",
+          "lowering": { "args": ["i64"], "returns": "i64" }
+        },
+        "setPriority": {
+          "call": "ts_os_setPriority",
+          "params": [
+            { "name": "pid", "type": "number" },
+            { "name": "priority", "type": "number" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["i64", "i64"], "returns": "void" }
+        }
+      },
+      "properties": {
+        "EOL": {
+          "type": "string",
+          "getter": "ts_os_get_eol",
+          "lowering": { "returns": "ptr" }
+        },
+        "devNull": {
+          "type": "string",
+          "getter": "ts_os_get_devnull",
+          "lowering": { "returns": "ptr" }
+        }
+      },
+      "nestedObjects": {
+        "constants": {
+          "nestedObjects": {
+            "signals": {
+              "properties": {
+                "SIGHUP": { "type": "number" },
+                "SIGINT": { "type": "number" },
+                "SIGQUIT": { "type": "number" },
+                "SIGILL": { "type": "number" },
+                "SIGTRAP": { "type": "number" },
+                "SIGABRT": { "type": "number" },
+                "SIGFPE": { "type": "number" },
+                "SIGKILL": { "type": "number" },
+                "SIGSEGV": { "type": "number" },
+                "SIGPIPE": { "type": "number" },
+                "SIGALRM": { "type": "number" },
+                "SIGTERM": { "type": "number" }
+              }
+            },
+            "errno": {
+              "properties": {
+                "ENOENT": { "type": "number" },
+                "EACCES": { "type": "number" },
+                "EEXIST": { "type": "number" },
+                "EPERM": { "type": "number" },
+                "ENOTEMPTY": { "type": "number" },
+                "EINVAL": { "type": "number" },
+                "EBUSY": { "type": "number" },
+                "ENOMEM": { "type": "number" },
+                "ECONNREFUSED": { "type": "number" },
+                "ETIMEDOUT": { "type": "number" }
+              }
+            },
+            "priority": {
+              "properties": {
+                "PRIORITY_LOW": { "type": "number" },
+                "PRIORITY_BELOW_NORMAL": { "type": "number" },
+                "PRIORITY_NORMAL": { "type": "number" },
+                "PRIORITY_ABOVE_NORMAL": { "type": "number" },
+                "PRIORITY_HIGH": { "type": "number" },
+                "PRIORITY_HIGHEST": { "type": "number" }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

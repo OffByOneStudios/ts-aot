@@ -1,0 +1,100 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "v8",
+  "version": "1.0.0",
+  "modules": ["v8", "node:v8"],
+
+  "types": {
+    "HeapStatistics": {
+      "kind": "interface",
+      "properties": {
+        "total_heap_size": { "type": "number" },
+        "total_heap_size_executable": { "type": "number" },
+        "total_physical_size": { "type": "number" },
+        "total_available_size": { "type": "number" },
+        "used_heap_size": { "type": "number" },
+        "heap_size_limit": { "type": "number" },
+        "malloced_memory": { "type": "number" },
+        "peak_malloced_memory": { "type": "number" },
+        "does_zap_garbage": { "type": "number" },
+        "number_of_native_contexts": { "type": "number" },
+        "number_of_detached_contexts": { "type": "number" },
+        "external_memory": { "type": "number" }
+      }
+    },
+    "HeapSpaceStatistics": {
+      "kind": "interface",
+      "properties": {
+        "space_name": { "type": "string" },
+        "space_size": { "type": "number" },
+        "space_used_size": { "type": "number" },
+        "space_available_size": { "type": "number" },
+        "physical_space_size": { "type": "number" }
+      }
+    },
+    "HeapCodeStatistics": {
+      "kind": "interface",
+      "properties": {
+        "code_and_metadata_size": { "type": "number" },
+        "bytecode_and_metadata_size": { "type": "number" },
+        "external_script_source_size": { "type": "number" },
+        "cpu_profiler_metadata_size": { "type": "number" }
+      }
+    }
+  },
+
+  "objects": {
+    "v8": {
+      "methods": {
+        "getHeapStatistics": {
+          "call": "ts_v8_get_heap_statistics",
+          "params": [],
+          "returns": "HeapStatistics",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "getHeapSpaceStatistics": {
+          "call": "ts_v8_get_heap_space_statistics",
+          "params": [],
+          "returns": "HeapSpaceStatistics[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "getHeapCodeStatistics": {
+          "call": "ts_v8_get_heap_code_statistics",
+          "params": [],
+          "returns": "HeapCodeStatistics",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "setFlagsFromString": {
+          "call": "ts_v8_set_flags_from_string",
+          "params": [{ "name": "flags", "type": "string" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "writeHeapSnapshot": {
+          "call": "ts_v8_write_heap_snapshot",
+          "params": [{ "name": "filename", "type": "string", "optional": true }],
+          "returns": "string",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "serialize": {
+          "call": "ts_v8_serialize",
+          "params": [{ "name": "value", "type": "any" }],
+          "returns": "Buffer",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "deserialize": {
+          "call": "ts_v8_deserialize",
+          "params": [{ "name": "buffer", "type": "Buffer" }],
+          "returns": "any",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "cachedDataVersionTag": {
+          "call": "ts_v8_cached_data_version_tag",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        }
+      }
+    }
+  }
+}
