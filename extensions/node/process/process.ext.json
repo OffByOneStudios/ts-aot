@@ -1,0 +1,401 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "process",
+  "version": "1.0.0",
+  "modules": ["process", "node:process"],
+
+  "objects": {
+    "process": {
+      "properties": {
+        "argv": { "type": "string[]" },
+        "exitCode": { "type": "int" },
+        "platform": { "type": "string" },
+        "arch": { "type": "string" },
+        "stdout": { "type": "Writable" },
+        "stderr": { "type": "Writable" },
+        "stdin": { "type": "Readable" },
+        "pid": { "type": "int" },
+        "ppid": { "type": "int" },
+        "version": { "type": "string" },
+        "argv0": { "type": "string" },
+        "execPath": { "type": "string" },
+        "execArgv": { "type": "string[]" },
+        "title": { "type": "string" },
+        "debugPort": { "type": "int" },
+        "connected": { "type": "boolean" },
+        "channel": { "type": "any" }
+      },
+      "nestedObjects": {
+        "env": {
+          "properties": {}
+        },
+        "config": {
+          "properties": {}
+        },
+        "versions": {
+          "properties": {
+            "node": { "type": "string" },
+            "v8": { "type": "string" },
+            "uv": { "type": "string" },
+            "icu": { "type": "string" }
+          }
+        },
+        "features": {
+          "properties": {
+            "inspector": { "type": "boolean" },
+            "debug": { "type": "boolean" },
+            "uv": { "type": "boolean" },
+            "ipv6": { "type": "boolean" },
+            "tls_alpn": { "type": "boolean" },
+            "tls_sni": { "type": "boolean" },
+            "tls_ocsp": { "type": "boolean" },
+            "tls": { "type": "boolean" }
+          }
+        },
+        "release": {
+          "properties": {
+            "name": { "type": "string" },
+            "lts": { "type": "string" }
+          }
+        },
+        "report": {
+          "properties": {
+            "directory": { "type": "string" },
+            "filename": { "type": "string" }
+          },
+          "methods": {
+            "getReport": {
+              "call": "ts_process_report_get_report",
+              "hirName": "ts_process_report_getReport",
+              "params": [],
+              "returns": "any",
+              "lowering": { "args": [], "returns": "ptr" }
+            },
+            "writeReport": {
+              "call": "ts_process_report_write_report",
+              "hirName": "ts_process_report_writeReport",
+              "params": [{ "name": "filename", "type": "string" }],
+              "returns": "void",
+              "lowering": { "args": ["ptr"], "returns": "void" }
+            }
+          }
+        }
+      },
+      "methods": {
+        "exit": {
+          "call": "ts_process_exit",
+          "hirName": "ts_process_exit",
+          "params": [{ "name": "code", "type": "number", "optional": true }],
+          "returns": "void",
+          "lowering": { "args": ["i64"], "returns": "void" }
+        },
+        "cwd": {
+          "call": "ts_process_cwd",
+          "hirName": "ts_process_cwd",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "chdir": {
+          "call": "ts_process_chdir",
+          "hirName": "ts_process_chdir",
+          "params": [{ "name": "dir", "type": "string" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "nextTick": {
+          "call": "ts_process_next_tick",
+          "hirName": "ts_process_nextTick",
+          "params": [{ "name": "callback", "type": "function" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "hrtime": {
+          "call": "ts_process_hrtime",
+          "hirName": "ts_process_hrtime",
+          "params": [{ "name": "time", "type": "any", "optional": true }],
+          "returns": "number[]",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "uptime": {
+          "call": "ts_process_uptime",
+          "hirName": "ts_process_uptime",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "f64" }
+        },
+        "memoryUsage": {
+          "call": "ts_process_memory_usage",
+          "hirName": "ts_process_memoryUsage",
+          "params": [],
+          "returns": "object",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "cpuUsage": {
+          "call": "ts_process_cpu_usage",
+          "hirName": "ts_process_cpuUsage",
+          "params": [{ "name": "previousValue", "type": "any", "optional": true }],
+          "returns": "object",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "resourceUsage": {
+          "call": "ts_process_resource_usage",
+          "hirName": "ts_process_resourceUsage",
+          "params": [],
+          "returns": "object",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "kill": {
+          "call": "ts_process_kill",
+          "hirName": "ts_process_kill",
+          "params": [
+            { "name": "pid", "type": "number" },
+            { "name": "signal", "type": "number", "optional": true }
+          ],
+          "returns": "boolean",
+          "lowering": { "args": ["i64", "i32"], "returns": "i32" }
+        },
+        "abort": {
+          "call": "ts_process_abort",
+          "hirName": "ts_process_abort",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        },
+        "umask": {
+          "call": "ts_process_umask",
+          "hirName": "ts_process_umask",
+          "params": [{ "name": "mask", "type": "number", "optional": true }],
+          "returns": "number",
+          "lowering": { "args": ["i32"], "returns": "i32" }
+        },
+        "emitWarning": {
+          "call": "ts_process_emit_warning",
+          "hirName": "ts_process_emitWarning",
+          "params": [{ "name": "warning", "type": "string" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "on": {
+          "call": "ts_process_on",
+          "hirName": "ts_process_on",
+          "params": [
+            { "name": "event", "type": "string" },
+            { "name": "listener", "type": "function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "once": {
+          "call": "ts_process_once",
+          "hirName": "ts_process_once",
+          "params": [
+            { "name": "event", "type": "string" },
+            { "name": "listener", "type": "function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "removeListener": {
+          "call": "ts_process_remove_listener",
+          "hirName": "ts_process_removeListener",
+          "params": [
+            { "name": "event", "type": "string" },
+            { "name": "listener", "type": "function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "removeAllListeners": {
+          "call": "ts_process_remove_all_listeners",
+          "hirName": "ts_process_removeAllListeners",
+          "params": [{ "name": "event", "type": "string", "optional": true }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "setUncaughtExceptionCaptureCallback": {
+          "call": "ts_process_set_uncaught_exception_capture_callback",
+          "hirName": "ts_process_setUncaughtExceptionCaptureCallback",
+          "params": [{ "name": "fn", "type": "function" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "hasUncaughtExceptionCaptureCallback": {
+          "call": "ts_process_has_uncaught_exception_capture_callback",
+          "hirName": "ts_process_hasUncaughtExceptionCaptureCallback",
+          "params": [],
+          "returns": "boolean",
+          "lowering": { "args": [], "returns": "i1" }
+        },
+        "ref": {
+          "call": "ts_process_ref",
+          "hirName": "ts_process_ref",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        },
+        "unref": {
+          "call": "ts_process_unref",
+          "hirName": "ts_process_unref",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        },
+        "getActiveResourcesInfo": {
+          "call": "ts_process_get_active_resources_info",
+          "hirName": "ts_process_getActiveResourcesInfo",
+          "params": [],
+          "returns": "string[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "constrainedMemory": {
+          "call": "ts_process_constrained_memory",
+          "hirName": "ts_process_constrainedMemory",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "availableMemory": {
+          "call": "ts_process_available_memory",
+          "hirName": "ts_process_availableMemory",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "_getActiveHandles": {
+          "call": "ts_process_get_active_handles",
+          "hirName": "ts_process__getActiveHandles",
+          "params": [],
+          "returns": "any[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "_getActiveRequests": {
+          "call": "ts_process_get_active_requests",
+          "hirName": "ts_process__getActiveRequests",
+          "params": [],
+          "returns": "any[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "_tickCallback": {
+          "call": "ts_process_tick_callback",
+          "hirName": "ts_process__tickCallback",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        },
+        "send": {
+          "call": "ts_process_send",
+          "hirName": "ts_process_send",
+          "params": [{ "name": "message", "type": "any" }],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "disconnect": {
+          "call": "ts_process_disconnect",
+          "hirName": "ts_process_disconnect",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        },
+        "getuid": {
+          "call": "ts_process_getuid",
+          "hirName": "ts_process_getuid",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "geteuid": {
+          "call": "ts_process_geteuid",
+          "hirName": "ts_process_geteuid",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "getgid": {
+          "call": "ts_process_getgid",
+          "hirName": "ts_process_getgid",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "getegid": {
+          "call": "ts_process_getegid",
+          "hirName": "ts_process_getegid",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "getgroups": {
+          "call": "ts_process_getgroups",
+          "hirName": "ts_process_getgroups",
+          "params": [],
+          "returns": "number[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "setuid": {
+          "call": "ts_process_setuid",
+          "hirName": "ts_process_setuid",
+          "params": [{ "name": "id", "type": "number" }],
+          "returns": "void",
+          "lowering": { "args": ["i64"], "returns": "void" }
+        },
+        "seteuid": {
+          "call": "ts_process_seteuid",
+          "hirName": "ts_process_seteuid",
+          "params": [{ "name": "id", "type": "number" }],
+          "returns": "void",
+          "lowering": { "args": ["i64"], "returns": "void" }
+        },
+        "setgid": {
+          "call": "ts_process_setgid",
+          "hirName": "ts_process_setgid",
+          "params": [{ "name": "id", "type": "number" }],
+          "returns": "void",
+          "lowering": { "args": ["i64"], "returns": "void" }
+        },
+        "setegid": {
+          "call": "ts_process_setegid",
+          "hirName": "ts_process_setegid",
+          "params": [{ "name": "id", "type": "number" }],
+          "returns": "void",
+          "lowering": { "args": ["i64"], "returns": "void" }
+        },
+        "setgroups": {
+          "call": "ts_process_setgroups",
+          "hirName": "ts_process_setgroups",
+          "params": [{ "name": "groups", "type": "number[]" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "initgroups": {
+          "call": "ts_process_initgroups",
+          "hirName": "ts_process_initgroups",
+          "params": [
+            { "name": "user", "type": "string" },
+            { "name": "extraGroup", "type": "number" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "i64"], "returns": "void" }
+        },
+        "dlopen": {
+          "call": "ts_process_dlopen",
+          "hirName": "ts_process_dlopen",
+          "params": [
+            { "name": "module", "type": "any" },
+            { "name": "filename", "type": "string" },
+            { "name": "flags", "type": "number", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+        },
+        "setSourceMapsEnabled": {
+          "call": "ts_process_set_source_maps_enabled",
+          "hirName": "ts_process_setSourceMapsEnabled",
+          "params": [{ "name": "enabled", "type": "boolean" }],
+          "returns": "void",
+          "lowering": { "args": ["i1"], "returns": "void" }
+        }
+      }
+    }
+  }
+}

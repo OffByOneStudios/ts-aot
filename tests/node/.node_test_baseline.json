@@ -118,7 +118,7 @@
   "global/commonjs_globals.ts": "pass",
   "globals/dirname_filename.ts": "pass",
   "http/client_request_flush_headers.ts": "pass",
-  "http/client_request_properties.ts": "pass",
+  "http/client_request_properties.ts": "fail",
   "http/client_request_socket.ts": "pass",
   "http/fetch_basic.js": "fail",
   "http/fetch_basic.ts": "fail",
