@@ -1432,7 +1432,7 @@ Analyzer::Analyzer() {
 
     // Register URL class
 
-    registerEvents();
+    // registerEvents() - removed, now handled by extensions/node/events/events.ext.json
     registerStreams();
     registerProcess();
     registerBuffer();
