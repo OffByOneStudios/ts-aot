@@ -1437,7 +1437,7 @@ Analyzer::Analyzer() {
     registerProcess();
     registerBuffer();
     registerFS();
-    registerNet();
+    // registerNet() - removed, now handled by extensions/node/net/net.ext.json
     registerHTTP();
     registerHTTPS();
     registerHTTP2();
