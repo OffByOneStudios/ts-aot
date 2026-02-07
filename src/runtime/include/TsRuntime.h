@@ -7,6 +7,12 @@ class TsString;
 
 extern "C" {
 
+// --- Node.js Init Hook ---
+// Function pointer for nodecore initialization (cluster, etc.)
+// Set by nodecore library; called from ts_main() if non-null.
+typedef void (*TsNodeInitHook)();
+extern TsNodeInitHook ts_node_init_hook;
+
 // --- Memory Management ---
 void* ts_alloc(size_t size);
 void ts_gc_init();
