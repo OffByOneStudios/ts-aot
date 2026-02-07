@@ -1,0 +1,517 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "http",
+  "version": "1.0.0",
+  "modules": ["http", "node:http", "https", "node:https"],
+
+  "types": {
+    "IncomingMessage": {
+      "kind": "class",
+      "extends": "Readable",
+      "properties": {
+        "method": { "type": "string" },
+        "url": { "type": "string" },
+        "headers": { "type": "any" },
+        "statusCode": { "type": "int" },
+        "statusMessage": { "type": "string" },
+        "httpVersion": { "type": "string" },
+        "complete": { "type": "boolean" },
+        "rawHeaders": { "type": "string[]" },
+        "rawTrailers": { "type": "string[]" },
+        "trailers": { "type": "any" },
+        "socket": { "type": "Socket" },
+        "aborted": { "type": "boolean" }
+      }
+    },
+    "ServerResponse": {
+      "kind": "class",
+      "extends": "Writable",
+      "properties": {
+        "statusCode": { "type": "int" },
+        "statusMessage": { "type": "string" },
+        "headersSent": { "type": "boolean" },
+        "writableEnded": { "type": "boolean" },
+        "writableFinished": { "type": "boolean" }
+      },
+      "methods": {
+        "writeHead": {
+          "call": "ts_server_response_write_head",
+          "hirName": "ts_server_response_writeHead",
+          "params": [
+            { "name": "statusCode", "type": "int" },
+            { "name": "headers", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["i64", "ptr"], "returns": "void" }
+        },
+        "write": {
+          "call": "ts_server_response_write",
+          "hirName": "ts_server_response_write",
+          "params": [{ "name": "chunk", "type": "any" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "end": {
+          "call": "ts_server_response_end",
+          "hirName": "ts_server_response_end",
+          "params": [{ "name": "data", "type": "any", "optional": true }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "setHeader": {
+          "call": "ts_server_response_set_header",
+          "hirName": "ts_server_response_setHeader",
+          "params": [
+            { "name": "name", "type": "string" },
+            { "name": "value", "type": "any" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "getHeader": {
+          "call": "ts_server_response_get_header",
+          "hirName": "ts_server_response_getHeader",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "any",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "getHeaders": {
+          "call": "ts_server_response_get_headers",
+          "hirName": "ts_server_response_getHeaders",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "getHeaderNames": {
+          "call": "ts_server_response_get_header_names",
+          "hirName": "ts_server_response_getHeaderNames",
+          "params": [],
+          "returns": "string[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "hasHeader": {
+          "call": "ts_server_response_has_header",
+          "hirName": "ts_server_response_hasHeader",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "removeHeader": {
+          "call": "ts_server_response_remove_header",
+          "hirName": "ts_server_response_removeHeader",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "setTimeout": {
+          "call": "ts_server_response_set_timeout",
+          "hirName": "ts_server_response_setTimeout",
+          "params": [
+            { "name": "msecs", "type": "number" },
+            { "name": "callback", "type": "function", "optional": true }
+          ],
+          "returns": "ServerResponse",
+          "lowering": { "args": ["i64", "ptr"], "returns": "ptr" }
+        },
+        "flushHeaders": {
+          "call": "ts_server_response_flush_headers",
+          "hirName": "ts_server_response_flushHeaders",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        },
+        "addTrailers": {
+          "call": "ts_server_response_add_trailers",
+          "hirName": "ts_server_response_addTrailers",
+          "params": [{ "name": "trailers", "type": "any" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        }
+      }
+    },
+    "ClientRequest": {
+      "kind": "class",
+      "extends": "Writable",
+      "properties": {
+        "path": { "type": "string" },
+        "method": { "type": "string" },
+        "host": { "type": "string" },
+        "protocol": { "type": "string" },
+        "socket": { "type": "Socket" },
+        "reusedSocket": { "type": "boolean" },
+        "maxHeadersCount": { "type": "int" }
+      },
+      "methods": {
+        "getHeader": {
+          "call": "ts_client_request_get_header",
+          "hirName": "ts_client_request_getHeader",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "any",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "setHeader": {
+          "call": "ts_client_request_set_header",
+          "hirName": "ts_client_request_setHeader",
+          "params": [
+            { "name": "name", "type": "string" },
+            { "name": "value", "type": "any" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "flushHeaders": {
+          "call": "ts_client_request_flush_headers",
+          "hirName": "ts_client_request_flushHeaders",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        },
+        "setTimeout": {
+          "call": "ts_client_request_set_timeout",
+          "hirName": "ts_client_request_setTimeout",
+          "params": [
+            { "name": "msecs", "type": "number" },
+            { "name": "callback", "type": "function", "optional": true }
+          ],
+          "returns": "ClientRequest",
+          "lowering": { "args": ["i64", "ptr"], "returns": "ptr" }
+        },
+        "setNoDelay": {
+          "call": "ts_client_request_set_no_delay",
+          "hirName": "ts_client_request_setNoDelay",
+          "params": [{ "name": "noDelay", "type": "boolean", "optional": true }],
+          "returns": "void",
+          "lowering": { "args": ["i1"], "returns": "void" }
+        },
+        "setSocketKeepAlive": {
+          "call": "ts_client_request_set_socket_keep_alive",
+          "hirName": "ts_client_request_setSocketKeepAlive",
+          "params": [
+            { "name": "enable", "type": "boolean", "optional": true },
+            { "name": "initialDelay", "type": "number", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["i1", "i64"], "returns": "void" }
+        },
+        "getRawHeaderNames": {
+          "call": "ts_client_request_get_raw_header_names",
+          "hirName": "ts_client_request_getRawHeaderNames",
+          "params": [],
+          "returns": "string[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        }
+      }
+    },
+    "Agent": {
+      "kind": "class",
+      "properties": {
+        "keepAlive": { "type": "boolean" },
+        "maxSockets": { "type": "int" },
+        "maxTotalSockets": { "type": "int" },
+        "maxFreeSockets": { "type": "int" }
+      },
+      "methods": {
+        "destroy": {
+          "call": "ts_http_agent_destroy",
+          "hirName": "ts_http_agent_destroy",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        }
+      }
+    },
+    "HttpsAgent": {
+      "kind": "class",
+      "extends": "Agent"
+    },
+    "OutgoingMessage": {
+      "kind": "class",
+      "extends": "Writable",
+      "properties": {
+        "headersSent": { "type": "boolean" },
+        "finished": { "type": "boolean" },
+        "writableEnded": { "type": "boolean" },
+        "socket": { "type": "any" }
+      },
+      "methods": {
+        "setHeader": {
+          "call": "ts_outgoing_message_set_header",
+          "hirName": "ts_outgoing_message_setHeader",
+          "params": [
+            { "name": "name", "type": "string" },
+            { "name": "value", "type": "any" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "getHeader": {
+          "call": "ts_outgoing_message_get_header",
+          "hirName": "ts_outgoing_message_getHeader",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "any",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "getHeaders": {
+          "call": "ts_outgoing_message_get_headers",
+          "hirName": "ts_outgoing_message_getHeaders",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "hasHeader": {
+          "call": "ts_outgoing_message_has_header",
+          "hirName": "ts_outgoing_message_hasHeader",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "removeHeader": {
+          "call": "ts_outgoing_message_remove_header",
+          "hirName": "ts_outgoing_message_removeHeader",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "getHeaderNames": {
+          "call": "ts_outgoing_message_get_header_names",
+          "hirName": "ts_outgoing_message_getHeaderNames",
+          "params": [],
+          "returns": "string[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "flushHeaders": {
+          "call": "ts_outgoing_message_flush_headers",
+          "hirName": "ts_outgoing_message_flushHeaders",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": [], "returns": "void" }
+        }
+      }
+    },
+    "CloseEvent": {
+      "kind": "class",
+      "properties": {
+        "code": { "type": "int" },
+        "reason": { "type": "string" },
+        "wasClean": { "type": "boolean" }
+      }
+    },
+    "MessageEvent": {
+      "kind": "class",
+      "properties": {
+        "data": { "type": "any" },
+        "origin": { "type": "string" },
+        "lastEventId": { "type": "string" },
+        "source": { "type": "any" },
+        "ports": { "type": "any[]" }
+      }
+    },
+    "WebSocket": {
+      "kind": "class",
+      "extends": "EventEmitter",
+      "properties": {
+        "url": { "type": "string" },
+        "protocol": { "type": "string" },
+        "extensions": { "type": "string" },
+        "readyState": { "type": "int" },
+        "bufferedAmount": { "type": "int" },
+        "binaryType": { "type": "string" },
+        "CONNECTING": { "type": "int" },
+        "OPEN": { "type": "int" },
+        "CLOSING": { "type": "int" },
+        "CLOSED": { "type": "int" },
+        "onopen": { "type": "any" },
+        "onmessage": { "type": "any" },
+        "onclose": { "type": "any" },
+        "onerror": { "type": "any" }
+      },
+      "methods": {
+        "send": {
+          "call": "ts_websocket_send",
+          "hirName": "ts_websocket_send",
+          "params": [{ "name": "data", "type": "any" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "close": {
+          "call": "ts_websocket_close",
+          "hirName": "ts_websocket_close",
+          "params": [
+            { "name": "code", "type": "number", "optional": true },
+            { "name": "reason", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["i64", "ptr"], "returns": "void" }
+        },
+        "ping": {
+          "call": "ts_websocket_ping",
+          "hirName": "ts_websocket_ping",
+          "params": [{ "name": "data", "type": "any", "optional": true }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "pong": {
+          "call": "ts_websocket_pong",
+          "hirName": "ts_websocket_pong",
+          "params": [{ "name": "data", "type": "any", "optional": true }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        }
+      }
+    },
+    "Response": {
+      "kind": "class",
+      "properties": {
+        "status": { "type": "int" },
+        "statusText": { "type": "string" },
+        "ok": { "type": "boolean" }
+      },
+      "methods": {
+        "text": {
+          "call": "ts_response_text",
+          "hirName": "ts_response_text",
+          "params": [],
+          "returns": "Promise",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "json": {
+          "call": "ts_response_json",
+          "hirName": "ts_response_json",
+          "params": [],
+          "returns": "Promise",
+          "lowering": { "args": [], "returns": "ptr" }
+        }
+      }
+    }
+  },
+
+  "objects": {
+    "http": {
+      "properties": {
+        "METHODS": { "type": "string[]" },
+        "STATUS_CODES": { "type": "any" },
+        "maxHeaderSize": { "type": "int" },
+        "Agent": { "type": "Agent" },
+        "globalAgent": { "type": "Agent" },
+        "WebSocket": { "type": "WebSocket" }
+      },
+      "methods": {
+        "createServer": {
+          "call": "ts_http_create_server",
+          "hirName": "ts_http_createServer",
+          "params": [
+            { "name": "options", "type": "any", "optional": true },
+            { "name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}, {"name": "ServerResponse"}]} }
+          ],
+          "returns": "Server",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "request": {
+          "call": "ts_http_request",
+          "hirName": "ts_http_request",
+          "params": [
+            { "name": "options", "type": "any" },
+            { "name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}]}, "optional": true }
+          ],
+          "returns": "ClientRequest",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "get": {
+          "call": "ts_http_get",
+          "hirName": "ts_http_get",
+          "params": [
+            { "name": "options", "type": "any" },
+            { "name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}]}, "optional": true }
+          ],
+          "returns": "ClientRequest",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "validateHeaderName": {
+          "call": "ts_http_validate_header_name",
+          "hirName": "ts_http_validateHeaderName",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "validateHeaderValue": {
+          "call": "ts_http_validate_header_value",
+          "hirName": "ts_http_validateHeaderValue",
+          "params": [
+            { "name": "name", "type": "string" },
+            { "name": "value", "type": "string" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "setMaxIdleHTTPParsers": {
+          "call": "ts_http_set_max_idle_parsers",
+          "hirName": "ts_http_setMaxIdleHTTPParsers",
+          "params": [{ "name": "max", "type": "number" }],
+          "returns": "void",
+          "lowering": { "args": ["i64"], "returns": "void" }
+        },
+        "getMaxIdleHTTPParsers": {
+          "call": "ts_http_get_max_idle_parsers",
+          "hirName": "ts_http_getMaxIdleHTTPParsers",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        }
+      }
+    },
+    "https": {
+      "properties": {
+        "Agent": { "type": "HttpsAgent" },
+        "globalAgent": { "type": "HttpsAgent" }
+      },
+      "methods": {
+        "createServer": {
+          "call": "ts_https_create_server",
+          "hirName": "ts_https_createServer",
+          "params": [
+            { "name": "options", "type": "any", "optional": true },
+            { "name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}, {"name": "ServerResponse"}]} }
+          ],
+          "returns": "Server",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "request": {
+          "call": "ts_https_request",
+          "hirName": "ts_https_request",
+          "params": [
+            { "name": "options", "type": "any" },
+            { "name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}]}, "optional": true }
+          ],
+          "returns": "ClientRequest",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "get": {
+          "call": "ts_https_get",
+          "hirName": "ts_https_get",
+          "params": [
+            { "name": "options", "type": "any" },
+            { "name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}]}, "optional": true }
+          ],
+          "returns": "ClientRequest",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        }
+      }
+    }
+  },
+
+  "globals": {
+    "fetch": {
+      "type": "function",
+      "call": "ts_fetch",
+      "hirName": "ts_fetch",
+      "params": [
+        { "name": "url", "type": "string" },
+        { "name": "options", "type": "any", "optional": true }
+      ],
+      "returns": "Promise",
+      "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+    },
+    "Response": { "type": "Response" },
+    "WebSocket": { "type": "WebSocket" }
+  }
+}

@@ -118,7 +118,7 @@ TypeReference ExtensionLoader::parseTypeReference(const json& j) {
 ParameterDefinition ExtensionLoader::parseParameter(const json& j) {
     ParameterDefinition param;
     param.name = j.value("name", "");
-    param.type = parseTypeReference(j.value("type", "any"));
+    param.type = j.contains("type") ? parseTypeReference(j["type"]) : parseTypeReference("any");
     param.optional = j.value("optional", false);
     param.rest = j.value("rest", false);
     if (j.contains("default") && !j["default"].is_null()) {
@@ -145,7 +145,7 @@ LoweringSpec ExtensionLoader::parseLowering(const json& j) {
 
 PropertyDefinition ExtensionLoader::parseProperty(const json& j) {
     PropertyDefinition prop;
-    prop.type = parseTypeReference(j.value("type", "any"));
+    prop.type = j.contains("type") ? parseTypeReference(j["type"]) : parseTypeReference("any");
     if (j.contains("getter") && !j["getter"].is_null()) {
         prop.getter = j["getter"].get<std::string>();
     }
