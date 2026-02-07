@@ -75,9 +75,6 @@ add_library(tsruntime STATIC
     src/TsEventEmitter.cpp
     src/node/ReadStream.cpp
     src/node/WriteStream.cpp
-    src/node/Socket.cpp
-    src/node/SecureSocket.cpp
-    src/node/Server.cpp
     src/Primitives.cpp
     src/Math.cpp
     src/TsMap.cpp
@@ -92,26 +89,13 @@ add_library(tsruntime STATIC
     src/TsDate.cpp
     src/TsRegExp.cpp
     src/TsPromise.cpp
-    src/TsBuffer.cpp
     src/TsTextEncoding.cpp
     src/TsBoxedPrimitives.cpp
-    src/TsFetch.cpp
-    src/TsHttp.cpp
     src/TsError.cpp
     src/TsCell.cpp
     src/TsClosure.cpp
     src/TsProxy.cpp
     src/TsReflect.cpp
-    src/TsTransform.cpp
-    src/TsStringDecoder.cpp
-    src/TsPerfHooks.cpp
-    src/TsAsyncHooks.cpp
-    src/TsChildProcess.cpp
-    src/TsCluster.cpp
-    src/TsInspector.cpp
-    src/TsReadline.cpp
-    src/node/TTY.cpp
-    src/TsHttp2.cpp
     src/TsTestExtension.cpp
 )
 
@@ -124,21 +108,15 @@ target_link_libraries(tsruntime PUBLIC
     ICU::i18n
     unofficial-sodium::sodium
     nlohmann_json::nlohmann_json
-    llhttp::llhttp_static
-    OpenSSL::SSL
-    OpenSSL::Crypto
     libtommath
-    c-ares::cares
-    nghttp2::nghttp2
-    ZLIB::ZLIB
-    unofficial::brotli::brotlidec
-    unofficial::brotli::brotlienc
-    unofficial::brotli::brotlicommon
 )
 
 if (WIN32)
     target_link_libraries(tsruntime PUBLIC Dbghelp)
 endif()
+
+# nodecore: Node.js infrastructure layer (Buffer, HTTP, Sockets, etc.)
+add_subdirectory(nodecore)
 
 if (TS_ICU_MODE STREQUAL "FULL")
     target_compile_definitions(tsruntime PUBLIC TS_ICU_FULL)
