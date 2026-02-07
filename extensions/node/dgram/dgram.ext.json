@@ -1,303 +1,187 @@
 {
+  "$schema": "../extension-contract.schema.json",
   "name": "dgram",
   "version": "1.0.0",
   "modules": ["dgram", "node:dgram"],
+
+  "types": {
+    "UDPSocket": {
+      "kind": "class",
+      "extends": "EventEmitter",
+      "methods": {
+        "bind": {
+          "call": "ts_udp_socket_bind",
+          "hirName": "ts_UDPSocket_bind",
+          "params": [
+            { "name": "port", "type": "any" },
+            { "name": "address", "type": "any", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed", "boxed"], "returns": "void" }
+        },
+        "send": {
+          "call": "ts_udp_socket_send",
+          "hirName": "ts_UDPSocket_send",
+          "params": [
+            { "name": "msg", "type": "any" },
+            { "name": "offset", "type": "any", "optional": true },
+            { "name": "length", "type": "any", "optional": true },
+            { "name": "port", "type": "any", "optional": true },
+            { "name": "address", "type": "any", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed", "boxed", "boxed", "boxed", "boxed"], "returns": "void" }
+        },
+        "close": {
+          "call": "ts_udp_socket_close",
+          "hirName": "ts_UDPSocket_close",
+          "params": [{ "name": "callback", "type": "Function", "optional": true }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "address": {
+          "call": "ts_udp_socket_address",
+          "hirName": "ts_UDPSocket_address",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "setBroadcast": {
+          "call": "ts_udp_socket_set_broadcast",
+          "hirName": "ts_UDPSocket_setBroadcast",
+          "params": [{ "name": "flag", "type": "boolean" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "setMulticastTTL": {
+          "call": "ts_udp_socket_set_multicast_ttl",
+          "hirName": "ts_UDPSocket_setMulticastTTL",
+          "params": [{ "name": "ttl", "type": "number" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "setMulticastLoopback": {
+          "call": "ts_udp_socket_set_multicast_loopback",
+          "hirName": "ts_UDPSocket_setMulticastLoopback",
+          "params": [{ "name": "flag", "type": "boolean" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "setMulticastInterface": {
+          "call": "ts_udp_socket_set_multicast_interface",
+          "hirName": "ts_UDPSocket_setMulticastInterface",
+          "params": [{ "name": "interfaceAddress", "type": "string" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "addMembership": {
+          "call": "ts_udp_socket_add_membership",
+          "hirName": "ts_UDPSocket_addMembership",
+          "params": [
+            { "name": "multicastAddress", "type": "string" },
+            { "name": "multicastInterface", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+        },
+        "dropMembership": {
+          "call": "ts_udp_socket_drop_membership",
+          "hirName": "ts_UDPSocket_dropMembership",
+          "params": [
+            { "name": "multicastAddress", "type": "string" },
+            { "name": "multicastInterface", "type": "string", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+        },
+        "connect": {
+          "call": "ts_udp_socket_connect",
+          "hirName": "ts_UDPSocket_connect",
+          "params": [
+            { "name": "port", "type": "any" },
+            { "name": "address", "type": "any", "optional": true },
+            { "name": "callback", "type": "Function", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed", "boxed"], "returns": "void" }
+        },
+        "disconnect": {
+          "call": "ts_udp_socket_disconnect",
+          "hirName": "ts_UDPSocket_disconnect",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "ref": {
+          "call": "ts_udp_socket_ref",
+          "hirName": "ts_UDPSocket_ref",
+          "params": [],
+          "returns": "UDPSocket",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "unref": {
+          "call": "ts_udp_socket_unref",
+          "hirName": "ts_UDPSocket_unref",
+          "params": [],
+          "returns": "UDPSocket",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "setRecvBufferSize": {
+          "call": "ts_udp_socket_set_recv_buffer_size",
+          "hirName": "ts_UDPSocket_setRecvBufferSize",
+          "params": [{ "name": "size", "type": "number" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "setSendBufferSize": {
+          "call": "ts_udp_socket_set_send_buffer_size",
+          "hirName": "ts_UDPSocket_setSendBufferSize",
+          "params": [{ "name": "size", "type": "number" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "getRecvBufferSize": {
+          "call": "ts_udp_socket_get_recv_buffer_size",
+          "hirName": "ts_UDPSocket_getRecvBufferSize",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        },
+        "getSendBufferSize": {
+          "call": "ts_udp_socket_get_send_buffer_size",
+          "hirName": "ts_UDPSocket_getSendBufferSize",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        },
+        "setTTL": {
+          "call": "ts_udp_socket_set_ttl",
+          "hirName": "ts_UDPSocket_setTTL",
+          "params": [{ "name": "ttl", "type": "number" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "remoteAddress": {
+          "call": "ts_udp_socket_remote_address",
+          "hirName": "ts_UDPSocket_remoteAddress",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      }
+    }
+  },
+
   "objects": {
     "dgram": {
       "methods": {
         "createSocket": {
           "call": "ts_dgram_create_socket",
-          "hirName": "ts_dgram_createSocket",
-          "params": [{ "name": "type", "type": "string" }],
-          "returns": "Socket",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
-        }
-      }
-    }
-  },
-  "types": {
-    "Socket": {
-      "kind": "class",
-      "methods": {
-        "bind": {
-          "call": "ts_udp_socket_bind",
-          "hirName": "ts_dgram_Socket_bind",
-          "params": [
-            { "name": "port", "type": "number" },
-            { "name": "address", "type": "string", "optional": true },
-            { "name": "callback", "type": "Function", "optional": true }
-          ],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed", "boxed", "boxed"],
-            "returns": "void"
-          }
-        },
-        "send": {
-          "call": "ts_udp_socket_send",
-          "hirName": "ts_dgram_Socket_send",
-          "params": [
-            { "name": "msg", "type": "Buffer | string" },
-            { "name": "offset", "type": "number", "optional": true },
-            { "name": "length", "type": "number", "optional": true },
-            { "name": "port", "type": "number" },
-            { "name": "address", "type": "string" },
-            { "name": "callback", "type": "Function", "optional": true }
-          ],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed", "boxed", "boxed", "boxed", "boxed", "boxed"],
-            "returns": "void"
-          }
-        },
-        "close": {
-          "call": "ts_udp_socket_close",
-          "hirName": "ts_dgram_Socket_close",
-          "params": [{ "name": "callback", "type": "Function", "optional": true }],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
-        },
-        "address": {
-          "call": "ts_udp_socket_address",
-          "hirName": "ts_dgram_Socket_address",
-          "params": [],
-          "returns": "AddressInfo",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
-        },
-        "setBroadcast": {
-          "call": "ts_udp_socket_set_broadcast",
-          "hirName": "ts_dgram_Socket_setBroadcast",
-          "params": [{ "name": "flag", "type": "boolean" }],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
-        },
-        "setMulticastTTL": {
-          "call": "ts_udp_socket_set_multicast_ttl",
-          "hirName": "ts_dgram_Socket_setMulticastTTL",
-          "params": [{ "name": "ttl", "type": "number" }],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
-        },
-        "setMulticastLoopback": {
-          "call": "ts_udp_socket_set_multicast_loopback",
-          "hirName": "ts_dgram_Socket_setMulticastLoopback",
-          "params": [{ "name": "flag", "type": "boolean" }],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
-        },
-        "setMulticastInterface": {
-          "call": "ts_udp_socket_set_multicast_interface",
-          "hirName": "ts_dgram_Socket_setMulticastInterface",
-          "params": [{ "name": "multicastInterface", "type": "string" }],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
-        },
-        "addMembership": {
-          "call": "ts_udp_socket_add_membership",
-          "hirName": "ts_dgram_Socket_addMembership",
-          "params": [
-            { "name": "multicastAddress", "type": "string" },
-            { "name": "multicastInterface", "type": "string", "optional": true }
-          ],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed", "boxed"],
-            "returns": "void"
-          }
-        },
-        "dropMembership": {
-          "call": "ts_udp_socket_drop_membership",
-          "hirName": "ts_dgram_Socket_dropMembership",
-          "params": [
-            { "name": "multicastAddress", "type": "string" },
-            { "name": "multicastInterface", "type": "string", "optional": true }
-          ],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed", "boxed"],
-            "returns": "void"
-          }
-        },
-        "connect": {
-          "call": "ts_udp_socket_connect",
-          "hirName": "ts_dgram_Socket_connect",
-          "params": [
-            { "name": "port", "type": "number" },
-            { "name": "address", "type": "string", "optional": true },
-            { "name": "callback", "type": "Function", "optional": true }
-          ],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed", "boxed", "boxed"],
-            "returns": "void"
-          }
-        },
-        "disconnect": {
-          "call": "ts_udp_socket_disconnect",
-          "hirName": "ts_dgram_Socket_disconnect",
-          "params": [],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "void"
-          }
-        },
-        "ref": {
-          "call": "ts_udp_socket_ref",
-          "hirName": "ts_dgram_Socket_ref",
-          "params": [],
-          "returns": "Socket",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
-        },
-        "unref": {
-          "call": "ts_udp_socket_unref",
-          "hirName": "ts_dgram_Socket_unref",
-          "params": [],
-          "returns": "Socket",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
-        },
-        "setRecvBufferSize": {
-          "call": "ts_udp_socket_set_recv_buffer_size",
-          "hirName": "ts_dgram_Socket_setRecvBufferSize",
-          "params": [{ "name": "size", "type": "number" }],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
-        },
-        "setSendBufferSize": {
-          "call": "ts_udp_socket_set_send_buffer_size",
-          "hirName": "ts_dgram_Socket_setSendBufferSize",
-          "params": [{ "name": "size", "type": "number" }],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
-        },
-        "getRecvBufferSize": {
-          "call": "ts_udp_socket_get_recv_buffer_size",
-          "hirName": "ts_dgram_Socket_getRecvBufferSize",
-          "params": [],
-          "returns": "number",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "i64"
-          }
-        },
-        "getSendBufferSize": {
-          "call": "ts_udp_socket_get_send_buffer_size",
-          "hirName": "ts_dgram_Socket_getSendBufferSize",
-          "params": [],
-          "returns": "number",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "i64"
-          }
-        },
-        "setTTL": {
-          "call": "ts_udp_socket_set_ttl",
-          "hirName": "ts_dgram_Socket_setTTL",
-          "params": [{ "name": "ttl", "type": "number" }],
-          "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
-        },
-        "remoteAddress": {
-          "call": "ts_udp_socket_remote_address",
-          "hirName": "ts_dgram_Socket_remoteAddress",
-          "params": [],
-          "returns": "AddressInfo",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
-        }
-      },
-      "properties": {
-        "localAddress": {
-          "getter": "ts_udp_socket_get_local_address",
-          "hirName": "ts_dgram_Socket_localAddress",
-          "type": "string",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
-        },
-        "localPort": {
-          "getter": "ts_udp_socket_get_local_port",
-          "hirName": "ts_dgram_Socket_localPort",
-          "type": "number",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "i64"
-          }
-        },
-        "localFamily": {
-          "getter": "ts_udp_socket_get_local_family",
-          "hirName": "ts_dgram_Socket_localFamily",
-          "type": "string",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
-        },
-        "remotePort": {
-          "getter": "ts_udp_socket_get_remote_port",
-          "hirName": "ts_dgram_Socket_remotePort",
-          "type": "number",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "i64"
-          }
-        },
-        "bytesRead": {
-          "getter": "ts_udp_socket_get_bytes_read",
-          "hirName": "ts_dgram_Socket_bytesRead",
-          "type": "number",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "i64"
-          }
-        },
-        "bytesWritten": {
-          "getter": "ts_udp_socket_get_bytes_written",
-          "hirName": "ts_dgram_Socket_bytesWritten",
-          "type": "number",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "i64"
-          }
+          "params": [{ "name": "type", "type": "any" }],
+          "returns": "UDPSocket",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
         }
       }
     }

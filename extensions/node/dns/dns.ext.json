@@ -1,0 +1,267 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "dns",
+  "version": "1.0.0",
+  "modules": ["dns", "node:dns"],
+
+  "objects": {
+    "dns": {
+      "methods": {
+        "lookup": {
+          "call": "ts_dns_lookup",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "optionsOrCallback", "type": "any" },
+            { "name": "callbackOrNull", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "resolve": {
+          "call": "ts_dns_resolve",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolve4": {
+          "call": "ts_dns_resolve4",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolve6": {
+          "call": "ts_dns_resolve6",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolveCname": {
+          "call": "ts_dns_resolve_cname",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolveMx": {
+          "call": "ts_dns_resolve_mx",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolveNs": {
+          "call": "ts_dns_resolve_ns",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolveTxt": {
+          "call": "ts_dns_resolve_txt",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolveSrv": {
+          "call": "ts_dns_resolve_srv",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolvePtr": {
+          "call": "ts_dns_resolve_ptr",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolveNaptr": {
+          "call": "ts_dns_resolve_naptr",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "resolveSoa": {
+          "call": "ts_dns_resolve_soa",
+          "params": [
+            { "name": "hostname", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "reverse": {
+          "call": "ts_dns_reverse",
+          "params": [
+            { "name": "ip", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "getServers": {
+          "call": "ts_dns_get_servers",
+          "params": [],
+          "returns": "string[]",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "setServers": {
+          "call": "ts_dns_set_servers",
+          "params": [{ "name": "servers", "type": "any" }],
+          "returns": "void",
+          "lowering": { "args": ["boxed"], "returns": "void" }
+        }
+      },
+      "properties": {
+        "NODATA": { "type": "number", "getter": "ts_dns_NODATA", "lowering": { "args": [], "returns": "i64" } },
+        "FORMERR": { "type": "number", "getter": "ts_dns_FORMERR", "lowering": { "args": [], "returns": "i64" } },
+        "SERVFAIL": { "type": "number", "getter": "ts_dns_SERVFAIL", "lowering": { "args": [], "returns": "i64" } },
+        "NOTFOUND": { "type": "number", "getter": "ts_dns_NOTFOUND", "lowering": { "args": [], "returns": "i64" } },
+        "NOTIMP": { "type": "number", "getter": "ts_dns_NOTIMP", "lowering": { "args": [], "returns": "i64" } },
+        "REFUSED": { "type": "number", "getter": "ts_dns_REFUSED", "lowering": { "args": [], "returns": "i64" } },
+        "BADQUERY": { "type": "number", "getter": "ts_dns_BADQUERY", "lowering": { "args": [], "returns": "i64" } },
+        "BADNAME": { "type": "number", "getter": "ts_dns_BADNAME", "lowering": { "args": [], "returns": "i64" } },
+        "BADFAMILY": { "type": "number", "getter": "ts_dns_BADFAMILY", "lowering": { "args": [], "returns": "i64" } },
+        "BADRESP": { "type": "number", "getter": "ts_dns_BADRESP", "lowering": { "args": [], "returns": "i64" } },
+        "CONNREFUSED": { "type": "number", "getter": "ts_dns_CONNREFUSED", "lowering": { "args": [], "returns": "i64" } },
+        "TIMEOUT": { "type": "number", "getter": "ts_dns_TIMEOUT", "lowering": { "args": [], "returns": "i64" } },
+        "EOF": { "type": "number", "getter": "ts_dns_EOF", "lowering": { "args": [], "returns": "i64" } },
+        "FILE": { "type": "number", "getter": "ts_dns_FILE", "lowering": { "args": [], "returns": "i64" } },
+        "NOMEM": { "type": "number", "getter": "ts_dns_NOMEM", "lowering": { "args": [], "returns": "i64" } },
+        "DESTRUCTION": { "type": "number", "getter": "ts_dns_DESTRUCTION", "lowering": { "args": [], "returns": "i64" } },
+        "BADSTR": { "type": "number", "getter": "ts_dns_BADSTR", "lowering": { "args": [], "returns": "i64" } },
+        "BADFLAGS": { "type": "number", "getter": "ts_dns_BADFLAGS", "lowering": { "args": [], "returns": "i64" } },
+        "NONAME": { "type": "number", "getter": "ts_dns_NONAME", "lowering": { "args": [], "returns": "i64" } },
+        "BADHINTS": { "type": "number", "getter": "ts_dns_BADHINTS", "lowering": { "args": [], "returns": "i64" } },
+        "NOTINITIALIZED": { "type": "number", "getter": "ts_dns_NOTINITIALIZED", "lowering": { "args": [], "returns": "i64" } },
+        "LOADIPHLPAPI": { "type": "number", "getter": "ts_dns_LOADIPHLPAPI", "lowering": { "args": [], "returns": "i64" } },
+        "ADDRGETNETWORKPARAMS": { "type": "number", "getter": "ts_dns_ADDRGETNETWORKPARAMS", "lowering": { "args": [], "returns": "i64" } },
+        "CANCELLED": { "type": "number", "getter": "ts_dns_CANCELLED", "lowering": { "args": [], "returns": "i64" } },
+        "promises": {
+          "type": "object",
+          "properties": {
+            "lookup": {
+              "call": "ts_dns_promises_lookup",
+              "params": [
+                { "name": "hostname", "type": "string" },
+                { "name": "options", "type": "any", "optional": true }
+              ],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+            },
+            "resolve": {
+              "call": "ts_dns_promises_resolve",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolve4": {
+              "call": "ts_dns_promises_resolve4",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolve6": {
+              "call": "ts_dns_promises_resolve6",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolveCname": {
+              "call": "ts_dns_promises_resolve_cname",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolveMx": {
+              "call": "ts_dns_promises_resolve_mx",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolveNs": {
+              "call": "ts_dns_promises_resolve_ns",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolveTxt": {
+              "call": "ts_dns_promises_resolve_txt",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolveSrv": {
+              "call": "ts_dns_promises_resolve_srv",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolvePtr": {
+              "call": "ts_dns_promises_resolve_ptr",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolveNaptr": {
+              "call": "ts_dns_promises_resolve_naptr",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "resolveSoa": {
+              "call": "ts_dns_promises_resolve_soa",
+              "params": [{ "name": "hostname", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "reverse": {
+              "call": "ts_dns_promises_reverse",
+              "params": [{ "name": "ip", "type": "string" }],
+              "returns": "Promise",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "getServers": {
+              "call": "ts_dns_promises_get_servers",
+              "params": [],
+              "returns": "Promise",
+              "lowering": { "args": [], "returns": "ptr" }
+            },
+            "setServers": {
+              "call": "ts_dns_promises_set_servers",
+              "params": [{ "name": "servers", "type": "any" }],
+              "returns": "Promise",
+              "lowering": { "args": ["boxed"], "returns": "ptr" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

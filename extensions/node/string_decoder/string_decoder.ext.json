@@ -1,0 +1,52 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "string_decoder",
+  "version": "1.0.0",
+  "modules": ["string_decoder", "node:string_decoder"],
+
+  "types": {
+    "StringDecoder": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_string_decoder_create",
+        "hirName": "ts_StringDecoder_create",
+        "params": [{ "name": "encoding", "type": "string", "optional": true }],
+        "lowering": {
+          "args": ["ptr"],
+          "returns": "ptr"
+        }
+      },
+      "methods": {
+        "write": {
+          "call": "ts_string_decoder_write",
+          "hirName": "ts_StringDecoder_write",
+          "params": [{ "name": "buffer", "type": "Buffer" }],
+          "returns": "string",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "end": {
+          "call": "ts_string_decoder_end",
+          "hirName": "ts_StringDecoder_end",
+          "params": [{ "name": "buffer", "type": "Buffer", "optional": true }],
+          "returns": "string",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        }
+      },
+      "properties": {
+        "encoding": {
+          "type": "string",
+          "getter": "ts_string_decoder_get_encoding",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      }
+    }
+  },
+
+  "objects": {
+    "string_decoder": {
+      "properties": {
+        "StringDecoder": { "type": "StringDecoder" }
+      }
+    }
+  }
+}

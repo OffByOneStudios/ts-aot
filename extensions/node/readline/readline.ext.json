@@ -1,0 +1,138 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "readline",
+  "version": "1.0.0",
+  "modules": ["readline", "node:readline"],
+
+  "types": {
+    "Interface": {
+      "kind": "class",
+      "extends": "EventEmitter",
+      "methods": {
+        "close": {
+          "call": "ts_readline_close",
+          "hirName": "ts_Interface_close",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "pause": {
+          "call": "ts_readline_pause",
+          "hirName": "ts_Interface_pause",
+          "params": [],
+          "returns": "Interface",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "resume": {
+          "call": "ts_readline_resume",
+          "hirName": "ts_Interface_resume",
+          "params": [],
+          "returns": "Interface",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "prompt": {
+          "call": "ts_readline_prompt",
+          "hirName": "ts_Interface_prompt",
+          "params": [{ "name": "preserveCursor", "type": "boolean", "optional": true }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "setPrompt": {
+          "call": "ts_readline_set_prompt",
+          "hirName": "ts_Interface_setPrompt",
+          "params": [{ "name": "prompt", "type": "string" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "question": {
+          "call": "ts_readline_question",
+          "hirName": "ts_Interface_question",
+          "params": [
+            { "name": "query", "type": "string" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+        },
+        "write": {
+          "call": "ts_readline_write",
+          "hirName": "ts_Interface_write",
+          "params": [{ "name": "data", "type": "string" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "getPrompt": {
+          "call": "ts_readline_get_prompt",
+          "hirName": "ts_Interface_getPrompt",
+          "params": [],
+          "returns": "string",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      },
+      "properties": {
+        "line": { "type": "string", "getter": "ts_readline_get_line", "lowering": { "args": ["ptr"], "returns": "ptr" } },
+        "cursor": { "type": "number", "getter": "ts_readline_get_cursor", "lowering": { "args": ["ptr"], "returns": "i64" } }
+      }
+    }
+  },
+
+  "objects": {
+    "readline": {
+      "methods": {
+        "createInterface": {
+          "call": "ts_readline_create_interface",
+          "params": [{ "name": "options", "type": "any" }],
+          "returns": "Interface",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "clearLine": {
+          "call": "ts_readline_clear_line",
+          "params": [
+            { "name": "stream", "type": "any" },
+            { "name": "dir", "type": "number" }
+          ],
+          "returns": "boolean",
+          "lowering": { "args": ["boxed", "boxed"], "returns": "void" }
+        },
+        "clearScreenDown": {
+          "call": "ts_readline_clear_screen_down",
+          "params": [{ "name": "stream", "type": "any" }],
+          "returns": "boolean",
+          "lowering": { "args": ["boxed"], "returns": "void" }
+        },
+        "cursorTo": {
+          "call": "ts_readline_cursor_to",
+          "params": [
+            { "name": "stream", "type": "any" },
+            { "name": "x", "type": "number" },
+            { "name": "y", "type": "number", "optional": true }
+          ],
+          "returns": "boolean",
+          "lowering": { "args": ["boxed", "boxed", "boxed"], "returns": "void" }
+        },
+        "moveCursor": {
+          "call": "ts_readline_move_cursor",
+          "params": [
+            { "name": "stream", "type": "any" },
+            { "name": "dx", "type": "number" },
+            { "name": "dy", "type": "number" }
+          ],
+          "returns": "boolean",
+          "lowering": { "args": ["boxed", "boxed", "boxed"], "returns": "void" }
+        },
+        "emitKeypressEvents": {
+          "call": "ts_readline_emit_keypress_events",
+          "params": [
+            { "name": "stream", "type": "any" },
+            { "name": "interface", "type": "any", "optional": true }
+          ],
+          "returns": "void",
+          "lowering": { "args": ["boxed", "boxed"], "returns": "void" }
+        }
+      },
+      "properties": {
+        "Interface": { "type": "Interface" }
+      }
+    }
+  }
+}

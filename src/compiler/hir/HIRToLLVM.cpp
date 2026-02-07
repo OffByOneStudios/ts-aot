@@ -3306,6 +3306,31 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
     for (size_t i = 1; i < inst->operands.size() && (i - 1) < spec.argConversions.size(); ++i) {
         llvm::Value* arg = getOperandValue(inst->operands[i]);
         arg = convertArg(arg, spec.argConversions[i - 1]);
+
+        // Coerce to expected LLVM type if needed (e.g., f64 literal -> i64 param)
+        size_t argIdx = i - 1;
+        if (argIdx < argTys.size() && arg->getType() != argTys[argIdx]) {
+            llvm::Type* expected = argTys[argIdx];
+            if (arg->getType()->isDoubleTy() && expected->isIntegerTy(64))
+                arg = builder_->CreateFPToSI(arg, builder_->getInt64Ty());
+            else if (arg->getType()->isDoubleTy() && expected->isIntegerTy(32))
+                arg = builder_->CreateFPToSI(arg, builder_->getInt32Ty());
+            else if (arg->getType()->isIntegerTy(64) && expected->isDoubleTy())
+                arg = builder_->CreateSIToFP(arg, builder_->getDoubleTy());
+            else if (arg->getType()->isIntegerTy(64) && expected->isIntegerTy(32))
+                arg = builder_->CreateTrunc(arg, builder_->getInt32Ty());
+            else if (arg->getType()->isIntegerTy(32) && expected->isIntegerTy(64))
+                arg = builder_->CreateSExt(arg, builder_->getInt64Ty());
+            else if (arg->getType()->isIntegerTy(1) && expected->isIntegerTy(32))
+                arg = builder_->CreateZExt(arg, builder_->getInt32Ty());
+            else if (arg->getType()->isIntegerTy(1) && expected->isIntegerTy(64))
+                arg = builder_->CreateZExt(arg, builder_->getInt64Ty());
+            else if (arg->getType()->isPointerTy() && expected->isIntegerTy(64))
+                arg = builder_->CreatePtrToInt(arg, builder_->getInt64Ty());
+            else if (arg->getType()->isIntegerTy(64) && expected->isPointerTy())
+                arg = builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+        }
+
         llvmArgs.push_back(arg);
     }
 

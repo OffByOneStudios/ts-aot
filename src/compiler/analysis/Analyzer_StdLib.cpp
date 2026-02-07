@@ -1447,17 +1447,17 @@ Analyzer::Analyzer() {
     registerURLModule();
     // registerVM() - removed, now handled by extensions/node/vm/vm.ext.json
     // registerV8() - removed, now handled by extensions/node/v8/v8.ext.json
-    registerStringDecoder();
-    registerAsyncHooks();
+    // registerStringDecoder() - removed, now handled by extensions/node/string_decoder/string_decoder.ext.json
+    // registerAsyncHooks() - removed, now handled by extensions/node/async_hooks/async_hooks.ext.json
     registerChildProcess();
-    registerCluster();
-    registerDNS();
-    registerDgram();
+    // registerCluster() - removed, now handled by extensions/node/cluster/cluster.ext.json
+    // registerDNS() - removed, now handled by extensions/node/dns/dns.ext.json
+    // registerDgram() - removed, now handled by extensions/node/dgram/dgram.ext.json
     // registerInspector() - removed, now handled by extensions/node/inspector/inspector.ext.json
-    registerReadline();
+    // registerReadline() - removed, now handled by extensions/node/readline/readline.ext.json
     registerTls();
-    registerTTY();
-    registerZlib();
+    // registerTTY() - removed, now handled by extensions/node/tty/tty.ext.json
+    // registerZlib() - removed, now handled by extensions/node/zlib/zlib.ext.json
     // registerModule() - removed, now handled by extensions/node/module/module.ext.json
 
     // Register types from extension contracts (JSON-defined APIs)
@@ -1475,6 +1475,7 @@ static std::shared_ptr<Type> convertExtTypeRef(const ext::TypeReference& ref) {
     // Primitive type mapping
     if (name == "string") return std::make_shared<Type>(TypeKind::String);
     if (name == "number") return std::make_shared<Type>(TypeKind::Double);
+    if (name == "int") return std::make_shared<Type>(TypeKind::Int);
     if (name == "boolean") return std::make_shared<Type>(TypeKind::Boolean);
     if (name == "void") return std::make_shared<Type>(TypeKind::Void);
     if (name == "any") return std::make_shared<Type>(TypeKind::Any);

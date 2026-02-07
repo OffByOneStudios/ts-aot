@@ -69,17 +69,17 @@ public:
     void registerURLModule();
     // registerVM() - removed, now handled by extensions/node/vm/vm.ext.json
     // registerV8() - removed, now handled by extensions/node/v8/v8.ext.json
-    void registerStringDecoder();
-    void registerAsyncHooks();
+    // registerStringDecoder() - removed, now handled by extensions/node/string_decoder/string_decoder.ext.json
+    // registerAsyncHooks() - removed, now handled by extensions/node/async_hooks/async_hooks.ext.json
     void registerChildProcess();
-    void registerCluster();
-    void registerDNS();
-    void registerDgram();
+    // registerCluster() - removed, now handled by extensions/node/cluster/cluster.ext.json
+    // registerDNS() - removed, now handled by extensions/node/dns/dns.ext.json
+    // registerDgram() - removed, now handled by extensions/node/dgram/dgram.ext.json
     // registerInspector() - removed, now handled by extensions/node/inspector/inspector.ext.json
-    void registerReadline();
+    // registerReadline() - removed, now handled by extensions/node/readline/readline.ext.json
     void registerTls();
-    void registerTTY();
-    void registerZlib();
+    // registerTTY() - removed, now handled by extensions/node/tty/tty.ext.json
+    // registerZlib() - removed, now handled by extensions/node/zlib/zlib.ext.json
     // registerModule() - removed, now handled by extensions/node/module/module.ext.json
 
     // Register types from extension contracts (loaded via ExtensionRegistry)
