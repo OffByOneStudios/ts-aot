@@ -72,15 +72,12 @@ add_library(tsruntime STATIC
     src/EventLoop.cpp
     src/TsString.cpp
     src/TsArray.cpp
-    # src/node/fs.cpp moved to extensions/node/fs/ - now a separate library (ts_fs)
-    # path.cpp moved to extensions/node/path/ - now a separate library (ts_path)
-    src/TsEventEmitter.cpp  # extern "C" wrappers moved to extensions/node/events/
-    src/node/ReadStream.cpp  # extern "C" wrappers moved to extensions/node/stream/
-    src/node/WriteStream.cpp  # extern "C" wrappers moved to extensions/node/stream/
-    # src/node/Writable.cpp moved to extensions/node/stream/ - now in ts_stream (only had extern "C" wrappers)
-    src/node/Socket.cpp  # extern "C" wrappers moved to extensions/node/net/
+    src/TsEventEmitter.cpp
+    src/node/ReadStream.cpp
+    src/node/WriteStream.cpp
+    src/node/Socket.cpp
     src/node/SecureSocket.cpp
-    src/node/Server.cpp  # extern "C" wrappers moved to extensions/node/net/
+    src/node/Server.cpp
     src/Primitives.cpp
     src/Math.cpp
     src/TsMap.cpp
@@ -89,7 +86,6 @@ add_library(tsruntime STATIC
     src/TsBoundFunction.cpp
     src/TsBigInt.cpp
     src/TsSymbol.cpp
-    # Crypto.cpp moved to extensions/node/crypto/ - now a separate library (ts_crypto)
     src/md5.cpp
     src/TsJSON.cpp
     src/TsGlobals.cpp
@@ -98,35 +94,24 @@ add_library(tsruntime STATIC
     src/TsPromise.cpp
     src/TsBuffer.cpp
     src/TsTextEncoding.cpp
-    # TsURL.cpp moved to extensions/node/url/ - now a separate library (ts_url)
-    # TsUtil.cpp moved to extensions/node/util/ - now a separate library (ts_util)
     src/TsBoxedPrimitives.cpp
-    # TsQueryString.cpp moved to extensions/node/url/ - now a separate library (ts_url)
     src/TsFetch.cpp
-    src/TsHttp.cpp  # extern "C" wrappers moved to extensions/node/http/
+    src/TsHttp.cpp
     src/TsError.cpp
     src/TsCell.cpp
     src/TsClosure.cpp
     src/TsProxy.cpp
     src/TsReflect.cpp
-    # TsOS.cpp moved to extensions/node/os/ - now a separate library (ts_os)
-    src/TsTransform.cpp  # extern "C" wrappers moved to extensions/node/stream/
-    src/TsVM.cpp  # extern "C" wrappers moved to extensions/node/vm/
-    src/TsV8.cpp  # extern "C" wrappers moved to extensions/node/v8/
-    # TsAssert.cpp moved to extensions/node/assert/ - now a separate library (ts_assert)
+    src/TsTransform.cpp
     src/TsStringDecoder.cpp
     src/TsPerfHooks.cpp
     src/TsAsyncHooks.cpp
     src/TsChildProcess.cpp
     src/TsCluster.cpp
-    # TsDNS.cpp moved to extensions/node/dns/ - now a separate library (ts_dns)
-    # TsUDPSocket.cpp moved to extensions/node/dgram/ - now a separate library (ts_dgram)
-    src/TsInspector.cpp  # extern "C" wrappers moved to extensions/node/inspector/
+    src/TsInspector.cpp
     src/TsReadline.cpp
-    src/node/TTY.cpp  # extern "C" wrappers moved to extensions/node/tty/
+    src/node/TTY.cpp
     src/TsHttp2.cpp
-    # TsZlib.cpp moved to extensions/node/zlib/ - now a separate library (ts_zlib)
-    src/TsModule.cpp  # extern "C" wrappers moved to extensions/node/module/
     src/TsTestExtension.cpp
 )
 
