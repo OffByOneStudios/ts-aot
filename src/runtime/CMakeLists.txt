@@ -25,28 +25,7 @@ if (TARGET unofficial-sodium::sodium)
     endif()
 endif()
 find_package(nlohmann_json CONFIG REQUIRED)
-find_package(llhttp CONFIG REQUIRED)
-find_package(OpenSSL REQUIRED)
 find_package(libtommath CONFIG REQUIRED)
-find_package(c-ares CONFIG REQUIRED)
-
-# nghttp2 doesn't provide CMake config, find it manually
-find_path(NGHTTP2_INCLUDE_DIR nghttp2/nghttp2.h)
-find_library(NGHTTP2_LIBRARY nghttp2)
-if (NOT NGHTTP2_INCLUDE_DIR OR NOT NGHTTP2_LIBRARY)
-    message(FATAL_ERROR "nghttp2 library not found")
-endif()
-add_library(nghttp2::nghttp2 STATIC IMPORTED)
-set_target_properties(nghttp2::nghttp2 PROPERTIES
-    IMPORTED_LOCATION "${NGHTTP2_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${NGHTTP2_INCLUDE_DIR}"
-)
-
-# zlib - use find_package (vcpkg provides CMake config)
-find_package(ZLIB REQUIRED)
-
-# brotli - use unofficial-brotli config from vcpkg
-find_package(unofficial-brotli CONFIG REQUIRED)
 
 # Fix broken libtommath target in some vcpkg versions
 if (TARGET libtommath)
@@ -114,9 +93,6 @@ target_link_libraries(tsruntime PUBLIC
 if (WIN32)
     target_link_libraries(tsruntime PUBLIC Dbghelp)
 endif()
-
-# nodecore: Node.js infrastructure layer (Buffer, HTTP, Sockets, etc.)
-add_subdirectory(nodecore)
 
 if (TS_ICU_MODE STREQUAL "FULL")
     target_compile_definitions(tsruntime PUBLIC TS_ICU_FULL)

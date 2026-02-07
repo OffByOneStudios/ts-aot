@@ -237,18 +237,14 @@ int Driver::run() {
                 SPDLOG_INFO("Using DEBUG runtime library");
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
-                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "nodecore" / "Debug").string());
-                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "nodecore" / "Release").string());
             } else {
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
-                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "nodecore" / "Release").string());
-                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "nodecore" / "Debug").string());
             }
 
             // Extension library paths
             std::filesystem::path extensionsPath = compilerPath / ".." / ".." / ".." / "extensions" / "node";
-            std::vector<std::string> extensionModules = {"path", "os", "util", "assert", "url", "dns", "dgram", "zlib", "crypto", "events", "stream", "fs", "tty", "net", "vm", "v8", "inspector", "module", "readline", "string_decoder", "perf_hooks", "async_hooks", "http", "http2", "child_process", "cluster"};
+            std::vector<std::string> extensionModules = {"core", "path", "os", "util", "assert", "url", "dns", "dgram", "zlib", "crypto", "events", "stream", "fs", "tty", "net", "vm", "v8", "inspector", "module", "readline", "string_decoder", "perf_hooks", "async_hooks", "http", "http2", "child_process", "cluster"};
             for (const auto& mod : extensionModules) {
                 if (options.debugRuntime) {
                     linkOpts.libraryPaths.push_back((extensionsPath / mod / "Debug").string());
