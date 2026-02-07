@@ -1,0 +1,171 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "async_hooks",
+  "version": "1.0.0",
+  "modules": ["async_hooks", "node:async_hooks"],
+
+  "types": {
+    "AsyncLocalStorage": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_async_local_storage_create",
+        "hirName": "ts_AsyncLocalStorage_create",
+        "params": [],
+        "lowering": {
+          "args": [],
+          "returns": "ptr"
+        }
+      },
+      "methods": {
+        "getStore": {
+          "call": "ts_async_local_storage_getStore",
+          "hirName": "ts_AsyncLocalStorage_getStore",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "run": {
+          "call": "ts_async_local_storage_run",
+          "hirName": "ts_AsyncLocalStorage_run",
+          "params": [
+            { "name": "store", "type": "any" },
+            { "name": "callback", "type": "Function" }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["ptr", "boxed", "ptr", "i64", "ptr"], "returns": "ptr" }
+        },
+        "exit": {
+          "call": "ts_async_local_storage_exit",
+          "hirName": "ts_AsyncLocalStorage_exit",
+          "params": [{ "name": "callback", "type": "Function" }],
+          "returns": "any",
+          "lowering": { "args": ["ptr", "ptr", "i64", "ptr"], "returns": "ptr" }
+        },
+        "enterWith": {
+          "call": "ts_async_local_storage_enterWith",
+          "hirName": "ts_AsyncLocalStorage_enterWith",
+          "params": [{ "name": "store", "type": "any" }],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
+        },
+        "disable": {
+          "call": "ts_async_local_storage_disable",
+          "hirName": "ts_AsyncLocalStorage_disable",
+          "params": [],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        }
+      }
+    },
+    "AsyncResource": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_async_resource_create",
+        "hirName": "ts_AsyncResource_create",
+        "params": [
+          { "name": "type", "type": "string" },
+          { "name": "triggerAsyncId", "type": "number", "optional": true }
+        ],
+        "lowering": {
+          "args": ["ptr", "i64"],
+          "returns": "ptr"
+        }
+      },
+      "methods": {
+        "asyncId": {
+          "call": "ts_async_resource_asyncId",
+          "hirName": "ts_AsyncResource_asyncId",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        },
+        "triggerAsyncId": {
+          "call": "ts_async_resource_triggerAsyncId",
+          "hirName": "ts_AsyncResource_triggerAsyncId",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        },
+        "runInAsyncScope": {
+          "call": "ts_async_resource_runInAsyncScope",
+          "hirName": "ts_AsyncResource_runInAsyncScope",
+          "params": [
+            { "name": "fn", "type": "Function" },
+            { "name": "thisArg", "type": "any", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": { "args": ["ptr", "ptr", "boxed", "i64", "ptr"], "returns": "ptr" }
+        },
+        "bind": {
+          "call": "ts_async_resource_bind",
+          "hirName": "ts_AsyncResource_bind",
+          "params": [{ "name": "fn", "type": "Function" }],
+          "returns": "Function",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "emitDestroy": {
+          "call": "ts_async_resource_emitDestroy",
+          "hirName": "ts_AsyncResource_emitDestroy",
+          "params": [],
+          "returns": "AsyncResource",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      }
+    },
+    "AsyncHook": {
+      "kind": "class",
+      "methods": {
+        "enable": {
+          "call": "ts_async_hook_enable",
+          "hirName": "ts_AsyncHook_enable",
+          "params": [],
+          "returns": "AsyncHook",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "disable": {
+          "call": "ts_async_hook_disable",
+          "hirName": "ts_AsyncHook_disable",
+          "params": [],
+          "returns": "AsyncHook",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        }
+      }
+    }
+  },
+
+  "objects": {
+    "async_hooks": {
+      "methods": {
+        "executionAsyncId": {
+          "call": "ts_async_hooks_executionAsyncId",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "triggerAsyncId": {
+          "call": "ts_async_hooks_triggerAsyncId",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "executionAsyncResource": {
+          "call": "ts_async_hooks_executionAsyncResource",
+          "params": [],
+          "returns": "any",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "createHook": {
+          "call": "ts_async_hooks_createHook",
+          "params": [{ "name": "callbacks", "type": "any" }],
+          "returns": "AsyncHook",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        }
+      },
+      "properties": {
+        "AsyncLocalStorage": { "type": "AsyncLocalStorage" },
+        "AsyncResource": { "type": "AsyncResource" },
+        "AsyncHook": { "type": "AsyncHook" }
+      }
+    }
+  }
+}

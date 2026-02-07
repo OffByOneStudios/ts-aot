@@ -1,0 +1,152 @@
+{
+  "$schema": "../extension-contract.schema.json",
+  "name": "tty",
+  "version": "1.0.0",
+  "modules": ["tty", "node:tty"],
+
+  "types": {
+    "TTYReadStream": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_tty_read_stream_create",
+        "hirName": "ts_TTYReadStream_create",
+        "params": [{ "name": "fd", "type": "int" }],
+        "lowering": {
+          "args": ["i64"],
+          "returns": "ptr"
+        }
+      },
+      "methods": {
+        "setRawMode": {
+          "call": "ts_tty_read_stream_set_raw_mode",
+          "hirName": "ts_TTYReadStream_setRawMode",
+          "params": [{ "name": "mode", "type": "boolean" }],
+          "returns": "TTYReadStream",
+          "lowering": { "args": ["ptr", "i32"], "returns": "i32" }
+        }
+      },
+      "properties": {
+        "isTTY": {
+          "type": "boolean",
+          "getter": "ts_tty_read_stream_get_is_tty",
+          "lowering": { "args": ["ptr"], "returns": "i32" }
+        },
+        "isRaw": {
+          "type": "boolean",
+          "getter": "ts_tty_read_stream_get_is_raw",
+          "lowering": { "args": ["ptr"], "returns": "i32" }
+        }
+      }
+    },
+    "TTYWriteStream": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_tty_write_stream_create",
+        "hirName": "ts_TTYWriteStream_create",
+        "params": [{ "name": "fd", "type": "int" }],
+        "lowering": {
+          "args": ["i64"],
+          "returns": "ptr"
+        }
+      },
+      "methods": {
+        "getWindowSize": {
+          "call": "ts_tty_write_stream_get_window_size",
+          "hirName": "ts_TTYWriteStream_getWindowSize",
+          "params": [],
+          "returns": "number[]",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "clearLine": {
+          "call": "ts_tty_write_stream_clear_line",
+          "hirName": "ts_TTYWriteStream_clearLine",
+          "params": [{ "name": "dir", "type": "int" }],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr", "i64"], "returns": "i32" }
+        },
+        "clearScreenDown": {
+          "call": "ts_tty_write_stream_clear_screen_down",
+          "hirName": "ts_TTYWriteStream_clearScreenDown",
+          "params": [],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr"], "returns": "i32" }
+        },
+        "cursorTo": {
+          "call": "ts_tty_write_stream_cursor_to",
+          "hirName": "ts_TTYWriteStream_cursorTo",
+          "params": [
+            { "name": "x", "type": "int" },
+            { "name": "y", "type": "int", "optional": true }
+          ],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i32" }
+        },
+        "moveCursor": {
+          "call": "ts_tty_write_stream_move_cursor",
+          "hirName": "ts_TTYWriteStream_moveCursor",
+          "params": [
+            { "name": "dx", "type": "int" },
+            { "name": "dy", "type": "int" }
+          ],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i32" }
+        },
+        "getColorDepth": {
+          "call": "ts_tty_write_stream_get_color_depth",
+          "hirName": "ts_TTYWriteStream_getColorDepth",
+          "params": [],
+          "returns": "number",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        },
+        "hasColors": {
+          "call": "ts_tty_write_stream_has_colors",
+          "hirName": "ts_TTYWriteStream_hasColors",
+          "params": [{ "name": "count", "type": "int", "optional": true }],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr", "i64"], "returns": "i32" }
+        },
+        "write": {
+          "call": "ts_tty_write_stream_write",
+          "hirName": "ts_TTYWriteStream_write",
+          "params": [{ "name": "data", "type": "string" }],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "i32" }
+        }
+      },
+      "properties": {
+        "isTTY": {
+          "type": "boolean",
+          "getter": "ts_tty_write_stream_get_is_tty",
+          "lowering": { "args": ["ptr"], "returns": "i32" }
+        },
+        "columns": {
+          "type": "number",
+          "getter": "ts_tty_write_stream_get_columns",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        },
+        "rows": {
+          "type": "number",
+          "getter": "ts_tty_write_stream_get_rows",
+          "lowering": { "args": ["ptr"], "returns": "i64" }
+        }
+      }
+    }
+  },
+
+  "objects": {
+    "tty": {
+      "methods": {
+        "isatty": {
+          "call": "ts_tty_isatty",
+          "params": [{ "name": "fd", "type": "int" }],
+          "returns": "boolean",
+          "lowering": { "args": ["i64"], "returns": "i32" }
+        }
+      },
+      "properties": {
+        "ReadStream": { "type": "TTYReadStream" },
+        "WriteStream": { "type": "TTYWriteStream" }
+      }
+    }
+  }
+}

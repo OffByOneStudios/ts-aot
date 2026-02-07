@@ -64,18 +64,18 @@ add_library(tscompiler_lib STATIC
     analysis/Analyzer_StdLib_Crypto.cpp
     # analysis/Analyzer_StdLib_VM.cpp - removed, now handled by extensions/node/vm/vm.ext.json
     # analysis/Analyzer_StdLib_V8.cpp - removed, now handled by extensions/node/v8/v8.ext.json
-    analysis/Analyzer_StdLib_StringDecoder.cpp
-    analysis/Analyzer_StdLib_AsyncHooks.cpp
+    # analysis/Analyzer_StdLib_StringDecoder.cpp - removed, now handled by extensions/node/string_decoder/string_decoder.ext.json
+    # analysis/Analyzer_StdLib_AsyncHooks.cpp - removed, now handled by extensions/node/async_hooks/async_hooks.ext.json
     analysis/Analyzer_StdLib_ChildProcess.cpp
-    analysis/Analyzer_StdLib_Cluster.cpp
-    analysis/Analyzer_StdLib_DNS.cpp
-    analysis/Analyzer_StdLib_Dgram.cpp
+    # analysis/Analyzer_StdLib_Cluster.cpp - removed, now handled by extensions/node/cluster/cluster.ext.json
+    # analysis/Analyzer_StdLib_DNS.cpp - removed, now handled by extensions/node/dns/dns.ext.json
+    # analysis/Analyzer_StdLib_Dgram.cpp - removed, now handled by extensions/node/dgram/dgram.ext.json
     # analysis/Analyzer_StdLib_Inspector.cpp - removed, now handled by extensions/node/inspector/inspector.ext.json
-    analysis/Analyzer_StdLib_Readline.cpp
+    # analysis/Analyzer_StdLib_Readline.cpp - removed, now handled by extensions/node/readline/readline.ext.json
     analysis/Analyzer_StdLib_Tls.cpp
-    analysis/Analyzer_StdLib_TTY.cpp
+    # analysis/Analyzer_StdLib_TTY.cpp - removed, now handled by extensions/node/tty/tty.ext.json
     analysis/Analyzer_StdLib_Http2.cpp
-    analysis/Analyzer_StdLib_Zlib.cpp
+    # analysis/Analyzer_StdLib_Zlib.cpp - removed, now handled by extensions/node/zlib/zlib.ext.json
     # analysis/Analyzer_StdLib_Module.cpp - removed, now handled by extensions/node/module/module.ext.json
     analysis/Analyzer_Declarations.cpp
     analysis/Analyzer_Helpers.cpp
