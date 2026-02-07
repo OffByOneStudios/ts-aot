@@ -60,6 +60,40 @@
             "args": ["ptr", "ptr"],
             "returns": "ptr"
           }
+        },
+        "domainToASCII": {
+          "call": "ts_url_domain_to_ascii",
+          "hirName": "ts_url_domainToASCII",
+          "params": [{ "name": "domain", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "domainToUnicode": {
+          "call": "ts_url_domain_to_unicode",
+          "hirName": "ts_url_domainToUnicode",
+          "params": [{ "name": "domain", "type": "string" }],
+          "returns": "string",
+          "lowering": {
+            "args": ["ptr"],
+            "returns": "ptr"
+          }
+        },
+        "parse": {
+          "call": "ts_url_parse",
+          "hirName": "ts_url_parse",
+          "params": [
+            { "name": "urlString", "type": "string" },
+            { "name": "parseQueryString", "type": "boolean", "optional": true },
+            { "name": "slashesDenoteHost", "type": "boolean", "optional": true }
+          ],
+          "returns": "any",
+          "lowering": {
+            "args": ["ptr", "i1", "i1"],
+            "returns": "ptr"
+          }
         }
       }
     }
