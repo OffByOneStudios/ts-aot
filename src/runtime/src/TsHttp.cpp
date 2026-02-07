@@ -160,7 +160,8 @@ void TsOutgoingMessage::FlushHeaders() {
     headersSent = true;
 }
 
-// C API for OutgoingMessage
+// C API for OutgoingMessage - moved to extensions/node/http/src/http.cpp
+#if 0
 void ts_outgoing_message_set_header(void* msg, void* name, void* value) {
     TsOutgoingMessage* m = (TsOutgoingMessage*)msg;
     TsString* n = (TsString*)name;
@@ -200,6 +201,7 @@ void ts_outgoing_message_flush_headers(void* msg) {
     TsOutgoingMessage* m = (TsOutgoingMessage*)msg;
     m->FlushHeaders();
 }
+#endif
 
 // TsServerResponse
 TsServerResponse::TsServerResponse(TsSocket* socket) : TsOutgoingMessage(), socket(socket) {
@@ -1451,7 +1453,7 @@ void ts_http_validate_header_value(void* name, void* value) {
 // Global agent instances
 TsHttpAgent* globalHttpAgent = nullptr;
 TsHttpsAgent* globalHttpsAgent = nullptr;
-static int64_t maxIdleHttpParsers = 1000;
+int64_t maxIdleHttpParsers = 1000;
 
 // TsHttpAgent implementation
 TsHttpAgent::TsHttpAgent(TsValue* options) : TsEventEmitter() {
@@ -1612,6 +1614,9 @@ void ts_http_set_max_idle_http_parsers(int64_t max) {
     maxIdleHttpParsers = max;
 }
 
+}  // extern "C"
+#endif  // Migrated to extensions/node/http - agent wrappers
+
 // ============================================================================
 // TsCloseEvent implementation
 // ============================================================================
@@ -1623,6 +1628,9 @@ TsCloseEvent* TsCloseEvent::Create(int64_t code, TsString* reason) {
     event->wasClean = (code == 1000);  // 1000 = normal closure
     return event;
 }
+
+#if 0  // Migrated to extensions/node/http - close event wrappers
+extern "C" {
 
 TsValue* ts_close_event_create(int64_t code, void* reason) {
     return ts_value_make_object(TsCloseEvent::Create(code, (TsString*)reason));
@@ -1649,6 +1657,9 @@ void* ts_close_event_get_was_clean(void* event) {
     return ts_value_make_bool(e->wasClean);
 }
 
+}  // extern "C"
+#endif  // Migrated to extensions/node/http - close event wrappers
+
 // ============================================================================
 // TsMessageEvent implementation
 // ============================================================================
@@ -1662,6 +1673,9 @@ TsMessageEvent* TsMessageEvent::Create() {
     event->ports = TsArray::Create();
     return event;
 }
+
+#if 0  // Migrated to extensions/node/http - message event wrappers
+extern "C" {
 
 TsValue* ts_message_event_create() {
     return ts_value_make_object(TsMessageEvent::Create());
@@ -1708,6 +1722,9 @@ void* ts_message_event_get_ports(void* event) {
     if (!e) e = (TsMessageEvent*)event;
     return e->ports;
 }
+
+}  // extern "C"
+#endif  // Migrated to extensions/node/http - message event wrappers
 
 // ============================================================================
 // TsWebSocket implementation (RFC 6455)
@@ -2226,6 +2243,9 @@ void TsWebSocket::HandleError(TsString* error) {
         ts_function_call((TsValue*)onerror, 1, args);
     }
 }
+
+#if 0  // Migrated to extensions/node/http - WebSocket and server/response C API wrappers
+extern "C" {
 
 // ============================================================================
 // WebSocket C API

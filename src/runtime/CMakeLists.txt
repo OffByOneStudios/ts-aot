@@ -103,7 +103,7 @@ add_library(tsruntime STATIC
     src/TsBoxedPrimitives.cpp
     # TsQueryString.cpp moved to extensions/node/url/ - now a separate library (ts_url)
     src/TsFetch.cpp
-    src/TsHttp.cpp
+    src/TsHttp.cpp  # extern "C" wrappers moved to extensions/node/http/
     src/TsError.cpp
     src/TsCell.cpp
     src/TsClosure.cpp
