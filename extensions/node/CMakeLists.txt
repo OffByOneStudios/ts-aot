@@ -31,6 +31,10 @@
 #   - child_process: Process spawning
 #   - cluster: Multi-process forking
 
+# nodecore: Node.js infrastructure layer (Buffer, HTTP, Sockets, etc.)
+# Must be before other extensions that depend on nodecore types
+add_subdirectory(core)
+
 add_subdirectory(path)
 add_subdirectory(os)
 add_subdirectory(util)
