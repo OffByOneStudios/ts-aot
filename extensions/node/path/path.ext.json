@@ -2,7 +2,7 @@
   "$schema": "../extension-contract.schema.json",
   "name": "path",
   "version": "1.0.0",
-  "modules": ["path"],
+  "modules": ["path", "node:path"],
 
   "types": {
     "ParsedPath": {

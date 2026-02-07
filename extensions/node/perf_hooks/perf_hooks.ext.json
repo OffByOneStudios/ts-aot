@@ -22,7 +22,7 @@
             { "name": "name", "type": "string" },
             { "name": "options", "type": "any", "optional": true }
           ],
-          "returns": "PerformanceEntry",
+          "returns": "PerformanceMark",
           "lowering": {
             "args": ["ptr", "f64"],
             "returns": "ptr"
@@ -36,7 +36,7 @@
             { "name": "startMark", "type": "string", "optional": true },
             { "name": "endMark", "type": "string", "optional": true }
           ],
-          "returns": "PerformanceEntry",
+          "returns": "PerformanceMeasure",
           "lowering": {
             "args": ["ptr", "ptr", "ptr"],
             "returns": "ptr"
@@ -99,10 +99,10 @@
           "call": "ts_performance_event_loop_utilization",
           "hirName": "ts_performance_eventLoopUtilization",
           "params": [
-            { "name": "utilization1", "type": "any", "optional": true },
-            { "name": "utilization2", "type": "any", "optional": true }
+            { "name": "utilization1", "type": "EventLoopUtilization", "optional": true },
+            { "name": "utilization2", "type": "EventLoopUtilization", "optional": true }
           ],
-          "returns": "any",
+          "returns": "EventLoopUtilization",
           "lowering": {
             "args": ["boxed", "boxed"],
             "returns": "ptr"
@@ -129,9 +129,173 @@
           }
         }
       }
+    },
+    "perf_hooks": {
+      "nestedObjects": {
+        "performance": {
+          "methods": {
+            "now": {
+              "call": "ts_performance_now",
+              "hirName": "ts_performance_now",
+              "params": [],
+              "returns": "number",
+              "lowering": { "args": [], "returns": "f64" }
+            },
+            "mark": {
+              "call": "ts_performance_mark",
+              "hirName": "ts_performance_mark",
+              "params": [
+                { "name": "name", "type": "string" },
+                { "name": "options", "type": "any", "optional": true }
+              ],
+              "returns": "PerformanceMark",
+              "lowering": { "args": ["ptr", "f64"], "returns": "ptr" }
+            },
+            "measure": {
+              "call": "ts_performance_measure",
+              "hirName": "ts_performance_measure",
+              "params": [
+                { "name": "name", "type": "string" },
+                { "name": "startMark", "type": "string", "optional": true },
+                { "name": "endMark", "type": "string", "optional": true }
+              ],
+              "returns": "PerformanceMeasure",
+              "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "ptr" }
+            },
+            "getEntries": {
+              "call": "ts_performance_get_entries",
+              "hirName": "ts_performance_getEntries",
+              "params": [],
+              "returns": "PerformanceEntry[]",
+              "lowering": { "args": [], "returns": "ptr" }
+            },
+            "getEntriesByName": {
+              "call": "ts_performance_get_entries_by_name",
+              "hirName": "ts_performance_getEntriesByName",
+              "params": [
+                { "name": "name", "type": "string" },
+                { "name": "type", "type": "string", "optional": true }
+              ],
+              "returns": "PerformanceEntry[]",
+              "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+            },
+            "getEntriesByType": {
+              "call": "ts_performance_get_entries_by_type",
+              "hirName": "ts_performance_getEntriesByType",
+              "params": [{ "name": "type", "type": "string" }],
+              "returns": "PerformanceEntry[]",
+              "lowering": { "args": ["ptr"], "returns": "ptr" }
+            },
+            "clearMarks": {
+              "call": "ts_performance_clear_marks",
+              "hirName": "ts_performance_clearMarks",
+              "params": [{ "name": "name", "type": "string", "optional": true }],
+              "returns": "void",
+              "lowering": { "args": ["ptr"], "returns": "void" }
+            },
+            "clearMeasures": {
+              "call": "ts_performance_clear_measures",
+              "hirName": "ts_performance_clearMeasures",
+              "params": [{ "name": "name", "type": "string", "optional": true }],
+              "returns": "void",
+              "lowering": { "args": ["ptr"], "returns": "void" }
+            },
+            "eventLoopUtilization": {
+              "call": "ts_performance_event_loop_utilization",
+              "hirName": "ts_performance_eventLoopUtilization",
+              "params": [
+                { "name": "utilization1", "type": "EventLoopUtilization", "optional": true },
+                { "name": "utilization2", "type": "EventLoopUtilization", "optional": true }
+              ],
+              "returns": "EventLoopUtilization",
+              "lowering": { "args": ["boxed", "boxed"], "returns": "ptr" }
+            },
+            "timerify": {
+              "call": "ts_performance_timerify",
+              "hirName": "ts_performance_timerify",
+              "params": [{ "name": "fn", "type": "Function" }],
+              "returns": "Function",
+              "lowering": { "args": ["boxed"], "returns": "ptr" }
+            }
+          },
+          "properties": {
+            "timeOrigin": {
+              "getter": "ts_performance_time_origin",
+              "type": "number",
+              "lowering": { "args": [], "returns": "f64" }
+            }
+          }
+        }
+      },
+      "properties": {
+        "PerformanceObserver": { "type": "PerformanceObserver" }
+      }
+    }
+  },
+  "globals": {
+    "PerformanceObserver": {
+      "type": "PerformanceObserver"
     }
   },
   "types": {
+    "PerformanceMark": {
+      "kind": "class",
+      "properties": {
+        "name": {
+          "getter": "ts_performance_entry_get_name",
+          "type": "string",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "entryType": {
+          "getter": "ts_performance_entry_get_entry_type",
+          "type": "string",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "startTime": {
+          "getter": "ts_performance_entry_get_start_time",
+          "type": "number",
+          "lowering": { "args": ["ptr"], "returns": "f64" }
+        },
+        "duration": {
+          "getter": "ts_performance_entry_get_duration",
+          "type": "number",
+          "lowering": { "args": ["ptr"], "returns": "f64" }
+        }
+      }
+    },
+    "PerformanceMeasure": {
+      "kind": "class",
+      "properties": {
+        "name": {
+          "getter": "ts_performance_entry_get_name",
+          "type": "string",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "entryType": {
+          "getter": "ts_performance_entry_get_entry_type",
+          "type": "string",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "startTime": {
+          "getter": "ts_performance_entry_get_start_time",
+          "type": "number",
+          "lowering": { "args": ["ptr"], "returns": "f64" }
+        },
+        "duration": {
+          "getter": "ts_performance_entry_get_duration",
+          "type": "number",
+          "lowering": { "args": ["ptr"], "returns": "f64" }
+        }
+      }
+    },
+    "EventLoopUtilization": {
+      "kind": "class",
+      "properties": {
+        "idle": { "type": "number" },
+        "active": { "type": "number" },
+        "utilization": { "type": "number" }
+      }
+    },
     "PerformanceEntry": {
       "kind": "class",
       "properties": {

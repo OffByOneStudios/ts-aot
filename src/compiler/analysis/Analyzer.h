@@ -55,7 +55,6 @@ public:
 
     void registerStdLib();
     void registerFS();
-    void registerPath();
     void registerEvents();
     void registerStreams();
     void registerProcess();
@@ -67,13 +66,10 @@ public:
     void registerUtil();
     void registerOS();
     void registerCrypto();
-    void registerQueryString();
     void registerURLModule();
     void registerVM();
     void registerV8();
-    void registerAssert();
     void registerStringDecoder();
-    void registerPerfHooks();
     void registerAsyncHooks();
     void registerChildProcess();
     void registerCluster();
