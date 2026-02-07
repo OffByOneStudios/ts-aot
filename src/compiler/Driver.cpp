@@ -237,9 +237,13 @@ int Driver::run() {
                 SPDLOG_INFO("Using DEBUG runtime library");
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "nodecore" / "Debug").string());
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "nodecore" / "Release").string());
             } else {
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Release").string());
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "nodecore" / "Release").string());
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "nodecore" / "Debug").string());
             }
 
             // Extension library paths
@@ -272,6 +276,7 @@ int Driver::run() {
             }
 
             linkOpts.libraries.push_back("tsruntime.lib");
+            linkOpts.libraries.push_back("nodecore.lib");
             linkOpts.libraries.push_back("ts_path.lib");  // Path module extension
             linkOpts.libraries.push_back("ts_os.lib");    // OS module extension
             linkOpts.libraries.push_back("ts_util.lib");  // Util module extension
