@@ -1449,7 +1449,7 @@ Analyzer::Analyzer() {
     // registerV8() - removed, now handled by extensions/node/v8/v8.ext.json
     // registerStringDecoder() - removed, now handled by extensions/node/string_decoder/string_decoder.ext.json
     // registerAsyncHooks() - removed, now handled by extensions/node/async_hooks/async_hooks.ext.json
-    registerChildProcess();
+    // registerChildProcess() - removed, now handled by extensions/node/child_process/child_process.ext.json
     // registerCluster() - removed, now handled by extensions/node/cluster/cluster.ext.json
     // registerDNS() - removed, now handled by extensions/node/dns/dns.ext.json
     // registerDgram() - removed, now handled by extensions/node/dgram/dgram.ext.json

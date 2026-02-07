@@ -66,7 +66,7 @@ add_library(tscompiler_lib STATIC
     # analysis/Analyzer_StdLib_V8.cpp - removed, now handled by extensions/node/v8/v8.ext.json
     # analysis/Analyzer_StdLib_StringDecoder.cpp - removed, now handled by extensions/node/string_decoder/string_decoder.ext.json
     # analysis/Analyzer_StdLib_AsyncHooks.cpp - removed, now handled by extensions/node/async_hooks/async_hooks.ext.json
-    analysis/Analyzer_StdLib_ChildProcess.cpp
+    # analysis/Analyzer_StdLib_ChildProcess.cpp - removed, now handled by extensions/node/child_process/child_process.ext.json
     # analysis/Analyzer_StdLib_Cluster.cpp - removed, now handled by extensions/node/cluster/cluster.ext.json
     # analysis/Analyzer_StdLib_DNS.cpp - removed, now handled by extensions/node/dns/dns.ext.json
     # analysis/Analyzer_StdLib_Dgram.cpp - removed, now handled by extensions/node/dgram/dgram.ext.json
