@@ -529,10 +529,26 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                 methodType = cls->methods[prop->name];
             }
 
+            // Also check static methods (e.g., Buffer.from(), Buffer.alloc(), Date.now())
+            // When a ClassType is used as a value (not instantiated with new), method calls
+            // should resolve to static methods if no instance method matches.
+            if (!methodType) {
+                if (cls->staticMethodOverloads.count(prop->name)) {
+                    methodType = resolveOverload(cls->staticMethodOverloads[prop->name], argTypes);
+                    if (methodType && cls->staticMethods.count(prop->name)) {
+                        auto implType = cls->staticMethods[prop->name];
+                        methodType = std::make_shared<FunctionType>(*methodType);
+                        methodType->returnType = implType->returnType;
+                    }
+                } else if (cls->staticMethods.count(prop->name)) {
+                    methodType = cls->staticMethods[prop->name];
+                }
+            }
+
             if (methodType) {
                 lastType = methodType->returnType;
                 node->inferredType = lastType;  // CRITICAL: Set inferredType before return
-                
+
                 return;
             }
         } else if (objType->kind == TypeKind::Interface) {

@@ -665,7 +665,6 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_array_toSorted")
             .returnsPtr()
             .ptrArg()      // array
-            .ptrArg()      // compareFn
             .build());
 
     reg.registerLowering("ts_array_toSpliced",
@@ -1503,6 +1502,39 @@ void LoweringRegistry::registerFromExtensions() {
                 registeredCount++;
                 SPDLOG_DEBUG("Registered lowering from extension: {} -> {} (type {}.{})",
                              hirName, method.call, typeName, methodName);
+            }
+
+            // Register lowerings from type static methods (e.g., Buffer.from, Buffer.alloc)
+            for (const auto& [methodName, method] : typeDef.staticMethods) {
+                if (!method.lowering || method.call.empty()) continue;
+
+                std::string hirName = method.hirName ? *method.hirName : method.call;
+
+                if (hasLowering(hirName)) continue;
+
+                LoweringSpecBuilder builder(method.call);
+                buildLoweringSpec(builder, *method.lowering);
+
+                registerLowering(hirName, builder.build());
+                registeredCount++;
+                SPDLOG_DEBUG("Registered static method lowering from extension: {} -> {} (type {}.{})",
+                             hirName, method.call, typeName, methodName);
+            }
+
+            // Register lowerings from type property getters
+            for (const auto& [propName, prop] : typeDef.properties) {
+                if (!prop.getter || !prop.lowering) continue;
+
+                const std::string& getterName = *prop.getter;
+                if (hasLowering(getterName)) continue;
+
+                LoweringSpecBuilder builder(getterName);
+                buildLoweringSpec(builder, *prop.lowering);
+
+                registerLowering(getterName, builder.build());
+                registeredCount++;
+                SPDLOG_DEBUG("Registered getter lowering from extension: {} (type {}.{})",
+                             getterName, typeName, propName);
             }
         }
 

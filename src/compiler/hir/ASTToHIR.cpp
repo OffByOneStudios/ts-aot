@@ -2895,6 +2895,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 
         if (!className.empty()) {
             // Look up the class and search up the inheritance chain
+            bool foundInUserClass = false;
             for (auto& cls : module_->classes) {
                 if (cls->name == className) {
                     // Search in this class and all base classes
@@ -2916,7 +2917,32 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         // Move to base class
                         searchClass = searchClass->baseClass;
                     }
+                    foundInUserClass = true; // Class exists but method not found
                     break;
+                }
+            }
+
+            // Case 2b: Extension class instance method call.
+            // Only for types with kind == "class" (have real standalone C functions).
+            // Types with kind == "interface" (Stats, Dirent) use closure-based dispatch.
+            if (!foundInUserClass) {
+                auto& extReg = ext::ExtensionRegistry::instance();
+                if (extReg.isClassKind(className)) {
+                    const ext::MethodDefinition* extMethod = extReg.findMethod(className, propAccess->name);
+                    if (extMethod && extMethod->lowering) {
+                        std::string funcName = extMethod->hirName.value_or(extMethod->call);
+                        auto obj = lowerExpression(propAccess->expression.get());
+                        std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                        methodArgs.push_back(obj);
+                        for (auto& arg : args) {
+                            methodArgs.push_back(arg);
+                        }
+                        // Use Any type for HIR result (matches Case 4 pattern).
+                        // The actual LLVM return type comes from LoweringRegistry.
+                        // Class type for chaining comes from analyzer's inferredType.
+                        lastValue_ = builder_.createCall(funcName, methodArgs, HIRType::makeAny());
+                        return;
+                    }
                 }
             }
         }
@@ -2939,6 +2965,23 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 }
             }
 
+            // Case 3b: Extension static method call - Buffer.from(...), Buffer.alloc(...), etc.
+            // Check ExtensionRegistry for static methods on extension-defined class types.
+            // Only match methods that have a lowering spec (actual runtime function).
+            {
+                auto& extReg = ext::ExtensionRegistry::instance();
+                const ext::MethodDefinition* extStaticMethod = extReg.findStaticMethod(classNameIdent->name, propAccess->name);
+                if (extStaticMethod && extStaticMethod->lowering) {
+                    std::string funcName = extStaticMethod->hirName.value_or(extStaticMethod->call);
+                    // Use Any type for HIR result (matches Case 4 pattern).
+                    // The actual LLVM return type comes from LoweringRegistry.
+                    // Class type for chaining comes from analyzer's inferredType.
+                    auto resultType = HIRType::makeAny();
+                    lastValue_ = builder_.createCall(funcName, args, resultType);
+                    return;
+                }
+            }
+
             // Case 4: Node.js builtin module method call - path.basename(...), fs.readFileSync(...), etc.
             // Check against ExtensionRegistry instead of hardcoded list
             auto& registry = ext::ExtensionRegistry::instance();
@@ -2957,13 +3000,11 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         }
                     }
 
-                    // Skip array packing for console functions - they have special type-dispatch
-                    // handling in HIRToLLVM that expects individual arguments, not an array
+                    // Skip array packing for ALL console functions - they have special
+                    // handling in HIRToLLVM (TypeDispatch for log/error/warn/info/debug,
+                    // direct single-arg calls for group/time/count/etc.)
                     bool isConsoleFunctionWithSpecialHandling =
-                        classNameIdent->name == "console" &&
-                        (propAccess->name == "log" || propAccess->name == "error" ||
-                         propAccess->name == "warn" || propAccess->name == "info" ||
-                         propAccess->name == "debug");
+                        classNameIdent->name == "console";
 
                     if (restParamIndex != SIZE_MAX && args.size() >= restParamIndex &&
                         !isConsoleFunctionWithSpecialHandling) {
@@ -3254,9 +3295,20 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         }
         // If still not found, determine if this is a runtime function or user function
         if (!targetFunc) {
+            // Check ExtensionRegistry: if this is a registered module/object being called
+            // directly (e.g., assert(true)), use its "default" method
+            auto& extReg = ext::ExtensionRegistry::instance();
+            if (extReg.isRegisteredModule(ident->name) || extReg.isRegisteredObject(ident->name)) {
+                const ext::MethodDefinition* defaultMethod = extReg.findObjectMethod(ident->name, "default");
+                if (defaultMethod) {
+                    callName = defaultMethod->hirName.value_or(defaultMethod->call);
+                } else {
+                    callName = ident->name;  // Keep original name for registered modules
+                }
+            }
             // Runtime functions start with "ts_" - use original name
             // User functions should use the mangled name
-            if (ident->name.substr(0, 3) == "ts_" ||
+            else if (ident->name.substr(0, 3) == "ts_" ||
                 ident->name == "console" ||
                 ident->name == "Math" ||
                 ident->name == "JSON" ||
@@ -3709,6 +3761,26 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             auto returnType = getterFunc->returnType ? getterFunc->returnType : HIRType::makeAny();
             lastValue_ = builder_.createCall(getterFunc->name, {obj}, returnType);
             return;
+        }
+    }
+
+    // Check ExtensionRegistry for property getters on extension-defined classes
+    // (e.g., http2Session.destroyed, http2Stream.pending, buf.length)
+    // Only match properties that have both a getter AND a lowering spec (actual runtime function).
+    if (!targetClass && node->expression && node->expression->inferredType) {
+        auto exprType = node->expression->inferredType;
+        if (exprType->kind == ts::TypeKind::Class) {
+            auto classType = std::dynamic_pointer_cast<ts::ClassType>(exprType);
+            if (classType) {
+                auto& extReg = ext::ExtensionRegistry::instance();
+                const ext::PropertyDefinition* propDef = extReg.findProperty(classType->name, node->name);
+                if (propDef && propDef->getter && propDef->lowering) {
+                    // Property has a getter function with lowering spec - emit a call to it
+                    std::string getterFunc = *propDef->getter;
+                    lastValue_ = builder_.createCall(getterFunc, {obj}, HIRType::makeAny());
+                    return;
+                }
+            }
         }
     }
 

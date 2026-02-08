@@ -460,6 +460,15 @@ const MethodDefinition* ExtensionRegistry::findMethod(const std::string& typeNam
     return methodIt != type->methods.end() ? &methodIt->second : nullptr;
 }
 
+const MethodDefinition* ExtensionRegistry::findStaticMethod(const std::string& typeName, const std::string& methodName) const {
+    auto typeIt = typeCache_.find(typeName);
+    if (typeIt == typeCache_.end()) return nullptr;
+
+    const TypeDefinition* type = typeIt->second;
+    auto methodIt = type->staticMethods.find(methodName);
+    return methodIt != type->staticMethods.end() ? &methodIt->second : nullptr;
+}
+
 const PropertyDefinition* ExtensionRegistry::findProperty(const std::string& typeName, const std::string& propName) const {
     auto typeIt = typeCache_.find(typeName);
     if (typeIt == typeCache_.end()) return nullptr;
@@ -471,6 +480,12 @@ const PropertyDefinition* ExtensionRegistry::findProperty(const std::string& typ
 
 bool ExtensionRegistry::isExtensionType(const std::string& typeName) const {
     return typeCache_.find(typeName) != typeCache_.end();
+}
+
+bool ExtensionRegistry::isClassKind(const std::string& typeName) const {
+    auto it = typeCache_.find(typeName);
+    if (it == typeCache_.end()) return false;
+    return it->second->kind == ext::TypeKind::Class;
 }
 
 std::vector<std::pair<std::string, const GlobalDefinition*>> ExtensionRegistry::getGlobals() const {
