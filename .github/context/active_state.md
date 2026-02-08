@@ -1,19 +1,47 @@
 # Active Project State
 
 **Last Updated:** 2026-02-08
-**Current Phase:** Extension System Hardening
+**Current Phase:** Runtime Hardening & Test Fixes
 
 ## Current Focus
-1. Fixing extension system type resolution and inheritance
-2. Fixing remaining 32 failing node tests (9 compile errors, 23 runtime failures)
-3. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
+1. Fixing remaining 11 failing node tests (0 compile errors, 11 runtime failures)
+2. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
 
 ## Active Tasks
-1. **Fix remaining node test failures** - 250/280 passing (89.3%)
-2. **Extension type inheritance** - Done (property/method/static method inheritance chain walking)
-3. **Extension return type patching** - Done (Pass 3 links bare ClassTypes to registered types)
+1. **Fix remaining node test failures** - 269/280 passing (96.1%)
+2. **All compile errors resolved** - 0 remaining
 
 ## Recent Accomplishments (2026-02-08)
+*   **Local variable shadow detection in ASTToHIR Case 4:**
+    - When a local variable name shadows a registered module name (e.g., `const path = url.fileURLToPath(...)` where `path` shadows the `path` module), Case 4 incorrectly treated method calls as module method calls
+    - Added type-based check: if `lookupVariableInfo()` finds a local var with a primitive HIRType (String, Int64, Float64, Bool, Array), skip Case 4 dispatch
+    - This correctly distinguishes `path.indexOf("tmp")` (string method) from `path.basename(...)` (module method)
+    - Fixed: url_file_path.ts (was crashing due to dropped receiver in string method call)
+*   **crypto.md5() unboxing fix:**
+    - `ts_crypto_md5()` directly cast `void*` to `TsString*` without unboxing
+    - .js files pass boxed `TsValue*` via `ts_value_make_string()`, so direct cast crashed
+    - Added `ts_value_get_string()` unboxing before use
+    - Fixed: crypto_basic.js (access violation → pass)
+*   **var hoisting and path_basic.js/ts fixes:**
+    - Fixed var-declared variable hoisting to function scope in ASTToHIR
+    - Fixed Case 4 dispatch for TypeScript `import * as path from 'path'` to check `lookupVariableInfo()` before module dispatch
+    - Fixed: path_basic.js, path_basic.ts
+*   **Closure-in-function dispatch fix (ts_call_N):**
+    - When `ts_value_make_function(closurePtr, null)` wraps a TsClosure* as `TsFunction.funcPtr`, `ts_call_N` COMPILED path tried to call funcPtr as raw function pointer → crash
+    - Added `ts_funcptr_as_closure()` helper: checks `GC_base()` then magic 0x434C5352 to detect TsClosure stored as funcPtr
+    - Updated all 11 `ts_call_N` (0-10) COMPILED branches to dispatch through `closure->func_ptr` when inner closure detected
+    - GC_base() guard prevents false positive magic matches on code pointers (fixed HTTP test regressions)
+    - Fixed: util_deprecate.ts
+*   **Boolean strict equality fix:**
+    - `lowerCmpEqI64`/`lowerCmpNeI64` now uses `ts_value_get_bool()` instead of `ts_value_get_int()` for boxed ptr vs i1 comparisons
+    - Fixed: test_bool_eq.ts (Object.getOwnPropertyDescriptor writable === true)
+*   **Node tests: 269/280 (96.1%)**, Golden IR: 146/146 (100%)
+*   **Remaining 11 failures** - all deep runtime/networking/event-loop issues (0 compile errors):
+    - HTTP/HTTPS (4): fetch_basic.js/ts, http_client, https_basic
+    - HTTP/2 (3): http2_client, http2_request (6/6 pass then uncaught exception), http2_server (exits early)
+    - Crypto (2): crypto_async_kdf (infinite callback loop in pbkdf2), crypto_keygen (missing keys)
+    - Other (2): stream_utilities (pipeline variadic arg packing), util_callbackify (promise rejection not caught before exit)
+
 *   **Generator state-machine return type fix:**
     - Regular generators use state-machine pattern: wrapper (returns ptr) + impl (returns void)
     - `generatorObject_` is only set for async generators, not regular generators
@@ -137,6 +165,8 @@
 7. **Monomorphizer and non-generic classes**: Non-generic classes in `classUsages` get triple-processed causing duplicate/conflicting HIR entries. Guard with `if (classNode->typeParameters.empty()) continue;`
 8. **Extension constructors return raw pointers**: Factory functions (`ts_*_create`) must return raw pointers, NOT boxed `TsValue*` via `ts_value_make_object()`. The compiler stores the return as a raw ptr and passes it as self to instance methods.
 9. **dynamic_cast fails across static libs**: When a class is defined in one .lib and `dynamic_cast` is called from another .lib, RTTI may not be shared. Use direct casts when the type is known from the calling convention.
+10. **Local variable shadow detection in Case 4**: When a local variable name matches a registered module name (e.g., `const path = url.fileURLToPath(...)` where `path` is a string), Case 4 incorrectly dispatches to module methods. Check the variable's HIRType - if it's a primitive type (String, Int64, Float64, Bool, Array), skip Case 4 and let generic method dispatch handle it.
+11. **Runtime unboxing for .js files**: `.js` files pass boxed `TsValue*` arguments to runtime functions. Always use `ts_value_get_string()`/`ts_value_get_object()` to unbox before casting, even if `.ts` files pass raw pointers directly.
 
 ## Conformance Status
 - TypeScript: 99% (117/118 runtime features)

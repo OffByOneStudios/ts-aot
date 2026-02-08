@@ -1098,19 +1098,9 @@ static TsValue* deprecated_wrapper(void* ctx, int argc, TsValue** argv) {
         depCtx->warned = true;
     }
 
-    // Call the original function
+    // Call the original function using ts_function_call which handles all function types
     if (!depCtx->originalFunction) return nullptr;
-
-    // The original is a TsValue containing a TsFunction
-    TsValue* origVal = depCtx->originalFunction;
-    if (!origVal || origVal->type != ValueType::FUNCTION_PTR) return nullptr;
-
-    TsFunction* origFunc = (TsFunction*)origVal->ptr_val;
-    if (!origFunc || !origFunc->funcPtr) return nullptr;
-
-    // Call the original function with its original context
-    TsFunctionPtr fnPtr = (TsFunctionPtr)origFunc->funcPtr;
-    return fnPtr(origFunc->context, argc, argv);
+    return ts_function_call(depCtx->originalFunction, argc, argv);
 }
 
 void* ts_util_deprecate(void* fn, void* msg) {

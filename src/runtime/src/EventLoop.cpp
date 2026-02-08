@@ -31,10 +31,8 @@ static void on_timer_close(uv_handle_t* handle) {
 static void on_timer_callback(uv_timer_t* handle) {
     TimerData* data = (TimerData*)handle->data;
 
-    // Check for both OBJECT_PTR and FUNCTION_PTR since ts_value_make_function uses FUNCTION_PTR
-    if (data->callback &&
-        (data->callback->type == ValueType::OBJECT_PTR || data->callback->type == ValueType::FUNCTION_PTR) &&
-        data->callback->ptr_val) {
+    // Call the callback - ts_call_0 handles TsValue*, TsClosure*, and TsFunction*
+    if (data->callback) {
         ts_call_0(data->callback);
     }
 
@@ -139,10 +137,10 @@ void ts_run_microtasks() {
 
 extern "C" void ts_loop_run() {
     uv_loop_t* loop = uv_default_loop();
-    
+
     while (true) {
         ts_run_microtasks();
-        
+
         bool alive = uv_loop_alive(loop);
         if (alive) {
             uv_run(loop, UV_RUN_ONCE);

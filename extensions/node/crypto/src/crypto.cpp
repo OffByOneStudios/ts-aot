@@ -944,7 +944,10 @@ void* ts_crypto_getCiphers() {
 
 // Legacy md5 helper (keep for backwards compatibility)
 void* ts_crypto_md5(void* str) {
-    TsString* s = (TsString*)str;
+    // Unbox if needed - JS files pass boxed TsValue*
+    void* raw = ts_value_get_string((TsValue*)str);
+    if (!raw) raw = str;
+    TsString* s = (TsString*)raw;
     std::string hash = md5(s->ToUtf8());
     return TsString::Create(hash.c_str());
 }

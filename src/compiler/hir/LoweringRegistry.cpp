@@ -1346,7 +1346,6 @@ void LoweringRegistry::registerBuiltinsImpl() {
     reg.registerLowering("fetch",
         lowering("ts_fetch")
             .returnsPtr()      // Returns Promise*
-            .ptrArg()          // vtable (null for now)
             .ptrArg()          // url
             .ptrArg()          // options
             .build());

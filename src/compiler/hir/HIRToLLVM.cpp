@@ -1586,14 +1586,33 @@ void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
         return;
     }
 
-    // Handle boxed values (pointers) by unboxing to i64
+    // Handle boxed values (pointers) by unboxing
+    // When comparing with a boolean (i1), use ts_value_get_bool instead of ts_value_get_int
+    // because ts_value_get_int returns 0 for BOOLEAN TsValues
+    bool otherIsBool = false;
+    if (lhsIsPointer && !rhsIsPointer && rhs->getType()->isIntegerTy(1)) otherIsBool = true;
+    if (rhsIsPointer && !lhsIsPointer && lhs->getType()->isIntegerTy(1)) otherIsBool = true;
+
     if (lhsIsPointer) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+        if (otherIsBool) {
+            auto unboxFn = getTsValueGetBool();
+            lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs_bool");
+            // getTsValueGetBool returns i32, truncate to i1 for boolean comparison
+            lhs = builder_->CreateICmpNE(lhs, llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "to_i1");
+        } else {
+            auto unboxFn = getTsValueGetInt();
+            lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+        }
     }
     if (rhsIsPointer) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+        if (otherIsBool) {
+            auto unboxFn = getTsValueGetBool();
+            rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs_bool");
+            rhs = builder_->CreateICmpNE(rhs, llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "to_i1");
+        } else {
+            auto unboxFn = getTsValueGetInt();
+            rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+        }
     }
 
     // Handle type mismatch between i64 and i1 (boolean literal comparisons like x === true)
@@ -1653,14 +1672,31 @@ void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
         return;
     }
 
-    // Handle boxed values (pointers) by unboxing to i64
+    // Handle boxed values (pointers) by unboxing
+    // When comparing with a boolean (i1), use ts_value_get_bool instead of ts_value_get_int
+    bool otherIsBoolNe = false;
+    if (lhsIsPointer && !rhsIsPointer && rhs->getType()->isIntegerTy(1)) otherIsBoolNe = true;
+    if (rhsIsPointer && !lhsIsPointer && lhs->getType()->isIntegerTy(1)) otherIsBoolNe = true;
+
     if (lhsIsPointer) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+        if (otherIsBoolNe) {
+            auto unboxFn = getTsValueGetBool();
+            lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs_bool");
+            lhs = builder_->CreateICmpNE(lhs, llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "to_i1");
+        } else {
+            auto unboxFn = getTsValueGetInt();
+            lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
+        }
     }
     if (rhsIsPointer) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+        if (otherIsBoolNe) {
+            auto unboxFn = getTsValueGetBool();
+            rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs_bool");
+            rhs = builder_->CreateICmpNE(rhs, llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "to_i1");
+        } else {
+            auto unboxFn = getTsValueGetInt();
+            rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
+        }
     }
 
     // Handle type mismatch between i64 and i1 (boolean literal comparisons like x !== true)
@@ -5129,8 +5165,13 @@ void HIRToLLVM::lowerLoadCapture(HIRInstruction* inst) {
             result = builder_->CreateCall(getIntFt, getInt.getCallee(), { boxedValue });
         } else if (kind == HIRTypeKind::Float64) {
             result = builder_->CreateCall(getDoubleFt, getDouble.getCallee(), { boxedValue });
+        } else if (kind == HIRTypeKind::Any) {
+            // For Any type, return the boxed TsValue* as-is.
+            // The consumer decides how to unbox. Using ts_value_get_object here
+            // would break non-object values (e.g., timer IDs stored as NUMBER_INT).
+            result = boxedValue;
         } else {
-            // For pointers/objects, use ts_value_get_object
+            // For pointers/objects with specific types, use ts_value_get_object
             result = builder_->CreateCall(getObjectFt, getObject.getCallee(), { boxedValue });
         }
     } else {
@@ -5323,8 +5364,11 @@ void HIRToLLVM::lowerLoadCaptureFromClosure(HIRInstruction* inst) {
             result = builder_->CreateCall(getIntFt, getInt.getCallee(), { boxedValue });
         } else if (kind == HIRTypeKind::Float64) {
             result = builder_->CreateCall(getDoubleFt, getDouble.getCallee(), { boxedValue });
+        } else if (kind == HIRTypeKind::Any) {
+            // For Any type, return the boxed TsValue* as-is.
+            result = boxedValue;
         } else {
-            // For pointers/objects, use ts_value_get_object
+            // For pointers/objects with specific types, use ts_value_get_object
             result = builder_->CreateCall(getObjectFt, getObject.getCallee(), { boxedValue });
         }
     } else {

@@ -32,6 +32,53 @@ static std::shared_ptr<HIRType> extTypeRefToHIR(const ext::TypeReference& typeRe
 }
 
 //==============================================================================
+// Helper: Check if an AST expression contains a function/arrow (for var hoisting)
+//==============================================================================
+
+static bool containsClosureExpression(ast::Node* node) {
+    if (!node) return false;
+    std::string kind = node->getKind();
+    if (kind == "FunctionExpression" || kind == "ArrowFunction") return true;
+    // Check CallExpression arguments (e.g., setInterval(function() {...}, ...))
+    if (auto* call = dynamic_cast<ast::CallExpression*>(node)) {
+        for (auto& arg : call->arguments) {
+            if (containsClosureExpression(arg.get())) return true;
+        }
+        if (containsClosureExpression(call->callee.get())) return true;
+    }
+    // Check NewExpression arguments
+    if (auto* newExpr = dynamic_cast<ast::NewExpression*>(node)) {
+        for (auto& arg : newExpr->arguments) {
+            if (containsClosureExpression(arg.get())) return true;
+        }
+    }
+    // Check array literals
+    if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) {
+        for (auto& elem : arr->elements) {
+            if (containsClosureExpression(elem.get())) return true;
+        }
+    }
+    // Check object literals
+    if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) {
+        for (auto& prop : obj->properties) {
+            if (auto* p = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+                if (containsClosureExpression(p->initializer.get())) return true;
+            }
+        }
+    }
+    // Check ternary / binary
+    if (auto* cond = dynamic_cast<ast::ConditionalExpression*>(node)) {
+        if (containsClosureExpression(cond->whenTrue.get())) return true;
+        if (containsClosureExpression(cond->whenFalse.get())) return true;
+    }
+    if (auto* bin = dynamic_cast<ast::BinaryExpression*>(node)) {
+        if (containsClosureExpression(bin->left.get())) return true;
+        if (containsClosureExpression(bin->right.get())) return true;
+    }
+    return false;
+}
+
+//==============================================================================
 // Constructor / Entry Point
 //==============================================================================
 
@@ -285,6 +332,23 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     // Initialize with null - will be set when the function is processed
                     builder_.createStore(builder_.createConstNull(), allocaVal);
                     defineVariableAlloca(nestedFunc->name, allocaVal, nestedFuncType);
+                }
+            }
+
+            // Variable hoisting: pre-declare variable names ONLY when the initializer
+            // contains a closure that could reference the variable being declared.
+            // Example: var interval = setInterval(function() { clearInterval(interval) }, 30)
+            for (auto& stmt : funcNode->body) {
+                if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                    if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                        if (!lookupVariableInfo(ident->name) &&
+                            varDecl->initializer && containsClosureExpression(varDecl->initializer.get())) {
+                            auto varType = HIRType::makeAny();
+                            auto allocaVal = builder_.createAlloca(varType, ident->name);
+                            builder_.createStore(builder_.createConstUndefined(), allocaVal, varType);
+                            defineVariableAlloca(ident->name, allocaVal, varType);
+                        }
+                    }
                 }
             }
 
@@ -1213,6 +1277,23 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         }
     }
 
+    // Variable hoisting: pre-declare variable names ONLY when the initializer
+    // contains a closure that could reference the variable being declared.
+    // Example: var interval = setInterval(function() { clearInterval(interval) }, 30)
+    for (auto& stmt : node->body) {
+        if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+            if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                if (!lookupVariableInfo(ident->name) &&
+                    varDecl->initializer && containsClosureExpression(varDecl->initializer.get())) {
+                    auto varType = HIRType::makeAny();
+                    auto allocaVal = builder_.createAlloca(varType, ident->name);
+                    builder_.createStore(builder_.createConstUndefined(), allocaVal, varType);
+                    defineVariableAlloca(ident->name, allocaVal, varType);
+                }
+            }
+        }
+    }
+
     // Lower function body in two passes for proper JavaScript function hoisting:
     // FIRST PASS: Process FunctionDeclarations to create closures
     // This ensures nested functions are available before any other code runs,
@@ -1417,9 +1498,26 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             varType = initValue->type;
         }
 
-        auto allocaPtr = builder_.createAlloca(varType, ident->name);
-        builder_.createStore(initValue, allocaPtr, varType);
-        defineVariableAlloca(ident->name, allocaPtr, varType);
+        // Check if this variable was already pre-hoisted - if so, reuse its alloca
+        auto* existingInfo = lookupVariableInfo(ident->name);
+        if (existingInfo && existingInfo->isAlloca) {
+            // Variable was pre-hoisted: just store the init value into the existing alloca
+            builder_.createStore(initValue, existingInfo->value, varType);
+            // Update the type info if we have a more specific type now
+            if (varType->kind != HIRTypeKind::Any) {
+                existingInfo->elemType = varType;
+            }
+            // If this variable is captured by a nested closure, also update the cell
+            // so the closure sees the new value (e.g., var interval = setInterval(...))
+            if (existingInfo->isCapturedByNested && existingInfo->closurePtr && existingInfo->captureIndex >= 0) {
+                auto closureVal = builder_.createLoad(HIRType::makeAny(), existingInfo->closurePtr);
+                builder_.createStoreCaptureFromClosure(closureVal, existingInfo->captureIndex, initValue);
+            }
+        } else {
+            auto allocaPtr = builder_.createAlloca(varType, ident->name);
+            builder_.createStore(initValue, allocaPtr, varType);
+            defineVariableAlloca(ident->name, allocaPtr, varType);
+        }
     } else if (auto* objPattern = dynamic_cast<ast::ObjectBindingPattern*>(node->name.get())) {
         // Object destructuring: const { a, b } = obj
         lowerObjectBindingPattern(objPattern, initValue);
@@ -2797,6 +2895,12 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         if (info && info->isAlloca) {
             // Emit store to the alloca, with type info for coercion
             builder_.createStore(rhs, info->value, info->elemType);
+            // If this variable is captured by a nested closure, also update the cell
+            // so the closure sees the new value (e.g., interval = setInterval(...))
+            if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
+                auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+                builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, rhs);
+            }
         } else if (info) {
             // Direct value - promote to alloca for mutability
             // Create new alloca and store
@@ -3068,9 +3172,36 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // Check against ExtensionRegistry instead of hardcoded list
             auto& registry = ext::ExtensionRegistry::instance();
             if (registry.isRegisteredModule(classNameIdent->name) || registry.isRegisteredObject(classNameIdent->name)) {
-                // Check if the method has rest parameters that need array packing
                 const ext::MethodDefinition* methodDef = registry.findObjectMethod(classNameIdent->name, propAccess->name);
-                std::string runtimeFunc = "ts_" + classNameIdent->name + "_" + propAccess->name;
+
+                // If the method is NOT found in the ext.json AND the identifier is a local
+                // variable with a known non-module type (string, number, etc.), skip Case 4.
+                // This prevents local variables that shadow module names
+                // (e.g. `const path = url.fileURLToPath(...)`) from being treated as module calls.
+                bool isLocalVarShadow = false;
+                if (!methodDef) {
+                    auto* varInfo = lookupVariableInfo(classNameIdent->name);
+                    if (varInfo && varInfo->elemType) {
+                        auto kind = varInfo->elemType->kind;
+                        // If the variable has a primitive type, it can't be a module reference
+                        if (kind == HIRTypeKind::String || kind == HIRTypeKind::Int64 ||
+                            kind == HIRTypeKind::Float64 || kind == HIRTypeKind::Bool ||
+                            kind == HIRTypeKind::Array) {
+                            isLocalVarShadow = true;
+                        }
+                    }
+                }
+
+                if (!isLocalVarShadow) {
+                // Use the HIR name (matching LoweringRegistry derivation) so the registered lowering spec is found
+                std::string runtimeFunc;
+                if (methodDef && methodDef->hirName) {
+                    runtimeFunc = *methodDef->hirName;
+                } else {
+                    runtimeFunc = "ts_" + classNameIdent->name + "_" + propAccess->name;
+                }
+                // Use ext.json return type if available, otherwise default to any
+                auto resultType = methodDef ? extTypeRefToHIR(methodDef->returns) : HIRType::makeAny();
 
                 if (methodDef) {
                     // Find if there's a rest parameter and at what position
@@ -3109,14 +3240,15 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         }
 
                         packedArgs.push_back(restArray);
-                        lastValue_ = builder_.createCall(runtimeFunc, packedArgs, HIRType::makeAny());
+                        lastValue_ = builder_.createCall(runtimeFunc, packedArgs, resultType);
                         return;
                     }
                 }
 
                 // No rest parameter or not enough args - emit direct call
-                lastValue_ = builder_.createCall(runtimeFunc, args, HIRType::makeAny());
+                lastValue_ = builder_.createCall(runtimeFunc, args, resultType);
                 return;
+                } // end if (!isLocalVarShadow)
             }
         }
 
@@ -4756,6 +4888,27 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
             }
         }
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
+
+        // Mark each captured variable in the outer scope as "captured by nested"
+        // so subsequent reads/writes in the outer function also use the cell
+        int captureIdx = 0;
+        for (const auto& cap : innerCaptures) {
+            const std::string& capName = cap.first;
+            size_t scopeIndex = 0;
+            if (!isCapturedVariable(capName, &scopeIndex)) {
+                // Variable is in this function's scope, mark it as captured
+                auto* info = lookupVariableInfo(capName);
+                if (info && !info->isCapturedByNested) {
+                    info->isCapturedByNested = true;
+                    // Store closure pointer in an alloca to ensure SSA dominance
+                    auto closureAlloca = builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
+                    builder_.createStore(lastValue_, closureAlloca);
+                    info->closurePtr = closureAlloca;
+                    info->captureIndex = captureIdx;
+                }
+            }
+            captureIdx++;
+        }
     } else {
         // No captures, but still wrap in a closure for consistency with call_indirect
         // which always expects a TsClosure* (not a raw function pointer)
@@ -5104,6 +5257,11 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                 auto* info = lookupVariableInfo(ident->name);
                 if (info && info->isAlloca) {
                     builder_.createStore(result, info->value, info->elemType);
+                    // If captured by nested closure, also update the cell
+                    if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
+                        auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+                        builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
+                    }
                 } else {
                     defineVariable(ident->name, result);
                 }
@@ -5186,6 +5344,11 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                 auto* info = lookupVariableInfo(ident->name);
                 if (info && info->isAlloca) {
                     builder_.createStore(result, info->value, info->elemType);
+                    // If captured by nested closure, also update the cell
+                    if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
+                        auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+                        builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
+                    }
                 } else {
                     defineVariable(ident->name, result);
                 }

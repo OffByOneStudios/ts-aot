@@ -65,5 +65,5 @@ extern "C" {
     void* ts_response_json(void* resp);
     void* ts_response_arrayBuffer(void* resp);
 
-    void* ts_fetch(void* vtable, void* url, void* options);
+    void* ts_fetch(void* url, void* options);
 }
