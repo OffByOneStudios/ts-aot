@@ -298,15 +298,15 @@ static void on_resolved(uv_getaddrinfo_t* req, int status, struct addrinfo* res)
 }
 
 extern "C" {
-void* ts_fetch(void* vtable, void* url_val, void* options_val) {
-    
-    
+void* ts_fetch(void* url_val, void* options_val) {
+
+
     OPENSSL_init_ssl(0, NULL);
     TsString* url_str = (TsString*)url_val;
     TsURL* url = TsURL::Create(url_str);
     ts::TsPromise* promise = ts::ts_promise_create();
-    
-    FetchContext* ctx = new(GC_malloc_uncollectable(sizeof(FetchContext))) FetchContext(promise, url, vtable);
+
+    FetchContext* ctx = new(GC_malloc_uncollectable(sizeof(FetchContext))) FetchContext(promise, url, nullptr);
     ctx->is_https = std::string(url->GetProtocol()->ToUtf8()) == "https:";
     ctx->response_headers = TsHeaders::Create();
 

@@ -16,6 +16,7 @@
 #include "TsClosure.h"
 #include "TsProxy.h"
 #include "GC.h"
+#include <gc/gc.h>  // For GC_base()
 #include "TsRuntime.h"
 #include "MemoryTracker.h"
 #include <new>
@@ -1203,6 +1204,19 @@ TsValue* ts_value_make_int(int64_t i) {
         }
     }
 
+    // Helper to check if a funcPtr inside a TsFunction is actually a TsClosure
+    // This happens when ts_value_make_function wraps a closure pointer
+    static TsClosure* ts_funcptr_as_closure(void* funcPtr) {
+        if (!funcPtr) return nullptr;
+        // Only check magic if the pointer is in the GC heap (not a code pointer)
+        if (!GC_base(funcPtr)) return nullptr;
+        TsObject* obj = (TsObject*)funcPtr;
+        if (obj->magic == 0x434C5352) {  // 'CLSR'
+            return (TsClosure*)obj;
+        }
+        return nullptr;
+    }
+
     // Helper to extract TsClosure from a boxed or raw value
     static TsClosure* ts_extract_closure(TsValue* boxedFunc) {
         if (!boxedFunc) return nullptr;
@@ -1248,6 +1262,12 @@ TsValue* ts_value_make_int(int64_t i) {
             auto result = ((TsFunctionPtr)func->funcPtr)(func->context, 0, nullptr);
             return result;
         } else {
+            // Check if funcPtr is actually a TsClosure (wrapped via ts_value_make_function)
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn0)(void*);
+                return ((Fn0)innerClosure->func_ptr)(innerClosure);
+            }
             typedef TsValue* (*Fn0)(void*);
             auto result = ((Fn0)func->funcPtr)(func->context);
             return result;
@@ -1279,6 +1299,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* argv[1] = { arg1 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn1)(void*, TsValue*);
+                return ((Fn1)innerClosure->func_ptr)(innerClosure, arg1);
+            }
             typedef TsValue* (*Fn1)(void*, TsValue*);
             return ((Fn1)func->funcPtr)(func->context, arg1);
         }
@@ -1308,6 +1333,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* result = ((TsFunctionPtr)func->funcPtr)(func->context, 2, argv);
             return result;
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
+                return ((Fn2)innerClosure->func_ptr)(innerClosure, arg1, arg2);
+            }
             typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
             TsValue* result = ((Fn2)func->funcPtr)(func->context, arg1, arg2);
             return result;
@@ -1334,6 +1364,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* argv[3] = { arg1, arg2, arg3 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 3, argv);
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
+                return ((Fn3)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3);
+            }
             typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
             return ((Fn3)func->funcPtr)(func->context, arg1, arg2, arg3);
         }
@@ -1359,6 +1394,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* argv[4] = { arg1, arg2, arg3, arg4 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 4, argv);
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((Fn4)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4);
+            }
             typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn4)func->funcPtr)(func->context, arg1, arg2, arg3, arg4);
         }
@@ -1384,6 +1424,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* argv[5] = { arg1, arg2, arg3, arg4, arg5 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 5, argv);
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((Fn5)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5);
+            }
             typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn5)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5);
         }
@@ -1409,6 +1454,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* argv[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 6, argv);
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((Fn6)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6);
+            }
             typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn6)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6);
         }
@@ -1434,6 +1484,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* argv[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 7, argv);
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((Fn7)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            }
             typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn7)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
         }
@@ -1460,6 +1515,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* argv[8] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 8, argv);
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((Fn8)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+            }
             typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn8)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
         }
@@ -1486,6 +1546,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* argv[9] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 9, argv);
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn9)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((Fn9)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+            }
             typedef TsValue* (*Fn9)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn9)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
         }
@@ -1512,6 +1577,11 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* argv[10] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 };
             return ((TsFunctionPtr)func->funcPtr)(func->context, 10, argv);
         } else {
+            TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            if (innerClosure) {
+                typedef TsValue* (*Fn10)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((Fn10)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+            }
             typedef TsValue* (*Fn10)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn10)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
         }

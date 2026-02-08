@@ -84,7 +84,7 @@
             {"name": "chunk", "type": "any"}
           ],
           "returns": "void",
-          "lowering": { "args": [], "returns": "void" }
+          "lowering": { "args": ["boxed"], "returns": "void" }
         },
         "end": {
           "call": "ts_http_server_response_end",
@@ -93,7 +93,7 @@
             {"name": "data", "type": "any", "optional": true}
           ],
           "returns": "void",
-          "lowering": { "args": [], "returns": "void" }
+          "lowering": { "args": ["boxed"], "returns": "void" }
         },
         "setHeader": {
           "call": "ts_outgoing_message_set_header",
@@ -103,7 +103,7 @@
             {"name": "value", "type": "any"}
           ],
           "returns": "void",
-          "lowering": { "args": ["ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
         },
         "getHeader": {
           "call": "ts_outgoing_message_get_header",
@@ -112,7 +112,7 @@
             {"name": "name", "type": "string"}
           ],
           "returns": "any",
-          "lowering": { "args": [], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "getHeaders": {
           "call": "ts_outgoing_message_get_headers",
@@ -135,7 +135,7 @@
             {"name": "name", "type": "string"}
           ],
           "returns": "boolean",
-          "lowering": { "args": [], "returns": "i1" }
+          "lowering": { "args": ["ptr"], "returns": "i1" }
         },
         "removeHeader": {
           "call": "ts_outgoing_message_remove_header",
@@ -144,7 +144,7 @@
             {"name": "name", "type": "string"}
           ],
           "returns": "void",
-          "lowering": { "args": [], "returns": "void" }
+          "lowering": { "args": ["ptr"], "returns": "void" }
         },
         "setTimeout": {
           "call": "ts_server_response_set_timeout",
@@ -170,7 +170,7 @@
             {"name": "trailers", "type": "any"}
           ],
           "returns": "void",
-          "lowering": { "args": [], "returns": "void" }
+          "lowering": { "args": ["ptr"], "returns": "void" }
         }
       }
     },
@@ -222,7 +222,7 @@
             {"name": "name", "type": "string"}
           ],
           "returns": "any",
-          "lowering": { "args": [], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "setHeader": {
           "call": "ts_client_request_set_header",
@@ -232,7 +232,7 @@
             {"name": "value", "type": "any"}
           ],
           "returns": "void",
-          "lowering": { "args": ["ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
         },
         "flushHeaders": {
           "call": "ts_client_request_flush_headers",
@@ -335,7 +335,7 @@
             {"name": "value", "type": "any"}
           ],
           "returns": "void",
-          "lowering": { "args": ["ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
         },
         "getHeader": {
           "call": "ts_outgoing_message_get_header",
@@ -344,7 +344,7 @@
             {"name": "name", "type": "string"}
           ],
           "returns": "any",
-          "lowering": { "args": [], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "getHeaders": {
           "call": "ts_outgoing_message_get_headers",
@@ -360,7 +360,7 @@
             {"name": "name", "type": "string"}
           ],
           "returns": "boolean",
-          "lowering": { "args": [], "returns": "i1" }
+          "lowering": { "args": ["ptr"], "returns": "i1" }
         },
         "removeHeader": {
           "call": "ts_outgoing_message_remove_header",
@@ -369,7 +369,7 @@
             {"name": "name", "type": "string"}
           ],
           "returns": "void",
-          "lowering": { "args": [], "returns": "void" }
+          "lowering": { "args": ["ptr"], "returns": "void" }
         },
         "getHeaderNames": {
           "call": "ts_outgoing_message_get_header_names",
@@ -476,7 +476,7 @@
             {"name": "data", "type": "any"}
           ],
           "returns": "void",
-          "lowering": { "args": [], "returns": "void" }
+          "lowering": { "args": ["boxed"], "returns": "void" }
         },
         "close": {
           "call": "ts_websocket_close",
@@ -495,7 +495,7 @@
             {"name": "data", "type": "any", "optional": true}
           ],
           "returns": "void",
-          "lowering": { "args": [], "returns": "void" }
+          "lowering": { "args": ["boxed"], "returns": "void" }
         },
         "pong": {
           "call": "ts_websocket_pong",
@@ -504,7 +504,7 @@
             {"name": "data", "type": "any", "optional": true}
           ],
           "returns": "void",
-          "lowering": { "args": [], "returns": "void" }
+          "lowering": { "args": ["boxed"], "returns": "void" }
         }
       }
     },

@@ -627,23 +627,32 @@ extern "C" {
         TsString* urlStr = nullptr;
         TsURL* urlObj = nullptr;
 
-        // First, try to unbox as object (for URL object)
-        void* objPtr = ts_value_get_object((TsValue*)urlArg);
-        if (objPtr) {
-            urlObj = dynamic_cast<TsURL*>((TsObject*)objPtr);
-            if (urlObj) {
-                urlStr = urlObj->GetHref();
+        // Check for raw TsString* first (magic 0x53545247 at offset 0)
+        uint32_t magic0 = *(uint32_t*)urlArg;
+        if (magic0 == 0x53545247) { // TsString::MAGIC "STRG"
+            urlStr = (TsString*)urlArg;
+        } else {
+            // Try to unbox as object (for URL object)
+            void* objPtr = ts_value_get_object((TsValue*)urlArg);
+            if (objPtr) {
+                // Check if the unboxed object is a TsURL (TsObject subclass)
+                uint32_t objMagic = *(uint32_t*)((char*)objPtr + 8);
+                // TsURL has TsObject base, magic at offset 8
+                urlObj = dynamic_cast<TsURL*>((TsObject*)objPtr);
+                if (urlObj) {
+                    urlStr = urlObj->GetHref();
+                }
             }
-        }
 
-        // If not a URL object, try to get as string
-        if (!urlStr) {
-            void* strPtr = ts_value_get_string((TsValue*)urlArg);
-            if (strPtr) {
-                urlStr = (TsString*)strPtr;
-            } else {
-                // Last resort - treat urlArg as raw TsString*
-                urlStr = (TsString*)urlArg;
+            // If not a URL object, try to get as string
+            if (!urlStr) {
+                void* strPtr = ts_value_get_string((TsValue*)urlArg);
+                if (strPtr) {
+                    urlStr = (TsString*)strPtr;
+                } else {
+                    // Last resort - treat urlArg as raw TsString*
+                    urlStr = (TsString*)urlArg;
+                }
             }
         }
 
@@ -752,6 +761,15 @@ extern "C" {
     // and WHATWG URL instances
     void* ts_url_format(void* urlArg, void* optionsArg) {
         if (!urlArg) return TsString::Create("");
+
+        // Check for raw TsString* first (magic 0x53545247 at offset 0)
+        uint32_t fmtMagic0 = *(uint32_t*)urlArg;
+        if (fmtMagic0 == 0x53545247) { // TsString::MAGIC
+            // String input - parse as URL and return href
+            TsURL* parsed = TsURL::Create((TsString*)urlArg);
+            if (parsed) return parsed->GetHref();
+            return TsString::Create("");
+        }
 
         // Try to get as TsURL first (WHATWG URL instance)
         void* objPtr = ts_value_get_object((TsValue*)urlArg);
@@ -965,22 +983,29 @@ extern "C" {
     void* ts_url_to_http_options(void* urlArg) {
         if (!urlArg) return nullptr;
 
-        // Try to get as TsURL first
-        void* objPtr = ts_value_get_object((TsValue*)urlArg);
-        if (!objPtr) objPtr = urlArg;
+        // Check for raw TsString* first (magic 0x53545247 at offset 0)
+        uint32_t httpOptMagic = *(uint32_t*)urlArg;
+        TsURL* url = nullptr;
+        if (httpOptMagic == 0x53545247) { // TsString::MAGIC
+            url = TsURL::Create((TsString*)urlArg);
+        } else {
+            // Try to get as TsURL first
+            void* objPtr = ts_value_get_object((TsValue*)urlArg);
+            if (!objPtr) objPtr = urlArg;
 
-        TsURL* url = dynamic_cast<TsURL*>((TsObject*)objPtr);
-        if (!url) {
-            // Try to parse string as URL
-            TsString* urlStr = nullptr;
-            void* strPtr = ts_value_get_string((TsValue*)urlArg);
-            if (strPtr) {
-                urlStr = (TsString*)strPtr;
-            } else {
-                urlStr = (TsString*)urlArg;
-            }
-            if (urlStr) {
-                url = TsURL::Create(urlStr);
+            url = dynamic_cast<TsURL*>((TsObject*)objPtr);
+            if (!url) {
+                // Try to parse string as URL
+                TsString* urlStr = nullptr;
+                void* strPtr = ts_value_get_string((TsValue*)urlArg);
+                if (strPtr) {
+                    urlStr = (TsString*)strPtr;
+                } else {
+                    urlStr = (TsString*)urlArg;
+                }
+                if (urlStr) {
+                    url = TsURL::Create(urlStr);
+                }
             }
         }
 
