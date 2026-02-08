@@ -3558,11 +3558,122 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
     for (size_t i = 1; i < inst->operands.size() && (i - 1) < spec.argConversions.size(); ++i) {
         llvm::Value* arg = getOperandValue(inst->operands[i]);
 
-        // For Box conversion on pointer types, check HIR type to use proper boxing function
-        // String pointers should use ts_value_make_string, not ts_value_make_object
+        // For Box conversion on pointer types, check if arg is a function pointer
+        // Function pointers (llvm::Function*) must be wrapped via ts_value_make_function,
+        // not ts_value_make_object, which would create an OBJECT_PTR that crashes in ts_extract_proxy.
+        // Also check HIR type for function-typed values that aren't direct llvm::Function*.
         if (spec.argConversions[i - 1] == ::hir::ArgConversion::Box && arg->getType()->isPointerTy()) {
-            auto* hirVal = std::get_if<std::shared_ptr<ts::hir::HIRValue>>(&inst->operands[i]);
-            if (hirVal && *hirVal && (*hirVal)->type && (*hirVal)->type->kind == ts::hir::HIRTypeKind::String) {
+            bool isFunction = llvm::isa<llvm::Function>(arg);
+            if (!isFunction) {
+                // Also check HIR type for indirect function references
+                auto* hirVal = std::get_if<std::shared_ptr<ts::hir::HIRValue>>(&inst->operands[i]);
+                if (hirVal && *hirVal && (*hirVal)->type && (*hirVal)->type->kind == ts::hir::HIRTypeKind::Function)
+                    isFunction = true;
+            }
+            bool isString = false;
+            if (!isFunction) {
+                auto* hirVal = std::get_if<std::shared_ptr<ts::hir::HIRValue>>(&inst->operands[i]);
+                if (hirVal && *hirVal && (*hirVal)->type && (*hirVal)->type->kind == ts::hir::HIRTypeKind::String)
+                    isString = true;
+            }
+            if (isFunction && llvm::isa<llvm::Function>(arg)) {
+                // Generate a native function trampoline that adapts the calling convention.
+                // AOT functions have typed parameters (double, ptr, i64, etc.) but the runtime
+                // dispatch (ts_call_N) passes TsValue* boxed arguments.
+                // The trampoline has the native calling convention: (void* ctx, int argc, TsValue** argv)
+                // and unboxes arguments before calling the actual function.
+                llvm::Function* targetFn = llvm::cast<llvm::Function>(arg);
+                llvm::FunctionType* targetFnType = targetFn->getFunctionType();
+
+                // Create trampoline function
+                std::string trampolineName = targetFn->getName().str() + "__native_trampoline";
+                auto* trampolineFnType = llvm::FunctionType::get(
+                    builder_->getPtrTy(),
+                    { builder_->getPtrTy(), builder_->getInt32Ty(), builder_->getPtrTy() },
+                    false);
+                auto* trampolineFn = llvm::Function::Create(
+                    trampolineFnType, llvm::Function::InternalLinkage,
+                    trampolineName, module_.get());
+
+                // Save current insertion point
+                auto savedIP = builder_->GetInsertPoint();
+                auto* savedBB = builder_->GetInsertBlock();
+
+                // Build trampoline body
+                auto* trampolineEntry = llvm::BasicBlock::Create(context_, "entry", trampolineFn);
+                builder_->SetInsertPoint(trampolineEntry);
+
+                auto trampolineArgs = trampolineFn->arg_begin();
+                llvm::Value* tramCtx = &*trampolineArgs++;   // void* ctx (unused)
+                llvm::Value* tramArgc = &*trampolineArgs++;   // int argc
+                llvm::Value* tramArgv = &*trampolineArgs++;   // TsValue** argv
+
+                // Extract and unbox arguments from argv based on target function's parameter types
+                std::vector<llvm::Value*> callArgs;
+                for (unsigned pi = 0; pi < targetFnType->getNumParams(); ++pi) {
+                    llvm::Type* paramType = targetFnType->getParamType(pi);
+                    // Load argv[pi]
+                    llvm::Value* idx = llvm::ConstantInt::get(builder_->getInt32Ty(), pi);
+                    llvm::Value* argSlotPtr = builder_->CreateGEP(builder_->getPtrTy(), tramArgv, idx);
+                    llvm::Value* boxedArg = builder_->CreateLoad(builder_->getPtrTy(), argSlotPtr);
+
+                    if (paramType->isDoubleTy()) {
+                        auto unboxFt = llvm::FunctionType::get(builder_->getDoubleTy(), { builder_->getPtrTy() }, false);
+                        auto unboxFn = module_->getOrInsertFunction("ts_value_get_double", unboxFt);
+                        callArgs.push_back(builder_->CreateCall(unboxFt, unboxFn.getCallee(), { boxedArg }));
+                    } else if (paramType->isIntegerTy(64)) {
+                        auto unboxFt = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+                        auto unboxFn = module_->getOrInsertFunction("ts_value_get_int", unboxFt);
+                        callArgs.push_back(builder_->CreateCall(unboxFt, unboxFn.getCallee(), { boxedArg }));
+                    } else if (paramType->isIntegerTy(1)) {
+                        auto unboxFt = llvm::FunctionType::get(builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+                        auto unboxFn = module_->getOrInsertFunction("ts_value_get_bool", unboxFt);
+                        callArgs.push_back(builder_->CreateCall(unboxFt, unboxFn.getCallee(), { boxedArg }));
+                    } else {
+                        // Pointer type - pass through (might be TsValue* or raw ptr)
+                        callArgs.push_back(boxedArg);
+                    }
+                }
+
+                // Call the target function
+                llvm::Value* callResult = builder_->CreateCall(targetFnType, targetFn, callArgs);
+
+                // Box the result if needed
+                llvm::Type* retType = targetFnType->getReturnType();
+                if (retType->isVoidTy()) {
+                    builder_->CreateRet(llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+                } else if (retType->isDoubleTy()) {
+                    auto boxFt2 = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+                    auto boxFn2 = module_->getOrInsertFunction("ts_value_make_double", boxFt2);
+                    llvm::Value* boxed = builder_->CreateCall(boxFt2, boxFn2.getCallee(), { callResult });
+                    builder_->CreateRet(boxed);
+                } else if (retType->isIntegerTy(64)) {
+                    auto boxFt2 = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                    auto boxFn2 = module_->getOrInsertFunction("ts_value_make_int", boxFt2);
+                    llvm::Value* boxed = builder_->CreateCall(boxFt2, boxFn2.getCallee(), { callResult });
+                    builder_->CreateRet(boxed);
+                } else {
+                    // Pointer return - assume already boxed or raw
+                    builder_->CreateRet(callResult);
+                }
+
+                // Restore insertion point
+                builder_->SetInsertPoint(savedBB, savedIP);
+
+                // Wrap trampoline as native function
+                auto nativeFt = llvm::FunctionType::get(builder_->getPtrTy(),
+                    { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+                auto nativeFn = module_->getOrInsertFunction("ts_value_make_native_function", nativeFt);
+                auto nullCtx = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+                arg = builder_->CreateCall(nativeFt, nativeFn.getCallee(), { trampolineFn, nullCtx });
+            } else if (isFunction) {
+                // Non-direct function reference - fall back to ts_value_make_function
+                auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(),
+                    { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_function", boxFt);
+                auto nullCtx = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg, nullCtx });
+            } else if (isString) {
                 auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
                 auto boxFn = module_->getOrInsertFunction("ts_value_make_string", boxFt);
                 arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg });

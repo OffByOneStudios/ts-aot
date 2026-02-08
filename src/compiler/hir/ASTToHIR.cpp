@@ -4279,8 +4279,24 @@ void ASTToHIR::visitAwaitExpression(ast::AwaitExpression* node) {
         // Lower the promise expression
         auto promise = lowerExpression(node->expression.get());
         if (!promise) {
-            // Void call results return null - treat as await undefined
-            promise = builder_.createConstUndefined();
+            // The inner expression returned void (e.g., calling a function typed as () => void).
+            // In JavaScript, all function calls return a value at runtime. When the function
+            // is actually a promisified wrapper, it returns a Promise even though the original
+            // type says void. Retroactively patch the last Call/CallIndirect instruction to
+            // produce an Any-typed result so the await can use it.
+            auto* block = builder_.getInsertBlock();
+            if (block && !block->instructions.empty()) {
+                auto& lastInst = block->instructions.back();
+                if ((lastInst->opcode == HIROpcode::Call || lastInst->opcode == HIROpcode::CallIndirect ||
+                     lastInst->opcode == HIROpcode::CallMethod) && !lastInst->result) {
+                    auto result = builder_.createValue(HIRType::makeAny());
+                    lastInst->result = result;
+                    promise = result;
+                }
+            }
+            if (!promise) {
+                promise = builder_.createConstUndefined();
+            }
         }
         // Create await instruction to wait for promise resolution
         lastValue_ = builder_.createAwait(promise);
