@@ -10,6 +10,24 @@
 namespace ts::hir {
 
 //==============================================================================
+// Helper: Convert ext::TypeReference to HIR type
+//==============================================================================
+
+static std::shared_ptr<HIRType> extTypeRefToHIR(const ext::TypeReference& typeRef) {
+    const auto& name = typeRef.name;
+    if (name == "string") return HIRType::makeString();
+    if (name == "number" || name == "int" || name == "i64") return HIRType::makeInt64();
+    if (name == "double" || name == "f64" || name == "float") return HIRType::makeFloat64();
+    if (name == "boolean" || name == "bool") return HIRType::makeBool();
+    if (name == "void") return HIRType::makeVoid();
+    if (name == "Array") return HIRType::makeArray(HIRType::makeAny());
+    if (name == "Map") return HIRType::makeMap();
+    if (name == "Set") return HIRType::makeSet();
+    // For class types and unknown types, use Any (the LoweringRegistry handles LLVM types)
+    return HIRType::makeAny();
+}
+
+//==============================================================================
 // Constructor / Entry Point
 //==============================================================================
 
@@ -2937,10 +2955,9 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         for (auto& arg : args) {
                             methodArgs.push_back(arg);
                         }
-                        // Use Any type for HIR result (matches Case 4 pattern).
-                        // The actual LLVM return type comes from LoweringRegistry.
-                        // Class type for chaining comes from analyzer's inferredType.
-                        lastValue_ = builder_.createCall(funcName, methodArgs, HIRType::makeAny());
+                        // Map ext.json return type to HIR type for proper downstream handling
+                        auto resultType = extTypeRefToHIR(extMethod->returns);
+                        lastValue_ = builder_.createCall(funcName, methodArgs, resultType);
                         return;
                     }
                 }
@@ -2973,10 +2990,8 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 const ext::MethodDefinition* extStaticMethod = extReg.findStaticMethod(classNameIdent->name, propAccess->name);
                 if (extStaticMethod && extStaticMethod->lowering) {
                     std::string funcName = extStaticMethod->hirName.value_or(extStaticMethod->call);
-                    // Use Any type for HIR result (matches Case 4 pattern).
-                    // The actual LLVM return type comes from LoweringRegistry.
-                    // Class type for chaining comes from analyzer's inferredType.
-                    auto resultType = HIRType::makeAny();
+                    // Map ext.json return type to HIR type for proper downstream handling
+                    auto resultType = extTypeRefToHIR(extStaticMethod->returns);
                     lastValue_ = builder_.createCall(funcName, args, resultType);
                     return;
                 }

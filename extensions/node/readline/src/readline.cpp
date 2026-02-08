@@ -119,20 +119,9 @@ void ts_readline_set_prompt(void* rl, void* prompt) {
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface && prompt) {
-        void* rawPrompt = ts_value_get_object((TsValue*)prompt);
-        TsString* promptStr = nullptr;
-        if (rawPrompt) {
-            promptStr = dynamic_cast<TsString*>((TsObject*)rawPrompt);
-        }
-        if (!promptStr) {
-            TsValue* val = (TsValue*)prompt;
-            if (val->type == ValueType::STRING_PTR) {
-                promptStr = (TsString*)val->ptr_val;
-            }
-        }
-        if (promptStr) {
-            iface->SetPrompt(promptStr->ToUtf8());
-        }
+        // prompt arrives as raw TsString* via "ptr" lowering
+        TsString* promptStr = (TsString*)prompt;
+        iface->SetPrompt(promptStr->ToUtf8());
     }
 }
 
@@ -144,23 +133,8 @@ void ts_readline_question(void* rl, void* query, void* callback) {
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
-        const char* queryStr = "";
-        if (query) {
-            void* rawQuery = ts_value_get_object((TsValue*)query);
-            TsString* qStr = nullptr;
-            if (rawQuery) {
-                qStr = dynamic_cast<TsString*>((TsObject*)rawQuery);
-            }
-            if (!qStr) {
-                TsValue* val = (TsValue*)query;
-                if (val->type == ValueType::STRING_PTR) {
-                    qStr = (TsString*)val->ptr_val;
-                }
-            }
-            if (qStr) {
-                queryStr = qStr->ToUtf8();
-            }
-        }
+        // query arrives as raw TsString* via "ptr" lowering
+        const char* queryStr = query ? ((TsString*)query)->ToUtf8() : "";
         iface->Question(queryStr, callback);
     }
 }
@@ -173,25 +147,14 @@ void ts_readline_write(void* rl, void* data) {
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface && data) {
-        void* rawData = ts_value_get_object((TsValue*)data);
-        TsString* dataStr = nullptr;
-        if (rawData) {
-            dataStr = dynamic_cast<TsString*>((TsObject*)rawData);
-        }
-        if (!dataStr) {
-            TsValue* val = (TsValue*)data;
-            if (val->type == ValueType::STRING_PTR) {
-                dataStr = (TsString*)val->ptr_val;
-            }
-        }
-        if (dataStr) {
-            iface->Write(dataStr->ToUtf8());
-        }
+        // data arrives as raw TsString* via "ptr" lowering
+        TsString* dataStr = (TsString*)data;
+        iface->Write(dataStr->ToUtf8());
     }
 }
 
 void* ts_readline_get_line(void* rl) {
-    if (!rl) return ts_value_make_string(TsString::Create(""));
+    if (!rl) return TsString::Create("");
 
     void* rawRl = ts_value_get_object((TsValue*)rl);
     if (!rawRl) rawRl = rl;
@@ -199,9 +162,9 @@ void* ts_readline_get_line(void* rl) {
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
         TsString* line = iface->GetLine();
-        return ts_value_make_string(line ? line : TsString::Create(""));
+        return line ? line : TsString::Create("");
     }
-    return ts_value_make_string(TsString::Create(""));
+    return TsString::Create("");
 }
 
 int64_t ts_readline_get_cursor(void* rl) {
