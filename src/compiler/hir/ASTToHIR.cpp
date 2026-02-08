@@ -3800,6 +3800,41 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
 
+    // Check ExtensionRegistry for property getters on module-level objects
+    // (e.g., http.STATUS_CODES, http.METHODS)
+    if (node->expression) {
+        auto* ident = dynamic_cast<ast::Identifier*>(node->expression.get());
+        if (ident) {
+            auto& extReg = ext::ExtensionRegistry::instance();
+            const ext::PropertyDefinition* propDef = extReg.findObjectProperty(ident->name, node->name);
+            if (propDef && propDef->getter && propDef->lowering) {
+                std::string getterFunc = *propDef->getter;
+                // Map the lowering return type to the correct HIR type
+                std::shared_ptr<HIRType> retType;
+                switch (propDef->lowering->returns) {
+                    case ext::LoweringType::I32:
+                    case ext::LoweringType::I1:
+                        retType = HIRType::makeBool();
+                        break;
+                    case ext::LoweringType::I64:
+                        retType = HIRType::makeInt64();
+                        break;
+                    case ext::LoweringType::F64:
+                        retType = HIRType::makeFloat64();
+                        break;
+                    case ext::LoweringType::Void:
+                        retType = HIRType::makeVoid();
+                        break;
+                    default:
+                        retType = HIRType::makeAny();
+                        break;
+                }
+                lastValue_ = builder_.createCall(getterFunc, {}, retType);
+                return;
+            }
+        }
+    }
+
     // Handle optional chaining: obj?.prop
     if (node->isOptional) {
         // Check if obj is nullish

@@ -9,8 +9,9 @@
 3. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
 
 ## Active Tasks
-1. **Fix remaining node test failures** - 235/280 passing (83.9%)
+1. **Fix remaining node test failures** - 236/280 passing (84.3%)
 2. **Extension constructor support** - Done (systemic fix for 12+ extension types)
+3. **Module-level property getters** - Done (http.STATUS_CODES, cluster.isMaster, etc.)
 
 ## Recent Accomplishments (2026-02-07)
 *   **Extension Constructor Support (systemic fix):**
@@ -28,7 +29,14 @@
 *   **PerformanceObserver method fixes:**
     - Removed `dynamic_cast` in observe/disconnect/takeRecords (RTTI not shared across libs)
     - Direct cast from auto-prepended self pointer
-*   **Node tests: 230 → 235/280 (83.9%)** - 5 URL tests + 1 perf_hooks observer fixed
+*   **Module-level property getters:**
+    - ASTToHIR now checks ExtensionRegistry for property getters on module objects (e.g., `http.STATUS_CODES`)
+    - LoweringRegistry registers object property getter lowerings from ext.json
+    - HIRToLLVM `lowerGetElem` uses dynamic property access for `Any`-typed operands with numeric indices
+    - ConsoleHandler handles `i32` return types from extension getters (e.g., `cluster.isMaster`)
+    - http.cpp getters now return boxed `TsValue*` via `ts_value_make_object()`
+    - Fixed: http_status_codes test, cluster_fork compile error
+*   **Node tests: 230 → 236/280 (84.3%)** - STATUS_CODES + URL tests + perf_hooks observer
 *   **Golden IR: 146/146 (100%)** - no regressions
 
 ## Previous Accomplishments (2026-02-06)

@@ -54,6 +54,11 @@ public:
             } else if (argType->isIntegerTy(1)) {
                 actualFuncName = isError ? "ts_console_error_bool" : "ts_console_log_bool";
                 paramType = builder.getInt1Ty();
+            } else if (argType->isIntegerTy(32)) {
+                // i32 from extension getters (e.g., cluster.isMaster) - treat as bool
+                actualFuncName = isError ? "ts_console_error_bool" : "ts_console_log_bool";
+                paramType = builder.getInt1Ty();
+                arg = builder.CreateTrunc(arg, builder.getInt1Ty(), "i32_to_bool");
             } else if (argType->isPointerTy()) {
                 actualFuncName = isError ? "ts_console_error_value" : "ts_console_log_value";
             } else {

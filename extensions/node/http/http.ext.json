@@ -529,10 +529,14 @@
     "http": {
       "properties": {
         "METHODS": {
-          "type": "string[]"
+          "type": "string[]",
+          "getter": "ts_http_get_methods",
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "STATUS_CODES": {
-          "type": "any"
+          "type": "any",
+          "getter": "ts_http_get_status_codes",
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "maxHeaderSize": {
           "type": "int"

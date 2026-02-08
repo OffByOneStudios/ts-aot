@@ -1457,6 +1457,23 @@ static void registerObjectMethods(
                      hirName, method.call, objectName, methodName);
     }
 
+    // Register lowerings from object property getters (e.g., http.STATUS_CODES, http.METHODS)
+    for (const auto& [propName, prop] : obj.properties) {
+        if (!prop.getter || !prop.lowering) continue;
+
+        const std::string& getterName = *prop.getter;
+        if (reg.hasLowering(getterName)) continue;
+
+        LoweringSpecBuilder builder(getterName);
+        // No self pointer for module-level property getters (they are static)
+        buildLoweringSpec(builder, *prop.lowering);
+
+        reg.registerLowering(getterName, builder.build());
+        registeredCount++;
+        SPDLOG_DEBUG("Registered getter lowering from extension: {} (object {}.{})",
+                     getterName, objectName, propName);
+    }
+
     // Process nested objects (e.g., path.win32, path.posix)
     for (const auto& [nestedName, nestedObj] : obj.nestedObjects) {
         if (!nestedObj) continue;
