@@ -2997,10 +2997,16 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     // Handle ts_value_is_undefined - returns bool, not ptr
     if (funcName == "ts_value_is_undefined") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_undefined", ft);
-        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        llvm::Value* result;
+        if (arg->getType()->isPointerTy()) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_undefined", ft);
+            result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        } else {
+            // Non-pointer types (double, i64, i1) are never undefined
+            result = builder_->getFalse();
+        }
         if (inst->result) {
             setValue(inst->result, result);
         }
@@ -5227,7 +5233,36 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
         return;
     }
 
-    // For regular generator functions, a return marks the generator as done with the return value
+    // For state-machine generator impl functions (asyncContext_ set, generatorObject_ not available)
+    if (isGeneratorFunction_ && asyncContext_ && !generatorObject_) {
+        // Box the return value if needed
+        llvm::Value* boxedVal = val;
+        if (!val->getType()->isPointerTy()) {
+            if (val->getType()->isIntegerTy(64)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
+                    builder_->getPtrTy(), { builder_->getInt64Ty() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_int");
+            } else if (val->getType()->isDoubleTy()) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
+                    builder_->getPtrTy(), { builder_->getDoubleTy() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_double");
+            } else if (val->getType()->isIntegerTy(1)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
+                    builder_->getPtrTy(), { builder_->getInt1Ty() });
+                boxedVal = builder_->CreateCall(boxFn, { val }, "boxed_bool");
+            }
+        }
+
+        // Call ts_generator_return_via_ctx to mark as done with return value
+        auto returnFn = getOrDeclareRuntimeFunction("ts_generator_return_via_ctx",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(returnFn, { asyncContext_, boxedVal });
+
+        builder_->CreateRetVoid();
+        return;
+    }
+
+    // For regular generator functions (non-state-machine path), a return marks the generator as done
     if (isGeneratorFunction_ && generatorObject_) {
         // Box the return value if needed
         llvm::Value* boxedVal = val;
@@ -5252,7 +5287,6 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
             builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
         builder_->CreateCall(returnFn, { generatorObject_, boxedVal });
 
-        // Return the generator object
         builder_->CreateRet(generatorObject_);
         return;
     }
@@ -5358,7 +5392,23 @@ void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
         return;
     }
 
-    // For regular generator functions, a void return marks the generator as done with undefined
+    // For state-machine generator impl functions (asyncContext_ set, generatorObject_ not available)
+    if (isGeneratorFunction_ && asyncContext_ && !generatorObject_) {
+        // Get undefined value
+        auto undefFn = getOrDeclareRuntimeFunction("ts_value_make_undefined",
+            builder_->getPtrTy(), {});
+        llvm::Value* undefinedVal = builder_->CreateCall(undefFn, {}, "undefined");
+
+        // Call ts_generator_return_via_ctx to mark as done with undefined
+        auto returnFn = getOrDeclareRuntimeFunction("ts_generator_return_via_ctx",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(returnFn, { asyncContext_, undefinedVal });
+
+        builder_->CreateRetVoid();
+        return;
+    }
+
+    // For regular generator functions (non-state-machine path), a void return marks as done
     if (isGeneratorFunction_ && generatorObject_) {
         // Get undefined value
         auto undefFn = getOrDeclareRuntimeFunction("ts_value_make_undefined",
@@ -5370,7 +5420,6 @@ void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
             builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
         builder_->CreateCall(returnFn, { generatorObject_, undefinedVal });
 
-        // Return the generator object
         builder_->CreateRet(generatorObject_);
         return;
     }
