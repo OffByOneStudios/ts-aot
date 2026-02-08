@@ -179,25 +179,39 @@
       "extends": "Writable",
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "getter": "ts_client_request_get_path",
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "method": {
-          "type": "string"
+          "type": "string",
+          "getter": "ts_client_request_get_method",
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "host": {
-          "type": "string"
+          "type": "string",
+          "getter": "ts_client_request_get_host",
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "protocol": {
-          "type": "string"
+          "type": "string",
+          "getter": "ts_client_request_get_protocol",
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "socket": {
-          "type": "Socket"
+          "type": "Socket",
+          "getter": "ts_client_request_get_socket",
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "reusedSocket": {
-          "type": "boolean"
+          "type": "boolean",
+          "getter": "ts_client_request_get_reused_socket",
+          "lowering": { "args": [], "returns": "i1" }
         },
         "maxHeadersCount": {
-          "type": "int"
+          "type": "int",
+          "getter": "ts_client_request_get_max_headers_count",
+          "lowering": { "args": [], "returns": "i64" }
         }
       },
       "methods": {
@@ -570,7 +584,7 @@
             {"name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}]}, "optional": true}
           ],
           "returns": "ClientRequest",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "ptr"], "returns": "ptr" }
         },
         "get": {
           "call": "ts_http_get",
@@ -580,7 +594,7 @@
             {"name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}]}, "optional": true}
           ],
           "returns": "ClientRequest",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "ptr"], "returns": "ptr" }
         },
         "validateHeaderName": {
           "call": "ts_http_validate_header_name",
@@ -647,7 +661,7 @@
             {"name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}]}, "optional": true}
           ],
           "returns": "ClientRequest",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "ptr"], "returns": "ptr" }
         },
         "get": {
           "call": "ts_https_get",
@@ -657,7 +671,7 @@
             {"name": "callback", "type": {"name": "function", "typeArgs": [{"name": "IncomingMessage"}]}, "optional": true}
           ],
           "returns": "ClientRequest",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "ptr"], "returns": "ptr" }
         }
       }
     }
