@@ -1350,4 +1350,17 @@ TsValue* ts_async_context_get_delegate_iterator(AsyncContext* ctx) {
     return nullptr;
 }
 
+void ts_async_context_set_data(AsyncContext* ctx, void* data) {
+    if (ctx) {
+        ctx->data = data;
+    }
+}
+
+void* ts_async_context_get_data(AsyncContext* ctx) {
+    if (ctx) {
+        return ctx->data;
+    }
+    return nullptr;
+}
+
 } // namespace ts

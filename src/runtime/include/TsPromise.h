@@ -124,6 +124,10 @@ extern "C" {
     void ts_async_context_set_delegate_iterator(AsyncContext* ctx, TsValue* iter);
     TsValue* ts_async_context_get_delegate_iterator(AsyncContext* ctx);
 
+    // Parameter storage for generator state machines
+    void ts_async_context_set_data(AsyncContext* ctx, void* data);
+    void* ts_async_context_get_data(AsyncContext* ctx);
+
     // ES2024 Promise.withResolvers()
     TsValue* ts_promise_withResolvers();
 

@@ -397,15 +397,21 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         generatorImplFunc_ = nullptr;
         asyncContext_ = nullptr;
 
-        // First, count the number of yields to create resume blocks
+        // First, count the number of yields and allocas to create resume blocks and local storage
         int yieldCount = 0;
+        int allocaCount = 0;
         for (auto& block : fn->blocks) {
             for (auto& inst : block->instructions) {
                 if (inst->opcode == HIROpcode::Yield || inst->opcode == HIROpcode::YieldStar) {
                     yieldCount++;
                 }
+                if (inst->opcode == HIROpcode::Alloca) {
+                    allocaCount++;
+                }
             }
         }
+        generatorLocalCount_ = allocaCount;
+        generatorNextLocalIndex_ = 0;
 
         // Create the implementation function (state machine)
         // Signature: void impl(AsyncContext* ctx)
@@ -447,6 +453,52 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             "ts_async_context_set_resume_fn", setResumeFt);
         builder_->CreateCall(setResumeFt, setResumeFn.getCallee(), { asyncCtx, generatorImplFunc_ });
 
+        // Store function parameters (and reserve space for locals) in ctx->data
+        {
+            // Allocate a buffer for params + locals (8 bytes each slot)
+            size_t numParams = fn->params.empty() ? 0 : fn->params.size();
+            size_t totalSlots = numParams + allocaCount;
+            llvm::FunctionType* allocFt = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+            llvm::FunctionCallee allocFn = module_->getOrInsertFunction("ts_alloc", allocFt);
+            llvm::Value* paramBuf = builder_->CreateCall(allocFt, allocFn.getCallee(),
+                { llvm::ConstantInt::get(builder_->getInt64Ty(), std::max(totalSlots, (size_t)1) * 8) }, "param_buf");
+
+            // Store each parameter into the buffer (if any)
+            if (numParams > 0) {
+            auto wrapperArgIt = llvmFunc->arg_begin();
+            // Skip implicit closure param if present
+            bool hasHiddenClosure = (!fn->params.empty() && fn->params[0].first == "__closure__");
+            bool hasImplicitClosure = !fn->captures.empty() && !hasHiddenClosure;
+            if (hasImplicitClosure) ++wrapperArgIt;
+
+            for (size_t i = 0; i < numParams; ++i, ++wrapperArgIt) {
+                llvm::Value* paramVal = &*wrapperArgIt;
+                // Convert non-pointer types to pointer-sized integer for storage
+                if (!paramVal->getType()->isPointerTy()) {
+                    if (paramVal->getType()->isDoubleTy()) {
+                        paramVal = builder_->CreateBitCast(paramVal, builder_->getInt64Ty());
+                        paramVal = builder_->CreateIntToPtr(paramVal, builder_->getPtrTy());
+                    } else if (paramVal->getType()->isIntegerTy()) {
+                        if (paramVal->getType()->getIntegerBitWidth() < 64) {
+                            paramVal = builder_->CreateZExt(paramVal, builder_->getInt64Ty());
+                        }
+                        paramVal = builder_->CreateIntToPtr(paramVal, builder_->getPtrTy());
+                    }
+                }
+                llvm::Value* slotPtr = builder_->CreateGEP(builder_->getPtrTy(), paramBuf,
+                    { llvm::ConstantInt::get(builder_->getInt64Ty(), i) }, "param_slot_" + std::to_string(i));
+                builder_->CreateStore(paramVal, slotPtr);
+            }
+            } // end if (numParams > 0)
+
+            // Set ctx->data = paramBuf
+            llvm::FunctionType* setDataFt = llvm::FunctionType::get(
+                builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+            llvm::FunctionCallee setDataFn = module_->getOrInsertFunction("ts_async_context_set_data", setDataFt);
+            builder_->CreateCall(setDataFt, setDataFn.getCallee(), { asyncCtx, paramBuf });
+        }
+
         // Create Generator
         llvm::FunctionType* createGeneratorFt = llvm::FunctionType::get(
             builder_->getPtrTy(), { builder_->getPtrTy() }, false);
@@ -476,6 +528,49 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         llvm::FunctionCallee getStateFn = module_->getOrInsertFunction(
             "ts_async_context_get_state", getStateFt);
         llvm::Value* state = builder_->CreateCall(getStateFt, getStateFn.getCallee(), { asyncContext_ }, "state");
+
+        // Load ctx->data buffer (contains params + locals storage)
+        // This is loaded in impl_entry which dominates all blocks, so it's available everywhere
+        {
+            llvm::FunctionType* getDataFt = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+            llvm::FunctionCallee getDataFn = module_->getOrInsertFunction("ts_async_context_get_data", getDataFt);
+            generatorDataBuf_ = builder_->CreateCall(getDataFt, getDataFn.getCallee(), { asyncContext_ }, "data_buf");
+
+            // Load function parameters from the buffer
+            for (size_t i = 0; i < fn->params.size(); ++i) {
+                llvm::Value* slotPtr = builder_->CreateGEP(builder_->getPtrTy(), generatorDataBuf_,
+                    { llvm::ConstantInt::get(builder_->getInt64Ty(), i) }, "param_slot_" + std::to_string(i));
+                llvm::Value* paramVal = builder_->CreateLoad(builder_->getPtrTy(), slotPtr, fn->params[i].first + "_loaded");
+
+                // Convert back from pointer to the expected type
+                auto& paramType = fn->params[i].second;
+                if (paramType && paramType->kind == HIRTypeKind::Float64) {
+                    paramVal = builder_->CreatePtrToInt(paramVal, builder_->getInt64Ty());
+                    paramVal = builder_->CreateBitCast(paramVal, builder_->getDoubleTy());
+                } else if (paramType && paramType->kind == HIRTypeKind::Int64) {
+                    paramVal = builder_->CreatePtrToInt(paramVal, builder_->getInt64Ty());
+                } else if (paramType && paramType->kind == HIRTypeKind::Bool) {
+                    paramVal = builder_->CreatePtrToInt(paramVal, builder_->getInt64Ty());
+                    paramVal = builder_->CreateTrunc(paramVal, builder_->getInt1Ty());
+                }
+                // For ptr/object/any/string types, the value is already a pointer
+
+                valueMap_[static_cast<uint32_t>(i)] = paramVal;
+            }
+
+            // Pre-create GEPs for all local variable slots in impl_entry
+            // This ensures they dominate all uses in any block
+            generatorLocalSlots_.clear();
+            size_t numParams = fn->params.size();
+            for (int i = 0; i < allocaCount; ++i) {
+                size_t slotIndex = numParams + i;
+                llvm::Value* slotPtr = builder_->CreateGEP(builder_->getPtrTy(), generatorDataBuf_,
+                    { llvm::ConstantInt::get(builder_->getInt64Ty(), slotIndex) },
+                    "gen_local_" + std::to_string(i));
+                generatorLocalSlots_.push_back(slotPtr);
+            }
+        }
 
         // Create blocks for each state
         // State 0 = initial (start of generator)
@@ -517,10 +612,6 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         builder_->SetInsertPoint(generatorDoneBlock_);
         builder_->CreateRetVoid();
 
-        // Map function parameters - but for generators, params are stored in ctx->data
-        // For simplicity, we'll just skip parameter mapping for now
-        // TODO: Store params in ctx->data when wrapper is called, load them in impl
-
         // Lower each HIR block in the impl function
         for (auto& block : fn->blocks) {
             lowerBlock(block.get());
@@ -539,6 +630,10 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         closureParam_ = nullptr;
         asyncPromise_ = nullptr;
         generatorObject_ = nullptr;
+        generatorDataBuf_ = nullptr;
+        generatorLocalCount_ = 0;
+        generatorNextLocalIndex_ = 0;
+        generatorLocalSlots_.clear();
         return;  // Exit early - we've handled everything for generators
     }
 
@@ -2123,6 +2218,26 @@ void HIRToLLVM::lowerSafepointPoll(HIRInstruction* inst) {
 void HIRToLLVM::lowerAlloca(HIRInstruction* inst) {
     auto type = getOperandType(inst->operands[0]);
     llvm::Type* llvmType = getLLVMType(type);
+
+    // For generator impl functions, use heap-allocated storage in ctx->data
+    // instead of stack allocas, because the function returns on yield and
+    // stack allocas are destroyed
+    if (isGeneratorFunction_ && generatorDataBuf_) {
+        int localIndex = generatorNextLocalIndex_++;
+        if (localIndex < (int)generatorLocalSlots_.size()) {
+            // Use the pre-created GEP from impl_entry (dominates all blocks)
+            setValue(inst->result, generatorLocalSlots_[localIndex]);
+        } else {
+            // Fallback: create GEP at current position (should not happen)
+            size_t numParams = currentHIRFunction_ ? currentHIRFunction_->params.size() : 0;
+            size_t slotIndex = numParams + localIndex;
+            llvm::Value* slotPtr = builder_->CreateGEP(builder_->getPtrTy(), generatorDataBuf_,
+                { llvm::ConstantInt::get(builder_->getInt64Ty(), slotIndex) },
+                "gen_local_" + std::to_string(localIndex));
+            setValue(inst->result, slotPtr);
+        }
+        return;
+    }
 
     // Emit alloca at the entry block for better optimization
     llvm::IRBuilder<>::InsertPointGuard guard(*builder_);

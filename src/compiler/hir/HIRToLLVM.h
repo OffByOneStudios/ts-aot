@@ -106,6 +106,10 @@ private:
     std::vector<llvm::BasicBlock*> yieldResumeBlocks_;  // Resume blocks for each yield
     llvm::BasicBlock* generatorDoneBlock_ = nullptr;    // Block when generator is done
     llvm::Function* generatorImplFunc_ = nullptr;       // The state machine implementation function
+    llvm::Value* generatorDataBuf_ = nullptr;            // Heap-allocated data buffer for params + locals
+    int generatorLocalCount_ = 0;                        // Number of Alloca instructions in generator
+    int generatorNextLocalIndex_ = 0;                    // Next local index for alloca replacement
+    std::vector<llvm::Value*> generatorLocalSlots_;      // Pre-created GEPs for local slots (dominate all uses)
 
     //==========================================================================
     // Type Mapping
