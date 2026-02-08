@@ -405,7 +405,8 @@ void ts_assert_throws(void* fn, void* error, void* message) {
     }
 
     TsValue* fnVal = (TsValue*)fn;
-    if (fnVal->type != ValueType::FUNCTION_PTR || !fnVal->ptr_val) {
+    // Accept FUNCTION_PTR (raw function pointers) and OBJECT_PTR (closures/TsClosure)
+    if ((fnVal->type != ValueType::FUNCTION_PTR && fnVal->type != ValueType::OBJECT_PTR) || !fnVal->ptr_val) {
         assertionFailed("throws", fn, error, message);
         return;
     }
@@ -422,6 +423,7 @@ void ts_assert_throws(void* fn, void* error, void* message) {
         assertionFailed("throws", fn, error, message);
     } else {
         // Exception was caught - this is expected for throws()
+        ts_pop_exception_handler();
         TsValue* caughtException = ts_get_exception();
         ts_set_exception(nullptr);  // Clear the exception
 
@@ -436,7 +438,8 @@ void ts_assert_does_not_throw(void* fn, void* error, void* message) {
     if (!fn) return;
 
     TsValue* fnVal = (TsValue*)fn;
-    if (fnVal->type != ValueType::FUNCTION_PTR || !fnVal->ptr_val) {
+    // Accept FUNCTION_PTR (raw function pointers) and OBJECT_PTR (closures/TsClosure)
+    if ((fnVal->type != ValueType::FUNCTION_PTR && fnVal->type != ValueType::OBJECT_PTR) || !fnVal->ptr_val) {
         return;
     }
 
@@ -451,6 +454,7 @@ void ts_assert_does_not_throw(void* fn, void* error, void* message) {
         ts_pop_exception_handler();
     } else {
         // Exception was caught - this is a failure for doesNotThrow()
+        ts_pop_exception_handler();
         TsValue* caughtException = ts_get_exception();
         ts_set_exception(nullptr);  // Clear the exception
 

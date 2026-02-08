@@ -3464,6 +3464,18 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // Handle built-in WeakMap class (implemented as Map wrapper)
+    if (className == "WeakMap") {
+        lastValue_ = builder_.createCall("ts_map_create", {}, HIRType::makeMap());
+        return;
+    }
+
+    // Handle built-in WeakSet class (implemented as Set wrapper)
+    if (className == "WeakSet") {
+        lastValue_ = builder_.createCall("ts_set_create", {}, HIRType::makeSet());
+        return;
+    }
+
     // Handle built-in Error classes
     if (className == "Error" || className == "TypeError" || className == "RangeError" ||
         className == "ReferenceError" || className == "SyntaxError" || className == "URIError" ||
