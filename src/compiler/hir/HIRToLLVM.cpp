@@ -5520,6 +5520,11 @@ void HIRToLLVM::lowerAwait(HIRInstruction* inst) {
 
     llvm::Value* promiseVal = getOperandValue(inst->operands[0]);
 
+    // Handle null operand (e.g., await on void call result)
+    if (!promiseVal) {
+        promiseVal = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    }
+
     // If the value is not a pointer (e.g., inlined async returned a raw value),
     // we need to box it first. In JavaScript, await on a non-promise value
     // simply returns the value itself.

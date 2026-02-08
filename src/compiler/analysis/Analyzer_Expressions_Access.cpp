@@ -157,8 +157,8 @@ void Analyzer::visitElementAccessExpression(ast::ElementAccessExpression* node) 
     } else if (objType->kind == TypeKind::Object) {
         // Handle object types with known fields (e.g., { name: string, age: number })
         // When accessed with a string key (keyof pattern), return union of property types
-        auto obj = std::static_pointer_cast<ObjectType>(objType);
-        if (indexType->kind == TypeKind::String && !obj->fields.empty()) {
+        auto obj = std::dynamic_pointer_cast<ObjectType>(objType);
+        if (obj && indexType->kind == TypeKind::String && !obj->fields.empty()) {
             // If the index is a string literal, try to get the specific property type
             if (auto strLit = dynamic_cast<StringLiteral*>(node->argumentExpression.get())) {
                 auto it = obj->fields.find(strLit->value);
@@ -642,8 +642,8 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 // For now, let's assume we can just check if it's an object/class/interface
                 std::shared_ptr<Type> foundType = nullptr;
                 if (t->kind == TypeKind::Object) {
-                    auto obj = std::static_pointer_cast<ObjectType>(t);
-                    if (obj->fields.count(node->name)) foundType = obj->fields[node->name];
+                    auto obj = std::dynamic_pointer_cast<ObjectType>(t);
+                    if (obj && obj->fields.count(node->name)) foundType = obj->fields[node->name];
                 } else if (t->kind == TypeKind::Class) {
                     auto cls = std::static_pointer_cast<ClassType>(t);
                     auto current = cls;
@@ -674,8 +674,8 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             for (auto& t : interType->types) {
                 std::shared_ptr<Type> foundType = nullptr;
                 if (t->kind == TypeKind::Object) {
-                    auto obj = std::static_pointer_cast<ObjectType>(t);
-                    if (obj->fields.count(node->name)) foundType = obj->fields[node->name];
+                    auto obj = std::dynamic_pointer_cast<ObjectType>(t);
+                    if (obj && obj->fields.count(node->name)) foundType = obj->fields[node->name];
                 } else if (t->kind == TypeKind::Class) {
                     auto cls = std::static_pointer_cast<ClassType>(t);
                     auto current = cls;
@@ -698,8 +698,8 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
 
         if (objType->kind == TypeKind::Object) {
-            auto obj = std::static_pointer_cast<ObjectType>(objType);
-            if (obj->fields.count(node->name)) {
+            auto obj = std::dynamic_pointer_cast<ObjectType>(objType);
+            if (obj && obj->fields.count(node->name)) {
                 lastType = obj->fields[node->name];
                 return;
             }
