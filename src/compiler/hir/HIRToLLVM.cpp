@@ -2730,14 +2730,41 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
         auto fn = module_->getOrInsertFunction("ts_object_get_dynamic", ft);
         result = builder_->CreateCall(ft, fn.getCallee(), {arr, boxedKey});
     } else {
-        // Array index access
-        // Convert index to i64 if it's a double (numeric literal indices come through as f64)
-        if (idx->getType()->isDoubleTy()) {
-            idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+        // Numeric index access: default to array access (ts_array_get).
+        // Use dynamic property access (ts_object_get_dynamic) only when the operand
+        // is typed as Any - this handles Map-backed objects like http.STATUS_CODES[200].
+        // RegExpExecArray results are typed as "object" (not "any") and are arrays at runtime.
+        bool useDynamicAccess = false;
+        if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+            if (*hirVal && (*hirVal)->type && (*hirVal)->type->kind == HIRTypeKind::Any) {
+                useDynamicAccess = true;
+            }
         }
 
-        auto fn = getTsArrayGet();
-        result = builder_->CreateCall(fn, {arr, idx});
+        if (!useDynamicAccess) {
+            // Array index access
+            // Convert index to i64 if it's a double (numeric literal indices come through as f64)
+            if (idx->getType()->isDoubleTy()) {
+                idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+            }
+
+            auto fn = getTsArrayGet();
+            result = builder_->CreateCall(fn, {arr, idx});
+        } else {
+            // Dynamic property access with numeric key: convert number to string
+            // Convert idx to i64 if double
+            if (idx->getType()->isDoubleTy()) {
+                idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+            }
+            // Box the integer index as a TsValue*
+            auto boxIdxFn = getTsValueMakeInt();
+            llvm::Value* boxedIdx = builder_->CreateCall(boxIdxFn, {idx});
+
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(),
+                                              {builder_->getPtrTy(), builder_->getPtrTy()}, false);
+            auto fn = module_->getOrInsertFunction("ts_object_get_dynamic", ft);
+            result = builder_->CreateCall(ft, fn.getCallee(), {arr, boxedIdx});
+        }
     }
 
     // If the expected result type is a primitive, unbox the value

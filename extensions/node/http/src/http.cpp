@@ -409,7 +409,7 @@ void* ts_http_get_methods() {
             methods->Push((int64_t)val);
         }
     }
-    return methods;
+    return ts_value_make_object(methods);
 }
 
 void* ts_http_get_status_codes() {
@@ -459,7 +459,7 @@ void* ts_http_get_status_codes() {
             statusCodes->Set(key, val);
         }
     }
-    return statusCodes;
+    return ts_value_make_object(statusCodes);
 }
 
 int64_t ts_http_get_max_header_size() {
