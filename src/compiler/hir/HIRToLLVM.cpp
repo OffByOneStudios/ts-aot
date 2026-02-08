@@ -5931,16 +5931,45 @@ void HIRToLLVM::lowerSetupTry(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerThrow(HIRInstruction* inst) {
-    // Throw: call ts_throw with the exception value
-    // ts_throw does not return (calls longjmp)
-
     llvm::Value* exception = getOperandValue(inst->operands[0]);
 
+    // For async functions, reject the promise instead of throwing
+    if (isAsyncFunction_ && asyncPromise_) {
+        // Box the exception if needed (mirror lowerReturn pattern)
+        llvm::Value* boxedException = exception;
+        if (!exception->getType()->isPointerTy()) {
+            if (exception->getType()->isIntegerTy(64)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
+                    builder_->getPtrTy(), { builder_->getInt64Ty() });
+                boxedException = builder_->CreateCall(boxFn, { exception }, "boxed_exc_int");
+            } else if (exception->getType()->isDoubleTy()) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
+                    builder_->getPtrTy(), { builder_->getDoubleTy() });
+                boxedException = builder_->CreateCall(boxFn, { exception }, "boxed_exc_dbl");
+            } else if (exception->getType()->isIntegerTy(1)) {
+                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
+                    builder_->getPtrTy(), { builder_->getInt1Ty() });
+                boxedException = builder_->CreateCall(boxFn, { exception }, "boxed_exc_bool");
+            }
+        }
+
+        // Reject the promise with the exception
+        auto rejectFn = getOrDeclareRuntimeFunction("ts_promise_reject_internal",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(rejectFn, { asyncPromise_, boxedException });
+
+        // Return the promise (same pattern as lowerReturn for async)
+        auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { asyncPromise_ }, "rejected_promise");
+        builder_->CreateRet(boxedPromise);
+        return;
+    }
+
+    // Non-async: regular throw via ts_throw (calls longjmp, does not return)
     auto throwFn = getOrDeclareRuntimeFunction("ts_throw",
         builder_->getVoidTy(), {builder_->getPtrTy()});
     builder_->CreateCall(throwFn, {exception});
-
-    // ts_throw doesn't return, mark as unreachable
     builder_->CreateUnreachable();
 }
 

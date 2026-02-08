@@ -10,6 +10,7 @@
 #include "TsSymbol.h"
 #include "TsError.h"
 #include "GC.h"
+#include <gc/gc.h>  // For GC_base()
 
 #include <cstring>
 #include <cstdio>
@@ -629,6 +630,26 @@ void* ts_http2_server_listen(void* server, int64_t port, void* host, void* callb
     TsHttp2Server* srv = dynamic_cast<TsHttp2Server*>((TsObject*)raw);
     if (!srv) return nullptr;
 
+    // Detect when host is actually a callback: server.listen(port, callback)
+    // Due to optional parameter ordering in ext.json, the callback may arrive in the host
+    // position when called as server.listen(port, callback) with no host argument.
+    // The host param has "ptr" lowering, so it's a raw pointer (not TsValue*).
+    // Use GC_base + TsString magic to distinguish a GC-allocated string from a function pointer.
+    if (host && !callback) {
+        bool isString = false;
+        void* base = GC_base(host);
+        if (base) {
+            // GC-allocated object - check if it's a TsString (magic 0x53545247 at offset 0)
+            uint32_t magic = *(uint32_t*)host;
+            isString = (magic == 0x53545247);
+        }
+        if (!isString) {
+            // Not a string - it's actually the callback
+            callback = host;
+            host = nullptr;
+        }
+    }
+
     // Host is optional - if provided, extract it
     const char* hostStr = nullptr;
     if (host) {
@@ -640,8 +661,11 @@ void* ts_http2_server_listen(void* server, int64_t port, void* host, void* callb
         }
     }
 
-    // For now, ignore host and just listen on the port
-    srv->Listen((int)port, callback);
+    // Wrap raw callback pointer in TsValue* for EventEmitter compatibility.
+    // The "ptr" lowering passes raw TsClosure*/function pointers, but EventEmitter's
+    // Emit → ts_function_call → ts_extract_closure chain expects TsValue*.
+    void* wrappedCallback = callback ? ts_value_make_object(callback) : nullptr;
+    srv->Listen((int)port, wrappedCallback);
     return srv;
 }
 

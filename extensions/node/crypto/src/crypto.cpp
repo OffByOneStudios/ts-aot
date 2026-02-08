@@ -5,6 +5,7 @@
 #include "TsMap.h"
 #include "TsRuntime.h"
 #include "GC.h"
+#include <gc/gc.h>
 #include "md5.h"
 
 #include <openssl/evp.h>
@@ -470,6 +471,59 @@ void* ts_crypto_randomUUID() {
 // C API - Key derivation functions
 // ============================================================================
 
+// Helper: extract string or buffer data from a parameter that may be either
+// a raw TsString* (from .ptrArg() lowering) or a boxed TsValue* (from .boxedArg()).
+// TsString has magic 0x53545247 at offset 0; TsValue has type enum (0-10) at offset 0.
+static bool extractCryptoInput(void* param, const unsigned char** outData, size_t* outLen) {
+    if (!param) return false;
+
+    // Check if it's a raw TsString* (magic 'STRG' at offset 0)
+    uint32_t firstWord = *(uint32_t*)param;
+    if (firstWord == 0x53545247) {
+        TsString* str = (TsString*)param;
+        *outData = (const unsigned char*)str->ToUtf8();
+        *outLen = strlen((const char*)*outData);
+        return true;
+    }
+
+    // Treat as TsValue*
+    TsValue* val = (TsValue*)param;
+    if (val->type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)val->ptr_val;
+        *outData = (const unsigned char*)str->ToUtf8();
+        *outLen = strlen((const char*)*outData);
+        return true;
+    } else if (val->type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)val->ptr_val;
+        if (obj && obj->magic == TsBuffer::MAGIC) {
+            TsBuffer* buf = (TsBuffer*)obj;
+            *outData = buf->GetData();
+            *outLen = buf->GetLength();
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// Helper: extract a TsString* from a parameter that may be raw or boxed.
+static TsString* extractCryptoString(void* param) {
+    if (!param) return nullptr;
+
+    uint32_t firstWord = *(uint32_t*)param;
+    if (firstWord == 0x53545247) {
+        return (TsString*)param;
+    }
+
+    // Try as TsValue*
+    TsValue* val = (TsValue*)param;
+    if (val->type == ValueType::STRING_PTR) {
+        return (TsString*)val->ptr_val;
+    }
+
+    return nullptr;
+}
+
 // crypto.pbkdf2Sync(password, salt, iterations, keylen, digest) -> Buffer
 void* ts_crypto_pbkdf2Sync(void* password, void* salt, int64_t iterations,
                            int64_t keylen, void* digest) {
@@ -478,44 +532,19 @@ void* ts_crypto_pbkdf2Sync(void* password, void* salt, int64_t iterations,
     const unsigned char* saltData = nullptr;
     size_t saltLen = 0;
 
-    // Extract password
-    TsValue* passVal = (TsValue*)password;
-    if (passVal->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)passVal->ptr_val;
-        passData = (const unsigned char*)str->ToUtf8();
-        passLen = strlen((const char*)passData);
-    } else if (passVal->type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)passVal->ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            passData = buf->GetData();
-            passLen = buf->GetLength();
-        }
-    }
-
-    // Extract salt
-    TsValue* saltVal = (TsValue*)salt;
-    if (saltVal->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)saltVal->ptr_val;
-        saltData = (const unsigned char*)str->ToUtf8();
-        saltLen = strlen((const char*)saltData);
-    } else if (saltVal->type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)saltVal->ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            saltData = buf->GetData();
-            saltLen = buf->GetLength();
-        }
-    }
+    extractCryptoInput(password, &passData, &passLen);
+    extractCryptoInput(salt, &saltData, &saltLen);
 
     if (!passData || !saltData) return nullptr;
 
     // Get digest algorithm
     const EVP_MD* md = EVP_sha256(); // default
     if (digest) {
-        TsString* digestStr = (TsString*)digest;
-        const EVP_MD* customMd = EVP_get_digestbyname(digestStr->ToUtf8());
-        if (customMd) md = customMd;
+        TsString* digestStr = extractCryptoString(digest);
+        if (digestStr) {
+            const EVP_MD* customMd = EVP_get_digestbyname(digestStr->ToUtf8());
+            if (customMd) md = customMd;
+        }
     }
 
     TsBuffer* result = TsBuffer::Create((size_t)keylen);
@@ -540,35 +569,8 @@ void* ts_crypto_scryptSync(void* password, void* salt, int64_t keylen,
     const unsigned char* saltData = nullptr;
     size_t saltLen = 0;
 
-    // Extract password
-    TsValue* passVal = (TsValue*)password;
-    if (passVal->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)passVal->ptr_val;
-        passData = (const unsigned char*)str->ToUtf8();
-        passLen = strlen((const char*)passData);
-    } else if (passVal->type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)passVal->ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            passData = buf->GetData();
-            passLen = buf->GetLength();
-        }
-    }
-
-    // Extract salt
-    TsValue* saltVal = (TsValue*)salt;
-    if (saltVal->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)saltVal->ptr_val;
-        saltData = (const unsigned char*)str->ToUtf8();
-        saltLen = strlen((const char*)saltData);
-    } else if (saltVal->type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)saltVal->ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            saltData = buf->GetData();
-            saltLen = buf->GetLength();
-        }
-    }
+    extractCryptoInput(password, &passData, &passLen);
+    extractCryptoInput(salt, &saltData, &saltLen);
 
     if (!passData || !saltData) return nullptr;
 
@@ -632,7 +634,9 @@ static void pbkdf2_after_work_cb(uv_work_t* req, int status) {
         result = ts_value_make_undefined();
     } else {
         err = ts_value_make_undefined();
-        result = ts_value_make_object(data->result);
+        // Pass raw TsBuffer* directly - the compiled callback trampoline passes
+        // argv[i] through as ptr, and the compiled code expects a raw TsBuffer*.
+        result = (TsValue*)data->result;
     }
 
     // Call callback(err, derivedKey)
@@ -654,35 +658,8 @@ void ts_crypto_pbkdf2(void* password, void* salt, int64_t iterations,
     const unsigned char* saltData = nullptr;
     size_t saltLen = 0;
 
-    // Extract password
-    TsValue* passVal = (TsValue*)password;
-    if (passVal->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)passVal->ptr_val;
-        passData = (const unsigned char*)str->ToUtf8();
-        passLen = strlen((const char*)passData);
-    } else if (passVal->type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)passVal->ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            passData = buf->GetData();
-            passLen = buf->GetLength();
-        }
-    }
-
-    // Extract salt
-    TsValue* saltVal = (TsValue*)salt;
-    if (saltVal->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)saltVal->ptr_val;
-        saltData = (const unsigned char*)str->ToUtf8();
-        saltLen = strlen((const char*)saltData);
-    } else if (saltVal->type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)saltVal->ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            saltData = buf->GetData();
-            saltLen = buf->GetLength();
-        }
-    }
+    extractCryptoInput(password, &passData, &passLen);
+    extractCryptoInput(salt, &saltData, &saltLen);
 
     if (!passData || !saltData) {
         if (callback) {
@@ -697,9 +674,8 @@ void ts_crypto_pbkdf2(void* password, void* salt, int64_t iterations,
     // Get digest algorithm
     const EVP_MD* md = EVP_sha256(); // default
     if (digest) {
-        void* rawDigest = ts_value_get_string((TsValue*)digest);
-        if (rawDigest) {
-            TsString* digestStr = (TsString*)rawDigest;
+        TsString* digestStr = extractCryptoString(digest);
+        if (digestStr) {
             const EVP_MD* customMd = EVP_get_digestbyname(digestStr->ToUtf8());
             if (customMd) md = customMd;
         }
@@ -764,7 +740,9 @@ static void scrypt_after_work_cb(uv_work_t* req, int status) {
         result = ts_value_make_undefined();
     } else {
         err = ts_value_make_undefined();
-        result = ts_value_make_object(data->result);
+        // Pass raw TsBuffer* directly - the compiled callback trampoline passes
+        // argv[i] through as ptr, and the compiled code expects a raw TsBuffer*.
+        result = (TsValue*)data->result;
     }
 
     // Call callback(err, derivedKey)
@@ -777,43 +755,33 @@ static void scrypt_after_work_cb(uv_work_t* req, int status) {
     delete req;
 }
 
-// crypto.scrypt(password, salt, keylen, options, callback)
+// crypto.scrypt(password, salt, keylen, [options], callback)
+// Signature matches ext.json: (password, salt, keylen, options_or_callback, callback)
+// When called as scrypt(pass, salt, keylen, cb), options_or_callback is the callback and
+// callback is null. Detect this with GC_base + TsString magic check.
 void ts_crypto_scrypt(void* password, void* salt, int64_t keylen,
-                      int64_t N, int64_t r, int64_t p, void* callback) {
+                      void* options_or_callback, void* callback) {
+    // Detect when options_or_callback is actually the callback (4-arg form)
+    if (options_or_callback && !callback) {
+        bool isString = false;
+        void* base = GC_base(options_or_callback);
+        if (base) {
+            uint32_t magic = *(uint32_t*)options_or_callback;
+            isString = (magic == 0x53545247); // TsString::MAGIC
+        }
+        if (!isString) {
+            callback = options_or_callback;
+            options_or_callback = nullptr;
+        }
+    }
+
     const unsigned char* passData = nullptr;
     size_t passLen = 0;
     const unsigned char* saltData = nullptr;
     size_t saltLen = 0;
 
-    // Extract password
-    TsValue* passVal = (TsValue*)password;
-    if (passVal->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)passVal->ptr_val;
-        passData = (const unsigned char*)str->ToUtf8();
-        passLen = strlen((const char*)passData);
-    } else if (passVal->type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)passVal->ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            passData = buf->GetData();
-            passLen = buf->GetLength();
-        }
-    }
-
-    // Extract salt
-    TsValue* saltVal = (TsValue*)salt;
-    if (saltVal->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)saltVal->ptr_val;
-        saltData = (const unsigned char*)str->ToUtf8();
-        saltLen = strlen((const char*)saltData);
-    } else if (saltVal->type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)saltVal->ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            saltData = buf->GetData();
-            saltLen = buf->GetLength();
-        }
-    }
+    extractCryptoInput(password, &passData, &passLen);
+    extractCryptoInput(salt, &saltData, &saltLen);
 
     if (!passData || !saltData) {
         if (callback) {
@@ -825,10 +793,10 @@ void ts_crypto_scrypt(void* password, void* salt, int64_t keylen,
         return;
     }
 
-    // Default scrypt parameters
-    if (N <= 0) N = 16384;  // 2^14
-    if (r <= 0) r = 8;
-    if (p <= 0) p = 1;
+    // Default scrypt parameters - TODO: parse from options_or_callback if it's an options object
+    int64_t N = 16384;  // 2^14
+    int64_t r = 8;
+    int64_t p = 1;
 
     // Copy data for thread safety
     ScryptWorkData* data = (ScryptWorkData*)ts_alloc(sizeof(ScryptWorkData));
