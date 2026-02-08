@@ -1788,8 +1788,9 @@ extern "C" {
         return ((TsArray*)rawArr)->Join(separator);
     }
 
-    void ts_array_reverse(void* arr) {
+    void* ts_array_reverse(void* arr) {
         ((TsArray*)arr)->Reverse();
+        return arr;
     }
 
     // ES2023 "change array by copy" methods
