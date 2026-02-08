@@ -2298,6 +2298,19 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     std::string propName = getOperandString(inst->operands[1]);
 
+    // Fast path: String.length -> ts_string_length()
+    if (propName == "length") {
+        if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+            if (*hirVal && (*hirVal)->type && (*hirVal)->type->kind == HIRTypeKind::String) {
+                auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), {builder_->getPtrTy()}, false);
+                auto fn = module_->getOrInsertFunction("ts_string_length", ft);
+                llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), {obj});
+                setValue(inst->result, result);
+                return;
+            }
+        }
+    }
+
     // Check if the source value is already a boxed TsValue* (Any type)
     // If so, we should NOT box it again to avoid double-boxing
     bool alreadyBoxed = false;
@@ -3106,10 +3119,28 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 
     if (funcName == "ts_string_from_value") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            builder_->getPtrTy(), { builder_->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_string_from_value", ft);
-        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        llvm::Value* result;
+        if (arg->getType()->isIntegerTy(64)) {
+            // i64 -> string via ts_string_from_int
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+            auto fn = module_->getOrInsertFunction("ts_string_from_int", ft);
+            result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        } else if (arg->getType()->isDoubleTy()) {
+            // f64 -> string via ts_string_from_double
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_string_from_double", ft);
+            result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        } else if (arg->getType()->isIntegerTy(1)) {
+            // bool -> string via ts_string_from_bool
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+            auto fn = module_->getOrInsertFunction("ts_string_from_bool", ft);
+            result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        } else {
+            // Default: treat as ptr (boxed TsValue*) -> ts_string_from_value
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_string_from_value", ft);
+            result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        }
         if (inst->result) {
             setValue(inst->result, result);
         }

@@ -1,17 +1,34 @@
 # Active Project State
 
-**Last Updated:** 2026-02-07
+**Last Updated:** 2026-02-08
 **Current Phase:** Extension System Hardening
 
 ## Current Focus
 1. Fixing extension system calling conventions (self-pointer, constructors, return types)
-2. Fixing remaining 45 failing node tests (11 compile errors, 34 runtime failures)
+2. Fixing remaining 39 failing node tests (11 compile errors, 28 runtime failures)
 3. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
 
 ## Active Tasks
-1. **Fix remaining node test failures** - 236/280 passing (84.3%)
+1. **Fix remaining node test failures** - 241/280 passing (86.1%)
 2. **Extension constructor support** - Done (systemic fix for 12+ extension types)
 3. **Module-level property getters** - Done (http.STATUS_CODES, cluster.isMaster, etc.)
+
+## Recent Accomplishments (2026-02-08)
+*   **Extension return type propagation (extTypeRefToHIR):**
+    - ASTToHIR now maps ext.json return types to proper HIR types (string→String, number→Int64, etc.)
+    - Previously all extension method return types were `HIRType::makeAny()`, losing type information
+    - Enables String.length fast path and proper type-aware string interpolation
+*   **String.length fast path in HIRToLLVM:**
+    - `lowerGetPropStatic` now detects String-typed operands and calls `ts_string_length()` directly
+    - Previously always went through `ts_object_get_dynamic()` which returned undefined for raw TsString pointers
+*   **Type-aware string interpolation (ts_string_from_value):**
+    - Template literal interpolation now dispatches to `ts_string_from_int`/`ts_string_from_double`/`ts_string_from_bool` based on LLVM type
+    - Fixes compile errors when interpolating properly-typed numeric values
+*   **Readline string casting fixes:**
+    - Removed invalid `dynamic_cast<TsString*>` (TsString is NOT a TsObject subclass)
+    - Simplified to direct `(TsString*)` cast for "ptr" lowered parameters
+    - Fixed readline_basic.ts and readline_getprompt.ts
+*   **Node tests: 241/280 (86.1%)**, Golden IR: 146/146 (100%)
 
 ## Recent Accomplishments (2026-02-07)
 *   **Extension Constructor Support (systemic fix):**
