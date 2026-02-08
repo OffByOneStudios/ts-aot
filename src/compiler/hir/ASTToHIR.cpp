@@ -1515,15 +1515,22 @@ void ASTToHIR::lowerBindingElementByIndex(ast::BindingElement* binding,
 
     // Handle default value if present
     if (binding->initializer) {
-        // Check if extracted value is undefined using runtime function
-        auto isUndefined = builder_.createIsUndefined(extractedValue);
+        // Use bounds check instead of ts_value_is_undefined, because type propagation
+        // may unbox the extracted value to a primitive (double/i64), making the undefined
+        // check impossible. Bounds check: index >= array.length means out-of-bounds → use default.
+        auto arrayLength = builder_.createCall("ts_array_length", {sourceValue}, HIRType::makeInt64());
+        auto idxConst = builder_.createConstInt(index);
+        auto inBounds = builder_.createCmpLtI64(idxConst, arrayLength);
+
         auto defaultValue = lowerExpression(binding->initializer.get());
 
         // Box the default value to match extractedValue (Any/ptr)
         defaultValue = boxValueIfNeeded(defaultValue);
+        // Also box the extracted value if it was unboxed by type propagation
+        extractedValue = boxValueIfNeeded(extractedValue);
 
-        // Select: isUndefined ? defaultValue : extractedValue
-        extractedValue = builder_.createSelect(isUndefined, defaultValue, extractedValue);
+        // Select: inBounds ? extractedValue : defaultValue
+        extractedValue = builder_.createSelect(inBounds, extractedValue, defaultValue);
     }
 
     // Bind to variable(s)

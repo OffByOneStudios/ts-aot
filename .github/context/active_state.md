@@ -9,11 +9,24 @@
 3. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
 
 ## Active Tasks
-1. **Fix remaining node test failures** - 248/280 passing (88.6%)
+1. **Fix remaining node test failures** - 250/280 passing (89.3%)
 2. **Extension type inheritance** - Done (property/method/static method inheritance chain walking)
 3. **Extension return type patching** - Done (Pass 3 links bare ClassTypes to registered types)
 
 ## Recent Accomplishments (2026-02-08)
+*   **Generator state-machine return type fix:**
+    - Regular generators use state-machine pattern: wrapper (returns ptr) + impl (returns void)
+    - `generatorObject_` is only set for async generators, not regular generators
+    - Added `ts_generator_return_via_ctx()` runtime function: gets generator from AsyncContext back-pointer
+    - `lowerReturn`/`lowerReturnVoid` now detect state-machine generators via `asyncContext_` and emit correct `ret void`
+    - Fixed: util_types_generators.ts (was compile error, now runtime test)
+*   **Nested destructuring type mismatch fix:**
+    - `ts_value_is_undefined` crashed when arg was unboxed to double by type propagation
+    - Added guard in HIRToLLVM: non-pointer types are never undefined (return false)
+    - Array destructuring defaults now use bounds check (`index < array.length`) instead of undefined check
+    - Fixed: test_nested_destructuring.ts (was compile error, now 10/10 passing)
+*   **Node tests: 250/280 (89.3%)**, Golden IR: 146/146 (100%)
+
 *   **Buffer indexing (`buf[i]`) in HIRToLLVM:**
     - `lowerGetElem` now detects Buffer-typed operands (HIRTypeKind::Class, className=="Buffer")
     - Routes to `ts_buffer_read_uint8(buf, i)` instead of `ts_array_get(buf, i)` which crashed

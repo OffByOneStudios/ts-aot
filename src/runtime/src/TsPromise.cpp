@@ -129,7 +129,9 @@ void ts_async_yield(TsValue* value, AsyncContext* ctx) {
 
 TsGenerator* ts_generator_create(AsyncContext* ctx) {
     void* mem = ts_alloc(sizeof(TsGenerator));
-    return new (mem) TsGenerator(ctx);
+    TsGenerator* gen = new (mem) TsGenerator(ctx);
+    ctx->syncGenerator = gen;  // Store back-pointer for impl function access
+    return gen;
 }
 
 TsValue* Generator_next_internal(void* context, TsValue* value) {
@@ -150,6 +152,11 @@ void ts_generator_return(TsGenerator* gen, TsValue* value) {
     } else {
         gen->ctx->yieldedValue = TsValue(); // undefined
     }
+}
+
+void ts_generator_return_via_ctx(AsyncContext* ctx, TsValue* value) {
+    if (!ctx || !ctx->syncGenerator) return;
+    ts_generator_return((TsGenerator*)ctx->syncGenerator, value);
 }
 
 TsValue* ts_generator_yield(TsValue* value) {

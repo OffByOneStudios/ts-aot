@@ -26,6 +26,7 @@ struct AsyncContext : public TsObject {
     TsValue* resumedValue = nullptr; // Stores value from last resume
     void* execContext = nullptr; // Execution context for nested function creation
     TsValue* delegateIterator = nullptr; // For yield* delegation
+    void* syncGenerator = nullptr; // Back-pointer to TsGenerator (set by ts_generator_create)
 
     AsyncContext();
 };
@@ -107,6 +108,7 @@ extern "C" {
     TsGenerator* ts_generator_create(AsyncContext* ctx);
     TsValue* Generator_next(TsValue* gen, TsValue* value);
     void ts_generator_return(TsGenerator* gen, TsValue* value);
+    void ts_generator_return_via_ctx(AsyncContext* ctx, TsValue* value);
     TsValue* ts_generator_yield(TsValue* value);
 
     TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx);
