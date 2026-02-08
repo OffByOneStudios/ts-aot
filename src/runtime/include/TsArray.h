@@ -153,6 +153,7 @@ extern "C" {
     int64_t ts_array_findLastIndex(void* arr, void* callback, void* thisArg);
     bool ts_array_is_array(void* value);
     void* ts_array_from(void* arrayLike, void* mapFn, void* thisArg);
+    void* ts_array_of(void* elementsArray);
     void* ts_array_fill(void* arr, void* value, int64_t start, int64_t end);
     void* ts_array_copyWithin(void* arr, int64_t target, int64_t start, int64_t end);
     void* ts_array_entries(void* arr);

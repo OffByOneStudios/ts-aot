@@ -3503,6 +3503,22 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         }
     }
 
+    // Check if this is an extension type with a constructor (e.g., URL, URLSearchParams)
+    if (!hirClass) {
+        auto& extReg = ext::ExtensionRegistry::instance();
+        const ext::TypeDefinition* extType = extReg.findType(className);
+        if (extType && extType->constructor && !extType->constructor->call.empty()) {
+            // Extension type with a constructor - call the factory function directly
+            std::string hirName = extType->constructor->hirName
+                ? *extType->constructor->hirName
+                : extType->constructor->call;
+
+            // The constructor is a static factory function that returns the object
+            lastValue_ = builder_.createCall(hirName, args, HIRType::makePtr());
+            return;
+        }
+    }
+
     // Create new object with the correct type
     std::shared_ptr<HIRValue> newObj;
     if (hirClass && hirClass->shape) {

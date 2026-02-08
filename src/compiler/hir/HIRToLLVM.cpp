@@ -2307,11 +2307,22 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
         }
     }
 
-    // Box the object if it's not already a pointer-sized boxed value
-    // ts_object_get_dynamic expects TsValue*, not raw TsMap*
+    // Box the object for ts_object_get_dynamic (expects TsValue*)
     if (obj->getType()->isPointerTy() && !alreadyBoxed) {
         auto boxObjFn = getTsValueMakeObject();
         obj = builder_->CreateCall(boxObjFn, {obj});
+    } else if (!obj->getType()->isPointerTy()) {
+        // Non-pointer types (bool, int, double) need boxing
+        if (obj->getType()->isIntegerTy(1)) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool", builder_->getPtrTy(), {builder_->getInt1Ty()});
+            obj = builder_->CreateCall(boxFn, {obj});
+        } else if (obj->getType()->isIntegerTy(64)) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int", builder_->getPtrTy(), {builder_->getInt64Ty()});
+            obj = builder_->CreateCall(boxFn, {obj});
+        } else if (obj->getType()->isDoubleTy()) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double", builder_->getPtrTy(), {builder_->getDoubleTy()});
+            obj = builder_->CreateCall(boxFn, {obj});
+        }
     }
 
     // Create property key string
@@ -3343,6 +3354,36 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
                 arg = builder_->CreatePtrToInt(arg, builder_->getInt64Ty());
             else if (arg->getType()->isIntegerTy(64) && expected->isPointerTy())
                 arg = builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+            else if (arg->getType()->isIntegerTy(1) && expected->isPointerTy()) {
+                // bool -> ptr: zero-extend to i64 then inttoptr
+                arg = builder_->CreateZExt(arg, builder_->getInt64Ty());
+                arg = builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+            }
+            else if (arg->getType()->isDoubleTy() && expected->isPointerTy()) {
+                // f64 -> ptr: box the double value
+                arg = convertArg(arg, ::hir::ArgConversion::Box);
+            }
+            else if (arg->getType()->isIntegerTy(32) && expected->isPointerTy()) {
+                // i32 -> ptr: sign-extend to i64 then inttoptr
+                arg = builder_->CreateSExt(arg, builder_->getInt64Ty());
+                arg = builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+            }
+            else if (arg->getType()->isIntegerTy(1) && expected->isDoubleTy()) {
+                // bool -> f64
+                arg = builder_->CreateUIToFP(arg, builder_->getDoubleTy());
+            }
+            else if (arg->getType()->isPointerTy() && expected->isDoubleTy()) {
+                // ptr (boxed TsValue*) -> f64: unbox the double
+                auto unboxFt = llvm::FunctionType::get(builder_->getDoubleTy(), {builder_->getPtrTy()}, false);
+                auto unboxFn = module_->getOrInsertFunction("ts_value_get_double", unboxFt);
+                arg = builder_->CreateCall(unboxFt, unboxFn.getCallee(), {arg});
+            }
+            else if (arg->getType()->isPointerTy() && expected->isIntegerTy(1)) {
+                // ptr (boxed TsValue*) -> bool: unbox the bool
+                auto unboxFt = llvm::FunctionType::get(builder_->getInt1Ty(), {builder_->getPtrTy()}, false);
+                auto unboxFn = module_->getOrInsertFunction("ts_value_get_bool", unboxFt);
+                arg = builder_->CreateCall(unboxFt, unboxFn.getCallee(), {arg});
+            }
         }
 
         llvmArgs.push_back(arg);
@@ -5312,6 +5353,20 @@ void HIRToLLVM::lowerSelect(HIRInstruction* inst) {
         } else if (cond->getType()->isDoubleTy()) {
             // Convert double to boolean (non-zero and not NaN)
             cond = builder_->CreateFCmpONE(cond, llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0), "cond_bool");
+        }
+    }
+
+    // Ensure both operands have the same type for LLVM select
+    if (trueVal->getType() != falseVal->getType()) {
+        // Unify types: prefer ptr (box non-ptr to TsValue*)
+        if (trueVal->getType()->isPointerTy() && !falseVal->getType()->isPointerTy()) {
+            falseVal = convertArg(falseVal, ::hir::ArgConversion::Box);
+        } else if (!trueVal->getType()->isPointerTy() && falseVal->getType()->isPointerTy()) {
+            trueVal = convertArg(trueVal, ::hir::ArgConversion::Box);
+        } else if (trueVal->getType()->isDoubleTy() && falseVal->getType()->isIntegerTy(64)) {
+            falseVal = builder_->CreateSIToFP(falseVal, builder_->getDoubleTy());
+        } else if (trueVal->getType()->isIntegerTy(64) && falseVal->getType()->isDoubleTy()) {
+            trueVal = builder_->CreateSIToFP(trueVal, builder_->getDoubleTy());
         }
     }
 

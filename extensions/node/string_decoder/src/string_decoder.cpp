@@ -21,7 +21,7 @@ void* ts_string_decoder_create(void* encoding) {
 
     void* mem = ts_alloc(sizeof(TsStringDecoder));
     TsStringDecoder* decoder = new (mem) TsStringDecoder(enc);
-    return ts_value_make_object(decoder);
+    return decoder;
 }
 
 void* ts_string_decoder_write(void* decoderArg, void* bufferArg) {

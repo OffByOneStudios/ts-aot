@@ -94,7 +94,7 @@
           {"name": "url", "type": "string"},
           {"name": "base", "type": "string", "optional": true}
         ],
-        "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "ptr" }
+        "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
       },
       "properties": {
         "href": {

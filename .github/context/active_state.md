@@ -1,25 +1,41 @@
 # Active Project State
 
-**Last Updated:** 2026-02-06
-**Current Phase:** Extension System Migration
+**Last Updated:** 2026-02-07
+**Current Phase:** Extension System Hardening
 
 ## Current Focus
-1. Migrating Node.js-specific code from core analyzer/runtime to extension system
-2. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
+1. Fixing extension system calling conventions (self-pointer, constructors, return types)
+2. Fixing remaining 45 failing node tests (11 compile errors, 34 runtime failures)
+3. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
 
 ## Active Tasks
-1. **Extension Migration Epic** - Phase 1 complete, Phase 2 in progress
-2. **Phase 2: Create missing .ext.json contracts** - 12 modules need contracts
+1. **Fix remaining node test failures** - 235/280 passing (83.9%)
+2. **Extension constructor support** - Done (systemic fix for 12+ extension types)
 
-## Recent Accomplishments (2026-02-06)
+## Recent Accomplishments (2026-02-07)
+*   **Extension Constructor Support (systemic fix):**
+    - LoweringRegistry now registers constructor lowerings from ext.json
+    - ASTToHIR checks ExtensionRegistry for constructors in visitNewExpression
+    - `new URL(...)`, `new PerformanceObserver(...)`, etc. now call actual factory functions instead of creating generic TsMap
+    - Fixed 12+ extension types: URL, URLSearchParams, PerformanceObserver, AsyncLocalStorage, AsyncResource, StringDecoder, etc.
+*   **Auto-prepend self pointer for instance methods/getters:**
+    - LoweringRegistry auto-prepends `ptrArg()` for extension instance methods and property getters
+    - Fixed HTTP ext.json (33 methods were missing self pointer)
+    - Updated all ext.json files to remove redundant leading "ptr" from instance method args
+*   **Constructor return type fixes:**
+    - Factory functions now return raw pointers (not boxed TsValue*)
+    - Fixed: perf_hooks, async_hooks, string_decoder constructors
+*   **PerformanceObserver method fixes:**
+    - Removed `dynamic_cast` in observe/disconnect/takeRecords (RTTI not shared across libs)
+    - Direct cast from auto-prepended self pointer
+*   **Node tests: 230 → 235/280 (83.9%)** - 5 URL tests + 1 perf_hooks observer fixed
+*   **Golden IR: 146/146 (100%)** - no regressions
+
+## Previous Accomplishments (2026-02-06)
 *   **Extension Migration Phase 1 (Analyzer Infrastructure) - COMPLETE**
-    - Step 1.1: Two-pass inheritance resolution in `registerTypesFromExtensions()`
-    - Step 1.2: Function-typed parameter conversion in `convertExtTypeRef()` for callback inference
-    - Step 1.3: Replaced hardcoded `BUILTIN_MODULES` list with `ExtensionRegistry::isRegisteredModule()` query
-    - Step 1.4: `getExpectedCallbackType()` now checks registered method signatures before hardcoded patterns
+    - Two-pass inheritance resolution, function-typed parameter conversion, ExtensionRegistry-based module checks
     - Golden IR: 146/146 (100%), Node tests: 216/280 (77.1%) - no regressions
 *   **Test Runner Baseline Tracking** - Both golden IR and node test runners now save/load JSON baselines for regression detection
-*   **Documentation** - Audit of all Node.js-specific analyzer code (`docs/extensions/audit-nodejs-hardcoding.md`, `docs/extensions/analyzer-hardcoding-analysis.md`)
 
 ## Previous Accomplishments (2026-02-05)
 *   **Escape Analysis Pass (Phase 5 perf roadmap):** Stack allocation for non-escaping objects
@@ -52,6 +68,8 @@
 5. **LoweringRegistry prevents auto-boxing**: When a runtime function is NOT registered, the generic call path auto-boxes String-typed arguments. Register with `.ptrArg()` to prevent boxing.
 6. **ts_value_is_null vs raw nullptr**: `ts_value_is_null()` only checks boxed JavaScript null. For functions returning raw nullptr (like RegExp_exec), generate `ts_value_is_null(arg) || arg == null`.
 7. **Monomorphizer and non-generic classes**: Non-generic classes in `classUsages` get triple-processed causing duplicate/conflicting HIR entries. Guard with `if (classNode->typeParameters.empty()) continue;`
+8. **Extension constructors return raw pointers**: Factory functions (`ts_*_create`) must return raw pointers, NOT boxed `TsValue*` via `ts_value_make_object()`. The compiler stores the return as a raw ptr and passes it as self to instance methods.
+9. **dynamic_cast fails across static libs**: When a class is defined in one .lib and `dynamic_cast` is called from another .lib, RTTI may not be shared. Use direct casts when the type is known from the calling convention.
 
 ## Conformance Status
 - TypeScript: 99% (117/118 runtime features)

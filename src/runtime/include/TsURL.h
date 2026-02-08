@@ -86,7 +86,7 @@ private:
 };
 
 extern "C" {
-    void* ts_url_create(void* vtable, void* url, void* base);
+    void* ts_url_create(void* url, void* base);
     void* ts_url_get_href(void* url);
     void* ts_url_get_origin(void* url);
     void* ts_url_get_protocol(void* url);
