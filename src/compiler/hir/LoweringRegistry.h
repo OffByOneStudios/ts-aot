@@ -228,10 +228,19 @@ public:
     /// Clear all registrations (for testing)
     void clear();
 
+    /// Register a nested object method mapping (methodName -> hirName)
+    /// Used to resolve dynamic call_method on Any-typed nested objects
+    void registerNestedMethodMapping(const std::string& methodName, const std::string& hirName);
+
+    /// Look up a lowering spec by JS method name (for nested object methods)
+    /// Returns nullptr if no matching nested method is found
+    const LoweringSpec* lookupByMethodName(const std::string& methodName) const;
+
 private:
     LoweringRegistry() = default;
     void registerBuiltinsImpl();  // Internal implementation to avoid recursion
     std::unordered_map<std::string, LoweringSpec> registry_;
+    std::unordered_map<std::string, std::string> nestedMethodToHirName_;  // methodName -> hirName
     static bool builtinsRegistered_;
     static bool extensionsRegistered_;
 };

@@ -270,7 +270,7 @@
   "util/util_types_boxed_primitives.ts": "pass",
   "util/util_types_comprehensive.ts": "pass",
   "util/util_types_fixed.ts": "pass",
-  "util/util_types_generators.ts": "fail",
+  "util/util_types_generators.ts": "pass",
   "util/util_types_ismap.ts": "pass",
   "util/util_types_promise.ts": "pass",
   "util/util_types_proxy.ts": "pass",
