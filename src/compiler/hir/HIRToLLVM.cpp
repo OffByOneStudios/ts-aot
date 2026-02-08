@@ -401,7 +401,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         int yieldCount = 0;
         for (auto& block : fn->blocks) {
             for (auto& inst : block->instructions) {
-                if (inst->opcode == HIROpcode::Yield) {
+                if (inst->opcode == HIROpcode::Yield || inst->opcode == HIROpcode::YieldStar) {
                     yieldCount++;
                 }
             }
@@ -5748,32 +5748,113 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
 void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
     // YieldStar instruction: %r = yield* %iterable
     // Delegates to another generator or iterable.
-    // This iterates over the iterable, yielding each value.
-    // The result is the return value of the delegated generator.
-    //
-    // For async generators, yield* produces Promises for each yielded value.
-    //
-    // For a simple implementation, we call ts_generator_yield_star/ts_async_generator_yield_star which:
-    // - Iterates the iterable calling next() and yield on each value
-    // - Returns the final return value of the iterable
-    // TODO: Implement full delegation with proper value passing
+    // For state-machine generators, we inline the delegation loop:
+    //   iter = ts_iterator_get(iterable)
+    //   loop:
+    //     result = ts_iterator_next(iter, null)
+    //     if ts_iterator_result_done(result) goto done
+    //     val = ts_iterator_result_value(result)
+    //     yield val  (state machine yield - suspend and resume)
+    //     goto loop
+    //   done:
+    //     delegatedResult = ts_iterator_result_value(result)
 
     llvm::Value* iterableVal = getOperandValue(inst->operands[0]);
 
-    llvm::Value* result;
-    if (isAsyncFunction_ && isGeneratorFunction_) {
+    if (isGeneratorFunction_ && asyncContext_ != nullptr && !isAsyncFunction_) {
+        // State-machine generator: inline the delegation loop
+        // The iterator is stored in ctx->delegateIterator so it persists across
+        // state machine calls (each yield suspends and resumes the impl function).
+        llvm::Function* currentFunc = builder_->GetInsertBlock()->getParent();
+
+        // Get iterator from iterable
+        auto getIterFn = getOrDeclareRuntimeFunction("ts_iterator_get",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        llvm::Value* iterator = builder_->CreateCall(getIterFn, { iterableVal }, "delegate_iter");
+
+        // Store iterator in ctx->delegateIterator (persists across state machine calls)
+        auto setDelegateFn = getOrDeclareRuntimeFunction("ts_async_context_set_delegate_iterator",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(setDelegateFn, { asyncContext_, iterator });
+
+        // Create blocks for the delegation loop
+        llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(context_, "yield_star_loop", currentFunc);
+        llvm::BasicBlock* doneBB = llvm::BasicBlock::Create(context_, "yield_star_done", currentFunc);
+
+        builder_->CreateBr(loopBB);
+
+        // Loop header: load iterator from ctx and call next()
+        builder_->SetInsertPoint(loopBB);
+        auto getDelegateFn = getOrDeclareRuntimeFunction("ts_async_context_get_delegate_iterator",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        llvm::Value* curIter = builder_->CreateCall(getDelegateFn, { asyncContext_ }, "cur_iter");
+
+        auto nextFn = getOrDeclareRuntimeFunction("ts_iterator_next",
+            builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        llvm::Value* nullVal = llvm::ConstantPointerNull::get(llvm::PointerType::get(context_, 0));
+        llvm::Value* iterResult = builder_->CreateCall(nextFn, { curIter, nullVal }, "iter_result");
+
+        // Check if done
+        auto doneFn = getOrDeclareRuntimeFunction("ts_iterator_result_done",
+            builder_->getInt1Ty(), { builder_->getPtrTy() });
+        llvm::Value* isDone = builder_->CreateCall(doneFn, { iterResult }, "is_done");
+
+        // Create yield block (not done - yield the value)
+        llvm::BasicBlock* yieldBB = llvm::BasicBlock::Create(context_, "yield_star_yield", currentFunc);
+        builder_->CreateCondBr(isDone, doneBB, yieldBB);
+
+        builder_->SetInsertPoint(yieldBB);
+
+        // Extract value from iterator result
+        auto valueFn = getOrDeclareRuntimeFunction("ts_iterator_result_value",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        llvm::Value* yieldVal = builder_->CreateCall(valueFn, { iterResult }, "delegate_value");
+
+        // Yield the value using state machine mechanism
+        auto yieldFn = getOrDeclareRuntimeFunction("ts_async_context_yield",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(yieldFn, { asyncContext_, yieldVal });
+
+        // Set state to next state
+        int nextState = currentYieldState_ + 1;
+        auto setStateFn = getOrDeclareRuntimeFunction("ts_async_context_set_state",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getInt32Ty() });
+        builder_->CreateCall(setStateFn, { asyncContext_, builder_->getInt32(nextState) });
+
+        // Return from impl function (suspend)
+        builder_->CreateRetVoid();
+
+        // Resume block: after next() is called again, we resume here and loop back
+        if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
+            llvm::BasicBlock* resumeBlock = yieldResumeBlocks_[currentYieldState_];
+            builder_->SetInsertPoint(resumeBlock);
+            // Loop back to check next delegate value
+            builder_->CreateBr(loopBB);
+        }
+
+        currentYieldState_++;
+
+        // Done block: delegation is complete, clear delegate iterator and extract return value
+        builder_->SetInsertPoint(doneBB);
+        // Clear the delegate iterator
+        llvm::Value* nullIter = llvm::ConstantPointerNull::get(llvm::PointerType::get(context_, 0));
+        builder_->CreateCall(setDelegateFn, { asyncContext_, nullIter });
+        llvm::Value* returnVal = builder_->CreateCall(valueFn, { iterResult }, "delegate_return");
+        setValue(inst->result, returnVal);
+    } else if (isAsyncFunction_ && isGeneratorFunction_) {
         // Async generator: yield* delegates to async iterable
+        // For now, use the simple runtime function approach
         auto yieldStarFn = getOrDeclareRuntimeFunction("ts_async_generator_yield_star",
             builder_->getPtrTy(), { builder_->getPtrTy() });
-        result = builder_->CreateCall(yieldStarFn, { iterableVal }, "async_yield_star_result");
+        llvm::Value* result = builder_->CreateCall(yieldStarFn, { iterableVal }, "async_yield_star_result");
+        setValue(inst->result, result);
     } else {
-        // Regular generator
+        // Fallback: call runtime function
         auto yieldStarFn = getOrDeclareRuntimeFunction("ts_generator_yield_star",
             builder_->getPtrTy(), { builder_->getPtrTy() });
-        result = builder_->CreateCall(yieldStarFn, { iterableVal }, "yield_star_result");
+        llvm::Value* result = builder_->CreateCall(yieldStarFn, { iterableVal }, "yield_star_result");
+        setValue(inst->result, result);
     }
-
-    setValue(inst->result, result);
 }
 
 //==============================================================================

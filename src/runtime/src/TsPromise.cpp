@@ -385,11 +385,13 @@ TsValue* ts_iterator_get(TsValue* iterable) {
     // This handles both boxed TsValue* and raw object pointers
     void* rawObj = ts_value_get_object(iterable);
 
-    // Check if we have a TsMap (object literal)
+    // Check if we have a TsMap-based object (TsMap, TsGenerator, TsAsyncGenerator)
     if (rawObj) {
-        // Check magic at offset 16 for TsMap
+        // Check magic at offset 16 for TsObject-derived types
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
-        if (magic16 == 0x4D415053) { // TsMap::MAGIC
+        if (magic16 == 0x4D415053 ||  // TsMap::MAGIC
+            magic16 == 0x47454E52 ||  // TsGenerator::MAGIC "GENR"
+            magic16 == 0x4147454E) {  // TsAsyncGenerator::MAGIC "AGEN"
             TsMap* obj = (TsMap*)rawObj;
 
             // Check for [Symbol.iterator] method
@@ -448,6 +450,21 @@ TsValue* ts_iterator_get(TsValue* iterable) {
             if ((nextMethod.type == ValueType::OBJECT_PTR || nextMethod.type == ValueType::FUNCTION_PTR) && nextMethod.ptr_val) {
                 return iterable;
             }
+        }
+    }
+
+    // Check for raw TsArray* pointer (TsArray has no vtable, magic at offset 0)
+    if (rawObj) {
+        uint32_t magic0 = *(uint32_t*)rawObj;
+        if (magic0 == 0x41525259) { // TsArray::MAGIC
+            TsArray* arr = (TsArray*)rawObj;
+            // Create a boxed ARRAY_PTR TsValue and use the array iterator path below
+            TsValue* boxedArr = (TsValue*)ts_alloc(sizeof(TsValue));
+            boxedArr->type = ValueType::ARRAY_PTR;
+            boxedArr->ptr_val = arr;
+            // Jump to array iterator creation
+            iterable = boxedArr;
+            // Fall through to ARRAY_PTR check below
         }
     }
 
@@ -1318,6 +1335,19 @@ TsValue* ts_async_context_get_resumed_value(AsyncContext* ctx) {
         return ctx->resumedValue;
     }
     return ts_value_make_undefined();
+}
+
+void ts_async_context_set_delegate_iterator(AsyncContext* ctx, TsValue* iter) {
+    if (ctx) {
+        ctx->delegateIterator = iter;
+    }
+}
+
+TsValue* ts_async_context_get_delegate_iterator(AsyncContext* ctx) {
+    if (ctx) {
+        return ctx->delegateIterator;
+    }
+    return nullptr;
 }
 
 } // namespace ts
