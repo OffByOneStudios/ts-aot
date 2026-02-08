@@ -429,7 +429,11 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // thisArg (optional)
             .build());
 
-    // Note: ts_array_of requires runtime implementation with variadic support
+    reg.registerLowering("ts_array_of",
+        lowering("ts_array_of")
+            .returnsPtr()
+            .variadicHandling(VariadicHandling::PackArray, 0)
+            .build());
 
     reg.registerLowering("ts_array_push",
         lowering("ts_array_push")
@@ -893,6 +897,13 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .ptrArg()      // string
             .i64Arg(ArgConversion::ToI64)  // index - convert from double
+            .build());
+
+    reg.registerLowering("ts_string_raw",
+        lowering("ts_string_raw")
+            .returnsPtr()
+            .variadicHandling(VariadicHandling::PackArray, 0)
+            .ptrArg()      // templateObj (first fixed arg)
             .build());
 
     // ========================================
@@ -1521,6 +1532,24 @@ void LoweringRegistry::registerFromExtensions() {
                 registeredCount++;
                 SPDLOG_DEBUG("Registered static method lowering from extension: {} -> {} (type {}.{})",
                              hirName, method.call, typeName, methodName);
+            }
+
+            // Register lowerings from type constructors
+            if (typeDef.constructor && typeDef.constructor->lowering && !typeDef.constructor->call.empty()) {
+                std::string hirName = typeDef.constructor->hirName
+                    ? *typeDef.constructor->hirName
+                    : typeDef.constructor->call;
+
+                if (!hasLowering(hirName)) {
+                    LoweringSpecBuilder builder(typeDef.constructor->call);
+                    // No auto-prepend for constructors - they are static factory functions
+                    buildLoweringSpec(builder, *typeDef.constructor->lowering);
+
+                    registerLowering(hirName, builder.build());
+                    registeredCount++;
+                    SPDLOG_DEBUG("Registered constructor lowering from extension: {} -> {} (type {})",
+                                 hirName, typeDef.constructor->call, typeName);
+                }
             }
 
             // Register lowerings from type property getters

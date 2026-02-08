@@ -449,9 +449,8 @@ void TsURLSearchParams::ForEach(void* callback, void* thisArg) {
 // ============ C API ============
 
 extern "C" {
-    void* ts_url_create(void* vtable, void* url, void* base) {
+    void* ts_url_create(void* url, void* base) {
         TsURL* u = TsURL::Create((TsString*)url, (TsString*)base);
-        u->vtable = vtable;
         return u;
     }
     void* ts_url_get_href(void* url) { return ((TsURL*)url)->GetHref(); }

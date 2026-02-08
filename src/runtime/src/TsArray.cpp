@@ -1898,6 +1898,13 @@ extern "C" {
         return *magic_ptr == TsArray::MAGIC;
     }
 
+    void* ts_array_of(void* elementsArray) {
+        // Array.of(...elements) - PackArray lowering already created the array
+        // with all elements pushed in, so just return it as-is
+        if (!elementsArray) return ts_array_create();
+        return elementsArray;
+    }
+
     void* ts_array_from(void* arrayLike, void* mapFn, void* thisArg) {
         if (!arrayLike) {
             return ts_array_create();

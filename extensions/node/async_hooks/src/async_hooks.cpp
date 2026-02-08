@@ -40,7 +40,7 @@ void* ts_async_hooks_createHook(void* callbacks) {
 // AsyncLocalStorage functions
 void* ts_async_local_storage_create() {
     ts::TsAsyncLocalStorage* als = ts::TsAsyncLocalStorage::Create();
-    return ts_value_make_object(als);
+    return als;
 }
 
 void* ts_async_local_storage_getStore(void* als) {
@@ -124,7 +124,7 @@ void* ts_async_resource_create(void* type, int64_t triggerAsyncId) {
     }
 
     ts::TsAsyncResource* resource = ts::TsAsyncResource::Create(typeStr, triggerAsyncId);
-    return ts_value_make_object(resource);
+    return resource;
 }
 
 int64_t ts_async_resource_asyncId(void* resource) {

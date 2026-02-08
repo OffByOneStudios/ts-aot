@@ -237,17 +237,14 @@ double ts_elu_get_utilization(void* eluArg) {
 
 // PerformanceObserver C API
 void* ts_performance_observer_create(void* callback) {
-    return ts_value_make_object(TsPerformanceObserver::Create(callback));
+    return TsPerformanceObserver::Create(callback);
 }
 
 void ts_performance_observer_observe(void* observerArg, void* optionsArg) {
     if (!observerArg) return;
 
-    void* raw = ts_value_get_object((TsValue*)observerArg);
-    if (!raw) raw = observerArg;
-
-    TsPerformanceObserver* observer = dynamic_cast<TsPerformanceObserver*>((TsObject*)raw);
-    if (!observer) return;
+    // Self pointer comes from auto-prepend - always raw TsPerformanceObserver*
+    TsPerformanceObserver* observer = (TsPerformanceObserver*)observerArg;
 
     // Extract entryTypes from options
     TsArray* entryTypes = nullptr;
@@ -261,9 +258,8 @@ void ts_performance_observer_observe(void* observerArg, void* optionsArg) {
             void* entryTypesVal = ts_object_get_property(optsObj, "entryTypes");
             if (entryTypesVal) {
                 void* rawArr = ts_value_get_object((TsValue*)entryTypesVal);
-                if (rawArr) {
-                    entryTypes = dynamic_cast<TsArray*>((TsObject*)rawArr);
-                }
+                if (!rawArr) rawArr = entryTypesVal;
+                entryTypes = (TsArray*)rawArr;
             }
         }
     }
@@ -274,24 +270,16 @@ void ts_performance_observer_observe(void* observerArg, void* optionsArg) {
 void ts_performance_observer_disconnect(void* observerArg) {
     if (!observerArg) return;
 
-    void* raw = ts_value_get_object((TsValue*)observerArg);
-    if (!raw) raw = observerArg;
-
-    TsPerformanceObserver* observer = dynamic_cast<TsPerformanceObserver*>((TsObject*)raw);
-    if (!observer) return;
-
+    // Self pointer comes from auto-prepend - always raw TsPerformanceObserver*
+    TsPerformanceObserver* observer = (TsPerformanceObserver*)observerArg;
     observer->Disconnect();
 }
 
 void* ts_performance_observer_take_records(void* observerArg) {
     if (!observerArg) return ts_value_make_object(TsArray::Create());
 
-    void* raw = ts_value_get_object((TsValue*)observerArg);
-    if (!raw) raw = observerArg;
-
-    TsPerformanceObserver* observer = dynamic_cast<TsPerformanceObserver*>((TsObject*)raw);
-    if (!observer) return ts_value_make_object(TsArray::Create());
-
+    // Self pointer comes from auto-prepend - always raw TsPerformanceObserver*
+    TsPerformanceObserver* observer = (TsPerformanceObserver*)observerArg;
     return ts_value_make_object(observer->TakeRecords());
 }
 
