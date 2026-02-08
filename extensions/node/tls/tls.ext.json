@@ -8,48 +8,38 @@
         "createSecureContext": {
           "call": "ts_tls_create_secure_context",
           "hirName": "ts_tls_createSecureContext",
-          "params": [{ "name": "options", "type": "object", "optional": true }],
+          "params": [
+            {"name": "options", "type": "object", "optional": true}
+          ],
           "returns": "SecureContext",
-          "lowering": {
-            "args": ["boxed"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
         },
         "getCiphers": {
           "call": "ts_tls_get_ciphers",
           "hirName": "ts_tls_getCiphers",
           "params": [],
           "returns": "string[]",
-          "lowering": {
-            "args": [],
-            "returns": "ptr"
-          }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "connect": {
           "call": "ts_tls_connect",
           "hirName": "ts_tls_connect",
           "params": [
-            { "name": "options", "type": "object" },
-            { "name": "callback", "type": "Function", "optional": true }
+            {"name": "options", "type": "object"},
+            {"name": "callback", "type": "Function", "optional": true}
           ],
           "returns": "TLSSocket",
-          "lowering": {
-            "args": ["boxed", "boxed"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": ["boxed", "boxed"], "returns": "ptr" }
         },
         "createServer": {
           "call": "ts_tls_create_server",
           "hirName": "ts_tls_createServer",
           "params": [
-            { "name": "options", "type": "object", "optional": true },
-            { "name": "secureConnectionListener", "type": "Function", "optional": true }
+            {"name": "options", "type": "object", "optional": true},
+            {"name": "secureConnectionListener", "type": "Function", "optional": true}
           ],
           "returns": "Server",
-          "lowering": {
-            "args": ["boxed", "boxed"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": ["boxed", "boxed"], "returns": "ptr" }
         }
       }
     }
@@ -62,37 +52,25 @@
           "getter": "ts_secure_socket_get_authorized",
           "hirName": "ts_TLSSocket_authorized",
           "type": "boolean",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "i1"
-          }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "authorizationError": {
           "getter": "ts_secure_socket_get_authorization_error",
           "hirName": "ts_TLSSocket_authorizationError",
           "type": "Error | null",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "encrypted": {
           "getter": "ts_secure_socket_get_encrypted",
           "hirName": "ts_TLSSocket_encrypted",
           "type": "boolean",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "i1"
-          }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "alpnProtocol": {
           "getter": "ts_secure_socket_get_alpn_protocol",
           "hirName": "ts_TLSSocket_alpnProtocol",
           "type": "string | false",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": [], "returns": "ptr" }
         }
       },
       "methods": {
@@ -101,126 +79,100 @@
           "hirName": "ts_TLSSocket_getCertificate",
           "params": [],
           "returns": "object | null",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "getPeerCertificate": {
           "call": "ts_secure_socket_get_peer_certificate",
           "hirName": "ts_TLSSocket_getPeerCertificate",
-          "params": [{ "name": "detailed", "type": "boolean", "optional": true }],
+          "params": [
+            {"name": "detailed", "type": "boolean", "optional": true}
+          ],
           "returns": "PeerCertificate | null",
-          "lowering": {
-            "args": ["ptr", "i1"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": ["i1"], "returns": "ptr" }
         },
         "getProtocol": {
           "call": "ts_secure_socket_get_protocol",
           "hirName": "ts_TLSSocket_getProtocol",
           "params": [],
           "returns": "string | null",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "getSession": {
           "call": "ts_secure_socket_get_session",
           "hirName": "ts_TLSSocket_getSession",
           "params": [],
           "returns": "Buffer | undefined",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "renegotiate": {
           "call": "ts_secure_socket_renegotiate",
           "hirName": "ts_TLSSocket_renegotiate",
           "params": [
-            { "name": "options", "type": "object" },
-            { "name": "callback", "type": "Function" }
+            {"name": "options", "type": "object"},
+            {"name": "callback", "type": "Function"}
           ],
           "returns": "boolean",
-          "lowering": {
-            "args": ["ptr", "boxed", "boxed"],
-            "returns": "i1"
-          }
+          "lowering": { "args": ["boxed", "boxed"], "returns": "i1" }
         },
         "setMaxSendFragment": {
           "call": "ts_secure_socket_set_max_send_fragment",
           "hirName": "ts_TLSSocket_setMaxSendFragment",
-          "params": [{ "name": "size", "type": "number" }],
+          "params": [
+            {"name": "size", "type": "number"}
+          ],
           "returns": "boolean",
-          "lowering": {
-            "args": ["ptr", "i64"],
-            "returns": "i1"
-          }
+          "lowering": { "args": ["i64"], "returns": "i1" }
         },
         "setServername": {
           "call": "ts_secure_socket_set_servername",
           "hirName": "ts_TLSSocket_setServername",
-          "params": [{ "name": "hostname", "type": "string" }],
+          "params": [
+            {"name": "hostname", "type": "string"}
+          ],
           "returns": "void",
-          "lowering": {
-            "args": ["ptr", "ptr"],
-            "returns": "void"
-          }
+          "lowering": { "args": ["ptr"], "returns": "void" }
         },
         "getServername": {
           "call": "ts_secure_socket_get_servername",
           "hirName": "ts_TLSSocket_getServername",
           "params": [],
           "returns": "string | null",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "ptr"
-          }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "setALPNProtocols": {
           "call": "ts_secure_socket_set_alpn_protocols",
           "hirName": "ts_TLSSocket_setALPNProtocols",
-          "params": [{ "name": "protocols", "type": "string[] | Buffer" }],
+          "params": [
+            {"name": "protocols", "type": "string[] | Buffer"}
+          ],
           "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
+          "lowering": { "args": ["boxed"], "returns": "void" }
         },
         "setSession": {
           "call": "ts_secure_socket_set_session",
           "hirName": "ts_TLSSocket_setSession",
-          "params": [{ "name": "session", "type": "Buffer" }],
+          "params": [
+            {"name": "session", "type": "Buffer"}
+          ],
           "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed"],
-            "returns": "void"
-          }
+          "lowering": { "args": ["boxed"], "returns": "void" }
         },
         "isSessionReused": {
           "call": "ts_secure_socket_is_session_reused",
           "hirName": "ts_TLSSocket_isSessionReused",
           "params": [],
           "returns": "boolean",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "i1"
-          }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "setClientCertificate": {
           "call": "ts_secure_socket_set_client_certificate",
           "hirName": "ts_TLSSocket_setClientCertificate",
           "params": [
-            { "name": "cert", "type": "string | Buffer" },
-            { "name": "key", "type": "string | Buffer" }
+            {"name": "cert", "type": "string | Buffer"},
+            {"name": "key", "type": "string | Buffer"}
           ],
           "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed", "boxed"],
-            "returns": "void"
-          }
+          "lowering": { "args": ["boxed", "boxed"], "returns": "void" }
         }
       }
     },

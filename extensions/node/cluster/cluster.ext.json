@@ -3,7 +3,6 @@
   "name": "cluster",
   "version": "1.0.0",
   "modules": ["cluster", "node:cluster"],
-
   "types": {
     "Worker": {
       "kind": "class",
@@ -13,82 +12,145 @@
           "call": "ts_worker_send",
           "hirName": "ts_Worker_send",
           "params": [
-            { "name": "message", "type": "any" },
-            { "name": "sendHandle", "type": "any", "optional": true }
+            {"name": "message", "type": "any"},
+            {"name": "sendHandle", "type": "any", "optional": true}
           ],
           "returns": "boolean",
-          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "i32" }
+          "lowering": { "args": ["boxed", "boxed"], "returns": "i32" }
         },
         "disconnect": {
           "call": "ts_worker_disconnect",
           "hirName": "ts_Worker_disconnect",
           "params": [],
           "returns": "void",
-          "lowering": { "args": ["ptr"], "returns": "void" }
+          "lowering": { "args": [], "returns": "void" }
         },
         "kill": {
           "call": "ts_worker_kill",
           "hirName": "ts_Worker_kill",
-          "params": [{ "name": "signal", "type": "string", "optional": true }],
+          "params": [
+            {"name": "signal", "type": "string", "optional": true}
+          ],
           "returns": "void",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr"], "returns": "void" }
         },
         "isConnected": {
           "call": "ts_worker_is_connected",
           "hirName": "ts_Worker_isConnected",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i32" }
+          "lowering": { "args": [], "returns": "i32" }
         }
       },
       "properties": {
-        "id": { "type": "number", "getter": "ts_worker_get_id", "lowering": { "args": ["ptr"], "returns": "i64" } },
-        "process": { "type": "any", "getter": "ts_worker_get_process", "lowering": { "args": ["ptr"], "returns": "ptr" } },
-        "isDead": { "type": "boolean", "getter": "ts_worker_is_dead", "lowering": { "args": ["ptr"], "returns": "i32" } },
-        "exitedAfterDisconnect": { "type": "boolean", "getter": "ts_worker_exited_after_disconnect", "lowering": { "args": ["ptr"], "returns": "i32" } }
+        "id": {
+          "type": "number",
+          "getter": "ts_worker_get_id",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "process": {
+          "type": "any",
+          "getter": "ts_worker_get_process",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "isDead": {
+          "type": "boolean",
+          "getter": "ts_worker_is_dead",
+          "lowering": { "args": [], "returns": "i32" }
+        },
+        "exitedAfterDisconnect": {
+          "type": "boolean",
+          "getter": "ts_worker_exited_after_disconnect",
+          "lowering": { "args": [], "returns": "i32" }
+        }
       }
     }
   },
-
   "objects": {
     "cluster": {
       "methods": {
         "fork": {
           "call": "ts_cluster_fork",
-          "params": [{ "name": "env", "type": "any", "optional": true }],
+          "params": [
+            {"name": "env", "type": "any", "optional": true}
+          ],
           "returns": "Worker",
           "lowering": { "args": ["boxed"], "returns": "ptr" }
         },
         "setupPrimary": {
           "call": "ts_cluster_setup_primary",
-          "params": [{ "name": "settings", "type": "any", "optional": true }],
+          "params": [
+            {"name": "settings", "type": "any", "optional": true}
+          ],
           "returns": "void",
           "lowering": { "args": ["boxed"], "returns": "void" }
         },
         "setupMaster": {
           "call": "ts_cluster_setup_master",
-          "params": [{ "name": "settings", "type": "any", "optional": true }],
+          "params": [
+            {"name": "settings", "type": "any", "optional": true}
+          ],
           "returns": "void",
           "lowering": { "args": ["boxed"], "returns": "void" }
         },
         "disconnect": {
           "call": "ts_cluster_disconnect",
-          "params": [{ "name": "callback", "type": "Function", "optional": true }],
+          "params": [
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
           "returns": "void",
           "lowering": { "args": ["ptr"], "returns": "void" }
         }
       },
       "properties": {
-        "isMaster": { "type": "boolean", "getter": "ts_cluster_is_master", "lowering": { "args": [], "returns": "i32" } },
-        "isPrimary": { "type": "boolean", "getter": "ts_cluster_is_primary", "lowering": { "args": [], "returns": "i32" } },
-        "isWorker": { "type": "boolean", "getter": "ts_cluster_is_worker", "lowering": { "args": [], "returns": "i32" } },
-        "worker": { "type": "Worker", "getter": "ts_cluster_get_worker", "lowering": { "args": [], "returns": "ptr" } },
-        "workers": { "type": "any", "getter": "ts_cluster_get_workers", "lowering": { "args": [], "returns": "ptr" } },
-        "settings": { "type": "any", "getter": "ts_cluster_get_settings", "lowering": { "args": [], "returns": "ptr" } },
-        "schedulingPolicy": { "type": "number", "getter": "ts_cluster_get_scheduling_policy", "lowering": { "args": [], "returns": "i64" } },
-        "SCHED_NONE": { "type": "number", "getter": "ts_cluster_SCHED_NONE", "lowering": { "args": [], "returns": "i64" } },
-        "SCHED_RR": { "type": "number", "getter": "ts_cluster_SCHED_RR", "lowering": { "args": [], "returns": "i64" } },
-        "Worker": { "type": "Worker" }
+        "isMaster": {
+          "type": "boolean",
+          "getter": "ts_cluster_is_master",
+          "lowering": { "args": [], "returns": "i32" }
+        },
+        "isPrimary": {
+          "type": "boolean",
+          "getter": "ts_cluster_is_primary",
+          "lowering": { "args": [], "returns": "i32" }
+        },
+        "isWorker": {
+          "type": "boolean",
+          "getter": "ts_cluster_is_worker",
+          "lowering": { "args": [], "returns": "i32" }
+        },
+        "worker": {
+          "type": "Worker",
+          "getter": "ts_cluster_get_worker",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "workers": {
+          "type": "any",
+          "getter": "ts_cluster_get_workers",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "settings": {
+          "type": "any",
+          "getter": "ts_cluster_get_settings",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "schedulingPolicy": {
+          "type": "number",
+          "getter": "ts_cluster_get_scheduling_policy",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "SCHED_NONE": {
+          "type": "number",
+          "getter": "ts_cluster_SCHED_NONE",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "SCHED_RR": {
+          "type": "number",
+          "getter": "ts_cluster_SCHED_RR",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "Worker": {
+          "type": "Worker"
+        }
       }
     }
   }

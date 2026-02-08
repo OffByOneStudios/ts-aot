@@ -3,582 +3,645 @@
   "name": "buffer",
   "version": "1.0.0",
   "modules": ["buffer", "node:buffer"],
-
   "types": {
     "Buffer": {
       "kind": "class",
       "properties": {
-        "length": { "type": "int", "getter": "ts_buffer_length", "lowering": { "args": ["ptr"], "returns": "i64" } },
-        "byteLength": { "type": "int", "getter": "ts_buffer_byte_length", "lowering": { "args": ["ptr"], "returns": "i64" } },
-        "byteOffset": { "type": "int", "getter": "ts_buffer_byte_offset", "lowering": { "args": ["ptr"], "returns": "i64" } },
-        "buffer": { "type": "Buffer", "getter": "ts_buffer_get_array_buffer", "lowering": { "args": ["ptr"], "returns": "ptr" } }
+        "length": {
+          "type": "int",
+          "getter": "ts_buffer_length",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "byteLength": {
+          "type": "int",
+          "getter": "ts_buffer_byte_length",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "byteOffset": {
+          "type": "int",
+          "getter": "ts_buffer_byte_offset",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "buffer": {
+          "type": "Buffer",
+          "getter": "ts_buffer_get_array_buffer",
+          "lowering": { "args": [], "returns": "ptr" }
+        }
       },
       "methods": {
         "toString": {
           "call": "ts_buffer_to_string",
           "hirName": "ts_Buffer_toString",
-          "params": [{ "name": "encoding", "type": "string", "optional": true }],
+          "params": [
+            {"name": "encoding", "type": "string", "optional": true}
+          ],
           "returns": "string",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "fill": {
           "call": "ts_buffer_fill",
           "hirName": "ts_Buffer_fill",
           "params": [
-            { "name": "value", "type": "any" },
-            { "name": "start", "type": "number", "optional": true },
-            { "name": "end", "type": "number", "optional": true }
+            {"name": "value", "type": "any"},
+            {"name": "start", "type": "number", "optional": true},
+            {"name": "end", "type": "number", "optional": true}
           ],
           "returns": "Buffer",
-          "lowering": { "args": ["ptr", "i64", "i64", "i64"], "returns": "ptr" }
+          "lowering": { "args": ["i64", "i64", "i64"], "returns": "ptr" }
         },
         "slice": {
           "call": "ts_buffer_slice",
           "hirName": "ts_Buffer_slice",
           "params": [
-            { "name": "start", "type": "number", "optional": true },
-            { "name": "end", "type": "number", "optional": true }
+            {"name": "start", "type": "number", "optional": true},
+            {"name": "end", "type": "number", "optional": true}
           ],
           "returns": "Buffer",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "ptr" }
+          "lowering": { "args": ["i64", "i64"], "returns": "ptr" }
         },
         "subarray": {
           "call": "ts_buffer_subarray",
           "hirName": "ts_Buffer_subarray",
           "params": [
-            { "name": "start", "type": "number", "optional": true },
-            { "name": "end", "type": "number", "optional": true }
+            {"name": "start", "type": "number", "optional": true},
+            {"name": "end", "type": "number", "optional": true}
           ],
           "returns": "Buffer",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "ptr" }
+          "lowering": { "args": ["i64", "i64"], "returns": "ptr" }
         },
         "copy": {
           "call": "ts_buffer_copy",
           "hirName": "ts_Buffer_copy",
           "params": [
-            { "name": "target", "type": "Buffer" },
-            { "name": "targetStart", "type": "number", "optional": true },
-            { "name": "sourceStart", "type": "number", "optional": true },
-            { "name": "sourceEnd", "type": "number", "optional": true }
+            {"name": "target", "type": "Buffer"},
+            {"name": "targetStart", "type": "number", "optional": true},
+            {"name": "sourceStart", "type": "number", "optional": true},
+            {"name": "sourceEnd", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "ptr", "i64", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["ptr", "i64", "i64", "i64"], "returns": "i64" }
         },
         "readInt8": {
           "call": "ts_buffer_read_int8",
           "hirName": "ts_Buffer_readInt8",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readUInt8": {
           "call": "ts_buffer_read_uint8",
           "hirName": "ts_Buffer_readUInt8",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readInt16LE": {
           "call": "ts_buffer_read_int16le",
           "hirName": "ts_Buffer_readInt16LE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readInt16BE": {
           "call": "ts_buffer_read_int16be",
           "hirName": "ts_Buffer_readInt16BE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readUInt16LE": {
           "call": "ts_buffer_read_uint16le",
           "hirName": "ts_Buffer_readUInt16LE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readUInt16BE": {
           "call": "ts_buffer_read_uint16be",
           "hirName": "ts_Buffer_readUInt16BE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readInt32LE": {
           "call": "ts_buffer_read_int32le",
           "hirName": "ts_Buffer_readInt32LE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readInt32BE": {
           "call": "ts_buffer_read_int32be",
           "hirName": "ts_Buffer_readInt32BE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readUInt32LE": {
           "call": "ts_buffer_read_uint32le",
           "hirName": "ts_Buffer_readUInt32LE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readUInt32BE": {
           "call": "ts_buffer_read_uint32be",
           "hirName": "ts_Buffer_readUInt32BE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64"], "returns": "i64" }
         },
         "readFloatLE": {
           "call": "ts_buffer_read_floatle",
           "hirName": "ts_Buffer_readFloatLE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "f64" }
+          "lowering": { "args": ["i64"], "returns": "f64" }
         },
         "readFloatBE": {
           "call": "ts_buffer_read_floatbe",
           "hirName": "ts_Buffer_readFloatBE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "f64" }
+          "lowering": { "args": ["i64"], "returns": "f64" }
         },
         "readDoubleLE": {
           "call": "ts_buffer_read_doublele",
           "hirName": "ts_Buffer_readDoubleLE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "f64" }
+          "lowering": { "args": ["i64"], "returns": "f64" }
         },
         "readDoubleBE": {
           "call": "ts_buffer_read_doublebe",
           "hirName": "ts_Buffer_readDoubleBE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64"], "returns": "f64" }
+          "lowering": { "args": ["i64"], "returns": "f64" }
         },
         "readBigInt64LE": {
           "call": "ts_buffer_read_bigint64le",
           "hirName": "ts_Buffer_readBigInt64LE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "bigint",
-          "lowering": { "args": ["ptr", "i64"], "returns": "ptr" }
+          "lowering": { "args": ["i64"], "returns": "ptr" }
         },
         "readBigInt64BE": {
           "call": "ts_buffer_read_bigint64be",
           "hirName": "ts_Buffer_readBigInt64BE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "bigint",
-          "lowering": { "args": ["ptr", "i64"], "returns": "ptr" }
+          "lowering": { "args": ["i64"], "returns": "ptr" }
         },
         "readBigUInt64LE": {
           "call": "ts_buffer_read_biguint64le",
           "hirName": "ts_Buffer_readBigUInt64LE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "bigint",
-          "lowering": { "args": ["ptr", "i64"], "returns": "ptr" }
+          "lowering": { "args": ["i64"], "returns": "ptr" }
         },
         "readBigUInt64BE": {
           "call": "ts_buffer_read_biguint64be",
           "hirName": "ts_Buffer_readBigUInt64BE",
-          "params": [{ "name": "offset", "type": "number", "optional": true }],
+          "params": [
+            {"name": "offset", "type": "number", "optional": true}
+          ],
           "returns": "bigint",
-          "lowering": { "args": ["ptr", "i64"], "returns": "ptr" }
+          "lowering": { "args": ["i64"], "returns": "ptr" }
         },
         "readIntLE": {
           "call": "ts_buffer_read_intle",
           "hirName": "ts_Buffer_readIntLE",
           "params": [
-            { "name": "offset", "type": "number" },
-            { "name": "byteLength", "type": "number" }
+            {"name": "offset", "type": "number"},
+            {"name": "byteLength", "type": "number"}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "readIntBE": {
           "call": "ts_buffer_read_intbe",
           "hirName": "ts_Buffer_readIntBE",
           "params": [
-            { "name": "offset", "type": "number" },
-            { "name": "byteLength", "type": "number" }
+            {"name": "offset", "type": "number"},
+            {"name": "byteLength", "type": "number"}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "readUIntLE": {
           "call": "ts_buffer_read_uintle",
           "hirName": "ts_Buffer_readUIntLE",
           "params": [
-            { "name": "offset", "type": "number" },
-            { "name": "byteLength", "type": "number" }
+            {"name": "offset", "type": "number"},
+            {"name": "byteLength", "type": "number"}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "readUIntBE": {
           "call": "ts_buffer_read_uintbe",
           "hirName": "ts_Buffer_readUIntBE",
           "params": [
-            { "name": "offset", "type": "number" },
-            { "name": "byteLength", "type": "number" }
+            {"name": "offset", "type": "number"},
+            {"name": "byteLength", "type": "number"}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeInt8": {
           "call": "ts_buffer_write_int8",
           "hirName": "ts_Buffer_writeInt8",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeUInt8": {
           "call": "ts_buffer_write_uint8",
           "hirName": "ts_Buffer_writeUInt8",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeInt16LE": {
           "call": "ts_buffer_write_int16le",
           "hirName": "ts_Buffer_writeInt16LE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeInt16BE": {
           "call": "ts_buffer_write_int16be",
           "hirName": "ts_Buffer_writeInt16BE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeUInt16LE": {
           "call": "ts_buffer_write_uint16le",
           "hirName": "ts_Buffer_writeUInt16LE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeUInt16BE": {
           "call": "ts_buffer_write_uint16be",
           "hirName": "ts_Buffer_writeUInt16BE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeInt32LE": {
           "call": "ts_buffer_write_int32le",
           "hirName": "ts_Buffer_writeInt32LE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeInt32BE": {
           "call": "ts_buffer_write_int32be",
           "hirName": "ts_Buffer_writeInt32BE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeUInt32LE": {
           "call": "ts_buffer_write_uint32le",
           "hirName": "ts_Buffer_writeUInt32LE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeUInt32BE": {
           "call": "ts_buffer_write_uint32be",
           "hirName": "ts_Buffer_writeUInt32BE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "writeFloatLE": {
           "call": "ts_buffer_write_floatle",
           "hirName": "ts_Buffer_writeFloatLE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "f64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["f64", "i64"], "returns": "i64" }
         },
         "writeFloatBE": {
           "call": "ts_buffer_write_floatbe",
           "hirName": "ts_Buffer_writeFloatBE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "f64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["f64", "i64"], "returns": "i64" }
         },
         "writeDoubleLE": {
           "call": "ts_buffer_write_doublele",
           "hirName": "ts_Buffer_writeDoubleLE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "f64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["f64", "i64"], "returns": "i64" }
         },
         "writeDoubleBE": {
           "call": "ts_buffer_write_doublebe",
           "hirName": "ts_Buffer_writeDoubleBE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "f64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["f64", "i64"], "returns": "i64" }
         },
         "writeBigInt64LE": {
           "call": "ts_buffer_write_bigint64le",
           "hirName": "ts_Buffer_writeBigInt64LE",
           "params": [
-            { "name": "value", "type": "bigint" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "bigint"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
         },
         "writeBigInt64BE": {
           "call": "ts_buffer_write_bigint64be",
           "hirName": "ts_Buffer_writeBigInt64BE",
           "params": [
-            { "name": "value", "type": "bigint" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "bigint"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
         },
         "writeBigUInt64LE": {
           "call": "ts_buffer_write_biguint64le",
           "hirName": "ts_Buffer_writeBigUInt64LE",
           "params": [
-            { "name": "value", "type": "bigint" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "bigint"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
         },
         "writeBigUInt64BE": {
           "call": "ts_buffer_write_biguint64be",
           "hirName": "ts_Buffer_writeBigUInt64BE",
           "params": [
-            { "name": "value", "type": "bigint" },
-            { "name": "offset", "type": "number", "optional": true }
+            {"name": "value", "type": "bigint"},
+            {"name": "offset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "ptr", "i64"], "returns": "i64" }
+          "lowering": { "args": ["ptr", "i64"], "returns": "i64" }
         },
         "writeIntLE": {
           "call": "ts_buffer_write_intle",
           "hirName": "ts_Buffer_writeIntLE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number" },
-            { "name": "byteLength", "type": "number" }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number"},
+            {"name": "byteLength", "type": "number"}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64", "i64"], "returns": "i64" }
         },
         "writeIntBE": {
           "call": "ts_buffer_write_intbe",
           "hirName": "ts_Buffer_writeIntBE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number" },
-            { "name": "byteLength", "type": "number" }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number"},
+            {"name": "byteLength", "type": "number"}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64", "i64"], "returns": "i64" }
         },
         "writeUIntLE": {
           "call": "ts_buffer_write_uintle",
           "hirName": "ts_Buffer_writeUIntLE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number" },
-            { "name": "byteLength", "type": "number" }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number"},
+            {"name": "byteLength", "type": "number"}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64", "i64"], "returns": "i64" }
         },
         "writeUIntBE": {
           "call": "ts_buffer_write_uintbe",
           "hirName": "ts_Buffer_writeUIntBE",
           "params": [
-            { "name": "value", "type": "number" },
-            { "name": "offset", "type": "number" },
-            { "name": "byteLength", "type": "number" }
+            {"name": "value", "type": "number"},
+            {"name": "offset", "type": "number"},
+            {"name": "byteLength", "type": "number"}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64", "i64"], "returns": "i64" }
         },
         "swap16": {
           "call": "ts_buffer_swap16",
           "hirName": "ts_Buffer_swap16",
           "params": [],
           "returns": "Buffer",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "swap32": {
           "call": "ts_buffer_swap32",
           "hirName": "ts_Buffer_swap32",
           "params": [],
           "returns": "Buffer",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "swap64": {
           "call": "ts_buffer_swap64",
           "hirName": "ts_Buffer_swap64",
           "params": [],
           "returns": "Buffer",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "compare": {
           "call": "ts_buffer_compare",
           "hirName": "ts_Buffer_compare",
-          "params": [{ "name": "other", "type": "Buffer" }],
+          "params": [
+            {"name": "other", "type": "Buffer"}
+          ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "i64" }
+          "lowering": { "args": ["ptr"], "returns": "i64" }
         },
         "equals": {
           "call": "ts_buffer_equals",
           "hirName": "ts_Buffer_equals",
-          "params": [{ "name": "other", "type": "Buffer" }],
+          "params": [
+            {"name": "other", "type": "Buffer"}
+          ],
           "returns": "boolean",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "i1" }
+          "lowering": { "args": ["ptr"], "returns": "i1" }
         },
         "indexOf": {
           "call": "ts_buffer_indexof",
           "hirName": "ts_Buffer_indexOf",
           "params": [
-            { "name": "value", "type": "any" },
-            { "name": "byteOffset", "type": "number", "optional": true }
+            {"name": "value", "type": "any"},
+            {"name": "byteOffset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "lastIndexOf": {
           "call": "ts_buffer_lastindexof",
           "hirName": "ts_Buffer_lastIndexOf",
           "params": [
-            { "name": "value", "type": "any" },
-            { "name": "byteOffset", "type": "number", "optional": true }
+            {"name": "value", "type": "any"},
+            {"name": "byteOffset", "type": "number", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i64" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i64" }
         },
         "includes": {
           "call": "ts_buffer_includes",
           "hirName": "ts_Buffer_includes",
           "params": [
-            { "name": "value", "type": "any" },
-            { "name": "byteOffset", "type": "number", "optional": true }
+            {"name": "value", "type": "any"},
+            {"name": "byteOffset", "type": "number", "optional": true}
           ],
           "returns": "boolean",
-          "lowering": { "args": ["ptr", "i64", "i64"], "returns": "i1" }
+          "lowering": { "args": ["i64", "i64"], "returns": "i1" }
         },
         "entries": {
           "call": "ts_buffer_entries",
           "hirName": "ts_Buffer_entries",
           "params": [],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "keys": {
           "call": "ts_buffer_keys",
           "hirName": "ts_Buffer_keys",
           "params": [],
           "returns": "number[]",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "values": {
           "call": "ts_buffer_values",
           "hirName": "ts_Buffer_values",
           "params": [],
           "returns": "number[]",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "toJSON": {
           "call": "ts_buffer_to_json",
           "hirName": "ts_Buffer_toJSON",
           "params": [],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "write": {
           "call": "ts_buffer_write_string",
           "hirName": "ts_Buffer_write",
           "params": [
-            { "name": "string", "type": "string" },
-            { "name": "offset", "type": "number", "optional": true },
-            { "name": "length", "type": "number", "optional": true },
-            { "name": "encoding", "type": "string", "optional": true }
+            {"name": "string", "type": "string"},
+            {"name": "offset", "type": "number", "optional": true},
+            {"name": "length", "type": "number", "optional": true},
+            {"name": "encoding", "type": "string", "optional": true}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "ptr", "i64", "i64", "ptr"], "returns": "i64" }
+          "lowering": { "args": ["ptr", "i64", "i64", "ptr"], "returns": "i64" }
         }
       },
       "staticMethods": {
         "alloc": {
           "call": "ts_buffer_alloc",
           "hirName": "ts_Buffer_alloc",
-          "params": [{ "name": "size", "type": "number" }],
+          "params": [
+            {"name": "size", "type": "number"}
+          ],
           "returns": "Buffer",
           "lowering": { "args": ["i64"], "returns": "ptr" }
         },
         "allocUnsafe": {
           "call": "ts_buffer_alloc_unsafe",
           "hirName": "ts_Buffer_allocUnsafe",
-          "params": [{ "name": "size", "type": "number" }],
+          "params": [
+            {"name": "size", "type": "number"}
+          ],
           "returns": "Buffer",
           "lowering": { "args": ["i64"], "returns": "ptr" }
         },
         "allocUnsafeSlow": {
           "call": "ts_buffer_alloc_unsafe_slow",
           "hirName": "ts_Buffer_allocUnsafeSlow",
-          "params": [{ "name": "size", "type": "number" }],
+          "params": [
+            {"name": "size", "type": "number"}
+          ],
           "returns": "Buffer",
           "lowering": { "args": ["i64"], "returns": "ptr" }
         },
@@ -586,8 +649,8 @@
           "call": "ts_buffer_from_string",
           "hirName": "ts_Buffer_from",
           "params": [
-            { "name": "data", "type": "any" },
-            { "name": "encoding", "type": "string", "optional": true }
+            {"name": "data", "type": "any"},
+            {"name": "encoding", "type": "string", "optional": true}
           ],
           "returns": "Buffer",
           "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
@@ -596,8 +659,8 @@
           "call": "ts_buffer_concat",
           "hirName": "ts_Buffer_concat",
           "params": [
-            { "name": "list", "type": "any" },
-            { "name": "totalLength", "type": "number", "optional": true }
+            {"name": "list", "type": "any"},
+            {"name": "totalLength", "type": "number", "optional": true}
           ],
           "returns": "Buffer",
           "lowering": { "args": ["ptr", "i64"], "returns": "ptr" }
@@ -605,7 +668,9 @@
         "isBuffer": {
           "call": "ts_buffer_is_buffer",
           "hirName": "ts_Buffer_isBuffer",
-          "params": [{ "name": "obj", "type": "any" }],
+          "params": [
+            {"name": "obj", "type": "any"}
+          ],
           "returns": "boolean",
           "lowering": { "args": ["ptr"], "returns": "i1" }
         },
@@ -613,8 +678,8 @@
           "call": "ts_buffer_compare",
           "hirName": "ts_Buffer_static_compare",
           "params": [
-            { "name": "buf1", "type": "Buffer" },
-            { "name": "buf2", "type": "Buffer" }
+            {"name": "buf1", "type": "Buffer"},
+            {"name": "buf2", "type": "Buffer"}
           ],
           "returns": "number",
           "lowering": { "args": ["ptr", "ptr"], "returns": "i64" }
@@ -622,7 +687,9 @@
         "isEncoding": {
           "call": "ts_buffer_is_encoding",
           "hirName": "ts_Buffer_isEncoding",
-          "params": [{ "name": "encoding", "type": "string" }],
+          "params": [
+            {"name": "encoding", "type": "string"}
+          ],
           "returns": "boolean",
           "lowering": { "args": ["ptr"], "returns": "i1" }
         },
@@ -630,8 +697,8 @@
           "call": "ts_buffer_byte_length_string",
           "hirName": "ts_Buffer_byteLength",
           "params": [
-            { "name": "string", "type": "any" },
-            { "name": "encoding", "type": "string", "optional": true }
+            {"name": "string", "type": "any"},
+            {"name": "encoding", "type": "string", "optional": true}
           ],
           "returns": "number",
           "lowering": { "args": ["ptr", "ptr"], "returns": "i64" }
@@ -641,19 +708,25 @@
     "ArrayBuffer": {
       "kind": "class",
       "properties": {
-        "byteLength": { "type": "int", "getter": "ts_buffer_byte_length", "lowering": { "args": ["ptr"], "returns": "i64" } }
+        "byteLength": {
+          "type": "int",
+          "getter": "ts_buffer_byte_length",
+          "lowering": { "args": [], "returns": "i64" }
+        }
       }
     }
   },
-
   "globals": {
-    "Buffer": { "type": "Buffer" }
+    "Buffer": {
+      "type": "Buffer"
+    }
   },
-
   "objects": {
     "buffer": {
       "properties": {
-        "Buffer": { "type": "Buffer" }
+        "Buffer": {
+          "type": "Buffer"
+        }
       }
     }
   }

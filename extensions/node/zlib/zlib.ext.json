@@ -3,7 +3,6 @@
   "name": "zlib",
   "version": "1.0.0",
   "modules": ["zlib", "node:zlib"],
-
   "types": {
     "Zlib": {
       "kind": "class",
@@ -12,37 +11,45 @@
           "call": "ts_zlib_flush",
           "hirName": "ts_Zlib_flush",
           "params": [
-            { "name": "kind", "type": "number", "optional": true },
-            { "name": "callback", "type": "Function", "optional": true }
+            {"name": "kind", "type": "number", "optional": true},
+            {"name": "callback", "type": "Function", "optional": true}
           ],
           "returns": "void",
-          "lowering": { "args": ["ptr", "i64", "ptr"], "returns": "void" }
+          "lowering": { "args": ["i64", "ptr"], "returns": "void" }
         },
         "close": {
           "call": "ts_zlib_close",
           "hirName": "ts_Zlib_close",
-          "params": [{ "name": "callback", "type": "Function", "optional": true }],
+          "params": [
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
           "returns": "void",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr"], "returns": "void" }
         },
         "reset": {
           "call": "ts_zlib_reset",
           "hirName": "ts_Zlib_reset",
           "params": [],
           "returns": "void",
-          "lowering": { "args": ["ptr"], "returns": "void" }
+          "lowering": { "args": [], "returns": "void" }
         }
       },
       "properties": {
         "bytesWritten": {
           "type": "number",
           "getter": "ts_zlib_get_bytes_written",
-          "lowering": { "args": ["ptr"], "returns": "i64" }
+          "lowering": { "args": [], "returns": "i64" }
         }
       }
     },
-    "Gzip": { "kind": "class", "extends": "Zlib" },
-    "Gunzip": { "kind": "class", "extends": "Zlib" },
+    "Gzip": {
+      "kind": "class",
+      "extends": "Zlib"
+    },
+    "Gunzip": {
+      "kind": "class",
+      "extends": "Zlib"
+    },
     "Deflate": {
       "kind": "class",
       "extends": "Zlib",
@@ -51,100 +58,425 @@
           "call": "ts_zlib_params",
           "hirName": "ts_Deflate_params",
           "params": [
-            { "name": "level", "type": "number" },
-            { "name": "strategy", "type": "number" },
-            { "name": "callback", "type": "Function", "optional": true }
+            {"name": "level", "type": "number"},
+            {"name": "strategy", "type": "number"},
+            {"name": "callback", "type": "Function", "optional": true}
           ],
           "returns": "void",
-          "lowering": { "args": ["ptr", "i64", "i64", "ptr"], "returns": "void" }
+          "lowering": { "args": ["i64", "i64", "ptr"], "returns": "void" }
         }
       }
     },
-    "Inflate": { "kind": "class", "extends": "Zlib" },
-    "DeflateRaw": { "kind": "class", "extends": "Zlib" },
-    "InflateRaw": { "kind": "class", "extends": "Zlib" },
-    "Unzip": { "kind": "class", "extends": "Zlib" },
-    "BrotliCompress": { "kind": "class", "extends": "Zlib" },
-    "BrotliDecompress": { "kind": "class", "extends": "Zlib" }
+    "Inflate": {
+      "kind": "class",
+      "extends": "Zlib"
+    },
+    "DeflateRaw": {
+      "kind": "class",
+      "extends": "Zlib"
+    },
+    "InflateRaw": {
+      "kind": "class",
+      "extends": "Zlib"
+    },
+    "Unzip": {
+      "kind": "class",
+      "extends": "Zlib"
+    },
+    "BrotliCompress": {
+      "kind": "class",
+      "extends": "Zlib"
+    },
+    "BrotliDecompress": {
+      "kind": "class",
+      "extends": "Zlib"
+    }
   },
-
   "objects": {
     "zlib": {
       "methods": {
-        "gzipSync": { "call": "ts_zlib_gzip_sync", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any", "optional": true }], "returns": "Buffer", "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" } },
-        "gunzipSync": { "call": "ts_zlib_gunzip_sync", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any", "optional": true }], "returns": "Buffer", "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" } },
-        "deflateSync": { "call": "ts_zlib_deflate_sync", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any", "optional": true }], "returns": "Buffer", "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" } },
-        "inflateSync": { "call": "ts_zlib_inflate_sync", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any", "optional": true }], "returns": "Buffer", "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" } },
-        "deflateRawSync": { "call": "ts_zlib_deflate_raw_sync", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any", "optional": true }], "returns": "Buffer", "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" } },
-        "inflateRawSync": { "call": "ts_zlib_inflate_raw_sync", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any", "optional": true }], "returns": "Buffer", "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" } },
-        "unzipSync": { "call": "ts_zlib_unzip_sync", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any", "optional": true }], "returns": "Buffer", "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" } },
-        "brotliCompressSync": { "call": "ts_zlib_brotli_compress_sync", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any", "optional": true }], "returns": "Buffer", "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" } },
-        "brotliDecompressSync": { "call": "ts_zlib_brotli_decompress_sync", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any", "optional": true }], "returns": "Buffer", "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" } },
-        "gzip": { "call": "ts_zlib_gzip", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any" }, { "name": "callback", "type": "Function", "optional": true }], "returns": "void", "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" } },
-        "gunzip": { "call": "ts_zlib_gunzip", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any" }, { "name": "callback", "type": "Function", "optional": true }], "returns": "void", "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" } },
-        "deflate": { "call": "ts_zlib_deflate", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any" }, { "name": "callback", "type": "Function", "optional": true }], "returns": "void", "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" } },
-        "inflate": { "call": "ts_zlib_inflate", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any" }, { "name": "callback", "type": "Function", "optional": true }], "returns": "void", "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" } },
-        "deflateRaw": { "call": "ts_zlib_deflate_raw", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any" }, { "name": "callback", "type": "Function", "optional": true }], "returns": "void", "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" } },
-        "inflateRaw": { "call": "ts_zlib_inflate_raw", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any" }, { "name": "callback", "type": "Function", "optional": true }], "returns": "void", "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" } },
-        "unzip": { "call": "ts_zlib_unzip", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any" }, { "name": "callback", "type": "Function", "optional": true }], "returns": "void", "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" } },
-        "brotliCompress": { "call": "ts_zlib_brotli_compress", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any" }, { "name": "callback", "type": "Function", "optional": true }], "returns": "void", "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" } },
-        "brotliDecompress": { "call": "ts_zlib_brotli_decompress", "params": [{ "name": "buffer", "type": "Buffer" }, { "name": "options", "type": "any" }, { "name": "callback", "type": "Function", "optional": true }], "returns": "void", "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" } },
-        "createGzip": { "call": "ts_zlib_create_gzip", "params": [{ "name": "options", "type": "any", "optional": true }], "returns": "Gzip", "lowering": { "args": ["boxed"], "returns": "ptr" } },
-        "createGunzip": { "call": "ts_zlib_create_gunzip", "params": [{ "name": "options", "type": "any", "optional": true }], "returns": "Gunzip", "lowering": { "args": ["boxed"], "returns": "ptr" } },
-        "createDeflate": { "call": "ts_zlib_create_deflate", "params": [{ "name": "options", "type": "any", "optional": true }], "returns": "Deflate", "lowering": { "args": ["boxed"], "returns": "ptr" } },
-        "createInflate": { "call": "ts_zlib_create_inflate", "params": [{ "name": "options", "type": "any", "optional": true }], "returns": "Inflate", "lowering": { "args": ["boxed"], "returns": "ptr" } },
-        "createDeflateRaw": { "call": "ts_zlib_create_deflate_raw", "params": [{ "name": "options", "type": "any", "optional": true }], "returns": "DeflateRaw", "lowering": { "args": ["boxed"], "returns": "ptr" } },
-        "createInflateRaw": { "call": "ts_zlib_create_inflate_raw", "params": [{ "name": "options", "type": "any", "optional": true }], "returns": "InflateRaw", "lowering": { "args": ["boxed"], "returns": "ptr" } },
-        "createUnzip": { "call": "ts_zlib_create_unzip", "params": [{ "name": "options", "type": "any", "optional": true }], "returns": "Unzip", "lowering": { "args": ["boxed"], "returns": "ptr" } },
-        "createBrotliCompress": { "call": "ts_zlib_create_brotli_compress", "params": [{ "name": "options", "type": "any", "optional": true }], "returns": "BrotliCompress", "lowering": { "args": ["boxed"], "returns": "ptr" } },
-        "createBrotliDecompress": { "call": "ts_zlib_create_brotli_decompress", "params": [{ "name": "options", "type": "any", "optional": true }], "returns": "BrotliDecompress", "lowering": { "args": ["boxed"], "returns": "ptr" } },
-        "crc32": { "call": "ts_zlib_crc32", "params": [{ "name": "data", "type": "any" }, { "name": "value", "type": "number", "optional": true }], "returns": "number", "lowering": { "args": ["boxed", "i64"], "returns": "i64" } }
+        "gzipSync": {
+          "call": "ts_zlib_gzip_sync",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "gunzipSync": {
+          "call": "ts_zlib_gunzip_sync",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "deflateSync": {
+          "call": "ts_zlib_deflate_sync",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "inflateSync": {
+          "call": "ts_zlib_inflate_sync",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "deflateRawSync": {
+          "call": "ts_zlib_deflate_raw_sync",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "inflateRawSync": {
+          "call": "ts_zlib_inflate_raw_sync",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "unzipSync": {
+          "call": "ts_zlib_unzip_sync",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "brotliCompressSync": {
+          "call": "ts_zlib_brotli_compress_sync",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "brotliDecompressSync": {
+          "call": "ts_zlib_brotli_decompress_sync",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Buffer",
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+        },
+        "gzip": {
+          "call": "ts_zlib_gzip",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "gunzip": {
+          "call": "ts_zlib_gunzip",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "deflate": {
+          "call": "ts_zlib_deflate",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "inflate": {
+          "call": "ts_zlib_inflate",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "deflateRaw": {
+          "call": "ts_zlib_deflate_raw",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "inflateRaw": {
+          "call": "ts_zlib_inflate_raw",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "unzip": {
+          "call": "ts_zlib_unzip",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "brotliCompress": {
+          "call": "ts_zlib_brotli_compress",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "brotliDecompress": {
+          "call": "ts_zlib_brotli_decompress",
+          "params": [
+            {"name": "buffer", "type": "Buffer"},
+            {"name": "options", "type": "any"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
+        },
+        "createGzip": {
+          "call": "ts_zlib_create_gzip",
+          "params": [
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Gzip",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "createGunzip": {
+          "call": "ts_zlib_create_gunzip",
+          "params": [
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Gunzip",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "createDeflate": {
+          "call": "ts_zlib_create_deflate",
+          "params": [
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Deflate",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "createInflate": {
+          "call": "ts_zlib_create_inflate",
+          "params": [
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Inflate",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "createDeflateRaw": {
+          "call": "ts_zlib_create_deflate_raw",
+          "params": [
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "DeflateRaw",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "createInflateRaw": {
+          "call": "ts_zlib_create_inflate_raw",
+          "params": [
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "InflateRaw",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "createUnzip": {
+          "call": "ts_zlib_create_unzip",
+          "params": [
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "Unzip",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "createBrotliCompress": {
+          "call": "ts_zlib_create_brotli_compress",
+          "params": [
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "BrotliCompress",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "createBrotliDecompress": {
+          "call": "ts_zlib_create_brotli_decompress",
+          "params": [
+            {"name": "options", "type": "any", "optional": true}
+          ],
+          "returns": "BrotliDecompress",
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
+        },
+        "crc32": {
+          "call": "ts_zlib_crc32",
+          "params": [
+            {"name": "data", "type": "any"},
+            {"name": "value", "type": "number", "optional": true}
+          ],
+          "returns": "number",
+          "lowering": { "args": ["boxed", "i64"], "returns": "i64" }
+        }
       },
       "nestedObjects": {
         "constants": {
           "properties": {
-            "Z_NO_FLUSH": { "type": "int" },
-            "Z_PARTIAL_FLUSH": { "type": "int" },
-            "Z_SYNC_FLUSH": { "type": "int" },
-            "Z_FULL_FLUSH": { "type": "int" },
-            "Z_FINISH": { "type": "int" },
-            "Z_BLOCK": { "type": "int" },
-            "Z_NO_COMPRESSION": { "type": "int" },
-            "Z_BEST_SPEED": { "type": "int" },
-            "Z_BEST_COMPRESSION": { "type": "int" },
-            "Z_DEFAULT_COMPRESSION": { "type": "int" },
-            "Z_FILTERED": { "type": "int" },
-            "Z_HUFFMAN_ONLY": { "type": "int" },
-            "Z_RLE": { "type": "int" },
-            "Z_FIXED": { "type": "int" },
-            "Z_DEFAULT_STRATEGY": { "type": "int" },
-            "Z_OK": { "type": "int" },
-            "Z_STREAM_END": { "type": "int" },
-            "Z_NEED_DICT": { "type": "int" },
-            "Z_ERRNO": { "type": "int" },
-            "Z_STREAM_ERROR": { "type": "int" },
-            "Z_DATA_ERROR": { "type": "int" },
-            "Z_MEM_ERROR": { "type": "int" },
-            "Z_BUF_ERROR": { "type": "int" },
-            "Z_VERSION_ERROR": { "type": "int" },
-            "BROTLI_OPERATION_PROCESS": { "type": "int" },
-            "BROTLI_OPERATION_FLUSH": { "type": "int" },
-            "BROTLI_OPERATION_FINISH": { "type": "int" },
-            "BROTLI_OPERATION_EMIT_METADATA": { "type": "int" },
-            "BROTLI_MODE_GENERIC": { "type": "int" },
-            "BROTLI_MODE_TEXT": { "type": "int" },
-            "BROTLI_MODE_FONT": { "type": "int" },
-            "BROTLI_MIN_QUALITY": { "type": "int" },
-            "BROTLI_MAX_QUALITY": { "type": "int" },
-            "BROTLI_DEFAULT_QUALITY": { "type": "int" },
-            "BROTLI_MIN_WINDOW_BITS": { "type": "int" },
-            "BROTLI_MAX_WINDOW_BITS": { "type": "int" },
-            "BROTLI_DEFAULT_WINDOW": { "type": "int" },
-            "BROTLI_PARAM_MODE": { "type": "int" },
-            "BROTLI_PARAM_QUALITY": { "type": "int" },
-            "BROTLI_PARAM_LGWIN": { "type": "int" },
-            "BROTLI_PARAM_LGBLOCK": { "type": "int" },
-            "BROTLI_PARAM_SIZE_HINT": { "type": "int" }
+            "Z_NO_FLUSH": {
+              "type": "int"
+            },
+            "Z_PARTIAL_FLUSH": {
+              "type": "int"
+            },
+            "Z_SYNC_FLUSH": {
+              "type": "int"
+            },
+            "Z_FULL_FLUSH": {
+              "type": "int"
+            },
+            "Z_FINISH": {
+              "type": "int"
+            },
+            "Z_BLOCK": {
+              "type": "int"
+            },
+            "Z_NO_COMPRESSION": {
+              "type": "int"
+            },
+            "Z_BEST_SPEED": {
+              "type": "int"
+            },
+            "Z_BEST_COMPRESSION": {
+              "type": "int"
+            },
+            "Z_DEFAULT_COMPRESSION": {
+              "type": "int"
+            },
+            "Z_FILTERED": {
+              "type": "int"
+            },
+            "Z_HUFFMAN_ONLY": {
+              "type": "int"
+            },
+            "Z_RLE": {
+              "type": "int"
+            },
+            "Z_FIXED": {
+              "type": "int"
+            },
+            "Z_DEFAULT_STRATEGY": {
+              "type": "int"
+            },
+            "Z_OK": {
+              "type": "int"
+            },
+            "Z_STREAM_END": {
+              "type": "int"
+            },
+            "Z_NEED_DICT": {
+              "type": "int"
+            },
+            "Z_ERRNO": {
+              "type": "int"
+            },
+            "Z_STREAM_ERROR": {
+              "type": "int"
+            },
+            "Z_DATA_ERROR": {
+              "type": "int"
+            },
+            "Z_MEM_ERROR": {
+              "type": "int"
+            },
+            "Z_BUF_ERROR": {
+              "type": "int"
+            },
+            "Z_VERSION_ERROR": {
+              "type": "int"
+            },
+            "BROTLI_OPERATION_PROCESS": {
+              "type": "int"
+            },
+            "BROTLI_OPERATION_FLUSH": {
+              "type": "int"
+            },
+            "BROTLI_OPERATION_FINISH": {
+              "type": "int"
+            },
+            "BROTLI_OPERATION_EMIT_METADATA": {
+              "type": "int"
+            },
+            "BROTLI_MODE_GENERIC": {
+              "type": "int"
+            },
+            "BROTLI_MODE_TEXT": {
+              "type": "int"
+            },
+            "BROTLI_MODE_FONT": {
+              "type": "int"
+            },
+            "BROTLI_MIN_QUALITY": {
+              "type": "int"
+            },
+            "BROTLI_MAX_QUALITY": {
+              "type": "int"
+            },
+            "BROTLI_DEFAULT_QUALITY": {
+              "type": "int"
+            },
+            "BROTLI_MIN_WINDOW_BITS": {
+              "type": "int"
+            },
+            "BROTLI_MAX_WINDOW_BITS": {
+              "type": "int"
+            },
+            "BROTLI_DEFAULT_WINDOW": {
+              "type": "int"
+            },
+            "BROTLI_PARAM_MODE": {
+              "type": "int"
+            },
+            "BROTLI_PARAM_QUALITY": {
+              "type": "int"
+            },
+            "BROTLI_PARAM_LGWIN": {
+              "type": "int"
+            },
+            "BROTLI_PARAM_LGBLOCK": {
+              "type": "int"
+            },
+            "BROTLI_PARAM_SIZE_HINT": {
+              "type": "int"
+            }
           }
         }
       }

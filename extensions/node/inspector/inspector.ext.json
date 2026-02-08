@@ -3,7 +3,6 @@
   "name": "inspector",
   "version": "1.0.0",
   "modules": ["inspector", "node:inspector"],
-
   "types": {
     "InspectorSession": {
       "kind": "class",
@@ -11,10 +10,7 @@
         "call": "ts_inspector_session_create",
         "hirName": "ts_InspectorSession_create",
         "params": [],
-        "lowering": {
-          "args": [],
-          "returns": "ptr"
-        }
+        "lowering": { "args": [], "returns": "ptr" }
       },
       "methods": {
         "connect": {
@@ -22,96 +18,75 @@
           "hirName": "ts_InspectorSession_connect",
           "params": [],
           "returns": "void",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "void"
-          }
+          "lowering": { "args": [], "returns": "void" }
         },
         "connectToMainThread": {
           "call": "ts_inspector_session_connect_to_main_thread",
           "hirName": "ts_InspectorSession_connectToMainThread",
           "params": [],
           "returns": "void",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "void"
-          }
+          "lowering": { "args": [], "returns": "void" }
         },
         "disconnect": {
           "call": "ts_inspector_session_disconnect",
           "hirName": "ts_InspectorSession_disconnect",
           "params": [],
           "returns": "void",
-          "lowering": {
-            "args": ["ptr"],
-            "returns": "void"
-          }
+          "lowering": { "args": [], "returns": "void" }
         },
         "post": {
           "call": "ts_inspector_session_post",
           "hirName": "ts_InspectorSession_post",
           "params": [
-            { "name": "method", "type": "string" },
-            { "name": "params", "type": "any", "optional": true },
-            { "name": "callback", "type": "Function", "optional": true }
+            {"name": "method", "type": "string"},
+            {"name": "params", "type": "any", "optional": true},
+            {"name": "callback", "type": "Function", "optional": true}
           ],
           "returns": "void",
-          "lowering": {
-            "args": ["ptr", "boxed", "boxed", "boxed"],
-            "returns": "void"
-          }
+          "lowering": { "args": ["boxed", "boxed", "boxed"], "returns": "void" }
         }
       }
     }
   },
-
   "objects": {
     "inspector": {
       "methods": {
         "open": {
           "call": "ts_inspector_open",
           "params": [
-            { "name": "port", "type": "number", "optional": true },
-            { "name": "host", "type": "string", "optional": true },
-            { "name": "wait", "type": "boolean", "optional": true }
+            {"name": "port", "type": "number", "optional": true},
+            {"name": "host", "type": "string", "optional": true},
+            {"name": "wait", "type": "boolean", "optional": true}
           ],
           "returns": "void",
-          "lowering": {
-            "args": ["boxed", "boxed", "boxed"],
-            "returns": "void"
-          }
+          "lowering": { "args": ["boxed", "boxed", "boxed"], "returns": "void" }
         },
         "close": {
           "call": "ts_inspector_close",
           "params": [],
           "returns": "void",
-          "lowering": {
-            "args": [],
-            "returns": "void"
-          }
+          "lowering": { "args": [], "returns": "void" }
         },
         "url": {
           "call": "ts_inspector_url",
           "params": [],
           "returns": "string",
-          "lowering": {
-            "args": [],
-            "returns": "ptr"
-          }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "waitForDebugger": {
           "call": "ts_inspector_wait_for_debugger",
           "params": [],
           "returns": "void",
-          "lowering": {
-            "args": [],
-            "returns": "void"
-          }
+          "lowering": { "args": [], "returns": "void" }
         }
       },
       "properties": {
-        "Session": { "type": "InspectorSession" },
-        "console": { "type": "any" }
+        "Session": {
+          "type": "InspectorSession"
+        },
+        "console": {
+          "type": "any"
+        }
       }
     }
   }

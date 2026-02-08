@@ -1496,6 +1496,7 @@ void LoweringRegistry::registerFromExtensions() {
                 if (hasLowering(hirName)) continue;
 
                 LoweringSpecBuilder builder(method.call);
+                builder.ptrArg();  // Auto-prepend self pointer for instance methods
                 buildLoweringSpec(builder, *method.lowering);
 
                 registerLowering(hirName, builder.build());
@@ -1530,6 +1531,7 @@ void LoweringRegistry::registerFromExtensions() {
                 if (hasLowering(getterName)) continue;
 
                 LoweringSpecBuilder builder(getterName);
+                builder.ptrArg();  // Auto-prepend self pointer for property getters
                 buildLoweringSpec(builder, *prop.lowering);
 
                 registerLowering(getterName, builder.build());
