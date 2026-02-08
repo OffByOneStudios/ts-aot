@@ -4,16 +4,31 @@
 **Current Phase:** Extension System Hardening
 
 ## Current Focus
-1. Fixing extension system calling conventions (self-pointer, constructors, return types)
-2. Fixing remaining 39 failing node tests (11 compile errors, 28 runtime failures)
+1. Fixing extension system type resolution and inheritance
+2. Fixing remaining 40 failing node tests (11 compile errors, 29 runtime failures)
 3. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
 
 ## Active Tasks
-1. **Fix remaining node test failures** - 241/280 passing (86.1%)
-2. **Extension constructor support** - Done (systemic fix for 12+ extension types)
-3. **Module-level property getters** - Done (http.STATUS_CODES, cluster.isMaster, etc.)
+1. **Fix remaining node test failures** - 240/280 passing (85.7%)
+2. **Extension type inheritance** - Done (property/method/static method inheritance chain walking)
+3. **Extension return type patching** - Done (Pass 3 links bare ClassTypes to registered types)
 
 ## Recent Accomplishments (2026-02-08)
+*   **Extension inheritance chain walking:**
+    - `findProperty`, `findMethod`, `findStaticMethod` in ExtensionRegistry now walk up the `extends` chain
+    - E.g., `ClientHttp2Stream.id` resolves via `ClientHttp2Stream` → `Http2Stream` inheritance
+    - Fixed http2_client.ts (3/7 → 7/7 passing)
+*   **Extension return type patching (Pass 3):**
+    - `registerTypesFromExtensions()` now has a third pass that patches method return types
+    - `convertExtTypeRef()` creates bare `ClassType(name)` without methods/fields; Pass 3 replaces these with fully-populated registered types
+    - Also patches object method return types (e.g., `http2.connect()` → `ClientHttp2Session`)
+    - Fixed http2_request.ts (4/6 → 6/6 passing)
+*   **Extension class type recognition in ASTToHIR:**
+    - `extTypeRefToHIR()` now checks `ExtensionRegistry::isExtensionType()` for class type names
+    - Maps extension class types to `HIRType::makeClass(name, 0)` instead of `makeAny()`
+*   **Extension property getter return types:**
+    - ASTToHIR property getters now use `extTypeRefToHIR(propDef->type)` for return type
+    - Previously all extension property getters returned `HIRType::makeAny()`
 *   **Extension return type propagation (extTypeRefToHIR):**
     - ASTToHIR now maps ext.json return types to proper HIR types (string→String, number→Int64, etc.)
     - Previously all extension method return types were `HIRType::makeAny()`, losing type information
@@ -28,7 +43,7 @@
     - Removed invalid `dynamic_cast<TsString*>` (TsString is NOT a TsObject subclass)
     - Simplified to direct `(TsString*)` cast for "ptr" lowered parameters
     - Fixed readline_basic.ts and readline_getprompt.ts
-*   **Node tests: 241/280 (86.1%)**, Golden IR: 146/146 (100%)
+*   **Node tests: 240/280 (85.7%)**, Golden IR: 146/146 (100%)
 
 ## Recent Accomplishments (2026-02-07)
 *   **Extension Constructor Support (systemic fix):**

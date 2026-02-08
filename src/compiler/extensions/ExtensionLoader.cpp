@@ -452,30 +452,69 @@ std::optional<std::string> ExtensionRegistry::getGlobalTypeName(const std::strin
 }
 
 const MethodDefinition* ExtensionRegistry::findMethod(const std::string& typeName, const std::string& methodName) const {
-    auto typeIt = typeCache_.find(typeName);
-    if (typeIt == typeCache_.end()) return nullptr;
+    std::string current = typeName;
+    int depth = 0;
+    while (depth < 10) {  // Guard against infinite loops
+        auto typeIt = typeCache_.find(current);
+        if (typeIt == typeCache_.end()) return nullptr;
 
-    const TypeDefinition* type = typeIt->second;
-    auto methodIt = type->methods.find(methodName);
-    return methodIt != type->methods.end() ? &methodIt->second : nullptr;
+        const TypeDefinition* type = typeIt->second;
+        auto methodIt = type->methods.find(methodName);
+        if (methodIt != type->methods.end()) return &methodIt->second;
+
+        // Walk up inheritance chain
+        if (type->extends) {
+            current = type->extends->name;
+            depth++;
+        } else {
+            return nullptr;
+        }
+    }
+    return nullptr;
 }
 
 const MethodDefinition* ExtensionRegistry::findStaticMethod(const std::string& typeName, const std::string& methodName) const {
-    auto typeIt = typeCache_.find(typeName);
-    if (typeIt == typeCache_.end()) return nullptr;
+    std::string current = typeName;
+    int depth = 0;
+    while (depth < 10) {  // Guard against infinite loops
+        auto typeIt = typeCache_.find(current);
+        if (typeIt == typeCache_.end()) return nullptr;
 
-    const TypeDefinition* type = typeIt->second;
-    auto methodIt = type->staticMethods.find(methodName);
-    return methodIt != type->staticMethods.end() ? &methodIt->second : nullptr;
+        const TypeDefinition* type = typeIt->second;
+        auto methodIt = type->staticMethods.find(methodName);
+        if (methodIt != type->staticMethods.end()) return &methodIt->second;
+
+        // Walk up inheritance chain
+        if (type->extends) {
+            current = type->extends->name;
+            depth++;
+        } else {
+            return nullptr;
+        }
+    }
+    return nullptr;
 }
 
 const PropertyDefinition* ExtensionRegistry::findProperty(const std::string& typeName, const std::string& propName) const {
-    auto typeIt = typeCache_.find(typeName);
-    if (typeIt == typeCache_.end()) return nullptr;
+    std::string current = typeName;
+    int depth = 0;
+    while (depth < 10) {  // Guard against infinite loops
+        auto typeIt = typeCache_.find(current);
+        if (typeIt == typeCache_.end()) return nullptr;
 
-    const TypeDefinition* type = typeIt->second;
-    auto propIt = type->properties.find(propName);
-    return propIt != type->properties.end() ? &propIt->second : nullptr;
+        const TypeDefinition* type = typeIt->second;
+        auto propIt = type->properties.find(propName);
+        if (propIt != type->properties.end()) return &propIt->second;
+
+        // Walk up inheritance chain
+        if (type->extends) {
+            current = type->extends->name;
+            depth++;
+        } else {
+            return nullptr;
+        }
+    }
+    return nullptr;
 }
 
 bool ExtensionRegistry::isExtensionType(const std::string& typeName) const {
