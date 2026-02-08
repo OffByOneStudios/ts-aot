@@ -1270,8 +1270,22 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 #endif
     }
 
-    // 5. Run Event Loop
-    ts_loop_run();
+    // 5. Run Event Loop (wrapped in exception handler for cleanup errors)
+    {
+        ExceptionContext* evCtx = (ExceptionContext*)malloc(sizeof(ExceptionContext));
+        exceptionStack.push_back(evCtx);
+        if (setjmp(evCtx->env) == 0) {
+            ts_loop_run();
+            // Normal completion - pop the handler
+            if (!exceptionStack.empty()) {
+                exceptionStack.pop_back();
+                free(evCtx);
+            }
+        } else {
+            // Exception caught during event loop - swallow cleanup errors
+            // (e.g. connection errors during session.destroy())
+        }
+    }
 
     return 0;
 }

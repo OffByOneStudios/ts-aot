@@ -2638,6 +2638,72 @@ void ts_crypto_generateKey(void* typeArg, int64_t length, void* callback) {
 }
 
 // ============================================================================
+// Options-object wrapper functions for generateKeyPairSync/generateKeySync
+// These accept the TypeScript options object and extract needed fields
+// ============================================================================
+
+static int64_t extract_int_property(void* opts, const char* key) {
+    TsValue* val = ts_object_get_property(opts, key);
+    if (!val || val->type == ValueType::UNDEFINED) return 0;
+    if (val->type == ValueType::NUMBER_INT) return val->i_val;
+    if (val->type == ValueType::NUMBER_DBL) return (int64_t)val->d_val;
+    return ts_value_get_int(val);
+}
+
+static void* extract_string_property(void* opts, const char* key) {
+    TsValue* val = ts_object_get_property(opts, key);
+    if (!val || val->type == ValueType::UNDEFINED) return nullptr;
+    if (val->type == ValueType::STRING_PTR) return val->ptr_val;
+    return ts_value_get_string(val);
+}
+
+static void* unbox_opts(void* optionsArg) {
+    if (!optionsArg) return nullptr;
+    void* unboxed = ts_value_get_object((TsValue*)optionsArg);
+    return unboxed ? unboxed : optionsArg;
+}
+
+void* ts_crypto_generateKeyPairSync_opts(void* typeArg, void* optionsArg) {
+    void* opts = unbox_opts(optionsArg);
+    int64_t modulusLength = 0;
+    void* namedCurve = nullptr;
+    if (opts) {
+        modulusLength = extract_int_property(opts, "modulusLength");
+        namedCurve = extract_string_property(opts, "namedCurve");
+    }
+    return ts_crypto_generateKeyPairSync(typeArg, modulusLength, namedCurve);
+}
+
+void* ts_crypto_generateKeySync_opts(void* typeArg, void* optionsArg) {
+    void* opts = unbox_opts(optionsArg);
+    int64_t length = 0;
+    if (opts) {
+        length = extract_int_property(opts, "length");
+    }
+    return ts_crypto_generateKeySync(typeArg, length);
+}
+
+void ts_crypto_generateKeyPair_opts(void* typeArg, void* optionsArg, void* callback) {
+    void* opts = unbox_opts(optionsArg);
+    int64_t modulusLength = 0;
+    void* namedCurve = nullptr;
+    if (opts) {
+        modulusLength = extract_int_property(opts, "modulusLength");
+        namedCurve = extract_string_property(opts, "namedCurve");
+    }
+    ts_crypto_generateKeyPair(typeArg, modulusLength, namedCurve, callback);
+}
+
+void ts_crypto_generateKey_opts(void* typeArg, void* optionsArg, void* callback) {
+    void* opts = unbox_opts(optionsArg);
+    int64_t length = 0;
+    if (opts) {
+        length = extract_int_property(opts, "length");
+    }
+    ts_crypto_generateKey(typeArg, length, callback);
+}
+
+// ============================================================================
 // Key Object Functions (createPrivateKey, createPublicKey, createSecretKey)
 // These wrap key material in a KeyObject for use with other crypto functions
 // ============================================================================

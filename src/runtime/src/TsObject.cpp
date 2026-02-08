@@ -764,6 +764,101 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv);
     static TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv);
 
+    // Native wrappers for string methods (ctx = TsString*)
+    static TsValue* ts_string_startsWith_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* prefix = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        if (!prefix) prefix = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return ts_value_make_bool(ts_string_startsWith(str, prefix));
+    }
+    static TsValue* ts_string_endsWith_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* suffix = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        if (!suffix) suffix = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        // Implement endsWith inline since the extern C function may not exist
+        if (!suffix) return ts_value_make_bool(true);
+        TsString* suffixStr = (TsString*)suffix;
+        int64_t strLen = str->Length();
+        int64_t suffixLen = suffixStr->Length();
+        if (suffixLen > strLen) return ts_value_make_bool(false);
+        TsString* tail = (TsString*)ts_string_slice(str, strLen - suffixLen, strLen);
+        return ts_value_make_bool(ts_string_eq(tail, suffixStr));
+    }
+    static TsValue* ts_string_includes_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* search = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        if (!search) search = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return ts_value_make_bool(ts_string_includes(str, search));
+    }
+    static TsValue* ts_string_indexOf_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* search = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        if (!search) search = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return ts_value_make_int(ts_string_indexOf(str, search));
+    }
+    static TsValue* ts_string_substring_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        int64_t end = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : ts_string_length(str);
+        return ts_value_make_string((TsString*)ts_string_substring(str, start, end));
+    }
+    static TsValue* ts_string_slice_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        int64_t end = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : ts_string_length(str);
+        return ts_value_make_string((TsString*)ts_string_slice(str, start, end));
+    }
+    static TsValue* ts_string_toLowerCase_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string((TsString*)ts_string_toLowerCase((TsString*)ctx));
+    }
+    static TsValue* ts_string_toUpperCase_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string((TsString*)ts_string_toUpperCase((TsString*)ctx));
+    }
+    static TsValue* ts_string_trim_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string((TsString*)ts_string_trim((TsString*)ctx));
+    }
+    static TsValue* ts_string_split_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* sep = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        if (!sep) sep = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return ts_value_make_object(ts_string_split(str, sep));
+    }
+    static TsValue* ts_string_replace_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* pattern = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        if (!pattern) pattern = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        void* replacement = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
+        if (!replacement) replacement = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+        return ts_value_make_string((TsString*)ts_string_replace(str, pattern, replacement));
+    }
+    static TsValue* ts_string_repeat_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t count = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        return ts_value_make_string((TsString*)ts_string_repeat(str, count));
+    }
+    static TsValue* ts_string_charAt_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        return ts_value_make_string((TsString*)ts_string_charAt(str, index));
+    }
+    static TsValue* ts_string_charCodeAt_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        return ts_value_make_int(ts_string_charCodeAt(str, index));
+    }
+    static TsValue* ts_string_padStart_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t targetLength = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        void* padString = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
+        return ts_value_make_string((TsString*)ts_string_padStart(str, targetLength, padString));
+    }
+    static TsValue* ts_string_padEnd_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t targetLength = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        void* padString = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
+        return ts_value_make_string((TsString*)ts_string_padEnd(str, targetLength, padString));
+    }
+
     // Separate function for virtual property dispatch to allow __try/__except on MSVC
     // (cannot mix __try with C++ objects that have destructors in the same function)
     static TsValue ts_try_virtual_property_dispatch(void* obj, const char* keyStr) {
@@ -807,8 +902,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_undefined();
             }
             // For object types, unwrap if ptr_val is valid (non-zero)
-            if ((maybeVal->type == ValueType::OBJECT_PTR || maybeVal->type == ValueType::ARRAY_PTR || 
-                 maybeVal->type == ValueType::PROMISE_PTR) && maybeVal->ptr_val) {
+            if ((maybeVal->type == ValueType::OBJECT_PTR || maybeVal->type == ValueType::ARRAY_PTR ||
+                 maybeVal->type == ValueType::PROMISE_PTR || maybeVal->type == ValueType::STRING_PTR) && maybeVal->ptr_val) {
                 obj = maybeVal->ptr_val;
             }
         }
@@ -970,9 +1065,30 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
         if (magic0 == 0x53545247 || magic8 == 0x53545247 || magic16 == 0x53545247) { // TsString::MAGIC ("STRG")
+            TsString* strObj = (TsString*)obj;
             if (strcmp(keyStr, "length") == 0) {
-                return ts_value_make_int(((TsString*)obj)->Length());
+                return ts_value_make_int(strObj->Length());
             }
+            // Return native function wrappers for string methods
+            if (strcmp(keyStr, "startsWith") == 0) return ts_value_make_native_function((void*)ts_string_startsWith_native, strObj);
+            if (strcmp(keyStr, "endsWith") == 0) return ts_value_make_native_function((void*)ts_string_endsWith_native, strObj);
+            if (strcmp(keyStr, "includes") == 0) return ts_value_make_native_function((void*)ts_string_includes_native, strObj);
+            if (strcmp(keyStr, "indexOf") == 0) return ts_value_make_native_function((void*)ts_string_indexOf_native, strObj);
+            if (strcmp(keyStr, "substring") == 0) return ts_value_make_native_function((void*)ts_string_substring_native, strObj);
+            if (strcmp(keyStr, "slice") == 0) return ts_value_make_native_function((void*)ts_string_slice_native, strObj);
+            if (strcmp(keyStr, "toLowerCase") == 0) return ts_value_make_native_function((void*)ts_string_toLowerCase_native, strObj);
+            if (strcmp(keyStr, "toUpperCase") == 0) return ts_value_make_native_function((void*)ts_string_toUpperCase_native, strObj);
+            if (strcmp(keyStr, "trim") == 0) return ts_value_make_native_function((void*)ts_string_trim_native, strObj);
+            if (strcmp(keyStr, "split") == 0) return ts_value_make_native_function((void*)ts_string_split_native, strObj);
+            if (strcmp(keyStr, "replace") == 0) return ts_value_make_native_function((void*)ts_string_replace_native, strObj);
+            if (strcmp(keyStr, "repeat") == 0) return ts_value_make_native_function((void*)ts_string_repeat_native, strObj);
+            if (strcmp(keyStr, "charAt") == 0) return ts_value_make_native_function((void*)ts_string_charAt_native, strObj);
+            if (strcmp(keyStr, "charCodeAt") == 0) return ts_value_make_native_function((void*)ts_string_charCodeAt_native, strObj);
+            if (strcmp(keyStr, "padStart") == 0) return ts_value_make_native_function((void*)ts_string_padStart_native, strObj);
+            if (strcmp(keyStr, "padEnd") == 0) return ts_value_make_native_function((void*)ts_string_padEnd_native, strObj);
+            if (strcmp(keyStr, "toString") == 0) return ts_value_make_string(strObj);
+            if (strcmp(keyStr, "valueOf") == 0) return ts_value_make_string(strObj);
+            return ts_value_make_undefined();
         }
         if (magic8 == 0x48454144 || magic16 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
             struct FakeHeaders { void* vtable; uint32_t magic; TsMap* map; };
@@ -2904,6 +3020,22 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
+        // Check if obj is STRING_PTR - delegate string property access to ts_object_get_property
+        if (obj->type == ValueType::STRING_PTR) {
+            void* strPtr = obj->ptr_val;
+            if (!strPtr) return ts_value_make_undefined();
+            if (key->type == ValueType::STRING_PTR) {
+                TsString* keyStr = (TsString*)key->ptr_val;
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k) {
+                        return ts_object_get_property(strPtr, k);
+                    }
+                }
+            }
+            return ts_value_make_undefined();
+        }
+
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) {
             return ts_value_make_undefined();
@@ -2923,6 +3055,19 @@ TsValue* ts_value_make_int(int64_t i) {
             if (proxy) {
                 return proxy->get(key, nullptr);
             }
+        }
+        if (magic0 == 0x53545247) { // TsString::MAGIC = "STRG"
+            // This is a raw TsString* - delegate to ts_object_get_property
+            if (key->type == ValueType::STRING_PTR) {
+                TsString* keyStr = (TsString*)key->ptr_val;
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k) {
+                        return ts_object_get_property(rawObj, k);
+                    }
+                }
+            }
+            return ts_value_make_undefined();
         }
         if (magic0 == 0x41525259) { // TsArray::MAGIC = "ARRY"
             // This is an array
@@ -3050,7 +3195,16 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic20 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 20);
         uint32_t magic24 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 24);
         if (magic16 != 0x4D415053 && magic20 != 0x4D415053 && magic24 != 0x4D415053) { // TsMap::MAGIC = "MAPS"
-            // Not a map - return undefined
+            // Not a map - try ts_object_get_property as fallback for TsObject subclasses
+            if (key->type == ValueType::STRING_PTR) {
+                TsString* keyStr = (TsString*)key->ptr_val;
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k) {
+                        return ts_object_get_property(rawObj, k);
+                    }
+                }
+            }
             return ts_value_make_undefined();
         }
 

@@ -317,13 +317,14 @@
     "stream": {
       "methods": {
         "pipeline": {
-          "call": "ts_stream_pipeline",
+          "call": "ts_stream_pipeline_3",
           "params": [
-            {"name": "streams", "type": "any"},
+            {"name": "source", "type": "any"},
+            {"name": "destination", "type": "any"},
             {"name": "callback", "type": "any", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["boxed", "boxed"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "boxed", "boxed"], "returns": "ptr" }
         },
         "finished": {
           "call": "ts_stream_finished",
