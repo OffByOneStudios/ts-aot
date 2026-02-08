@@ -3489,9 +3489,9 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
-    // Handle built-in WeakSet class (implemented as Set wrapper)
+    // Handle built-in WeakSet class (implemented as Set wrapper with distinct magic)
     if (className == "WeakSet") {
-        lastValue_ = builder_.createCall("ts_set_create", {}, HIRType::makeSet());
+        lastValue_ = builder_.createCall("ts_weakset_create", {}, HIRType::makeSet());
         return;
     }
 
