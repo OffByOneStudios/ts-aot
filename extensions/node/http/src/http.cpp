@@ -959,4 +959,12 @@ void* ts_websocket_get_onerror(void* ws) {
     return w->onerror;
 }
 
+void ts_client_request_flush_headers(void* req) {
+    void* rawPtr = ts_value_get_object((TsValue*)req);
+    if (!rawPtr) rawPtr = req;
+    TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
+    if (!r) return;
+    // flushHeaders is a no-op hint - headers are sent on first write/end
+}
+
 } // extern "C"

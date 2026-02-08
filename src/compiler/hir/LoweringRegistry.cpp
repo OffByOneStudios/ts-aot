@@ -1500,6 +1500,7 @@ void LoweringRegistry::registerFromExtensions() {
 
                 registerLowering(hirName, builder.build());
                 registeredCount++;
+
                 SPDLOG_DEBUG("Registered lowering from extension: {} -> {} (type {}.{})",
                              hirName, method.call, typeName, methodName);
             }

@@ -665,4 +665,10 @@ extern "C" {
             s->maxConnections = (int)v->i_val;
         }
     }
+
+    void ts_net_socket_end(void* socket) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return;
+        s->End();
+    }
 }
