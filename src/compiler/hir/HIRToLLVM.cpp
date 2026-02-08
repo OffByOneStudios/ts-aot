@@ -4150,6 +4150,87 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
     // RegExp methods (exec, test) handled by RegExpHandler via HandlerRegistry above
     // Map/Set methods handled by MapSetHandler via HandlerRegistry above
 
+    // Check if the method name matches a registered nested object method (e.g., util.types.isGeneratorObject)
+    // These methods have registered lowering specs but are called via dynamic dispatch on Any-typed objects.
+    // Dynamic dispatch would use ts_call_with_this_N which passes (context, args...) but the C functions
+    // only expect (args...) without a context/this parameter.
+    {
+        auto& registry = ::hir::LoweringRegistry::instance();
+        const auto* spec = registry.lookupByMethodName(methodName);
+        if (spec) {
+            // Build LLVM function type from the lowering spec
+            llvm::Type* retTy = spec->returnType
+                ? spec->returnType(context_)
+                : builder_->getVoidTy();
+
+            std::vector<llvm::Type*> argTys;
+            for (const auto& argType : spec->argTypes) {
+                argTys.push_back(argType(context_));
+            }
+
+            auto* ft = llvm::FunctionType::get(retTy, argTys, spec->isVariadic);
+            auto fn = module_->getOrInsertFunction(spec->runtimeFuncName, ft);
+
+            // Convert arguments - for call_method, args start at operands[2]
+            std::vector<llvm::Value*> llvmArgs;
+            for (size_t i = 2; i < inst->operands.size() && (i - 2) < spec->argConversions.size(); ++i) {
+                llvm::Value* arg = getOperandValue(inst->operands[i]);
+
+                // Apply conversion from the spec
+                if (spec->argConversions[i - 2] == ::hir::ArgConversion::Box && arg->getType()->isPointerTy()) {
+                    auto* hirVal = std::get_if<std::shared_ptr<ts::hir::HIRValue>>(&inst->operands[i]);
+                    if (hirVal && *hirVal && (*hirVal)->type && (*hirVal)->type->kind == ts::hir::HIRTypeKind::String) {
+                        auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                        auto boxFn = module_->getOrInsertFunction("ts_value_make_string", boxFt);
+                        arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg });
+                    } else {
+                        arg = convertArg(arg, spec->argConversions[i - 2]);
+                    }
+                } else {
+                    arg = convertArg(arg, spec->argConversions[i - 2]);
+                }
+
+                // Coerce to expected type
+                size_t argIdx = i - 2;
+                if (argIdx < argTys.size() && arg->getType() != argTys[argIdx]) {
+                    arg = coerceArgToType(arg, argTys[argIdx], inst->operands[i]);
+                }
+
+                llvmArgs.push_back(arg);
+            }
+
+            // Pad missing optional arguments
+            while (llvmArgs.size() < argTys.size()) {
+                llvm::Type* expectedType = argTys[llvmArgs.size()];
+                if (expectedType->isPointerTy())
+                    llvmArgs.push_back(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(expectedType)));
+                else if (expectedType->isIntegerTy())
+                    llvmArgs.push_back(llvm::ConstantInt::get(expectedType, 0));
+                else if (expectedType->isDoubleTy())
+                    llvmArgs.push_back(llvm::ConstantFP::get(expectedType, 0.0));
+                else
+                    llvmArgs.push_back(llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+            }
+
+            // Call the function
+            llvm::Value* result;
+            if (retTy->isVoidTy()) {
+                builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+                result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            } else {
+                result = builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+            }
+
+            // Handle return value
+            result = handleReturn(result, spec->returnHandling);
+
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+    }
+
     // Dynamic method dispatch: call function stored as object property
     // This handles cases like task.fn() where fn is a function property
     // Uses ts_call_with_this_N to properly bind 'this' for methods like hasOwnProperty

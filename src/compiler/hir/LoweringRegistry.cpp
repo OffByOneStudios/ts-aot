@@ -34,8 +34,28 @@ bool LoweringRegistry::hasLowering(const std::string& hirFuncName) const {
 
 void LoweringRegistry::clear() {
     registry_.clear();
+    nestedMethodToHirName_.clear();
     builtinsRegistered_ = false;  // Allow re-registration after clear
     extensionsRegistered_ = false;
+}
+
+void LoweringRegistry::registerNestedMethodMapping(const std::string& methodName, const std::string& hirName) {
+    auto it = nestedMethodToHirName_.find(methodName);
+    if (it != nestedMethodToHirName_.end()) {
+        // Name collision: multiple nested objects register the same method name.
+        // Mark as ambiguous by setting to empty string so lookupByMethodName returns nullptr.
+        if (it->second != hirName) {
+            it->second = "";
+        }
+    } else {
+        nestedMethodToHirName_[methodName] = hirName;
+    }
+}
+
+const LoweringSpec* LoweringRegistry::lookupByMethodName(const std::string& methodName) const {
+    auto it = nestedMethodToHirName_.find(methodName);
+    if (it == nestedMethodToHirName_.end() || it->second.empty()) return nullptr;
+    return lookup(it->second);
 }
 
 void LoweringRegistry::registerBuiltins() {
@@ -1495,6 +1515,7 @@ static void registerObjectMethods(
             buildLoweringSpec(builder, *method.lowering);
 
             reg.registerLowering(hirName, builder.build());
+            reg.registerNestedMethodMapping(methodName, hirName);
             registeredCount++;
             SPDLOG_DEBUG("Registered lowering from extension: {} -> {} (nested object {}.{}.{})",
                          hirName, method.call, objectName, nestedName, methodName);

@@ -1723,7 +1723,7 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
 }
 
 void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
-    // For-of loop: iterate over array elements
+    // For-of loop: iterate over iterable (arrays or generators)
     auto* condBlock = createBlock("forof.cond");
     auto* bodyBlock = createBlock("forof.body");
     auto* updateBlock = createBlock("forof.update");
@@ -1747,56 +1747,103 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     auto* iterExpr = dynamic_cast<ast::Expression*>(node->expression.get());
     auto iterable = iterExpr ? lowerExpression(iterExpr) : createValue(HIRType::makeAny());
 
-    // Get array length
-    auto lenVal = builder_.createArrayLength(iterable);
+    // Check if this is a Generator/AsyncGenerator - use iterator protocol instead of array indexing
+    bool isGenerator = iterable->type && iterable->type->kind == HIRTypeKind::Class &&
+        (iterable->type->className == "Generator" || iterable->type->className == "AsyncGenerator");
 
-    // Create index variable (alloca for SSA)
-    auto indexAlloca = builder_.createAlloca(HIRType::makeInt64(), "forof.idx");
-    auto zero = builder_.createConstInt(0);
-    builder_.createStore(zero, indexAlloca);
+    if (isGenerator) {
+        // Generator iteration: call .next() in a loop, check .done, get .value
+        // Store result in an alloca so we can access it in both cond and body blocks
+        auto resultAlloca = builder_.createAlloca(HIRType::makeObject(), "forof.result");
 
-    builder_.createBranch(condBlock);
+        builder_.createBranch(condBlock);
 
-    // Condition: index < length
-    builder_.setInsertPoint(condBlock);
-    currentBlock_ = condBlock;
-    auto indexVal = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
-    auto cond = builder_.createCmpLtI64(indexVal, lenVal);
-    builder_.createCondBranch(cond, bodyBlock, endBlock);
+        // Condition: call gen.next(), check if result.done is true
+        builder_.setInsertPoint(condBlock);
+        currentBlock_ = condBlock;
+        auto nextResult = builder_.createCallMethod(iterable, "next", {}, HIRType::makeObject());
+        builder_.createStore(nextResult, resultAlloca);
+        auto doneVal = builder_.createGetPropStatic(nextResult, "done", HIRType::makeAny());
+        // condBranch handles boxed value -> bool conversion via ts_value_to_bool
+        builder_.createCondBranch(doneVal, endBlock, bodyBlock);
 
-    // Body: get element and execute body
-    builder_.setInsertPoint(bodyBlock);
-    currentBlock_ = bodyBlock;
+        // Body: get value and execute body
+        builder_.setInsertPoint(bodyBlock);
+        currentBlock_ = bodyBlock;
+        auto resultVal = builder_.createLoad(HIRType::makeObject(), resultAlloca);
+        auto elemVal = builder_.createGetPropStatic(resultVal, "value", HIRType::makeAny());
 
-    // Get current element
-    auto currentIndex = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
-    auto elemVal = builder_.createGetElem(iterable, currentIndex);
-
-    // Bind to loop variable
-    if (node->initializer) {
-        auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get());
-        if (varDecl) {
-            // VariableDeclaration has name directly (not declarations array)
-            auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
-            if (ident) {
-                defineVariable(ident->name, elemVal);
+        // Bind to loop variable
+        if (node->initializer) {
+            auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get());
+            if (varDecl) {
+                auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
+                if (ident) {
+                    defineVariable(ident->name, elemVal);
+                }
             }
         }
+
+        lowerStatement(node->body.get());
+
+        // Branch to update (if not already terminated)
+        emitBranchIfNeeded(updateBlock);
+
+        // Update block: just jump back to cond (next call happens there)
+        builder_.setInsertPoint(updateBlock);
+        currentBlock_ = updateBlock;
+        builder_.createBranch(condBlock);
+    } else {
+        // Array iteration: use index-based access
+        auto lenVal = builder_.createArrayLength(iterable);
+
+        // Create index variable (alloca for SSA)
+        auto indexAlloca = builder_.createAlloca(HIRType::makeInt64(), "forof.idx");
+        auto zero = builder_.createConstInt(0);
+        builder_.createStore(zero, indexAlloca);
+
+        builder_.createBranch(condBlock);
+
+        // Condition: index < length
+        builder_.setInsertPoint(condBlock);
+        currentBlock_ = condBlock;
+        auto indexVal = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
+        auto cond = builder_.createCmpLtI64(indexVal, lenVal);
+        builder_.createCondBranch(cond, bodyBlock, endBlock);
+
+        // Body: get element and execute body
+        builder_.setInsertPoint(bodyBlock);
+        currentBlock_ = bodyBlock;
+
+        // Get current element
+        auto currentIndex = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
+        auto elemVal = builder_.createGetElem(iterable, currentIndex);
+
+        // Bind to loop variable
+        if (node->initializer) {
+            auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get());
+            if (varDecl) {
+                auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
+                if (ident) {
+                    defineVariable(ident->name, elemVal);
+                }
+            }
+        }
+
+        lowerStatement(node->body.get());
+
+        // Branch to update (if not already terminated)
+        emitBranchIfNeeded(updateBlock);
+
+        // Update block: increment index
+        builder_.setInsertPoint(updateBlock);
+        currentBlock_ = updateBlock;
+        auto idxForInc = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
+        auto one = builder_.createConstInt(1);
+        auto newIndex = builder_.createAddI64(idxForInc, one);
+        builder_.createStore(newIndex, indexAlloca);
+        builder_.createBranch(condBlock);
     }
-
-    lowerStatement(node->body.get());
-
-    // Branch to update (if not already terminated)
-    emitBranchIfNeeded(updateBlock);
-
-    // Update block: increment index
-    builder_.setInsertPoint(updateBlock);
-    currentBlock_ = updateBlock;
-    auto idxForInc = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
-    auto one = builder_.createConstInt(1);
-    auto newIndex = builder_.createAddI64(idxForInc, one);
-    builder_.createStore(newIndex, indexAlloca);
-    builder_.createBranch(condBlock);
 
     loopStack_.pop();
     if (!myLabel.empty()) {
