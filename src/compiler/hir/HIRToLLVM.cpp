@@ -3305,7 +3305,21 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
     std::vector<llvm::Value*> llvmArgs;
     for (size_t i = 1; i < inst->operands.size() && (i - 1) < spec.argConversions.size(); ++i) {
         llvm::Value* arg = getOperandValue(inst->operands[i]);
-        arg = convertArg(arg, spec.argConversions[i - 1]);
+
+        // For Box conversion on pointer types, check HIR type to use proper boxing function
+        // String pointers should use ts_value_make_string, not ts_value_make_object
+        if (spec.argConversions[i - 1] == ::hir::ArgConversion::Box && arg->getType()->isPointerTy()) {
+            auto* hirVal = std::get_if<std::shared_ptr<ts::hir::HIRValue>>(&inst->operands[i]);
+            if (hirVal && *hirVal && (*hirVal)->type && (*hirVal)->type->kind == ts::hir::HIRTypeKind::String) {
+                auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_string", boxFt);
+                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg });
+            } else {
+                arg = convertArg(arg, spec.argConversions[i - 1]);
+            }
+        } else {
+            arg = convertArg(arg, spec.argConversions[i - 1]);
+        }
 
         // Coerce to expected LLVM type if needed (e.g., f64 literal -> i64 param)
         size_t argIdx = i - 1;

@@ -1001,7 +1001,7 @@ void TsHttpsServer::HandleConnection(int status) {
 // Global agent instances
 TsHttpAgent* globalHttpAgent = nullptr;
 TsHttpsAgent* globalHttpsAgent = nullptr;
-int64_t maxIdleHttpParsers = 1000;
+// maxIdleHttpParsers moved to extensions/node/http/src/http.cpp
 
 // TsHttpAgent implementation
 TsHttpAgent::TsHttpAgent(TsValue* options) : TsEventEmitter() {

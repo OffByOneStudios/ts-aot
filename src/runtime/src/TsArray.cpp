@@ -177,8 +177,66 @@ int64_t TsArray::Length() {
     return length;
 }
 
+// JavaScript default sort: convert elements to strings and compare lexicographically.
+// undefined values sort to the end.
+static const char* elementToSortString(int64_t elem, char* buf, size_t bufSize) {
+    if (elem == 0) return "undefined";
+
+    // Check if element is a boxed TsValue* (type field at offset 0, valid range 0-10)
+    uint8_t typeTag = *(uint8_t*)(uintptr_t)elem;
+    if (typeTag <= 10) {
+        TsValue* val = (TsValue*)(uintptr_t)elem;
+        switch (val->type) {
+            case ValueType::UNDEFINED: return "undefined";
+            case ValueType::NUMBER_INT:
+                snprintf(buf, bufSize, "%lld", (long long)val->i_val);
+                return buf;
+            case ValueType::NUMBER_DBL:
+                snprintf(buf, bufSize, "%.17g", val->d_val);
+                // Trim trailing zeros for cleaner output (match JS behavior)
+                if (strchr(buf, '.')) {
+                    size_t len = strlen(buf);
+                    while (len > 1 && buf[len-1] == '0') buf[--len] = '\0';
+                    if (len > 0 && buf[len-1] == '.') buf[--len] = '\0';
+                }
+                return buf;
+            case ValueType::STRING_PTR:
+                return ((TsString*)val->ptr_val)->ToUtf8();
+            case ValueType::BOOLEAN:
+                return val->b_val ? "true" : "false";
+            case ValueType::OBJECT_PTR:
+                if (!val->ptr_val) return "null";
+                return "[object Object]";
+            default:
+                return "[object Object]";
+        }
+    }
+
+    // Raw pointer - check magic at offset 0
+    uint32_t magic = *(uint32_t*)(uintptr_t)elem;
+    if (magic == TsString::MAGIC) {
+        return ((TsString*)(uintptr_t)elem)->ToUtf8();
+    }
+
+    return "[object Object]";
+}
+
+static bool jsDefaultSortComparator(int64_t a, int64_t b) {
+    // undefined sorts to the end
+    bool aUndef = (a == 0) || (*(uint8_t*)(uintptr_t)a <= 10 && ((TsValue*)(uintptr_t)a)->type == ValueType::UNDEFINED);
+    bool bUndef = (b == 0) || (*(uint8_t*)(uintptr_t)b <= 10 && ((TsValue*)(uintptr_t)b)->type == ValueType::UNDEFINED);
+    if (aUndef && bUndef) return false;
+    if (aUndef) return false;  // a goes after b
+    if (bUndef) return true;   // a goes before b
+
+    char bufA[64], bufB[64];
+    const char* sa = elementToSortString(a, bufA, sizeof(bufA));
+    const char* sb = elementToSortString(b, bufB, sizeof(bufB));
+    return strcmp(sa, sb) < 0;
+}
+
 void TsArray::Sort() {
-    std::sort((int64_t*)elements, ((int64_t*)elements) + length);
+    std::sort((int64_t*)elements, ((int64_t*)elements) + length, jsDefaultSortComparator);
 }
 
 int64_t TsArray::IndexOf(int64_t value) {

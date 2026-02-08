@@ -695,13 +695,16 @@ void BuiltinRegistry::registerConsoleBuiltins() {
         BuiltinResolution::makeRuntimeCall("ts_console_count", voidType);
 
     globalTable_[{"console", "countReset"}] =
-        BuiltinResolution::makeRuntimeCall("ts_console_countReset", voidType);
+        BuiltinResolution::makeRuntimeCall("ts_console_count_reset", voidType);
 
     globalTable_[{"console", "group"}] =
         BuiltinResolution::makeRuntimeCall("ts_console_group", voidType);
 
+    globalTable_[{"console", "groupCollapsed"}] =
+        BuiltinResolution::makeRuntimeCall("ts_console_group_collapsed", voidType);
+
     globalTable_[{"console", "groupEnd"}] =
-        BuiltinResolution::makeRuntimeCall("ts_console_groupEnd", voidType);
+        BuiltinResolution::makeRuntimeCall("ts_console_group_end", voidType);
 
     globalTable_[{"console", "clear"}] =
         BuiltinResolution::makeRuntimeCall("ts_console_clear", voidType);

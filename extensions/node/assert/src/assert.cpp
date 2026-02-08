@@ -122,8 +122,22 @@ static bool strictEqual(void* a, void* b) {
     TsValue* va = (TsValue*)a;
     TsValue* vb = (TsValue*)b;
 
-    // Must be same type for strict equality
-    if (va->type != vb->type) return false;
+    // In JavaScript, all numbers are the same type (IEEE 754 double).
+    // Handle NUMBER_INT vs NUMBER_DBL cross-comparison as same type.
+    bool aIsNum = (va->type == ValueType::NUMBER_INT || va->type == ValueType::NUMBER_DBL);
+    bool bIsNum = (vb->type == ValueType::NUMBER_INT || vb->type == ValueType::NUMBER_DBL);
+    if (aIsNum && bIsNum) {
+        double da = va->type == ValueType::NUMBER_INT ? (double)va->i_val : va->d_val;
+        double db = vb->type == ValueType::NUMBER_INT ? (double)vb->i_val : vb->d_val;
+        return da == db;
+    }
+
+    // Handle STRING_PTR vs OBJECT_PTR containing strings
+    bool aIsStr = (va->type == ValueType::STRING_PTR || va->type == ValueType::OBJECT_PTR);
+    bool bIsStr = (vb->type == ValueType::STRING_PTR || vb->type == ValueType::OBJECT_PTR);
+
+    // Must be same type for strict equality (except number cross-types handled above)
+    if (va->type != vb->type && !(aIsStr && bIsStr)) return false;
 
     switch (va->type) {
         case ValueType::NUMBER_INT:
@@ -136,60 +150,79 @@ static bool strictEqual(void* a, void* b) {
             return true;
         case ValueType::STRING_PTR: {
             TsString* sa = (TsString*)va->ptr_val;
-            TsString* sb = (TsString*)vb->ptr_val;
+            TsString* sb = (vb->type == ValueType::STRING_PTR) ? (TsString*)vb->ptr_val : (TsString*)vb->ptr_val;
             if (!sa || !sb) return sa == sb;
             return strcmp(sa->ToUtf8(), sb->ToUtf8()) == 0;
         }
         case ValueType::OBJECT_PTR:
+            // If the other is a string type, compare as strings
+            if (vb->type == ValueType::STRING_PTR) {
+                TsString* sa = (TsString*)va->ptr_val;
+                TsString* sb = (TsString*)vb->ptr_val;
+                if (!sa || !sb) return sa == sb;
+                return strcmp(sa->ToUtf8(), sb->ToUtf8()) == 0;
+            }
             return va->ptr_val == vb->ptr_val;
         default:
             return false;
     }
 }
 
-// Forward declaration for deep comparison
+// Forward declarations for deep comparison
 static bool deepStrictEqual(void* a, void* b);
-
-// Helper to check if a value looks like a pointer (high address)
-static bool looksLikePointer(int64_t val) {
-    // Pointers on 64-bit systems typically have high bits set
-    // Small integers (like array values 1, 2, 3) have small absolute values
-    // We consider anything > 0x10000 as potentially a pointer
-    return val < 0 || val > 0x10000;
-}
+static bool deepEqualObjects(TsMap* a, TsMap* b);
 
 // Helper for deep array comparison
+// Compare two raw array element values (int64_t from TsArray::Get)
+// Elements may be: TsValue* (boxed), raw TsString*, raw TsArray*, or raw int64
+static bool deepEqualElement(int64_t va, int64_t vb);
+
 static bool deepEqualArrays(TsArray* a, TsArray* b) {
     if (a->Length() != b->Length()) return false;
     for (size_t i = 0; i < a->Length(); i++) {
-        // Array elements are stored as int64_t which may be:
-        // 1. Boxed TsValue* pointers
-        // 2. Raw int64 values (for number arrays)
         int64_t va = a->Get(i);
         int64_t vb = b->Get(i);
-
-        // First try direct integer comparison (for number arrays)
         if (va == vb) continue;
-
-        // If neither looks like a pointer, treat as raw integers that differ
-        if (!looksLikePointer(va) && !looksLikePointer(vb)) {
-            return false;  // Different integer values
-        }
-
-        // Check if they might be boxed values (pointers)
-        TsValue* valA = (TsValue*)va;
-        TsValue* valB = (TsValue*)vb;
-
-        // If both are non-zero and look like pointers, compare as boxed values
-        if (va != 0 && vb != 0 && looksLikePointer(va) && looksLikePointer(vb)) {
-            if (!deepStrictEqual(valA, valB)) {
-                return false;
-            }
-        } else {
-            return false;  // Type mismatch (one raw, one pointer)
-        }
+        if (!deepEqualElement(va, vb)) return false;
     }
     return true;
+}
+
+static bool deepEqualElement(int64_t va, int64_t vb) {
+    if (va == vb) return true;
+    if (va == 0 || vb == 0) return false;
+
+    // Check if the element is a boxed TsValue* by reading the type field.
+    // Valid ValueType enum values are 0-10. If the first byte is > 10,
+    // this is a raw pointer (TsString*, TsArray*, etc.), not a TsValue*.
+    uint8_t typeA = *(uint8_t*)(uintptr_t)va;
+    if (typeA <= 10) {
+        // Looks like a boxed TsValue* - use deep comparison
+        return deepStrictEqual((void*)(uintptr_t)va, (void*)(uintptr_t)vb);
+    }
+
+    // Raw pointer - detect type from magic field at offset 0.
+    // Both TsArray and TsString store magic at offset 0 (not TsObject offset 16).
+    void* pa = (void*)(uintptr_t)va;
+    void* pb = (void*)(uintptr_t)vb;
+    uint32_t magicA = *(uint32_t*)pa;
+    uint32_t magicB = *(uint32_t*)pb;
+
+    if (magicA == TsArray::MAGIC && magicB == TsArray::MAGIC) {
+        return deepEqualArrays((TsArray*)pa, (TsArray*)pb);
+    }
+    if (magicA == TsString::MAGIC && magicB == TsString::MAGIC) {
+        return strcmp(((TsString*)pa)->ToUtf8(), ((TsString*)pb)->ToUtf8()) == 0;
+    }
+
+    // TsObject-derived types with vtable: magic at TsObject offset 16
+    TsObject* oa = (TsObject*)pa;
+    TsObject* ob = (TsObject*)pb;
+    if (oa->magic == TsMap::MAGIC && ob->magic == TsMap::MAGIC) {
+        return deepEqualObjects((TsMap*)oa, (TsMap*)ob);
+    }
+
+    return false;
 }
 
 // Helper for deep object comparison
@@ -218,8 +251,21 @@ static bool deepStrictEqual(void* a, void* b) {
     TsValue* va = (TsValue*)a;
     TsValue* vb = (TsValue*)b;
 
-    // Must be same type for strict equality
-    if (va->type != vb->type) return false;
+    // In JavaScript, NUMBER_INT and NUMBER_DBL are the same type
+    bool aIsNum = (va->type == ValueType::NUMBER_INT || va->type == ValueType::NUMBER_DBL);
+    bool bIsNum = (vb->type == ValueType::NUMBER_INT || vb->type == ValueType::NUMBER_DBL);
+    if (aIsNum && bIsNum) {
+        double da = va->type == ValueType::NUMBER_INT ? (double)va->i_val : va->d_val;
+        double db = vb->type == ValueType::NUMBER_INT ? (double)vb->i_val : vb->d_val;
+        return da == db;
+    }
+
+    // Handle STRING_PTR vs OBJECT_PTR (strings may be boxed as either)
+    bool aIsStr = (va->type == ValueType::STRING_PTR || va->type == ValueType::OBJECT_PTR);
+    bool bIsStr = (vb->type == ValueType::STRING_PTR || vb->type == ValueType::OBJECT_PTR);
+
+    // Must be same type for strict equality (except numbers and strings handled above)
+    if (va->type != vb->type && !(aIsStr && bIsStr)) return false;
 
     switch (va->type) {
         case ValueType::NUMBER_INT:
@@ -244,14 +290,25 @@ static bool deepStrictEqual(void* a, void* b) {
             return deepEqualArrays(arrA, arrB);
         }
         case ValueType::OBJECT_PTR: {
-            TsObject* oa = (TsObject*)va->ptr_val;
-            TsObject* ob = (TsObject*)vb->ptr_val;
-            if (!oa || !ob) return oa == ob;
+            void* pa = va->ptr_val;
+            void* pb = vb->ptr_val;
+            if (!pa || !pb) return pa == pb;
 
-            // Check if both are arrays
-            if (oa->magic == TsArray::MAGIC && ob->magic == TsArray::MAGIC) {
-                return deepEqualArrays((TsArray*)oa, (TsArray*)ob);
+            // Both TsArray and TsString have magic at offset 0 (not TsObject-derived layout).
+            // TsObject-derived types (TsMap) have magic at offset 16.
+            uint32_t magicA = *(uint32_t*)pa;
+            uint32_t magicB = *(uint32_t*)pb;
+
+            if (magicA == TsArray::MAGIC && magicB == TsArray::MAGIC) {
+                return deepEqualArrays((TsArray*)pa, (TsArray*)pb);
             }
+            if (magicA == TsString::MAGIC && magicB == TsString::MAGIC) {
+                return strcmp(((TsString*)pa)->ToUtf8(), ((TsString*)pb)->ToUtf8()) == 0;
+            }
+
+            // For TsObject-derived types (TsMap, etc.), magic is at TsObject's offset
+            TsObject* oa = (TsObject*)pa;
+            TsObject* ob = (TsObject*)pb;
 
             // Check if both are maps/objects
             if (oa->magic == TsMap::MAGIC && ob->magic == TsMap::MAGIC) {
@@ -259,7 +316,7 @@ static bool deepStrictEqual(void* a, void* b) {
             }
 
             // Different types or same reference
-            return oa == ob;
+            return pa == pb;
         }
         default:
             return false;

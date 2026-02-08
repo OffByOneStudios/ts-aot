@@ -598,8 +598,8 @@ void ts_http_agent_destroy(void* agent) {
     a->Destroy();
 }
 
-// External from runtime
-extern int64_t maxIdleHttpParsers;
+// Max idle HTTP parsers (owned by http extension)
+int64_t maxIdleHttpParsers = 1000;
 
 int64_t ts_http_get_max_idle_http_parsers() {
     return maxIdleHttpParsers;
