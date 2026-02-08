@@ -3,20 +3,37 @@
   "name": "fs",
   "version": "1.0.0",
   "modules": ["fs", "node:fs"],
-
   "types": {
     "Stats": {
       "kind": "interface",
       "properties": {
-        "size": { "type": "number" },
-        "mtimeMs": { "type": "number" },
-        "atimeMs": { "type": "number" },
-        "ctimeMs": { "type": "number" },
-        "birthtimeMs": { "type": "number" },
-        "mtime": { "type": "Date" },
-        "atime": { "type": "Date" },
-        "ctime": { "type": "Date" },
-        "birthtime": { "type": "Date" }
+        "size": {
+          "type": "number"
+        },
+        "mtimeMs": {
+          "type": "number"
+        },
+        "atimeMs": {
+          "type": "number"
+        },
+        "ctimeMs": {
+          "type": "number"
+        },
+        "birthtimeMs": {
+          "type": "number"
+        },
+        "mtime": {
+          "type": "Date"
+        },
+        "atime": {
+          "type": "Date"
+        },
+        "ctime": {
+          "type": "Date"
+        },
+        "birthtime": {
+          "type": "Date"
+        }
       },
       "methods": {
         "isFile": {
@@ -24,56 +41,58 @@
           "hirName": "ts_Stats_isFile",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isDirectory": {
           "call": "ts_stats_isDirectory",
           "hirName": "ts_Stats_isDirectory",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isSymbolicLink": {
           "call": "ts_stats_isSymbolicLink",
           "hirName": "ts_Stats_isSymbolicLink",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isBlockDevice": {
           "call": "ts_stats_isBlockDevice",
           "hirName": "ts_Stats_isBlockDevice",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isCharacterDevice": {
           "call": "ts_stats_isCharacterDevice",
           "hirName": "ts_Stats_isCharacterDevice",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isFIFO": {
           "call": "ts_stats_isFIFO",
           "hirName": "ts_Stats_isFIFO",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isSocket": {
           "call": "ts_stats_isSocket",
           "hirName": "ts_Stats_isSocket",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         }
       }
     },
     "Dirent": {
       "kind": "interface",
       "properties": {
-        "name": { "type": "string" }
+        "name": {
+          "type": "string"
+        }
       },
       "methods": {
         "isBlockDevice": {
@@ -81,56 +100,58 @@
           "hirName": "ts_Dirent_isBlockDevice",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isCharacterDevice": {
           "call": "ts_dirent_isCharacterDevice",
           "hirName": "ts_Dirent_isCharacterDevice",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isDirectory": {
           "call": "ts_dirent_isDirectory",
           "hirName": "ts_Dirent_isDirectory",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isFIFO": {
           "call": "ts_dirent_isFIFO",
           "hirName": "ts_Dirent_isFIFO",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isFile": {
           "call": "ts_dirent_isFile",
           "hirName": "ts_Dirent_isFile",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isSocket": {
           "call": "ts_dirent_isSocket",
           "hirName": "ts_Dirent_isSocket",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         },
         "isSymbolicLink": {
           "call": "ts_dirent_isSymbolicLink",
           "hirName": "ts_Dirent_isSymbolicLink",
           "params": [],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": [], "returns": "i1" }
         }
       }
     },
     "Dir": {
       "kind": "interface",
       "properties": {
-        "path": { "type": "string" }
+        "path": {
+          "type": "string"
+        }
       },
       "methods": {
         "readSync": {
@@ -138,28 +159,28 @@
           "hirName": "ts_Dir_readSync",
           "params": [],
           "returns": "Dirent",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "read": {
           "call": "ts_dir_read",
           "hirName": "ts_Dir_read",
           "params": [],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "closeSync": {
           "call": "ts_dir_closeSync",
           "hirName": "ts_Dir_closeSync",
           "params": [],
           "returns": "void",
-          "lowering": { "args": ["ptr"], "returns": "void" }
+          "lowering": { "args": [], "returns": "void" }
         },
         "close": {
           "call": "ts_dir_close",
           "hirName": "ts_Dir_close",
           "params": [],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         }
       }
     },
@@ -170,25 +191,29 @@
           "call": "ts_event_emitter_on",
           "hirName": "ts_FSWatcher_on",
           "params": [
-            { "name": "event", "type": "string" },
-            { "name": "handler", "type": "any" }
+            {"name": "event", "type": "string"},
+            {"name": "handler", "type": "any"}
           ],
           "returns": "void",
-          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "close": {
           "call": "ts_fswatcher_close",
           "hirName": "ts_FSWatcher_close",
           "params": [],
           "returns": "void",
-          "lowering": { "args": ["ptr"], "returns": "void" }
+          "lowering": { "args": [], "returns": "void" }
         }
       }
     },
     "FileHandle": {
       "kind": "interface",
       "properties": {
-        "fd": { "type": "number", "getter": "ts_fs_filehandle_get_fd", "lowering": { "args": ["ptr"], "returns": "f64" } }
+        "fd": {
+          "type": "number",
+          "getter": "ts_fs_filehandle_get_fd",
+          "lowering": { "args": [], "returns": "f64" }
+        }
       },
       "methods": {
         "close": {
@@ -196,106 +221,110 @@
           "hirName": "ts_FileHandle_close",
           "params": [],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "stat": {
           "call": "ts_fs_filehandle_stat_async",
           "hirName": "ts_FileHandle_stat",
           "params": [],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "chmod": {
           "call": "ts_fs_filehandle_chmod_async",
           "hirName": "ts_FileHandle_chmod",
-          "params": [{ "name": "mode", "type": "number" }],
+          "params": [
+            {"name": "mode", "type": "number"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64"], "returns": "ptr" }
         },
         "chown": {
           "call": "ts_fs_filehandle_chown_async",
           "hirName": "ts_FileHandle_chown",
           "params": [
-            { "name": "uid", "type": "number" },
-            { "name": "gid", "type": "number" }
+            {"name": "uid", "type": "number"},
+            {"name": "gid", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64", "f64"], "returns": "ptr" }
         },
         "sync": {
           "call": "ts_fs_filehandle_sync_async",
           "hirName": "ts_FileHandle_sync",
           "params": [],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "datasync": {
           "call": "ts_fs_filehandle_datasync_async",
           "hirName": "ts_FileHandle_datasync",
           "params": [],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "truncate": {
           "call": "ts_fs_filehandle_truncate_async",
           "hirName": "ts_FileHandle_truncate",
-          "params": [{ "name": "len", "type": "number" }],
+          "params": [
+            {"name": "len", "type": "number"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64"], "returns": "ptr" }
         },
         "utimes": {
           "call": "ts_fs_filehandle_utimes_async",
           "hirName": "ts_FileHandle_utimes",
           "params": [
-            { "name": "atime", "type": "number" },
-            { "name": "mtime", "type": "number" }
+            {"name": "atime", "type": "number"},
+            {"name": "mtime", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64", "f64"], "returns": "ptr" }
         },
         "read": {
           "call": "ts_fs_filehandle_read_async",
           "hirName": "ts_FileHandle_read",
           "params": [
-            { "name": "buffer", "type": "any" },
-            { "name": "offset", "type": "number" },
-            { "name": "length", "type": "number" },
-            { "name": "position", "type": "number" }
+            {"name": "buffer", "type": "any"},
+            {"name": "offset", "type": "number"},
+            {"name": "length", "type": "number"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed", "f64", "f64", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "f64", "f64", "f64"], "returns": "ptr" }
         },
         "write": {
           "call": "ts_fs_filehandle_write_async",
           "hirName": "ts_FileHandle_write",
           "params": [
-            { "name": "buffer", "type": "any" },
-            { "name": "offset", "type": "number" },
-            { "name": "length", "type": "number" },
-            { "name": "position", "type": "number" }
+            {"name": "buffer", "type": "any"},
+            {"name": "offset", "type": "number"},
+            {"name": "length", "type": "number"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed", "f64", "f64", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "f64", "f64", "f64"], "returns": "ptr" }
         },
         "readv": {
           "call": "ts_fs_filehandle_readv_async",
           "hirName": "ts_FileHandle_readv",
           "params": [
-            { "name": "buffers", "type": "array" },
-            { "name": "position", "type": "number" }
+            {"name": "buffers", "type": "array"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "f64"], "returns": "ptr" }
         },
         "writev": {
           "call": "ts_fs_filehandle_writev_async",
           "hirName": "ts_FileHandle_writev",
           "params": [
-            { "name": "buffers", "type": "array" },
-            { "name": "position", "type": "number" }
+            {"name": "buffers", "type": "array"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "f64"], "returns": "ptr" }
         }
       }
     },
@@ -306,248 +335,266 @@
           "call": "ts_fs_promises_open",
           "hirName": "ts_FsPromises_open",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "flags", "type": "any", "optional": true },
-            { "name": "mode", "type": "number", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "flags", "type": "any", "optional": true},
+            {"name": "mode", "type": "number", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["boxed", "f64"], "returns": "ptr" }
         },
         "readFile": {
           "call": "ts_fs_readFile_async",
           "hirName": "ts_FsPromises_readFile",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "writeFile": {
           "call": "ts_fs_writeFile_async",
           "hirName": "ts_FsPromises_writeFile",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "data", "type": "string" }
+            {"name": "path", "type": "string"},
+            {"name": "data", "type": "string"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "access": {
           "call": "ts_fs_access_async",
           "hirName": "ts_FsPromises_access",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "mode", "type": "number", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "mode", "type": "number", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64"], "returns": "ptr" }
         },
         "chmod": {
           "call": "ts_fs_chmod_async",
           "hirName": "ts_FsPromises_chmod",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "mode", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "mode", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64"], "returns": "ptr" }
         },
         "chown": {
           "call": "ts_fs_chown_async",
           "hirName": "ts_FsPromises_chown",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "uid", "type": "number" },
-            { "name": "gid", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "uid", "type": "number"},
+            {"name": "gid", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64", "f64"], "returns": "ptr" }
         },
         "utimes": {
           "call": "ts_fs_utimes_async",
           "hirName": "ts_FsPromises_utimes",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "atime", "type": "number" },
-            { "name": "mtime", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "atime", "type": "number"},
+            {"name": "mtime", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64", "f64"], "returns": "ptr" }
         },
         "statfs": {
           "call": "ts_fs_statfs_async",
           "hirName": "ts_FsPromises_statfs",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "link": {
           "call": "ts_fs_link_async",
           "hirName": "ts_FsPromises_link",
           "params": [
-            { "name": "existingPath", "type": "string" },
-            { "name": "newPath", "type": "string" }
+            {"name": "existingPath", "type": "string"},
+            {"name": "newPath", "type": "string"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "symlink": {
           "call": "ts_fs_symlink_async",
           "hirName": "ts_FsPromises_symlink",
           "params": [
-            { "name": "target", "type": "string" },
-            { "name": "path", "type": "string" },
-            { "name": "type", "type": "string", "optional": true }
+            {"name": "target", "type": "string"},
+            {"name": "path", "type": "string"},
+            {"name": "type", "type": "string", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
         },
         "readlink": {
           "call": "ts_fs_readlink_async",
           "hirName": "ts_FsPromises_readlink",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "realpath": {
           "call": "ts_fs_realpath_async",
           "hirName": "ts_FsPromises_realpath",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "lstat": {
           "call": "ts_fs_lstat_async",
           "hirName": "ts_FsPromises_lstat",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "stat": {
           "call": "ts_fs_stat_async",
           "hirName": "ts_FsPromises_stat",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "readdir": {
           "call": "ts_fs_readdir_async",
           "hirName": "ts_FsPromises_readdir",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "opendir": {
           "call": "ts_fs_opendir_async",
           "hirName": "ts_FsPromises_opendir",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
         },
         "rename": {
           "call": "ts_fs_rename_async",
           "hirName": "ts_FsPromises_rename",
           "params": [
-            { "name": "oldPath", "type": "string" },
-            { "name": "newPath", "type": "string" }
+            {"name": "oldPath", "type": "string"},
+            {"name": "newPath", "type": "string"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "copyFile": {
           "call": "ts_fs_copyFile_async",
           "hirName": "ts_FsPromises_copyFile",
           "params": [
-            { "name": "src", "type": "string" },
-            { "name": "dest", "type": "string" },
-            { "name": "flags", "type": "number", "optional": true }
+            {"name": "src", "type": "string"},
+            {"name": "dest", "type": "string"},
+            {"name": "flags", "type": "number", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "ptr", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["ptr", "f64"], "returns": "ptr" }
         },
         "cp": {
           "call": "ts_fs_cp_async",
           "hirName": "ts_FsPromises_cp",
           "params": [
-            { "name": "src", "type": "string" },
-            { "name": "dest", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "src", "type": "string"},
+            {"name": "dest", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "ptr", "boxed"], "returns": "ptr" }
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
         },
         "truncate": {
           "call": "ts_fs_truncate_async",
           "hirName": "ts_FsPromises_truncate",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "len", "type": "number", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "len", "type": "number", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64"], "returns": "ptr" }
         },
         "appendFile": {
           "call": "ts_fs_appendFile_async",
           "hirName": "ts_FsPromises_appendFile",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "data", "type": "string" }
+            {"name": "path", "type": "string"},
+            {"name": "data", "type": "string"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "mkdir": {
           "call": "ts_fs_mkdir_async",
           "hirName": "ts_FsPromises_mkdir",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
         },
         "rmdir": {
           "call": "ts_fs_rmdir_async",
           "hirName": "ts_FsPromises_rmdir",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
         },
         "rm": {
           "call": "ts_fs_rm_async",
           "hirName": "ts_FsPromises_rm",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
         },
         "mkdtemp": {
           "call": "ts_fs_mkdtemp_async",
           "hirName": "ts_FsPromises_mkdtemp",
-          "params": [{ "name": "prefix", "type": "string" }],
+          "params": [
+            {"name": "prefix", "type": "string"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "unlink": {
           "call": "ts_fs_unlink_async",
           "hirName": "ts_FsPromises_unlink",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "readv": {
           "call": "ts_fs_promises_readv",
           "hirName": "ts_FsPromises_readv",
           "params": [
-            { "name": "handle", "type": "any" },
-            { "name": "buffers", "type": "array" },
-            { "name": "position", "type": "number" }
+            {"name": "handle", "type": "any"},
+            {"name": "buffers", "type": "array"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "any",
           "lowering": { "args": ["boxed", "boxed", "f64"], "returns": "ptr" }
@@ -556,9 +603,9 @@
           "call": "ts_fs_promises_writev",
           "hirName": "ts_FsPromises_writev",
           "params": [
-            { "name": "handle", "type": "any" },
-            { "name": "buffers", "type": "array" },
-            { "name": "position", "type": "number" }
+            {"name": "handle", "type": "any"},
+            {"name": "buffers", "type": "array"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "any",
           "lowering": { "args": ["boxed", "boxed", "f64"], "returns": "ptr" }
@@ -567,62 +614,63 @@
           "call": "ts_fs_lchmod_async",
           "hirName": "ts_FsPromises_lchmod",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "mode", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "mode", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64"], "returns": "ptr" }
         },
         "lchown": {
           "call": "ts_fs_lchown_async",
           "hirName": "ts_FsPromises_lchown",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "uid", "type": "number" },
-            { "name": "gid", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "uid", "type": "number"},
+            {"name": "gid", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64", "f64"], "returns": "ptr" }
         },
         "lutimes": {
           "call": "ts_fs_lutimes_async",
           "hirName": "ts_FsPromises_lutimes",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "atime", "type": "number" },
-            { "name": "mtime", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "atime", "type": "number"},
+            {"name": "mtime", "type": "number"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "f64", "f64"], "returns": "ptr" }
+          "lowering": { "args": ["f64", "f64"], "returns": "ptr" }
         },
         "watch": {
           "call": "ts_fs_promises_watch",
           "hirName": "ts_FsPromises_watch",
           "params": [
-            { "name": "filename", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "filename", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
+          "lowering": { "args": ["boxed"], "returns": "ptr" }
         }
       }
     }
   },
-
   "objects": {
     "fs": {
       "methods": {
         "readFileSync": {
           "call": "ts_fs_readFileSync",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "Buffer",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "writeFileSync": {
           "call": "ts_fs_writeFileSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "data", "type": "string" }
+            {"name": "path", "type": "string"},
+            {"name": "data", "type": "string"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
@@ -630,27 +678,29 @@
         "openSync": {
           "call": "ts_fs_openSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "flags", "type": "any", "optional": true },
-            { "name": "mode", "type": "number", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "flags", "type": "any", "optional": true},
+            {"name": "mode", "type": "number", "optional": true}
           ],
           "returns": "number",
           "lowering": { "args": ["ptr", "boxed", "f64"], "returns": "f64" }
         },
         "closeSync": {
           "call": "ts_fs_closeSync",
-          "params": [{ "name": "fd", "type": "number" }],
+          "params": [
+            {"name": "fd", "type": "number"}
+          ],
           "returns": "void",
           "lowering": { "args": ["f64"], "returns": "void" }
         },
         "readSync": {
           "call": "ts_fs_readSync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "buffer", "type": "any" },
-            { "name": "offset", "type": "number" },
-            { "name": "length", "type": "number" },
-            { "name": "position", "type": "number" }
+            {"name": "fd", "type": "number"},
+            {"name": "buffer", "type": "any"},
+            {"name": "offset", "type": "number"},
+            {"name": "length", "type": "number"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "number",
           "lowering": { "args": ["f64", "boxed", "f64", "f64", "f64"], "returns": "f64" }
@@ -658,26 +708,28 @@
         "writeSync": {
           "call": "ts_fs_writeSync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "buffer", "type": "any" },
-            { "name": "offset", "type": "number" },
-            { "name": "length", "type": "number" },
-            { "name": "position", "type": "number" }
+            {"name": "fd", "type": "number"},
+            {"name": "buffer", "type": "any"},
+            {"name": "offset", "type": "number"},
+            {"name": "length", "type": "number"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "number",
           "lowering": { "args": ["f64", "boxed", "f64", "f64", "f64"], "returns": "f64" }
         },
         "existsSync": {
           "call": "ts_fs_existsSync",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "boolean",
           "lowering": { "args": ["ptr"], "returns": "i1" }
         },
         "accessSync": {
           "call": "ts_fs_accessSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "mode", "type": "number", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "mode", "type": "number", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "i64"], "returns": "void" }
@@ -685,8 +737,8 @@
         "chmodSync": {
           "call": "ts_fs_chmodSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "mode", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "mode", "type": "number"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "i64"], "returns": "void" }
@@ -694,9 +746,9 @@
         "chownSync": {
           "call": "ts_fs_chownSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "uid", "type": "number" },
-            { "name": "gid", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "uid", "type": "number"},
+            {"name": "gid", "type": "number"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "i64", "i64"], "returns": "void" }
@@ -704,24 +756,26 @@
         "utimesSync": {
           "call": "ts_fs_utimesSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "atime", "type": "number" },
-            { "name": "mtime", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "atime", "type": "number"},
+            {"name": "mtime", "type": "number"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "f64", "f64"], "returns": "void" }
         },
         "statfsSync": {
           "call": "ts_fs_statfsSync",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "linkSync": {
           "call": "ts_fs_linkSync",
           "params": [
-            { "name": "existingPath", "type": "string" },
-            { "name": "newPath", "type": "string" }
+            {"name": "existingPath", "type": "string"},
+            {"name": "newPath", "type": "string"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
@@ -729,30 +783,34 @@
         "symlinkSync": {
           "call": "ts_fs_symlinkSync",
           "params": [
-            { "name": "target", "type": "string" },
-            { "name": "path", "type": "string" },
-            { "name": "type", "type": "string", "optional": true }
+            {"name": "target", "type": "string"},
+            {"name": "path", "type": "string"},
+            {"name": "type", "type": "string", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
         },
         "readlinkSync": {
           "call": "ts_fs_readlinkSync",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "string",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "realpathSync": {
           "call": "ts_fs_realpathSync",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "string",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "fchmodSync": {
           "call": "ts_fs_fchmodSync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "mode", "type": "number" }
+            {"name": "fd", "type": "number"},
+            {"name": "mode", "type": "number"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "f64"], "returns": "void" }
@@ -760,9 +818,9 @@
         "fchownSync": {
           "call": "ts_fs_fchownSync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "uid", "type": "number" },
-            { "name": "gid", "type": "number" }
+            {"name": "fd", "type": "number"},
+            {"name": "uid", "type": "number"},
+            {"name": "gid", "type": "number"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "f64", "f64"], "returns": "void" }
@@ -770,36 +828,42 @@
         "futimesSync": {
           "call": "ts_fs_futimesSync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "atime", "type": "number" },
-            { "name": "mtime", "type": "number" }
+            {"name": "fd", "type": "number"},
+            {"name": "atime", "type": "number"},
+            {"name": "mtime", "type": "number"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "f64", "f64"], "returns": "void" }
         },
         "fstatSync": {
           "call": "ts_fs_fstatSync",
-          "params": [{ "name": "fd", "type": "number" }],
+          "params": [
+            {"name": "fd", "type": "number"}
+          ],
           "returns": "Stats",
           "lowering": { "args": ["f64"], "returns": "ptr" }
         },
         "fsyncSync": {
           "call": "ts_fs_fsyncSync",
-          "params": [{ "name": "fd", "type": "number" }],
+          "params": [
+            {"name": "fd", "type": "number"}
+          ],
           "returns": "void",
           "lowering": { "args": ["f64"], "returns": "void" }
         },
         "fdatasyncSync": {
           "call": "ts_fs_fdatasyncSync",
-          "params": [{ "name": "fd", "type": "number" }],
+          "params": [
+            {"name": "fd", "type": "number"}
+          ],
           "returns": "void",
           "lowering": { "args": ["f64"], "returns": "void" }
         },
         "ftruncateSync": {
           "call": "ts_fs_ftruncateSync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "len", "type": "number", "optional": true }
+            {"name": "fd", "type": "number"},
+            {"name": "len", "type": "number", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "f64"], "returns": "void" }
@@ -807,8 +871,8 @@
         "lchmodSync": {
           "call": "ts_fs_lchmodSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "mode", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "mode", "type": "number"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "i64"], "returns": "void" }
@@ -816,9 +880,9 @@
         "lchownSync": {
           "call": "ts_fs_lchownSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "uid", "type": "number" },
-            { "name": "gid", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "uid", "type": "number"},
+            {"name": "gid", "type": "number"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "i64", "i64"], "returns": "void" }
@@ -826,51 +890,59 @@
         "lutimesSync": {
           "call": "ts_fs_lutimesSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "atime", "type": "number" },
-            { "name": "mtime", "type": "number" }
+            {"name": "path", "type": "string"},
+            {"name": "atime", "type": "number"},
+            {"name": "mtime", "type": "number"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "f64", "f64"], "returns": "void" }
         },
         "statSync": {
           "call": "ts_fs_statSync",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "Stats",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "readdirSync": {
           "call": "ts_fs_readdirSync",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "any",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "opendirSync": {
           "call": "ts_fs_opendirSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "Dir",
           "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
         },
         "lstatSync": {
           "call": "ts_fs_lstatSync",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "Stats",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "unlinkSync": {
           "call": "ts_fs_unlinkSync",
-          "params": [{ "name": "path", "type": "string" }],
+          "params": [
+            {"name": "path", "type": "string"}
+          ],
           "returns": "void",
           "lowering": { "args": ["ptr"], "returns": "void" }
         },
         "renameSync": {
           "call": "ts_fs_renameSync",
           "params": [
-            { "name": "oldPath", "type": "string" },
-            { "name": "newPath", "type": "string" }
+            {"name": "oldPath", "type": "string"},
+            {"name": "newPath", "type": "string"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
@@ -878,9 +950,9 @@
         "copyFileSync": {
           "call": "ts_fs_copyFileSync",
           "params": [
-            { "name": "src", "type": "string" },
-            { "name": "dest", "type": "string" },
-            { "name": "flags", "type": "number", "optional": true }
+            {"name": "src", "type": "string"},
+            {"name": "dest", "type": "string"},
+            {"name": "flags", "type": "number", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "ptr", "i64"], "returns": "void" }
@@ -888,9 +960,9 @@
         "cpSync": {
           "call": "ts_fs_cpSync",
           "params": [
-            { "name": "src", "type": "string" },
-            { "name": "dest", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "src", "type": "string"},
+            {"name": "dest", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "ptr", "boxed"], "returns": "void" }
@@ -898,8 +970,8 @@
         "truncateSync": {
           "call": "ts_fs_truncateSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "len", "type": "number", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "len", "type": "number", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "i64"], "returns": "void" }
@@ -907,8 +979,8 @@
         "appendFileSync": {
           "call": "ts_fs_appendFileSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "data", "type": "string" }
+            {"name": "path", "type": "string"},
+            {"name": "data", "type": "string"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
@@ -916,8 +988,8 @@
         "mkdirSync": {
           "call": "ts_fs_mkdirSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
@@ -925,8 +997,8 @@
         "rmdirSync": {
           "call": "ts_fs_rmdirSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
@@ -934,24 +1006,26 @@
         "rmSync": {
           "call": "ts_fs_rmSync",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
         },
         "mkdtempSync": {
           "call": "ts_fs_mkdtempSync",
-          "params": [{ "name": "prefix", "type": "string" }],
+          "params": [
+            {"name": "prefix", "type": "string"}
+          ],
           "returns": "string",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "readvSync": {
           "call": "ts_fs_readvSync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "buffers", "type": "array" },
-            { "name": "position", "type": "number" }
+            {"name": "fd", "type": "number"},
+            {"name": "buffers", "type": "array"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "number",
           "lowering": { "args": ["f64", "boxed", "f64"], "returns": "f64" }
@@ -959,9 +1033,9 @@
         "writevSync": {
           "call": "ts_fs_writevSync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "buffers", "type": "array" },
-            { "name": "position", "type": "number" }
+            {"name": "fd", "type": "number"},
+            {"name": "buffers", "type": "array"},
+            {"name": "position", "type": "number"}
           ],
           "returns": "number",
           "lowering": { "args": ["f64", "boxed", "f64"], "returns": "f64" }
@@ -969,10 +1043,10 @@
         "open": {
           "call": "ts_fs_open",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "flags", "type": "any" },
-            { "name": "mode", "type": "any", "optional": true },
-            { "name": "callback", "type": "any" }
+            {"name": "path", "type": "string"},
+            {"name": "flags", "type": "any"},
+            {"name": "mode", "type": "any", "optional": true},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "boxed", "boxed", "boxed"], "returns": "void" }
@@ -980,8 +1054,8 @@
         "close": {
           "call": "ts_fs_close",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "boxed"], "returns": "void" }
@@ -989,12 +1063,12 @@
         "read": {
           "call": "ts_fs_read",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "buffer", "type": "any" },
-            { "name": "offset", "type": "number" },
-            { "name": "length", "type": "number" },
-            { "name": "position", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "buffer", "type": "any"},
+            {"name": "offset", "type": "number"},
+            {"name": "length", "type": "number"},
+            {"name": "position", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "boxed", "f64", "f64", "f64", "boxed"], "returns": "void" }
@@ -1002,12 +1076,12 @@
         "write": {
           "call": "ts_fs_write",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "buffer", "type": "any" },
-            { "name": "offset", "type": "number" },
-            { "name": "length", "type": "number" },
-            { "name": "position", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "buffer", "type": "any"},
+            {"name": "offset", "type": "number"},
+            {"name": "length", "type": "number"},
+            {"name": "position", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "boxed", "f64", "f64", "f64", "boxed"], "returns": "void" }
@@ -1015,14 +1089,8 @@
         "exists": {
           "call": "ts_fs_exists",
           "params": [
-            { "name": "path", "type": "string" },
-            {
-              "name": "callback",
-              "type": {
-                "name": "function",
-                "typeArgs": [{ "name": "boolean" }]
-              }
-            }
+            {"name": "path", "type": "string"},
+            {"name": "callback", "type": {"name": "function", "typeArgs": [{"name": "boolean"}]}}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
@@ -1030,9 +1098,9 @@
         "fchmod": {
           "call": "ts_fs_fchmod",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "mode", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "mode", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "f64", "boxed"], "returns": "void" }
@@ -1040,10 +1108,10 @@
         "fchown": {
           "call": "ts_fs_fchown",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "uid", "type": "number" },
-            { "name": "gid", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "uid", "type": "number"},
+            {"name": "gid", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "f64", "f64", "boxed"], "returns": "void" }
@@ -1051,8 +1119,8 @@
         "fstat": {
           "call": "ts_fs_fstat",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "boxed"], "returns": "void" }
@@ -1060,8 +1128,8 @@
         "fsync": {
           "call": "ts_fs_fsync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "boxed"], "returns": "void" }
@@ -1069,8 +1137,8 @@
         "fdatasync": {
           "call": "ts_fs_fdatasync",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "boxed"], "returns": "void" }
@@ -1078,9 +1146,9 @@
         "ftruncate": {
           "call": "ts_fs_ftruncate",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "len", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "len", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "f64", "boxed"], "returns": "void" }
@@ -1088,10 +1156,10 @@
         "futimes": {
           "call": "ts_fs_futimes",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "atime", "type": "number" },
-            { "name": "mtime", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "atime", "type": "number"},
+            {"name": "mtime", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "f64", "f64", "boxed"], "returns": "void" }
@@ -1099,9 +1167,9 @@
         "lchmod": {
           "call": "ts_fs_lchmod",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "mode", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "path", "type": "string"},
+            {"name": "mode", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "f64", "boxed"], "returns": "void" }
@@ -1109,10 +1177,10 @@
         "lchown": {
           "call": "ts_fs_lchown",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "uid", "type": "number" },
-            { "name": "gid", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "path", "type": "string"},
+            {"name": "uid", "type": "number"},
+            {"name": "gid", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "f64", "f64", "boxed"], "returns": "void" }
@@ -1120,10 +1188,10 @@
         "lutimes": {
           "call": "ts_fs_lutimes",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "atime", "type": "number" },
-            { "name": "mtime", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "path", "type": "string"},
+            {"name": "atime", "type": "number"},
+            {"name": "mtime", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "f64", "f64", "boxed"], "returns": "void" }
@@ -1131,10 +1199,10 @@
         "cp": {
           "call": "ts_fs_cp",
           "params": [
-            { "name": "src", "type": "string" },
-            { "name": "dest", "type": "string" },
-            { "name": "options", "type": "any", "optional": true },
-            { "name": "callback", "type": "any" }
+            {"name": "src", "type": "string"},
+            {"name": "dest", "type": "string"},
+            {"name": "options", "type": "any", "optional": true},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "ptr", "boxed", "boxed"], "returns": "void" }
@@ -1142,10 +1210,10 @@
         "readv": {
           "call": "ts_fs_readv",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "buffers", "type": "array" },
-            { "name": "position", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "buffers", "type": "array"},
+            {"name": "position", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "boxed", "f64", "boxed"], "returns": "void" }
@@ -1153,10 +1221,10 @@
         "writev": {
           "call": "ts_fs_writev",
           "params": [
-            { "name": "fd", "type": "number" },
-            { "name": "buffers", "type": "array" },
-            { "name": "position", "type": "number" },
-            { "name": "callback", "type": "any" }
+            {"name": "fd", "type": "number"},
+            {"name": "buffers", "type": "array"},
+            {"name": "position", "type": "number"},
+            {"name": "callback", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["f64", "boxed", "f64", "boxed"], "returns": "void" }
@@ -1164,8 +1232,8 @@
         "createReadStream": {
           "call": "ts_fs_createReadStream",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "ReadStream",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
@@ -1173,8 +1241,8 @@
         "createWriteStream": {
           "call": "ts_fs_createWriteStream",
           "params": [
-            { "name": "path", "type": "string" },
-            { "name": "options", "type": "any", "optional": true }
+            {"name": "path", "type": "string"},
+            {"name": "options", "type": "any", "optional": true}
           ],
           "returns": "WriteStream",
           "lowering": { "args": ["ptr"], "returns": "ptr" }
@@ -1182,9 +1250,9 @@
         "watch": {
           "call": "ts_fs_watch",
           "params": [
-            { "name": "filename", "type": "string" },
-            { "name": "options", "type": "any", "optional": true },
-            { "name": "listener", "type": "any", "optional": true }
+            {"name": "filename", "type": "string"},
+            {"name": "options", "type": "any", "optional": true},
+            {"name": "listener", "type": "any", "optional": true}
           ],
           "returns": "FSWatcher",
           "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "ptr" }
@@ -1192,9 +1260,9 @@
         "watchFile": {
           "call": "ts_fs_watchFile",
           "params": [
-            { "name": "filename", "type": "string" },
-            { "name": "options", "type": "any", "optional": true },
-            { "name": "listener", "type": "any" }
+            {"name": "filename", "type": "string"},
+            {"name": "options", "type": "any", "optional": true},
+            {"name": "listener", "type": "any"}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
@@ -1202,23 +1270,33 @@
         "unwatchFile": {
           "call": "ts_fs_unwatchFile",
           "params": [
-            { "name": "filename", "type": "string" },
-            { "name": "listener", "type": "any", "optional": true }
+            {"name": "filename", "type": "string"},
+            {"name": "listener", "type": "any", "optional": true}
           ],
           "returns": "void",
           "lowering": { "args": ["ptr", "boxed"], "returns": "void" }
         }
       },
       "properties": {
-        "promises": { "type": "FsPromises" }
+        "promises": {
+          "type": "FsPromises"
+        }
       },
       "nestedObjects": {
         "constants": {
           "properties": {
-            "F_OK": { "type": "number" },
-            "R_OK": { "type": "number" },
-            "W_OK": { "type": "number" },
-            "X_OK": { "type": "number" }
+            "F_OK": {
+              "type": "number"
+            },
+            "R_OK": {
+              "type": "number"
+            },
+            "W_OK": {
+              "type": "number"
+            },
+            "X_OK": {
+              "type": "number"
+            }
           }
         }
       }

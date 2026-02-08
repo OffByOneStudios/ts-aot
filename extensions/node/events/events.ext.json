@@ -3,7 +3,6 @@
   "name": "events",
   "version": "1.0.0",
   "modules": ["events", "node:events"],
-
   "types": {
     "EventEmitter": {
       "kind": "class",
@@ -12,139 +11,139 @@
           "call": "ts_event_emitter_on",
           "hirName": "ts_EventEmitter_on",
           "params": [
-            { "name": "event", "type": "string" },
-            { "name": "listener", "type": "Function" }
+            {"name": "event", "type": "string"},
+            {"name": "listener", "type": "Function"}
           ],
           "returns": "EventEmitter",
-          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "addListener": {
           "call": "ts_event_emitter_on",
           "hirName": "ts_EventEmitter_addListener",
           "params": [
-            { "name": "event", "type": "string" },
-            { "name": "listener", "type": "Function" }
+            {"name": "event", "type": "string"},
+            {"name": "listener", "type": "Function"}
           ],
           "returns": "EventEmitter",
-          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "once": {
           "call": "ts_event_emitter_once",
           "hirName": "ts_EventEmitter_once",
           "params": [
-            { "name": "event", "type": "string" },
-            { "name": "listener", "type": "Function" }
+            {"name": "event", "type": "string"},
+            {"name": "listener", "type": "Function"}
           ],
           "returns": "EventEmitter",
-          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "prependListener": {
           "call": "ts_event_emitter_prepend_listener",
           "hirName": "ts_EventEmitter_prependListener",
           "params": [
-            { "name": "event", "type": "string" },
-            { "name": "listener", "type": "Function" }
+            {"name": "event", "type": "string"},
+            {"name": "listener", "type": "Function"}
           ],
           "returns": "EventEmitter",
-          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "prependOnceListener": {
           "call": "ts_event_emitter_prepend_once_listener",
           "hirName": "ts_EventEmitter_prependOnceListener",
           "params": [
-            { "name": "event", "type": "string" },
-            { "name": "listener", "type": "Function" }
+            {"name": "event", "type": "string"},
+            {"name": "listener", "type": "Function"}
           ],
           "returns": "EventEmitter",
-          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "emit": {
           "call": "ts_event_emitter_emit",
           "hirName": "ts_EventEmitter_emit",
           "params": [
-            { "name": "event", "type": "string" }
+            {"name": "event", "type": "string"}
           ],
           "returns": "boolean",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "i1" }
+          "lowering": { "args": ["ptr"], "returns": "i1" }
         },
         "removeListener": {
           "call": "ts_event_emitter_remove_listener",
           "hirName": "ts_EventEmitter_removeListener",
           "params": [
-            { "name": "event", "type": "string" },
-            { "name": "listener", "type": "Function" }
+            {"name": "event", "type": "string"},
+            {"name": "listener", "type": "Function"}
           ],
           "returns": "EventEmitter",
-          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "off": {
           "call": "ts_event_emitter_remove_listener",
           "hirName": "ts_EventEmitter_off",
           "params": [
-            { "name": "event", "type": "string" },
-            { "name": "listener", "type": "Function" }
+            {"name": "event", "type": "string"},
+            {"name": "listener", "type": "Function"}
           ],
           "returns": "EventEmitter",
-          "lowering": { "args": ["ptr", "ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "removeAllListeners": {
           "call": "ts_event_emitter_remove_all_listeners",
           "hirName": "ts_EventEmitter_removeAllListeners",
           "params": [
-            { "name": "event", "type": "string", "optional": true }
+            {"name": "event", "type": "string", "optional": true}
           ],
           "returns": "EventEmitter",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+          "lowering": { "args": ["ptr"], "returns": "void" }
         },
         "setMaxListeners": {
           "call": "ts_event_emitter_set_max_listeners",
           "hirName": "ts_EventEmitter_setMaxListeners",
           "params": [
-            { "name": "n", "type": "number" }
+            {"name": "n", "type": "number"}
           ],
           "returns": "EventEmitter",
-          "lowering": { "args": ["ptr", "i64"], "returns": "void" }
+          "lowering": { "args": ["i64"], "returns": "void" }
         },
         "getMaxListeners": {
           "call": "ts_event_emitter_get_max_listeners",
           "hirName": "ts_EventEmitter_getMaxListeners",
           "params": [],
           "returns": "number",
-          "lowering": { "args": ["ptr"], "returns": "i64" }
+          "lowering": { "args": [], "returns": "i64" }
         },
         "listenerCount": {
           "call": "ts_event_emitter_listener_count",
           "hirName": "ts_EventEmitter_listenerCount",
           "params": [
-            { "name": "event", "type": "string" }
+            {"name": "event", "type": "string"}
           ],
           "returns": "number",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "i64" }
+          "lowering": { "args": ["ptr"], "returns": "i64" }
         },
         "listeners": {
           "call": "ts_event_emitter_listeners",
           "hirName": "ts_EventEmitter_listeners",
           "params": [
-            { "name": "event", "type": "string" }
+            {"name": "event", "type": "string"}
           ],
           "returns": "Function[]",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "rawListeners": {
           "call": "ts_event_emitter_raw_listeners",
           "hirName": "ts_EventEmitter_rawListeners",
           "params": [
-            { "name": "event", "type": "string" }
+            {"name": "event", "type": "string"}
           ],
           "returns": "Function[]",
-          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
         },
         "eventNames": {
           "call": "ts_event_emitter_event_names",
           "hirName": "ts_EventEmitter_eventNames",
           "params": [],
           "returns": "string[]",
-          "lowering": { "args": ["ptr"], "returns": "ptr" }
+          "lowering": { "args": [], "returns": "ptr" }
         }
       },
       "staticMethods": {
@@ -152,8 +151,8 @@
           "call": "ts_event_emitter_static_listener_count",
           "hirName": "ts_EventEmitter_static_listenerCount",
           "params": [
-            { "name": "emitter", "type": "EventEmitter" },
-            { "name": "eventName", "type": "string" }
+            {"name": "emitter", "type": "EventEmitter"},
+            {"name": "eventName", "type": "string"}
           ],
           "returns": "number",
           "lowering": { "args": ["ptr", "ptr"], "returns": "i64" }
@@ -161,15 +160,14 @@
       }
     }
   },
-
   "objects": {
     "events": {
       "methods": {
         "once": {
           "call": "ts_event_emitter_static_once",
           "params": [
-            { "name": "emitter", "type": "EventEmitter" },
-            { "name": "event", "type": "string" }
+            {"name": "emitter", "type": "EventEmitter"},
+            {"name": "event", "type": "string"}
           ],
           "returns": "Promise",
           "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
@@ -177,15 +175,17 @@
         "on": {
           "call": "ts_event_emitter_static_on",
           "params": [
-            { "name": "emitter", "type": "EventEmitter" },
-            { "name": "event", "type": "string" }
+            {"name": "emitter", "type": "EventEmitter"},
+            {"name": "event", "type": "string"}
           ],
           "returns": "any",
           "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
         }
       },
       "properties": {
-        "EventEmitter": { "type": "EventEmitter" }
+        "EventEmitter": {
+          "type": "EventEmitter"
+        }
       }
     }
   }
