@@ -196,10 +196,16 @@ void ts_set_forEach(void* set, void* callback, void* thisArg) {
 }
 
 TsValue* ts_set_add_wrapper(void* context, TsValue* value) {
-    ts_set_add(context, value);
+    // Unbox context if it's a boxed TsValue* (e.g., from chaining: ws.add(a).add(b))
+    void* rawCtx = context;
+    TsValue* maybeVal = (TsValue*)context;
+    if (maybeVal && (uint8_t)maybeVal->type <= 10 && maybeVal->type == ValueType::OBJECT_PTR && maybeVal->ptr_val) {
+        rawCtx = maybeVal->ptr_val;
+    }
+    ts_set_add(rawCtx, value);
     TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
     res->type = ValueType::OBJECT_PTR;
-    res->ptr_val = context;
+    res->ptr_val = rawCtx;
     return res;
 }
 

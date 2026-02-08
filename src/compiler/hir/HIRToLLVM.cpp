@@ -2748,13 +2748,35 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
         // is typed as Any - this handles Map-backed objects like http.STATUS_CODES[200].
         // RegExpExecArray results are typed as "object" (not "any") and are arrays at runtime.
         bool useDynamicAccess = false;
+        bool isBuffer = false;
         if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
-            if (*hirVal && (*hirVal)->type && (*hirVal)->type->kind == HIRTypeKind::Any) {
-                useDynamicAccess = true;
+            if (*hirVal && (*hirVal)->type) {
+                if ((*hirVal)->type->kind == HIRTypeKind::Any) {
+                    useDynamicAccess = true;
+                } else if ((*hirVal)->type->kind == HIRTypeKind::Class &&
+                           (*hirVal)->type->className == "Buffer") {
+                    isBuffer = true;
+                }
             }
         }
-
-        if (!useDynamicAccess) {
+        if (isBuffer) {
+            // Buffer index access: buf[i] -> ts_buffer_read_uint8(buf, i)
+            if (idx->getType()->isDoubleTy()) {
+                idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+            }
+            auto ft = llvm::FunctionType::get(builder_->getInt64Ty(),
+                                              {builder_->getPtrTy(), builder_->getInt64Ty()}, false);
+            auto fn = module_->getOrInsertFunction("ts_buffer_read_uint8", ft);
+            result = builder_->CreateCall(ft, fn.getCallee(), {arr, idx});
+            // Result is already i64, wrap in inttoptr if needed for ptr context
+            if (inst->result && inst->result->type &&
+                inst->result->type->kind != HIRTypeKind::Int64 &&
+                inst->result->type->kind != HIRTypeKind::Float64) {
+                // Box to TsValue* for non-numeric contexts
+                auto boxFn = getTsValueMakeInt();
+                result = builder_->CreateCall(boxFn, {result});
+            }
+        } else if (!useDynamicAccess) {
             // Array index access
             // Convert index to i64 if it's a double (numeric literal indices come through as f64)
             if (idx->getType()->isDoubleTy()) {
@@ -2859,14 +2881,41 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
         auto fn = module_->getOrInsertFunction("ts_object_set_dynamic", ft);
         builder_->CreateCall(ft, fn.getCallee(), {arr, boxedKey, boxedVal});
     } else {
-        // Array index set
+        // Numeric index set - check if target is a Buffer
+        bool isBuffer = false;
+        if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+            if (*hirVal && (*hirVal)->type &&
+                (*hirVal)->type->kind == HIRTypeKind::Class &&
+                (*hirVal)->type->className == "Buffer") {
+                isBuffer = true;
+            }
+        }
+
         // Convert index to i64 if it's a double (numeric literal indices come through as f64)
         if (idx->getType()->isDoubleTy()) {
             idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
         }
 
-        auto fn = getTsArraySet();
-        builder_->CreateCall(fn, {arr, idx, val});
+        if (isBuffer) {
+            // Buffer index set: buf[i] = value -> ts_buffer_write_uint8(buf, value, i)
+            // Need the raw i64 value, not boxed
+            llvm::Value* rawVal = getOperandValue(inst->operands[2]);
+            if (rawVal->getType()->isDoubleTy()) {
+                rawVal = builder_->CreateFPToSI(rawVal, builder_->getInt64Ty(), "val_to_i64");
+            } else if (rawVal->getType()->isPointerTy()) {
+                // Unbox if it's a boxed value
+                auto unboxFn = getTsValueGetInt();
+                rawVal = builder_->CreateCall(unboxFn, {rawVal});
+            }
+            auto ft = llvm::FunctionType::get(builder_->getInt64Ty(),
+                                              {builder_->getPtrTy(), builder_->getInt64Ty(), builder_->getInt64Ty()}, false);
+            auto fn = module_->getOrInsertFunction("ts_buffer_write_uint8", ft);
+            builder_->CreateCall(ft, fn.getCallee(), {arr, rawVal, idx});
+        } else {
+            // Array index set
+            auto fn = getTsArraySet();
+            builder_->CreateCall(fn, {arr, idx, val});
+        }
     }
 }
 

@@ -73,8 +73,10 @@ TsBuffer* TsBuffer::FromArray(void* arrPtr) {
     size_t len = arr->Length();
     TsBuffer* buf = Create(len);
     for (size_t i = 0; i < len; i++) {
-        int64_t val = arr->Get(i);
-        buf->data[i] = (uint8_t)(val & 0xFF);
+        // Use GetElementDouble to handle both specialized double arrays
+        // and generic arrays correctly (TypeScript numbers are f64)
+        double val = arr->GetElementDouble(i);
+        buf->data[i] = (uint8_t)((int64_t)val & 0xFF);
     }
     return buf;
 }
@@ -885,6 +887,13 @@ extern "C" {
     }
 
     void* ts_buffer_from_string(void* str, void* encoding) {
+        // Check if the argument is actually an array (Buffer.from([...]))
+        if (str) {
+            uint32_t magic = *(uint32_t*)str;
+            if (magic == 0x41525259) { // TsArray MAGIC "ARRY"
+                return TsBuffer::FromArray(str);
+            }
+        }
         return TsBuffer::FromString((TsString*)str, (TsString*)encoding);
     }
 

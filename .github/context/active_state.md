@@ -5,15 +5,29 @@
 
 ## Current Focus
 1. Fixing extension system type resolution and inheritance
-2. Fixing remaining 40 failing node tests (11 compile errors, 29 runtime failures)
+2. Fixing remaining 32 failing node tests (9 compile errors, 23 runtime failures)
 3. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
 
 ## Active Tasks
-1. **Fix remaining node test failures** - 240/280 passing (85.7%)
+1. **Fix remaining node test failures** - 248/280 passing (88.6%)
 2. **Extension type inheritance** - Done (property/method/static method inheritance chain walking)
 3. **Extension return type patching** - Done (Pass 3 links bare ClassTypes to registered types)
 
 ## Recent Accomplishments (2026-02-08)
+*   **Buffer indexing (`buf[i]`) in HIRToLLVM:**
+    - `lowerGetElem` now detects Buffer-typed operands (HIRTypeKind::Class, className=="Buffer")
+    - Routes to `ts_buffer_read_uint8(buf, i)` instead of `ts_array_get(buf, i)` which crashed
+    - `lowerSetElem` also handles Buffer: calls `ts_buffer_write_uint8(buf, value, i)` instead of `ts_array_set`
+    - Fixed: buffer_advanced, buffer_encoding, buffer_typed_array, buffer_variable_length, crypto_hkdf
+*   **Buffer.from([array]) dispatch:**
+    - `ts_buffer_from_string` now detects TsArray (magic 0x41525259) and dispatches to `TsBuffer::FromArray`
+    - `FromArray` uses `GetElementDouble` instead of `Get` (TS stores numbers as f64)
+*   **WeakSet add/has/delete operations:**
+    - MapSetHandler now handles WeakSet/WeakMap via className detection
+    - ASTToHIR uses `ts_weakset_create` for `new WeakSet()` (was `ts_set_create`)
+    - `ts_set_add_wrapper` unboxes context for Set.add chaining support
+*   **Node tests: 248/280 (88.6%)**, Golden IR: 146/146 (100%)
+
 *   **Extension inheritance chain walking:**
     - `findProperty`, `findMethod`, `findStaticMethod` in ExtensionRegistry now walk up the `extends` chain
     - E.g., `ClientHttp2Stream.id` resolves via `ClientHttp2Stream` → `Http2Stream` inheritance

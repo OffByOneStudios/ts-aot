@@ -90,7 +90,7 @@ public:
                          const std::string& className,
                          HIRInstruction* inst) const override {
         // Map methods
-        if (className == "Map" || className.empty()) {
+        if (className == "Map" || className == "WeakMap" || className.empty()) {
             if (methodName == "set" || methodName == "get" ||
                 methodName == "has" || methodName == "delete" ||
                 methodName == "clear") {
@@ -98,7 +98,7 @@ public:
             }
         }
         // Set methods
-        if (className == "Set" || className.empty()) {
+        if (className == "Set" || className == "WeakSet" || className.empty()) {
             if (methodName == "add" || methodName == "has" ||
                 methodName == "delete" || methodName == "clear") {
                 return true;
@@ -116,6 +116,19 @@ public:
         // For method calls: operands[0] = object, operands[1] = methodName, operands[2..] = args
         llvm::Value* obj = lowerer.getOperandValue(inst->operands[0]);
 
+        // Determine if object is a Set type
+        bool isSet = false;
+        if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+            if (*valPtr && (*valPtr)->type) {
+                if ((*valPtr)->type->kind == HIRTypeKind::Set) {
+                    isSet = true;
+                } else if ((*valPtr)->type->kind == HIRTypeKind::Class &&
+                           ((*valPtr)->type->className == "WeakSet" || (*valPtr)->type->className == "Set")) {
+                    isSet = true;
+                }
+            }
+        }
+
         // Map methods
         if (methodName == "set") {
             return lowerMethodMapSet(inst, obj, lowerer);
@@ -124,13 +137,16 @@ public:
             return lowerMethodMapGet(inst, obj, lowerer);
         }
         if (methodName == "has") {
-            return lowerMethodHas(inst, obj, lowerer);
+            return isSet ? lowerMethodSetHas(inst, obj, lowerer)
+                         : lowerMethodHas(inst, obj, lowerer);
         }
         if (methodName == "delete") {
-            return lowerMethodDelete(inst, obj, lowerer);
+            return isSet ? lowerMethodSetDelete(inst, obj, lowerer)
+                         : lowerMethodDelete(inst, obj, lowerer);
         }
         if (methodName == "clear") {
-            return lowerMethodClear(inst, obj, lowerer);
+            return isSet ? lowerMethodSetClear(inst, obj, lowerer)
+                         : lowerMethodClear(inst, obj, lowerer);
         }
         if (methodName == "add") {
             return lowerMethodSetAdd(inst, obj, lowerer);
@@ -526,6 +542,55 @@ private:
             { builder.getPtrTy() },
             false);
         llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_clear_wrapper", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { obj });
+    }
+
+    // set.has(value) -> TsValue* (boxed bool)
+    llvm::Value* lowerMethodSetHas(HIRInstruction* inst, llvm::Value* obj, HIRToLLVM& lowerer) {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        llvm::Value* value = llvm::ConstantPointerNull::get(builder.getPtrTy());
+        if (inst->operands.size() > 2) {
+            value = boxForMapSet(lowerer.getOperandValue(inst->operands[2]), inst->operands[2], lowerer);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder.getPtrTy(),
+            { builder.getPtrTy(), builder.getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_set_has_wrapper", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { obj, value });
+    }
+
+    // set.delete(value) -> TsValue* (boxed bool)
+    llvm::Value* lowerMethodSetDelete(HIRInstruction* inst, llvm::Value* obj, HIRToLLVM& lowerer) {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        llvm::Value* value = llvm::ConstantPointerNull::get(builder.getPtrTy());
+        if (inst->operands.size() > 2) {
+            value = boxForMapSet(lowerer.getOperandValue(inst->operands[2]), inst->operands[2], lowerer);
+        }
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder.getPtrTy(),
+            { builder.getPtrTy(), builder.getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_set_delete_wrapper", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { obj, value });
+    }
+
+    // set.clear() -> TsValue* (undefined)
+    llvm::Value* lowerMethodSetClear(HIRInstruction* inst, llvm::Value* obj, HIRToLLVM& lowerer) {
+        auto& builder = lowerer.builder();
+        auto& module = lowerer.module();
+
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder.getPtrTy(),
+            { builder.getPtrTy() },
+            false);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_set_clear_wrapper", ft);
         return builder.CreateCall(ft, fn.getCallee(), { obj });
     }
 
