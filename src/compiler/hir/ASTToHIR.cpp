@@ -4215,6 +4215,10 @@ void ASTToHIR::visitAwaitExpression(ast::AwaitExpression* node) {
     if (node->expression) {
         // Lower the promise expression
         auto promise = lowerExpression(node->expression.get());
+        if (!promise) {
+            // Void call results return null - treat as await undefined
+            promise = builder_.createConstUndefined();
+        }
         // Create await instruction to wait for promise resolution
         lastValue_ = builder_.createAwait(promise);
     } else {
