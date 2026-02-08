@@ -23,7 +23,11 @@ static std::shared_ptr<HIRType> extTypeRefToHIR(const ext::TypeReference& typeRe
     if (name == "Array") return HIRType::makeArray(HIRType::makeAny());
     if (name == "Map") return HIRType::makeMap();
     if (name == "Set") return HIRType::makeSet();
-    // For class types and unknown types, use Any (the LoweringRegistry handles LLVM types)
+    // Check if this is a known extension class type
+    if (ext::ExtensionRegistry::instance().isExtensionType(name)) {
+        return HIRType::makeClass(name, 0);
+    }
+    // For unknown types, use Any (the LoweringRegistry handles LLVM types)
     return HIRType::makeAny();
 }
 
@@ -3820,7 +3824,8 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 if (propDef && propDef->getter && propDef->lowering) {
                     // Property has a getter function with lowering spec - emit a call to it
                     std::string getterFunc = *propDef->getter;
-                    lastValue_ = builder_.createCall(getterFunc, {obj}, HIRType::makeAny());
+                    auto retType = extTypeRefToHIR(propDef->type);
+                    lastValue_ = builder_.createCall(getterFunc, {obj}, retType);
                     return;
                 }
             }

@@ -1503,7 +1503,10 @@ static std::shared_ptr<Type> convertExtTypeRef(const ext::TypeReference& ref) {
         return std::make_shared<ArrayType>(elementType);
     }
 
-    // Default to ClassType for named types
+    // Default to ClassType for named types.
+    // NOTE: This creates a NEW ClassType without methods/fields.
+    // registerTypesFromExtensions() pass 3 will patch these up with the
+    // fully-populated ClassType from the symbol table after all types are registered.
     return std::make_shared<ClassType>(name);
 }
 
@@ -1700,6 +1703,66 @@ void Analyzer::registerTypesFromExtensions() {
         } else {
             SPDLOG_DEBUG("  Failed to resolve inheritance: {} extends {} (base not found)",
                          pending.typeName, pending.baseName);
+        }
+    }
+
+    // =========================================================================
+    // Pass 3: Patch method return types that reference other extension types
+    // =========================================================================
+    // convertExtTypeRef creates bare ClassType(name) without fields/methods.
+    // Now that all types are registered, replace these with the actual registered types.
+    for (const auto& contract : contracts) {
+        for (const auto& [typeName, typeDef] : contract.types) {
+            auto registeredType = symbols.lookupType(typeName);
+            if (!registeredType) continue;
+            auto classType = std::dynamic_pointer_cast<ClassType>(registeredType);
+            if (!classType) continue;
+
+            // Patch method return types
+            for (auto& [methodName, methodFunc] : classType->methods) {
+                if (methodFunc && methodFunc->returnType && methodFunc->returnType->kind == TypeKind::Class) {
+                    auto retClass = std::dynamic_pointer_cast<ClassType>(methodFunc->returnType);
+                    if (retClass && retClass->methods.empty() && retClass->fields.empty()) {
+                        // This is a bare ClassType - try to find the full registered version
+                        auto fullType = symbols.lookupType(retClass->name);
+                        if (fullType && fullType.get() != retClass.get()) {
+                            methodFunc->returnType = fullType;
+                        }
+                    }
+                }
+            }
+            // Patch static method return types
+            for (auto& [methodName, methodFunc] : classType->staticMethods) {
+                if (methodFunc && methodFunc->returnType && methodFunc->returnType->kind == TypeKind::Class) {
+                    auto retClass = std::dynamic_pointer_cast<ClassType>(methodFunc->returnType);
+                    if (retClass && retClass->methods.empty() && retClass->fields.empty()) {
+                        auto fullType = symbols.lookupType(retClass->name);
+                        if (fullType && fullType.get() != retClass.get()) {
+                            methodFunc->returnType = fullType;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also patch object method return types (e.g., http2.connect() -> ClientHttp2Session)
+        for (const auto& [objName, objDef] : contract.objects) {
+            auto sym = symbols.lookup(objName);
+            if (!sym) continue;
+            auto objType = std::dynamic_pointer_cast<ObjectType>(sym->type);
+            if (!objType) continue;
+            for (auto& [fieldName, fieldType] : objType->fields) {
+                auto funcType = std::dynamic_pointer_cast<FunctionType>(fieldType);
+                if (funcType && funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
+                    auto retClass = std::dynamic_pointer_cast<ClassType>(funcType->returnType);
+                    if (retClass && retClass->methods.empty() && retClass->fields.empty()) {
+                        auto fullType = symbols.lookupType(retClass->name);
+                        if (fullType && fullType.get() != retClass.get()) {
+                            funcType->returnType = fullType;
+                        }
+                    }
+                }
+            }
         }
     }
 
