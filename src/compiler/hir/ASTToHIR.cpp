@@ -1417,6 +1417,12 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
         if (varType->kind == HIRTypeKind::Any && initValue && initValue->type && initValue->type->kind != HIRTypeKind::Any) {
             varType = initValue->type;
         }
+        // Override: if initValue is a Generator (from generator method call), use that type
+        // The analyzer may infer the wrong class type (e.g., NumberRange instead of Generator)
+        if (initValue && initValue->type && initValue->type->kind == HIRTypeKind::Class &&
+            initValue->type->className == "Generator") {
+            varType = initValue->type;
+        }
 
         auto allocaPtr = builder_.createAlloca(varType, ident->name);
         builder_.createStore(initValue, allocaPtr, varType);
@@ -2905,7 +2911,12 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     methodArgs.push_back(arg);
                 }
                 // Direct call to the method function
-                lastValue_ = builder_.createCall(method->name, methodArgs, method->returnType);
+                // Generator methods return Generator, not the method's declared return type
+                auto resultType = method->returnType;
+                if (method->isGenerator) {
+                    resultType = HIRType::makeClass("Generator", 0);
+                }
+                lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
                 return;
             }
         }
@@ -2940,7 +2951,12 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                             for (auto& arg : args) {
                                 methodArgs.push_back(arg);
                             }
-                            lastValue_ = builder_.createCall(method->name, methodArgs, method->returnType);
+                            // Generator methods return Generator, not the method's declared return type
+                            auto resultType = method->returnType;
+                            if (method->isGenerator) {
+                                resultType = HIRType::makeClass("Generator", 0);
+                            }
+                            lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
                             return;
                         }
                         // Move to base class

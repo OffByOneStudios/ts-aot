@@ -186,7 +186,14 @@ private:
 
         llvm::Value* arr = lowerer.getOperandValue(inst->operands[1]);
         llvm::Value* startVal = lowerer.getOperandValue(inst->operands[2]);
-        llvm::Value* endVal = lowerer.getOperandValue(inst->operands[3]);
+
+        // End value is optional - if not provided, use INT64_MAX (runtime clamps to length)
+        llvm::Value* endVal;
+        if (inst->operands.size() > 3) {
+            endVal = lowerer.getOperandValue(inst->operands[3]);
+        } else {
+            endVal = llvm::ConstantInt::get(builder.getInt64Ty(), INT64_MAX);
+        }
 
         // Convert f64 indices to i64 if needed
         if (startVal->getType()->isDoubleTy()) {
