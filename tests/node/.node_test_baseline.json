@@ -114,7 +114,7 @@
   "functions/default_expressions.ts": "pass",
   "generators/generator_methods.ts": "compile_error",
   "generators/test_generators.ts": "compile_error",
-  "generators/test_yield_star.ts": "compile_error",
+  "generators/test_yield_star.ts": "pass",
   "global/commonjs_globals.ts": "pass",
   "globals/dirname_filename.ts": "pass",
   "http/client_request_flush_headers.ts": "fail",

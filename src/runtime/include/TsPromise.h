@@ -121,6 +121,8 @@ extern "C" {
     TsValue* ts_iterator_next(TsValue* iterator, TsValue* value);
     bool ts_iterator_result_done(TsValue* result);
     TsValue* ts_iterator_result_value(TsValue* result);
+    void ts_async_context_set_delegate_iterator(AsyncContext* ctx, TsValue* iter);
+    TsValue* ts_async_context_get_delegate_iterator(AsyncContext* ctx);
 
     // ES2024 Promise.withResolvers()
     TsValue* ts_promise_withResolvers();
