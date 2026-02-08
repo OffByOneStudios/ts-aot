@@ -662,6 +662,43 @@ TsValue* pipeline_finish_cb(void* context, int argc, TsValue** argv) {
     return ts_value_make_undefined();
 }
 
+static TsEventEmitter* unbox_stream(void* arg) {
+    if (!arg) return nullptr;
+    void* rawPtr = ts_value_get_object((TsValue*)arg);
+    if (!rawPtr) rawPtr = arg;
+    TsEventEmitter* ee = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
+    if (!ee) ee = ((TsObject*)rawPtr)->AsEventEmitter();
+    return ee;
+}
+
+// 3-arg version: pipeline(source, destination, callback)
+void* ts_stream_pipeline_3(void* source, void* dest, void* callback) {
+    if (!source || !dest) return nullptr;
+
+    PipelineContext* ctx = (PipelineContext*)ts_alloc(sizeof(PipelineContext));
+    ctx->callback = (TsValue*)callback;
+    ctx->streamCount = 2;
+    ctx->errorOccurred = false;
+    ctx->streams = (TsEventEmitter**)ts_alloc(sizeof(TsEventEmitter*) * 2);
+    ctx->streams[0] = unbox_stream(source);
+    ctx->streams[1] = unbox_stream(dest);
+
+    if (!ctx->streams[0] || !ctx->streams[1]) return nullptr;
+
+    TsValue* errorCb = ts_value_make_native_function((void*)pipeline_error_cb, ctx);
+    TsValue* finishCb = ts_value_make_native_function((void*)pipeline_finish_cb, ctx);
+
+    ctx->streams[0]->On("error", errorCb);
+    ctx->streams[1]->On("error", errorCb);
+
+    ts_stream_pipe(ctx->streams[0], ctx->streams[1]);
+
+    ctx->streams[1]->On("finish", finishCb);
+    ctx->streams[1]->On("close", finishCb);
+
+    return dest;
+}
+
 void* ts_stream_pipeline(void* streams, void* callback) {
     if (!streams) return nullptr;
 

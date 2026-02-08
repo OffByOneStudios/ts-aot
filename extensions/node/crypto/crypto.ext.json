@@ -213,17 +213,17 @@
           "lowering": { "args": ["ptr", "boxed", "boxed", "boxed"], "returns": "i1" }
         },
         "generateKeyPairSync": {
-          "call": "ts_crypto_generateKeyPairSync",
+          "call": "ts_crypto_generateKeyPairSync_opts",
           "hirName": "ts_crypto_generateKeyPairSync",
           "params": [
             {"name": "type", "type": "string"},
             {"name": "options", "type": "any"}
           ],
           "returns": "any",
-          "lowering": { "args": ["ptr", "i64", "ptr"], "returns": "ptr" }
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
         },
         "generateKeyPair": {
-          "call": "ts_crypto_generateKeyPair",
+          "call": "ts_crypto_generateKeyPair_opts",
           "hirName": "ts_crypto_generateKeyPair",
           "params": [
             {"name": "type", "type": "string"},
@@ -231,20 +231,20 @@
             {"name": "callback", "type": "Function"}
           ],
           "returns": "void",
-          "lowering": { "args": ["ptr", "i64", "ptr", "boxed"], "returns": "void" }
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
         },
         "generateKeySync": {
-          "call": "ts_crypto_generateKeySync",
+          "call": "ts_crypto_generateKeySync_opts",
           "hirName": "ts_crypto_generateKeySync",
           "params": [
             {"name": "type", "type": "string"},
             {"name": "options", "type": "any"}
           ],
           "returns": "KeyObject",
-          "lowering": { "args": ["ptr", "i64"], "returns": "ptr" }
+          "lowering": { "args": ["ptr", "boxed"], "returns": "ptr" }
         },
         "generateKey": {
-          "call": "ts_crypto_generateKey",
+          "call": "ts_crypto_generateKey_opts",
           "hirName": "ts_crypto_generateKey",
           "params": [
             {"name": "type", "type": "string"},
@@ -252,7 +252,7 @@
             {"name": "callback", "type": "Function"}
           ],
           "returns": "void",
-          "lowering": { "args": ["ptr", "i64", "boxed"], "returns": "void" }
+          "lowering": { "args": ["ptr", "boxed", "boxed"], "returns": "void" }
         },
         "createPrivateKey": {
           "call": "ts_crypto_createPrivateKey",
