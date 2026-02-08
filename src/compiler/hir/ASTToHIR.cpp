@@ -489,7 +489,9 @@ std::shared_ptr<HIRValue> ASTToHIR::lookupVariable(const std::string& name) {
     if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
         // Use cell-based access: ts_closure_get_cell(closure, index) -> ts_cell_get(cell)
         auto type = info->elemType ? info->elemType : HIRType::makeAny();
-        return builder_.createLoadCaptureFromClosure(info->closurePtr, info->captureIndex, type);
+        // closurePtr is an alloca - load the closure pointer first to ensure dominance
+        auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+        return builder_.createLoadCaptureFromClosure(closureVal, info->captureIndex, type);
     }
 
     if (info->isAlloca && info->elemType) {
@@ -501,30 +503,17 @@ std::shared_ptr<HIRValue> ASTToHIR::lookupVariable(const std::string& name) {
 
 bool ASTToHIR::isCapturedVariable(const std::string& name, size_t* outScopeIndex) {
     // Search from innermost to outermost scope
-    // A variable is captured only if it's defined in a DIFFERENT function (outer function)
-    // We need to track two things:
-    // 1. Have we seen our current function's boundary? (the first one we encounter)
-    // 2. Have we crossed into an outer function? (a second function boundary)
-    bool seenCurrentFunctionBoundary = false;
-    bool crossedFunctionBoundary = false;
+    // A variable is captured if it's defined in a scope that belongs to a DIFFERENT function.
+    // We use owningFunction to check this, rather than counting function boundaries,
+    // because block scopes (if/for/etc.) within a function are not function boundaries
+    // but still belong to the outer function.
     size_t scopeIndex = scopes_.size();
 
     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it, --scopeIndex) {
-        // Track function boundaries
-        if (it->isFunctionBoundary) {
-            if (seenCurrentFunctionBoundary) {
-                // This is a second function boundary - we've crossed into an outer function
-                crossedFunctionBoundary = true;
-            } else {
-                // This is the first function boundary (our current function)
-                seenCurrentFunctionBoundary = true;
-            }
-        }
-
         auto found = it->variables.find(name);
         if (found != it->variables.end()) {
-            // Found the variable - is it from an outer function?
-            if (crossedFunctionBoundary) {
+            // Found the variable - is it from a different function?
+            if (it->owningFunction != currentFunction_) {
                 if (outScopeIndex) *outScopeIndex = scopeIndex - 1;
                 return true;
             }
@@ -1343,7 +1332,11 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
                 auto* info = lookupVariableInfo(capName);
                 if (info && !info->isCapturedByNested) {
                     info->isCapturedByNested = true;
-                    info->closurePtr = closureVal;
+                    // Store closure pointer in an alloca to ensure SSA dominance
+                    // (closure may be created in try block but accessed from catch block)
+                    auto closureAlloca = builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
+                    builder_.createStore(closureVal, closureAlloca);
+                    info->closurePtr = closureAlloca;
                     info->captureIndex = captureIdx;
                 }
             }
@@ -4511,7 +4504,11 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
                 auto* info = lookupVariableInfo(capName);
                 if (info && !info->isCapturedByNested) {
                     info->isCapturedByNested = true;
-                    info->closurePtr = lastValue_;
+                    // Store closure pointer in an alloca to ensure SSA dominance
+                    // (closure may be created in try block but accessed from catch block)
+                    auto closureAlloca = builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
+                    builder_.createStore(lastValue_, closureAlloca);
+                    info->closurePtr = closureAlloca;
                     info->captureIndex = captureIdx;
                 }
             }

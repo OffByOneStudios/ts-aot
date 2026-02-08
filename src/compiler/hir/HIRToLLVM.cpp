@@ -2218,6 +2218,10 @@ void HIRToLLVM::lowerSafepointPoll(HIRInstruction* inst) {
 void HIRToLLVM::lowerAlloca(HIRInstruction* inst) {
     auto type = getOperandType(inst->operands[0]);
     llvm::Type* llvmType = getLLVMType(type);
+    // Void type cannot be used for alloca - use ptr instead (stores undefined/null)
+    if (llvmType->isVoidTy()) {
+        llvmType = builder_->getPtrTy();
+    }
 
     // For generator impl functions, use heap-allocated storage in ctx->data
     // instead of stack allocas, because the function returns on yield and
@@ -2251,6 +2255,10 @@ void HIRToLLVM::lowerAlloca(HIRInstruction* inst) {
 void HIRToLLVM::lowerLoad(HIRInstruction* inst) {
     auto type = getOperandType(inst->operands[0]);
     llvm::Type* llvmType = getLLVMType(type);
+    // Void type cannot be used for load - use ptr instead (loads undefined/null)
+    if (llvmType->isVoidTy()) {
+        llvmType = builder_->getPtrTy();
+    }
     llvm::Value* ptr = getOperandValue(inst->operands[1]);
     llvm::Value* result = builder_->CreateLoad(llvmType, ptr, "load");
     setValue(inst->result, result);
@@ -2279,6 +2287,11 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
     auto expectedType = inst->operands.size() > 2 ? getOperandType(inst->operands[2]) : nullptr;  // operands[2] is the element type
     if (expectedType) {
         llvm::Type* targetType = getLLVMType(expectedType);
+        // Void type in store context means the alloca was promoted to ptr.
+        // Treat it as ptr type (stores undefined/null).
+        if (targetType->isVoidTy()) {
+            targetType = builder_->getPtrTy();
+        }
         llvm::Type* valType = val->getType();
 
         // When storing to an Any-typed alloca (ptr), we need to box non-pointer values
