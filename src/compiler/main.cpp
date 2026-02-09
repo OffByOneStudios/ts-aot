@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
             ("O,opt", "Optimization level (0, 1, 2, 3, s, z)", cxxopts::value<std::string>()->default_value("0"))
             ("p,project", "Path to tsconfig.json (or auto-detect if not specified)", cxxopts::value<std::string>())
             ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())
-            ("small-icu", "Use a smaller ICU data set (English only)", cxxopts::value<bool>()->default_value("false"))
+            ("bundle-icu", "Bundle ICU data into executable (~29MB larger, for self-contained deployment)", cxxopts::value<bool>()->default_value("false"))
             ("native-parser", "Use native C++ parser (default: true)", cxxopts::value<bool>()->default_value("true"))
             ("legacy-parser", "Force legacy Node.js parser (dump_ast.js)", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage")
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
         driverOpts.dumpIR = result["dump-ir"].as<bool>();
         driverOpts.dumpHir = result["dump-hir"].as<bool>();
         driverOpts.dumpTypes = result["dump-types"].as<bool>();
-        driverOpts.smallIcu = result["small-icu"].as<bool>();
+        driverOpts.bundleIcu = result["bundle-icu"].as<bool>();
         driverOpts.verbose = result["verbose"].as<bool>();
 
         // Parser selection: --native-parser enables, --legacy-parser disables

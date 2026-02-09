@@ -34,6 +34,14 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
     // Initialize TsValue type
     initTsValueType();
 
+    // Emit ICU data path global if set (allows runtime to find icudt74l.dat)
+    if (!icuDataPath_.empty()) {
+        auto* strConst = llvm::ConstantDataArray::getString(context_, icuDataPath_, true);
+        new llvm::GlobalVariable(
+            *module_, strConst->getType(), true,
+            llvm::GlobalValue::ExternalLinkage, strConst, "__ts_icu_data_path");
+    }
+
     // Pre-create all global variables before lowering functions
     // This ensures each global is created exactly once with the correct name
     for (const auto& [name, type] : hirModule->globals) {

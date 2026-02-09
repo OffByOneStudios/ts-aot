@@ -210,6 +210,16 @@ int Driver::run() {
         // Create LLVM context (must outlive the module)
         hirContext = std::make_unique<llvm::LLVMContext>();
         hir::HIRToLLVM hirToLlvm(*hirContext);
+
+        // Embed ICU data path so compiled executables can find icudt74l.dat
+        // next to the compiler instead of needing a local copy
+        if (!options.bundleIcu) {
+            char compBuf[MAX_PATH];
+            GetModuleFileNameA(NULL, compBuf, MAX_PATH);
+            auto datPath = std::filesystem::path(compBuf).parent_path() / "icudt74l.dat";
+            hirToLlvm.setIcuDataPath(datPath.string());
+        }
+
         hirOwnedModule = hirToLlvm.lower(hirModule.get(), moduleName);
         modulePtr = hirOwnedModule.get();
 
@@ -341,7 +351,11 @@ int Driver::run() {
             linkOpts.libraries.push_back("gc.lib");           // Boehm GC
             linkOpts.libraries.push_back("icuuc.lib");        // ICU Unicode
             linkOpts.libraries.push_back("icuin.lib");        // ICU i18n
-            linkOpts.libraries.push_back("icudt.lib");        // ICU data
+            if (options.bundleIcu) {
+                linkOpts.libraries.push_back("icudt.lib");        // Full ICU data (~29MB, self-contained)
+            } else {
+                linkOpts.libraries.push_back("icudt_stub.lib");   // Stub (~0KB, loads data from external file)
+            }
             linkOpts.libraries.push_back("libsodium.lib");    // libsodium
             linkOpts.libraries.push_back("llhttp.lib");       // llhttp
             linkOpts.libraries.push_back("libssl.lib");       // OpenSSL SSL

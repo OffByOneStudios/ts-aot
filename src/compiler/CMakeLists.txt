@@ -132,3 +132,61 @@ target_link_libraries(ts-aot
     nlohmann_json::nlohmann_json
     spdlog::spdlog
 )
+
+# Extract icudt74l.dat from the vcpkg ICU static library and place it next to
+# ts-aot.exe. This file is needed at runtime by executables compiled without
+# --bundle-icu (the default). The extraction parses the COFF archive to find
+# the .rdata section containing the raw ICU data package.
+find_package(ICU COMPONENTS data REQUIRED)
+get_target_property(ICU_DATA_LIB ICU::data IMPORTED_LOCATION_RELEASE)
+if (NOT ICU_DATA_LIB)
+    get_target_property(ICU_DATA_LIB ICU::data IMPORTED_LOCATION)
+endif()
+if (ICU_DATA_LIB)
+    set(ICU_DAT_OUTPUT "$<TARGET_FILE_DIR:ts-aot>/icudt74l.dat")
+    set(ICU_EXTRACT_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/extract_icu_data.py")
+    file(WRITE ${ICU_EXTRACT_SCRIPT} "
+import struct, sys, os
+
+lib_path, out_path = sys.argv[1], sys.argv[2]
+if os.path.exists(out_path):
+    sys.exit(0)  # Already extracted
+
+with open(lib_path, 'rb') as f:
+    data = f.read()
+
+# Scan for COFF object with AMD64 machine type
+pos = 8  # Skip '!<arch>\\n'
+while pos < len(data):
+    idx = data.find(b'\\x64\\x86', pos)
+    if idx == -1:
+        break
+    machine = struct.unpack_from('<H', data, idx)[0]
+    num_sections = struct.unpack_from('<H', data, idx + 2)[0]
+    if machine == 0x8664 and 1 <= num_sections <= 20:
+        for i in range(num_sections):
+            sec_off = idx + 20 + i * 40
+            sec_name = data[sec_off:sec_off+8].rstrip(b'\\x00').decode('ascii', errors='replace')
+            sec_rawsize = struct.unpack_from('<I', data, sec_off + 16)[0]
+            sec_rawoff = struct.unpack_from('<I', data, sec_off + 20)[0]
+            if sec_name == '.rdata' and sec_rawsize > 1000000:
+                icu_data = data[idx + sec_rawoff:idx + sec_rawoff + sec_rawsize]
+                os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
+                with open(out_path, 'wb') as out:
+                    out.write(icu_data)
+                print(f'Extracted icudt74l.dat ({len(icu_data):,} bytes)')
+                sys.exit(0)
+        break
+    pos = idx + 2
+
+print('ERROR: Could not extract ICU data from ' + lib_path, file=sys.stderr)
+sys.exit(1)
+")
+    find_package(Python3 REQUIRED)
+    add_custom_command(
+        TARGET ts-aot POST_BUILD
+        COMMAND ${Python3_EXECUTABLE} ${ICU_EXTRACT_SCRIPT}
+                "${ICU_DATA_LIB}" "${ICU_DAT_OUTPUT}"
+        COMMENT "Extracting icudt74l.dat next to ts-aot.exe"
+    )
+endif()

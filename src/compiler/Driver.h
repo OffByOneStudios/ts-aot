@@ -20,7 +20,7 @@ struct DriverOptions {
     bool debug = false;
     bool debugRuntime = false;  // Link against debug version of tsruntime
     bool runAfterLink = false;
-    bool smallIcu = false;
+    bool bundleIcu = false;    // --bundle-icu: embed ICU data (~29MB larger, self-contained)
     bool verbose = false;
     bool useNativeParser = true;   // Use native C++ parser instead of Node.js dump_ast.js
     std::string runtimeBitcode;

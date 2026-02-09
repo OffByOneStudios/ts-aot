@@ -55,6 +55,9 @@ CMakeUserPresets.json
 *.tlog/
 *.lastbuildstate
 
+# ICU data file (30MB, extracted from vcpkg for external-data mode)
+icudt74l.dat
+
 # Temporary/Generated files
 tmp/
 *.txt
