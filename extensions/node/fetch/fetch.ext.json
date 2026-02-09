@@ -1,0 +1,65 @@
+{
+  "$schema": "../../extension-contract.schema.json",
+  "name": "fetch",
+  "version": "1.0.0",
+  "modules": [],
+  "types": {
+    "Response": {
+      "kind": "class",
+      "properties": {
+        "status": {
+          "type": "int",
+          "getter": "ts_response_status",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "statusText": {
+          "type": "string",
+          "getter": "ts_response_statusText",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "ok": {
+          "type": "boolean",
+          "getter": "ts_response_ok",
+          "lowering": { "args": [], "returns": "i1" }
+        },
+        "headers": {
+          "type": "any",
+          "getter": "ts_response_headers",
+          "lowering": { "args": [], "returns": "ptr" }
+        }
+      },
+      "methods": {
+        "text": {
+          "call": "ts_response_text",
+          "hirName": "ts_response_text",
+          "params": [],
+          "returns": "Promise",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "json": {
+          "call": "ts_response_json",
+          "hirName": "ts_response_json",
+          "params": [],
+          "returns": "Promise",
+          "lowering": { "args": [], "returns": "ptr" }
+        }
+      }
+    }
+  },
+  "globals": {
+    "fetch": {
+      "type": "function",
+      "call": "ts_fetch",
+      "hirName": "ts_fetch",
+      "params": [
+        {"name": "url", "type": "string"},
+        {"name": "options", "type": "any", "optional": true}
+      ],
+      "returns": "Promise",
+      "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+    },
+    "Response": {
+      "type": "Response"
+    }
+  }
+}

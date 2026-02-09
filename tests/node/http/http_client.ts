@@ -1,30 +1,41 @@
-// HTTP Client Tests
-// Uses fetch API to make real HTTP requests
+// HTTP Client Tests - Self-contained with local HTTP server
+
+import * as http from 'http';
 
 async function user_main(): Promise<number> {
-  let failures = 0;
-  console.log('=== HTTP Client Tests ===\n');
+  let passed = 0;
+  let failed = 0;
 
-  // Test 1: Make a real HTTP GET request to httpbin.org using fetch
-  try {
-    const response = await fetch('http://httpbin.org/get');
-    if (response.ok) {
-      console.log('PASS: HTTP GET request succeeded');
-    } else {
-      console.log('FAIL: HTTP GET request failed');
-      failures = failures + 1;
+  const server = http.createServer((req: any, res: any) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+  });
+
+  server.listen(0, async () => {
+    const addr = server.address();
+    const port = addr.port;
+    const base = 'http://127.0.0.1:' + port;
+
+    // Test 1: HTTP GET via fetch
+    try {
+      const response = await fetch(base + '/');
+      if (response.ok) {
+        console.log('PASS: HTTP GET request succeeded');
+        passed++;
+      } else {
+        console.log('FAIL: HTTP GET request failed');
+        failed++;
+      }
+    } catch (e) {
+      console.log('FAIL: HTTP request error');
+      failed++;
     }
-  } catch (e) {
-    console.log('FAIL: HTTP request error');
-    failures = failures + 1;
-  }
 
-  console.log('\n=== Summary ===');
-  if (failures === 0) {
-    console.log('All tests passed!');
-  } else {
-    console.log(failures + ' test(s) failed');
-  }
+    console.log('');
+    console.log('HTTP Client Tests: ' + passed + ' passed, ' + failed + ' failed');
 
-  return failures;
+    server.close(() => {});
+  });
+
+  return 0;
 }

@@ -17,10 +17,26 @@ extern "C" {
 // ===== Server creation and management =====
 
 void* ts_http_create_server(TsValue* options, void* callback) {
+    // Node.js convention: createServer(callback) or createServer(options, callback)
+    // When called with just a callback, the ext.json lowering passes the function
+    // pointer as the first arg (options) and callback is null.
+    if (options && !callback) {
+        callback = (void*)options;
+        options = nullptr;
+    }
+
     return TsHttpServer::Create(options, callback);
 }
 
 void* ts_https_create_server(TsValue* options, void* callback) {
+    // Same swap logic as HTTP createServer
+    if (options && !callback) {
+        uint32_t magic = *(uint32_t*)((char*)options);
+        if (magic == 0x434C5352) {
+            callback = (void*)options;
+            options = nullptr;
+        }
+    }
     return TsHttpsServer::Create(options, callback);
 }
 
@@ -35,8 +51,14 @@ void ts_http_server_listen(void* server, void* port_val, void* callback) {
     ((TsHttpServer*)server)->Listen(port, callback);
 }
 
+// Helper: extract raw pointer from potentially boxed TsValue*
+static void* unbox_ptr(void* ptr) {
+    void* raw = ts_value_get_object((TsValue*)ptr);
+    return raw ? raw : ptr;
+}
+
 void ts_http_server_response_write_head(void* res, int64_t status, TsValue* headers) {
-    TsServerResponse* r = (TsServerResponse*)res;
+    TsServerResponse* r = (TsServerResponse*)unbox_ptr(res);
     TsObject* h = nullptr;
     if (headers && headers->type == ValueType::OBJECT_PTR) {
         h = (TsObject*)headers->ptr_val;
@@ -45,7 +67,7 @@ void ts_http_server_response_write_head(void* res, int64_t status, TsValue* head
 }
 
 bool ts_http_server_response_write(void* res, void* data) {
-    TsServerResponse* r = (TsServerResponse*)res;
+    TsServerResponse* r = (TsServerResponse*)unbox_ptr(res);
     TsValue* val = (TsValue*)data;
     if (val->type == ValueType::STRING_PTR) {
         TsString* str = (TsString*)val->ptr_val;
@@ -58,7 +80,7 @@ bool ts_http_server_response_write(void* res, void* data) {
 }
 
 void ts_http_server_response_end(void* res, void* data) {
-    TsServerResponse* r = (TsServerResponse*)res;
+    TsServerResponse* r = (TsServerResponse*)unbox_ptr(res);
     if (data) {
         r->End(*(TsValue*)data);
     } else {
@@ -69,42 +91,42 @@ void ts_http_server_response_end(void* res, void* data) {
 // ===== IncomingMessage property getters =====
 
 void* ts_incoming_message_url(void* ctx, void* msg) {
-    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    TsIncomingMessage* m = (TsIncomingMessage*)unbox_ptr(msg);
     return m->url;
 }
 
 void* ts_incoming_message_method(void* ctx, void* msg) {
-    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    TsIncomingMessage* m = (TsIncomingMessage*)unbox_ptr(msg);
     return m->method;
 }
 
 void* ts_incoming_message_headers(void* ctx, void* msg) {
-    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    TsIncomingMessage* m = (TsIncomingMessage*)unbox_ptr(msg);
     return m->headers;
 }
 
 void* ts_incoming_message_statusCode(void* ctx, void* msg) {
-    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    TsIncomingMessage* m = (TsIncomingMessage*)unbox_ptr(msg);
     return ts_value_make_int(m->statusCode);
 }
 
 void* ts_incoming_message_statusMessage(void* ctx, void* msg) {
-    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    TsIncomingMessage* m = (TsIncomingMessage*)unbox_ptr(msg);
     return m->statusMessage;
 }
 
 void* ts_incoming_message_httpVersion(void* ctx, void* msg) {
-    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    TsIncomingMessage* m = (TsIncomingMessage*)unbox_ptr(msg);
     return m->httpVersion ? m->httpVersion : TsString::Create("");
 }
 
 bool ts_incoming_message_complete(void* ctx, void* msg) {
-    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    TsIncomingMessage* m = (TsIncomingMessage*)unbox_ptr(msg);
     return m->complete;
 }
 
 void* ts_incoming_message_rawHeaders(void* ctx, void* msg) {
-    TsIncomingMessage* m = (TsIncomingMessage*)msg;
+    TsIncomingMessage* m = (TsIncomingMessage*)unbox_ptr(msg);
     return m->rawHeaders ? m->rawHeaders : TsArray::Create();
 }
 

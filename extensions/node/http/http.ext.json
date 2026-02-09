@@ -507,36 +507,6 @@
           "lowering": { "args": ["boxed"], "returns": "void" }
         }
       }
-    },
-    "Response": {
-      "kind": "class",
-      "properties": {
-        "status": {
-          "type": "int"
-        },
-        "statusText": {
-          "type": "string"
-        },
-        "ok": {
-          "type": "boolean"
-        }
-      },
-      "methods": {
-        "text": {
-          "call": "ts_response_text",
-          "hirName": "ts_response_text",
-          "params": [],
-          "returns": "Promise",
-          "lowering": { "args": [], "returns": "ptr" }
-        },
-        "json": {
-          "call": "ts_response_json",
-          "hirName": "ts_response_json",
-          "params": [],
-          "returns": "Promise",
-          "lowering": { "args": [], "returns": "ptr" }
-        }
-      }
     }
   },
   "objects": {
@@ -677,20 +647,6 @@
     }
   },
   "globals": {
-    "fetch": {
-      "type": "function",
-      "call": "ts_fetch",
-      "hirName": "ts_fetch",
-      "params": [
-        {"name": "url", "type": "string"},
-        {"name": "options", "type": "any", "optional": true}
-      ],
-      "returns": "Promise",
-      "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
-    },
-    "Response": {
-      "type": "Response"
-    },
     "WebSocket": {
       "type": "WebSocket"
     }

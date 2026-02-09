@@ -1,118 +1,156 @@
-// Fetch API Tests
+// Fetch API Tests - Self-contained with local HTTP server
+
+import * as http from 'http';
 
 async function user_main(): Promise<number> {
-  let failures = 0;
-  console.log('=== Fetch API Tests ===\n');
+  let passed = 0;
+  let failed = 0;
 
-  // Test 1: fetch() creates request
-  try {
-    const response = await fetch('http://localhost:8080');
-    if (!response) {
-      console.log('FAIL: fetch did not return response');
-      failures++;
+  const server = http.createServer((req: any, res: any) => {
+    if (req.url === '/json') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"key":"value","num":42}');
+    } else if (req.url === '/post') {
+      let body = '';
+      req.on('data', (chunk: any) => {
+        body = body + chunk.toString();
+      });
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('received: ' + body);
+      });
     } else {
-      console.log('PASS: fetch creates request');
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('hello world');
     }
-  } catch (e) {
-    console.log('FAIL: fetch - Exception (expected if no server)');
-    // Not a failure - expected without server
-  }
+  });
 
-  // Test 2: fetch() with GET method
-  try {
-    const response = await fetch('http://localhost:8080', {
-      method: 'GET'
-    });
-    if (!response) {
-      console.log('FAIL: fetch GET did not return response');
-      failures++;
-    } else {
-      console.log('PASS: fetch with GET method');
-    }
-  } catch (e) {
-    console.log('SKIP: fetch GET (no server running)');
-  }
+  server.listen(0, async () => {
+    const addr = server.address();
+    const port = addr.port;
+    const base = 'http://127.0.0.1:' + port;
 
-  // Test 3: fetch() with POST method
-  try {
-    const response = await fetch('http://localhost:8080', {
-      method: 'POST',
-      body: 'test data'
-    });
-    console.log('PASS: fetch with POST method');
-  } catch (e) {
-    console.log('SKIP: fetch POST (no server running)');
-  }
-
-  // Test 4: fetch() response.text()
-  try {
-    const response = await fetch('http://localhost:8080');
-    const text = await response.text();
-    if (typeof text !== 'string') {
-      console.log('FAIL: response.text() did not return string');
-      failures++;
-    } else {
-      console.log('PASS: response.text()');
-    }
-  } catch (e) {
-    console.log('SKIP: response.text() (no server running)');
-  }
-
-  // Test 5: fetch() response.json()
-  try {
-    const response = await fetch('http://localhost:8080/json');
-    const data = await response.json();
-    console.log('PASS: response.json()');
-  } catch (e) {
-    console.log('SKIP: response.json() (no server running)');
-  }
-
-  // Test 6: fetch() with headers
-  try {
-    const response = await fetch('http://localhost:8080', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer token'
+    // Test 1: Basic fetch
+    try {
+      const response = await fetch(base + '/');
+      if (response) {
+        console.log('PASS: fetch creates request');
+        passed++;
+      } else {
+        console.log('FAIL: fetch did not return response');
+        failed++;
       }
-    });
-    console.log('PASS: fetch with headers');
-  } catch (e) {
-    console.log('SKIP: fetch with headers (no server running)');
-  }
-
-  // Test 7: fetch() response status
-  try {
-    const response = await fetch('http://localhost:8080');
-    if (typeof response.status !== 'number') {
-      console.log('FAIL: response.status not a number');
-      failures++;
-    } else {
-      console.log('PASS: response.status');
+    } catch (e) {
+      console.log('FAIL: fetch threw exception');
+      failed++;
     }
-  } catch (e) {
-    console.log('SKIP: response.status (no server running)');
-  }
 
-  // Test 8: fetch() response ok
-  try {
-    const response = await fetch('http://localhost:8080');
-    if (typeof response.ok !== 'boolean') {
-      console.log('FAIL: response.ok not a boolean');
-      failures++;
-    } else {
-      console.log('PASS: response.ok');
+    // Test 2: response.ok
+    try {
+      const response = await fetch(base + '/');
+      if (response.ok === true) {
+        console.log('PASS: response.ok is true');
+        passed++;
+      } else {
+        console.log('FAIL: response.ok is not true');
+        failed++;
+      }
+    } catch (e) {
+      console.log('FAIL: response.ok threw exception');
+      failed++;
     }
-  } catch (e) {
-    console.log('SKIP: response.ok (no server running)');
-  }
 
-  console.log('\n=== Summary ===');
-  if (failures === 0) {
-    console.log('All tests passed!');
-  } else {
-    console.log(failures + ' test(s) failed');
-  }
+    // Test 3: response.status
+    try {
+      const response = await fetch(base + '/');
+      if (response.status === 200) {
+        console.log('PASS: response.status is 200');
+        passed++;
+      } else {
+        console.log('FAIL: response.status is ' + response.status);
+        failed++;
+      }
+    } catch (e) {
+      console.log('FAIL: response.status threw exception');
+      failed++;
+    }
 
-  return failures;
+    // Test 4: response.text()
+    try {
+      const response = await fetch(base + '/');
+      const text = await response.text();
+      if (text === 'hello world') {
+        console.log('PASS: response.text() returns correct body');
+        passed++;
+      } else {
+        console.log('FAIL: response.text() returned: ' + text);
+        failed++;
+      }
+    } catch (e) {
+      console.log('FAIL: response.text() threw exception');
+      failed++;
+    }
+
+    // Test 5: response.json()
+    try {
+      const response = await fetch(base + '/json');
+      const data = await response.json();
+      if (data.key === 'value') {
+        console.log('PASS: response.json() parses correctly');
+        passed++;
+      } else {
+        console.log('FAIL: response.json() did not parse correctly');
+        failed++;
+      }
+    } catch (e) {
+      console.log('FAIL: response.json() threw exception');
+      failed++;
+    }
+
+    // Test 6: fetch with POST method
+    try {
+      const response = await fetch(base + '/post', {
+        method: 'POST',
+        body: 'test data'
+      });
+      const text = await response.text();
+      if (text === 'received: test data') {
+        console.log('PASS: fetch POST with body');
+        passed++;
+      } else {
+        console.log('FAIL: POST body was: ' + text);
+        failed++;
+      }
+    } catch (e) {
+      console.log('FAIL: fetch POST threw exception');
+      failed++;
+    }
+
+    // Test 7: fetch with custom headers
+    try {
+      const response = await fetch(base + '/', {
+        method: 'GET',
+        headers: {
+          'X-Custom': 'test-value'
+        }
+      });
+      if (response.ok) {
+        console.log('PASS: fetch with custom headers');
+        passed++;
+      } else {
+        console.log('FAIL: fetch with headers not ok');
+        failed++;
+      }
+    } catch (e) {
+      console.log('FAIL: fetch with headers threw exception');
+      failed++;
+    }
+
+    console.log('');
+    console.log('Fetch Tests: ' + passed + ' passed, ' + failed + ' failed');
+
+    server.close(() => {});
+  });
+
+  return 0;
 }

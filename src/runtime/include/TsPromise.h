@@ -61,7 +61,7 @@ struct TsPromise : public TsObject {
     PromiseState state = PromiseState::Pending;
     TsValue value; // Result or Error
     bool handled = false;
-    
+
     // Callbacks
     struct Callback {
         TsValue onFulfilled;
@@ -77,6 +77,8 @@ struct TsPromise : public TsObject {
     TsPromise* catch_error(TsValue onRejected);
     TsPromise* finally(TsValue onFinally);
     void then_async(AsyncContext* asyncCtx);
+
+    TsValue GetPropertyVirtual(const char* key) override;
 };
 
 extern "C" {

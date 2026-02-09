@@ -244,7 +244,7 @@ int Driver::run() {
 
             // Extension library paths
             std::filesystem::path extensionsPath = compilerPath / ".." / ".." / ".." / "extensions" / "node";
-            std::vector<std::string> extensionModules = {"core", "path", "os", "util", "assert", "url", "dns", "dgram", "zlib", "crypto", "events", "stream", "fs", "tty", "net", "vm", "v8", "inspector", "module", "readline", "string_decoder", "perf_hooks", "async_hooks", "http", "http2", "child_process", "cluster"};
+            std::vector<std::string> extensionModules = {"core", "path", "os", "util", "assert", "url", "dns", "dgram", "zlib", "crypto", "events", "stream", "fs", "tty", "net", "vm", "v8", "inspector", "module", "readline", "string_decoder", "perf_hooks", "async_hooks", "http", "http2", "child_process", "cluster", "fetch"};
             for (const auto& mod : extensionModules) {
                 if (options.debugRuntime) {
                     linkOpts.libraryPaths.push_back((extensionsPath / mod / "Debug").string());
@@ -299,6 +299,7 @@ int Driver::run() {
             linkOpts.libraries.push_back("ts_http2.lib");  // HTTP/2 module extension
             linkOpts.libraries.push_back("ts_child_process.lib");  // Child Process module extension
             linkOpts.libraries.push_back("ts_cluster.lib");  // Cluster module extension
+            linkOpts.libraries.push_back("ts_fetch.lib");  // Fetch API extension
             linkOpts.libraries.push_back("tommath.lib");
 
             // Runtime depends on spdlog/fmt when SPDLOG_COMPILED_LIB is enabled.
