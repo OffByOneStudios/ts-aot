@@ -278,9 +278,17 @@ int Driver::run() {
             }
 
             // Extension library paths
+            // Note: /OPT:REF already eliminates unreferenced symbols from static libs,
+            // so unconditionally linking all extensions has no binary size impact.
             std::filesystem::path extensionsPath = compilerPath / ".." / ".." / ".." / "extensions" / "node";
-            std::vector<std::string> extensionModules = {"core", "path", "os", "util", "assert", "url", "dns", "dgram", "zlib", "crypto", "events", "stream", "fs", "tty", "net", "vm", "v8", "inspector", "module", "readline", "string_decoder", "perf_hooks", "async_hooks", "http", "http2", "child_process", "cluster", "fetch"};
-            for (const auto& mod : extensionModules) {
+            static const std::vector<std::string> extensionPathModules = {
+                "core", "path", "os", "util", "assert", "url", "dns", "dgram",
+                "zlib", "crypto", "events", "stream", "fs", "tty", "net", "vm",
+                "v8", "inspector", "module", "readline", "string_decoder",
+                "perf_hooks", "async_hooks", "http", "http2", "child_process",
+                "cluster", "fetch"
+            };
+            for (const auto& mod : extensionPathModules) {
                 if (options.debugRuntime) {
                     linkOpts.libraryPaths.push_back((extensionsPath / mod / "Debug").string());
                     linkOpts.libraryPaths.push_back((extensionsPath / mod / "Release").string());
@@ -306,35 +314,39 @@ int Driver::run() {
                 linkOpts.libraryPaths.push_back(path);
             }
 
+            // Core runtime libraries
             linkOpts.libraries.push_back("tsruntime.lib");
             linkOpts.libraries.push_back("nodecore.lib");
-            linkOpts.libraries.push_back("ts_path.lib");  // Path module extension
-            linkOpts.libraries.push_back("ts_os.lib");    // OS module extension
-            linkOpts.libraries.push_back("ts_util.lib");  // Util module extension
-            linkOpts.libraries.push_back("ts_assert.lib");  // Assert module extension
-            linkOpts.libraries.push_back("ts_url.lib");  // URL module extension
-            linkOpts.libraries.push_back("ts_dns.lib");  // DNS module extension
-            linkOpts.libraries.push_back("ts_dgram.lib");  // Dgram module extension
-            linkOpts.libraries.push_back("ts_zlib.lib");  // Zlib module extension
-            linkOpts.libraries.push_back("ts_crypto.lib");  // Crypto module extension
-            linkOpts.libraries.push_back("ts_events.lib");  // Events module extension
-            linkOpts.libraries.push_back("ts_stream.lib");  // Stream module extension
-            linkOpts.libraries.push_back("ts_fs.lib");  // File system module extension
-            linkOpts.libraries.push_back("ts_tty.lib");  // TTY module extension
-            linkOpts.libraries.push_back("ts_net.lib");  // Net module extension
-            linkOpts.libraries.push_back("ts_vm.lib");  // VM module extension (stubs)
-            linkOpts.libraries.push_back("ts_v8.lib");  // V8 module extension (stubs)
-            linkOpts.libraries.push_back("ts_inspector.lib");  // Inspector module extension (stubs)
-            linkOpts.libraries.push_back("ts_module.lib");  // Module module extension
-            linkOpts.libraries.push_back("ts_readline.lib");  // Readline module extension
-            linkOpts.libraries.push_back("ts_string_decoder.lib");  // StringDecoder module extension
-            linkOpts.libraries.push_back("ts_perf_hooks.lib");  // PerfHooks module extension
-            linkOpts.libraries.push_back("ts_async_hooks.lib");  // AsyncHooks module extension
-            linkOpts.libraries.push_back("ts_http.lib");  // HTTP module extension
-            linkOpts.libraries.push_back("ts_http2.lib");  // HTTP/2 module extension
-            linkOpts.libraries.push_back("ts_child_process.lib");  // Child Process module extension
-            linkOpts.libraries.push_back("ts_cluster.lib");  // Cluster module extension
-            linkOpts.libraries.push_back("ts_fetch.lib");  // Fetch API extension
+
+            // Extension libraries (all linked unconditionally - /OPT:REF strips unused)
+            linkOpts.libraries.push_back("ts_path.lib");
+            linkOpts.libraries.push_back("ts_os.lib");
+            linkOpts.libraries.push_back("ts_util.lib");
+            linkOpts.libraries.push_back("ts_assert.lib");
+            linkOpts.libraries.push_back("ts_url.lib");
+            linkOpts.libraries.push_back("ts_dns.lib");
+            linkOpts.libraries.push_back("ts_dgram.lib");
+            linkOpts.libraries.push_back("ts_zlib.lib");
+            linkOpts.libraries.push_back("ts_crypto.lib");
+            linkOpts.libraries.push_back("ts_events.lib");
+            linkOpts.libraries.push_back("ts_stream.lib");
+            linkOpts.libraries.push_back("ts_fs.lib");
+            linkOpts.libraries.push_back("ts_tty.lib");
+            linkOpts.libraries.push_back("ts_net.lib");
+            linkOpts.libraries.push_back("ts_vm.lib");
+            linkOpts.libraries.push_back("ts_v8.lib");
+            linkOpts.libraries.push_back("ts_inspector.lib");
+            linkOpts.libraries.push_back("ts_module.lib");
+            linkOpts.libraries.push_back("ts_readline.lib");
+            linkOpts.libraries.push_back("ts_string_decoder.lib");
+            linkOpts.libraries.push_back("ts_perf_hooks.lib");
+            linkOpts.libraries.push_back("ts_async_hooks.lib");
+            linkOpts.libraries.push_back("ts_http.lib");
+            linkOpts.libraries.push_back("ts_http2.lib");
+            linkOpts.libraries.push_back("ts_child_process.lib");
+            linkOpts.libraries.push_back("ts_cluster.lib");
+            linkOpts.libraries.push_back("ts_fetch.lib");
+
             linkOpts.libraries.push_back("tommath.lib");
 
             // Runtime depends on spdlog/fmt when SPDLOG_COMPILED_LIB is enabled.
