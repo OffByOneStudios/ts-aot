@@ -398,8 +398,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `String.prototype.replaceAll()` | ✅ | |
 | `Promise.any()` | ✅ | |
-| `WeakRef` | ❌ | |
-| `FinalizationRegistry` | ❌ | |
+| `WeakRef` | ✅ | Strong reference with Boehm GC (deref() always returns target) |
+| `FinalizationRegistry` | ✅ | Best-effort no-op (Boehm GC limitation) |
 | Logical assignment (`&&=`, `\|\|=`, `??=`) | ✅ | Short-circuit semantics |
 | Numeric separators (`1_000_000`) | ✅ | |
 
@@ -464,13 +464,13 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2018 | 8 | 0 | 0 | 8 | 100% |
 | ES2019 | 8 | 0 | 1 | 9 | 89% |
 | ES2020 | 7 | 0 | 3 | 10 | 70% |
-| ES2021 | 4 | 0 | 2 | 6 | 67% |
+| ES2021 | 6 | 0 | 0 | 6 | 100% |
 | ES2022 | 9 | 0 | 1 | 10 | 90% |
 | ES2023 | 8 | 0 | 0 | 8 | 100% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **214** | **2** | **14** | **230** | **93%** |
+| **TOTAL** | **216** | **2** | **12** | **230** | **94%** |
 
-**Overall ECMAScript Conformance: 214/230 features (93%)**
+**Overall ECMAScript Conformance: 216/230 features (94%)**
 
 ---
 

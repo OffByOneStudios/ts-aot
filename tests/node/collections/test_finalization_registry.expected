@@ -1,0 +1,6 @@
+PASS: FinalizationRegistry created
+PASS: register() with all args works
+PASS: register() with 2 args works
+PASS: unregister() returns boolean
+PASS: Multiple registrations work
+FinalizationRegistry tests complete

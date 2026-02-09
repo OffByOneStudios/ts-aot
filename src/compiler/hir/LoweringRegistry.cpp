@@ -1089,6 +1089,46 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     // ========================================
+    // WeakRef
+    // ========================================
+    reg.registerLowering("ts_weakref_create",
+        lowering("ts_weakref_create")
+            .returnsPtr()
+            .ptrArg()      // target
+            .build());
+
+    reg.registerLowering("ts_weakref_deref",
+        lowering("ts_weakref_deref")
+            .returnsBoxed()
+            .ptrArg()      // weakref
+            .build());
+
+    // ========================================
+    // FinalizationRegistry
+    // ========================================
+    reg.registerLowering("ts_finalization_registry_create",
+        lowering("ts_finalization_registry_create")
+            .returnsPtr()
+            .ptrArg()      // cleanup callback
+            .build());
+
+    reg.registerLowering("ts_finalization_registry_register",
+        lowering("ts_finalization_registry_register")
+            .returnsVoid()
+            .ptrArg()      // registry
+            .ptrArg()      // target
+            .boxedArg()    // heldValue
+            .boxedArg()    // unregisterToken
+            .build());
+
+    reg.registerLowering("ts_finalization_registry_unregister",
+        lowering("ts_finalization_registry_unregister")
+            .returnsBool()
+            .ptrArg()      // registry
+            .boxedArg()    // unregisterToken
+            .build());
+
+    // ========================================
     // JSON methods
     // ========================================
     reg.registerLowering("ts_json_parse",

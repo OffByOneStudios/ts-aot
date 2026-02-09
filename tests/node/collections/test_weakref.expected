@@ -1,0 +1,5 @@
+PASS: WeakRef.deref() returns target
+PASS: WeakRef.deref() returns target consistently
+PASS: WeakRef works with arrays
+PASS: Multiple WeakRefs to same target work
+WeakRef tests complete
