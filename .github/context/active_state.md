@@ -1,15 +1,37 @@
 # Active Project State
 
-**Last Updated:** 2026-02-08
-**Current Phase:** Runtime Hardening & Test Fixes
+**Last Updated:** 2026-02-09
+**Current Phase:** Feature Completeness & Performance
 
 ## Current Focus
-1. Fixing remaining 11 failing node tests (0 compile errors, 11 runtime failures)
-2. Epic plan: `C:\Users\cgrin\.claude\plans\cryptic-exploring-pudding.md`
+1. ECMAScript conformance improvements (94% → higher)
+2. Performance optimization roadmap (Phase 1: Unboxed Arrays)
 
 ## Active Tasks
-1. **Fix remaining node test failures** - 269/280 passing (96.1%)
-2. **All compile errors resolved** - 0 remaining
+1. **Native C++ parser** - COMPLETE (be94cd4), default since 2026-02-09
+2. **Extension migration** - COMPLETE, all 30+ modules migrated to ext.json
+3. **Node tests: 282/282 (100%)**, Golden IR: 146/146 (100%)
+4. **ECMAScript conformance gaps** - 12 features remaining (see ecmascript-features.md)
+
+## Recent Accomplishments (2026-02-09)
+*   **WeakRef & FinalizationRegistry (ES2021)**:
+    - WeakRef: strong reference wrapper (Boehm GC limitation), deref() returns target
+    - FinalizationRegistry: best-effort no-op (register/unregister compile but callbacks don't fire)
+    - Runtime: TsWeakRef.h/cpp with TsWeakRef and TsFinalizationRegistry classes
+    - Compiler: ASTToHIR new-expression handling + method dispatch for deref/register/unregister
+    - Tests: 2 new tests (test_weakref.ts, test_finalization_registry.ts), 282/282 passing
+    - ECMAScript conformance: ES2021 100% (was 67%), overall 94% (was 93%)
+*   **Native C++ TypeScript Parser** (commit be94cd4):
+    - Hand-rolled recursive descent parser (~4,300 LOC) replacing Node.js dump_ast.js dependency
+    - Pratt expression parser with 19 precedence levels, full operator coverage
+    - Type annotations stored as opaque strings (matching dump_ast.js behavior)
+    - Speculative parsing for ambiguous constructs (const enum, arrow functions, generics)
+    - AST Serializer for JSON comparison testing
+    - Native parser is now the default (--legacy-parser flag for fallback)
+    - All 146/146 golden IR tests pass, all 280/280 node tests pass
+*   **Node tests at 100%** - 280/280 passing (up from 269/280)
+    - Fixed: fetch_basic.js/ts (fetch extension), crypto_async_kdf (param boxing), http2_server (listen callback)
+    - Fixed: util_callbackify (async throw → rejection), stream_utilities (pipeline variadics)
 
 ## Recent Accomplishments (2026-02-08)
 *   **Local variable shadow detection in ASTToHIR Case 4:**
@@ -170,7 +192,7 @@
 
 ## Conformance Status
 - TypeScript: 99% (117/118 runtime features)
-- ECMAScript: 93% (214/230 features)
+- ECMAScript: 94% (216/230 features)
 - Node.js: 99% (1031/1040 features)
 
 ## Performance Optimization Roadmap

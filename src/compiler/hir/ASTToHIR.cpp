@@ -3132,6 +3132,40 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         return;
                     }
                 }
+
+                // Case 2c: Built-in WeakRef/FinalizationRegistry instance methods
+                if (className == "WeakRef" && propAccess->name == "deref") {
+                    auto obj = lowerExpression(propAccess->expression.get());
+                    lastValue_ = builder_.createCall("ts_weakref_deref", {obj}, HIRType::makeAny());
+                    return;
+                }
+                if (className == "FinalizationRegistry") {
+                    if (propAccess->name == "register") {
+                        auto obj = lowerExpression(propAccess->expression.get());
+                        std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                        methodArgs.push_back(obj);
+                        for (auto& arg : args) {
+                            methodArgs.push_back(arg);
+                        }
+                        // Pad to 4 args (registry, target, heldValue, unregisterToken)
+                        while (methodArgs.size() < 4) {
+                            methodArgs.push_back(builder_.createConstUndefined());
+                        }
+                        builder_.createCall("ts_finalization_registry_register", methodArgs, HIRType::makeVoid());
+                        lastValue_ = builder_.createConstUndefined();
+                        return;
+                    }
+                    if (propAccess->name == "unregister") {
+                        auto obj = lowerExpression(propAccess->expression.get());
+                        std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                        methodArgs.push_back(obj);
+                        for (auto& arg : args) {
+                            methodArgs.push_back(arg);
+                        }
+                        lastValue_ = builder_.createCall("ts_finalization_registry_unregister", methodArgs, HIRType::makeBool());
+                        return;
+                    }
+                }
             }
         }
 
@@ -3687,6 +3721,31 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     // Handle built-in WeakSet class (implemented as Set wrapper with distinct magic)
     if (className == "WeakSet") {
         lastValue_ = builder_.createCall("ts_weakset_create", {}, HIRType::makeSet());
+        return;
+    }
+
+    // Handle built-in WeakRef class
+    if (className == "WeakRef") {
+        if (!node->arguments.empty()) {
+            auto target = lowerExpression(node->arguments[0].get());
+            lastValue_ = builder_.createCall("ts_weakref_create", {target}, HIRType::makeClass("WeakRef", 0));
+        } else {
+            lastValue_ = builder_.createCall("ts_weakref_create",
+                {builder_.createConstNull()}, HIRType::makeClass("WeakRef", 0));
+        }
+        return;
+    }
+
+    // Handle built-in FinalizationRegistry class
+    if (className == "FinalizationRegistry") {
+        if (!node->arguments.empty()) {
+            auto callback = lowerExpression(node->arguments[0].get());
+            lastValue_ = builder_.createCall("ts_finalization_registry_create", {callback},
+                HIRType::makeClass("FinalizationRegistry", 0));
+        } else {
+            lastValue_ = builder_.createCall("ts_finalization_registry_create",
+                {builder_.createConstNull()}, HIRType::makeClass("FinalizationRegistry", 0));
+        }
         return;
     }
 

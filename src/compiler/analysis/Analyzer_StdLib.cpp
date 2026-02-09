@@ -855,6 +855,44 @@ Analyzer::Analyzer() {
     weakSetCtor->returnType = weakSetClass;
     symbols.define("WeakSet", weakSetCtor);
 
+    // Register WeakRef class
+    auto weakRefClass = std::make_shared<ClassType>("WeakRef");
+
+    auto weakRefDeref = std::make_shared<FunctionType>();
+    weakRefDeref->returnType = std::make_shared<Type>(TypeKind::Any);
+    weakRefClass->methods["deref"] = weakRefDeref;
+
+    symbols.defineType("WeakRef", weakRefClass);
+
+    // Define WeakRef as a value (constructor takes target object)
+    auto weakRefCtor = std::make_shared<FunctionType>();
+    weakRefCtor->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));
+    weakRefCtor->returnType = weakRefClass;
+    symbols.define("WeakRef", weakRefCtor);
+
+    // Register FinalizationRegistry class
+    auto finRegClass = std::make_shared<ClassType>("FinalizationRegistry");
+
+    auto finRegRegister = std::make_shared<FunctionType>();
+    finRegRegister->paramTypes.push_back(std::make_shared<Type>(TypeKind::Object));  // target
+    finRegRegister->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));     // heldValue
+    finRegRegister->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));     // unregisterToken (optional)
+    finRegRegister->returnType = std::make_shared<Type>(TypeKind::Void);
+    finRegClass->methods["register"] = finRegRegister;
+
+    auto finRegUnregister = std::make_shared<FunctionType>();
+    finRegUnregister->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));  // unregisterToken
+    finRegUnregister->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    finRegClass->methods["unregister"] = finRegUnregister;
+
+    symbols.defineType("FinalizationRegistry", finRegClass);
+
+    // Define FinalizationRegistry as a value (constructor takes cleanup callback)
+    auto finRegCtor = std::make_shared<FunctionType>();
+    finRegCtor->paramTypes.push_back(std::make_shared<Type>(TypeKind::Function));
+    finRegCtor->returnType = finRegClass;
+    symbols.define("FinalizationRegistry", finRegCtor);
+
     // Register Object global
     auto objectType = std::make_shared<ObjectType>();
     
