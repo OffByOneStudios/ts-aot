@@ -5,6 +5,7 @@
 #include "TsString.h"
 #include "GC.h"
 #include <new>
+#include <uv.h>
 
 TsServer::TsServer() : listening(false), closed(false), maxConnections(-1) {
     this->magic = MAGIC;
@@ -20,6 +21,20 @@ TsServer::~TsServer() {
     free(handle);
 }
 
+// Callback data for deferred "listening" emit
+struct ListenEmitData {
+    TsServer* server;
+    uv_timer_t timer;
+};
+
+static void on_deferred_listening(uv_timer_t* timer) {
+    ListenEmitData* data = (ListenEmitData*)timer->data;
+    data->server->Emit("listening", 0, nullptr);
+    uv_close((uv_handle_t*)timer, [](uv_handle_t* h) {
+        free(h->data);
+    });
+}
+
 void TsServer::Listen(int port, void* callback) {
     if (closed) return;
 
@@ -27,15 +42,23 @@ void TsServer::Listen(int port, void* callback) {
     uv_ip4_addr("0.0.0.0", port, &addr);
 
     int r = uv_tcp_bind(handle, (const struct sockaddr*)&addr, 0);
-    
+
     r = uv_listen((uv_stream_t*)handle, 128, OnConnection);
-    
+
     if (r == 0) {
         listening = true;
         if (callback) {
             On("listening", callback);
         }
-        Emit("listening", 0, nullptr);
+        // Defer the "listening" event to the next event loop iteration.
+        // Node.js does this to ensure user_main() returns and the event loop
+        // is running before callbacks fire (important for async callbacks that
+        // need the event loop, e.g. fetch() inside the listen callback).
+        ListenEmitData* data = (ListenEmitData*)malloc(sizeof(ListenEmitData));
+        data->server = this;
+        uv_timer_init(uv_default_loop(), &data->timer);
+        data->timer.data = data;
+        uv_timer_start(&data->timer, on_deferred_listening, 0, 0);
     } else {
         Emit("error", 0, nullptr);
     }
@@ -51,11 +74,11 @@ void TsServer::HandleConnection(int status) {
 
     uv_tcp_t* client = (uv_tcp_t*)ts_alloc(sizeof(uv_tcp_t));
     uv_tcp_init(uv_default_loop(), client);
-    
+
     if (uv_accept((uv_stream_t*)handle, (uv_stream_t*)client) == 0) {
         void* mem = ts_alloc(sizeof(TsSocket));
         TsSocket* socket = new (mem) TsSocket(client);
-        
+
         TsValue* arg0 = ts_value_make_object(socket);
         void* args[] = { arg0 };
         Emit("connection", 1, args);

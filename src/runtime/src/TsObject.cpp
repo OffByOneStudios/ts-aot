@@ -11,6 +11,8 @@
 #include "TsString.h"
 #include "TsBuffer.h"  // For TsTypedArray and TsDataView (TsBuffer itself uses virtual dispatch)
 #include "TsEventEmitter.h"
+#include "TsReadable.h"
+#include "TsWritable.h"
 #include "TsRegExp.h"
 #include "TsBoundFunction.h"
 #include "TsClosure.h"
@@ -859,12 +861,64 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_string((TsString*)ts_string_padEnd(str, targetLength, padString));
     }
 
+    // Helper: try implicit conversion through virtual base chain to find TsObject
+    // For stream classes (TsReadable/TsWritable), TsObject is a virtual base NOT at offset 0.
+    // We use the C++ implicit conversion which follows the vbtable to find the virtual base.
+    static TsValue ts_try_virtual_dispatch_via_vbase(void* obj, const char* keyStr) {
+        TsValue undefined;
+        undefined.type = ValueType::UNDEFINED;
+        undefined.i_val = 0;
+#ifdef _MSC_VER
+        // Try via TsReadable first (handles TsIncomingMessage, TsDuplex descendants, TsSocket, etc.)
+        // TsReadable is at offset 0 for classes inheriting from it (non-virtual base of most-derived class)
+        __try {
+            TsReadable* readable = reinterpret_cast<TsReadable*>(obj);
+            // Implicit conversion through virtual base chain:
+            // TsReadable -> (virtual) TsEventEmitter -> TsObject
+            TsEventEmitter* emitter = readable;  // Uses vbtable to find virtual base
+            TsObject* tsObj = emitter;            // Simple non-virtual base cast
+            if (tsObj) {
+                TsValue result = tsObj->GetPropertyVirtual(keyStr);
+                if (result.type != ValueType::UNDEFINED) {
+                    return result;
+                }
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+        // Try via TsWritable (handles TsOutgoingMessage, TsServerResponse, TsClientRequest)
+        // TsWritable is at offset 0 for classes inheriting only from TsWritable
+        __try {
+            TsWritable* writable = reinterpret_cast<TsWritable*>(obj);
+            TsEventEmitter* emitter = writable;  // Uses vbtable
+            TsObject* tsObj = emitter;
+            if (tsObj) {
+                TsValue result = tsObj->GetPropertyVirtual(keyStr);
+                if (result.type != ValueType::UNDEFINED) {
+                    return result;
+                }
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+#endif
+        return undefined;
+    }
+
     // Separate function for virtual property dispatch to allow __try/__except on MSVC
     // (cannot mix __try with C++ objects that have destructors in the same function)
     static TsValue ts_try_virtual_property_dispatch(void* obj, const char* keyStr) {
         TsValue undefined;
         undefined.type = ValueType::UNDEFINED;
         undefined.i_val = 0;
+
+        // First try virtual base dispatch (handles stream classes with virtual inheritance)
+        // Must be tried FIRST because the direct (TsObject*)obj cast below reads the wrong
+        // vtable slot for virtual-inheritance classes and may return garbage UNDEFINED
+        // without crashing (so __except is never triggered).
+        TsValue vbaseResult = ts_try_virtual_dispatch_via_vbase(obj, keyStr);
+        if (vbaseResult.type != ValueType::UNDEFINED) {
+            return vbaseResult;
+        }
+
+        // Fall back to direct cast (works for non-virtual-inheritance types: TsResponse, TsBuffer, etc.)
 #ifdef _MSC_VER
         __try {
 #endif
@@ -874,9 +928,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 return result;
             }
 #ifdef _MSC_VER
-        } __except(EXCEPTION_EXECUTE_HANDLER) {
-            // Not a valid TsObject - fall through
-        }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
 #endif
         return undefined;
     }

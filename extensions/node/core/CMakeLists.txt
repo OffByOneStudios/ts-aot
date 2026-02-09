@@ -26,7 +26,6 @@ add_library(nodecore STATIC
     src/TsBuffer.cpp
     src/TsHttp.cpp
     src/TsHttp2.cpp
-    src/TsFetch.cpp
     src/TsChildProcess.cpp
     src/TsCluster.cpp
     src/TsAsyncHooks.cpp

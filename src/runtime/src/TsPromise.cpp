@@ -2,6 +2,7 @@
 #include "TsRuntime.h"
 #include "TsArray.h"
 #include "TsMap.h"
+#include <uv.h>
 #include <iostream>
 #include <cstdio>
 #include <windows.h>
@@ -731,7 +732,6 @@ void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValu
 void ts_promise_settle_microtask(void* data) {
     auto task = static_cast<PromiseResolveTask*>(data);
     TsPromise* promise = task->promise;
-
     if (promise->state == PromiseState::Rejected && !promise->handled) {
         ts_console_log_value(&promise->value);
     }
@@ -914,8 +914,17 @@ TsValue* ts_promise_await(TsValue* promise) {
         return res;
     }
 
+    // Run both microtasks and event loop until the promise settles.
+    // This is needed because the promise may depend on I/O operations
+    // (e.g. fetch() needs DNS resolve + TCP connect via libuv).
+    uv_loop_t* loop = uv_default_loop();
     while (p->state == PromiseState::Pending) {
         ts_run_microtasks();
+        if (p->state != PromiseState::Pending) break;
+        // Run one event loop iteration to process I/O
+        if (uv_loop_alive(loop)) {
+            uv_run(loop, UV_RUN_ONCE);
+        }
     }
 
     TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
@@ -1292,6 +1301,31 @@ TsValue* ts_promise_get_property(void* obj, void* propName) {
         return ts_value_make_function((void*)ts_promise_finally_wrapper, obj);
     }
     return ts_value_make_undefined();
+}
+
+TsValue TsPromise::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "then") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)ts_promise_then_wrapper, this, FunctionType::COMPILED, 2);
+        return v;
+    }
+    if (strcmp(key, "catch") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)ts_promise_catch_wrapper, this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    if (strcmp(key, "finally") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)ts_promise_finally_wrapper, this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    return TsObject::GetPropertyVirtual(key);
 }
 
 void* TsPromise_VTable[] = {

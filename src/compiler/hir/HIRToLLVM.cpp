@@ -6457,8 +6457,10 @@ llvm::Value* HIRToLLVM::boxArgumentForDynamicCall(llvm::Value* arg, const HIROpe
                 } else if (hirType->kind == HIRTypeKind::Object ||
                            hirType->kind == HIRTypeKind::Array ||
                            hirType->kind == HIRTypeKind::Class ||
-                           hirType->kind == HIRTypeKind::Map) {
-                    // Box objects with ts_value_make_object
+                           hirType->kind == HIRTypeKind::Map ||
+                           hirType->kind == HIRTypeKind::Function ||
+                           hirType->kind == HIRTypeKind::Ptr) {
+                    // Box objects/functions/raw pointers with ts_value_make_object
                     auto boxFn = getTsValueMakeObject();
                     return builder_->CreateCall(boxFn, {arg});
                 }

@@ -39,6 +39,8 @@ public:
     void* Json();
     void* ArrayBuffer();
 
+    TsValue GetPropertyVirtual(const char* key) override;
+
 private:
     TsResponse(int status, TsString* statusText, TsHeaders* headers, TsBuffer* body);
     uint32_t magic = MAGIC;
@@ -56,14 +58,12 @@ extern "C" {
     bool ts_headers_has(void* headers, void* name);
     void ts_headers_delete(void* headers, void* name);
 
-    void* ts_response_create(void* vtable, int32_t status, void* statusText, void* headers, void* body);
-    int32_t ts_response_status(void* resp);
+    int64_t ts_response_status(void* resp);
     bool ts_response_ok(void* resp);
     void* ts_response_statusText(void* resp);
     void* ts_response_headers(void* resp);
-    void* ts_response_text(void* resp);
-    void* ts_response_json(void* resp);
-    void* ts_response_arrayBuffer(void* resp);
+    void* ts_response_text(void* ctx, void* resp);
+    void* ts_response_json(void* ctx, void* resp);
 
     void* ts_fetch(void* url, void* options);
 }

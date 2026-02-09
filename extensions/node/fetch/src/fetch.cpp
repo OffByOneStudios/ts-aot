@@ -24,7 +24,7 @@ struct FetchContext {
     uv_getaddrinfo_t dns_req;
     llhttp_t parser;
     llhttp_settings_t settings;
-    
+
     SSL_CTX* ssl_ctx;
     SSL* ssl;
     BIO* rbio;
@@ -35,7 +35,7 @@ struct FetchContext {
     int response_status;
     TsString* response_status_text;
     std::vector<uint8_t> response_body;
-    
+
     TsString* current_header_field;
     void* response_vtable;
     std::string request_data;
@@ -49,8 +49,6 @@ struct FetchContext {
 };
 
 static void flush_wbio(FetchContext* ctx) {
-    
-    
     if (!ctx->is_https || !ctx->wbio) return;
     char buf[8192];
     int bytes;
@@ -65,24 +63,16 @@ static void flush_wbio(FetchContext* ctx) {
             free(req);
         });
     }
-    
-    
 }
 
 static void try_ssl_step(FetchContext* ctx) {
-    
-    
     if (!ctx->ssl) return;
 
     if (!SSL_is_init_finished(ctx->ssl)) {
-        
-        
         int ret = SSL_do_handshake(ctx->ssl);
         if (ret <= 0) {
             int err = SSL_get_error(ctx->ssl, ret);
             if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
-                
-                
                 TsValue val = TsValue(TsString::Create("SSL handshake failed"));
                 ts::ts_promise_reject_internal(ctx->promise, &val);
                 return;
@@ -92,11 +82,7 @@ static void try_ssl_step(FetchContext* ctx) {
     }
 
     if (SSL_is_init_finished(ctx->ssl)) {
-        
-        
         if (!ctx->request_sent) {
-            
-            
             SSL_write(ctx->ssl, ctx->request_data.c_str(), (int)ctx->request_data.length());
             ctx->request_sent = true;
             flush_wbio(ctx);
@@ -106,33 +92,19 @@ static void try_ssl_step(FetchContext* ctx) {
         int ret = SSL_read(ctx->ssl, ssl_read_buf, sizeof(ssl_read_buf));
         if (ret > 0) {
             llhttp_errno_t err = llhttp_execute(&ctx->parser, ssl_read_buf, ret);
-            if (err != HPE_OK) {
-                
-                
-            }
+            (void)err;
         } else {
             int err = SSL_get_error(ctx->ssl, ret);
-            if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
-                
-                
-            }
+            (void)err;
         }
-        
-        
-        flush_wbio(ctx);
 
-        
-        
+        flush_wbio(ctx);
     }
-    
-    
 }
 
 // llhttp callbacks
 static int on_status(llhttp_t* parser, const char* at, size_t length) {
     FetchContext* ctx = (FetchContext*)parser->data;
-    
-    
     ctx->response_status = parser->status_code;
     ctx->response_status_text = TsString::Create(std::string(at, length).c_str());
     return 0;
@@ -141,8 +113,6 @@ static int on_status(llhttp_t* parser, const char* at, size_t length) {
 static int on_header_field(llhttp_t* parser, const char* at, size_t length) {
     FetchContext* ctx = (FetchContext*)parser->data;
     std::string field(at, length);
-    
-    
     ctx->current_header_field = TsString::Create(field.c_str());
     return 0;
 }
@@ -150,38 +120,32 @@ static int on_header_field(llhttp_t* parser, const char* at, size_t length) {
 static int on_header_value(llhttp_t* parser, const char* at, size_t length) {
     FetchContext* ctx = (FetchContext*)parser->data;
     std::string value(at, length);
-    
-    
     ctx->response_headers->Append(ctx->current_header_field, TsString::Create(value.c_str()));
     return 0;
 }
 
 static int on_body(llhttp_t* parser, const char* at, size_t length) {
     FetchContext* ctx = (FetchContext*)parser->data;
-    
-    
     ctx->response_body.insert(ctx->response_body.end(), at, at + length);
     return 0;
 }
 
 static int on_message_complete(llhttp_t* parser) {
     FetchContext* ctx = (FetchContext*)parser->data;
-    
-    
     ctx->done = true;
-    
+
     TsBuffer* body_buf = TsBuffer::Create(ctx->response_body.size());
     std::memcpy(body_buf->GetData(), ctx->response_body.data(), ctx->response_body.size());
-    
+
     TsResponse* resp = TsResponse::Create(ctx->response_status, ctx->response_status_text, ctx->response_headers, body_buf);
     resp->vtable = ctx->response_vtable;
     TsValue val = TsValue(resp);
     ts::ts_promise_resolve_internal(ctx->promise, &val);
-    
+
     if (!uv_is_closing((uv_handle_t*)&ctx->tcp)) {
         uv_close((uv_handle_t*)&ctx->tcp, nullptr);
     }
-    
+
     return 0;
 }
 
@@ -191,22 +155,14 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
         if (buf->base) free(buf->base);
         return;
     }
-    
-    
+
     if (nread > 0) {
         if (ctx->ssl) {
-            
-            
             BIO_write(ctx->rbio, buf->base, (int)nread);
             try_ssl_step(ctx);
-            
-            
         } else {
             llhttp_errno_t err = llhttp_execute(&ctx->parser, buf->base, nread);
-            if (err != HPE_OK) {
-                
-                
-            }
+            (void)err;
         }
     } else if (nread < 0) {
         if (nread != UV_EOF) {
@@ -217,18 +173,13 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
             uv_close((uv_handle_t*)stream, nullptr);
         }
     }
-    
-    
+
     if (buf->base) free(buf->base);
-    
-    
 }
 
 static void on_connect(uv_connect_t* req, int status) {
     FetchContext* ctx = (FetchContext*)req->handle->data;
     free(req);
-    
-    
     if (status < 0) {
         TsValue val = TsValue(TsString::Create("Connect error"));
         ts::ts_promise_reject_internal(ctx->promise, &val);
@@ -236,12 +187,8 @@ static void on_connect(uv_connect_t* req, int status) {
     }
 
     if (ctx->is_https) {
-        
-        
         ctx->ssl_ctx = SSL_CTX_new(TLS_client_method());
         if (!ctx->ssl_ctx) {
-            
-            
             return;
         }
         ctx->ssl = SSL_new(ctx->ssl_ctx);
@@ -249,7 +196,7 @@ static void on_connect(uv_connect_t* req, int status) {
         ctx->wbio = BIO_new(BIO_s_mem());
         SSL_set_bio(ctx->ssl, ctx->rbio, ctx->wbio);
         SSL_set_connect_state(ctx->ssl);
-        
+
         // Set SNI
         TsString* hostname = ctx->url->GetHostname();
         if (hostname) {
@@ -266,7 +213,6 @@ static void on_connect(uv_connect_t* req, int status) {
         try_ssl_step(ctx);
     } else {
         uv_write_t* write_req = (uv_write_t*)malloc(sizeof(uv_write_t));
-        // Use a stable buffer for the request data
         char* req_buf = (char*)malloc(ctx->request_data.length());
         memcpy(req_buf, ctx->request_data.c_str(), ctx->request_data.length());
         uv_buf_t buf = uv_buf_init(req_buf, (unsigned int)ctx->request_data.length());
@@ -280,8 +226,6 @@ static void on_connect(uv_connect_t* req, int status) {
 
 static void on_resolved(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
     FetchContext* ctx = (FetchContext*)req->data;
-    
-    
     if (status < 0) {
         TsValue val = TsValue(TsString::Create("DNS error"));
         ts::ts_promise_reject_internal(ctx->promise, &val);
@@ -289,18 +233,16 @@ static void on_resolved(uv_getaddrinfo_t* req, int status, struct addrinfo* res)
     }
 
     uv_tcp_init(uv_default_loop(), &ctx->tcp);
-    ctx->tcp.data = ctx; // Ensure data is set
+    ctx->tcp.data = ctx;
     uv_connect_t* connect_req = (uv_connect_t*)malloc(sizeof(uv_connect_t));
-    
-    
+
     uv_tcp_connect(connect_req, &ctx->tcp, res->ai_addr, on_connect);
     uv_freeaddrinfo(res);
 }
 
 extern "C" {
+
 void* ts_fetch(void* url_val, void* options_val) {
-
-
     OPENSSL_init_ssl(0, NULL);
     TsString* url_str = (TsString*)url_val;
     TsURL* url = TsURL::Create(url_str);
@@ -319,7 +261,7 @@ void* ts_fetch(void* url_val, void* options_val) {
         TsValue* opt = (TsValue*)options_val;
         if (opt->type == ValueType::OBJECT_PTR) {
             TsMap* opt_map = (TsMap*)opt->ptr_val;
-            
+
             // Method
             TsValue m_val = opt_map->Get(TsString::Create("method"));
             if (m_val.type == ValueType::STRING_PTR) {
@@ -335,7 +277,6 @@ void* ts_fetch(void* url_val, void* options_val) {
             // Headers
             TsValue h_val = opt_map->Get(TsString::Create("headers"));
             if (h_val.type == ValueType::OBJECT_PTR) {
-                // Could be TsMap or TsHeaders
                 uint32_t magic = *(uint32_t*)h_val.ptr_val;
                 TsMap* h_map = nullptr;
                 if (magic == TsHeaders::MAGIC) {
@@ -363,7 +304,7 @@ void* ts_fetch(void* url_val, void* options_val) {
     ctx->request_data += "Host: " + std::string(url->GetHost()->ToUtf8()) + "\r\n";
     ctx->request_data += "User-Agent: ts-aoc/1.0\r\n";
     ctx->request_data += "Accept: */*\r\n";
-    
+
     bool has_content_length = false;
     for (const auto& h : headers) {
         ctx->request_data += h.first + ": " + h.second + "\r\n";
@@ -398,13 +339,45 @@ void* ts_fetch(void* url_val, void* options_val) {
     std::string port = url->GetPort()->ToUtf8();
     if (port.empty()) port = ctx->is_https ? "443" : "80";
 
-    
-    
     uv_getaddrinfo(uv_default_loop(), &ctx->dns_req, on_resolved, host.c_str(), port.c_str(), &hints);
 
     return ts_value_make_promise(promise);
 }
+
+// --- Response property getters (unboxed return types for ext.json) ---
+
+int64_t ts_response_status(void* resp) {
+    return ((TsResponse*)resp)->GetStatus();
 }
+
+bool ts_response_ok(void* resp) {
+    return ((TsResponse*)resp)->GetOk();
+}
+
+void* ts_response_statusText(void* resp) {
+    return ((TsResponse*)resp)->GetStatusText();
+}
+
+void* ts_response_headers(void* resp) {
+    return ((TsResponse*)resp)->GetHeaders();
+}
+
+// --- Response methods ---
+
+void* ts_response_text(void* ctx, void* resp) {
+    TsResponse* r = (TsResponse*)resp;
+    TsString* str = r->GetBody()->ToString();
+    return ts::ts_promise_resolve(nullptr, ts_value_make_string(str));
+}
+
+void* ts_response_json(void* ctx, void* resp) {
+    TsResponse* r = (TsResponse*)resp;
+    TsString* str = r->GetBody()->ToString();
+    void* parsed = ts_json_parse(str);
+    return ts::ts_promise_resolve(nullptr, (TsValue*)parsed);
+}
+
+} // extern "C"
 
 // --- TsHeaders ---
 
@@ -454,21 +427,59 @@ TsResponse* TsResponse::Create(int status, TsString* statusText, TsHeaders* head
 TsResponse::TsResponse(int status, TsString* statusText, TsHeaders* headers, TsBuffer* body)
     : status(status), statusText(statusText), headers(headers), body(body) {}
 
-extern "C" {
-    void* Response_get_status(void* resp) {
-        return ts_value_make_int(((TsResponse*)resp)->GetStatus());
+// Wrapper for .text() method called via dynamic dispatch
+static TsValue* Response_text_wrapper(void* context) {
+    TsResponse* resp = (TsResponse*)context;
+    TsString* str = resp->GetBody()->ToString();
+    return ts::ts_promise_resolve(nullptr, ts_value_make_string(str));
+}
+
+// Wrapper for .json() method called via dynamic dispatch
+static TsValue* Response_json_wrapper(void* context) {
+    TsResponse* resp = (TsResponse*)context;
+    TsString* str = resp->GetBody()->ToString();
+    void* parsed = ts_json_parse(str);
+    return ts::ts_promise_resolve(nullptr, (TsValue*)parsed);
+}
+
+TsValue TsResponse::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "status") == 0) {
+        TsValue v;
+        v.type = ValueType::NUMBER_INT;
+        v.i_val = status;
+        return v;
     }
-    void* Response_get_ok(void* resp) {
-        return ts_value_make_bool(((TsResponse*)resp)->GetOk());
+    if (strcmp(key, "ok") == 0) {
+        TsValue v;
+        v.type = ValueType::BOOLEAN;
+        v.b_val = (status >= 200 && status < 300);
+        return v;
     }
-    void* Response_json(void* ctx, void* resp) {
-        TsResponse* r = (TsResponse*)resp;
-        TsString* str = r->GetBody()->ToString();
-        return ts_json_parse(str);
+    if (strcmp(key, "statusText") == 0) {
+        TsValue v;
+        v.type = ValueType::STRING_PTR;
+        v.ptr_val = statusText;
+        return v;
     }
-    void* Response_text(void* ctx, void* resp) {
-        TsResponse* r = (TsResponse*)resp;
-        TsString* str = r->GetBody()->ToString();
-        return ts::ts_promise_resolve(nullptr, ts_value_make_string(str));
+    if (strcmp(key, "headers") == 0) {
+        TsValue v;
+        v.type = ValueType::OBJECT_PTR;
+        v.ptr_val = headers;
+        return v;
     }
+    if (strcmp(key, "text") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)Response_text_wrapper, this, FunctionType::COMPILED, 0);
+        return v;
+    }
+    if (strcmp(key, "json") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)Response_json_wrapper, this, FunctionType::COMPILED, 0);
+        return v;
+    }
+    return TsObject::GetPropertyVirtual(key);
 }

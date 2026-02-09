@@ -259,7 +259,7 @@ void TsServerResponse::AddTrailers(TsMap* trailers) {
 void TsServerResponse::WriteHead(int status, TsObject* headers) {
     this->statusCode = status;
     this->headersSent = true;
-    
+
     std::string head = "HTTP/1.1 " + std::to_string(status) + " OK\r\n";
     head += "Transfer-Encoding: chunked\r\n";
     head += "\r\n";
@@ -341,7 +341,7 @@ void TsServerResponse::End(TsValue data) {
 static int on_url(llhttp_t* parser, const char* at, size_t length) {
     HttpContext* ctx = (HttpContext*)parser->data;
     if (!ctx) return -1;
-    
+
     ctx->currentRequest->url = TsString::Create(std::string(at, length).c_str());
     const char* method_name = llhttp_method_name((llhttp_method_t)parser->method);
     ctx->currentRequest->method = TsString::Create(method_name ? method_name : "GET");
