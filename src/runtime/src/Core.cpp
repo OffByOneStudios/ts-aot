@@ -14,6 +14,10 @@
 #include <chrono>
 #include <algorithm>
 #include <uv.h>
+#include <unicode/uclean.h>
+#include <unicode/putil.h>
+#include <unicode/utypes.h>
+#include <unicode/udata.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -1203,6 +1207,133 @@ TsValue* ts_get_exception() {
     return currentException;
 }
 
+// The compiler embeds the absolute path to icudt74l.dat (next to ts-aot.exe)
+// into each compiled binary via this symbol. The runtime checks it first,
+// avoiding the need to copy the 30MB file next to every compiled executable.
+// When the symbol isn't provided (e.g., --bundle-icu), the default is empty.
+extern "C" const char __ts_icu_data_path[];
+
+// Provide a default empty string so linking succeeds even when the generated
+// code doesn't define __ts_icu_data_path (e.g., --bundle-icu mode).
+#if defined(_MSC_VER)
+    // MSVC: use /alternatename to provide a weak default
+    static const char __ts_icu_data_path_default[] = "";
+    __pragma(comment(linker, "/alternatename:__ts_icu_data_path=__ts_icu_data_path_default"))
+#else
+    // GCC/Clang: use weak attribute
+    extern "C" __attribute__((weak)) const char __ts_icu_data_path[] = "";
+#endif
+
+// Initialize ICU data. When linked with the stub (default, no --bundle-icu),
+// the embedded icudt74_dat symbol is a minimal invalid package. We detect this
+// by trying u_init(), and if it fails, we search for an external icudt74l.dat
+// file and load it directly via udata_setCommonData() (which has the highest
+// priority in ICU's data loading order, overriding the compiled-in symbol).
+static void ts_icu_init(const char* argv0) {
+    UErrorCode status = U_ZERO_ERROR;
+    u_init(&status);
+    if (U_SUCCESS(status)) {
+        return;  // ICU data is embedded (--bundle-icu mode). Done.
+    }
+
+    // ICU data not embedded - search for external icudt74l.dat
+    const char* datFile = "icudt74l.dat";
+    std::filesystem::path exePath;
+
+    if (argv0 && argv0[0]) {
+        std::error_code ec;
+        exePath = std::filesystem::canonical(argv0, ec);
+        if (ec) {
+            exePath = std::filesystem::path(argv0);
+        }
+    }
+
+    // Search locations in priority order
+    std::vector<std::filesystem::path> searchPaths;
+
+    // 1. Compiler-embedded path (next to ts-aot.exe, highest priority)
+    if (__ts_icu_data_path[0] != '\0') {
+        auto embeddedPath = std::filesystem::path(__ts_icu_data_path);
+        searchPaths.push_back(embeddedPath.parent_path());
+    }
+
+    // 2. Same directory as the executable
+    if (!exePath.empty()) {
+        searchPaths.push_back(exePath.parent_path());
+    }
+
+    // 3. ICU_DATA environment variable
+    const char* icuDataEnv = std::getenv("ICU_DATA");
+    if (icuDataEnv && icuDataEnv[0]) {
+        searchPaths.push_back(std::filesystem::path(icuDataEnv));
+    }
+
+    // 4. ../share/icu/ relative to executable (standard install layout)
+    if (!exePath.empty()) {
+        searchPaths.push_back(exePath.parent_path() / ".." / "share" / "icu");
+    }
+
+    // 5. Current working directory
+    {
+        std::error_code ec;
+        auto cwd = std::filesystem::current_path(ec);
+        if (!ec) {
+            searchPaths.push_back(cwd);
+        }
+    }
+
+    for (const auto& dir : searchPaths) {
+        std::error_code ec;
+        auto fullPath = dir / datFile;
+        if (!std::filesystem::exists(fullPath, ec)) continue;
+
+        // Read the .dat file into GC-managed memory (persists for program lifetime)
+        auto fileSize = std::filesystem::file_size(fullPath, ec);
+        if (ec || fileSize < 32) continue;
+
+        FILE* f = fopen(fullPath.string().c_str(), "rb");
+        if (!f) continue;
+
+        // Allocate via GC so it persists (ICU references it for the entire program)
+        void* dataBuf = ts_alloc(fileSize);
+        size_t bytesRead = fread(dataBuf, 1, fileSize, f);
+        fclose(f);
+        if (bytesRead != fileSize) continue;
+
+        // Reset ICU state to clear any cached references to the stub data
+        u_cleanup();
+
+        // Provide the loaded data directly to ICU. udata_setCommonData() has
+        // the highest priority and overrides the compiled-in icudt74_dat symbol.
+        status = U_ZERO_ERROR;
+        udata_setCommonData(dataBuf, &status);
+        if (U_FAILURE(status)) continue;
+
+        status = U_ZERO_ERROR;
+        u_init(&status);
+        if (U_SUCCESS(status)) {
+            return;  // Successfully loaded external ICU data
+        }
+    }
+
+    // No ICU data found anywhere
+    fprintf(stderr,
+        "[ts-aot] Error: ICU data file '%s' not found.\n"
+        "  Searched:\n", datFile);
+    for (const auto& dir : searchPaths) {
+        fprintf(stderr, "    - %s\n", dir.string().c_str());
+    }
+    fprintf(stderr,
+        "\n"
+        "  Solutions:\n"
+        "    1. Place '%s' next to the executable\n"
+        "    2. Set ICU_DATA environment variable to the directory containing '%s'\n"
+        "    3. Recompile with --bundle-icu to embed ICU data (larger binary)\n",
+        datFile, datFile);
+    fflush(stderr);
+    exit(1);
+}
+
 int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 #ifdef _MSC_VER
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
@@ -1230,6 +1361,9 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 
     // 1. Initialize Garbage Collector
     ts_gc_init();
+
+    // 1.2 Initialize ICU data (loads external .dat file if not embedded)
+    ts_icu_init(argc > 0 ? argv[0] : nullptr);
 
     // 1.5 Initialize Runtime Globals
     ts_runtime_init();

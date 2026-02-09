@@ -55,6 +55,11 @@ public:
     // Main entry point - lower an HIR module to LLVM module
     std::unique_ptr<llvm::Module> lower(HIRModule* hirModule, const std::string& moduleName);
 
+    // Set the ICU data path to embed in the generated binary.
+    // When set, emits a global @__ts_icu_data_path so the runtime can find icudt74l.dat
+    // without copying it next to every compiled executable.
+    void setIcuDataPath(const std::string& path) { icuDataPath_ = path; }
+
     //==========================================================================
     // Handler Accessors - Used by BuiltinHandler implementations
     //==========================================================================
@@ -75,6 +80,9 @@ private:
     llvm::LLVMContext& context_;
     std::unique_ptr<llvm::Module> module_;
     std::unique_ptr<llvm::IRBuilder<>> builder_;
+
+    // ICU data path to embed in generated binary (empty = don't embed)
+    std::string icuDataPath_;
 
     // Current function being lowered
     llvm::Function* currentFunction_ = nullptr;

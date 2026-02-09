@@ -79,6 +79,11 @@ add_library(tsruntime STATIC
     src/TsTestExtension.cpp
 )
 
+# ICU data stub library - provides minimal icudt74_dat symbol for external data mode.
+# When linked instead of icudt.lib, executables are ~3MB instead of ~32MB.
+# Real ICU data is loaded at runtime from an external icudt74l.dat file.
+add_library(icudt_stub STATIC src/icudt_stub.cpp)
+
 target_include_directories(tsruntime PUBLIC include)
 
 target_link_libraries(tsruntime PUBLIC
