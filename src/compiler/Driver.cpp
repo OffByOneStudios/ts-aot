@@ -1,5 +1,6 @@
 #include "Driver.h"
 #include "ast/AstLoader.h"
+#include "parser/Parser.h"
 #include "analysis/Analyzer.h"
 #include "analysis/Monomorphizer.h"
 #include "codegen/CodeGenerator.h"
@@ -46,41 +47,65 @@ int Driver::run() {
     std::string tsFile = options.inputFile;
     std::string jsonFile;
     bool isTemporaryJson = false;
+    bool useNativeParser = false;
 
-    // If input is .ts, .tsx, .js, or .jsx, run the Node.js parser
+    // If input is .ts, .tsx, .js, or .jsx, we need to parse it
     auto ext = std::filesystem::path(tsFile).extension();
     if (ext == ".ts" || ext == ".tsx" || ext == ".js" || ext == ".jsx") {
-        jsonFile = std::filesystem::path(tsFile).replace_extension(".json").string();
-        // If we are in a "driver" mode, we might want to use a temp file instead of overwriting user's .json
-        // but for now, let's just use the same name but in a temp directory if possible, or just next to it.
-        // Actually, let's use a temp file.
-        char tempPath[MAX_PATH];
-        char tempFile[MAX_PATH];
-        if (GetTempPathA(MAX_PATH, tempPath)) {
-            if (GetTempFileNameA(tempPath, "tsaot", 0, tempFile)) {
-                jsonFile = tempFile;
-                isTemporaryJson = true;
-            }
-        }
+        useNativeParser = options.useNativeParser;
 
-        if (options.verbose) {
-            SPDLOG_INFO("Parsing {}...", tsFile);
-        }
-        if (!runNodeParser(tsFile, jsonFile)) {
-            return 1;
+        if (!useNativeParser) {
+            // Legacy path: use Node.js dump_ast.js
+            jsonFile = std::filesystem::path(tsFile).replace_extension(".json").string();
+            char tempPath[MAX_PATH];
+            char tempFile[MAX_PATH];
+            if (GetTempPathA(MAX_PATH, tempPath)) {
+                if (GetTempFileNameA(tempPath, "tsaot", 0, tempFile)) {
+                    jsonFile = tempFile;
+                    isTemporaryJson = true;
+                }
+            }
+
+            if (options.verbose) {
+                SPDLOG_INFO("Parsing {} (Node.js parser)...", tsFile);
+            }
+            if (!runNodeParser(tsFile, jsonFile)) {
+                return 1;
+            }
         }
     } else {
         jsonFile = tsFile;
     }
 
     try {
-        if (options.verbose) {
-            SPDLOG_INFO("Loading AST from {}...", jsonFile);
-        }
-        auto program = ast::loadAst(jsonFile);
+        std::unique_ptr<ast::Program> program;
 
-        if (isTemporaryJson) {
-            std::filesystem::remove(jsonFile);
+        if (useNativeParser) {
+            // Native C++ parser path
+            if (options.verbose) {
+                SPDLOG_INFO("Parsing {} (native parser)...", tsFile);
+            }
+            std::ifstream srcFile(tsFile);
+            if (!srcFile.is_open()) {
+                SPDLOG_ERROR("Could not open input file: {}", tsFile);
+                return 1;
+            }
+            std::string source((std::istreambuf_iterator<char>(srcFile)),
+                                std::istreambuf_iterator<char>());
+            srcFile.close();
+
+            parser::Parser nativeParser;
+            program = nativeParser.parse(source, tsFile);
+        } else {
+            // Legacy path: load from JSON
+            if (options.verbose) {
+                SPDLOG_INFO("Loading AST from {}...", jsonFile);
+            }
+            program = ast::loadAst(jsonFile);
+
+            if (isTemporaryJson) {
+                std::filesystem::remove(jsonFile);
+            }
         }
 
         if (options.debugAst) {

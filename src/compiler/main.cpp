@@ -50,6 +50,8 @@ int main(int argc, char** argv) {
             ("p,project", "Path to tsconfig.json (or auto-detect if not specified)", cxxopts::value<std::string>())
             ("runtime-bc", "Path to runtime bitcode for LTO", cxxopts::value<std::string>())
             ("small-icu", "Use a smaller ICU data set (English only)", cxxopts::value<bool>()->default_value("false"))
+            ("native-parser", "Use native C++ parser (default: true)", cxxopts::value<bool>()->default_value("true"))
+            ("legacy-parser", "Force legacy Node.js parser (dump_ast.js)", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage")
             ("input", "Input file", cxxopts::value<std::string>());
 
@@ -139,6 +141,14 @@ int main(int argc, char** argv) {
         driverOpts.dumpTypes = result["dump-types"].as<bool>();
         driverOpts.smallIcu = result["small-icu"].as<bool>();
         driverOpts.verbose = result["verbose"].as<bool>();
+
+        // Parser selection: --native-parser enables, --legacy-parser disables
+        if (result["native-parser"].as<bool>()) {
+            driverOpts.useNativeParser = true;
+        }
+        if (result["legacy-parser"].as<bool>()) {
+            driverOpts.useNativeParser = false;
+        }
         
         if (result.count("runtime-bc")) {
             driverOpts.runtimeBitcode = result["runtime-bc"].as<std::string>();
