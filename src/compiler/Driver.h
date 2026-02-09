@@ -22,6 +22,7 @@ struct DriverOptions {
     bool runAfterLink = false;
     bool smallIcu = false;
     bool verbose = false;
+    bool useNativeParser = true;   // Use native C++ parser instead of Node.js dump_ast.js
     std::string runtimeBitcode;
     std::vector<std::string> libraryPaths;
 };

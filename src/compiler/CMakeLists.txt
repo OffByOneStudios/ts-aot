@@ -96,6 +96,11 @@ add_library(tscompiler_lib STATIC
     hir/passes/InliningPass.cpp
     hir/passes/EscapeAnalysisPass.cpp
     extensions/ExtensionLoader.cpp
+    parser/Lexer.cpp
+    parser/Parser.cpp
+    parser/Parser_Expressions.cpp
+    parser/Parser_TypeAnnotations.cpp
+    parser/AstSerializer.cpp
 )
 
 target_include_directories(tscompiler_lib PUBLIC 
