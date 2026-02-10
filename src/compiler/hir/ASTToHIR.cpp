@@ -1005,8 +1005,8 @@ std::shared_ptr<HIRType> ASTToHIR::convertTypeFromString(const std::string& type
         return funcType;
     }
 
-    // Unknown type - could be a class name, treat as object
-    return HIRType::makeObject();
+    // Unknown type - preserve class name for property resolution
+    return HIRType::makeClass(typeStr, 0);
 }
 
 std::shared_ptr<HIRType> ASTToHIR::convertType(const std::shared_ptr<ts::Type>& type) {
@@ -3675,6 +3675,12 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             } else {
                 lastValue_ = builder_.createConstBool(false);
             }
+            return;
+        }
+
+        if (ident->name == "gc") {
+            // gc() forces garbage collection
+            lastValue_ = builder_.createCall("ts_gc_collect", {}, HIRType::makeVoid());
             return;
         }
 

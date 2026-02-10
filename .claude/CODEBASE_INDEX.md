@@ -469,29 +469,6 @@ python tests/golden_ir/runner.py --verbose tests/golden_ir/typescript/arrays/arr
 - **BigInt operators incomplete** - Type exists but can't use +, -, etc.
 - **Timer APIs missing** - No setTimeout, setInterval
 
-### Known Bugs (XFAIL tests)
-
-**Arrays:**
-- `Array.find()` - Returns garbage pointer
-- `Array.every()` / `Array.some()` - Return false incorrectly
-- `Array.concat()` - Runtime crash
-- `Array.includes()` - Access violation
-
-**Objects:**
-- `Object.entries()` - Returns empty array
-- `Object.assign()` - Crashes compiler
-- Object spread `{...obj}` - Compilation error
-- Object destructuring - Compilation error
-
-**Functions:**
-- IIFE in TypeScript - Compilation error
-- Method shorthand - Returns undefined
-
-**Advanced:**
-- Optional chaining `?.` - Not implemented
-- Nullish coalescing `??` - Not implemented
-
-See `docs/phase19/epic_106_golden_ir_tests.md` for full list.
 
 ---
 

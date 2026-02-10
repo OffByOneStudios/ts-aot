@@ -35,7 +35,6 @@ python tests/golden_ir/runner.py
 This runs the entire test suite (90+ tests) and reports:
 - Number of tests passed
 - Number of tests failed
-- Number of expected failures (XFAIL)
 - Overall pass rate
 
 ### 2. Run Specific Test Category
@@ -99,14 +98,6 @@ Indicates:
 - What output was expected vs actual
 - Line numbers of failures
 
-### Expected Failure (XFAIL)
-```
-⚠ typescript/arrays/array_concat.ts [XFAIL]
-  Tracked issue: Runtime null dereference
-```
-
-These are known bugs being tracked. When fixed, they'll show as XPASS (unexpected pass).
-
 ## Test File Format
 
 Each test contains:
@@ -135,8 +126,6 @@ function user_main(): number {
 - `// OUTPUT:` - Expected stdout
 - `// OUTPUT-REGEX:` - Regex for expected stdout
 - `// EXIT-CODE:` - Expected exit code (default 0)
-- `// XFAIL:` - Expected to fail (tracks known bugs)
-
 ## Common Test Patterns
 
 ### Verify Function Call
@@ -160,14 +149,6 @@ const x = 5 + 3;
 // CHECK: icmp slt
 // CHECK-NOT: call {{.*}} @ts_value_to_bool
 if (x < 10) { }
-```
-
-### Track Known Bug
-
-```typescript
-// XFAIL: Array.concat() causes runtime null dereference
-// CHECK: define {{.*}} @user_main
-const result = [1, 2].concat([3, 4]);
 ```
 
 ## Analyzing Failures
@@ -233,12 +214,6 @@ As of Epic 106 completion:
 - **JavaScript**: 30/30 passing (100%) 🎉
 - **Overall**: 93/120 tests (78%)
 
-Known XFAIL categories:
-- Array methods: find, every, some, concat, slice
-- Object features: spread, destructuring, entries, assign
-- Advanced functions: destructured parameters, IIFEs
-- Type features: optional chaining, nullish coalescing
-
 ## Integration with Development Workflow
 
 ### Before Committing
@@ -267,9 +242,8 @@ python tests/golden_ir/runner.py tests/golden_ir/typescript/arrays/
 2. Add CHECK patterns for expected IR
 3. Add OUTPUT for expected runtime behavior
 4. Run test: `python tests/golden_ir/runner.py path/to/test.ts`
-5. If fails, mark as XFAIL and track the bug
-6. Implement feature
-7. Remove XFAIL when passing
+5. If test fails, fix the implementation
+6. Re-run until passing
 
 ## Troubleshooting
 

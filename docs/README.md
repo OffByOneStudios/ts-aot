@@ -97,7 +97,6 @@ This document outlines our three strategic pillars and the concrete work require
 - [ ] Add GitHub Actions CI to run all tests on PR
 - [ ] Block merges on test failures
 - [ ] Add code coverage tracking
-- [ ] Create "known failures" tracking (XFAIL tests)
 
 ---
 

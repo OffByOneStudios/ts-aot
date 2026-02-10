@@ -34,7 +34,6 @@ function user_main(): number {
 | `HIR-CHECK-DAG: pattern` | Pattern may appear in any order |
 | `CHECK: pattern` | Pattern must appear in LLVM IR output |
 | `OUTPUT: text` | Expected stdout from execution |
-| `XFAIL: reason` | Test is expected to fail (tracks known issues) |
 
 ## Directory Structure
 
@@ -144,7 +143,7 @@ python tests/golden_hir/runner.py --verbose tests/golden_hir/passes/method_resol
 
 ## Current Test Status
 
-**Total: 37 tests, 0 XFAIL**
+**Total: 37 tests**
 
 ### ASTToHIR Coverage
 

@@ -68,13 +68,15 @@ export function calculateStats(measurements: number[]): {
         return { min: 0, max: 0, avg: 0, p50: 0, p95: 0, p99: 0, stddev: 0 };
     }
 
-    const sorted = measurements.slice().sort((a, b) => a - b);
-    const sum = sorted.reduce((a, b) => a + b, 0);
-    const avg = sum / sorted.length;
+    const sorted = measurements.slice().sort((a: number, b: number) => a - b);
+    const sum: number = sorted.reduce((a: number, b: number) => a + b, 0.0);
+    const len: number = sorted.length;
+    const avg: number = sum / len;
 
     // Calculate standard deviation
-    const squaredDiffs = sorted.map(x => Math.pow(x - avg, 2));
-    const variance = squaredDiffs.reduce((a, b) => a + b, 0) / sorted.length;
+    const squaredDiffs = sorted.map((x: number) => Math.pow(x - avg, 2));
+    const varianceSum: number = squaredDiffs.reduce((a: number, b: number) => a + b, 0.0);
+    const variance: number = varianceSum / len;
     const stddev = Math.sqrt(variance);
 
     return {

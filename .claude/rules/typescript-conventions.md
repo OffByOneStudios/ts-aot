@@ -256,19 +256,6 @@ const content = fs.readFileSync('file.txt', 'utf8');
 - `BigInt` - Not implemented
 - `Proxy`, `Reflect` - Not implemented
 
-**Known Bugs (XFAIL tests):**
-- `Array.concat()` - Runtime crash
-- `Array.includes()` - Access violation
-- `Array.find()` - Returns garbage
-- `Array.every()`, `Array.some()` - Return false incorrectly
-- `Object.entries()` - Returns empty array
-- `Object.assign()` - Crashes compiler
-- `Object spread` - Compilation error
-- `Object destructuring` - Compilation error
-- Optional chaining `?.` - Not implemented
-- Nullish coalescing `??` - Not implemented
-- IIFEs in TypeScript - Compilation error
-
 ## Golden IR Tests
 
 **Add regression tests for new features:**

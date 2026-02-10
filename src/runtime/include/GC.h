@@ -15,4 +15,8 @@ extern "C" {
     // Initializes the Garbage Collector.
     // Must be called before any allocation.
     void ts_gc_init();
+
+    // Forces a full garbage collection cycle.
+    // Callable from TypeScript as gc().
+    void ts_gc_collect();
 }
