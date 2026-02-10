@@ -29,6 +29,7 @@ HIRToLLVM::HIRToLLVM(llvm::LLVMContext& ctx)
 //==============================================================================
 
 std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::string& moduleName) {
+    hirModule_ = hirModule;
     module_ = std::make_unique<llvm::Module>(moduleName, context_);
 
     // Initialize TsValue type
@@ -367,6 +368,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     valueMap_.clear();
     blockMap_.clear();
     closureParam_ = nullptr;
+    capturedVarCells_.clear();
     asyncPromise_ = nullptr;
     generatorObject_ = nullptr;
     asyncContext_ = nullptr;
@@ -5173,39 +5175,99 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), numCaptures);
     llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal });
 
+    // Look up the inner function's captures list to get variable names
+    // This allows sharing TsCells between closures that capture the same variable
+    std::vector<std::string> captureNames;
+    if (hirModule_) {
+        for (const auto& hirFn : hirModule_->functions) {
+            if (hirFn->name == funcName || hirFn->mangledName == funcName) {
+                for (const auto& cap : hirFn->captures) {
+                    captureNames.push_back(cap.first);
+                }
+                break;
+            }
+        }
+    }
+
+    // ts_closure_set_cell(TsClosure* closure, int64_t index, TsCell* cell) -> void
+    auto setCellFt = llvm::FunctionType::get(
+        builder_->getVoidTy(),
+        { builder_->getPtrTy(), builder_->getInt64Ty(), builder_->getPtrTy() },
+        false
+    );
+    auto setCell = module_->getOrInsertFunction("ts_closure_set_cell", setCellFt);
+
+    // ts_closure_get_cell(TsClosure* closure, int64_t index) -> TsCell*
+    auto getCellFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy(), builder_->getInt64Ty() },
+        false
+    );
+    auto getCell = module_->getOrInsertFunction("ts_closure_get_cell", getCellFt);
+
     // Initialize each capture cell with its value
     for (size_t i = 0; i < numCaptures; ++i) {
         llvm::Value* capturedValue = getOperandValue(inst->operands[i + 1]);
         llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), i);
 
-        // Get the type of the captured value to box it properly
-        // Use LLVM type as the primary source of truth
-        llvm::Value* boxedValue = nullptr;
-        llvm::Type* valType = capturedValue->getType();
-
-        if (valType->isIntegerTy(64)) {
-            boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { capturedValue });
-        } else if (valType->isDoubleTy()) {
-            boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { capturedValue });
-        } else if (valType->isIntegerTy(1)) {
-            // Boolean - use ts_value_make_bool with i32
-            auto makeBool = getTsValueMakeBool();
-            llvm::Value* extended = builder_->CreateZExt(capturedValue, builder_->getInt32Ty(), "bool_ext");
-            boxedValue = builder_->CreateCall(makeBool, { extended });
-        } else if (valType->isIntegerTy(32)) {
-            // i32 - extend to i64 and use makeInt
-            llvm::Value* extended = builder_->CreateSExt(capturedValue, builder_->getInt64Ty(), "i32_ext");
-            boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
-        } else if (valType->isPointerTy()) {
-            // For pointers/objects, box as object
-            boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
-        } else {
-            // Default: box as object (may fail for non-pointer types)
-            boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
+        // Check if this capture variable already has a shared cell
+        std::string capVarName;
+        if (i < captureNames.size()) {
+            capVarName = captureNames[i];
         }
 
-        // Initialize the capture: ts_closure_init_capture(closure, index, boxedValue)
-        builder_->CreateCall(initCaptureFt, initCapture.getCallee(), { closure, indexVal, boxedValue });
+        // For cell sharing, identify the source variable: if the captured value
+        // was loaded from an alloca, use that alloca as the key. This ensures
+        // multiple loads from the same variable share the same cell, while
+        // different variables with the same name (e.g., inlined "this") don't.
+        llvm::Value* sourceKey = capturedValue;
+        if (auto* loadInst = llvm::dyn_cast<llvm::LoadInst>(capturedValue)) {
+            sourceKey = loadInst->getPointerOperand();
+        }
+        auto cellKey = std::make_pair(capVarName, sourceKey);
+        llvm::BasicBlock* currentBB = builder_->GetInsertBlock();
+        bool canShareCell = !capVarName.empty() && capturedVarCells_.count(cellKey) &&
+                            capturedVarCells_[cellKey].second == currentBB;
+        if (canShareCell) {
+            // Reuse the existing cell from a previously created closure in the same block
+            llvm::Value* existingCell = capturedVarCells_[cellKey].first;
+            builder_->CreateCall(setCellFt, setCell.getCallee(), { closure, indexVal, existingCell });
+        } else {
+            // Get the type of the captured value to box it properly
+            // Use LLVM type as the primary source of truth
+            llvm::Value* boxedValue = nullptr;
+            llvm::Type* valType = capturedValue->getType();
+
+            if (valType->isIntegerTy(64)) {
+                boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { capturedValue });
+            } else if (valType->isDoubleTy()) {
+                boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { capturedValue });
+            } else if (valType->isIntegerTy(1)) {
+                // Boolean - use ts_value_make_bool with i32
+                auto makeBool = getTsValueMakeBool();
+                llvm::Value* extended = builder_->CreateZExt(capturedValue, builder_->getInt32Ty(), "bool_ext");
+                boxedValue = builder_->CreateCall(makeBool, { extended });
+            } else if (valType->isIntegerTy(32)) {
+                // i32 - extend to i64 and use makeInt
+                llvm::Value* extended = builder_->CreateSExt(capturedValue, builder_->getInt64Ty(), "i32_ext");
+                boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
+            } else if (valType->isPointerTy()) {
+                // For pointers/objects, box as object
+                boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
+            } else {
+                // Default: box as object (may fail for non-pointer types)
+                boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
+            }
+
+            // Initialize the capture: ts_closure_init_capture(closure, index, boxedValue)
+            builder_->CreateCall(initCaptureFt, initCapture.getCallee(), { closure, indexVal, boxedValue });
+
+            // Store the cell for sharing with subsequent closures in the same block
+            if (!capVarName.empty()) {
+                llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { closure, indexVal });
+                capturedVarCells_[cellKey] = { cell, currentBB };
+            }
+        }
     }
 
     if (inst->result) {

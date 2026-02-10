@@ -4586,7 +4586,20 @@ void ASTToHIR::visitStaticBlock(ast::StaticBlock* node) {
 void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // Handle 'this' keyword specially
     if (node->name == "this") {
-        // Look up 'this' in the variable scope - it's set as a parameter in method bodies
+        // Check if 'this' is a captured variable from an outer function
+        // (e.g., arrow functions in class methods capturing lexical this)
+        size_t scopeIndex = 0;
+        if (currentFunction_ && isCapturedVariable("this", &scopeIndex)) {
+            auto* info = lookupVariableInfo("this");
+            if (info) {
+                auto type = info->elemType ? info->elemType : (info->value ? info->value->type : HIRType::makeAny());
+                registerCapture("this", type, scopeIndex);
+                currentFunction_->hasClosure = true;
+                lastValue_ = builder_.createLoadCapture("this", type);
+                return;
+            }
+        }
+        // Not captured - look up 'this' in the variable scope
         lastValue_ = lookupVariable("this");
         if (lastValue_) {
             return;
