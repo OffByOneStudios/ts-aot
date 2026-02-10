@@ -89,6 +89,23 @@ public:
     bool canHandleMethod(const std::string& methodName,
                          const std::string& className,
                          HIRInstruction* inst) const override {
+        // When className is empty, check the actual HIR type kind.
+        // Only handle methods on truly unknown (Any) types or Map/Set types.
+        // Do NOT intercept methods on Object-typed values (e.g., {get, set, ...} literals)
+        // since those are user-defined methods, not Map/Set operations.
+        // Note: Class types ARE allowed through - extension classes (HTTP Server, etc.)
+        // are backed by TsMap at runtime and need Map dispatch for property access.
+        if (className.empty() && inst) {
+            if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+                if (*valPtr && (*valPtr)->type) {
+                    auto kind = (*valPtr)->type->kind;
+                    if (kind == HIRTypeKind::Object) {
+                        return false;  // Object literal - not a Map/Set
+                    }
+                }
+            }
+        }
+
         // Map methods
         if (className == "Map" || className == "WeakMap" || className.empty()) {
             if (methodName == "set" || methodName == "get" ||

@@ -164,6 +164,7 @@
   "object/object_create.ts": "pass",
   "object/object_defineProperty.js": "pass",
   "object/object_defineProperty.ts": "pass",
+  "object/object_dynamic_property_access.ts": "pass",
   "object/object_freeze.js": "pass",
   "object/object_freeze.ts": "pass",
   "object/object_fromEntries.ts": "pass",

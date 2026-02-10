@@ -94,6 +94,17 @@ private:
     // This is set when lowering a function with captures
     llvm::Value* closureParam_ = nullptr;
 
+    // Shared capture cells: maps (variable name, source alloca/value) to
+    // (TsCell*, basic block). When multiple closures in the same basic block
+    // capture the same variable, they share the same TsCell. The basic block
+    // constraint ensures SSA dominance (cells from one block can't be used
+    // in non-dominated blocks, e.g., across loop iterations).
+    std::map<std::pair<std::string, llvm::Value*>,
+             std::pair<llvm::Value*, llvm::BasicBlock*>> capturedVarCells_;
+
+    // HIR module pointer (set during lower())
+    HIRModule* hirModule_ = nullptr;
+
     // Escape analysis: stack allocation tracking per function
     int stackAllocCount_ = 0;           // Number of stack-allocated objects in current function
     int stackAllocBytes_ = 0;           // Total bytes of stack-allocated objects in current function
