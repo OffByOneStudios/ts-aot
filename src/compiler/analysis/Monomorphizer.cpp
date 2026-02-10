@@ -450,7 +450,13 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 std::string specKey = call.modulePath.empty() ? mangled : (call.modulePath + "::" + mangled);
                 if (processedSpecializations.count(specKey)) continue;
 
+                // Also check the mangled name directly to prevent duplicate HIR functions
+                // when the same function is called from different modules (different specKey
+                // but same specializedName would create duplicate LLVM function definitions)
+                if (processedSpecializations.count(mangled)) continue;
+
                 processedSpecializations.insert(specKey);
+                processedSpecializations.insert(mangled);
                 changed = true;
 
                 Specialization spec;
@@ -804,31 +810,35 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                             spec.specializedName = cls->name + "_" + (method->isGetter ? "get_" : (method->isSetter ? "set_" : "")) + methodName;
                             // Construct argTypes: [ClassType, explicitParams...]
                             spec.argTypes.push_back(ct);
-                            
+
                             if (method->name == "constructor" && !ct->constructorOverloads.empty()) {
                                 auto ctorType = ct->constructorOverloads[0];
-                                spec.argTypes.insert(spec.argTypes.end(), 
+                                spec.argTypes.insert(spec.argTypes.end(),
                                     ctorType->paramTypes.begin(), ctorType->paramTypes.end());
                                 spec.returnType = std::make_shared<Type>(TypeKind::Void);
                             } else if (ct->methods.count(methodName)) {
                                 auto methodType = ct->methods[methodName];
-                                spec.argTypes.insert(spec.argTypes.end(), 
+                                spec.argTypes.insert(spec.argTypes.end(),
                                     methodType->paramTypes.begin(), methodType->paramTypes.end());
                                 spec.returnType = methodType->returnType;
                             } else if (ct->getters.count(methodName)) {
                                 auto methodType = ct->getters[methodName];
-                                spec.argTypes.insert(spec.argTypes.end(), 
+                                spec.argTypes.insert(spec.argTypes.end(),
                                     methodType->paramTypes.begin(), methodType->paramTypes.end());
                                 spec.returnType = methodType->returnType;
                             } else if (ct->setters.count(methodName)) {
                                 auto methodType = ct->setters[methodName];
-                                spec.argTypes.insert(spec.argTypes.end(), 
+                                spec.argTypes.insert(spec.argTypes.end(),
                                     methodType->paramTypes.begin(), methodType->paramTypes.end());
                                 spec.returnType = methodType->returnType;
                             } else {
                                 spec.returnType = std::make_shared<Type>(TypeKind::Void);
                             }
                         }
+
+                        // Deduplicate: skip if we already have a specialization with this name
+                        if (processedSpecializations.count(spec.specializedName)) continue;
+                        processedSpecializations.insert(spec.specializedName);
 
                         specializations.push_back(spec);
                     }
@@ -910,6 +920,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     }
                 }
 
+                // Deduplicate: skip if we already have a specialization with this name
+                if (processedSpecializations.count(spec.specializedName)) continue;
+                processedSpecializations.insert(spec.specializedName);
+
                 SPDLOG_DEBUG("Adding specialization for class expression method: {}", spec.specializedName);
                 specializations.push_back(spec);
             }
@@ -985,6 +999,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                         spec.returnType = std::make_shared<Type>(TypeKind::Void);
                     }
                 }
+
+                // Deduplicate: skip if we already have a specialization with this name
+                if (processedSpecializations.count(spec.specializedName)) continue;
+                processedSpecializations.insert(spec.specializedName);
 
                 SPDLOG_DEBUG("Adding specialization for local class method: {}", spec.specializedName);
                 specializations.push_back(spec);
