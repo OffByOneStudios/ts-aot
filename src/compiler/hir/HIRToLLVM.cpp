@@ -681,8 +681,25 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     }
 
     // Lower each block
-    for (auto& block : fn->blocks) {
-        lowerBlock(block.get());
+    for (size_t bi = 0; bi < fn->blocks.size(); ++bi) {
+        lowerBlock(fn->blocks[bi].get());
+
+        // Cross-block validation: after lowering each block, check ALL remaining blocks
+        for (size_t bj = bi + 1; bj < fn->blocks.size(); ++bj) {
+            auto& futureBlock = fn->blocks[bj];
+            for (size_t ii = 0; ii < futureBlock->instructions.size(); ++ii) {
+                auto& futureInst = futureBlock->instructions[ii];
+                for (size_t oj = 0; oj < futureInst->operands.size(); ++oj) {
+                    auto idx = futureInst->operands[oj].index();
+                    if (idx > 6) {
+                        SPDLOG_ERROR("CROSS-BLOCK CORRUPT: func={} lowered_block={} corrupted_block={} corrupted_instr={} opcode={} operand[{}].index()={}",
+                            fn->mangledName, fn->blocks[bi]->label, futureBlock->label,
+                            ii, static_cast<int>(futureInst->opcode), oj, idx);
+                        abort();
+                    }
+                }
+            }
+        }
     }
 
     currentFunction_ = nullptr;
@@ -706,9 +723,24 @@ void HIRToLLVM::lowerBlock(HIRBlock* block) {
 
     builder_->SetInsertPoint(bb);
 
+    // Validate all operands before lowering (catch HIR corruption early)
+    for (size_t i = 0; i < block->instructions.size(); ++i) {
+        auto& inst = block->instructions[i];
+        for (size_t j = 0; j < inst->operands.size(); ++j) {
+            auto idx = inst->operands[j].index();
+            if (idx > 6) {
+                SPDLOG_ERROR("HIR CORRUPTION: block={} instr={} opcode={} operand[{}].index()={} func={}",
+                    block->label, i, static_cast<int>(inst->opcode), j, idx,
+                    currentHIRFunction_ ? currentHIRFunction_->mangledName : "?");
+            }
+        }
+    }
+
     // Lower each instruction
-    for (auto& inst : block->instructions) {
-        SPDLOG_INFO("    Lowering instruction: opcode={}", static_cast<int>(inst->opcode));
+    currentBlockLabel_ = block->label;
+    for (size_t i = 0; i < block->instructions.size(); ++i) {
+        auto& inst = block->instructions[i];
+        currentInstrIndex_ = i;
         lowerInstruction(inst.get());
     }
 }
@@ -6399,7 +6431,14 @@ llvm::Value* HIRToLLVM::getOperandValue(const HIROperand& operand) {
     if (auto* b = std::get_if<bool>(&operand)) {
         return llvm::ConstantInt::get(builder_->getInt1Ty(), *b ? 1 : 0);
     }
-    SPDLOG_WARN("getOperandValue: unknown operand type index={}", operand.index());
+    SPDLOG_WARN("getOperandValue: unknown operand type index={} in func={} block={} instr={} operand_addr={}",
+        operand.index(),
+        currentHIRFunction_ ? currentHIRFunction_->mangledName : "?",
+        currentBlockLabel_,
+        currentInstrIndex_,
+        (void*)&operand);
+    // Abort here to get a clean stack trace instead of segfaulting later
+    abort();
     return nullptr;
 }
 

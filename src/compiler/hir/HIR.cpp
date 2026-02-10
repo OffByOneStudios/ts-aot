@@ -80,6 +80,7 @@ static const char* opcodeToString(HIROpcode op) {
         case HIROpcode::ConstFloat: return "const.f64";
         case HIROpcode::ConstBool: return "const.bool";
         case HIROpcode::ConstString: return "const.string";
+        case HIROpcode::ConstCString: return "const.cstring";
         case HIROpcode::ConstNull: return "const.null";
         case HIROpcode::ConstUndefined: return "const.undefined";
 
@@ -213,6 +214,8 @@ static const char* opcodeToString(HIROpcode op) {
         case HIROpcode::MakeClosure: return "make_closure";
         case HIROpcode::LoadCapture: return "load_capture";
         case HIROpcode::StoreCapture: return "store_capture";
+        case HIROpcode::LoadCaptureFromClosure: return "load_capture_from_closure";
+        case HIROpcode::StoreCaptureFromClosure: return "store_capture_from_closure";
 
         // Control flow
         case HIROpcode::Branch: return "br";

@@ -87,6 +87,8 @@ private:
     // Current function being lowered
     llvm::Function* currentFunction_ = nullptr;
     HIRFunction* currentHIRFunction_ = nullptr;
+    std::string currentBlockLabel_;
+    size_t currentInstrIndex_ = 0;
 
     // For closures: hidden first parameter that holds the TsClosure*
     // This is set when lowering a function with captures

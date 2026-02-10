@@ -180,12 +180,20 @@ private:
 
     // ts_array_slice - takes (ptr, i64, i64), returns ptr
     // HIR may pass f64 for the indices but runtime expects i64
+    // Called as: .slice() (0 args), .slice(start) (1 arg), .slice(start, end) (2 args)
     llvm::Value* lowerArraySlice(HIRInstruction* inst, HIRToLLVM& lowerer) {
         auto& builder = lowerer.builder();
         auto& module = lowerer.module();
 
         llvm::Value* arr = lowerer.getOperandValue(inst->operands[1]);
-        llvm::Value* startVal = lowerer.getOperandValue(inst->operands[2]);
+
+        // Start value is optional - if not provided, use 0
+        llvm::Value* startVal;
+        if (inst->operands.size() > 2) {
+            startVal = lowerer.getOperandValue(inst->operands[2]);
+        } else {
+            startVal = llvm::ConstantInt::get(builder.getInt64Ty(), 0);
+        }
 
         // End value is optional - if not provided, use INT64_MAX (runtime clamps to length)
         llvm::Value* endVal;
