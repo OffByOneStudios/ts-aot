@@ -215,6 +215,24 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_value_make_string(void* s) {
+        // Check if s is already a TsValue* to avoid double-boxing.
+        // This happens when an any-typed value (TsValue* STRING_PTR from
+        // ts_object_get_dynamic) is passed to a string-typed parameter in a
+        // cross-module function call. The callee then calls ts_value_make_string
+        // on what it thinks is a raw TsString* but is actually a TsValue*.
+        if (s) {
+            uintptr_t raw = (uintptr_t)s;
+            if (raw >= 0x10000) {
+                // TsValue has type enum (0-10) as first byte + 7 zero padding bytes.
+                // First 8 bytes as uint64_t will be <= 10.
+                // TsString has magic 0x53545247 at offset 0, which is much larger.
+                uint64_t first8 = *(uint64_t*)s;
+                if (first8 <= 10) {
+                    // It's already a TsValue* - return as-is
+                    return (TsValue*)s;
+                }
+            }
+        }
         TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
         memset(v, 0, sizeof(TsValue));  // Zero padding bytes for ts_value_get_* detection
         v->type = ValueType::STRING_PTR;
@@ -229,32 +247,28 @@ TsValue* ts_value_make_int(int64_t i) {
         if (o) {
             uintptr_t raw = (uintptr_t)o;
             if (raw >= 0x10000) {  // Guard against invalid pointers
-                // Check magic numbers FIRST to avoid misclassifying TsObject-derived classes
-                // (their vtable pointers can have a low first byte <= 10)
-                uint32_t magic = *(uint32_t*)o;
-                uint32_t magic8 = *(uint32_t*)((char*)o + 8);
-                uint32_t magic16 = *(uint32_t*)((char*)o + 16);
-                uint32_t magic24 = *(uint32_t*)((char*)o + 24);
-
-                // Skip TsValue check if this is a known TsObject type (by magic)
-                bool isKnownObject =
-                    magic == 0x41525259 || magic8 == 0x41525259 || magic16 == 0x41525259 ||   // TsArray
-                    magic == 0x53545247 ||                                                      // TsString
-                    magic == 0x4D415053 || magic8 == 0x4D415053 || magic16 == 0x4D415053 || magic24 == 0x4D415053 ||  // TsMap
-                    magic == 0x53455453 || magic8 == 0x53455453 || magic16 == 0x53455453 || magic24 == 0x53455453 ||  // TsSet
-                    magic == 0x46554E43 || magic8 == 0x46554E43 || magic16 == 0x46554E43 || magic24 == 0x46554E43 ||  // TsFunction
-                    magic == 0x42554646 || magic8 == 0x42554646 || magic16 == 0x42554646;      // TsBuffer
-
-                if (!isKnownObject) {
-                    // Check if it's already a TsValue*. A TsValue has type (0-10) in byte 0
-                    // and 7 zero padding bytes, so the first 8 bytes are a small value (0-10).
-                    // Real objects have a C++ vtable pointer which is a large address.
-                    uint64_t first8 = *(uint64_t*)o;
-                    if (first8 <= 10) {
-                        // Already a TsValue* (types 0-10), return as-is
-                        return (TsValue*)o;
-                    }
+                // Check for TsValue FIRST. A TsValue has type (0-10) in its first
+                // uint64_t (type enum + 7 zero padding bytes). No real object has a
+                // uint64_t value <= 10 at offset 0: vtable pointers are large addresses,
+                // magic numbers like TsArray(0x41525259) and TsString(0x53545247) are > 10.
+                // This must be checked BEFORE magic numbers because a TsValue's ptr_val
+                // field (at offset 8) can accidentally match magic patterns like TsMap(0x4D415053).
+                uint64_t first8 = *(uint64_t*)o;
+                if (first8 <= 10) {
+                    // Already a TsValue* (types 0-10), return as-is
+                    return (TsValue*)o;
                 }
+
+                // Check magic numbers to avoid wrapping known types that should use
+                // specific boxing functions (ts_value_make_array, ts_value_make_string, etc.)
+                uint32_t magic = *(uint32_t*)o;
+                uint32_t magic16 = *(uint32_t*)((char*)o + 16);
+                bool isKnownNonObject =
+                    magic == 0x41525259 || magic16 == 0x41525259 ||   // TsArray (magic at offset 0 or 16)
+                    magic == 0x53545247;                               // TsString (magic at offset 0)
+                // TsMap, TsSet, TsFunction, TsBuffer are objects - they should be wrapped
+                // with OBJECT_PTR, so we don't skip boxing for them
+                (void)isKnownNonObject;  // Reserved for future use
             }
         }
 
@@ -862,6 +876,18 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Native wrapper for number.toFixed() - ctx is a TsValue* containing the number
+    static TsValue* ts_number_toString_native(void* ctx, int argc, TsValue** argv) {
+        TsValue* numVal = (TsValue*)ctx;
+        double value = 0.0;
+        if (numVal->type == ValueType::NUMBER_INT) {
+            value = (double)numVal->i_val;
+        } else if (numVal->type == ValueType::NUMBER_DBL) {
+            value = numVal->d_val;
+        }
+        int64_t radix = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 10;
+        return ts_value_make_string((TsString*)ts_number_to_string(value, radix));
+    }
+
     static TsValue* ts_number_toFixed_native(void* ctx, int argc, TsValue** argv) {
         TsValue* numVal = (TsValue*)ctx;
         double value = 0.0;
@@ -889,37 +915,12 @@ TsValue* ts_value_make_int(int64_t i) {
             return undefined;
         }
 
-#ifdef _MSC_VER
-        // Try via TsReadable first (handles TsIncomingMessage, TsDuplex descendants, TsSocket, etc.)
-        // TsReadable is at offset 0 for classes inheriting from it (non-virtual base of most-derived class)
-        __try {
-            TsReadable* readable = reinterpret_cast<TsReadable*>(obj);
-            // Implicit conversion through virtual base chain:
-            // TsReadable -> (virtual) TsEventEmitter -> TsObject
-            TsEventEmitter* emitter = readable;  // Uses vbtable to find virtual base
-            TsObject* tsObj = emitter;            // Simple non-virtual base cast
-            if (tsObj) {
-                TsValue result = tsObj->GetPropertyVirtual(keyStr);
-                if (result.type != ValueType::UNDEFINED) {
-                    return result;
-                }
-            }
-        } __except(EXCEPTION_EXECUTE_HANDLER) {}
-
-        // Try via TsWritable (handles TsOutgoingMessage, TsServerResponse, TsClientRequest)
-        // TsWritable is at offset 0 for classes inheriting only from TsWritable
-        __try {
-            TsWritable* writable = reinterpret_cast<TsWritable*>(obj);
-            TsEventEmitter* emitter = writable;  // Uses vbtable
-            TsObject* tsObj = emitter;
-            if (tsObj) {
-                TsValue result = tsObj->GetPropertyVirtual(keyStr);
-                if (result.type != ValueType::UNDEFINED) {
-                    return result;
-                }
-            }
-        } __except(EXCEPTION_EXECUTE_HANDLER) {}
-#endif
+        // DISABLED: The vbase dispatch path uses reinterpret_cast<TsReadable*> which reads
+        // arbitrary GC memory as vtable pointers, causing NX faults that SEH cannot reliably
+        // catch. No stream class actually implements GetPropertyVirtual() with real behavior -
+        // only TsPromise does, and it inherits directly from TsObject (no virtual inheritance),
+        // so the direct cast fallback in ts_try_virtual_property_dispatch handles it correctly.
+        (void)keyStr; // suppress unused warning
         return undefined;
     }
 
@@ -939,20 +940,24 @@ TsValue* ts_value_make_int(int64_t i) {
             return vbaseResult;
         }
 
-        // Fall back to direct cast (works for non-virtual-inheritance types: TsResponse, TsBuffer, etc.)
-        // Only attempt if this is a valid GC heap pointer
+        // Fall back to direct cast - ONLY for TsPromise which is the only TsObject subclass
+        // that implements GetPropertyVirtual() with real behavior.
+        // We must check magic at offset 16 (TsObject::magic field) to identify TsPromise.
+        // Safety: first byte distinguishes TsObject (vtable ptr, large address) from TsValue
+        // (ValueType enum, 0-10). We only proceed if it looks like a TsObject.
         if (GC_base(obj)) {
-#ifdef _MSC_VER
-            __try {
-#endif
-                TsObject* tsObj = (TsObject*)obj;
-                TsValue result = tsObj->GetPropertyVirtual(keyStr);
-                if (result.type != ValueType::UNDEFINED) {
-                    return result;
+            uint8_t firstByte = *(uint8_t*)obj;
+            if (firstByte > 10) {
+                // Looks like a vtable pointer (TsObject-derived), not a TsValue enum
+                uint32_t magic16 = *(uint32_t*)((uint8_t*)obj + 16);
+                if (magic16 == 0x50524F4D) { // TsPromise::MAGIC "PROM"
+                    TsObject* tsObj = (TsObject*)obj;
+                    TsValue result = tsObj->GetPropertyVirtual(keyStr);
+                    if (result.type != ValueType::UNDEFINED) {
+                        return result;
+                    }
                 }
-#ifdef _MSC_VER
-            } __except(EXCEPTION_EXECUTE_HANDLER) {}
-#endif
+            }
         }
         return undefined;
     }
@@ -988,7 +993,7 @@ TsValue* ts_value_make_int(int64_t i) {
             // Handle NUMBER_INT - dispatch number methods (toString, toFixed, etc.)
             if (maybeVal->type == ValueType::NUMBER_INT) {
                 if (strcmp(keyStr, "toString") == 0) {
-                    return ts_value_make_string((TsString*)ts_number_to_string((double)maybeVal->i_val, 10));
+                    return ts_value_make_native_function((void*)ts_number_toString_native, obj);
                 }
                 if (strcmp(keyStr, "toFixed") == 0) {
                     return ts_value_make_native_function((void*)ts_number_toFixed_native, obj);
@@ -998,7 +1003,7 @@ TsValue* ts_value_make_int(int64_t i) {
             // Handle NUMBER_DBL - dispatch number methods
             if (maybeVal->type == ValueType::NUMBER_DBL) {
                 if (strcmp(keyStr, "toString") == 0) {
-                    return ts_value_make_string((TsString*)ts_number_to_string(maybeVal->d_val, 10));
+                    return ts_value_make_native_function((void*)ts_number_toString_native, obj);
                 }
                 if (strcmp(keyStr, "toFixed") == 0) {
                     return ts_value_make_native_function((void*)ts_number_toFixed_native, obj);

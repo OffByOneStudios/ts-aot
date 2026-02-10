@@ -189,6 +189,14 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     // ========================================
+    // GC functions
+    // ========================================
+    reg.registerLowering("ts_gc_collect",
+        lowering("ts_gc_collect")
+            .returnsVoid()
+            .build());
+
+    // ========================================
     // Math functions (using libm directly where possible)
     // ========================================
     // Math functions - use ArgConversion::ToF64 since HIR may pass i64 literals

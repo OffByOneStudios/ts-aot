@@ -74,7 +74,7 @@ Specialized tools that activate based on trigger terms:
 **golden-ir-tests** - Test runner
 - Triggers: "golden tests", "regression tests", "run tests"
 - Runs Python test suite in tests/golden_ir/
-- Reports pass/fail/XFAIL status
+- Reports pass/fail status
 - Validates IR patterns and runtime output
 
 **ctags-search** - Symbol search

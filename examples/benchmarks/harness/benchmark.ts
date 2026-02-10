@@ -103,6 +103,9 @@ export function benchmark(
         if (actualIterations >= iterations * 10) break;
     }
 
+    // Force GC before string formatting to avoid Boehm GC conservative scan misses
+    gc();
+
     // Calculate statistics
     const stats = calculateStats(measurements);
 
@@ -268,9 +271,11 @@ export class BenchmarkSuite {
         this.results = [];
 
         for (const bench of this.benchmarks) {
+            gc();
             console.log(`Running: ${bench.name}...`);
             const result = benchmark(bench.name, bench.fn, bench.options);
             this.results.push(result);
+            gc();
             printResult(result);
             console.log('');
         }

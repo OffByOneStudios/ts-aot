@@ -112,7 +112,7 @@ void* ts_alloc(size_t size) {
         void* ptr = pool_alloc_internal(size);
         if (ptr) return ptr;
     }
-    
+
     // Fall back to GC for large objects or if pool fails
     return GC_malloc(size);
 }
@@ -150,6 +150,10 @@ void ts_gc_init() {
     // so GC can scan them for pointers but won't free the block itself
     
     GC_set_max_heap_size(2ULL * 1024 * 1024 * 1024);  // 2GB max
+}
+
+void ts_gc_collect() {
+    GC_gcollect();
 }
 
 void __stack_chk_fail() {

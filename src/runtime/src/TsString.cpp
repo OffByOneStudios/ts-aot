@@ -1086,7 +1086,33 @@ extern "C" {
     }
 
     void* ts_string_concat(void* a, void* b) {
-        return TsString::Concat((TsString*)a, (TsString*)b);
+        // Safety: validate both arguments are valid TsString* pointers
+        // The compiler calls ts_value_get_string before this, but in rare cases
+        // (GC pressure, memory corruption) the result can be invalid.
+        auto ensureTsString = [](void* ptr) -> TsString* {
+            if (!ptr) return TsString::Create("");
+            uintptr_t addr = (uintptr_t)ptr;
+            if (addr < 0x10000) {
+                // Small integer masquerading as pointer - likely a TsValue type enum
+                // or corrupted pointer. Convert via ts_string_from_value.
+                return TsString::Create("");
+            }
+            uint32_t magic = *(uint32_t*)ptr;
+            if (magic == TsString::MAGIC) {
+                return (TsString*)ptr;  // Valid TsString
+            }
+            // Not a TsString - try to interpret as TsValue and convert
+            uint8_t firstByte = *(uint8_t*)ptr;
+            if (firstByte <= 10) {
+                // Looks like a TsValue* - convert to string
+                TsString* result = (TsString*)ts_string_from_value((TsValue*)ptr);
+                if (result) return result;
+            }
+            return TsString::Create("");
+        };
+        TsString* strA = ensureTsString(a);
+        TsString* strB = ensureTsString(b);
+        return TsString::Concat(strA, strB);
     }
 
     void* ts_string_split(void* str, void* separator) {

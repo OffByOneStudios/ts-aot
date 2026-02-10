@@ -50,6 +50,11 @@ Analyzer::Analyzer() {
     symbols.define("setImmediate", setImmediateType);
     symbols.define("clearImmediate", clearTimeoutType);
 
+    // Register gc() global function (forces garbage collection)
+    auto gcType = std::make_shared<FunctionType>();
+    gcType->returnType = std::make_shared<Type>(TypeKind::Void);
+    symbols.define("gc", gcType);
+
     // Register timers module (re-exports of global timer functions)
     auto timersModule = std::make_shared<ObjectType>();
     timersModule->fields["setTimeout"] = setTimeoutType;
