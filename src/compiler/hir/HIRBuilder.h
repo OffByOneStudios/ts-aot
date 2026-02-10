@@ -902,6 +902,24 @@ public:
         return result;
     }
 
+    // Load a global with a specific type (for module-scoped variables)
+    std::shared_ptr<HIRValue> createLoadGlobalTyped(const std::string& name, std::shared_ptr<HIRType> type) {
+        auto result = createValue(type);
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::LoadGlobal);
+        inst->result = result;
+        inst->operands.push_back(name);
+        emit(std::move(inst));
+        return result;
+    }
+
+    // Store a value to a global variable
+    void createStoreGlobal(const std::string& name, std::shared_ptr<HIRValue> value) {
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::StoreGlobal);
+        inst->operands.push_back(name);
+        inst->operands.push_back(value);
+        emit(std::move(inst));
+    }
+
     // Load a function pointer by name
     std::shared_ptr<HIRValue> createLoadFunction(const std::string& name,
                                                    std::shared_ptr<HIRType> funcType = nullptr) {

@@ -208,6 +208,7 @@ static const char* opcodeToString(HIROpcode op) {
 
         // Globals
         case HIROpcode::LoadGlobal: return "load_global";
+        case HIROpcode::StoreGlobal: return "store_global";
         case HIROpcode::LoadFunction: return "load_function";
 
         // Closures

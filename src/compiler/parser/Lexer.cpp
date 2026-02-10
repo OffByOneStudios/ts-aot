@@ -79,6 +79,32 @@ const std::unordered_map<std::string_view, TokenKind> Lexer::keywords_ = {
 Lexer::Lexer(const std::string& source, const std::string& fileName)
     : source_(source), fileName_(fileName) {}
 
+LexerState Lexer::saveLexerState() const {
+    LexerState s;
+    s.pos = pos_;
+    s.line = line_;
+    s.column = column_;
+    s.tokenStartLine = tokenStartLine_;
+    s.tokenStartColumn = tokenStartColumn_;
+    s.regexAllowed = regexAllowed_;
+    s.hadNewline = hadNewline_;
+    s.templateBraceDepth = templateBraceDepth_;
+    s.braceDepth = braceDepth_;
+    return s;
+}
+
+void Lexer::restoreLexerState(const LexerState& state) {
+    pos_ = state.pos;
+    line_ = state.line;
+    column_ = state.column;
+    tokenStartLine_ = state.tokenStartLine;
+    tokenStartColumn_ = state.tokenStartColumn;
+    regexAllowed_ = state.regexAllowed;
+    hadNewline_ = state.hadNewline;
+    templateBraceDepth_ = state.templateBraceDepth;
+    braceDepth_ = state.braceDepth;
+}
+
 char Lexer::peek() const {
     if (pos_ >= (int)source_.size()) return '\0';
     return source_[pos_];

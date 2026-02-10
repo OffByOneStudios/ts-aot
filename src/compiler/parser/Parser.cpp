@@ -164,26 +164,13 @@ Parser::SavedState Parser::saveState() const {
     SavedState s;
     s.current = current_;
     s.previous = previous_;
-    s.lexerOffset = lexer_->currentOffset();
-    s.regexAllowed = true;
+    s.lexerState = lexer_->saveLexerState();
     return s;
 }
 
 void Parser::restoreState(const SavedState& state) {
-    // We need to reconstruct the lexer state. Since we can't easily rewind
-    // the lexer, we create a new one from the saved offset.
-    // Actually, the simplest approach: re-create the lexer from the saved position
-    // For now, a pragmatic approach: just reset current_ and previous_
-    // The real trick is to re-lex from the saved offset
-    lexer_ = std::make_unique<Lexer>(*source_, fileName_);
-    // Skip to the saved position by advancing the internal position
-    // This is a bit wasteful but correct for speculative parsing
-    // We need to scan up to state.current.offset
-    Token tok;
-    do {
-        tok = lexer_->nextToken();
-    } while (tok.offset < state.current.offset && tok.kind != TokenKind::EndOfFile);
-    current_ = tok;
+    lexer_->restoreLexerState(state.lexerState);
+    current_ = state.current;
     previous_ = state.previous;
 }
 

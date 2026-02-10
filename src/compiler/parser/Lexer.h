@@ -127,6 +127,19 @@ struct Token {
     bool hadNewlineBefore = false;  // For ASI: was there a newline before this token?
 };
 
+/// Snapshot of lexer state for save/restore during speculative parsing
+struct LexerState {
+    int pos = 0;
+    int line = 1;
+    int column = 1;
+    int tokenStartLine = 1;
+    int tokenStartColumn = 1;
+    bool regexAllowed = true;
+    bool hadNewline = false;
+    std::vector<int> templateBraceDepth;
+    int braceDepth = 0;
+};
+
 class Lexer {
 public:
     explicit Lexer(const std::string& source, const std::string& fileName = "");
@@ -136,6 +149,10 @@ public:
 
     /// Peek at the current position without advancing
     int currentOffset() const { return pos_; }
+
+    /// Save/restore full lexer state for speculative parsing
+    LexerState saveLexerState() const;
+    void restoreLexerState(const LexerState& state);
 
     /// Get source text between two offsets
     std::string_view getSourceRange(int start, int end) const;

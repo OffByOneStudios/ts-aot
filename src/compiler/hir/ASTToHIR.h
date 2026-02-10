@@ -7,6 +7,7 @@
 #include "../analysis/Monomorphizer.h"
 
 #include <map>
+#include <set>
 #include <stack>
 #include <string>
 
@@ -117,6 +118,14 @@ private:
 
     // Static property globals - maps "ClassName_static_propName" to (globalPtr, type)
     std::map<std::string, std::pair<std::shared_ptr<HIRValue>, std::shared_ptr<HIRType>>> staticPropertyGlobals_;
+
+    // Module-scoped variable declarations from imported modules
+    // Maps variable name to the AST VariableDeclaration node (for lazy initialization)
+    std::map<std::string, ast::VariableDeclaration*> moduleVarDecls_;
+    // Set of module-scoped variable names that have been promoted to globals
+    std::set<std::string> moduleGlobalVars_;
+    // Source file of the main program (to distinguish imported modules)
+    std::string mainSourceFile_;
 
     // Enum values - maps enum name to member values
     // For numeric enums: "Color" -> {"Red" -> 0, "Green" -> 1, ...}

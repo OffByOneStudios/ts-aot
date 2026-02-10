@@ -160,6 +160,190 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         }
     }
 
+    // Determine the main source file for distinguishing imported modules.
+    // The main file's statements come LAST in program->body (after all imports).
+    // So we scan backwards to find the last unique sourceFile.
+    mainSourceFile_.clear();
+    for (auto it = program->body.rbegin(); it != program->body.rend(); ++it) {
+        if (!(*it)->sourceFile.empty()) {
+            mainSourceFile_ = (*it)->sourceFile;
+            break;
+        }
+    }
+
+    // Scan for module-scoped VariableDeclarations from imported modules.
+    // Functions from imported modules may reference these variables (e.g., defaultOptions
+    // in benchmark.ts referenced by benchmark()). We register them as module globals
+    // so they can be resolved in visitIdentifier.
+    moduleVarDecls_.clear();
+    moduleGlobalVars_.clear();
+    // Scan module init specializations for VariableDeclarations.
+    // The Monomorphizer moves VariableDeclarations from imported modules into
+    // __module_init_<hash> specialization functions. We need to find these and
+    // register them as module globals so other functions from the same module
+    // can reference them via LoadGlobal/StoreGlobal.
+    for (const auto& spec : specializations) {
+        if (spec.originalName.find("__module_init_") != 0) continue;
+        auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node);
+        if (!funcNode) continue;
+        // Note: We include all module init functions (including the main file)
+        // because file-level variables need to be shared across functions.
+        for (auto& stmt : funcNode->body) {
+            if (stmt->getKind() != "VariableDeclaration") continue;
+            auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+            if (!varDecl) continue;
+            auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
+            if (!ident) continue;
+            // Skip synthetic variables like __module_obj_0, exports, etc.
+            if (ident->name.find("__") == 0 || ident->name == "exports") continue;
+            moduleVarDecls_[ident->name] = varDecl;
+            moduleGlobalVars_.insert(ident->name);
+            module_->globals["__modvar_" + ident->name] = HIRType::makeAny();
+        }
+    }
+
+    // Pre-pass: create HIRClass objects for imported classes that aren't in the main program.
+    // The first pass only processes ClassDeclarations from the main file's AST, so classes
+    // defined in imported modules don't get HIRClass objects. We detect these from the
+    // specializations (which include methods from all classes).
+    // We use the ClassDeclaration's sourceFile to determine if a class is from the main
+    // program (will be handled by visitClassDeclaration) or from an imported module.
+    std::string mainSourceFile;
+    if (!program->body.empty() && !program->body[0]->sourceFile.empty()) {
+        mainSourceFile = program->body[0]->sourceFile;
+    }
+
+    std::set<std::string> classesCreatedFromSpecs;
+    for (const auto& spec : specializations) {
+        if (!spec.classType) continue;
+        auto classType = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
+        if (!classType || !classType->node) continue;
+        std::string className = classType->name;
+
+        // Skip classes from the main source file - they will be handled by
+        // visitClassDeclaration during normal statement processing
+        if (!mainSourceFile.empty() && classType->node->sourceFile == mainSourceFile) continue;
+
+        // Check if this class already exists (from the first pass / main file)
+        bool alreadyExists = false;
+        for (auto& cls : module_->classes) {
+            if (cls->name == className) {
+                alreadyExists = true;
+                break;
+            }
+        }
+        if (alreadyExists) continue;
+        if (classesCreatedFromSpecs.count(className)) continue;
+        classesCreatedFromSpecs.insert(className);
+
+        // Create HIRClass for this imported class
+        auto* hirClass = builder_.createClass(className);
+        if (!hirClass) continue;
+
+        // Build shape from the ClassDeclaration's property definitions
+        ast::ClassDeclaration* classDecl = classType->node;
+        auto shape = std::make_shared<HIRShape>();
+        shape->className = className;
+        uint32_t propertyOffset = 0;
+
+        // Handle base class
+        if (!classDecl->baseClass.empty()) {
+            for (auto& cls : module_->classes) {
+                if (cls->name == classDecl->baseClass) {
+                    hirClass->baseClass = cls.get();
+                    break;
+                }
+            }
+            if (hirClass->baseClass && hirClass->baseClass->shape) {
+                auto baseShape = hirClass->baseClass->shape;
+                shape->parent = baseShape.get();
+                for (const auto& [name, offset] : baseShape->propertyOffsets) {
+                    shape->propertyOffsets[name] = offset;
+                }
+                for (const auto& [name, type] : baseShape->propertyTypes) {
+                    shape->propertyTypes[name] = type;
+                }
+                propertyOffset = baseShape->size;
+            }
+        }
+
+        for (auto& memberPtr : classDecl->members) {
+            if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
+                if (!propDef->isStatic) {
+                    auto propType = propDef->type.empty()
+                        ? HIRType::makeAny()
+                        : convertTypeFromString(propDef->type);
+                    shape->propertyOffsets[propDef->name] = propertyOffset;
+                    shape->propertyTypes[propDef->name] = propType;
+                    propertyOffset++;
+                }
+            }
+        }
+        shape->size = propertyOffset;
+        hirClass->shape = shape;
+
+        // Generate default constructor for imported classes with field initializers
+        // but no explicit constructor (mirrors visitClassDeclaration behavior)
+        bool hasPropertyInitializers = false;
+        for (auto& memberPtr2 : classDecl->members) {
+            if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr2.get())) {
+                if (!propDef->isStatic && propDef->initializer) {
+                    hasPropertyInitializers = true;
+                    break;
+                }
+            }
+        }
+
+        // Also check if there's an explicit constructor in the class
+        bool hasExplicitConstructor = false;
+        for (auto& memberPtr2 : classDecl->members) {
+            if (auto* method = dynamic_cast<ast::MethodDefinition*>(memberPtr2.get())) {
+                if (method->name == "constructor" && method->hasBody) {
+                    hasExplicitConstructor = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasPropertyInitializers && !hasExplicitConstructor) {
+            std::string ctorName = className + "_constructor";
+            auto defaultCtor = std::make_unique<HIRFunction>(ctorName);
+            defaultCtor->params.push_back({"this", HIRType::makeClass(className, 0)});
+            defaultCtor->returnType = HIRType::makeVoid();
+            defaultCtor->nextValueId = 1;
+
+            HIRBlock* ctorBlock = defaultCtor->createBlock("entry");
+            HIRFunction* savedFunc = currentFunction_;
+            currentFunction_ = defaultCtor.get();
+            builder_.setInsertPoint(ctorBlock);
+            currentBlock_ = ctorBlock;
+            pushScope();
+
+            auto thisValue = std::make_shared<HIRValue>(0, HIRType::makeClass(className, 0), "this");
+            defineVariable("this", thisValue);
+
+            // Initialize property defaults from AST
+            for (auto& memberPtr2 : classDecl->members) {
+                if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr2.get())) {
+                    if (!propDef->isStatic && propDef->initializer) {
+                        auto initVal = lowerExpression(propDef->initializer.get());
+                        builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                    }
+                }
+            }
+
+            builder_.createReturnVoid();
+            popScope();
+            currentFunction_ = savedFunc;
+
+            hirClass->constructor = defaultCtor.get();
+            module_->functions.push_back(std::move(defaultCtor));
+        }
+
+        SPDLOG_DEBUG("Created HIRClass for imported class: {} with {} properties",
+            className, propertyOffset);
+    }
+
     // Second pass: generate functions from specializations
     for (const auto& spec : specializations) {
         if (spec.specializedName.find("lambda") != std::string::npos) {
@@ -393,17 +577,23 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             func->isGenerator = methodNode->isGenerator;
 
             // Add 'this' parameter first for instance methods
+            // spec.argTypes[0] is the class type for 'this' (set by Monomorphizer)
+            size_t argTypeOffset = 0;
             if (!methodNode->isStatic) {
-                auto thisType = HIRType::makeAny();
+                auto thisType = (spec.argTypes.size() > 0 && spec.argTypes[0])
+                    ? convertType(spec.argTypes[0])
+                    : HIRType::makeAny();
                 func->params.push_back({"this", thisType});
+                argTypeOffset = 1;  // Skip 'this' in spec.argTypes for regular params
             }
 
             // Handle regular parameters
             for (size_t paramIdx = 0; paramIdx < methodNode->parameters.size(); ++paramIdx) {
                 auto& param = methodNode->parameters[paramIdx];
                 std::shared_ptr<HIRType> paramType;
-                if (paramIdx < spec.argTypes.size() && spec.argTypes[paramIdx]) {
-                    paramType = convertType(spec.argTypes[paramIdx]);
+                size_t specIdx = paramIdx + argTypeOffset;
+                if (specIdx < spec.argTypes.size() && spec.argTypes[specIdx]) {
+                    paramType = convertType(spec.argTypes[specIdx]);
                 } else if (!param->type.empty()) {
                     paramType = convertTypeFromString(param->type);
                 } else {
@@ -434,6 +624,21 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             currentBlock_ = entryBlock;
             builder_.setInsertPoint(entryBlock);
 
+            // Set currentClass_ so that property type resolution works for 'this' access
+            // (e.g., this.items resolves to array<string> instead of any)
+            HIRClass* savedClass = currentClass_;
+            if (spec.classType) {
+                auto classType = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
+                if (classType) {
+                    for (auto& cls : module_->classes) {
+                        if (cls->name == classType->name) {
+                            currentClass_ = cls.get();
+                            break;
+                        }
+                    }
+                }
+            }
+
             pushFunctionScope(func.get());
             for (size_t i = 0; i < func->params.size(); ++i) {
                 const auto& [paramName, paramType] = func->params[i];
@@ -441,6 +646,25 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 defineVariable(paramName, paramValue);
             }
             func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+            // For constructors of imported classes, emit field initializers
+            // before the constructor body (mirrors visitClassDeclaration behavior)
+            if (methodNode->name == "constructor" && spec.classType) {
+                auto classType = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
+                if (classType && classType->node) {
+                    auto thisValue = lookupVariable("this");
+                    if (thisValue) {
+                        for (auto& member : classType->node->members) {
+                            if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                                if (!propDef->isStatic && propDef->initializer) {
+                                    auto initVal = lowerExpression(propDef->initializer.get());
+                                    builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Two-pass for function hoisting: FIRST process FunctionDeclarations
             for (auto& stmt : methodNode->body) {
@@ -468,6 +692,37 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
 
             popScope();
+            currentClass_ = savedClass;  // Restore after method body lowering
+
+            // Link method to its HIRClass (for constructor calls and method resolution)
+            if (spec.classType) {
+                auto classType = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
+                if (classType) {
+                    std::string className = classType->name;
+                    HIRClass* hirClass = nullptr;
+                    for (auto& cls : module_->classes) {
+                        if (cls->name == className) {
+                            hirClass = cls.get();
+                            break;
+                        }
+                    }
+                    if (hirClass) {
+                        HIRFunction* funcPtr = func.get();
+                        if (methodNode->name == "constructor") {
+                            hirClass->constructor = funcPtr;
+                        } else if (methodNode->isStatic) {
+                            hirClass->staticMethods[methodNode->name] = funcPtr;
+                        } else {
+                            std::string methodKey = methodNode->name;
+                            if (methodNode->isGetter) methodKey = "__getter_" + methodNode->name;
+                            else if (methodNode->isSetter) methodKey = "__setter_" + methodNode->name;
+                            hirClass->methods[methodKey] = funcPtr;
+                            hirClass->vtable.push_back({methodKey, funcPtr});
+                        }
+                    }
+                }
+            }
+
             module_->functions.push_back(std::move(func));
         }
     }
@@ -1517,6 +1772,14 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             auto allocaPtr = builder_.createAlloca(varType, ident->name);
             builder_.createStore(initValue, allocaPtr, varType);
             defineVariableAlloca(ident->name, allocaPtr, varType);
+        }
+
+        // If this variable is a module-scoped global (from an imported module),
+        // also store the value to the LLVM global variable so other functions
+        // from the same module can access it via LoadGlobal.
+        if (moduleGlobalVars_.count(ident->name)) {
+            std::string globalName = "__modvar_" + ident->name;
+            builder_.createStoreGlobal(globalName, initValue);
         }
     } else if (auto* objPattern = dynamic_cast<ast::ObjectBindingPattern*>(node->name.get())) {
         // Object destructuring: const { a, b } = obj
@@ -3829,6 +4092,28 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
 
         // Call the constructor
         builder_.createCall(hirClass->constructor->name, ctorArgs, HIRType::makeVoid());
+    } else if (hirClass && !hirClass->constructor && specializations_) {
+        // The HIRClass was created (e.g., by pre-pass for imported classes) but the
+        // constructor function hasn't been generated yet. Look through specializations
+        // to find the constructor and emit the call by name.
+        std::string ctorName;
+        for (const auto& spec : *specializations_) {
+            if (spec.originalName == "constructor" && spec.classType) {
+                auto ct = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
+                if (ct && ct->name == className) {
+                    ctorName = spec.specializedName;
+                    break;
+                }
+            }
+        }
+        if (!ctorName.empty()) {
+            std::vector<std::shared_ptr<HIRValue>> ctorArgs;
+            ctorArgs.push_back(newObj);  // 'this' is the new object
+            for (auto& arg : args) {
+                ctorArgs.push_back(arg);
+            }
+            builder_.createCall(ctorName, ctorArgs, HIRType::makeVoid());
+        }
     }
 
     // The result is the new object
@@ -4408,6 +4693,14 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                 return;
             }
         }
+    }
+
+    // Check if this is a module-scoped variable from an imported module
+    if (moduleGlobalVars_.count(node->name)) {
+        std::string globalName = "__modvar_" + node->name;
+        auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
+        lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
+        return;
     }
 
     // Unknown variable - create undefined

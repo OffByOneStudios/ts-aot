@@ -140,11 +140,15 @@ private:
     // Map HIR values to LLVM values
     std::map<uint32_t, llvm::Value*> valueMap_;
 
-    // Map HIR blocks to LLVM blocks
-    std::map<std::string, llvm::BasicBlock*> blockMap_;
+    // Map HIR blocks to LLVM blocks (keyed by pointer, not label, to handle duplicate names)
+    std::map<HIRBlock*, llvm::BasicBlock*> blockMap_;
 
     // Map global variable names to LLVM globals (for consistent lookup)
     std::map<std::string, llvm::GlobalVariable*> globalMap_;
+
+    // Map of user-defined function names to their HIR parameter types
+    // Used to avoid boxing string args when callee param is String-typed (not Any)
+    std::map<std::string, std::vector<std::shared_ptr<HIRType>>> userFunctionParams_;
 
     // Get or create LLVM value for HIR value
     llvm::Value* getValue(const std::shared_ptr<HIRValue>& hirValue);
@@ -304,7 +308,8 @@ private:
     llvm::Value* lowerRegisteredCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec);
     llvm::Value* convertArg(llvm::Value* arg, ::hir::ArgConversion conv);
     llvm::Value* coerceArgToType(llvm::Value* arg, llvm::Type* expectedType,
-                                  const HIROperand& operand);
+                                  const HIROperand& operand,
+                                  std::shared_ptr<HIRType> calleeParamType = nullptr);
     llvm::Value* handleReturn(llvm::Value* result, ::hir::ReturnHandling handling);
 
     // Variadic function lowering helpers
@@ -314,6 +319,7 @@ private:
 
     // Globals
     void lowerLoadGlobal(HIRInstruction* inst);
+    void lowerStoreGlobal(HIRInstruction* inst);
     void lowerLoadFunction(HIRInstruction* inst);
 
     // Closures
