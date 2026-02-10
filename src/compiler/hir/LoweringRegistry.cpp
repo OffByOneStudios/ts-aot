@@ -428,6 +428,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .build());
 
+    reg.registerLowering("ts_array_create_sized",
+        lowering("ts_array_create_sized")
+            .returnsPtr()
+            .i64Arg()      // size (auto-converts f64 → i64)
+            .build());
+
     reg.registerLowering("ts_array_init_inplace",
         lowering("ts_array_init_inplace")
             .returnsVoid()

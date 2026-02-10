@@ -52,6 +52,12 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
     // This is necessary because functions may call each other before they are defined
     for (auto& fn : hirModule->functions) {
         forwardDeclareFunction(fn.get());
+        // Store HIR parameter types for each user function
+        std::vector<std::shared_ptr<HIRType>> paramTypes;
+        for (auto& [name, type] : fn->params) {
+            paramTypes.push_back(type);
+        }
+        userFunctionParams_[fn->mangledName] = std::move(paramTypes);
     }
 
     // Create VTable globals for all classes (even empty ones for instanceof)
@@ -271,7 +277,7 @@ void HIRToLLVM::setValue(const std::shared_ptr<HIRValue>& hirValue, llvm::Value*
 
 llvm::BasicBlock* HIRToLLVM::getBlock(HIRBlock* hirBlock) {
     if (!hirBlock) return nullptr;
-    auto it = blockMap_.find(hirBlock->label);
+    auto it = blockMap_.find(hirBlock);
     if (it != blockMap_.end()) {
         return it->second;
     }
@@ -588,7 +594,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         // Create LLVM basic blocks for HIR blocks (these go in the impl function)
         for (auto& block : fn->blocks) {
             llvm::BasicBlock* bb = llvm::BasicBlock::Create(context_, block->label, generatorImplFunc_);
-            blockMap_[block->label] = bb;
+            blockMap_[block.get()] = bb;
         }
 
         // Create the done block
@@ -605,7 +611,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         }
 
         // Create the state dispatch switch
-        llvm::BasicBlock* firstHIRBlock = fn->blocks.empty() ? generatorDoneBlock_ : blockMap_[fn->blocks[0]->label];
+        llvm::BasicBlock* firstHIRBlock = fn->blocks.empty() ? generatorDoneBlock_ : blockMap_[fn->blocks[0].get()];
         llvm::SwitchInst* stateSwitch = builder_->CreateSwitch(state, generatorDoneBlock_, yieldCount + 1);
 
         // State 0 -> start of generator (first HIR block)
@@ -648,13 +654,13 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     // Create LLVM basic blocks for HIR blocks
     for (auto& block : fn->blocks) {
         llvm::BasicBlock* bb = llvm::BasicBlock::Create(context_, block->label, llvmFunc);
-        blockMap_[block->label] = bb;
+        blockMap_[block.get()] = bb;
     }
 
     // For async functions, branch from entry to the first HIR block
     // (The entry block was created above based on the function type)
     if (fn->isAsync && !fn->blocks.empty()) {
-        llvm::BasicBlock* firstBlock = blockMap_[fn->blocks[0]->label];
+        llvm::BasicBlock* firstBlock = blockMap_[fn->blocks[0].get()];
         builder_->CreateBr(firstBlock);
     }
 
@@ -875,6 +881,7 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
 
         // Globals
         case HIROpcode::LoadGlobal:   lowerLoadGlobal(inst); break;
+        case HIROpcode::StoreGlobal:  lowerStoreGlobal(inst); break;
         case HIROpcode::LoadFunction: lowerLoadFunction(inst); break;
 
         // Closures
@@ -2578,6 +2585,14 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
         } else if (type->kind == HIRTypeKind::String) {
             auto unboxFn = getTsValueGetString();
             result = builder_->CreateCall(unboxFn, {result});
+        } else if (type->kind == HIRTypeKind::Array ||
+                   type->kind == HIRTypeKind::Object ||
+                   type->kind == HIRTypeKind::Class ||
+                   type->kind == HIRTypeKind::Map ||
+                   type->kind == HIRTypeKind::Set) {
+            // Unbox object/array/class types: extract raw pointer from TsValue*
+            auto unboxFn = getTsValueGetObject();
+            result = builder_->CreateCall(unboxFn, {result});
         }
     }
 
@@ -2887,6 +2902,16 @@ void HIRToLLVM::lowerDeleteProp(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerNewArrayBoxed(HIRInstruction* inst) {
     llvm::Value* len = getOperandValue(inst->operands[0]);
+
+    // Coerce length to i64 (HIR may pass f64 literals or ptr/any values)
+    if (len->getType()->isDoubleTy()) {
+        len = builder_->CreateFPToSI(len, builder_->getInt64Ty(), "len_to_i64");
+    } else if (len->getType()->isPointerTy()) {
+        // Any-typed value - unbox to int
+        auto unboxFt = llvm::FunctionType::get(builder_->getInt64Ty(), {builder_->getPtrTy()}, false);
+        auto unboxFn = module_->getOrInsertFunction("ts_value_get_int", unboxFt);
+        len = builder_->CreateCall(unboxFt, unboxFn.getCallee(), {len});
+    }
 
     // Check if we can stack-allocate this array
     bool canStackAlloc = !inst->escapes &&
@@ -3577,6 +3602,10 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     }
 
     // Gather arguments, converting types to match function signature
+    // For user-defined functions, look up the callee's HIR parameter types.
+    // If a callee param is String-typed, skip boxing (callee expects raw TsString*).
+    // If a callee param is Any-typed, still box (callee expects boxed TsValue*).
+    auto userParamIt = userFunctionParams_.find(funcName);
     std::vector<llvm::Value*> args;
     llvm::FunctionType* fnType = fn->getFunctionType();
     for (size_t i = 1; i < inst->operands.size(); ++i) {
@@ -3584,7 +3613,12 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         size_t paramIdx = i - 1;
         if (paramIdx < fnType->getNumParams()) {
             llvm::Type* expectedType = fnType->getParamType(paramIdx);
-            arg = coerceArgToType(arg, expectedType, inst->operands[i]);
+            // Pass the callee's HIR param type if this is a user function
+            std::shared_ptr<HIRType> calleeParamType = nullptr;
+            if (userParamIt != userFunctionParams_.end() && paramIdx < userParamIt->second.size()) {
+                calleeParamType = userParamIt->second[paramIdx];
+            }
+            arg = coerceArgToType(arg, expectedType, inst->operands[i], calleeParamType);
         }
         args.push_back(arg);
     }
@@ -3925,23 +3959,32 @@ llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) 
 }
 
 llvm::Value* HIRToLLVM::coerceArgToType(llvm::Value* arg, llvm::Type* expectedType,
-                                        const HIROperand& operand) {
+                                        const HIROperand& operand,
+                                        std::shared_ptr<HIRType> calleeParamType) {
     llvm::Type* argType = arg->getType();
 
     // When both are ptr, check HIR type to see if we need to box a concrete value
     // for an 'any' parameter. A raw TsString* or TsObject* needs to be boxed to TsValue*.
+    // For user-defined functions, only skip boxing if the callee param is String-typed.
+    // If the callee param is Any-typed, we still need to box.
     if (argType == expectedType && argType->isPointerTy()) {
-        // Check if the operand has a concrete HIR type that needs boxing
-        if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
-            if (*hirVal && (*hirVal)->type) {
-                auto hirKind = (*hirVal)->type->kind;
-                if (hirKind == HIRTypeKind::String) {
-                    auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
-                    auto fn = module_->getOrInsertFunction("ts_value_make_string", ft);
-                    return builder_->CreateCall(ft, fn.getCallee(), { arg });
+        // If we know the callee's param type and it's String, skip boxing -
+        // the callee expects raw TsString*, not boxed TsValue*.
+        bool calleeExpectsString = calleeParamType &&
+            (calleeParamType->kind == HIRTypeKind::String);
+        if (!calleeExpectsString) {
+            // Check if the operand has a concrete HIR type that needs boxing
+            if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
+                if (*hirVal && (*hirVal)->type) {
+                    auto hirKind = (*hirVal)->type->kind;
+                    if (hirKind == HIRTypeKind::String) {
+                        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+                        auto fn = module_->getOrInsertFunction("ts_value_make_string", ft);
+                        return builder_->CreateCall(ft, fn.getCallee(), { arg });
+                    }
+                    // For other concrete types (Object, Array, Function, etc.),
+                    // they may already be boxed or need object boxing
                 }
-                // For other concrete types (Object, Array, Function, etc.),
-                // they may already be boxed or need object boxing
             }
         }
         return arg;
@@ -4265,12 +4308,25 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             llvm::FunctionType* fnType = fn->getFunctionType();
             std::vector<llvm::Value*> args;
             args.push_back(obj);  // 'this' pointer (param 0)
+
+            // Look up HIR parameter types to pass to coerceArgToType
+            // so it knows whether to box string arguments or not
+            std::vector<std::shared_ptr<HIRType>>* hirParamTypes = nullptr;
+            auto it = userFunctionParams_.find(funcName);
+            if (it != userFunctionParams_.end()) {
+                hirParamTypes = &it->second;
+            }
+
             for (size_t i = 2; i < inst->operands.size(); ++i) {
                 llvm::Value* arg = getOperandValue(inst->operands[i]);
                 size_t paramIdx = i - 2 + 1;  // +1 for 'this' param
                 if (paramIdx < fnType->getNumParams()) {
                     llvm::Type* expectedType = fnType->getParamType(paramIdx);
-                    arg = coerceArgToType(arg, expectedType, inst->operands[i]);
+                    std::shared_ptr<HIRType> calleeParamType;
+                    if (hirParamTypes && paramIdx < hirParamTypes->size()) {
+                        calleeParamType = (*hirParamTypes)[paramIdx];
+                    }
+                    arg = coerceArgToType(arg, expectedType, inst->operands[i], calleeParamType);
                 }
                 args.push_back(arg);
             }
@@ -4724,6 +4780,17 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_assert";
     } else if (globalName == "child_process") {
         funcName = "ts_get_global_child_process";
+    } else if (globalName.find("__modvar_") == 0) {
+        // Module-scoped variable from an imported module
+        llvm::GlobalVariable* gv = module_->getGlobalVariable(globalName);
+        if (!gv) {
+            gv = getOrCreateGlobal(globalName, HIRType::makeAny());
+        }
+        result = builder_->CreateLoad(builder_->getPtrTy(), gv, globalName);
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
     } else if (globalName.find("_VTable_Global") != std::string::npos) {
         // VTable globals are LLVM globals, not runtime globals
         llvm::GlobalVariable* vtableGlobal = module_->getGlobalVariable(globalName);
@@ -4760,6 +4827,38 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
     if (inst->result) {
         setValue(inst->result, result);
     }
+}
+
+void HIRToLLVM::lowerStoreGlobal(HIRInstruction* inst) {
+    std::string globalName = getOperandString(inst->operands[0]);
+    llvm::Value* value = getOperandValue(inst->operands[1]);
+
+    llvm::GlobalVariable* gv = module_->getGlobalVariable(globalName);
+    if (!gv) {
+        gv = getOrCreateGlobal(globalName, HIRType::makeAny());
+    }
+
+    // Box value if needed (store as ptr)
+    if (value->getType() != builder_->getPtrTy()) {
+        if (value->getType()->isIntegerTy(64)) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_make_int", ft);
+            value = builder_->CreateCall(ft, fn.getCallee(), { value });
+        } else if (value->getType()->isDoubleTy()) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_make_double", ft);
+            value = builder_->CreateCall(ft, fn.getCallee(), { value });
+        } else if (value->getType()->isIntegerTy(1)) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+            value = builder_->CreateCall(ft, fn.getCallee(), { value });
+        }
+    }
+
+    builder_->CreateStore(value, gv);
 }
 
 void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {

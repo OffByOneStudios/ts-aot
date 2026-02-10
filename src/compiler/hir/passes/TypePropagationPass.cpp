@@ -295,6 +295,9 @@ std::shared_ptr<HIRType> TypePropagationPass::inferResultType(HIRInstruction* in
 
         // Globals
         case HIROpcode::LoadGlobal:
+            // Preserve the existing type set by createLoadGlobalTyped (e.g., Any for module vars)
+            // rather than overriding to Ptr, which loses type info needed for string concat etc.
+            return inst->result ? inst->result->type : HIRType::makeAny();
         case HIROpcode::LoadFunction:
             return HIRType::makePtr();
 

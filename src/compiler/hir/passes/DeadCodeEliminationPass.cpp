@@ -260,6 +260,7 @@ bool DeadCodeEliminationPass::hasSideEffects(HIRInstruction* inst) const {
         case HIROpcode::SetElemTyped:
         case HIROpcode::StoreCapture:
         case HIROpcode::StoreCaptureFromClosure:
+        case HIROpcode::StoreGlobal:
             return true;
 
         // Array mutations

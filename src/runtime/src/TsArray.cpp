@@ -68,24 +68,45 @@ TsArray::TsArray(size_t initialCapacity, size_t elementSize) {
 }
 
 void TsArray::Push(int64_t value) {
-    if (elementSize != 8) {
-        std::cerr << "Push not supported on specialized arrays yet" << std::endl;
-        return;
-    }
     if (length >= capacity) {
         size_t newCapacity = capacity * 2;
+        if (newCapacity < 4) newCapacity = 4;
         void* newElements = ts_alloc(newCapacity * elementSize);
         std::memcpy(newElements, elements, length * elementSize);
         elements = newElements;
         capacity = newCapacity;
     }
-    ((int64_t*)elements)[length++] = value;
+    if (elementSize == 8) {
+        ((int64_t*)elements)[length++] = value;
+    } else if (elementSize == 4) {
+        ((int32_t*)elements)[length++] = (int32_t)value;
+    } else if (elementSize == 2) {
+        ((int16_t*)elements)[length++] = (int16_t)value;
+    } else if (elementSize == 1) {
+        ((int8_t*)elements)[length++] = (int8_t)value;
+    } else {
+        // Fallback: memcpy the lower bytes
+        std::memcpy((char*)elements + length * elementSize, &value, elementSize);
+        length++;
+    }
 }
 
 int64_t TsArray::Pop() {
     if (length == 0) return 0;
-    if (elementSize != 8) return 0;
-    return ((int64_t*)elements)[--length];
+    if (elementSize == 8) {
+        return ((int64_t*)elements)[--length];
+    } else if (elementSize == 4) {
+        return (int64_t)((int32_t*)elements)[--length];
+    } else if (elementSize == 2) {
+        return (int64_t)((int16_t*)elements)[--length];
+    } else if (elementSize == 1) {
+        return (int64_t)((int8_t*)elements)[--length];
+    }
+    // Fallback
+    int64_t result = 0;
+    length--;
+    std::memcpy(&result, (char*)elements + length * elementSize, elementSize);
+    return result;
 }
 
 double TsArray::GetElementDouble(size_t index) {
@@ -129,25 +150,33 @@ void TsArray::PushDouble(double value) {
 }
 
 void TsArray::Unshift(int64_t value) {
-    if (elementSize != 8) return;
     if (length >= capacity) {
         size_t newCapacity = capacity * 2;
-        int64_t* newElements = (int64_t*)ts_alloc(newCapacity * 8);
-        std::memcpy(newElements + 1, elements, length * 8);
+        if (newCapacity < 4) newCapacity = 4;
+        void* newElements = ts_alloc(newCapacity * elementSize);
+        std::memcpy((char*)newElements + elementSize, elements, length * elementSize);
         elements = newElements;
         capacity = newCapacity;
     } else {
-        std::memmove((int64_t*)((int64_t*)elements) + 1, elements, length * 8);
+        std::memmove((char*)elements + elementSize, elements, length * elementSize);
     }
-    ((int64_t*)elements)[0] = value;
+    if (elementSize == 8) {
+        ((int64_t*)elements)[0] = value;
+    } else {
+        std::memcpy(elements, &value, elementSize);
+    }
     length++;
 }
 
 int64_t TsArray::Shift() {
     if (length == 0) return 0;
-    if (elementSize != 8) return 0;
-    int64_t result = ((int64_t*)elements)[0];
-    std::memmove(elements, (int64_t*)((int64_t*)elements) + 1, (length - 1) * 8);
+    int64_t result = 0;
+    if (elementSize == 8) {
+        result = ((int64_t*)elements)[0];
+    } else {
+        std::memcpy(&result, elements, elementSize);
+    }
+    std::memmove(elements, (char*)elements + elementSize, (length - 1) * elementSize);
     length--;
     return result;
 }

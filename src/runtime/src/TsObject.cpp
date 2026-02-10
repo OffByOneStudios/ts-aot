@@ -861,6 +861,19 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_string((TsString*)ts_string_padEnd(str, targetLength, padString));
     }
 
+    // Native wrapper for number.toFixed() - ctx is a TsValue* containing the number
+    static TsValue* ts_number_toFixed_native(void* ctx, int argc, TsValue** argv) {
+        TsValue* numVal = (TsValue*)ctx;
+        double value = 0.0;
+        if (numVal->type == ValueType::NUMBER_INT) {
+            value = (double)numVal->i_val;
+        } else if (numVal->type == ValueType::NUMBER_DBL) {
+            value = numVal->d_val;
+        }
+        int64_t digits = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        return ts_value_make_string((TsString*)ts_number_to_fixed(value, digits));
+    }
+
     // Helper: try implicit conversion through virtual base chain to find TsObject
     // For stream classes (TsReadable/TsWritable), TsObject is a virtual base NOT at offset 0.
     // We use the C++ implicit conversion which follows the vbtable to find the virtual base.
@@ -868,6 +881,14 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue undefined;
         undefined.type = ValueType::UNDEFINED;
         undefined.i_val = 0;
+
+        // Guard: skip virtual dispatch for non-heap pointers.
+        // Raw integers, code section pointers, and static data pointers would crash
+        // when we try to follow vtable chains via reinterpret_cast.
+        if (!GC_base(obj)) {
+            return undefined;
+        }
+
 #ifdef _MSC_VER
         // Try via TsReadable first (handles TsIncomingMessage, TsDuplex descendants, TsSocket, etc.)
         // TsReadable is at offset 0 for classes inheriting from it (non-virtual base of most-derived class)
@@ -919,17 +940,20 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         // Fall back to direct cast (works for non-virtual-inheritance types: TsResponse, TsBuffer, etc.)
+        // Only attempt if this is a valid GC heap pointer
+        if (GC_base(obj)) {
 #ifdef _MSC_VER
-        __try {
+            __try {
 #endif
-            TsObject* tsObj = (TsObject*)obj;
-            TsValue result = tsObj->GetPropertyVirtual(keyStr);
-            if (result.type != ValueType::UNDEFINED) {
-                return result;
-            }
+                TsObject* tsObj = (TsObject*)obj;
+                TsValue result = tsObj->GetPropertyVirtual(keyStr);
+                if (result.type != ValueType::UNDEFINED) {
+                    return result;
+                }
 #ifdef _MSC_VER
-        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
 #endif
+        }
         return undefined;
     }
 
@@ -942,6 +966,14 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
+        // Guard: reject obviously invalid pointers (raw integers, null-ish values).
+        // When the compiler does expr.toString() on a number result, the integer value
+        // gets passed as 'obj' (e.g., 0x1D = 29). Dereferencing that would crash.
+        uintptr_t addr = (uintptr_t)obj;
+        if (addr < 0x10000) {
+            return ts_value_make_undefined();
+        }
+
         // Try to detect TsValue* at the start
         // TsValue has type enum (0-10) at offset 0, then 7 zero padding bytes, then value at offset 8
         // Real object pointers have a C++ vtable pointer at offset 0 which is a large 8-byte address
@@ -951,6 +983,26 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* maybeVal = (TsValue*)obj;
             // Additional check: for UNDEFINED, ptr_val should be null/zero
             if (maybeVal->type == ValueType::UNDEFINED) {
+                return ts_value_make_undefined();
+            }
+            // Handle NUMBER_INT - dispatch number methods (toString, toFixed, etc.)
+            if (maybeVal->type == ValueType::NUMBER_INT) {
+                if (strcmp(keyStr, "toString") == 0) {
+                    return ts_value_make_string((TsString*)ts_number_to_string((double)maybeVal->i_val, 10));
+                }
+                if (strcmp(keyStr, "toFixed") == 0) {
+                    return ts_value_make_native_function((void*)ts_number_toFixed_native, obj);
+                }
+                return ts_value_make_undefined();
+            }
+            // Handle NUMBER_DBL - dispatch number methods
+            if (maybeVal->type == ValueType::NUMBER_DBL) {
+                if (strcmp(keyStr, "toString") == 0) {
+                    return ts_value_make_string((TsString*)ts_number_to_string(maybeVal->d_val, 10));
+                }
+                if (strcmp(keyStr, "toFixed") == 0) {
+                    return ts_value_make_native_function((void*)ts_number_toFixed_native, obj);
+                }
                 return ts_value_make_undefined();
             }
             // For object types, unwrap if ptr_val is valid (non-zero)

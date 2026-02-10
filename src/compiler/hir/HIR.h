@@ -254,6 +254,7 @@ enum class HIROpcode {
 
     // Globals
     LoadGlobal,         // %r = load_global "name" (console, Math, JSON, etc.)
+    StoreGlobal,        // store_global "name", %val (store to module-scoped global)
     LoadFunction,       // %r = load_function "name" (get function pointer)
 
     // Closures

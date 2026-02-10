@@ -134,8 +134,7 @@ private:
     struct SavedState {
         Token current;
         Token previous;
-        int lexerOffset;
-        bool regexAllowed;
+        LexerState lexerState;
     };
     SavedState saveState() const;
     void restoreState(const SavedState& state);
