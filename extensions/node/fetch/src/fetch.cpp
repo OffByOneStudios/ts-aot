@@ -8,8 +8,6 @@
 #include <llhttp.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#define GC_THREADS
-#include <gc/gc.h>
 #include "TsURL.h"
 #include "TsBuffer.h"
 #include "TsArray.h"
@@ -248,7 +246,7 @@ void* ts_fetch(void* url_val, void* options_val) {
     TsURL* url = TsURL::Create(url_str);
     ts::TsPromise* promise = ts::ts_promise_create();
 
-    FetchContext* ctx = new(GC_malloc_uncollectable(sizeof(FetchContext))) FetchContext(promise, url, nullptr);
+    FetchContext* ctx = new(ts_alloc(sizeof(FetchContext))) FetchContext(promise, url, nullptr);
     ctx->is_https = std::string(url->GetProtocol()->ToUtf8()) == "https:";
     ctx->response_headers = TsHeaders::Create();
 

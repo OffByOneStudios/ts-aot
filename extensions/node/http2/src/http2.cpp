@@ -10,7 +10,7 @@
 #include "TsSymbol.h"
 #include "TsError.h"
 #include "GC.h"
-#include <gc/gc.h>  // For GC_base()
+#include "TsGC.h"
 
 #include <cstring>
 #include <cstdio>
@@ -637,7 +637,7 @@ void* ts_http2_server_listen(void* server, int64_t port, void* host, void* callb
     // Use GC_base + TsString magic to distinguish a GC-allocated string from a function pointer.
     if (host && !callback) {
         bool isString = false;
-        void* base = GC_base(host);
+        void* base = ts_gc_base(host);
         if (base) {
             // GC-allocated object - check if it's a TsString (magic 0x53545247 at offset 0)
             uint32_t magic = *(uint32_t*)host;

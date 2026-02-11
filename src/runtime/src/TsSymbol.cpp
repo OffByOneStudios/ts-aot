@@ -1,9 +1,21 @@
 #include "TsSymbol.h"
 #include "TsRuntime.h"
+#include "TsGC.h"
 #include <map>
 #include <string>
 
 static std::map<std::string, TsSymbol*> symbol_registry;
+
+// Register symbol_registry scanner with custom GC
+static struct SymbolRegistryScanner {
+    SymbolRegistryScanner() {
+        ts_gc_register_scanner([](void*) {
+            for (auto& [key, sym] : symbol_registry) {
+                ts_gc_mark_object(sym);
+            }
+        }, nullptr);
+    }
+} g_symbol_registry_scanner;
 
 TsSymbol::TsSymbol(TsString* desc) : description(desc) {
     magic = 0x53594D42;

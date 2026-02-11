@@ -18,7 +18,7 @@
 #include "TsClosure.h"
 #include "TsProxy.h"
 #include "GC.h"
-#include <gc/gc.h>  // For GC_base()
+#include "TsGC.h"  // For ts_gc_base()
 #include "TsRuntime.h"
 #include "MemoryTracker.h"
 #include <new>
@@ -911,7 +911,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Guard: skip virtual dispatch for non-heap pointers.
         // Raw integers, code section pointers, and static data pointers would crash
         // when we try to follow vtable chains via reinterpret_cast.
-        if (!GC_base(obj)) {
+        if (!ts_gc_base(obj)) {
             return undefined;
         }
 
@@ -945,7 +945,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // We must check magic at offset 16 (TsObject::magic field) to identify TsPromise.
         // Safety: first byte distinguishes TsObject (vtable ptr, large address) from TsValue
         // (ValueType enum, 0-10). We only proceed if it looks like a TsObject.
-        if (GC_base(obj)) {
+        if (ts_gc_base(obj)) {
             uint8_t firstByte = *(uint8_t*)obj;
             if (firstByte > 10) {
                 // Looks like a vtable pointer (TsObject-derived), not a TsValue enum
@@ -1434,7 +1434,7 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsClosure* ts_funcptr_as_closure(void* funcPtr) {
         if (!funcPtr) return nullptr;
         // Only check magic if the pointer is in the GC heap (not a code pointer)
-        if (!GC_base(funcPtr)) return nullptr;
+        if (!ts_gc_base(funcPtr)) return nullptr;
         TsObject* obj = (TsObject*)funcPtr;
         if (obj->magic == 0x434C5352) {  // 'CLSR'
             return (TsClosure*)obj;

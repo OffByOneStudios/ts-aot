@@ -1,11 +1,8 @@
 #include "GCRoots.h"
+#include "TsGC.h"
 #include "StackMap.h"
 #include <cstdio>
 #include <cstdlib>
-
-#define GC_THREADS
-#include <gc/gc.h>
-#include <gc/gc_mark.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -15,17 +12,14 @@
 // ============================================================================
 // Precise GC Root Pushing via LLVM Stack Maps
 //
-// During each Boehm GC collection, this module walks the Windows x64 call
-// stack using RtlVirtualUnwind, looks up each frame's return address in
-// the parsed stack map hash table, extracts GC root pointer values from
-// stack slots, validates them via GC_base(), and pushes them to Boehm's
-// mark queue via GC_push_all_eager().
+// During each GC collection, this module walks the Windows x64 call stack
+// using RtlVirtualUnwind, looks up each frame's return address in the parsed
+// stack map hash table, extracts GC root pointer values from stack slots,
+// validates them via ts_gc_base(), and marks them via ts_gc_mark_object().
 //
-// This supplements (does not replace) Boehm's conservative stack scanning.
+// When statepoints are available, this supplements conservative stack scanning.
+// When no statepoints exist, all stack scanning is conservative (in TsGC.cpp).
 // ============================================================================
-
-// Chain to previous push_other_roots handler
-static GC_push_other_roots_proc g_prev_push_other_roots = nullptr;
 
 // Verbose logging (enabled via TS_GC_ROOTS_VERBOSE env var)
 static bool g_gc_roots_verbose = false;
@@ -38,7 +32,9 @@ static size_t g_total_collections = 0;
 
 // Safety limits
 static const size_t MAX_STACK_FRAMES = 256;
-static const size_t ROOT_BUFFER_SIZE = 512;  // 512 pointers = 4KB on stack
+
+// Whether statepoints are available
+static bool g_has_statepoints = false;
 
 // ============================================================================
 // Windows x64 Implementation
@@ -95,13 +91,8 @@ static void* extract_root_pointer(const CONTEXT& ctx, const GCRootLocation& root
     }
 }
 
-// Boehm GC push_other_roots callback: walk stack and push precise roots
-static void GC_CALLBACK ts_push_precise_roots(void) {
-    // Chain to previous handler first (Boehm's default thread stack pushing)
-    if (g_prev_push_other_roots) {
-        g_prev_push_other_roots();
-    }
-
+// Walk stack and push precise roots via ts_gc_mark_object
+static void push_precise_roots_win64() {
     // Skip if no stack maps were parsed
     if (ts_stackmap_count() == 0) return;
 
@@ -110,10 +101,6 @@ static void GC_CALLBACK ts_push_precise_roots(void) {
     g_last_safepoints_found = 0;
     g_last_roots_pushed = 0;
     g_total_collections++;
-
-    // Stack-local root buffer (no heap allocation during mark phase!)
-    void* rootBuffer[ROOT_BUFFER_SIZE];
-    size_t rootCount = 0;
 
     // Capture current CPU context
     CONTEXT ctx;
@@ -136,15 +123,9 @@ static void GC_CALLBACK ts_push_precise_roots(void) {
                 void* ptr = extract_root_pointer(ctx, sp->roots[i]);
 
                 // Validate: non-null and points to a GC-allocated object
-                if (ptr && GC_base(ptr)) {
-                    rootBuffer[rootCount++] = ptr;
-
-                    // Flush buffer if full
-                    if (rootCount >= ROOT_BUFFER_SIZE) {
-                        GC_push_all_eager(rootBuffer, rootBuffer + rootCount);
-                        g_last_roots_pushed += rootCount;
-                        rootCount = 0;
-                    }
+                if (ptr && ts_gc_base(ptr)) {
+                    ts_gc_mark_object(ptr);
+                    g_last_roots_pushed++;
                 }
             }
         }
@@ -181,28 +162,12 @@ static void GC_CALLBACK ts_push_precise_roots(void) {
         if (ctx.Rip == prevRip) break;
     }
 
-    // Final flush of remaining roots
-    if (rootCount > 0) {
-        GC_push_all_eager(rootBuffer, rootBuffer + rootCount);
-        g_last_roots_pushed += rootCount;
-    }
-
     if (g_gc_roots_verbose) {
         fprintf(stderr, "[GCRoots] Collection #%zu: %zu frames, %zu safepoints, %zu roots\n",
                 g_total_collections, g_last_frames_walked,
                 g_last_safepoints_found, g_last_roots_pushed);
         fflush(stderr);
     }
-}
-
-#else // Non-Windows stub
-
-static void GC_CALLBACK ts_push_precise_roots(void) {
-    // Chain to previous handler
-    if (g_prev_push_other_roots) {
-        g_prev_push_other_roots();
-    }
-    // No stack walking on non-Windows yet
 }
 
 #endif // _WIN32
@@ -214,21 +179,30 @@ static void GC_CALLBACK ts_push_precise_roots(void) {
 extern "C" {
 
 void ts_gc_roots_init() {
-    // Only enable if stack maps exist
-    if (ts_stackmap_count() == 0) return;
-
-    // Chain with existing push_other_roots handler
-    g_prev_push_other_roots = GC_get_push_other_roots();
-    GC_set_push_other_roots(ts_push_precise_roots);
+    // Check if statepoints are available
+    if (ts_stackmap_count() > 0) {
+        g_has_statepoints = true;
+    }
 
     // Check for verbose logging via environment variable
     if (getenv("TS_GC_ROOTS_VERBOSE")) {
         g_gc_roots_verbose = true;
     }
 
-    fprintf(stderr, "[GCRoots] Precise root pushing enabled for %zu safepoints\n",
-            ts_stackmap_count());
-    fflush(stderr);
+    if (g_has_statepoints) {
+        fprintf(stderr, "[GCRoots] Precise root pushing enabled for %zu safepoints\n",
+                ts_stackmap_count());
+        fflush(stderr);
+    }
+}
+
+void ts_gc_push_precise_stack_roots() {
+    if (!g_has_statepoints) return;
+
+#ifdef _WIN32
+    push_precise_roots_win64();
+#endif
+    // Non-Windows: no precise stack walking yet (conservative scanning handles it)
 }
 
 size_t ts_gc_roots_last_frames_walked() {

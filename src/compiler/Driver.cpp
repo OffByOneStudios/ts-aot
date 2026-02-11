@@ -362,7 +362,7 @@ int Driver::run() {
 
             // vcpkg dependencies
             linkOpts.libraries.push_back("libuv.lib");        // libuv
-            linkOpts.libraries.push_back("gc.lib");           // Boehm GC
+
             linkOpts.libraries.push_back("icuuc.lib");        // ICU Unicode
             linkOpts.libraries.push_back("icuin.lib");        // ICU i18n
             if (options.bundleIcu) {

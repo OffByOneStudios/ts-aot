@@ -38,8 +38,7 @@ extern "C" void ts_event_emitter_on(void* emitter, void* event, void* callback);
 #include <unistd.h>
 #endif
 
-#define GC_THREADS
-#include <gc/gc.h>
+#include <cstdlib>  // For malloc/free (async work items with deterministic lifetimes)
 
 namespace fs = std::filesystem;
 
@@ -57,7 +56,7 @@ static TsValue* bool_return_helper(void* context) {
 class TsDirent : public TsMap {
 public:
     static TsDirent* Create(const char* name, int type) {
-        TsDirent* d = (TsDirent*)GC_malloc(sizeof(TsDirent));
+        TsDirent* d = (TsDirent*)ts_alloc(sizeof(TsDirent));
         new (d) TsDirent();
 
         if (!TsMap_VTable[1]) {
@@ -159,7 +158,7 @@ public:
     std::string path;
 
     static TsDir* Create(uv_dir_t* dir, const char* path) {
-        TsDir* d = (TsDir*)GC_malloc(sizeof(TsDir));
+        TsDir* d = (TsDir*)ts_alloc(sizeof(TsDir));
         new (d) TsDir();
         d->dir = dir;
         d->path = path;
@@ -193,7 +192,7 @@ public:
     bool is_poll = false;
 
     static TsFSWatcher* Create() {
-        TsFSWatcher* w = (TsFSWatcher*)GC_malloc(sizeof(TsFSWatcher));
+        TsFSWatcher* w = (TsFSWatcher*)ts_alloc(sizeof(TsFSWatcher));
         new (w) TsFSWatcher();
         w->vtable = TsFSWatcher_VTable;
         w->event_handle = nullptr;
@@ -238,7 +237,7 @@ public:
     int fd;
 
     static TsFileHandle* Create(int fd) {
-        TsFileHandle* h = (TsFileHandle*)GC_malloc(sizeof(TsFileHandle));
+        TsFileHandle* h = (TsFileHandle*)ts_alloc(sizeof(TsFileHandle));
         new (h) TsFileHandle();
         h->fd = fd;
         h->vtable = TsFileHandle_VTable;
@@ -353,7 +352,7 @@ static void fs_promise_callback(uv_fs_t* req) {
     }
     uv_fs_req_cleanup(req);
     work->~FSPromiseWork();
-    GC_free(work);
+    free(work);
     free(req);
 }
 
@@ -413,7 +412,7 @@ extern "C" {
             watcher->On("change", actual_listener);
         }
 
-        watcher->event_handle = (uv_fs_event_t*)GC_malloc(sizeof(uv_fs_event_t));
+        watcher->event_handle = (uv_fs_event_t*)ts_alloc(sizeof(uv_fs_event_t));
         uv_fs_event_init(uv_default_loop(), watcher->event_handle);
         watcher->event_handle->data = watcher;
 
@@ -453,7 +452,7 @@ extern "C" {
             watcher->is_poll = true;
             watchFileMap->Set(pathVal, *ts_value_make_object(watcher));
 
-            watcher->poll_handle = (uv_fs_poll_t*)GC_malloc(sizeof(uv_fs_poll_t));
+            watcher->poll_handle = (uv_fs_poll_t*)ts_alloc(sizeof(uv_fs_poll_t));
             uv_fs_poll_init(uv_default_loop(), watcher->poll_handle);
             watcher->poll_handle->data = watcher;
 
@@ -1274,14 +1273,14 @@ static void fs_fd_async_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, ts_value_make_string(ts_string_create(buf)));
     }
     work->~FSFdAsyncWork();
-    GC_free(work);
+    free(work);
     free(req);
 }
 
 // File descriptor based async operations
 void* ts_fs_fchmod_async(double fd, double mode) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     work->fd = (int)fd;
@@ -1295,7 +1294,7 @@ void* ts_fs_fchmod_async(double fd, double mode) {
 
 void* ts_fs_fchown_async(double fd, double uid, double gid) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     work->fd = (int)fd;
@@ -1310,7 +1309,7 @@ void* ts_fs_fchown_async(double fd, double uid, double gid) {
 
 void* ts_fs_futimes_async(double fd, double atime, double mtime) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     work->fd = (int)fd;
@@ -1325,7 +1324,7 @@ void* ts_fs_futimes_async(double fd, double atime, double mtime) {
 
 void* ts_fs_fstat_async(double fd) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     work->fd = (int)fd;
@@ -1338,7 +1337,7 @@ void* ts_fs_fstat_async(double fd) {
 
 void* ts_fs_fsync_async(double fd) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     work->fd = (int)fd;
@@ -1351,7 +1350,7 @@ void* ts_fs_fsync_async(double fd) {
 
 void* ts_fs_fdatasync_async(double fd) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     work->fd = (int)fd;
@@ -1364,7 +1363,7 @@ void* ts_fs_fdatasync_async(double fd) {
 
 void* ts_fs_ftruncate_async(double fd, double len) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     work->fd = (int)fd;
@@ -1379,7 +1378,7 @@ void* ts_fs_ftruncate_async(double fd, double len) {
 // Path-based symlink operations (async)
 void* ts_fs_lchmod_async(void* path, double mode) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1394,7 +1393,7 @@ void* ts_fs_lchmod_async(void* path, double mode) {
 
 void* ts_fs_lchown_async(void* path, double uid, double gid) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1410,7 +1409,7 @@ void* ts_fs_lchown_async(void* path, double uid, double gid) {
 
 void* ts_fs_lutimes_async(void* path, double atime, double mtime) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSFdAsyncWork* work = (FSFdAsyncWork*)GC_malloc_uncollectable(sizeof(FSFdAsyncWork));
+    FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1602,7 +1601,7 @@ static TsValue* dir_read_async_wrapper(void* context) {
     TsDir* dir = (TsDir*)context;
     if (!dir || !dir->dir) return ts_value_make_promise(ts::ts_promise_create());
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     work->dir_ptr = dir->dir;
@@ -1617,7 +1616,7 @@ static TsValue* dir_close_async_wrapper(void* context) {
     TsDir* dir = (TsDir*)context;
     if (!dir || !dir->dir) return ts_value_make_promise(ts::ts_promise_create());
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     work->dir_ptr = dir->dir;
@@ -1682,13 +1681,13 @@ static void fs_async_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, ts_value_make_string(ts_string_create(buf)));
     }
     work->~FSAsyncWork();
-    GC_free(work);
+    free(work);
     free(req);
 }
 
 void* ts_fs_access_async(void* path, double mode) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1703,7 +1702,7 @@ void* ts_fs_access_async(void* path, double mode) {
 
 void* ts_fs_chmod_async(void* path, double mode) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1718,7 +1717,7 @@ void* ts_fs_chmod_async(void* path, double mode) {
 
 void* ts_fs_chown_async(void* path, double uid, double gid) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1734,7 +1733,7 @@ void* ts_fs_chown_async(void* path, double uid, double gid) {
 
 void* ts_fs_utimes_async(void* path, double atime, double mtime) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1750,7 +1749,7 @@ void* ts_fs_utimes_async(void* path, double atime, double mtime) {
 
 void* ts_fs_statfs_async(void* path) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1764,7 +1763,7 @@ void* ts_fs_statfs_async(void* path) {
 
 void* ts_fs_link_async(void* existingPath, void* newPath) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* existingStr = unboxString(existingPath);
@@ -1780,7 +1779,7 @@ void* ts_fs_link_async(void* existingPath, void* newPath) {
 
 void* ts_fs_symlink_async(void* target, void* path, void* type) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* targetStr = unboxString(target);
@@ -1805,7 +1804,7 @@ void* ts_fs_symlink_async(void* target, void* path, void* type) {
 
 void* ts_fs_readlink_async(void* path) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1819,7 +1818,7 @@ void* ts_fs_readlink_async(void* path) {
 
 void* ts_fs_realpath_async(void* path) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1833,7 +1832,7 @@ void* ts_fs_realpath_async(void* path) {
 
 void* ts_fs_stat_async(void* path) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1847,7 +1846,7 @@ void* ts_fs_stat_async(void* path) {
 
 void* ts_fs_lstat_async(void* path) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -1861,7 +1860,7 @@ void* ts_fs_lstat_async(void* path) {
 
 void* ts_fs_rename_async(void* oldPath, void* newPath) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     
@@ -1879,7 +1878,7 @@ void* ts_fs_rename_async(void* oldPath, void* newPath) {
 
 void* ts_fs_copyFile_async(void* src, void* dest, double flags) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
 
@@ -1898,7 +1897,7 @@ void* ts_fs_copyFile_async(void* src, void* dest, double flags) {
 
 void* ts_fs_cp_async(void* src, void* dest, void* options) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
 
@@ -1936,7 +1935,7 @@ void* ts_fs_cp_async(void* src, void* dest, void* options) {
 
 void* ts_fs_truncate_async(void* path, double len) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
 
@@ -1952,7 +1951,7 @@ void* ts_fs_truncate_async(void* path, double len) {
 
 void* ts_fs_mkdir_async(void* path, void* options) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
 
@@ -1967,7 +1966,7 @@ void* ts_fs_mkdir_async(void* path, void* options) {
 
 void* ts_fs_rmdir_async(void* path, void* options) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
 
@@ -1982,7 +1981,7 @@ void* ts_fs_rmdir_async(void* path, void* options) {
 
 void* ts_fs_rm_async(void* path, void* options) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
 
@@ -1997,7 +1996,7 @@ void* ts_fs_rm_async(void* path, void* options) {
 
 void* ts_fs_unlink_async(void* path) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
 
@@ -2012,7 +2011,7 @@ void* ts_fs_unlink_async(void* path) {
 
 void* ts_fs_mkdtemp_async(void* prefix) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* prefixStr = unboxString(prefix);
@@ -2026,7 +2025,7 @@ void* ts_fs_mkdtemp_async(void* prefix) {
 
 void* ts_fs_opendir_async(void* path, void* options) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     TsString* pathStr = unboxString(path);
@@ -2043,7 +2042,7 @@ void* ts_fs_appendFile_async(void* path, void* content) {
     TsString* contentStr = unboxString(content);
 
     ts::TsPromise* promise = ts::ts_promise_create();
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     work->path = pathStr ? pathStr->ToUtf8() : "";
@@ -2405,7 +2404,7 @@ static TsValue* watch_promise_wrapper(void* context, TsValue* path, TsValue* opt
     TsFSWatcher* watcher = TsFSWatcher::Create();
     state->watcher = watcher;
 
-    watcher->event_handle = (uv_fs_event_t*)GC_malloc(sizeof(uv_fs_event_t));
+    watcher->event_handle = (uv_fs_event_t*)ts_alloc(sizeof(uv_fs_event_t));
     uv_fs_event_init(uv_default_loop(), watcher->event_handle);
     watcher->event_handle->data = state;  // Point to iterator state, not watcher
 
@@ -2488,7 +2487,7 @@ void* ts_fs_readdir_async(void* path, void* options) {
     TsString* pathStr = unboxString(path);
     ts::TsPromise* promise = ts::ts_promise_create();
     
-    FSAsyncWork* work = (FSAsyncWork*)GC_malloc_uncollectable(sizeof(FSAsyncWork));
+    FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
     work->path = pathStr ? pathStr->ToUtf8() : "";
@@ -2544,7 +2543,7 @@ static void read_file_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~ReadFileWork();
-    GC_free(work);
+    free(work);
     free(req);
 }
 
@@ -2552,7 +2551,7 @@ void* ts_fs_readFile_async(void* path) {
     TsString* pathStr = unboxString(path);
     ts::TsPromise* promise = ts::ts_promise_create();
     
-    ReadFileWork* work = (ReadFileWork*)GC_malloc_uncollectable(sizeof(ReadFileWork));
+    ReadFileWork* work = (ReadFileWork*)malloc(sizeof(ReadFileWork));
     new (work) ReadFileWork();
     work->promise = promise;
     work->path = pathStr ? pathStr->ToUtf8() : "";
@@ -2593,7 +2592,7 @@ static void write_file_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~WriteFileWork();
-    GC_free(work);
+    free(work);
     free(req);
 }
 
@@ -2602,7 +2601,7 @@ void* ts_fs_writeFile_async(void* path, void* content) {
     TsString* contentStr = unboxString(content);
     ts::TsPromise* promise = ts::ts_promise_create();
     
-    WriteFileWork* work = (WriteFileWork*)GC_malloc_uncollectable(sizeof(WriteFileWork));
+    WriteFileWork* work = (WriteFileWork*)malloc(sizeof(WriteFileWork));
     new (work) WriteFileWork();
     work->promise = promise;
     work->path = pathStr ? pathStr->ToUtf8() : "";
@@ -2642,7 +2641,7 @@ static void mkdir_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~MkdirWork();
-    GC_free(work);
+    free(work);
     free(req);
 }
 
@@ -2686,7 +2685,7 @@ static void open_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~OpenWork();
-    GC_free(work);
+    free(work);
     free(req);
 }
 
@@ -2714,7 +2713,7 @@ void* ts_fs_open_async(void* path_val, void* flags_val, double mode) {
 
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -2765,13 +2764,13 @@ static void read_write_after_worker(uv_work_t* req, int status) {
         TsValue* reason = ts_value_make_string(tsStr);
         ts::ts_promise_reject_internal(work->promise, reason);
     }
-    GC_free(work);
+    free(work);
     free(req);
 }
 
 void* ts_fs_read_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    ReadWriteWork* work = (ReadWriteWork*)GC_malloc_uncollectable(sizeof(ReadWriteWork));
+    ReadWriteWork* work = (ReadWriteWork*)malloc(sizeof(ReadWriteWork));
     work->promise = promise;
     work->fd = (int)fd;
     work->buffer = (TsBuffer*)buffer;
@@ -2788,7 +2787,7 @@ void* ts_fs_read_async(int64_t fd, void* buffer, int64_t offset, int64_t length,
 
 void* ts_fs_write_async(int64_t fd, void* buffer, int64_t offset, int64_t length, int64_t position) {
     ts::TsPromise* promise = ts::ts_promise_create();
-    ReadWriteWork* work = (ReadWriteWork*)GC_malloc_uncollectable(sizeof(ReadWriteWork));
+    ReadWriteWork* work = (ReadWriteWork*)malloc(sizeof(ReadWriteWork));
     work->promise = promise;
     work->fd = (int)fd;
     work->buffer = (TsBuffer*)buffer;
@@ -2821,14 +2820,14 @@ static void close_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~CloseWork();
-    GC_free(work);
+    free(work);
     free(req);
 }
 
 void* ts_fs_close_async(double fd) {
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -2864,7 +2863,7 @@ TsValue* ts_fs_filehandle_close(void* context, int argc, TsValue** argv) {
     TsFileHandle* h = (TsFileHandle*)context;
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -2880,7 +2879,7 @@ TsValue* ts_fs_filehandle_stat(void* context, int argc, TsValue** argv) {
     TsFileHandle* h = (TsFileHandle*)context;
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -2897,7 +2896,7 @@ TsValue* ts_fs_filehandle_chmod(void* context, int argc, TsValue** argv) {
     double mode = argc > 0 ? ts_value_get_double(argv[0]) : 0;
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -2917,7 +2916,7 @@ TsValue* ts_fs_filehandle_chown(void* context, int argc, TsValue** argv) {
     double gid = argc > 1 ? ts_value_get_double(argv[1]) : -1;
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -2936,7 +2935,7 @@ TsValue* ts_fs_filehandle_sync(void* context, int argc, TsValue** argv) {
     TsFileHandle* h = (TsFileHandle*)context;
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -2952,7 +2951,7 @@ TsValue* ts_fs_filehandle_datasync(void* context, int argc, TsValue** argv) {
     TsFileHandle* h = (TsFileHandle*)context;
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -2969,7 +2968,7 @@ TsValue* ts_fs_filehandle_truncate(void* context, int argc, TsValue** argv) {
     double len = argc > 0 ? ts_value_get_double(argv[0]) : 0;
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -2989,7 +2988,7 @@ TsValue* ts_fs_filehandle_utimes(void* context, int argc, TsValue** argv) {
     double mtime = argc > 1 ? ts_value_get_double(argv[1]) : 0;
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     req->data = work;
@@ -3017,7 +3016,7 @@ __declspec(noinline) TsValue* ts_fs_filehandle_read(void* context, int argc, TsV
 
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     work->bufferValue = *argv[0];
@@ -3050,7 +3049,7 @@ __declspec(noinline) TsValue* ts_fs_filehandle_write(void* context, int argc, Ts
 
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     work->bufferValue = *argv[0];
@@ -3074,7 +3073,7 @@ static TsValue* ts_fs_readv_internal(int fd, TsValue* buffers_val, double positi
 
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     work->bufferValue = *buffers_val;
@@ -3114,7 +3113,7 @@ static TsValue* ts_fs_writev_internal(int fd, TsValue* buffers_val, double posit
 
     ts::TsPromise* promise = ts::ts_promise_create();
     uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
-    FSPromiseWork* work = (FSPromiseWork*)GC_malloc_uncollectable(sizeof(FSPromiseWork));
+    FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
     work->bufferValue = *buffers_val;
