@@ -2,13 +2,16 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <csetjmp>
 #include <vector>
 #include <mutex>
 #include <algorithm>
+#include <chrono>
 
 #ifdef _WIN32
 #include <windows.h>
 #include <winternl.h>
+#include <intrin.h>
 #else
 #include <sys/mman.h>
 #include <unistd.h>
@@ -20,15 +23,20 @@
 
 static const size_t BLOCK_SIZE = 256 * 1024;  // 256KB per block
 static const size_t MAX_SMALL_SIZE = 512;
-static const size_t MAX_HEAP_SIZE = 2ULL * 1024 * 1024 * 1024;  // 2GB
 
 // Size classes: 8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512
 static const size_t SIZE_CLASSES[] = { 8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512 };
 static const size_t NUM_SIZE_CLASSES = sizeof(SIZE_CLASSES) / sizeof(SIZE_CLASSES[0]);
 
 // GC trigger: collect when total_allocated > growth_factor * live_after_last_gc
-static const size_t MIN_GC_THRESHOLD = 64 * 1024 * 1024;  // 64MB minimum
-static const double GC_GROWTH_FACTOR = 2.0;
+static const size_t DEFAULT_MIN_GC_THRESHOLD = 64 * 1024 * 1024;  // 64MB minimum
+static const size_t DEFAULT_MAX_HEAP_SIZE = 2ULL * 1024 * 1024 * 1024;  // 2GB
+static const double DEFAULT_GC_GROWTH_FACTOR = 2.0;
+
+// Mutable tuning parameters (can be overridden via environment variables)
+static size_t g_min_gc_threshold = DEFAULT_MIN_GC_THRESHOLD;
+static size_t g_max_heap_size = DEFAULT_MAX_HEAP_SIZE;
+static double g_gc_growth_factor = DEFAULT_GC_GROWTH_FACTOR;
 
 // Mark worklist initial capacity (no allocations during mark phase)
 static const size_t MARK_WORKLIST_CAPACITY = 16384;
@@ -154,7 +162,7 @@ struct GCHeap {
     // Statistics
     size_t total_allocated = 0;       // current heap usage
     size_t live_after_last_gc = 0;    // live bytes after last collection
-    size_t gc_threshold = MIN_GC_THRESHOLD;
+    size_t gc_threshold = DEFAULT_MIN_GC_THRESHOLD;
     size_t collection_count = 0;
     size_t peak_allocated = 0;
 
@@ -264,16 +272,32 @@ static BlockHeader* create_block(size_t slot_size, int class_idx) {
 }
 
 // Allocate a slot from a specific block. Returns nullptr if block is full.
+// Uses byte-level scanning with bit intrinsics for fast free-slot finding.
 static void* alloc_from_block(BlockHeader* bh) {
-    // Scan from free_cursor for an unset bit in allocated_bits
-    size_t start = bh->free_cursor;
-    for (size_t i = 0; i < bh->slot_count; i++) {
-        size_t idx = (start + i) % bh->slot_count;
-        if (!bitmap_get(bh->allocated_bits, idx)) {
-            bitmap_set(bh->allocated_bits, idx);
-            bh->free_cursor = (idx + 1) % bh->slot_count;
+    size_t bm_bytes = bitmap_bytes(bh->slot_count);
+    size_t start_byte = bh->free_cursor / 8;
+
+    for (size_t i = 0; i < bm_bytes; i++) {
+        size_t byte_idx = (start_byte + i) % bm_bytes;
+        uint8_t byte_val = bh->allocated_bits[byte_idx];
+        if (byte_val != 0xFF) {
+            // Find first zero bit using intrinsics
+            uint8_t free_bits = (uint8_t)~byte_val;
+            int bit;
+#ifdef _MSC_VER
+            unsigned long idx;
+            _BitScanForward(&idx, (unsigned long)free_bits);
+            bit = (int)idx;
+#else
+            bit = __builtin_ctz((unsigned int)free_bits);
+#endif
+            size_t slot_idx = byte_idx * 8 + bit;
+            if (slot_idx >= bh->slot_count) continue;
+
+            bitmap_set(bh->allocated_bits, slot_idx);
+            bh->free_cursor = slot_idx + 1;
             bh->live_count++;
-            void* ptr = (char*)bh->block_mem + idx * bh->slot_size;
+            void* ptr = (char*)bh->block_mem + slot_idx * bh->slot_size;
             // Memory from VirtualAlloc is already zeroed for fresh blocks.
             // For recycled slots, we need to zero explicitly.
             memset(ptr, 0, bh->slot_size);
@@ -298,14 +322,8 @@ static void* gc_alloc_small(size_t size) {
     }
 
     // Check heap limit
-    if (g_heap->total_allocated + alloc_size > MAX_HEAP_SIZE) {
-        // Try collecting first
-        gc_collect_internal();
-        if (g_heap->total_allocated + alloc_size > MAX_HEAP_SIZE) {
-            fprintf(stderr, "[TsGC] Heap limit exceeded (%zu bytes)\n", MAX_HEAP_SIZE);
-            fflush(stderr);
-            return nullptr;
-        }
+    if (g_heap->total_allocated + alloc_size > g_max_heap_size) {
+        return nullptr;
     }
 
     // Try existing blocks
@@ -324,16 +342,7 @@ static void* gc_alloc_small(size_t size) {
 
     // Need a new block
     BlockHeader* bh = create_block(alloc_size, class_idx);
-    if (!bh) {
-        // Try collecting and retrying
-        gc_collect_internal();
-        bh = create_block(alloc_size, class_idx);
-        if (!bh) {
-            fprintf(stderr, "[TsGC] Failed to allocate block for size class %zu\n", alloc_size);
-            fflush(stderr);
-            return nullptr;
-        }
-    }
+    if (!bh) return nullptr;
 
     void* ptr = alloc_from_block(bh);
     if (ptr) {
@@ -358,25 +367,12 @@ static void* gc_alloc_large(size_t size) {
     }
 
     // Check heap limit
-    if (g_heap->total_allocated + size > MAX_HEAP_SIZE) {
-        gc_collect_internal();
-        if (g_heap->total_allocated + size > MAX_HEAP_SIZE) {
-            fprintf(stderr, "[TsGC] Heap limit exceeded for large object (%zu bytes)\n", size);
-            fflush(stderr);
-            return nullptr;
-        }
+    if (g_heap->total_allocated + size > g_max_heap_size) {
+        return nullptr;
     }
 
     void* mem = platform_alloc_large(total);
-    if (!mem) {
-        gc_collect_internal();
-        mem = platform_alloc_large(total);
-        if (!mem) {
-            fprintf(stderr, "[TsGC] Failed to allocate large object (%zu bytes)\n", size);
-            fflush(stderr);
-            return nullptr;
-        }
-    }
+    if (!mem) return nullptr;
 
     LargeObjHeader* hdr = (LargeObjHeader*)mem;
     hdr->alloc_size = total;
@@ -563,23 +559,39 @@ static void gc_scan_object(void* obj, size_t size) {
     }
 }
 
-// Push stack roots (conservative scan of current thread's stack)
+// Push stack roots (conservative scan of current thread's stack + registers)
+//
+// Uses setjmp() to flush callee-saved registers (RBX, RBP, RSI, RDI, R12-R15)
+// to the stack, then scans from a local variable's address up to StackBase.
+// This matches the approach used by Boehm GC and other conservative collectors.
 #ifdef _WIN32
-static void gc_push_conservative_stack_roots() {
+static void __declspec(noinline) gc_push_conservative_stack_roots() {
+    // Flush callee-saved registers to the stack via setjmp.
+    // This ensures any GC pointers held in registers are visible to
+    // the conservative scanner, even if they haven't been spilled to
+    // a stack slot by the calling function.
+    volatile jmp_buf regs;
+    setjmp((jmp_buf&)regs);
+
+    // Scan the jmp_buf contents as potential roots
+    for (size_t i = 0; i < sizeof(jmp_buf) / sizeof(uintptr_t); i++) {
+        uintptr_t val = ((volatile uintptr_t*)&regs)[i];
+        if (val >= 4096 && val <= 0x00007FFFFFFFFFFF) {
+            gc_mark_ptr((void*)val);
+        }
+    }
+
     // Get stack bounds from TEB
     NT_TIB* tib = (NT_TIB*)NtCurrentTeb();
-    uintptr_t stack_low = (uintptr_t)tib->StackLimit;
     uintptr_t stack_high = (uintptr_t)tib->StackBase;
 
-    // Get current RSP
-    CONTEXT ctx;
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.ContextFlags = CONTEXT_CONTROL;
-    RtlCaptureContext(&ctx);
-    uintptr_t rsp = ctx.Rsp;
+    // Use address of our local variable as the lowest scan point.
+    // This is guaranteed to be at or below the current RSP, ensuring
+    // we scan ALL stack frames above us including any pushed registers.
+    volatile uintptr_t stack_anchor = 0;
+    uintptr_t scan_start = ((uintptr_t)&stack_anchor) & ~(uintptr_t)7;
 
-    // Scan from RSP to stack base
-    uintptr_t scan_start = (rsp + 7) & ~(uintptr_t)7;
+    // Scan from our stack frame up to StackBase
     for (uintptr_t p = scan_start; p + sizeof(void*) <= stack_high; p += sizeof(void*)) {
         void* candidate = *(void**)p;
         if ((uintptr_t)candidate < 4096) continue;
@@ -865,10 +877,10 @@ static void gc_sweep_phase() {
     g_heap->total_allocated = live_bytes;
     g_heap->live_after_last_gc = live_bytes;
 
-    // Adjust threshold: collect again when heap doubles from live size
-    size_t new_threshold = (size_t)(live_bytes * GC_GROWTH_FACTOR);
-    if (new_threshold < MIN_GC_THRESHOLD) {
-        new_threshold = MIN_GC_THRESHOLD;
+    // Adjust threshold: collect again when heap grows by growth factor from live size
+    size_t new_threshold = (size_t)(live_bytes * g_gc_growth_factor);
+    if (new_threshold < g_min_gc_threshold) {
+        new_threshold = g_min_gc_threshold;
     }
     g_heap->gc_threshold = new_threshold;
 
@@ -890,12 +902,23 @@ static void gc_collect_internal() {
     g_heap->collection_count++;
     g_in_collection = true;
 
+    auto t0 = std::chrono::high_resolution_clock::now();
     gc_mark_phase();
+    auto t1 = std::chrono::high_resolution_clock::now();
     gc_process_weak_refs();
     gc_process_finalizers();
     gc_sweep_phase();
+    auto t2 = std::chrono::high_resolution_clock::now();
 
     g_in_collection = false;
+
+    if (g_gc_verbose) {
+        auto mark_us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        auto sweep_us = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        fprintf(stderr, "[TsGC]   mark=%lldus, sweep=%lldus\n",
+                (long long)mark_us, (long long)sweep_us);
+        fflush(stderr);
+    }
 }
 
 // ============================================================================
@@ -910,7 +933,36 @@ static void gc_init() {
     // Check for verbose mode
     if (getenv("TS_GC_VERBOSE")) {
         g_gc_verbose = true;
-        fprintf(stderr, "[TsGC] Custom mark-sweep GC initialized\n");
+    }
+
+    // Tunable GC parameters via environment variables
+    const char* threshold_env = getenv("TS_GC_MIN_THRESHOLD_MB");
+    if (threshold_env) {
+        size_t mb = (size_t)atoi(threshold_env);
+        if (mb > 0) {
+            g_min_gc_threshold = mb * 1024 * 1024;
+            g_heap->gc_threshold = g_min_gc_threshold;
+        }
+    }
+
+    const char* growth_env = getenv("TS_GC_GROWTH_FACTOR");
+    if (growth_env) {
+        double f = atof(growth_env);
+        if (f >= 1.5 && f <= 10.0) g_gc_growth_factor = f;
+    }
+
+    const char* max_heap_env = getenv("TS_GC_MAX_HEAP_MB");
+    if (max_heap_env) {
+        size_t mb = (size_t)atoi(max_heap_env);
+        if (mb > 0) g_max_heap_size = mb * 1024 * 1024;
+    }
+
+    if (g_gc_verbose) {
+        fprintf(stderr, "[TsGC] Custom mark-sweep GC initialized "
+                "(threshold=%zuMB, growth=%.1f, max_heap=%zuMB)\n",
+                g_min_gc_threshold / (1024*1024),
+                g_gc_growth_factor,
+                g_max_heap_size / (1024*1024));
         fflush(stderr);
     }
 }
@@ -939,15 +991,39 @@ void* ts_gc_alloc(size_t size) {
     if (!g_heap) gc_init();
     if (size == 0) size = 8; // Minimum allocation
 
-    void* result;
+    void* result = nullptr;
     std::vector<PendingCallback> callbacks;
     {
         std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
+
         if (size <= MAX_SMALL_SIZE) {
             result = gc_alloc_small(size);
         } else {
             result = gc_alloc_large(size);
         }
+
+        // OOM retry: force full collection and try once more
+        if (!result) {
+            gc_collect_internal();
+            if (size <= MAX_SMALL_SIZE) {
+                result = gc_alloc_small(size);
+            } else {
+                result = gc_alloc_large(size);
+            }
+        }
+
+        // Final fallback: abort with diagnostic
+        if (!result) {
+            fprintf(stderr, "[TsGC] FATAL: Out of memory allocating %zu bytes "
+                    "(heap=%zuMB, live=%zuMB, peak=%zuMB, collections=%zu)\n",
+                    size, g_heap->total_allocated / (1024*1024),
+                    g_heap->live_after_last_gc / (1024*1024),
+                    g_heap->peak_allocated / (1024*1024),
+                    g_heap->collection_count);
+            fflush(stderr);
+            abort();
+        }
+
         // Grab pending callbacks while we hold the lock
         if (!g_heap->pending_callbacks.empty()) {
             callbacks.swap(g_heap->pending_callbacks);
@@ -972,8 +1048,7 @@ void* ts_gc_base(void* ptr) {
 
 void* ts_gc_realloc(void* ptr, size_t old_size, size_t new_size) {
     if (!ptr) return ts_gc_alloc(new_size);
-    void* newp = ts_gc_alloc(new_size);
-    if (!newp) return nullptr;
+    void* newp = ts_gc_alloc(new_size);  // Never returns null (aborts on OOM)
     size_t copy_size = old_size < new_size ? old_size : new_size;
     memcpy(newp, ptr, copy_size);
     // Old allocation will be collected when no longer referenced
