@@ -1295,8 +1295,9 @@ static void ts_icu_init(const char* argv0) {
         FILE* f = fopen(fullPath.string().c_str(), "rb");
         if (!f) continue;
 
-        // Allocate via GC so it persists (ICU references it for the entire program)
-        void* dataBuf = ts_alloc(fileSize);
+        // Allocate via malloc (not GC!) since ICU holds internal pointers to this data
+        // that the GC scanner cannot see. This memory lives for the entire program.
+        void* dataBuf = malloc(fileSize);
         size_t bytesRead = fread(dataBuf, 1, fileSize, f);
         fclose(f);
         if (bytesRead != fileSize) continue;

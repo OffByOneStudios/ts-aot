@@ -9,6 +9,7 @@
 #include "TsReadStream.h"
 #include "TsWriteStream.h"
 #include "TsDate.h"
+#include "TsGC.h"
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -438,7 +439,10 @@ extern "C" {
     }
 
     void ts_fs_watchFile(void* path_val, void* options_val, void* listener_val) {
-        if (!watchFileMap) watchFileMap = TsMap::Create();
+        if (!watchFileMap) {
+            watchFileMap = TsMap::Create();
+            ts_gc_register_root((void**)&watchFileMap);
+        }
 
         TsString* path = (TsString*)ts_value_get_string((TsValue*)path_val);
         if (!path) return;

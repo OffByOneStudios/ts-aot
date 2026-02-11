@@ -181,6 +181,11 @@ private:
     // Map HIR values to LLVM values
     std::map<uint32_t, llvm::Value*> valueMap_;
 
+    // Map HIR value IDs to stack allocas for GC root pinning.
+    // Pointer-type values from runtime calls are stored to entry-block allocas
+    // so the conservative GC stack scanner can see them.
+    std::map<uint32_t, llvm::AllocaInst*> gcPinAllocas_;
+
     // Map HIR blocks to LLVM blocks (keyed by pointer, not label, to handle duplicate names)
     std::map<HIRBlock*, llvm::BasicBlock*> blockMap_;
 
@@ -445,6 +450,12 @@ private:
     //==========================================================================
     // Helper Methods
     //==========================================================================
+
+    // Pin a GC pointer to an entry-block stack alloca so the conservative
+    // GC scanner can see it. Returns a load from the alloca.
+    // Use this for any pointer-type intermediate value that is live across
+    // a runtime call that might trigger GC (i.e., any allocating call).
+    llvm::Value* gcPin(llvm::Value* ptr, const char* name = "gc.pin");
 
     // Get operand as integer constant
     int64_t getOperandInt(const HIROperand& operand);

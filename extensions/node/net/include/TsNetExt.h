@@ -48,7 +48,7 @@ void* ts_net_socket_unref(void* socket);
 // =============================================================================
 
 void* ts_net_create_server(void* callback);
-void ts_net_server_listen(void* server, void* port, void* callback);
+void ts_net_server_listen(void* server, void* port, void* host, void* callback);
 void ts_net_server_close(void* server);
 void* ts_net_server_address(void* server);
 void* ts_net_server_ref(void* server);

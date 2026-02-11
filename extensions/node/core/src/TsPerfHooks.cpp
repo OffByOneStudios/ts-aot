@@ -3,6 +3,7 @@
 #include "TsPerfHooks.h"
 #include "TsRuntime.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <cstring>
 #include <algorithm>
 
@@ -114,6 +115,7 @@ TsPerformance* TsPerformance::GetInstance() {
     if (!performanceInstance) {
         void* mem = ts_alloc(sizeof(TsPerformance));
         performanceInstance = new (mem) TsPerformance();
+        ts_gc_register_root((void**)&performanceInstance);
     }
     return performanceInstance;
 }

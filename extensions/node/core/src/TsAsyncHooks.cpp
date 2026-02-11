@@ -3,6 +3,7 @@
 #include "TsMap.h"
 #include "TsArray.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <cstring>
 
 // Forward declare
@@ -20,6 +21,7 @@ AsyncContext& getAsyncContext() {
     if (!globalAsyncContext) {
         globalAsyncContext = (AsyncContext*)ts_alloc(sizeof(AsyncContext));
         new (globalAsyncContext) AsyncContext();
+        ts_gc_register_root((void**)&globalAsyncContext);
     }
     return *globalAsyncContext;
 }

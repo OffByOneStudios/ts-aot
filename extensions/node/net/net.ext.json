@@ -105,10 +105,11 @@
           "hirName": "ts_net_server_listen",
           "params": [
             {"name": "port", "type": "number"},
+            {"name": "host", "type": "string", "optional": true},
             {"name": "callback", "type": "Function", "optional": true}
           ],
           "returns": "void",
-          "lowering": { "args": ["boxed", "boxed"], "returns": "void" }
+          "lowering": { "args": ["boxed", "boxed", "boxed"], "returns": "void" }
         },
         "close": {
           "call": "ts_net_server_close",

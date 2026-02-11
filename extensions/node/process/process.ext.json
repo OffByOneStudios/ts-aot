@@ -7,23 +7,23 @@
   "objects": {
     "process": {
       "properties": {
-        "argv": { "type": "string[]" },
-        "exitCode": { "type": "int" },
-        "platform": { "type": "string" },
-        "arch": { "type": "string" },
-        "stdout": { "type": "Writable" },
-        "stderr": { "type": "Writable" },
-        "stdin": { "type": "Readable" },
-        "pid": { "type": "int" },
-        "ppid": { "type": "int" },
-        "version": { "type": "string" },
-        "argv0": { "type": "string" },
-        "execPath": { "type": "string" },
-        "execArgv": { "type": "string[]" },
-        "title": { "type": "string" },
-        "debugPort": { "type": "int" },
-        "connected": { "type": "boolean" },
-        "channel": { "type": "any" }
+        "argv": { "type": "string[]", "getter": "ts_get_process_argv", "lowering": { "args": [], "returns": "ptr" } },
+        "exitCode": { "type": "int", "getter": "ts_process_get_exit_code", "lowering": { "args": [], "returns": "i64" } },
+        "platform": { "type": "string", "getter": "ts_process_get_platform", "lowering": { "args": [], "returns": "ptr" } },
+        "arch": { "type": "string", "getter": "ts_process_get_arch", "lowering": { "args": [], "returns": "ptr" } },
+        "stdout": { "type": "Writable", "getter": "ts_process_get_stdout", "lowering": { "args": [], "returns": "ptr" } },
+        "stderr": { "type": "Writable", "getter": "ts_process_get_stderr", "lowering": { "args": [], "returns": "ptr" } },
+        "stdin": { "type": "Readable", "getter": "ts_process_get_stdin", "lowering": { "args": [], "returns": "ptr" } },
+        "pid": { "type": "int", "getter": "ts_process_get_pid", "lowering": { "args": [], "returns": "i64" } },
+        "ppid": { "type": "int", "getter": "ts_process_get_ppid", "lowering": { "args": [], "returns": "i64" } },
+        "version": { "type": "string", "getter": "ts_process_get_version", "lowering": { "args": [], "returns": "ptr" } },
+        "argv0": { "type": "string", "getter": "ts_process_get_argv0", "lowering": { "args": [], "returns": "ptr" } },
+        "execPath": { "type": "string", "getter": "ts_process_get_exec_path", "lowering": { "args": [], "returns": "ptr" } },
+        "execArgv": { "type": "string[]", "getter": "ts_process_get_exec_argv", "lowering": { "args": [], "returns": "ptr" } },
+        "title": { "type": "string", "getter": "ts_process_get_title", "lowering": { "args": [], "returns": "ptr" } },
+        "debugPort": { "type": "int", "getter": "ts_process_get_debug_port", "lowering": { "args": [], "returns": "i64" } },
+        "connected": { "type": "boolean", "getter": "ts_process_get_connected", "lowering": { "args": [], "returns": "i1" } },
+        "channel": { "type": "any", "getter": "ts_process_get_channel", "lowering": { "args": [], "returns": "ptr" } }
       },
       "nestedObjects": {
         "env": {

@@ -45,34 +45,38 @@ void* ts_closure_get_func(TsClosure* closure) {
 
     // First, check if this might be a TsValue* (boxed function)
     TsValue* val = (TsValue*)closure;
-    // TsValue type enum is small (0-15), check if this looks like a TsValue
-    if ((int)val->type >= 0 && (int)val->type <= 15) {
-        // Might be a TsValue, check for FUNCTION_PTR or OBJECT_PTR
+    // Determine if this is a TsValue or a raw pointer by checking first byte.
+    // TsValue has ValueType enum (0-10) as first byte.
+    // Raw TsObject/TsClosure has a C++ vtable pointer (large value) at offset 0.
+    uint8_t firstByte = *(uint8_t*)closure;
+    if (firstByte <= (uint8_t)ValueType::FUNCTION_PTR) {
+        // Looks like a TsValue - check for FUNCTION_PTR or OBJECT_PTR
+        TsValue* val = (TsValue*)closure;
         if (val->type == ValueType::FUNCTION_PTR || val->type == ValueType::OBJECT_PTR) {
             void* ptr = val->ptr_val;
             if (ptr) {
-                // Check if this is a TsFunction (FUNC magic = 0x46554E43)
+                // The inner pointer is a real GC object, safe to read magic
                 TsObject* obj = (TsObject*)ptr;
                 if (obj->magic == 0x46554E43) { // TsFunction::MAGIC
                     TsFunction* func = (TsFunction*)ptr;
                     return func->funcPtr;
                 }
-                // Check if this is a TsClosure (CLSR magic = 0x434C5352)
-                if (obj->magic == 0x434C5352) {
+                if (obj->magic == 0x434C5352) { // 'CLSR'
                     TsClosure* cls = (TsClosure*)ptr;
                     return cls->func_ptr;
                 }
             }
         }
+        // TsValue but not a function/object type - can't extract func
+        return nullptr;
     }
 
-    // Check if it's a raw TsClosure (CLSR magic)
+    // Raw pointer - safe to read magic at offset 16
     TsObject* obj = (TsObject*)closure;
     if (obj->magic == 0x434C5352) {
         return closure->func_ptr;
     }
 
-    // Check if it's a raw TsFunction (FUNC magic)
     if (obj->magic == 0x46554E43) {
         TsFunction* func = (TsFunction*)closure;
         return func->funcPtr;
@@ -91,6 +95,9 @@ void ts_closure_init_capture(TsClosure* closure, int64_t index, TsValue* initial
 // Check if a pointer is a TsClosure (by checking magic number)
 bool ts_is_closure(void* ptr) {
     if (!ptr) return false;
+    // Check first byte - if it looks like a TsValue (0-10), it's not a raw closure
+    uint8_t firstByte = *(uint8_t*)ptr;
+    if (firstByte <= 10) return false;  // TsValue, not a raw object
     TsObject* obj = (TsObject*)ptr;
     return obj->magic == 0x434C5352; // 'CLSR'
 }

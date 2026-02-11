@@ -264,7 +264,7 @@ extern TsHttpsAgent* globalHttpsAgent;
 extern "C" {
     void* ts_http_create_server(TsValue* options, void* callback);
     void* ts_https_create_server(TsValue* options, void* callback);
-    void ts_http_server_listen(void* server, void* port_val, void* callback);
+    void ts_http_server_listen(void* server, void* port_val, void* host, void* callback);
     void ts_http_server_response_write_head(void* res, int64_t status, TsValue* headers);
     bool ts_http_server_response_write(void* res, void* data);
     void ts_http_server_response_end(void* res, void* data);
