@@ -327,6 +327,13 @@ llvm::Value* HIRToLLVM::getValue(const std::shared_ptr<HIRValue>& hirValue) {
 
     auto it = valueMap_.find(hirValue->id);
     if (it != valueMap_.end()) {
+        // If this value has a GC pin alloca, reload from it.
+        // This ensures we get the latest value from the stack slot
+        // (which the conservative GC scanner can see), not a stale register.
+        auto pinIt = gcPinAllocas_.find(hirValue->id);
+        if (pinIt != gcPinAllocas_.end()) {
+            return builder_->CreateLoad(builder_->getPtrTy(), pinIt->second, "gc.reload");
+        }
         return it->second;
     }
     return nullptr;
@@ -358,6 +365,33 @@ llvm::GlobalVariable* HIRToLLVM::getOrCreateGlobal(const std::string& name, std:
 void HIRToLLVM::setValue(const std::shared_ptr<HIRValue>& hirValue, llvm::Value* llvmValue) {
     if (hirValue) {
         valueMap_[hirValue->id] = llvmValue;
+
+        // GC root pinning: if this is a pointer-type value from a runtime call
+        // (i.e., potentially a GC-allocated object), store it to a stack alloca
+        // so the conservative GC stack scanner can see it.
+        // Skip constants (GlobalVariable, ConstantPointerNull, etc.) and allocas
+        // (already on stack) — only pin CallInst results and loads from GC pointers.
+        // IMPORTANT: Skip for generator/async impl functions — their state machine
+        // saves/restores across yields, so stack allocas don't survive between calls.
+        // Their state is already in the GC-tracked async context data buffer.
+        if (llvmValue && llvmValue->getType()->isPointerTy() &&
+            currentFunction_ &&
+            !generatorDataBuf_ &&
+            !llvm::isa<llvm::Constant>(llvmValue) &&
+            !llvm::isa<llvm::AllocaInst>(llvmValue) &&
+            !llvm::isa<llvm::Argument>(llvmValue)) {
+
+            // Create an alloca in the entry block for this GC root
+            llvm::AllocaInst* pin;
+            {
+                llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+                llvm::BasicBlock* entryBB = &currentFunction_->getEntryBlock();
+                builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
+                pin = builder_->CreateAlloca(builder_->getPtrTy(), nullptr, "gc.pin");
+            }
+            builder_->CreateStore(llvmValue, pin);
+            gcPinAllocas_[hirValue->id] = pin;
+        }
     }
 }
 
@@ -462,6 +496,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     stackAllocCount_ = 0;
     stackAllocBytes_ = 0;
     valueMap_.clear();
+    gcPinAllocas_.clear();
     blockMap_.clear();
     closureParam_ = nullptr;
     capturedVarCells_.clear();
@@ -1488,8 +1523,25 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
         return val;
     };
 
+    // Pin lhsStr to a stack alloca so the conservative GC can see it
+    // during any allocations triggered by convertToString(rhs).
+    // This is needed because lhsStr is a local temp (not an HIR value),
+    // so the systemic gc.pin in setValue() doesn't cover it.
+    llvm::AllocaInst* lhsPin;
+    {
+        llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+        llvm::BasicBlock* entryBB = &currentFunction_->getEntryBlock();
+        builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
+        lhsPin = builder_->CreateAlloca(builder_->getPtrTy(), nullptr, "gc_pin_lhs");
+    }
+
     llvm::Value* lhsStr = convertToString(lhs, lhsType);
+    builder_->CreateStore(gcPtrToRaw(lhsStr), lhsPin);
+
     llvm::Value* rhsStr = convertToString(rhs, rhsType);
+
+    // Reload lhsStr from alloca (GC may have run during rhs evaluation)
+    llvm::Value* lhsReloaded = builder_->CreateLoad(builder_->getPtrTy(), lhsPin, "lhs_reloaded");
 
     // Call ts_string_concat(void* a, void* b) -> void*
     auto fn = getOrDeclareRuntimeFunction(
@@ -1497,9 +1549,10 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
         builder_->getPtrTy(),
         { builder_->getPtrTy(), builder_->getPtrTy() }
     );
-    llvm::Value* result = builder_->CreateCall(fn, { gcPtrToRaw(lhsStr), gcPtrToRaw(rhsStr) }, "strcat");
+    llvm::Value* result = builder_->CreateCall(fn, { lhsReloaded, gcPtrToRaw(rhsStr) }, "strcat");
+
     result = rawToGCPtr(result);  // Mark as GC-managed for statepoints
-    setValue(inst->result, result);
+    setValue(inst->result, result);  // setValue() will create gc.pin alloca
 }
 
 //==============================================================================
@@ -2085,62 +2138,126 @@ void HIRToLLVM::lowerLogicalAnd(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
 
-    // Convert both operands to i1 (boolean) for logical AND
-    auto convertToBool = [this](llvm::Value* val) -> llvm::Value* {
-        if (val->getType()->isPointerTy()) {
-            // For pointers (boxed values), call ts_value_to_bool
-            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(
-                builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
-            llvm::FunctionCallee toBoolFn = module_->getOrInsertFunction("ts_value_to_bool", toBoolFt);
-            return builder_->CreateCall(toBoolFt, toBoolFn.getCallee(), { val }, "tobool");
-        } else if (val->getType()->isIntegerTy(1)) {
-            return val;  // Already boolean
-        } else if (val->getType()->isIntegerTy()) {
-            // Integer - convert to bool (non-zero check)
-            return builder_->CreateICmpNE(val, llvm::ConstantInt::get(val->getType(), 0), "tobool");
-        } else if (val->getType()->isDoubleTy()) {
-            // Float - convert to bool (non-zero check)
-            return builder_->CreateFCmpONE(val, llvm::ConstantFP::get(val->getType(), 0.0), "tobool");
+    // JavaScript semantics: && returns lhs if falsy, rhs if lhs is truthy.
+    // When both operands are i1 (boolean), use simple AND for efficiency.
+    if (lhs->getType()->isIntegerTy(1) && rhs->getType()->isIntegerTy(1)) {
+        llvm::Value* result = builder_->CreateAnd(lhs, rhs, "land");
+        setValue(inst->result, result);
+        return;
+    }
+
+    // General case: short-circuit with value propagation
+    // Box operands to ptr if needed for phi node compatibility
+    auto boxIfNeeded = [this](llvm::Value* val) -> llvm::Value* {
+        if (val->getType()->isPointerTy()) return val;
+        if (val->getType()->isIntegerTy(64)) {
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_make_int", ft);
+            return builder_->CreateCall(ft, fn.getCallee(), { val });
+        }
+        if (val->getType()->isDoubleTy()) {
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
+            return builder_->CreateCall(ft, fn.getCallee(), { val });
+        }
+        if (val->getType()->isIntegerTy(1)) {
+            auto fn = getTsValueMakeBool();
+            llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt32Ty());
+            return builder_->CreateCall(fn, { ext });
         }
         return val;
     };
 
-    lhs = convertToBool(lhs);
-    rhs = convertToBool(rhs);
+    llvm::Value* lhsBoxed = boxIfNeeded(lhs);
 
-    llvm::Value* result = builder_->CreateAnd(lhs, rhs, "land");
-    setValue(inst->result, result);
+    // Convert lhs to boolean for the branch
+    llvm::FunctionType* toBoolFt = llvm::FunctionType::get(
+        builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+    llvm::FunctionCallee toBoolFn = module_->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+    llvm::Value* lhsTruthy = builder_->CreateCall(toBoolFt, toBoolFn.getCallee(), { lhsBoxed }, "tobool");
+
+    llvm::Function* curFn = builder_->GetInsertBlock()->getParent();
+    llvm::BasicBlock* rhsBB = llvm::BasicBlock::Create(context_, "land.rhs", curFn);
+    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(context_, "land.end", curFn);
+
+    llvm::BasicBlock* lhsBB = builder_->GetInsertBlock();
+    builder_->CreateCondBr(lhsTruthy, rhsBB, endBB);
+
+    // RHS block - evaluate and box rhs
+    builder_->SetInsertPoint(rhsBB);
+    llvm::Value* rhsBoxed = boxIfNeeded(rhs);
+    llvm::BasicBlock* rhsEndBB = builder_->GetInsertBlock();  // may differ after boxing calls
+    builder_->CreateBr(endBB);
+
+    // Merge: lhs if falsy, rhs if lhs was truthy
+    builder_->SetInsertPoint(endBB);
+    llvm::PHINode* phi = builder_->CreatePHI(builder_->getPtrTy(), 2, "land.val");
+    phi->addIncoming(lhsBoxed, lhsBB);
+    phi->addIncoming(rhsBoxed, rhsEndBB);
+    setValue(inst->result, phi);
 }
 
 void HIRToLLVM::lowerLogicalOr(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
 
-    // Convert both operands to i1 (boolean) for logical OR
-    auto convertToBool = [this](llvm::Value* val) -> llvm::Value* {
-        if (val->getType()->isPointerTy()) {
-            // For pointers (boxed values), call ts_value_to_bool
-            llvm::FunctionType* toBoolFt = llvm::FunctionType::get(
-                builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
-            llvm::FunctionCallee toBoolFn = module_->getOrInsertFunction("ts_value_to_bool", toBoolFt);
-            return builder_->CreateCall(toBoolFt, toBoolFn.getCallee(), { val }, "tobool");
-        } else if (val->getType()->isIntegerTy(1)) {
-            return val;  // Already boolean
-        } else if (val->getType()->isIntegerTy()) {
-            // Integer - convert to bool (non-zero check)
-            return builder_->CreateICmpNE(val, llvm::ConstantInt::get(val->getType(), 0), "tobool");
-        } else if (val->getType()->isDoubleTy()) {
-            // Float - convert to bool (non-zero check)
-            return builder_->CreateFCmpONE(val, llvm::ConstantFP::get(val->getType(), 0.0), "tobool");
+    // JavaScript semantics: || returns lhs if truthy, rhs if lhs is falsy.
+    // When both operands are i1 (boolean), use simple OR for efficiency.
+    if (lhs->getType()->isIntegerTy(1) && rhs->getType()->isIntegerTy(1)) {
+        llvm::Value* result = builder_->CreateOr(lhs, rhs, "lor");
+        setValue(inst->result, result);
+        return;
+    }
+
+    // General case: short-circuit with value propagation
+    // Box operands to ptr if needed for phi node compatibility
+    auto boxIfNeeded = [this](llvm::Value* val) -> llvm::Value* {
+        if (val->getType()->isPointerTy()) return val;
+        if (val->getType()->isIntegerTy(64)) {
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_make_int", ft);
+            return builder_->CreateCall(ft, fn.getCallee(), { val });
+        }
+        if (val->getType()->isDoubleTy()) {
+            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
+            return builder_->CreateCall(ft, fn.getCallee(), { val });
+        }
+        if (val->getType()->isIntegerTy(1)) {
+            auto fn = getTsValueMakeBool();
+            llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt32Ty());
+            return builder_->CreateCall(fn, { ext });
         }
         return val;
     };
 
-    lhs = convertToBool(lhs);
-    rhs = convertToBool(rhs);
+    llvm::Value* lhsBoxed = boxIfNeeded(lhs);
 
-    llvm::Value* result = builder_->CreateOr(lhs, rhs, "lor");
-    setValue(inst->result, result);
+    // Convert lhs to boolean for the branch
+    llvm::FunctionType* toBoolFt = llvm::FunctionType::get(
+        builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+    llvm::FunctionCallee toBoolFn = module_->getOrInsertFunction("ts_value_to_bool", toBoolFt);
+    llvm::Value* lhsTruthy = builder_->CreateCall(toBoolFt, toBoolFn.getCallee(), { lhsBoxed }, "tobool");
+
+    llvm::Function* curFn = builder_->GetInsertBlock()->getParent();
+    llvm::BasicBlock* rhsBB = llvm::BasicBlock::Create(context_, "lor.rhs", curFn);
+    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(context_, "lor.end", curFn);
+
+    llvm::BasicBlock* lhsBB = builder_->GetInsertBlock();
+    builder_->CreateCondBr(lhsTruthy, endBB, rhsBB);
+
+    // RHS block - evaluate and box rhs
+    builder_->SetInsertPoint(rhsBB);
+    llvm::Value* rhsBoxed = boxIfNeeded(rhs);
+    llvm::BasicBlock* rhsEndBB = builder_->GetInsertBlock();  // may differ after boxing calls
+    builder_->CreateBr(endBB);
+
+    // Merge: lhs if truthy, rhs if lhs was falsy
+    builder_->SetInsertPoint(endBB);
+    llvm::PHINode* phi = builder_->CreatePHI(builder_->getPtrTy(), 2, "lor.val");
+    phi->addIncoming(lhsBoxed, lhsBB);
+    phi->addIncoming(rhsBoxed, rhsEndBB);
+    setValue(inst->result, phi);
 }
 
 void HIRToLLVM::lowerLogicalNot(HIRInstruction* inst) {
@@ -2654,6 +2771,10 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
             obj = builder_->CreateCall(boxFn, {obj});
         }
     }
+    // Pin boxed obj — ts_string_create/ts_value_make_string below can trigger GC
+    if (obj->getType()->isPointerTy()) {
+        obj = gcPin(obj, "gc.pin.obj");
+    }
 
     // Create property key string
     llvm::Value* key = createGlobalString(propName);
@@ -2765,6 +2886,8 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
         auto boxObjFn = getTsValueMakeObject();
         obj = builder_->CreateCall(boxObjFn, {obj});
     }
+    // Pin boxed obj — subsequent calls (ts_string_create, boxing) can trigger GC
+    obj = gcPin(obj, "gc.pin.obj");
 
     // Create property key string
     llvm::Value* key = createGlobalString(propName);
@@ -2774,6 +2897,8 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
     // Box the key
     auto boxFn = getTsValueMakeString();
     llvm::Value* keyBoxed = builder_->CreateCall(boxFn, {gcPtrToRaw(keyStr)});
+    // Pin boxed key — value boxing below can trigger GC
+    keyBoxed = gcPin(keyBoxed, "gc.pin.key");
 
     // Box the value based on HIR type information
     if (!val->getType()->isPointerTy()) {
@@ -2921,6 +3046,13 @@ void HIRToLLVM::lowerSetPropDynamic(HIRInstruction* inst) {
     if (obj->getType()->isPointerTy()) {
         auto boxObjFn = getTsValueMakeObject();
         obj = builder_->CreateCall(boxObjFn, {obj});
+    }
+    // Pin boxed obj — subsequent boxing calls can trigger GC
+    obj = gcPin(obj, "gc.pin.obj");
+
+    // Pin key if it's a pointer (might be collected during value boxing)
+    if (key->getType()->isPointerTy()) {
+        key = gcPin(key, "gc.pin.key");
     }
 
     // Box the value based on HIR type information
@@ -3685,6 +3817,26 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // Handle parseInt(string, radix?) - redirect to ts_parseInt which handles both
+    // raw TsString* and boxed TsValue*. The radix arg is ignored (always base 10).
+    if (funcName == "parseInt") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        // Ensure arg is a pointer (box if primitive)
+        if (arg->getType()->isIntegerTy(64)) {
+            arg = builder_->CreateCall(getTsValueMakeInt(), { arg });
+        } else if (arg->getType()->isDoubleTy()) {
+            arg = builder_->CreateCall(getTsValueMakeDouble(), { arg });
+        }
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_parseInt", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
     // Try registry-based lowering for runtime functions
     if (auto* spec = ::hir::LoweringRegistry::instance().lookup(funcName)) {
         llvm::Value* result = lowerRegisteredCall(inst, *spec);
@@ -3769,10 +3921,23 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
     auto* ft = llvm::FunctionType::get(retTy, argTys, spec.isVariadic);
     auto fn = module_->getOrInsertFunction(spec.runtimeFuncName, ft);
 
+    // For string methods (ts_string_*), the first argument is the string receiver.
+    // It may be a boxed TsValue* (e.g. from array element access like argv[i]).
+    // ts_value_get_string safely handles both raw TsString* and boxed TsValue*,
+    // so we always unbox the receiver for string methods.
+    bool isStringMethod = spec.runtimeFuncName.find("ts_string_") == 0;
+
     // Convert arguments
     std::vector<llvm::Value*> llvmArgs;
     for (size_t i = 1; i < inst->operands.size() && (i - 1) < spec.argConversions.size(); ++i) {
         llvm::Value* arg = getOperandValue(inst->operands[i]);
+
+        // Unbox string receiver for ts_string_* methods
+        if (isStringMethod && i == 1 && arg->getType()->isPointerTy()) {
+            auto getStrFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
+            auto getStrFn = module_->getOrInsertFunction("ts_value_get_string", getStrFt);
+            arg = builder_->CreateCall(getStrFt, getStrFn.getCallee(), { arg }, "str_recv");
+        }
 
         // For Box conversion on pointer types, check if arg is a function pointer
         // Function pointers (llvm::Function*) must be wrapped via ts_value_make_function,
@@ -3918,8 +4083,12 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
                 arg = builder_->CreateZExt(arg, builder_->getInt32Ty());
             else if (arg->getType()->isIntegerTy(1) && expected->isIntegerTy(64))
                 arg = builder_->CreateZExt(arg, builder_->getInt64Ty());
-            else if (arg->getType()->isPointerTy() && expected->isIntegerTy(64))
-                arg = builder_->CreatePtrToInt(arg, builder_->getInt64Ty());
+            else if (arg->getType()->isPointerTy() && expected->isIntegerTy(64)) {
+                // Pointer is likely a boxed TsValue* - unbox via ts_value_get_int
+                auto getIntFt = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+                auto getIntFn = module_->getOrInsertFunction("ts_value_get_int", getIntFt);
+                arg = builder_->CreateCall(getIntFt, getIntFn.getCallee(), { arg });
+            }
             else if (arg->getType()->isIntegerTy(64) && expected->isPointerTy())
                 arg = builder_->CreateIntToPtr(arg, builder_->getPtrTy());
             else if (arg->getType()->isIntegerTy(1) && expected->isPointerTy()) {
@@ -4036,7 +4205,10 @@ llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) 
             if (arg->getType()->isDoubleTy()) {
                 return builder_->CreateFPToSI(arg, builder_->getInt64Ty());
             } else if (arg->getType()->isPointerTy()) {
-                return builder_->CreatePtrToInt(arg, builder_->getInt64Ty());
+                // Pointer is likely a boxed TsValue* - unbox via ts_value_get_int
+                auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_get_int", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { arg });
             }
             return arg;
         }
@@ -4044,6 +4216,11 @@ llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) 
         case ::hir::ArgConversion::ToF64: {
             if (arg->getType()->isIntegerTy(64)) {
                 return builder_->CreateSIToFP(arg, builder_->getDoubleTy());
+            } else if (arg->getType()->isPointerTy()) {
+                // Pointer is likely a boxed TsValue* - unbox via ts_value_get_double
+                auto ft = llvm::FunctionType::get(builder_->getDoubleTy(), { builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_get_double", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { arg });
             }
             return arg;
         }
@@ -4051,6 +4228,12 @@ llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) 
         case ::hir::ArgConversion::ToI32: {
             if (arg->getType()->isIntegerTy(64)) {
                 return builder_->CreateTrunc(arg, builder_->getInt32Ty());
+            } else if (arg->getType()->isPointerTy()) {
+                // Pointer is likely a boxed TsValue* - unbox via ts_value_get_int then truncate
+                auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_get_int", ft);
+                auto i64Val = builder_->CreateCall(ft, fn.getCallee(), { arg });
+                return builder_->CreateTrunc(i64Val, builder_->getInt32Ty());
             }
             return arg;
         }
@@ -6170,8 +6353,25 @@ void HIRToLLVM::lowerPhi(HIRInstruction* inst) {
     llvm::PHINode* phi = builder_->CreatePHI(type, inst->phiIncoming.size(), "phi");
 
     for (auto& [val, block] : inst->phiIncoming) {
-        llvm::Value* llvmVal = getValue(val);
         llvm::BasicBlock* llvmBlock = getBlock(block);
+        if (!llvmBlock) continue;
+
+        llvm::Value* llvmVal = nullptr;
+
+        // For phi nodes, GC pin reloads must be in the SOURCE block (before
+        // its terminator), not the merge block where the phi lives.
+        // getValue() would insert the reload at the current insert point
+        // (the merge block), violating SSA dominance.
+        auto pinIt = gcPinAllocas_.find(val->id);
+        if (pinIt != gcPinAllocas_.end()) {
+            llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+            builder_->SetInsertPoint(llvmBlock->getTerminator());
+            llvmVal = builder_->CreateLoad(builder_->getPtrTy(), pinIt->second, "gc.reload");
+        } else {
+            // No GC pin - use getValue() normally (returns the raw SSA value)
+            llvmVal = getValue(val);
+        }
+
         if (llvmVal && llvmBlock) {
             phi->addIncoming(llvmVal, llvmBlock);
         }
@@ -6751,6 +6951,22 @@ std::shared_ptr<HIRType> HIRToLLVM::getOperandType(const HIROperand& operand) {
         return *t;
     }
     return nullptr;
+}
+
+llvm::Value* HIRToLLVM::gcPin(llvm::Value* ptr, const char* name) {
+    if (!ptr || !ptr->getType()->isPointerTy() || !currentFunction_) return ptr;
+
+    // Create an alloca in the entry block
+    llvm::AllocaInst* pin;
+    {
+        llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+        llvm::BasicBlock* entryBB = &currentFunction_->getEntryBlock();
+        builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
+        pin = builder_->CreateAlloca(builder_->getPtrTy(), nullptr, name);
+    }
+    // Store the pointer and return a load from the alloca
+    builder_->CreateStore(ptr, pin);
+    return builder_->CreateLoad(builder_->getPtrTy(), pin, std::string(name) + ".ld");
 }
 
 llvm::Value* HIRToLLVM::createGlobalString(const std::string& str) {

@@ -665,7 +665,7 @@ void* ts_http2_server_listen(void* server, int64_t port, void* host, void* callb
     // The "ptr" lowering passes raw TsClosure*/function pointers, but EventEmitter's
     // Emit → ts_function_call → ts_extract_closure chain expects TsValue*.
     void* wrappedCallback = callback ? ts_value_make_object(callback) : nullptr;
-    srv->Listen((int)port, wrappedCallback);
+    srv->Listen((int)port, hostStr, wrappedCallback);
     return srv;
 }
 

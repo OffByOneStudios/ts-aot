@@ -19,7 +19,7 @@ void ts_outgoing_message_flush_headers(void* msg);
 // Server creation
 void* ts_http_create_server(void* options, void* callback);
 void* ts_https_create_server(void* options, void* callback);
-void ts_http_server_listen(void* server, void* port_val, void* callback);
+void ts_http_server_listen(void* server, void* port_val, void* host, void* callback);
 
 // ServerResponse methods
 void ts_http_server_response_write_head(void* res, int64_t status, void* headers);

@@ -3,6 +3,7 @@
 #include "TsRegExp.h"
 #include "TsRuntime.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <cmath>
 #include <unicode/unistr.h>
 #include <unicode/normlzr.h>
@@ -22,6 +23,33 @@ static const int MIN_CACHED_INT = -100;  // Cache negative numbers too
 static std::unordered_map<std::string, TsString*> globalStringCache;
 static const size_t MAX_INTERN_SIZE = 256; // Only intern strings <= 256 chars
 static const size_t MAX_CACHE_SIZE = 10000; // Prevent unbounded growth
+
+// Cache for non-integer doubles (was function-local, moved to file scope for GC scanning)
+static std::unordered_map<double, TsString*> doubleStringCache;
+static const size_t MAX_DOUBLE_CACHE = 1000;
+
+// GC scanner for string caches: called during mark phase to keep cached strings alive.
+// Without this, the GC has no way to find these TsString* pointers since they're in
+// C++ static unordered_maps that the conservative stack scanner can't see.
+static bool g_string_cache_scanner_registered = false;
+static void ts_string_cache_gc_scanner(void* /*context*/) {
+    for (auto& pair : numericStringCache) {
+        if (pair.second) ts_gc_mark_object((void*)pair.second);
+    }
+    for (auto& pair : globalStringCache) {
+        if (pair.second) ts_gc_mark_object((void*)pair.second);
+    }
+    for (auto& pair : doubleStringCache) {
+        if (pair.second) ts_gc_mark_object((void*)pair.second);
+    }
+}
+
+static void ensureStringCacheScannerRegistered() {
+    if (!g_string_cache_scanner_registered) {
+        g_string_cache_scanner_registered = true;
+        ts_gc_register_scanner(ts_string_cache_gc_scanner, nullptr);
+    }
+}
 
 TsString* TsString::Create(const char* utf8Str) {
     if (!utf8Str) utf8Str = "";
@@ -50,14 +78,16 @@ TsString* TsString::Create(const char* utf8Str) {
 
 TsString* TsString::GetInterned(const char* utf8Str) {
     if (!utf8Str) return Create(""); // Empty string fallback
-    
+
+    ensureStringCacheScannerRegistered();
+
     size_t len = std::strlen(utf8Str);
-    
+
     // Don't intern very large strings
     if (len > MAX_INTERN_SIZE) {
         return Create(utf8Str);
     }
-    
+
     // Check cache
     std::string key(utf8Str, len);
     auto it = globalStringCache.find(key);
@@ -143,6 +173,8 @@ TsString* TsString::Concat(TsString* a, TsString* b) {
 }
 
 TsString* TsString::FromInt(int64_t value) {
+    ensureStringCacheScannerRegistered();
+
     // Check cache for common values (0-999)
     if (value >= MIN_CACHED_INT && value <= MAX_CACHED_INT) {
         auto it = numericStringCache.find(value);
@@ -177,22 +209,21 @@ TsString* TsString::FromDouble(double value) {
         return FromInt((int64_t)value);
     }
 
+    ensureStringCacheScannerRegistered();
+
     // Cache common non-integer doubles
-    static std::unordered_map<double, TsString*> doubleCache;
-    static const size_t MAX_DOUBLE_CACHE = 1000;
-    
-    auto it = doubleCache.find(value);
-    if (it != doubleCache.end()) {
+    auto it = doubleStringCache.find(value);
+    if (it != doubleStringCache.end()) {
         return it->second;
     }
 
     char buf[64];
     int len = std::snprintf(buf, sizeof(buf), "%g", value);
     TsString* str = Create(buf);
-    
+
     // Cache if not too large
-    if (doubleCache.size() < MAX_DOUBLE_CACHE) {
-        doubleCache[value] = str;
+    if (doubleStringCache.size() < MAX_DOUBLE_CACHE) {
+        doubleStringCache[value] = str;
     }
     
     return str;

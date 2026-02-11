@@ -14,6 +14,7 @@
 #include "TsBoxedPrimitives.h"
 #include "TsSymbol.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <sstream>
 #include <cstdio>
 #include <cstring>
@@ -2248,6 +2249,7 @@ void* ts_util_inspect_custom_symbol() {
     if (!inspectCustomSymbol) {
         // Create a well-known symbol with description "nodejs.util.inspect.custom"
         inspectCustomSymbol = TsSymbol::For(TsString::Create("nodejs.util.inspect.custom"));
+        ts_gc_register_root((void**)&inspectCustomSymbol);
     }
     // Return as a boxed symbol value so typeof works correctly
     return ts_value_make_symbol(inspectCustomSymbol);
@@ -2258,6 +2260,7 @@ void* ts_util_inspect_custom_symbol() {
 void* ts_util_inspect_default_options() {
     if (!inspectDefaultOptions) {
         inspectDefaultOptions = TsMap::Create();
+        ts_gc_register_root((void**)&inspectDefaultOptions);
 
         // Set default values matching Node.js defaults
         TsValue key, val;

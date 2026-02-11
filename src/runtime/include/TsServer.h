@@ -10,7 +10,7 @@ public:
     // Safe casting helper
     virtual TsServer* AsServer() override { return this; }
 
-    void Listen(int port, void* callback);
+    void Listen(int port, const char* host, void* callback);
     void Close();
 
     // Returns { address, family, port } object or null if not listening
@@ -39,7 +39,7 @@ protected:
 
 extern "C" {
     void* ts_net_create_server(void* callback);
-    void ts_net_server_listen(void* server, void* port, void* callback);
+    void ts_net_server_listen(void* server, void* port, void* host, void* callback);
     void ts_net_server_close(void* server);
     void* ts_net_server_address(void* server);
 

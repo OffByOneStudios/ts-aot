@@ -1446,14 +1446,21 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsClosure* ts_extract_closure(TsValue* boxedFunc) {
         if (!boxedFunc) return nullptr;
 
-        // Check if boxedFunc is a raw TsClosure pointer (magic at offset 8)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            return (TsClosure*)obj;
+        // Determine if this is a raw pointer or a TsValue by checking first byte.
+        // TsValue has ValueType enum (0-10) as first byte.
+        // Raw TsObject/TsClosure has a C++ vtable pointer (large value) at offset 0.
+        uint8_t firstByte = *(uint8_t*)boxedFunc;
+        if (firstByte > (uint8_t)ValueType::FUNCTION_PTR) {
+            // This is a raw pointer (not a TsValue) - safe to read magic at offset 16
+            TsObject* obj = (TsObject*)boxedFunc;
+            if (obj->magic == 0x434C5352) {  // 'CLSR'
+                return (TsClosure*)obj;
+            }
+            return nullptr;
         }
 
-        // Check if boxedFunc is a TsValue wrapping a TsClosure (OBJECT_PTR)
-        if (boxedFunc->type == ValueType::OBJECT_PTR && boxedFunc->ptr_val) {
+        // It's a TsValue - check if it wraps a TsClosure (OBJECT_PTR or FUNCTION_PTR)
+        if ((boxedFunc->type == ValueType::OBJECT_PTR || boxedFunc->type == ValueType::FUNCTION_PTR) && boxedFunc->ptr_val) {
             TsObject* inner = (TsObject*)boxedFunc->ptr_val;
             if (inner && inner->magic == 0x434C5352) {  // 'CLSR'
                 return (TsClosure*)inner;
@@ -1721,9 +1728,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_call_8(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
         // Check for TsClosure first (raw closure pointer)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn8)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
         }
@@ -1751,10 +1757,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_9(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9) {
-        // Check for TsClosure first (raw closure pointer)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        // Check for TsClosure first
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn9)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn9)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
         }
@@ -1782,10 +1787,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_call_10(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9, TsValue* arg10) {
-        // Check for TsClosure first (raw closure pointer)
-        TsObject* obj = (TsObject*)boxedFunc;
-        if (obj && obj->magic == 0x434C5352) {  // 'CLSR'
-            TsClosure* closure = (TsClosure*)obj;
+        // Check for TsClosure first
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
             typedef TsValue* (*Fn10)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn10)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
         }
@@ -3073,34 +3077,33 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
 
-        // Detect if obj is a raw pointer (not a boxed TsValue*) by checking magic values
-        // A TsValue* has type in first byte (0-10) with zero padding bytes
-        // A TsArray* has magic "ARRY" (0x41525259) at offset 0
-        // A TsMap*/TsObject* has magic at offset 16
+        // Detect if obj is a raw pointer (not a boxed TsValue*) by checking the first byte.
+        // A TsValue has ValueType enum (0-10) as first byte.
+        // A raw TsArray has magic 0x41525259 ("ARRY") at offset 0.
+        // A raw TsObject/TsMap has a C++ vtable pointer at offset 0 (large value).
         {
-            uint32_t magic0 = *(uint32_t*)obj;
-            // Check for TsArray magic at offset 0
-            if (magic0 == 0x41525259) { // "ARRY" - this is a raw TsArray*
-                TsArray* arr = (TsArray*)obj;
-                if (key->type == ValueType::NUMBER_INT) {
-                    return ts_array_get_as_value((void*)arr, key->i_val);
-                } else if (key->type == ValueType::NUMBER_DBL) {
-                    return ts_array_get_as_value((void*)arr, (int64_t)key->d_val);
-                } else if (key->type == ValueType::STRING_PTR) {
-                    TsString* keyStr = (TsString*)key->ptr_val;
-                    if (keyStr) {
-                        const char* k = keyStr->ToUtf8();
-                        if (k && strcmp(k, "length") == 0) {
-                            return ts_value_make_int(arr->Length());
+            uint8_t firstByte = *(uint8_t*)obj;
+            if (firstByte > (uint8_t)ValueType::FUNCTION_PTR) {
+                // Not a TsValue — check if it's a raw TsArray or TsObject
+                uint32_t magic0 = *(uint32_t*)obj;
+                if (magic0 == 0x41525259) { // "ARRY" - this is a raw TsArray*
+                    TsArray* arr = (TsArray*)obj;
+                    if (key->type == ValueType::NUMBER_INT) {
+                        return ts_array_get_as_value((void*)arr, key->i_val);
+                    } else if (key->type == ValueType::NUMBER_DBL) {
+                        return ts_array_get_as_value((void*)arr, (int64_t)key->d_val);
+                    } else if (key->type == ValueType::STRING_PTR) {
+                        TsString* keyStr = (TsString*)key->ptr_val;
+                        if (keyStr) {
+                            const char* k = keyStr->ToUtf8();
+                            if (k && strcmp(k, "length") == 0) {
+                                return ts_value_make_int(arr->Length());
+                            }
                         }
                     }
+                    return ts_value_make_undefined();
                 }
-                return ts_value_make_undefined();
-            }
-            // Check for TsObject/TsMap magic at offset 16
-            uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
-            if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC || magic16 == 0x54415252) {
-                // This is a raw TsObject* - wrap it and continue
+                // Raw TsObject*/TsMap* - wrap it and continue
                 TsValue* wrapped = (TsValue*)ts_alloc(sizeof(TsValue));
                 wrapped->type = ValueType::OBJECT_PTR;
                 wrapped->ptr_val = (void*)obj;
@@ -3427,12 +3430,14 @@ TsValue* ts_value_make_int(int64_t i) {
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) {
         if (!obj || !key || !value) return;
 
-        // Detect if obj is a raw pointer (not a boxed TsValue*) by checking magic values
-        // A TsObject/TsMap has magic "MAPS" (0x4D415053) at offset 16
+        // Detect if obj is a raw TsObject*/TsMap* pointer (not a boxed TsValue*)
+        // A TsValue has a ValueType enum (0-10) as its first byte.
+        // A raw TsObject* has a C++ vtable pointer (large value) at offset 0.
+        // Check the type byte: if it's > 10, this is NOT a TsValue — it's a raw pointer.
         {
-            uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
-            if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC || magic16 == 0x54415252) {
-                // This is a raw TsObject* - wrap it as TsValue and continue
+            uint8_t firstByte = *(uint8_t*)obj;
+            if (firstByte > (uint8_t)ValueType::FUNCTION_PTR) {
+                // This is a raw TsObject*/TsMap* - wrap it as TsValue and continue
                 TsValue* wrapped = (TsValue*)ts_alloc(sizeof(TsValue));
                 wrapped->type = ValueType::OBJECT_PTR;
                 wrapped->ptr_val = (void*)obj;
@@ -3441,12 +3446,18 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         // Check if this is a Proxy - dispatch through proxy trap
+        // Only do dynamic_cast if rawObj is a TsObject-derived class (vtable at offset 0,
+        // magic at offset 16). Non-TsObject types like TsRegExp have magic at offset 0
+        // and no vtable, so dynamic_cast would crash.
         void* rawObj = ts_value_get_object(obj);
         if (rawObj) {
-            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
-            if (proxy) {
-                proxy->set(key, value, nullptr);
-                return;
+            uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+            if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC || magic16 == 0x54415252) {
+                TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+                if (proxy) {
+                    proxy->set(key, value, nullptr);
+                    return;
+                }
             }
         }
 

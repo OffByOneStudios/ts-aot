@@ -40,7 +40,7 @@ void* ts_https_create_server(TsValue* options, void* callback) {
     return TsHttpsServer::Create(options, callback);
 }
 
-void ts_http_server_listen(void* server, void* port_val, void* callback) {
+void ts_http_server_listen(void* server, void* port_val, void* host, void* callback) {
     TsValue* p = (TsValue*)port_val;
     int port = 0;
     if (p->type == ValueType::NUMBER_DBL) {
@@ -48,7 +48,12 @@ void ts_http_server_listen(void* server, void* port_val, void* callback) {
     } else if (p->type == ValueType::NUMBER_INT) {
         port = (int)p->i_val;
     }
-    ((TsHttpServer*)server)->Listen(port, callback);
+    const char* hostStr = nullptr;
+    if (host && !ts_value_is_null((TsValue*)host) && !ts_value_is_undefined((TsValue*)host)) {
+        void* raw = ts_value_get_string((TsValue*)host);
+        if (raw) hostStr = ((TsString*)raw)->ToUtf8();
+    }
+    ((TsHttpServer*)server)->Listen(port, hostStr, callback);
 }
 
 // Helper: extract raw pointer from potentially boxed TsValue*

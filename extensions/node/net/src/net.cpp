@@ -617,10 +617,19 @@ extern "C" {
         return server;
     }
 
-    void ts_net_server_listen(void* server, void* port, void* callback) {
+    void ts_net_server_listen(void* server, void* port, void* host, void* callback) {
         TsServer* s = (TsServer*)server;
         TsValue* p = (TsValue*)port;
-        s->Listen((int)p->i_val, callback);
+        // Extract host string if provided
+        const char* hostStr = nullptr;
+        if (host && !ts_value_is_null((TsValue*)host) && !ts_value_is_undefined((TsValue*)host)) {
+            void* raw = ts_value_get_string((TsValue*)host);
+            if (raw) {
+                TsString* str = (TsString*)raw;
+                hostStr = str->ToUtf8();
+            }
+        }
+        s->Listen((int)p->i_val, hostStr, callback);
     }
 
     void ts_net_server_close(void* server) {

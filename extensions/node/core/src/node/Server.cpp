@@ -35,11 +35,11 @@ static void on_deferred_listening(uv_timer_t* timer) {
     });
 }
 
-void TsServer::Listen(int port, void* callback) {
+void TsServer::Listen(int port, const char* host, void* callback) {
     if (closed) return;
 
     struct sockaddr_in addr;
-    uv_ip4_addr("0.0.0.0", port, &addr);
+    uv_ip4_addr(host ? host : "0.0.0.0", port, &addr);
 
     int r = uv_tcp_bind(handle, (const struct sockaddr*)&addr, 0);
 
