@@ -69,6 +69,7 @@ add_library(tscompiler_lib STATIC
     Driver.cpp
     codegen/CodeGenerator.cpp
     codegen/LinkerDriver.cpp
+    codegen/TsAotGC.cpp
     hir/HIR.cpp
     hir/ASTToHIR.cpp
     hir/HIRPrinter.cpp

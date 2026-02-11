@@ -6,6 +6,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <llvm/Support/TargetSelect.h>
+#include "codegen/TsAotGC.h"
 
 #ifdef _MSC_VER
 #include <crtdbg.h>
@@ -20,6 +21,9 @@ int main(int argc, char** argv) {
     _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
+
+    // Force-link the ts-aot-gc GC strategy registration
+    ts::linkTsAotGC();
 
     // Initialize LLVM targets
     llvm::InitializeAllTargetInfos();
@@ -52,6 +56,7 @@ int main(int argc, char** argv) {
             ("bundle-icu", "Bundle ICU data into executable (~29MB larger, for self-contained deployment)", cxxopts::value<bool>()->default_value("false"))
             ("native-parser", "Use native C++ parser (default: true)", cxxopts::value<bool>()->default_value("true"))
             ("legacy-parser", "Force legacy Node.js parser (dump_ast.js)", cxxopts::value<bool>()->default_value("false"))
+            ("gc-statepoints", "Enable LLVM GC statepoint infrastructure (experimental)", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage")
             ("input", "Input file", cxxopts::value<std::string>());
 
@@ -140,6 +145,7 @@ int main(int argc, char** argv) {
         driverOpts.dumpHir = result["dump-hir"].as<bool>();
         driverOpts.dumpTypes = result["dump-types"].as<bool>();
         driverOpts.bundleIcu = result["bundle-icu"].as<bool>();
+        driverOpts.enableGCStatepoints = result["gc-statepoints"].as<bool>();
         driverOpts.verbose = result["verbose"].as<bool>();
 
         // Parser selection: --native-parser enables, --legacy-parser disables

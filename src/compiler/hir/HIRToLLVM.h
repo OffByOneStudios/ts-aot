@@ -60,6 +60,11 @@ public:
     // without copying it next to every compiled executable.
     void setIcuDataPath(const std::string& path) { icuDataPath_ = path; }
 
+    // Enable LLVM GC statepoint infrastructure.
+    // When enabled, GC-managed pointers use addrspace(1), functions get gc "ts-aot-gc"
+    // attribute, and calls get "deopt" operand bundles for RS4GC pass.
+    void setEnableGCStatepoints(bool enable) { enableGCStatepoints_ = enable; }
+
     //==========================================================================
     // Handler Accessors - Used by BuiltinHandler implementations
     //==========================================================================
@@ -83,6 +88,31 @@ private:
 
     // ICU data path to embed in generated binary (empty = don't embed)
     std::string icuDataPath_;
+
+    // GC statepoint infrastructure (experimental)
+    bool enableGCStatepoints_ = false;
+
+    // Get pointer type for GC-managed pointers (addrspace 1 when statepoints enabled)
+    llvm::PointerType* getGCPtrTy();
+
+    // Check if an HIR type kind represents a GC-managed object
+    bool isGCManagedType(HIRTypeKind kind);
+
+    // Cast GC pointer (addrspace 1) to raw pointer (addrspace 0) for runtime calls
+    llvm::Value* gcPtrToRaw(llvm::Value* val);
+
+    // Cast raw pointer (addrspace 0) to GC pointer (addrspace 1) for internal use
+    llvm::Value* rawToGCPtr(llvm::Value* val);
+
+    // Create a call to a runtime function, handling addrspacecast at boundaries
+    llvm::Value* createRuntimeCall(llvm::FunctionCallee fn,
+                                    llvm::ArrayRef<llvm::Value*> args,
+                                    const llvm::Twine& name = "");
+
+    // Create a call with "deopt" operand bundle (required for RS4GC)
+    llvm::CallInst* createCallWithDeopt(llvm::FunctionType* ft, llvm::Value* callee,
+                                         llvm::ArrayRef<llvm::Value*> args,
+                                         const llvm::Twine& name = "");
 
     // Current function being lowered
     llvm::Function* currentFunction_ = nullptr;

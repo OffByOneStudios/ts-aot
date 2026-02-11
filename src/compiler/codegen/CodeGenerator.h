@@ -15,9 +15,12 @@ public:
     bool emitBitcode(const std::string& filename);
     bool emitAssembly(const std::string& filename);
 
+    void setEnableGCStatepoints(bool enable) { enableGCStatepoints_ = enable; }
+
 private:
     llvm::Module* module;
     std::unique_ptr<llvm::TargetMachine> targetMachine;
+    bool enableGCStatepoints_ = false;
 
     bool setupTargetMachine(const std::string& optLevel);
     void runOptimizations(const std::string& optLevel);
