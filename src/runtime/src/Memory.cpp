@@ -1,5 +1,6 @@
 #include "GC.h"
 #include "StackMap.h"
+#include "GCRoots.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -154,6 +155,9 @@ void ts_gc_init() {
 
     // Parse LLVM stack maps if present (from --gc-statepoints builds)
     ts_stackmap_init();
+
+    // Hook precise root pushing into Boehm GC (uses parsed stack maps)
+    ts_gc_roots_init();
 }
 
 void ts_gc_collect() {
