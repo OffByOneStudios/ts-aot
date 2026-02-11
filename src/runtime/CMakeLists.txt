@@ -77,6 +77,7 @@ add_library(tsruntime STATIC
     src/TsProxy.cpp
     src/TsReflect.cpp
     src/TsTestExtension.cpp
+    src/StackMap.cpp
 )
 
 # ICU data stub library - provides minimal icudt74_dat symbol for external data mode.
