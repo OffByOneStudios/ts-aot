@@ -23,6 +23,7 @@ struct DriverOptions {
     bool bundleIcu = false;    // --bundle-icu: embed ICU data (~29MB larger, self-contained)
     bool verbose = false;
     bool useNativeParser = true;   // Use native C++ parser instead of Node.js dump_ast.js
+    bool enableGCStatepoints = false;  // --gc-statepoints: enable LLVM GC statepoint infrastructure
     std::string runtimeBitcode;
     std::vector<std::string> libraryPaths;
 };

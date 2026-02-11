@@ -18,6 +18,7 @@
 #include <llvm/Transforms/IPO/GlobalDCE.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Transforms/Scalar/RewriteStatepointsForGC.h>
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -106,6 +107,17 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
         MPM.addPass(llvm::GlobalDCEPass());
         
         MPM.run(*module, MAM);
+    }
+
+    // Run RewriteStatepointsForGC pass when GC statepoints are enabled.
+    // This must run AFTER standard optimizations but BEFORE code emission.
+    // RS4GC rewrites calls with "deopt" bundles into gc.statepoint + gc.relocate
+    // and generates the .llvm_stackmaps section for precise stack scanning.
+    if (enableGCStatepoints_) {
+        SPDLOG_INFO("Running RewriteStatepointsForGC pass");
+        llvm::ModulePassManager GCMPM;
+        GCMPM.addPass(llvm::RewriteStatepointsForGC());
+        GCMPM.run(*module, MAM);
     }
 }
 

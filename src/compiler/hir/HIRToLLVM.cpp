@@ -25,6 +25,79 @@ HIRToLLVM::HIRToLLVM(llvm::LLVMContext& ctx)
 }
 
 //==============================================================================
+// GC Statepoint Helpers
+//==============================================================================
+
+llvm::PointerType* HIRToLLVM::getGCPtrTy() {
+    return llvm::PointerType::get(context_, enableGCStatepoints_ ? 1 : 0);
+}
+
+bool HIRToLLVM::isGCManagedType(HIRTypeKind kind) {
+    switch (kind) {
+        case HIRTypeKind::String:
+        case HIRTypeKind::Object:
+        case HIRTypeKind::Array:
+        case HIRTypeKind::Map:
+        case HIRTypeKind::Set:
+        case HIRTypeKind::Symbol:
+        case HIRTypeKind::BigInt:
+        case HIRTypeKind::Function:
+        case HIRTypeKind::Class:
+        case HIRTypeKind::Any:
+            return true;
+        default:
+            return false;
+    }
+}
+
+llvm::Value* HIRToLLVM::gcPtrToRaw(llvm::Value* val) {
+    if (!enableGCStatepoints_ || !val->getType()->isPointerTy()) return val;
+    if (val->getType()->getPointerAddressSpace() == 0) return val;
+    return builder_->CreateAddrSpaceCast(val, builder_->getPtrTy(), "gc.to.raw");
+}
+
+llvm::Value* HIRToLLVM::rawToGCPtr(llvm::Value* val) {
+    if (!enableGCStatepoints_ || !val->getType()->isPointerTy()) return val;
+    if (val->getType()->getPointerAddressSpace() != 0) return val;
+    return builder_->CreateAddrSpaceCast(val, getGCPtrTy(), "raw.to.gc");
+}
+
+llvm::Value* HIRToLLVM::createRuntimeCall(llvm::FunctionCallee fn,
+                                           llvm::ArrayRef<llvm::Value*> args,
+                                           const llvm::Twine& name) {
+    if (!enableGCStatepoints_) {
+        return builder_->CreateCall(fn, args, name);
+    }
+
+    // Cast GC pointers to raw pointers for runtime function arguments
+    std::vector<llvm::Value*> rawArgs;
+    rawArgs.reserve(args.size());
+    for (auto* arg : args) {
+        rawArgs.push_back(gcPtrToRaw(arg));
+    }
+
+    // Add deopt operand bundle for RS4GC
+    llvm::OperandBundleDef deoptBundle("deopt", llvm::ArrayRef<llvm::Value*>());
+    llvm::CallInst* result = builder_->CreateCall(fn, rawArgs, {deoptBundle}, name);
+
+    // If the return type is a pointer, cast from raw to GC pointer
+    if (result->getType()->isPointerTy()) {
+        return rawToGCPtr(result);
+    }
+    return result;
+}
+
+llvm::CallInst* HIRToLLVM::createCallWithDeopt(llvm::FunctionType* ft, llvm::Value* callee,
+                                                llvm::ArrayRef<llvm::Value*> args,
+                                                const llvm::Twine& name) {
+    if (enableGCStatepoints_) {
+        llvm::OperandBundleDef deoptBundle("deopt", llvm::ArrayRef<llvm::Value*>());
+        return builder_->CreateCall(ft, callee, args, {deoptBundle}, name);
+    }
+    return builder_->CreateCall(ft, callee, args, name);
+}
+
+//==============================================================================
 // Main Entry Point
 //==============================================================================
 
@@ -155,6 +228,9 @@ void HIRToLLVM::createMainFunction() {
         llvm::Type::getInt32Ty(context_), mainArgs, false);
     llvm::Function* mainFn = llvm::Function::Create(
         mainFt, llvm::Function::ExternalLinkage, "main", module_.get());
+    if (enableGCStatepoints_) {
+        mainFn->setGC("ts-aot-gc");
+    }
 
     // Create entry block
     llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "entry", mainFn);
@@ -212,6 +288,11 @@ llvm::Type* HIRToLLVM::getLLVMType(const std::shared_ptr<HIRType>& type) {
 }
 
 llvm::Type* HIRToLLVM::getLLVMType(HIRTypeKind kind) {
+    // NOTE: When --gc-statepoints is fully implemented, GC-managed types
+    // will return getGCPtrTy() (addrspace 1) instead of getPtrTy() (addrspace 0).
+    // For now, all pointers use addrspace 0 to avoid type mismatches at the
+    // 600+ runtime function call boundaries. The address space conversion
+    // will be added incrementally in a follow-up step.
     switch (kind) {
         case HIRTypeKind::Void:    return builder_->getVoidTy();
         case HIRTypeKind::Bool:    return builder_->getInt1Ty();
@@ -220,6 +301,10 @@ llvm::Type* HIRToLLVM::getLLVMType(HIRTypeKind kind) {
         case HIRTypeKind::String:  return builder_->getPtrTy();  // TsString*
         case HIRTypeKind::Object:  return builder_->getPtrTy();  // TsObject*
         case HIRTypeKind::Array:   return builder_->getPtrTy();  // TsArray*
+        case HIRTypeKind::Map:     return builder_->getPtrTy();  // TsMap*
+        case HIRTypeKind::Set:     return builder_->getPtrTy();  // TsSet*
+        case HIRTypeKind::Symbol:  return builder_->getPtrTy();  // TsSymbol*
+        case HIRTypeKind::BigInt:  return builder_->getPtrTy();  // TsBigInt*
         case HIRTypeKind::Function: return builder_->getPtrTy(); // Function pointer
         case HIRTypeKind::Class:   return builder_->getPtrTy();  // Class instance
         case HIRTypeKind::Any:     return builder_->getPtrTy();  // TsValue*
@@ -314,12 +399,15 @@ void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
     }
 
     llvm::FunctionType* funcType = llvm::FunctionType::get(returnType, paramTypes, false);
-    llvm::Function::Create(
+    auto* func = llvm::Function::Create(
         funcType,
         llvm::Function::ExternalLinkage,
         fn->mangledName,
         module_.get()
     );
+    if (enableGCStatepoints_) {
+        func->setGC("ts-aot-gc");
+    }
 }
 
 void HIRToLLVM::lowerFunction(HIRFunction* fn) {
@@ -353,6 +441,14 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             fn->mangledName,
             module_.get()
         );
+        if (enableGCStatepoints_) {
+            llvmFunc->setGC("ts-aot-gc");
+        }
+    }
+
+    // If function was forward-declared but doesn't have GC attr yet, add it
+    if (enableGCStatepoints_ && !llvmFunc->hasGC()) {
+        llvmFunc->setGC("ts-aot-gc");
     }
 
     // Has closure context if captures exist, either from implicit param or explicit __closure__ param
@@ -443,6 +539,9 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             implName,
             module_.get()
         );
+        if (enableGCStatepoints_) {
+            generatorImplFunc_->setGC("ts-aot-gc");
+        }
 
         // Now set up the wrapper function (the original function)
         // It creates AsyncContext, sets resumeFn, creates Generator, and returns it
@@ -4999,6 +5098,9 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
         trampolineName,
         module_.get()
     );
+    if (enableGCStatepoints_) {
+        trampoline->setGC("ts-aot-gc");
+    }
 
     SPDLOG_DEBUG("getOrCreateTrampoline: creating trampoline {} for {} with {} user params",
                  trampolineName, originalFunc->getName().str(), numUserParams);

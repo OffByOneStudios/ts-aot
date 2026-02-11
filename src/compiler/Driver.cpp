@@ -210,6 +210,7 @@ int Driver::run() {
         // Create LLVM context (must outlive the module)
         hirContext = std::make_unique<llvm::LLVMContext>();
         hir::HIRToLLVM hirToLlvm(*hirContext);
+        hirToLlvm.setEnableGCStatepoints(options.enableGCStatepoints);
 
         // Embed ICU data path so compiled executables can find icudt74l.dat
         // next to the compiler instead of needing a local copy
@@ -240,6 +241,7 @@ int Driver::run() {
             SPDLOG_INFO("Emitting object code to {}...", objFile);
         }
         ts::CodeGenerator codeGen(modulePtr);
+        codeGen.setEnableGCStatepoints(options.enableGCStatepoints);
         if (!codeGen.emitObjectFile(objFile, options.optLevel)) {
             return 1;
         }
