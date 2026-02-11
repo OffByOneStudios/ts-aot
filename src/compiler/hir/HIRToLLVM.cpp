@@ -498,7 +498,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             builder_->getPtrTy(), {}, false);
         llvm::FunctionCallee createPromiseFn = module_->getOrInsertFunction(
             "ts_promise_create", createPromiseFt);
-        asyncPromise_ = builder_->CreateCall(createPromiseFt, createPromiseFn.getCallee(), {}, "promise");
+        asyncPromise_ = rawToGCPtr(builder_->CreateCall(createPromiseFt, createPromiseFn.getCallee(), {}, "promise"));
     }
     // For generator functions (not async), create a state machine
     else if (fn->isGenerator) {
@@ -619,10 +619,10 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             builder_->getPtrTy(), { builder_->getPtrTy() }, false);
         llvm::FunctionCallee createGeneratorFn = module_->getOrInsertFunction(
             "ts_generator_create", createGeneratorFt);
-        llvm::Value* generator = builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), { asyncCtx }, "generator");
+        llvm::Value* generator = rawToGCPtr(builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), { asyncCtx }, "generator"));
 
         // Return the generator immediately (don't execute the body)
-        builder_->CreateRet(generator);
+        builder_->CreateRet(gcPtrToRaw(generator));
 
         // Now build the implementation function (state machine)
         currentFunction_ = generatorImplFunc_;
@@ -1062,6 +1062,7 @@ void HIRToLLVM::lowerConstString(HIRInstruction* inst) {
     // Call ts_string_create to create TsString*
     auto fn = getTsStringCreate();
     llvm::Value* result = builder_->CreateCall(fn, {strPtr});
+    result = rawToGCPtr(result);  // Mark as GC-managed for statepoints
     setValue(inst->result, result);
 }
 
@@ -1431,7 +1432,7 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
                     builder_->getPtrTy(),
                     { builder_->getPtrTy() }
                 );
-                return builder_->CreateCall(fn, { val });
+                return builder_->CreateCall(fn, { gcPtrToRaw(val) });
             }
         }
 
@@ -1464,6 +1465,7 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
             auto trueStr = createGlobalString("true");
             auto falseStr = createGlobalString("false");
             auto strFn = getTsStringCreate();
+            // Don't wrap with rawToGCPtr - these flow to ts_string_concat which expects ptr
             llvm::Value* trueVal = builder_->CreateCall(strFn, {trueStr});
             llvm::Value* falseVal = builder_->CreateCall(strFn, {falseStr});
             llvm::Value* boolVal = val;
@@ -1474,7 +1476,7 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
                     builder_->getInt1Ty(),
                     { builder_->getPtrTy() }
                 );
-                boolVal = builder_->CreateCall(unboxFn, { val }, "unbox_bool");
+                boolVal = builder_->CreateCall(unboxFn, { gcPtrToRaw(val) }, "unbox_bool");
             } else if (val->getType()->isIntegerTy(64)) {
                 boolVal = builder_->CreateICmpNE(val, llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
             }
@@ -1495,7 +1497,8 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
         builder_->getPtrTy(),
         { builder_->getPtrTy(), builder_->getPtrTy() }
     );
-    llvm::Value* result = builder_->CreateCall(fn, { lhsStr, rhsStr }, "strcat");
+    llvm::Value* result = builder_->CreateCall(fn, { gcPtrToRaw(lhsStr), gcPtrToRaw(rhsStr) }, "strcat");
+    result = rawToGCPtr(result);  // Mark as GC-managed for statepoints
     setValue(inst->result, result);
 }
 
@@ -2220,6 +2223,7 @@ void HIRToLLVM::lowerBoxBool(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerBoxString(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
+    val = gcPtrToRaw(val);  // Strip addrspace(1) for runtime call
     auto fn = getTsValueMakeString();
     llvm::Value* result = builder_->CreateCall(fn, {val});
     setValue(inst->result, result);
@@ -2227,6 +2231,7 @@ void HIRToLLVM::lowerBoxString(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerBoxObject(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
+    val = gcPtrToRaw(val);  // Strip addrspace(1) for runtime call
 
     llvm::Value* result;
     if (val->getType()->isPointerTy()) {
@@ -2454,7 +2459,7 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
         SPDLOG_ERROR("      lowerStore: not enough operands");
         return;
     }
-    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* val = gcPtrToRaw(getOperandValue(inst->operands[0]));
     SPDLOG_INFO("      lowerStore: val={}", val ? "non-null" : "NULL");
     if (!val) {
         SPDLOG_ERROR("      lowerStore: value is null!");
@@ -2581,7 +2586,7 @@ void HIRToLLVM::lowerNewObject(HIRInstruction* inst) {
     } else {
         // Heap allocation (original path)
         auto createFn = getTsObjectCreate();
-        result = builder_->CreateCall(createFn, {});
+        result = rawToGCPtr(builder_->CreateCall(createFn, {}));  // Mark as GC-managed
     }
 
     // Look up the vtable global for this class
@@ -2607,7 +2612,7 @@ void HIRToLLVM::lowerNewObjectDynamic(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
-    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    llvm::Value* obj = gcPtrToRaw(getOperandValue(inst->operands[0]));
     std::string propName = getOperandString(inst->operands[1]);
 
     // Fast path: String.length -> ts_string_length()
@@ -2653,11 +2658,11 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
     // Create property key string
     llvm::Value* key = createGlobalString(propName);
     auto strFn = getTsStringCreate();
-    llvm::Value* keyStr = builder_->CreateCall(strFn, {key});
+    llvm::Value* keyStr = rawToGCPtr(builder_->CreateCall(strFn, {key}));
 
     // Box the key
     auto boxFn = getTsValueMakeString();
-    llvm::Value* keyBoxed = builder_->CreateCall(boxFn, {keyStr});
+    llvm::Value* keyBoxed = builder_->CreateCall(boxFn, {gcPtrToRaw(keyStr)});
 
     auto fn = getTsObjectGetProperty();
     llvm::Value* result = builder_->CreateCall(fn, {obj, keyBoxed});
@@ -2701,8 +2706,8 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerGetPropDynamic(HIRInstruction* inst) {
-    llvm::Value* obj = getOperandValue(inst->operands[0]);
-    llvm::Value* key = getOperandValue(inst->operands[1]);
+    llvm::Value* obj = gcPtrToRaw(getOperandValue(inst->operands[0]));
+    llvm::Value* key = gcPtrToRaw(getOperandValue(inst->operands[1]));
 
     // Check if the source value is already a boxed TsValue* (Any type)
     // If so, we should NOT box it again to avoid double-boxing
@@ -2751,9 +2756,9 @@ void HIRToLLVM::lowerGetPropDynamic(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
-    llvm::Value* obj = getOperandValue(inst->operands[0]);
+    llvm::Value* obj = gcPtrToRaw(getOperandValue(inst->operands[0]));
     std::string propName = getOperandString(inst->operands[1]);
-    llvm::Value* val = getOperandValue(inst->operands[2]);
+    llvm::Value* val = gcPtrToRaw(getOperandValue(inst->operands[2]));
 
     // Box the object - ts_object_set_dynamic expects TsValue*, not raw TsMap*
     if (obj->getType()->isPointerTy()) {
@@ -2764,11 +2769,11 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
     // Create property key string
     llvm::Value* key = createGlobalString(propName);
     auto strFn = getTsStringCreate();
-    llvm::Value* keyStr = builder_->CreateCall(strFn, {key});
+    llvm::Value* keyStr = rawToGCPtr(builder_->CreateCall(strFn, {key}));
 
     // Box the key
     auto boxFn = getTsValueMakeString();
-    llvm::Value* keyBoxed = builder_->CreateCall(boxFn, {keyStr});
+    llvm::Value* keyBoxed = builder_->CreateCall(boxFn, {gcPtrToRaw(keyStr)});
 
     // Box the value based on HIR type information
     if (!val->getType()->isPointerTy()) {
@@ -2908,9 +2913,9 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerSetPropDynamic(HIRInstruction* inst) {
-    llvm::Value* obj = getOperandValue(inst->operands[0]);
-    llvm::Value* key = getOperandValue(inst->operands[1]);
-    llvm::Value* val = getOperandValue(inst->operands[2]);
+    llvm::Value* obj = gcPtrToRaw(getOperandValue(inst->operands[0]));
+    llvm::Value* key = gcPtrToRaw(getOperandValue(inst->operands[1]));
+    llvm::Value* val = gcPtrToRaw(getOperandValue(inst->operands[2]));
 
     // Box the object - ts_object_set_dynamic expects TsValue*, not raw TsMap*
     if (obj->getType()->isPointerTy()) {
@@ -3044,7 +3049,7 @@ void HIRToLLVM::lowerNewArrayBoxed(HIRInstruction* inst) {
     } else {
         // Heap allocation (original path)
         auto fn = getTsArrayCreate();
-        result = builder_->CreateCall(fn, {len});
+        result = rawToGCPtr(builder_->CreateCall(fn, {len}));  // Mark as GC-managed
     }
 
     setValue(inst->result, result);
@@ -3883,11 +3888,11 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
                     { builder_->getPtrTy(), builder_->getPtrTy() }, false);
                 auto boxFn = module_->getOrInsertFunction("ts_value_make_function", boxFt);
                 auto nullCtx = llvm::ConstantPointerNull::get(builder_->getPtrTy());
-                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg, nullCtx });
+                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { gcPtrToRaw(arg), nullCtx });
             } else if (isString) {
                 auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
                 auto boxFn = module_->getOrInsertFunction("ts_value_make_string", boxFt);
-                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg });
+                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { gcPtrToRaw(arg) });
             } else {
                 arg = convertArg(arg, spec.argConversions[i - 1]);
             }
@@ -3939,13 +3944,18 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
                 // ptr (boxed TsValue*) -> f64: unbox the double
                 auto unboxFt = llvm::FunctionType::get(builder_->getDoubleTy(), {builder_->getPtrTy()}, false);
                 auto unboxFn = module_->getOrInsertFunction("ts_value_get_double", unboxFt);
-                arg = builder_->CreateCall(unboxFt, unboxFn.getCallee(), {arg});
+                arg = builder_->CreateCall(unboxFt, unboxFn.getCallee(), {gcPtrToRaw(arg)});
             }
             else if (arg->getType()->isPointerTy() && expected->isIntegerTy(1)) {
                 // ptr (boxed TsValue*) -> bool: unbox the bool
                 auto unboxFt = llvm::FunctionType::get(builder_->getInt1Ty(), {builder_->getPtrTy()}, false);
                 auto unboxFn = module_->getOrInsertFunction("ts_value_get_bool", unboxFt);
-                arg = builder_->CreateCall(unboxFt, unboxFn.getCallee(), {arg});
+                arg = builder_->CreateCall(unboxFt, unboxFn.getCallee(), {gcPtrToRaw(arg)});
+            }
+            else if (arg->getType()->isPointerTy() && expected->isPointerTy() &&
+                     arg->getType()->getPointerAddressSpace() != expected->getPointerAddressSpace()) {
+                // GC pointer address space mismatch: addrspace(1) -> addrspace(0) or vice versa
+                arg = builder_->CreateAddrSpaceCast(arg, expected);
             }
         }
 
@@ -4006,6 +4016,8 @@ llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) 
                 return builder_->CreateCall(fn, { extended });
             } else if (argType->isPointerTy()) {
                 // Already a pointer, box as object
+                // Cast from GC address space if needed
+                arg = gcPtrToRaw(arg);
                 auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
                 auto fn = module_->getOrInsertFunction("ts_value_make_object", ft);
                 return builder_->CreateCall(ft, fn.getCallee(), { arg });
@@ -4014,6 +4026,7 @@ llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) 
         }
 
         case ::hir::ArgConversion::Unbox: {
+            arg = gcPtrToRaw(arg);  // Normalize GC pointer for runtime call
             auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
             auto fn = module_->getOrInsertFunction("ts_value_get_object", ft);
             return builder_->CreateCall(ft, fn.getCallee(), { arg });
@@ -4092,6 +4105,12 @@ llvm::Value* HIRToLLVM::coerceArgToType(llvm::Value* arg, llvm::Type* expectedTy
     }
 
     if (argType == expectedType) return arg;
+
+    // Handle GC pointer address space mismatch: addrspace(1) <-> addrspace(0)
+    if (argType->isPointerTy() && expectedType->isPointerTy() &&
+        argType->getPointerAddressSpace() != expectedType->getPointerAddressSpace()) {
+        return builder_->CreateAddrSpaceCast(arg, expectedType);
+    }
 
     // Need to convert: arg type doesn't match expected
     if (expectedType->isPointerTy()) {
@@ -4248,7 +4267,7 @@ llvm::Value* HIRToLLVM::lowerPackArrayCall(HIRInstruction* inst, const ::hir::Lo
     // Create a new array for the rest arguments
     auto createFt = llvm::FunctionType::get(builder_->getPtrTy(), {}, false);
     auto createFn = module_->getOrInsertFunction("ts_array_create", createFt);
-    llvm::Value* restArray = builder_->CreateCall(createFt, createFn.getCallee(), {});
+    llvm::Value* restArray = rawToGCPtr(builder_->CreateCall(createFt, createFn.getCallee(), {}));
 
     // Push each rest argument to the array
     auto pushFt = llvm::FunctionType::get(builder_->getInt64Ty(),
@@ -4263,7 +4282,7 @@ llvm::Value* HIRToLLVM::lowerPackArrayCall(HIRInstruction* inst, const ::hir::Lo
         arg = convertArg(arg, ::hir::ArgConversion::Box);
 
         // Push to array
-        builder_->CreateCall(pushFt, pushFn.getCallee(), { restArray, arg });
+        builder_->CreateCall(pushFt, pushFn.getCallee(), { gcPtrToRaw(restArray), arg });
     }
 
     // Now call the actual runtime function with the packed array
@@ -4280,7 +4299,7 @@ llvm::Value* HIRToLLVM::lowerPackArrayCall(HIRInstruction* inst, const ::hir::Lo
     }
 
     // Add the rest array
-    llvmArgs.push_back(restArray);
+    llvmArgs.push_back(gcPtrToRaw(restArray));
 
     // Build LLVM function type
     llvm::Type* retTy = spec.returnType
@@ -4624,6 +4643,7 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             if (!obj->getType()->isPointerTy()) {
                 objPtr = builder_->CreateIntToPtr(obj, builder_->getPtrTy());
             }
+            objPtr = gcPtrToRaw(objPtr);  // Strip addrspace(1) for runtime call
             auto boxObjFn = getTsValueMakeObject();
             thisArg = builder_->CreateCall(boxObjFn, { objPtr });
         }
@@ -5275,7 +5295,7 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     llvm::Value* funcPtrToUse = trampolineFunc ? (llvm::Value*)trampolineFunc : (llvm::Value*)fn;
 
     llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), numCaptures);
-    llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal });
+    llvm::Value* closure = rawToGCPtr(builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal }));
 
     // Look up the inner function's captures list to get variable names
     // This allows sharing TsCells between closures that capture the same variable
@@ -5333,7 +5353,7 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         if (canShareCell) {
             // Reuse the existing cell from a previously created closure in the same block
             llvm::Value* existingCell = capturedVarCells_[cellKey].first;
-            builder_->CreateCall(setCellFt, setCell.getCallee(), { closure, indexVal, existingCell });
+            builder_->CreateCall(setCellFt, setCell.getCallee(), { gcPtrToRaw(closure), indexVal, existingCell });
         } else {
             // Get the type of the captured value to box it properly
             // Use LLVM type as the primary source of truth
@@ -5355,18 +5375,18 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
                 boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
             } else if (valType->isPointerTy()) {
                 // For pointers/objects, box as object
-                boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
+                boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { gcPtrToRaw(capturedValue) });
             } else {
                 // Default: box as object (may fail for non-pointer types)
                 boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
             }
 
             // Initialize the capture: ts_closure_init_capture(closure, index, boxedValue)
-            builder_->CreateCall(initCaptureFt, initCapture.getCallee(), { closure, indexVal, boxedValue });
+            builder_->CreateCall(initCaptureFt, initCapture.getCallee(), { gcPtrToRaw(closure), indexVal, boxedValue });
 
             // Store the cell for sharing with subsequent closures in the same block
             if (!capVarName.empty()) {
-                llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { closure, indexVal });
+                llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { gcPtrToRaw(closure), indexVal });
                 capturedVarCells_[cellKey] = { cell, currentBB };
             }
         }
@@ -5584,7 +5604,7 @@ void HIRToLLVM::lowerStoreCapture(HIRInstruction* inst) {
         boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
     } else if (valType->isPointerTy()) {
         // For pointers/objects, box as object
-        boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
+        boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { gcPtrToRaw(valueToStore) });
     } else {
         // Default: box as object (may fail for non-pointer types)
         boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
@@ -5763,7 +5783,7 @@ void HIRToLLVM::lowerStoreCaptureFromClosure(HIRInstruction* inst) {
         boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
     } else if (valType->isPointerTy()) {
         // For pointers/objects, box as object
-        boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
+        boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { gcPtrToRaw(valueToStore) });
     } else {
         // Default: box as object (may fail for non-pointer types)
         boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { valueToStore });
@@ -5853,7 +5873,7 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
         builder_->CreateRet(llvm::UndefValue::get(currentFunction_->getReturnType()));
         return;
     }
-    llvm::Value* val = getOperandValue(inst->operands[0]);
+    llvm::Value* val = gcPtrToRaw(getOperandValue(inst->operands[0]));
     SPDLOG_INFO("      lowerReturn: val={}", val ? "non-null" : "null");
 
     // Handle null value (e.g., from null HIRValue shared_ptr)
@@ -5982,12 +6002,12 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
         // Resolve the promise with the value
         auto resolveFn = getOrDeclareRuntimeFunction("ts_promise_resolve_internal",
             builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
-        builder_->CreateCall(resolveFn, { asyncPromise_, boxedVal });
+        builder_->CreateCall(resolveFn, { gcPtrToRaw(asyncPromise_), boxedVal });
 
         // Return the promise (wrapped for boxing)
         auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
             builder_->getPtrTy(), { builder_->getPtrTy() });
-        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { asyncPromise_ }, "boxed_promise");
+        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { gcPtrToRaw(asyncPromise_) }, "boxed_promise");
         builder_->CreateRet(boxedPromise);
         return;
     }
@@ -6101,12 +6121,12 @@ void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
         // Resolve the promise with undefined
         auto resolveFn = getOrDeclareRuntimeFunction("ts_promise_resolve_internal",
             builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
-        builder_->CreateCall(resolveFn, { asyncPromise_, undefinedVal });
+        builder_->CreateCall(resolveFn, { gcPtrToRaw(asyncPromise_), undefinedVal });
 
         // Return the promise (wrapped for boxing)
         auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
             builder_->getPtrTy(), { builder_->getPtrTy() });
-        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { asyncPromise_ }, "boxed_promise");
+        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { gcPtrToRaw(asyncPromise_) }, "boxed_promise");
         builder_->CreateRet(boxedPromise);
         return;
     }
@@ -6259,12 +6279,12 @@ void HIRToLLVM::lowerThrow(HIRInstruction* inst) {
         // Reject the promise with the exception
         auto rejectFn = getOrDeclareRuntimeFunction("ts_promise_reject_internal",
             builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
-        builder_->CreateCall(rejectFn, { asyncPromise_, boxedException });
+        builder_->CreateCall(rejectFn, { gcPtrToRaw(asyncPromise_), boxedException });
 
         // Return the promise (same pattern as lowerReturn for async)
         auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
             builder_->getPtrTy(), { builder_->getPtrTy() });
-        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { asyncPromise_ }, "rejected_promise");
+        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { gcPtrToRaw(asyncPromise_) }, "rejected_promise");
         builder_->CreateRet(boxedPromise);
         return;
     }
@@ -6359,12 +6379,12 @@ void HIRToLLVM::lowerAsyncReturn(HIRInstruction* inst) {
     // Call ts_promise_resolve_internal(promise, value)
     auto resolveFn = getOrDeclareRuntimeFunction("ts_promise_resolve_internal",
         builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
-    builder_->CreateCall(resolveFn, { asyncPromise_, val });
+    builder_->CreateCall(resolveFn, { gcPtrToRaw(asyncPromise_), val });
 
     // Return the promise (wrapped in ts_value_make_promise for boxing)
     auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
         builder_->getPtrTy(), { builder_->getPtrTy() });
-    llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { asyncPromise_ }, "boxed_promise");
+    llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { gcPtrToRaw(asyncPromise_) }, "boxed_promise");
 
     builder_->CreateRet(boxedPromise);
 }
@@ -6758,12 +6778,14 @@ llvm::Value* HIRToLLVM::boxArgumentForDynamicCall(llvm::Value* arg, const HIROpe
         }
     } else {
         // Pointer type - check HIR type to determine boxing
+        // Strip addrspace(1) for runtime calls
+        llvm::Value* rawArg = gcPtrToRaw(arg);
         if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
             auto hirType = (*hirVal)->type;
             if (hirType) {
                 if (hirType->kind == HIRTypeKind::String) {
                     auto boxFn = getTsValueMakeString();
-                    return builder_->CreateCall(boxFn, {arg});
+                    return builder_->CreateCall(boxFn, {rawArg});
                 } else if (hirType->kind == HIRTypeKind::Object ||
                            hirType->kind == HIRTypeKind::Array ||
                            hirType->kind == HIRTypeKind::Class ||
@@ -6772,7 +6794,7 @@ llvm::Value* HIRToLLVM::boxArgumentForDynamicCall(llvm::Value* arg, const HIROpe
                            hirType->kind == HIRTypeKind::Ptr) {
                     // Box objects/functions/raw pointers with ts_value_make_object
                     auto boxFn = getTsValueMakeObject();
-                    return builder_->CreateCall(boxFn, {arg});
+                    return builder_->CreateCall(boxFn, {rawArg});
                 }
                 // For Any type, it might already be boxed - pass as-is
             }

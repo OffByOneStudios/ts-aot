@@ -1,4 +1,5 @@
 #include "GC.h"
+#include "StackMap.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -150,6 +151,9 @@ void ts_gc_init() {
     // so GC can scan them for pointers but won't free the block itself
     
     GC_set_max_heap_size(2ULL * 1024 * 1024 * 1024);  // 2GB max
+
+    // Parse LLVM stack maps if present (from --gc-statepoints builds)
+    ts_stackmap_init();
 }
 
 void ts_gc_collect() {
