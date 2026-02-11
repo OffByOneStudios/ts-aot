@@ -1,5 +1,6 @@
 #include "TsWeakRef.h"
 #include "GC.h"
+#include "TsGC.h"
 #include "TsRuntime.h"
 #include <cstring>
 #include <new>
@@ -7,9 +8,8 @@
 // ============================================================================
 // TsWeakRef Implementation
 // ============================================================================
-// With Boehm GC, true weak references are not possible.
-// WeakRef holds a strong reference. deref() always returns the target
-// unless the WeakRef was never properly initialized.
+// With custom GC, WeakRef has true weak semantics.
+// The GC clears ref->target to nullptr when the target is collected.
 
 TsWeakRef::TsWeakRef() : target(nullptr) {
     TsObject::magic = MAGIC;
@@ -19,16 +19,17 @@ TsWeakRef* TsWeakRef::Create(void* target) {
     void* mem = ts_alloc(sizeof(TsWeakRef));
     TsWeakRef* ref = new (mem) TsWeakRef();
     ref->target = target;
+    // Register the target field as a weak reference with the GC.
+    // During collection, if target is unmarked, GC will set ref->target = nullptr.
+    ts_gc_register_weak_ref(&ref->target);
     return ref;
 }
 
 // ============================================================================
 // TsFinalizationRegistry Implementation
 // ============================================================================
-// Best-effort implementation. Since Boehm GC may not reliably call finalizers,
-// the cleanup callback may not always fire. This allows code that uses
-// FinalizationRegistry to compile and run, with callbacks firing on a
-// best-effort basis.
+// With custom GC, finalizers are invoked when targets are collected.
+// Cleanup callbacks are scheduled via process.nextTick (not called during GC).
 
 TsFinalizationRegistry::TsFinalizationRegistry() : cleanupCallback(nullptr) {
     TsObject::magic = MAGIC;
@@ -66,21 +67,21 @@ void* ts_finalization_registry_create(void* cleanupCallback) {
 }
 
 void ts_finalization_registry_register(void* registry, void* target, void* heldValue, void* unregisterToken) {
-    // Best-effort: register with Boehm GC finalizer
-    // For now, this is a no-op since Boehm GC finalizers are unreliable
-    // and calling back into JS from a GC finalizer is unsafe.
-    // The API exists so code that uses FinalizationRegistry compiles.
-    (void)registry;
-    (void)target;
-    (void)heldValue;
-    (void)unregisterToken;
+    if (!registry || !target) return;
+    TsFinalizationRegistry* reg = (TsFinalizationRegistry*)registry;
+
+    // Unbox target if needed
+    void* rawTarget = ts_value_get_object((TsValue*)target);
+    if (!rawTarget) rawTarget = target;
+
+    // Register with the GC: when rawTarget is collected, schedule
+    // reg->cleanupCallback(heldValue) via process.nextTick
+    ts_gc_register_finalizer(rawTarget, reg->cleanupCallback, heldValue, unregisterToken);
 }
 
 bool ts_finalization_registry_unregister(void* registry, void* unregisterToken) {
-    // Best-effort: always returns false (nothing to unregister in no-op impl)
-    (void)registry;
-    (void)unregisterToken;
-    return false;
+    if (!registry || !unregisterToken) return false;
+    return ts_gc_unregister_finalizer(unregisterToken);
 }
 
 } // extern "C"

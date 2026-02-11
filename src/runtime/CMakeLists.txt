@@ -1,6 +1,5 @@
 find_package(Python3 REQUIRED)
 find_package(libuv CONFIG REQUIRED)
-find_package(BDWgc CONFIG REQUIRED)
 find_package(ICU COMPONENTS uc i18n data REQUIRED)
 find_package(unofficial-sodium CONFIG REQUIRED)
 
@@ -79,6 +78,7 @@ add_library(tsruntime STATIC
     src/TsTestExtension.cpp
     src/StackMap.cpp
     src/GCRoots.cpp
+    src/TsGC.cpp
 )
 
 # ICU data stub library - provides minimal icudt74_dat symbol for external data mode.
@@ -90,7 +90,6 @@ target_include_directories(tsruntime PUBLIC include)
 
 target_link_libraries(tsruntime PUBLIC
     $<IF:$<TARGET_EXISTS:libuv::uv_a>,libuv::uv_a,libuv::uv>
-    BDWgc::gc
     ICU::uc
     ICU::i18n
     unofficial-sodium::sodium
@@ -110,15 +109,11 @@ else()
     target_compile_definitions(tsruntime PUBLIC TS_ICU_NONE)
 endif()
 
-# GC_NOT_DLL: Use static Boehm GC library (prevents dllimport when /MD is used)
-# This is needed because with dynamic CRT (/MD), _DLL is defined which would
-# auto-enable GC_DLL in gc_config_macros.h, causing dllimport mismatch
-target_compile_definitions(tsruntime PUBLIC TS_RUNTIME_EXPORT GC_NOT_DLL)
+target_compile_definitions(tsruntime PUBLIC TS_RUNTIME_EXPORT)
 
 if (TS_FAT_RUNTIME AND MSVC)
     # List of dependencies to merge
     set(FAT_DEPS
-        BDWgc::gc
         ICU::uc
         ICU::i18n
         ICU::data

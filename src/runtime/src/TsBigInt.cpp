@@ -1,17 +1,18 @@
 #include "TsBigInt.h"
 #include "TsRuntime.h"
 #include "TsString.h"
-#include <gc/gc.h>
+#include "TsGC.h"
+#include "GC.h"
 #include <cstring>
 
 static bool tommath_initialized = false;
 
 static void* mp_alloc(size_t size) {
-    return GC_malloc(size);
+    return ts_alloc(size);
 }
 
 static void* mp_realloc(void* ptr, size_t old_size, size_t new_size) {
-    return GC_realloc(ptr, new_size);
+    return ts_gc_realloc(ptr, old_size, new_size);
 }
 
 static void mp_free(void* ptr, size_t size) {
@@ -56,7 +57,7 @@ TsBigInt* TsBigInt::Create(const char* str, int radix) {
 const char* TsBigInt::ToString(int radix) const {
     int size;
     mp_radix_size(&value, radix, &size);
-    char* str = (char*)GC_malloc_atomic(size);
+    char* str = (char*)ts_alloc(size);
     mp_to_radix(&value, str, size, NULL, radix);
     return str;
 }

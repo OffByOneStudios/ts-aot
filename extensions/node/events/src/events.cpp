@@ -7,7 +7,7 @@
 #include "TsMap.h"
 #include "TsPromise.h"
 #include "TsRuntime.h"
-#include <gc/gc.h>
+
 #include <new>
 
 using namespace ts;

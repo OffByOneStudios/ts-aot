@@ -5,7 +5,7 @@
 #include "TsMap.h"
 #include "TsRuntime.h"
 #include "GC.h"
-#include <gc/gc.h>
+#include "TsGC.h"
 #include "md5.h"
 
 #include <openssl/evp.h>
@@ -764,7 +764,7 @@ void ts_crypto_scrypt(void* password, void* salt, int64_t keylen,
     // Detect when options_or_callback is actually the callback (4-arg form)
     if (options_or_callback && !callback) {
         bool isString = false;
-        void* base = GC_base(options_or_callback);
+        void* base = ts_gc_base(options_or_callback);
         if (base) {
             uint32_t magic = *(uint32_t*)options_or_callback;
             isString = (magic == 0x53545247); // TsString::MAGIC

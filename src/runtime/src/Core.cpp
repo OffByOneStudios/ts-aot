@@ -5,6 +5,7 @@
 #include "TsObject.h"
 #include "TsWriteStream.h"
 #include "TsReadStream.h"
+#include "TsGC.h"
 // TsCluster.h removed - cluster init is now done via ts_node_init_hook
 #include <cstdio>
 #include <setjmp.h>
@@ -1361,6 +1362,25 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
 
     // 1. Initialize Garbage Collector
     ts_gc_init();
+
+    // 1.1 Register global roots with custom GC
+    ts_gc_register_root((void**)&currentException);
+    ts_gc_register_root((void**)&process_argv);
+    ts_gc_register_root((void**)&process_env);
+    ts_gc_register_root((void**)&uncaught_exception_capture_callback);
+    ts_gc_register_root((void**)&process_stdout);
+    ts_gc_register_root((void**)&process_stderr);
+    ts_gc_register_root((void**)&process_stdin);
+
+    // Register scanner for dynamic handler vectors
+    ts_gc_register_scanner([](void*) {
+        for (auto* v : exit_handlers) ts_gc_mark_object(v);
+        for (auto* v : before_exit_handlers) ts_gc_mark_object(v);
+        for (auto* v : uncaught_exception_handlers) ts_gc_mark_object(v);
+        for (auto* v : warning_handlers) ts_gc_mark_object(v);
+        for (auto* v : message_handlers) ts_gc_mark_object(v);
+        for (auto* v : disconnect_handlers) ts_gc_mark_object(v);
+    }, nullptr);
 
     // 1.2 Initialize ICU data (loads external .dat file if not embedded)
     ts_icu_init(argc > 0 ? argv[0] : nullptr);
