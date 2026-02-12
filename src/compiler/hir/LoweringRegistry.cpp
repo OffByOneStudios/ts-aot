@@ -712,6 +712,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .i64Arg(ArgConversion::ToI64)  // start - convert from double
             .i64Arg(ArgConversion::ToI64)  // deleteCount - convert from double
             .ptrArg()      // items array
+            .i64Arg(ArgConversion::ToI64)  // itemCount
             .build());
 
     reg.registerLowering("ts_array_with",

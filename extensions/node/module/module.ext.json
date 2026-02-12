@@ -87,7 +87,9 @@
       },
       "properties": {
         "builtinModules": {
-          "type": "string[]"
+          "type": "string[]",
+          "getter": "ts_module_get_builtin_modules",
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "SourceMap": {
           "type": "SourceMap"

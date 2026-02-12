@@ -3973,7 +3973,8 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
     // It may be a boxed TsValue* (e.g. from array element access like argv[i]).
     // ts_value_get_string safely handles both raw TsString* and boxed TsValue*,
     // so we always unbox the receiver for string methods.
-    bool isStringMethod = spec.runtimeFuncName.find("ts_string_") == 0;
+    bool isStringMethod = spec.runtimeFuncName.find("ts_string_") == 0
+        && spec.runtimeFuncName.find("ts_string_decoder_") != 0;
 
     // Convert arguments
     std::vector<llvm::Value*> llvmArgs;

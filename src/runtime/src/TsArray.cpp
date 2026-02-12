@@ -882,6 +882,12 @@ TsArray* TsArray::ToSpliced(int64_t start, int64_t deleteCount, void* items, int
     if (deleteCount < 0) deleteCount = 0;
     if (start + deleteCount > (int64_t)length) deleteCount = length - start;
 
+    // Guard: items must be a valid heap pointer (not a raw integer from incorrect codegen)
+    if (items && (uint64_t)(uintptr_t)items < 0x10000) {
+        items = nullptr;
+        itemCount = 0;
+    }
+
     // Calculate new length
     size_t newLength = length - deleteCount + itemCount;
 
@@ -1531,6 +1537,7 @@ extern "C" {
         // Use ts_value_get_object to decode
         void* raw = ts_value_get_object((TsValue*)arr);
         if (raw) arr = raw;
+        else if ((uint64_t)(uintptr_t)arr < 0x10000) return 0;  // NaN-boxed special (undefined=0x0A, null=0x02, etc.)
 
         // Check magic to handle TsRegExpMatchArray
         uint32_t magic = *(uint32_t*)arr;

@@ -403,8 +403,10 @@ TsBuffer* TsBuffer::Concat(void* list, int64_t totalLength) {
     size_t calcLen = 0;
     if (totalLength < 0) {
         for (size_t i = 0; i < count; i++) {
-            TsBuffer* buf = (TsBuffer*)ts_value_get_object((TsValue*)arr->Get(i));
-            if (!buf) buf = (TsBuffer*)(void*)arr->Get(i);
+            int64_t elem = arr->Get(i);
+            void* elemPtr = (void*)(uintptr_t)elem;
+            TsBuffer* buf = (TsBuffer*)ts_value_get_object((TsValue*)elemPtr);
+            if (!buf && (uint64_t)(uintptr_t)elemPtr >= 0x10000) buf = (TsBuffer*)elemPtr;
             if (buf && buf->magic == MAGIC) {
                 calcLen += buf->length;
             }
@@ -412,13 +414,15 @@ TsBuffer* TsBuffer::Concat(void* list, int64_t totalLength) {
     } else {
         calcLen = (size_t)totalLength;
     }
-    
+
     TsBuffer* result = Create(calcLen);
     size_t offset = 0;
-    
+
     for (size_t i = 0; i < count && offset < calcLen; i++) {
-        TsBuffer* buf = (TsBuffer*)ts_value_get_object((TsValue*)arr->Get(i));
-        if (!buf) buf = (TsBuffer*)(void*)arr->Get(i);
+        int64_t elem = arr->Get(i);
+        void* elemPtr = (void*)(uintptr_t)elem;
+        TsBuffer* buf = (TsBuffer*)ts_value_get_object((TsValue*)elemPtr);
+        if (!buf && (uint64_t)(uintptr_t)elemPtr >= 0x10000) buf = (TsBuffer*)elemPtr;
         if (buf && buf->magic == MAGIC) {
             size_t toCopy = buf->length;
             if (offset + toCopy > calcLen) {
@@ -922,17 +926,17 @@ extern "C" {
     }
 
     int64_t ts_buffer_length(void* buf) {
-        if (!buf) return 0;
+        if (!buf || (uint64_t)(uintptr_t)buf < 0x10000) return 0;
         return (int64_t)((TsBuffer*)buf)->GetLength();
     }
 
     int64_t ts_buffer_byte_length(void* buf) {
-        if (!buf) return 0;
+        if (!buf || (uint64_t)(uintptr_t)buf < 0x10000) return 0;
         return (int64_t)((TsBuffer*)buf)->GetByteLength();
     }
 
     int64_t ts_buffer_byte_offset(void* buf) {
-        if (!buf) return 0;
+        if (!buf || (uint64_t)(uintptr_t)buf < 0x10000) return 0;
         return (int64_t)((TsBuffer*)buf)->GetByteOffset();
     }
 

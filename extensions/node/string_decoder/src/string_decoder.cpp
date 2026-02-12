@@ -28,6 +28,7 @@ void* ts_string_decoder_create(void* encoding) {
 void* ts_string_decoder_write(void* decoderArg, void* bufferArg) {
     void* rawDecoder = ts_value_get_object((TsValue*)decoderArg);
     if (!rawDecoder) rawDecoder = decoderArg;
+    if ((uint64_t)(uintptr_t)rawDecoder < 0x10000) return ts_value_make_string(TsString::Create(""));
 
     TsStringDecoder* decoder = dynamic_cast<TsStringDecoder*>((TsObject*)rawDecoder);
     if (!decoder) {
@@ -38,7 +39,8 @@ void* ts_string_decoder_write(void* decoderArg, void* bufferArg) {
     if (bufferArg) {
         void* rawBuffer = ts_value_get_object((TsValue*)bufferArg);
         if (!rawBuffer) rawBuffer = bufferArg;
-        buffer = dynamic_cast<TsBuffer*>((TsObject*)rawBuffer);
+        if ((uint64_t)(uintptr_t)rawBuffer >= 0x10000)
+            buffer = dynamic_cast<TsBuffer*>((TsObject*)rawBuffer);
     }
 
     TsString* result = decoder->Write(buffer);
@@ -48,6 +50,7 @@ void* ts_string_decoder_write(void* decoderArg, void* bufferArg) {
 void* ts_string_decoder_end(void* decoderArg, void* bufferArg) {
     void* rawDecoder = ts_value_get_object((TsValue*)decoderArg);
     if (!rawDecoder) rawDecoder = decoderArg;
+    if ((uint64_t)(uintptr_t)rawDecoder < 0x10000) return ts_value_make_string(TsString::Create(""));
 
     TsStringDecoder* decoder = dynamic_cast<TsStringDecoder*>((TsObject*)rawDecoder);
     if (!decoder) {
@@ -58,7 +61,8 @@ void* ts_string_decoder_end(void* decoderArg, void* bufferArg) {
     if (bufferArg) {
         void* rawBuffer = ts_value_get_object((TsValue*)bufferArg);
         if (!rawBuffer) rawBuffer = bufferArg;
-        buffer = dynamic_cast<TsBuffer*>((TsObject*)rawBuffer);
+        if ((uint64_t)(uintptr_t)rawBuffer >= 0x10000)
+            buffer = dynamic_cast<TsBuffer*>((TsObject*)rawBuffer);
     }
 
     TsString* result = decoder->End(buffer);
@@ -68,6 +72,7 @@ void* ts_string_decoder_end(void* decoderArg, void* bufferArg) {
 void* ts_string_decoder_get_encoding(void* decoderArg) {
     void* rawDecoder = ts_value_get_object((TsValue*)decoderArg);
     if (!rawDecoder) rawDecoder = decoderArg;
+    if ((uint64_t)(uintptr_t)rawDecoder < 0x10000) return ts_value_make_string(TsString::Create("utf8"));
 
     TsStringDecoder* decoder = dynamic_cast<TsStringDecoder*>((TsObject*)rawDecoder);
     if (!decoder) {
