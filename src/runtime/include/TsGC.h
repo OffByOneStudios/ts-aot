@@ -46,4 +46,19 @@ size_t ts_gc_heap_size();       // Total allocated bytes
 size_t ts_gc_live_size();       // Bytes surviving last collection
 size_t ts_gc_collection_count();
 
+// Nursery support
+bool ts_gc_is_nursery(void* ptr);     // Check if pointer is in nursery
+void ts_gc_minor_collect();            // Trigger minor (nursery) collection
+void ts_gc_write_barrier(void* slot_addr, void* stored_value);  // Card-marking barrier
+
+// Allocate directly in old-gen, bypassing nursery.
+// Use for STL container allocators whose internal pointer updates bypass write barriers.
+void* ts_gc_alloc_old_gen(size_t size);
+
+// Exported globals for compiler inline write barriers
+extern uint64_t ts_gc_nursery_base;
+extern uint64_t ts_gc_nursery_end;
+extern uint8_t* ts_gc_card_table_ptr;
+extern uint64_t ts_gc_card_table_base_addr;
+
 }

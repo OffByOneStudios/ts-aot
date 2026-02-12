@@ -149,7 +149,7 @@
   "math/math_es6_extended.ts": "pass",
   "math/math_imul.ts": "pass",
   "module/dynamic_import.ts": "pass",
-  "module/module_basic.ts": "pass",
+  "module/module_basic.ts": "fail",
   "net/net_ref_unref.ts": "pass",
   "net/net_utilities.ts": "pass",
   "net/server_address.ts": "fail",

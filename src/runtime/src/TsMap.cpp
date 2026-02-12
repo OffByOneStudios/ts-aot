@@ -6,6 +6,7 @@
 #include "TsBigInt.h"
 #include "TsSymbol.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <unordered_map>
 #include <string>
 #include <cstring>
@@ -15,7 +16,9 @@
 #include <cmath>
 #include <utility>
 
-// Allocator
+// Allocator - uses old-gen directly to avoid nursery.
+// STL containers manage internal bucket/node pointers without write barriers,
+// so their allocations must bypass the nursery to prevent stale pointer issues.
 template <class T>
 struct TsAllocator {
     typedef T value_type;
@@ -23,7 +26,7 @@ struct TsAllocator {
     template <class U> constexpr TsAllocator(const TsAllocator<U>&) noexcept {}
     T* allocate(std::size_t n) {
         if (n > std::size_t(-1) / sizeof(T)) throw std::bad_alloc();
-        if (auto p = static_cast<T*>(ts_alloc(n * sizeof(T)))) return p;
+        if (auto p = static_cast<T*>(ts_gc_alloc_old_gen(n * sizeof(T)))) return p;
         throw std::bad_alloc();
     }
     void deallocate(T* p, std::size_t) noexcept { }
@@ -126,7 +129,10 @@ void TsMap::InitInPlace(void* mem) {
 
 TsMap::TsMap() {
     TsObject::magic = MAGIC;  // Set base class magic for type detection
-    void* mem = ts_alloc(sizeof(MapType));
+    // Allocate in old-gen: STL unordered_map has internal self-referential
+    // pointers (sentinel node) that would break if the object were promoted
+    // from nursery (memcpy doesn't preserve self-references correctly).
+    void* mem = ts_gc_alloc_old_gen(sizeof(MapType));
     impl = new(mem) MapType();
 }
 
@@ -140,6 +146,9 @@ void TsMap::Set(TsValue key, TsValue value) {
         auto it = map->find(key);
         if (it != map->end()) {
             it->second = value;  // Modify existing
+            // Write barriers: key/value may contain pointers to nursery objects
+            if (value.ptr_val)
+                ts_gc_write_barrier(&it->second.ptr_val, value.ptr_val);
         }
         return;  // Silently ignore adding new properties
     }
@@ -150,11 +159,26 @@ void TsMap::Set(TsValue key, TsValue value) {
         auto it = map->find(key);
         if (it != map->end()) {
             it->second = value;  // Modify existing OK
+            // Write barriers: key/value may contain pointers to nursery objects
+            if (value.ptr_val)
+                ts_gc_write_barrier(&it->second.ptr_val, value.ptr_val);
         }
         return;  // Silently ignore adding new properties
     }
 
     ((MapType*)impl)->insert_or_assign(key, value);
+    // Write barriers: key and value may contain pointers to nursery objects.
+    // Node memory is in old-gen (TsAllocator uses ts_gc_alloc_old_gen),
+    // so the card table covers these slot addresses.
+    {
+        auto it = ((MapType*)impl)->find(key);
+        if (it != ((MapType*)impl)->end()) {
+            if (key.ptr_val)
+                ts_gc_write_barrier((void*)&it->first.ptr_val, key.ptr_val);
+            if (value.ptr_val)
+                ts_gc_write_barrier(&it->second.ptr_val, value.ptr_val);
+        }
+    }
 }
 
 TsValue TsMap::Get(TsValue key) {

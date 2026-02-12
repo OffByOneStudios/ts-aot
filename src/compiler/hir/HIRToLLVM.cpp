@@ -2492,11 +2492,39 @@ void HIRToLLVM::lowerGCAllocArray(HIRInstruction* inst) {
     setValue(inst->result, result);
 }
 
+llvm::GlobalVariable* HIRToLLVM::getOrDeclareGCGlobal(const std::string& name, llvm::Type* type) {
+    llvm::GlobalVariable* gv = module_->getGlobalVariable(name);
+    if (gv) return gv;
+    gv = new llvm::GlobalVariable(
+        *module_, type, false,
+        llvm::GlobalValue::ExternalLinkage,
+        nullptr,  // No initializer -> external symbol from tsruntime.lib
+        name
+    );
+    return gv;
+}
+
+void HIRToLLVM::emitWriteBarrier(llvm::Value* slotAddr, llvm::Value* storedValue) {
+    // Only emit barrier for pointer-typed values (only pointers can reference nursery)
+    if (!storedValue->getType()->isPointerTy()) return;
+
+    // Instead of emitting inline card marking (which needs bounds checks and is
+    // error-prone), call the runtime ts_gc_write_barrier function which already
+    // handles all edge cases (null checks, nursery range check, card bounds check).
+    llvm::FunctionType* barrierFT = llvm::FunctionType::get(
+        builder_->getVoidTy(),
+        { builder_->getPtrTy(), builder_->getPtrTy() },
+        false
+    );
+    llvm::FunctionCallee barrierFn = module_->getOrInsertFunction("ts_gc_write_barrier", barrierFT);
+    builder_->CreateCall(barrierFT, barrierFn.getCallee(), { slotAddr, storedValue });
+}
+
 void HIRToLLVM::lowerGCStore(HIRInstruction* inst) {
-    // With Boehm GC, no write barrier needed - just a plain store
     llvm::Value* ptr = getOperandValue(inst->operands[0]);
     llvm::Value* val = getOperandValue(inst->operands[1]);
     builder_->CreateStore(val, ptr);
+    emitWriteBarrier(ptr, val);
 }
 
 void HIRToLLVM::lowerGCLoad(HIRInstruction* inst) {
@@ -2649,6 +2677,13 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
     }
 
     builder_->CreateStore(val, ptr);
+
+    // Emit write barrier for pointer stores to non-stack destinations.
+    // Stack allocas (local vars) don't need barriers since the stack is
+    // scanned conservatively during GC. Only heap object fields need barriers.
+    if (val->getType()->isPointerTy() && !llvm::isa<llvm::AllocaInst>(ptr)) {
+        emitWriteBarrier(ptr, val);
+    }
 }
 
 void HIRToLLVM::lowerGetElementPtr(HIRInstruction* inst) {
@@ -3505,6 +3540,19 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_nullish", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_array_is_array - returns bool (i1), not ptr
+    if (funcName == "ts_array_is_array") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_is_array", ft);
         llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
         if (inst->result) {
             setValue(inst->result, result);

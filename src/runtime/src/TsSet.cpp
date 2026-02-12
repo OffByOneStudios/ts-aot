@@ -6,6 +6,7 @@
 #include "TsBigInt.h"
 #include "TsSymbol.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <unordered_set>
 #include <string>
 #include <cstring>
@@ -14,7 +15,9 @@
 #include <iostream>
 #include <cmath>
 
-// Allocator
+// Allocator - uses old-gen directly to avoid nursery.
+// STL containers manage internal bucket/node pointers without write barriers,
+// so their allocations must bypass the nursery to prevent stale pointer issues.
 template <class T>
 struct TsAllocator {
     typedef T value_type;
@@ -22,7 +25,7 @@ struct TsAllocator {
     template <class U> constexpr TsAllocator(const TsAllocator<U>&) noexcept {}
     T* allocate(std::size_t n) {
         if (n > std::size_t(-1) / sizeof(T)) throw std::bad_alloc();
-        if (auto p = static_cast<T*>(ts_alloc(n * sizeof(T)))) return p;
+        if (auto p = static_cast<T*>(ts_gc_alloc_old_gen(n * sizeof(T)))) return p;
         throw std::bad_alloc();
     }
     void deallocate(T* p, std::size_t) noexcept { }
@@ -100,12 +103,20 @@ TsSet* TsSet::Create() {
 
 TsSet::TsSet() {
     TsObject::magic = MAGIC;  // Set base class magic for type detection
-    void* mem = ts_alloc(sizeof(SetType));
+    // Allocate in old-gen: STL unordered_set has internal self-referential
+    // pointers (sentinel node) that would break during nursery promotion.
+    void* mem = ts_gc_alloc_old_gen(sizeof(SetType));
     impl = new(mem) SetType();
 }
 
 void TsSet::Add(TsValue value) {
-    ((SetType*)impl)->insert(value);
+    auto result = ((SetType*)impl)->insert(value);
+    // Write barrier: value may contain a pointer to a nursery object.
+    // Node memory is in old-gen (TsAllocator uses ts_gc_alloc_old_gen),
+    // so the card table covers the slot address.
+    if (result.second && value.ptr_val) {
+        ts_gc_write_barrier((void*)&(result.first->ptr_val), value.ptr_val);
+    }
 }
 
 bool TsSet::Has(TsValue value) {
