@@ -4,6 +4,7 @@
 #include "TsAsyncHooksExt.h"
 #include "TsAsyncHooks.h"
 #include "TsRuntime.h"
+#include "TsNanBox.h"
 #include "TsMap.h"
 #include "TsArray.h"
 #include "GC.h"
@@ -114,9 +115,9 @@ void* ts_async_resource_create(void* type, int64_t triggerAsyncId) {
         typeStr = dynamic_cast<TsString*>((TsObject*)rawPtr);
     }
     if (!typeStr) {
-        TsValue* typeVal = (TsValue*)type;
-        if (typeVal && typeVal->type == ValueType::STRING_PTR) {
-            typeStr = (TsString*)typeVal->ptr_val;
+        TsValue typeDec = nanbox_to_tagged((TsValue*)type);
+        if (typeDec.type == ValueType::STRING_PTR) {
+            typeStr = (TsString*)typeDec.ptr_val;
         }
     }
     if (!typeStr) {

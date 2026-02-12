@@ -2,6 +2,7 @@
 #include "TsRuntime.h"
 #include "TsMap.h"
 #include "TsArray.h"
+#include "TsNanBox.h"
 #include "GC.h"
 #include "TsGC.h"
 #include <cstring>
@@ -166,7 +167,7 @@ TsValue* TsAsyncResource::runInAsyncScope(TsValue* fn, TsValue* thisArg, int arg
 
     // Run function
     TsValue* result;
-    if (thisArg && thisArg->type != ValueType::UNDEFINED) {
+    if (thisArg && !ts_value_is_undefined(thisArg)) {
         result = ts_function_call_with_this(fn, thisArg, argc, args);
     } else {
         result = ts_function_call(fn, argc, args);
@@ -229,52 +230,35 @@ TsAsyncHook* TsAsyncHook::Create(TsValue* callbacks) {
     TsAsyncHook* hook = new (mem) TsAsyncHook();
 
     // Extract callbacks from object
-    if (callbacks && callbacks->type == ValueType::OBJECT_PTR) {
-        TsMap* cbObj = dynamic_cast<TsMap*>((TsObject*)callbacks->ptr_val);
-        if (cbObj) {
-            TsValue initKey;
-            initKey.type = ValueType::STRING_PTR;
-            initKey.ptr_val = TsString::Create("init");
-            TsValue initVal = cbObj->Get(initKey);
-            if (initVal.type == ValueType::FUNCTION_PTR) {
-                hook->initCallback = (TsValue*)ts_alloc(sizeof(TsValue));
-                *hook->initCallback = initVal;
-            }
+    if (callbacks) {
+        TsValue cbDecoded = nanbox_to_tagged(callbacks);
+        if (cbDecoded.type == ValueType::OBJECT_PTR && cbDecoded.ptr_val) {
+            TsMap* cbObj = dynamic_cast<TsMap*>((TsObject*)cbDecoded.ptr_val);
+            if (cbObj) {
+                TsValue initVal = cbObj->Get(TsString::Create("init"));
+                if (initVal.type == ValueType::FUNCTION_PTR) {
+                    hook->initCallback = nanbox_from_tagged(initVal);
+                }
 
-            TsValue beforeKey;
-            beforeKey.type = ValueType::STRING_PTR;
-            beforeKey.ptr_val = TsString::Create("before");
-            TsValue beforeVal = cbObj->Get(beforeKey);
-            if (beforeVal.type == ValueType::FUNCTION_PTR) {
-                hook->beforeCallback = (TsValue*)ts_alloc(sizeof(TsValue));
-                *hook->beforeCallback = beforeVal;
-            }
+                TsValue beforeVal = cbObj->Get(TsString::Create("before"));
+                if (beforeVal.type == ValueType::FUNCTION_PTR) {
+                    hook->beforeCallback = nanbox_from_tagged(beforeVal);
+                }
 
-            TsValue afterKey;
-            afterKey.type = ValueType::STRING_PTR;
-            afterKey.ptr_val = TsString::Create("after");
-            TsValue afterVal = cbObj->Get(afterKey);
-            if (afterVal.type == ValueType::FUNCTION_PTR) {
-                hook->afterCallback = (TsValue*)ts_alloc(sizeof(TsValue));
-                *hook->afterCallback = afterVal;
-            }
+                TsValue afterVal = cbObj->Get(TsString::Create("after"));
+                if (afterVal.type == ValueType::FUNCTION_PTR) {
+                    hook->afterCallback = nanbox_from_tagged(afterVal);
+                }
 
-            TsValue destroyKey;
-            destroyKey.type = ValueType::STRING_PTR;
-            destroyKey.ptr_val = TsString::Create("destroy");
-            TsValue destroyVal = cbObj->Get(destroyKey);
-            if (destroyVal.type == ValueType::FUNCTION_PTR) {
-                hook->destroyCallback = (TsValue*)ts_alloc(sizeof(TsValue));
-                *hook->destroyCallback = destroyVal;
-            }
+                TsValue destroyVal = cbObj->Get(TsString::Create("destroy"));
+                if (destroyVal.type == ValueType::FUNCTION_PTR) {
+                    hook->destroyCallback = nanbox_from_tagged(destroyVal);
+                }
 
-            TsValue promiseResolveKey;
-            promiseResolveKey.type = ValueType::STRING_PTR;
-            promiseResolveKey.ptr_val = TsString::Create("promiseResolve");
-            TsValue promiseResolveVal = cbObj->Get(promiseResolveKey);
-            if (promiseResolveVal.type == ValueType::FUNCTION_PTR) {
-                hook->promiseResolveCallback = (TsValue*)ts_alloc(sizeof(TsValue));
-                *hook->promiseResolveCallback = promiseResolveVal;
+                TsValue promiseResolveVal = cbObj->Get(TsString::Create("promiseResolve"));
+                if (promiseResolveVal.type == ValueType::FUNCTION_PTR) {
+                    hook->promiseResolveCallback = nanbox_from_tagged(promiseResolveVal);
+                }
             }
         }
     }

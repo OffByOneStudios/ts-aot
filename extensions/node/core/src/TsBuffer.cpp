@@ -1,4 +1,5 @@
 #include "TsBuffer.h"
+#include "TsNanBox.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include "TsArray.h"
@@ -825,8 +826,8 @@ void* TsBuffer::Entries() {
     TsArray* result = TsArray::Create();
     for (size_t i = 0; i < length; i++) {
         TsArray* pair = TsArray::Create();
-        pair->Push((int64_t)i);
-        pair->Push((int64_t)data[i]);
+        pair->Push((int64_t)nanbox_int32((int32_t)i));
+        pair->Push((int64_t)nanbox_int32((int32_t)data[i]));
         result->Push(reinterpret_cast<int64_t>(pair));
     }
     return result;
@@ -835,7 +836,7 @@ void* TsBuffer::Entries() {
 void* TsBuffer::Keys() {
     TsArray* result = TsArray::Create();
     for (size_t i = 0; i < length; i++) {
-        result->Push((int64_t)i);
+        result->Push((int64_t)nanbox_int32((int32_t)i));
     }
     return result;
 }
@@ -843,7 +844,7 @@ void* TsBuffer::Keys() {
 void* TsBuffer::Values() {
     TsArray* result = TsArray::Create();
     for (size_t i = 0; i < length; i++) {
-        result->Push((int64_t)data[i]);
+        result->Push((int64_t)nanbox_int32((int32_t)data[i]));
     }
     return result;
 }
@@ -855,7 +856,7 @@ void* TsBuffer::ToJSON() {
 
     TsArray* dataArr = TsArray::Create();
     for (size_t i = 0; i < length; i++) {
-        dataArr->Push((int64_t)data[i]);
+        dataArr->Push((int64_t)nanbox_int32((int32_t)data[i]));
     }
     obj->Set(TsString::Create("data"), reinterpret_cast<int64_t>(dataArr));
 
@@ -995,11 +996,12 @@ extern "C" {
     bool ts_buffer_is_buffer(void* obj) {
         if (!obj) return false;
 
-        // Try to unbox if it's a TsValue*
+        // Unbox NaN-boxed value - returns nullptr for non-pointer values (numbers, bool, etc.)
+        uint64_t nb = (uint64_t)(uintptr_t)obj;
+        if (nanbox_is_number(nb) || nanbox_is_special(nb)) return false;
+
         void* raw = ts_value_get_object((TsValue*)obj);
-        if (raw) {
-            obj = raw;
-        }
+        if (raw) obj = raw;
 
         TsBuffer* buf = (TsBuffer*)obj;
         return buf->magic == TsBuffer::MAGIC;

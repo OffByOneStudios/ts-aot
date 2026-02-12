@@ -31,36 +31,42 @@ struct AsyncAssertContext {
 // Helper to get string value from TsValue
 static const char* getMessageStr(void* message) {
     if (!message) return nullptr;
-    TsValue* val = (TsValue*)message;
-    if (val->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)val->ptr_val;
+    TsValue val = nanbox_to_tagged((TsValue*)message);
+    if (val.type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)val.ptr_val;
         return str ? str->ToUtf8() : nullptr;
     }
-    // Try direct string pointer
-    TsString* str = (TsString*)message;
-    return str ? str->ToUtf8() : nullptr;
+    // Try direct string pointer (fallback for raw TsString*)
+    uint64_t nb = (uint64_t)(uintptr_t)message;
+    if (nanbox_is_ptr(nb)) {
+        void* ptr = nanbox_to_ptr(nb);
+        if (ptr && *(uint32_t*)ptr == TsString::MAGIC) {
+            return ((TsString*)ptr)->ToUtf8();
+        }
+    }
+    return nullptr;
 }
 
 // Helper to check if value is truthy
 static bool isTruthy(void* value) {
     if (!value) return false;
-    TsValue* val = (TsValue*)value;
+    TsValue val = nanbox_to_tagged((TsValue*)value);
 
-    switch (val->type) {
+    switch (val.type) {
         case ValueType::NUMBER_INT:
-            return val->i_val != 0;
+            return val.i_val != 0;
         case ValueType::NUMBER_DBL:
-            return val->d_val != 0.0;
+            return val.d_val != 0.0;
         case ValueType::BOOLEAN:
-            return val->b_val;
+            return val.b_val;
         case ValueType::UNDEFINED:
             return false;
         case ValueType::STRING_PTR: {
-            TsString* str = (TsString*)val->ptr_val;
+            TsString* str = (TsString*)val.ptr_val;
             return str && strlen(str->ToUtf8()) > 0;
         }
         case ValueType::OBJECT_PTR:
-            return val->ptr_val != nullptr;
+            return val.ptr_val != nullptr;
         default:
             return true;
     }
@@ -71,44 +77,44 @@ static bool looseEqual(void* a, void* b) {
     if (a == b) return true;
     if (!a || !b) return false;
 
-    TsValue* va = (TsValue*)a;
-    TsValue* vb = (TsValue*)b;
+    TsValue va = nanbox_to_tagged((TsValue*)a);
+    TsValue vb = nanbox_to_tagged((TsValue*)b);
 
     // Both undefined
-    if (va->type == ValueType::UNDEFINED && vb->type == ValueType::UNDEFINED) {
+    if (va.type == ValueType::UNDEFINED && vb.type == ValueType::UNDEFINED) {
         return true;
     }
 
     // Numbers
-    if (va->type == ValueType::NUMBER_INT && vb->type == ValueType::NUMBER_INT) {
-        return va->i_val == vb->i_val;
+    if (va.type == ValueType::NUMBER_INT && vb.type == ValueType::NUMBER_INT) {
+        return va.i_val == vb.i_val;
     }
-    if (va->type == ValueType::NUMBER_DBL && vb->type == ValueType::NUMBER_DBL) {
-        return va->d_val == vb->d_val;
+    if (va.type == ValueType::NUMBER_DBL && vb.type == ValueType::NUMBER_DBL) {
+        return va.d_val == vb.d_val;
     }
-    if ((va->type == ValueType::NUMBER_INT || va->type == ValueType::NUMBER_DBL) &&
-        (vb->type == ValueType::NUMBER_INT || vb->type == ValueType::NUMBER_DBL)) {
-        double da = va->type == ValueType::NUMBER_INT ? (double)va->i_val : va->d_val;
-        double db = vb->type == ValueType::NUMBER_INT ? (double)vb->i_val : vb->d_val;
+    if ((va.type == ValueType::NUMBER_INT || va.type == ValueType::NUMBER_DBL) &&
+        (vb.type == ValueType::NUMBER_INT || vb.type == ValueType::NUMBER_DBL)) {
+        double da = va.type == ValueType::NUMBER_INT ? (double)va.i_val : va.d_val;
+        double db = vb.type == ValueType::NUMBER_INT ? (double)vb.i_val : vb.d_val;
         return da == db;
     }
 
     // Booleans
-    if (va->type == ValueType::BOOLEAN && vb->type == ValueType::BOOLEAN) {
-        return va->b_val == vb->b_val;
+    if (va.type == ValueType::BOOLEAN && vb.type == ValueType::BOOLEAN) {
+        return va.b_val == vb.b_val;
     }
 
     // Strings
-    if (va->type == ValueType::STRING_PTR && vb->type == ValueType::STRING_PTR) {
-        TsString* sa = (TsString*)va->ptr_val;
-        TsString* sb = (TsString*)vb->ptr_val;
+    if (va.type == ValueType::STRING_PTR && vb.type == ValueType::STRING_PTR) {
+        TsString* sa = (TsString*)va.ptr_val;
+        TsString* sb = (TsString*)vb.ptr_val;
         if (!sa || !sb) return sa == sb;
         return strcmp(sa->ToUtf8(), sb->ToUtf8()) == 0;
     }
 
     // Object identity
-    if (va->type == ValueType::OBJECT_PTR && vb->type == ValueType::OBJECT_PTR) {
-        return va->ptr_val == vb->ptr_val;
+    if (va.type == ValueType::OBJECT_PTR && vb.type == ValueType::OBJECT_PTR) {
+        return va.ptr_val == vb.ptr_val;
     }
 
     return false;
@@ -119,50 +125,50 @@ static bool strictEqual(void* a, void* b) {
     if (a == b) return true;
     if (!a || !b) return false;
 
-    TsValue* va = (TsValue*)a;
-    TsValue* vb = (TsValue*)b;
+    TsValue va = nanbox_to_tagged((TsValue*)a);
+    TsValue vb = nanbox_to_tagged((TsValue*)b);
 
     // In JavaScript, all numbers are the same type (IEEE 754 double).
     // Handle NUMBER_INT vs NUMBER_DBL cross-comparison as same type.
-    bool aIsNum = (va->type == ValueType::NUMBER_INT || va->type == ValueType::NUMBER_DBL);
-    bool bIsNum = (vb->type == ValueType::NUMBER_INT || vb->type == ValueType::NUMBER_DBL);
+    bool aIsNum = (va.type == ValueType::NUMBER_INT || va.type == ValueType::NUMBER_DBL);
+    bool bIsNum = (vb.type == ValueType::NUMBER_INT || vb.type == ValueType::NUMBER_DBL);
     if (aIsNum && bIsNum) {
-        double da = va->type == ValueType::NUMBER_INT ? (double)va->i_val : va->d_val;
-        double db = vb->type == ValueType::NUMBER_INT ? (double)vb->i_val : vb->d_val;
+        double da = va.type == ValueType::NUMBER_INT ? (double)va.i_val : va.d_val;
+        double db = vb.type == ValueType::NUMBER_INT ? (double)vb.i_val : vb.d_val;
         return da == db;
     }
 
     // Handle STRING_PTR vs OBJECT_PTR containing strings
-    bool aIsStr = (va->type == ValueType::STRING_PTR || va->type == ValueType::OBJECT_PTR);
-    bool bIsStr = (vb->type == ValueType::STRING_PTR || vb->type == ValueType::OBJECT_PTR);
+    bool aIsStr = (va.type == ValueType::STRING_PTR || va.type == ValueType::OBJECT_PTR);
+    bool bIsStr = (vb.type == ValueType::STRING_PTR || vb.type == ValueType::OBJECT_PTR);
 
     // Must be same type for strict equality (except number cross-types handled above)
-    if (va->type != vb->type && !(aIsStr && bIsStr)) return false;
+    if (va.type != vb.type && !(aIsStr && bIsStr)) return false;
 
-    switch (va->type) {
+    switch (va.type) {
         case ValueType::NUMBER_INT:
-            return va->i_val == vb->i_val;
+            return va.i_val == vb.i_val;
         case ValueType::NUMBER_DBL:
-            return va->d_val == vb->d_val;
+            return va.d_val == vb.d_val;
         case ValueType::BOOLEAN:
-            return va->b_val == vb->b_val;
+            return va.b_val == vb.b_val;
         case ValueType::UNDEFINED:
             return true;
         case ValueType::STRING_PTR: {
-            TsString* sa = (TsString*)va->ptr_val;
-            TsString* sb = (vb->type == ValueType::STRING_PTR) ? (TsString*)vb->ptr_val : (TsString*)vb->ptr_val;
+            TsString* sa = (TsString*)va.ptr_val;
+            TsString* sb = (TsString*)vb.ptr_val;
             if (!sa || !sb) return sa == sb;
             return strcmp(sa->ToUtf8(), sb->ToUtf8()) == 0;
         }
         case ValueType::OBJECT_PTR:
             // If the other is a string type, compare as strings
-            if (vb->type == ValueType::STRING_PTR) {
-                TsString* sa = (TsString*)va->ptr_val;
-                TsString* sb = (TsString*)vb->ptr_val;
+            if (vb.type == ValueType::STRING_PTR) {
+                TsString* sa = (TsString*)va.ptr_val;
+                TsString* sb = (TsString*)vb.ptr_val;
                 if (!sa || !sb) return sa == sb;
                 return strcmp(sa->ToUtf8(), sb->ToUtf8()) == 0;
             }
-            return va->ptr_val == vb->ptr_val;
+            return va.ptr_val == vb.ptr_val;
         default:
             return false;
     }
@@ -190,39 +196,8 @@ static bool deepEqualArrays(TsArray* a, TsArray* b) {
 
 static bool deepEqualElement(int64_t va, int64_t vb) {
     if (va == vb) return true;
-    if (va == 0 || vb == 0) return false;
-
-    // Check if the element is a boxed TsValue* by reading the type field.
-    // Valid ValueType enum values are 0-10. If the first byte is > 10,
-    // this is a raw pointer (TsString*, TsArray*, etc.), not a TsValue*.
-    uint8_t typeA = *(uint8_t*)(uintptr_t)va;
-    if (typeA <= 10) {
-        // Looks like a boxed TsValue* - use deep comparison
-        return deepStrictEqual((void*)(uintptr_t)va, (void*)(uintptr_t)vb);
-    }
-
-    // Raw pointer - detect type from magic field at offset 0.
-    // Both TsArray and TsString store magic at offset 0 (not TsObject offset 16).
-    void* pa = (void*)(uintptr_t)va;
-    void* pb = (void*)(uintptr_t)vb;
-    uint32_t magicA = *(uint32_t*)pa;
-    uint32_t magicB = *(uint32_t*)pb;
-
-    if (magicA == TsArray::MAGIC && magicB == TsArray::MAGIC) {
-        return deepEqualArrays((TsArray*)pa, (TsArray*)pb);
-    }
-    if (magicA == TsString::MAGIC && magicB == TsString::MAGIC) {
-        return strcmp(((TsString*)pa)->ToUtf8(), ((TsString*)pb)->ToUtf8()) == 0;
-    }
-
-    // TsObject-derived types with vtable: magic at TsObject offset 16
-    TsObject* oa = (TsObject*)pa;
-    TsObject* ob = (TsObject*)pb;
-    if (oa->magic == TsMap::MAGIC && ob->magic == TsMap::MAGIC) {
-        return deepEqualObjects((TsMap*)oa, (TsMap*)ob);
-    }
-
-    return false;
+    // Array elements are NaN-boxed values - delegate to deepStrictEqual
+    return deepStrictEqual((void*)(uintptr_t)(uint64_t)va, (void*)(uintptr_t)(uint64_t)vb);
 }
 
 // Helper for deep object comparison
@@ -234,11 +209,12 @@ static bool deepEqualObjects(TsMap* a, TsMap* b) {
     if (keysA->Length() != keysB->Length()) return false;
 
     for (size_t i = 0; i < keysA->Length(); i++) {
-        TsValue* key = (TsValue*)keysA->Get(i);
-        if (!key) continue;
-        TsValue valA = a->Get(*key);
-        TsValue valB = b->Get(*key);
-        if (!deepStrictEqual(&valA, &valB)) return false;
+        // Keys are NaN-boxed values in the array
+        TsValue key = nanbox_to_tagged((TsValue*)(uintptr_t)keysA->Get(i));
+        if (key.type == ValueType::UNDEFINED) continue;
+        TsValue valA = a->Get(key);
+        TsValue valB = b->Get(key);
+        if (!deepStrictEqual(nanbox_from_tagged(valA), nanbox_from_tagged(valB))) return false;
     }
     return true;
 }
@@ -248,50 +224,50 @@ static bool deepStrictEqual(void* a, void* b) {
     if (a == b) return true;
     if (!a || !b) return a == b;
 
-    TsValue* va = (TsValue*)a;
-    TsValue* vb = (TsValue*)b;
+    TsValue va = nanbox_to_tagged((TsValue*)a);
+    TsValue vb = nanbox_to_tagged((TsValue*)b);
 
     // In JavaScript, NUMBER_INT and NUMBER_DBL are the same type
-    bool aIsNum = (va->type == ValueType::NUMBER_INT || va->type == ValueType::NUMBER_DBL);
-    bool bIsNum = (vb->type == ValueType::NUMBER_INT || vb->type == ValueType::NUMBER_DBL);
+    bool aIsNum = (va.type == ValueType::NUMBER_INT || va.type == ValueType::NUMBER_DBL);
+    bool bIsNum = (vb.type == ValueType::NUMBER_INT || vb.type == ValueType::NUMBER_DBL);
     if (aIsNum && bIsNum) {
-        double da = va->type == ValueType::NUMBER_INT ? (double)va->i_val : va->d_val;
-        double db = vb->type == ValueType::NUMBER_INT ? (double)vb->i_val : vb->d_val;
+        double da = va.type == ValueType::NUMBER_INT ? (double)va.i_val : va.d_val;
+        double db = vb.type == ValueType::NUMBER_INT ? (double)vb.i_val : vb.d_val;
         return da == db;
     }
 
     // Handle STRING_PTR vs OBJECT_PTR (strings may be boxed as either)
-    bool aIsStr = (va->type == ValueType::STRING_PTR || va->type == ValueType::OBJECT_PTR);
-    bool bIsStr = (vb->type == ValueType::STRING_PTR || vb->type == ValueType::OBJECT_PTR);
+    bool aIsStr = (va.type == ValueType::STRING_PTR || va.type == ValueType::OBJECT_PTR);
+    bool bIsStr = (vb.type == ValueType::STRING_PTR || vb.type == ValueType::OBJECT_PTR);
 
     // Must be same type for strict equality (except numbers and strings handled above)
-    if (va->type != vb->type && !(aIsStr && bIsStr)) return false;
+    if (va.type != vb.type && !(aIsStr && bIsStr)) return false;
 
-    switch (va->type) {
+    switch (va.type) {
         case ValueType::NUMBER_INT:
-            return va->i_val == vb->i_val;
+            return va.i_val == vb.i_val;
         case ValueType::NUMBER_DBL:
-            return va->d_val == vb->d_val;
+            return va.d_val == vb.d_val;
         case ValueType::BOOLEAN:
-            return va->b_val == vb->b_val;
+            return va.b_val == vb.b_val;
         case ValueType::UNDEFINED:
             return true;
         case ValueType::STRING_PTR: {
-            TsString* sa = (TsString*)va->ptr_val;
-            TsString* sb = (TsString*)vb->ptr_val;
+            TsString* sa = (TsString*)va.ptr_val;
+            TsString* sb = (TsString*)vb.ptr_val;
             if (!sa || !sb) return sa == sb;
             return strcmp(sa->ToUtf8(), sb->ToUtf8()) == 0;
         }
         case ValueType::ARRAY_PTR: {
             // Direct array type - compare as arrays
-            TsArray* arrA = (TsArray*)va->ptr_val;
-            TsArray* arrB = (TsArray*)vb->ptr_val;
+            TsArray* arrA = (TsArray*)va.ptr_val;
+            TsArray* arrB = (TsArray*)vb.ptr_val;
             if (!arrA || !arrB) return arrA == arrB;
             return deepEqualArrays(arrA, arrB);
         }
         case ValueType::OBJECT_PTR: {
-            void* pa = va->ptr_val;
-            void* pb = vb->ptr_val;
+            void* pa = va.ptr_val;
+            void* pb = vb.ptr_val;
             if (!pa || !pb) return pa == pb;
 
             // Both TsArray and TsString have magic at offset 0 (not TsObject-derived layout).
@@ -404,9 +380,10 @@ void ts_assert_throws(void* fn, void* error, void* message) {
         return;
     }
 
-    TsValue* fnVal = (TsValue*)fn;
+    // fn is a NaN-boxed TsValue* - pass directly to ts_function_call which handles NaN-boxed values
+    TsValue fnVal = nanbox_to_tagged((TsValue*)fn);
     // Accept FUNCTION_PTR (raw function pointers) and OBJECT_PTR (closures/TsClosure)
-    if ((fnVal->type != ValueType::FUNCTION_PTR && fnVal->type != ValueType::OBJECT_PTR) || !fnVal->ptr_val) {
+    if ((fnVal.type != ValueType::FUNCTION_PTR && fnVal.type != ValueType::OBJECT_PTR) || !fnVal.ptr_val) {
         assertionFailed("throws", fn, error, message);
         return;
     }
@@ -416,8 +393,8 @@ void ts_assert_throws(void* fn, void* error, void* message) {
     jmp_buf* env = (jmp_buf*)handler;
 
     if (setjmp(*env) == 0) {
-        // Try to call the function
-        ts_function_call(fnVal, 0, nullptr);
+        // Try to call the function - pass NaN-boxed pointer
+        ts_function_call((TsValue*)fn, 0, nullptr);
         // If we get here, no exception was thrown
         ts_pop_exception_handler();
         assertionFailed("throws", fn, error, message);
@@ -437,9 +414,9 @@ void ts_assert_throws(void* fn, void* error, void* message) {
 void ts_assert_does_not_throw(void* fn, void* error, void* message) {
     if (!fn) return;
 
-    TsValue* fnVal = (TsValue*)fn;
+    TsValue fnVal = nanbox_to_tagged((TsValue*)fn);
     // Accept FUNCTION_PTR (raw function pointers) and OBJECT_PTR (closures/TsClosure)
-    if ((fnVal->type != ValueType::FUNCTION_PTR && fnVal->type != ValueType::OBJECT_PTR) || !fnVal->ptr_val) {
+    if ((fnVal.type != ValueType::FUNCTION_PTR && fnVal.type != ValueType::OBJECT_PTR) || !fnVal.ptr_val) {
         return;
     }
 
@@ -448,8 +425,8 @@ void ts_assert_does_not_throw(void* fn, void* error, void* message) {
     jmp_buf* env = (jmp_buf*)handler;
 
     if (setjmp(*env) == 0) {
-        // Try to call the function
-        ts_function_call(fnVal, 0, nullptr);
+        // Try to call the function - pass NaN-boxed pointer
+        ts_function_call((TsValue*)fn, 0, nullptr);
         // If we get here, no exception was thrown - good!
         ts_pop_exception_handler();
     } else {
@@ -489,24 +466,23 @@ static TsValue* ts_assert_rejects_rejected_handler(void* context, TsValue* reaso
     AsyncAssertContext* ctx = (AsyncAssertContext*)context;
     // Promise rejected as expected - SUCCESS
     // TODO: Optionally validate rejection reason matches ctx->expectedError
-    TsValue undefined;
-    undefined.type = ValueType::UNDEFINED;
-    ts::ts_promise_resolve_internal(ctx->resultPromise, &undefined);
+    ts::ts_promise_resolve_internal(ctx->resultPromise, ts_value_make_undefined());
     return nullptr;
 }
 
 void* ts_assert_rejects(void* asyncFn, void* error, void* message) {
-    TsValue* inputVal = (TsValue*)asyncFn;
+    TsValue inputVal = nanbox_to_tagged((TsValue*)asyncFn);
     ts::TsPromise* inputPromise = nullptr;
 
     // 1. Get promise (call function if needed)
-    if (inputVal && inputVal->type == ValueType::PROMISE_PTR) {
-        inputPromise = (ts::TsPromise*)inputVal->ptr_val;
-    } else if (inputVal && inputVal->type == ValueType::FUNCTION_PTR) {
+    if (inputVal.type == ValueType::PROMISE_PTR) {
+        inputPromise = (ts::TsPromise*)inputVal.ptr_val;
+    } else if (inputVal.type == ValueType::FUNCTION_PTR) {
         // Call the async function to get the promise
-        TsValue* result = ts_function_call(inputVal, 0, nullptr);
-        if (result && result->type == ValueType::PROMISE_PTR) {
-            inputPromise = (ts::TsPromise*)result->ptr_val;
+        TsValue* result = ts_function_call((TsValue*)asyncFn, 0, nullptr);
+        TsValue resultVal = nanbox_to_tagged(result);
+        if (resultVal.type == ValueType::PROMISE_PTR) {
+            inputPromise = (ts::TsPromise*)resultVal.ptr_val;
         }
     }
 
@@ -527,10 +503,10 @@ void* ts_assert_rejects(void* asyncFn, void* error, void* message) {
     ctx->expectedError = error;
     ctx->assertMessage = message;
 
-    TsValue onFulfilled = *ts_value_make_function(
-        (void*)ts_assert_rejects_fulfilled_handler, ctx);
-    TsValue onRejected = *ts_value_make_function(
-        (void*)ts_assert_rejects_rejected_handler, ctx);
+    TsValue onFulfilled = nanbox_to_tagged(ts_value_make_function(
+        (void*)ts_assert_rejects_fulfilled_handler, ctx));
+    TsValue onRejected = nanbox_to_tagged(ts_value_make_function(
+        (void*)ts_assert_rejects_rejected_handler, ctx));
 
     inputPromise->then(onFulfilled, onRejected);
 
@@ -541,9 +517,7 @@ void* ts_assert_rejects(void* asyncFn, void* error, void* message) {
 static TsValue* ts_assert_does_not_reject_fulfilled_handler(void* context, TsValue* value) {
     AsyncAssertContext* ctx = (AsyncAssertContext*)context;
     // Promise resolved as expected - SUCCESS
-    TsValue undefined;
-    undefined.type = ValueType::UNDEFINED;
-    ts::ts_promise_resolve_internal(ctx->resultPromise, &undefined);
+    ts::ts_promise_resolve_internal(ctx->resultPromise, ts_value_make_undefined());
     return nullptr;
 }
 
@@ -564,26 +538,25 @@ static TsValue* ts_assert_does_not_reject_rejected_handler(void* context, TsValu
 }
 
 void* ts_assert_does_not_reject(void* asyncFn, void* error, void* message) {
-    TsValue* inputVal = (TsValue*)asyncFn;
+    TsValue inputVal = nanbox_to_tagged((TsValue*)asyncFn);
     ts::TsPromise* inputPromise = nullptr;
 
     // 1. Get promise (call function if needed)
-    if (inputVal && inputVal->type == ValueType::PROMISE_PTR) {
-        inputPromise = (ts::TsPromise*)inputVal->ptr_val;
-    } else if (inputVal && inputVal->type == ValueType::FUNCTION_PTR) {
+    if (inputVal.type == ValueType::PROMISE_PTR) {
+        inputPromise = (ts::TsPromise*)inputVal.ptr_val;
+    } else if (inputVal.type == ValueType::FUNCTION_PTR) {
         // Call the async function to get the promise
-        TsValue* result = ts_function_call(inputVal, 0, nullptr);
-        if (result && result->type == ValueType::PROMISE_PTR) {
-            inputPromise = (ts::TsPromise*)result->ptr_val;
+        TsValue* result = ts_function_call((TsValue*)asyncFn, 0, nullptr);
+        TsValue resultVal = nanbox_to_tagged(result);
+        if (resultVal.type == ValueType::PROMISE_PTR) {
+            inputPromise = (ts::TsPromise*)resultVal.ptr_val;
         }
     }
 
     if (!inputPromise) {
         // Not a promise - treat as success (nothing to reject)
         ts::TsPromise* p = ts::ts_promise_create();
-        TsValue undefined;
-        undefined.type = ValueType::UNDEFINED;
-        ts::ts_promise_resolve_internal(p, &undefined);
+        ts::ts_promise_resolve_internal(p, ts_value_make_undefined());
         return ts_value_make_promise(p);
     }
 
@@ -596,10 +569,10 @@ void* ts_assert_does_not_reject(void* asyncFn, void* error, void* message) {
     ctx->expectedError = error;
     ctx->assertMessage = message;
 
-    TsValue onFulfilled = *ts_value_make_function(
-        (void*)ts_assert_does_not_reject_fulfilled_handler, ctx);
-    TsValue onRejected = *ts_value_make_function(
-        (void*)ts_assert_does_not_reject_rejected_handler, ctx);
+    TsValue onFulfilled = nanbox_to_tagged(ts_value_make_function(
+        (void*)ts_assert_does_not_reject_fulfilled_handler, ctx));
+    TsValue onRejected = nanbox_to_tagged(ts_value_make_function(
+        (void*)ts_assert_does_not_reject_rejected_handler, ctx));
 
     inputPromise->then(onFulfilled, onRejected);
 
@@ -620,22 +593,22 @@ void ts_assert_if_error(void* value) {
 }
 
 void ts_assert_match(void* str, void* regexp, void* message) {
-    TsValue* strVal = (TsValue*)str;
-    TsValue* regexpVal = (TsValue*)regexp;
+    TsValue strVal = nanbox_to_tagged((TsValue*)str);
+    TsValue regexpVal = nanbox_to_tagged((TsValue*)regexp);
 
-    if (!strVal || strVal->type != ValueType::STRING_PTR) {
+    if (strVal.type != ValueType::STRING_PTR) {
         assertionFailed("match", str, regexp, message);
         return;
     }
 
-    TsString* tsStr = (TsString*)strVal->ptr_val;
+    TsString* tsStr = (TsString*)strVal.ptr_val;
     if (!tsStr) {
         assertionFailed("match", str, regexp, message);
         return;
     }
 
     // Get regexp object
-    void* rawRegexp = regexpVal ? regexpVal->ptr_val : nullptr;
+    void* rawRegexp = regexpVal.ptr_val;
     if (!rawRegexp) {
         assertionFailed("match", str, regexp, message);
         return;
@@ -650,17 +623,17 @@ void ts_assert_match(void* str, void* regexp, void* message) {
 }
 
 void ts_assert_does_not_match(void* str, void* regexp, void* message) {
-    TsValue* strVal = (TsValue*)str;
-    TsValue* regexpVal = (TsValue*)regexp;
+    TsValue strVal = nanbox_to_tagged((TsValue*)str);
+    TsValue regexpVal = nanbox_to_tagged((TsValue*)regexp);
 
-    if (!strVal || strVal->type != ValueType::STRING_PTR) {
+    if (strVal.type != ValueType::STRING_PTR) {
         return;  // No match on invalid input
     }
 
-    TsString* tsStr = (TsString*)strVal->ptr_val;
+    TsString* tsStr = (TsString*)strVal.ptr_val;
     if (!tsStr) return;
 
-    void* rawRegexp = regexpVal ? regexpVal->ptr_val : nullptr;
+    void* rawRegexp = regexpVal.ptr_val;
     if (!rawRegexp) return;
 
     TsRegExp* re = (TsRegExp*)rawRegexp;

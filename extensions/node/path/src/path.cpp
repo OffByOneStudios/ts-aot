@@ -7,6 +7,7 @@
 
 // Include runtime headers from the main tsruntime
 #include "TsRuntime.h"
+#include "TsNanBox.h"
 #include "TsString.h"
 #include "TsArray.h"
 #include "TsMap.h"
@@ -33,13 +34,11 @@ static char GetSeparator(PathPlatform platform) {
 
 static TsString* UnboxString(void* ptr) {
     if (!ptr) return nullptr;
-    uint32_t magic = *(uint32_t*)ptr;
-    if (magic == 0x53545247) { // TsString::MAGIC
-        return (TsString*)ptr;
-    }
-    TsValue* v = (TsValue*)ptr;
-    if (v->type == ValueType::STRING_PTR) {
-        return (TsString*)v->ptr_val;
+    // Use nanbox_to_tagged which safely handles NaN-boxed special values
+    // (undefined=0x0A, null=0x02) without dereferencing invalid addresses
+    TsValue vd = nanbox_to_tagged((TsValue*)ptr);
+    if (vd.type == ValueType::STRING_PTR) {
+        return (TsString*)vd.ptr_val;
     }
     return nullptr;
 }
@@ -291,11 +290,12 @@ void* ts_path_parse(void* p_ptr) {
 
 void* ts_path_format_ex(void* obj_ptr, int platform_int) {
     PathPlatform platform = (PathPlatform)platform_int;
-    TsValue* obj = (TsValue*)obj_ptr;
-    if (!obj || obj->type != ValueType::OBJECT_PTR) {
+    if (!obj_ptr) return TsString::Create("");
+    TsValue objDec = nanbox_to_tagged((TsValue*)obj_ptr);
+    if (objDec.type != ValueType::OBJECT_PTR) {
         return TsString::Create("");
     }
-    void* o = obj->ptr_val;
+    void* o = objDec.ptr_val;
 
     auto get_prop = [&](const char* key) -> std::string {
         TsValue* val = ts_object_get_property(o, key);

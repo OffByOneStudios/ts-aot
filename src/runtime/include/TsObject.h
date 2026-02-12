@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
+#include "TsNanBox.h"
 
 class TsString;
 
@@ -40,6 +42,71 @@ struct TaggedValue {
 };
 
 using TsValue = TaggedValue;
+
+// === NaN-box ↔ TsValue struct conversion ===
+// TsMap/TsSet still store TsValue structs (16 bytes). These helpers
+// convert between the NaN-boxed TsValue* (8 bytes, returned by ts_value_make_*)
+// and the TsValue struct (16 bytes, expected by TsMap::Set / TsMap::Get).
+// Replace all  *ts_value_make_X()  patterns with  nanbox_to_tagged(ts_value_make_X())
+
+// Convert NaN-boxed TsValue* → TsValue struct (for TsMap boundary)
+// Use instead of: *ts_value_make_X()
+inline TsValue nanbox_to_tagged(TsValue* v) {
+    TsValue tv;
+    tv.i_val = 0;
+    if (!v) { tv.type = ValueType::UNDEFINED; return tv; }
+    uint64_t nb = (uint64_t)(uintptr_t)v;
+    if (nanbox_is_undefined(nb)) { tv.type = ValueType::UNDEFINED; return tv; }
+    if (nanbox_is_null(nb)) { tv.type = ValueType::OBJECT_PTR; tv.ptr_val = nullptr; return tv; }
+    if (nanbox_is_int32(nb)) { tv.type = ValueType::NUMBER_INT; tv.i_val = nanbox_to_int32(nb); return tv; }
+    if (nanbox_is_double(nb)) { tv.type = ValueType::NUMBER_DBL; tv.d_val = nanbox_to_double(nb); return tv; }
+    if (nanbox_is_bool(nb)) { tv.type = ValueType::BOOLEAN; tv.i_val = nanbox_to_bool(nb) ? 1 : 0; return tv; }
+    if (nanbox_is_ptr(nb)) {
+        void* ptr = nanbox_to_ptr(nb);
+        // Read magic at offset 0 for TsString/TsArray, offset 16 for TsObject subclasses
+        uint32_t magic0 = *(uint32_t*)ptr;
+        if (magic0 == 0x53545247) { tv.type = ValueType::STRING_PTR; tv.ptr_val = ptr; return tv; }
+        if (magic0 == 0x41525259) { tv.type = ValueType::ARRAY_PTR; tv.ptr_val = ptr; return tv; }
+        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+        if (magic16 == 0x50524F4D) { tv.type = ValueType::PROMISE_PTR; tv.ptr_val = ptr; return tv; }
+        if (magic16 == 0x42494749) { tv.type = ValueType::BIGINT_PTR; tv.ptr_val = ptr; return tv; }
+        if (magic16 == 0x53594D42) { tv.type = ValueType::SYMBOL_PTR; tv.ptr_val = ptr; return tv; }
+        if (magic16 == 0x46554E43) { tv.type = ValueType::FUNCTION_PTR; tv.ptr_val = ptr; return tv; }
+        tv.type = ValueType::OBJECT_PTR; tv.ptr_val = ptr; return tv;
+    }
+    tv.type = ValueType::UNDEFINED; return tv;
+}
+
+// Convert TsValue struct → NaN-boxed TsValue* pointer (for TsMap::Get results)
+inline TsValue* nanbox_from_tagged(const TsValue& tv) {
+    switch (tv.type) {
+    case ValueType::UNDEFINED:
+        return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    case ValueType::NUMBER_INT: {
+        int64_t i = tv.i_val;
+        if (i >= INT32_MIN && i <= INT32_MAX)
+            return (TsValue*)(uintptr_t)nanbox_int32((int32_t)i);
+        return (TsValue*)(uintptr_t)nanbox_double((double)i);
+    }
+    case ValueType::NUMBER_DBL:
+        return (TsValue*)(uintptr_t)nanbox_double(tv.d_val);
+    case ValueType::BOOLEAN:
+        return (TsValue*)(uintptr_t)nanbox_bool(tv.i_val != 0);
+    case ValueType::OBJECT_PTR:
+        if (!tv.ptr_val) return (TsValue*)(uintptr_t)NANBOX_NULL;
+        return (TsValue*)tv.ptr_val;
+    case ValueType::STRING_PTR:
+    case ValueType::ARRAY_PTR:
+    case ValueType::PROMISE_PTR:
+    case ValueType::BIGINT_PTR:
+    case ValueType::SYMBOL_PTR:
+    case ValueType::FUNCTION_PTR:
+        if (tv.ptr_val) return (TsValue*)tv.ptr_val;
+        return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    default:
+        return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    }
+}
 
 // Forward declarations for AsXxx() methods
 class TsReadable;

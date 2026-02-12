@@ -1,5 +1,6 @@
 #include "TsHttp.h"
 #include "TsSecureSocket.h"
+#include "TsNanBox.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include "TsSocket.h"
@@ -93,7 +94,14 @@ void TsOutgoingMessage::SetHeader(TsString* name, TsValue* value) {
     std::string s = name->ToUtf8();
     for (auto& c : s) c = std::tolower(c);
     TsString* lowerName = TsString::Create(s.c_str());
-    headers->Set(lowerName, value ? *value : TsValue());
+    if (value) {
+        headers->Set(lowerName, nanbox_to_tagged(value));
+    } else {
+        TsValue undef;
+        undef.type = ValueType::UNDEFINED;
+        undef.i_val = 0;
+        headers->Set(lowerName, undef);
+    }
 }
 
 TsValue* TsOutgoingMessage::GetHeader(TsString* name) {
@@ -101,11 +109,9 @@ TsValue* TsOutgoingMessage::GetHeader(TsString* name) {
     std::string s = name->ToUtf8();
     for (auto& c : s) c = std::tolower(c);
     TsString* lowerName = TsString::Create(s.c_str());
-    TsValue v = headers->Get(TsValue(lowerName));
+    TsValue v = headers->Get(lowerName);
     if (v.type == ValueType::UNDEFINED) return nullptr;
-    TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
-    *result = v;
-    return result;
+    return nanbox_from_tagged(v);
 }
 
 void* TsOutgoingMessage::GetHeaders() {
@@ -117,7 +123,7 @@ bool TsOutgoingMessage::HasHeader(TsString* name) {
     std::string s = name->ToUtf8();
     for (auto& c : s) c = std::tolower(c);
     TsString* lowerName = TsString::Create(s.c_str());
-    return headers->Has(TsValue(lowerName));
+    return headers->Has(lowerName);
 }
 
 void TsOutgoingMessage::RemoveHeader(TsString* name) {
@@ -125,7 +131,7 @@ void TsOutgoingMessage::RemoveHeader(TsString* name) {
     std::string s = name->ToUtf8();
     for (auto& c : s) c = std::tolower(c);
     TsString* lowerName = TsString::Create(s.c_str());
-    headers->Delete(TsValue(lowerName));
+    headers->Delete(lowerName);
 }
 
 // Helper to convert TsValue to int64_t for array storage
@@ -148,28 +154,35 @@ void TsOutgoingMessage::AppendHeader(TsString* name, TsValue* value) {
     std::string s = name->ToUtf8();
     for (auto& c : s) c = std::tolower(c);
     TsString* lowerName = TsString::Create(s.c_str());
-    
-    TsValue existing = headers->Get(TsValue(lowerName));
+
+    TsValue decodedValue = nanbox_to_tagged(value);
+    TsValue existing = headers->Get(lowerName);
     if (existing.type == ValueType::UNDEFINED) {
-        headers->Set(lowerName, *value);
+        headers->Set(lowerName, decodedValue);
     } else if (existing.type == ValueType::OBJECT_PTR) {
         // If it's already an array, append to it
         TsArray* arr = dynamic_cast<TsArray*>((TsObject*)existing.ptr_val);
         if (arr) {
-            arr->Push(valueToInt64(*value));
+            arr->Push(valueToInt64(decodedValue));
         } else {
             // Create array with both values
             TsArray* newArr = TsArray::Create();
             newArr->Push(valueToInt64(existing));
-            newArr->Push(valueToInt64(*value));
-            headers->Set(lowerName, TsValue(newArr));
+            newArr->Push(valueToInt64(decodedValue));
+            TsValue arrVal;
+            arrVal.type = ValueType::ARRAY_PTR;
+            arrVal.ptr_val = newArr;
+            headers->Set(lowerName, arrVal);
         }
     } else {
         // Create array with both values
         TsArray* arr = TsArray::Create();
         arr->Push(valueToInt64(existing));
-        arr->Push(valueToInt64(*value));
-        headers->Set(lowerName, TsValue(arr));
+        arr->Push(valueToInt64(decodedValue));
+        TsValue arrVal;
+        arrVal.type = ValueType::ARRAY_PTR;
+        arrVal.ptr_val = arr;
+        headers->Set(lowerName, arrVal);
     }
 }
 
@@ -207,10 +220,7 @@ void TsServerResponse::OnTimeout(uv_timer_t* handle) {
 
     // Call the timeout callback if provided
     if (res->timeoutCallback) {
-        TsValue* cb = (TsValue*)res->timeoutCallback;
-        if (cb->type == ValueType::FUNCTION_PTR) {
-            ts_call_0(cb);
-        }
+        ts_call_0((TsValue*)res->timeoutCallback);
     }
 }
 
@@ -246,11 +256,11 @@ void TsServerResponse::AddTrailers(TsMap* trailers) {
     TsArray* keys = (TsArray*)trailers->GetKeys();
     if (keys) {
         for (int64_t i = 0; i < keys->Length(); i++) {
-            // GetKeys() stores TsValue* in the array, so Get() returns TsValue* as int64_t
             TsValue* keyVal = (TsValue*)keys->Get(i);
             if (keyVal) {
-                TsValue value = trailers->Get(*keyVal);
-                pendingTrailers->Set(*keyVal, value);
+                TsValue kd = nanbox_to_tagged(keyVal);
+                TsValue value = trailers->Get(kd);
+                pendingTrailers->Set(kd, value);
             }
         }
     }
@@ -309,11 +319,11 @@ void TsServerResponse::End(TsValue data) {
         TsArray* keys = (TsArray*)pendingTrailers->GetKeys();
         if (keys) {
             for (int64_t i = 0; i < keys->Length(); i++) {
-                // GetKeys() stores TsValue* in the array, so Get() returns TsValue* as int64_t
                 TsValue* keyVal = (TsValue*)keys->Get(i);
-                if (keyVal && keyVal->type == ValueType::STRING_PTR) {
-                    TsString* keyStr = (TsString*)keyVal->ptr_val;
-                    TsValue value = pendingTrailers->Get(*keyVal);
+                TsValue kd = nanbox_to_tagged(keyVal);
+                if (kd.type == ValueType::STRING_PTR) {
+                    TsString* keyStr = (TsString*)kd.ptr_val;
+                    TsValue value = pendingTrailers->Get(kd);
                     std::string trailer = keyStr->ToUtf8();
                     trailer += ": ";
                     if (value.type == ValueType::STRING_PTR) {
@@ -441,7 +451,8 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
     // Listen for "connection" event from base TsServer
     server->On("connection", ts_value_make_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
         TsHttpServer* self = (TsHttpServer*)ctx;
-        TsSocket* socket = (TsSocket*)argv[0]->ptr_val;
+        TsValue a0 = nanbox_to_tagged(argv[0]);
+        TsSocket* socket = (TsSocket*)a0.ptr_val;
 
         HttpContext* httpCtx = (HttpContext*)ts_alloc(sizeof(HttpContext));
         new (httpCtx) HttpContext(self, socket);
@@ -471,9 +482,12 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
 
         socket->On("data", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             HttpContext* httpCtx = (HttpContext*)ctx;
-            if (argc > 0 && argv[0]->type == ValueType::OBJECT_PTR) {
-                TsBuffer* buf = (TsBuffer*)argv[0]->ptr_val;
-                llhttp_execute(&httpCtx->parser, (const char*)buf->GetData(), buf->GetLength());
+            if (argc > 0) {
+                TsValue a0 = nanbox_to_tagged(argv[0]);
+                if (a0.type == ValueType::OBJECT_PTR) {
+                    TsBuffer* buf = (TsBuffer*)a0.ptr_val;
+                    llhttp_execute(&httpCtx->parser, (const char*)buf->GetData(), buf->GetLength());
+                }
             }
             return nullptr;
         }, httpCtx));
@@ -493,9 +507,10 @@ static void client_on_alloc(uv_handle_t* handle, size_t suggested_size, uv_buf_t
 TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_https) : TsOutgoingMessage(), callback(callback), is_https(is_https) {
     this->magic = MAGIC;
     if (optionsPtr) {
-        options = *optionsPtr;
+        options = nanbox_to_tagged(optionsPtr);
     } else {
         options.type = ValueType::UNDEFINED;
+        options.i_val = 0;
     }
 
     // Parse options first to get host/port before checking agent
@@ -522,30 +537,30 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
         }
     } else if (options.type == ValueType::OBJECT_PTR) {
         TsMap* obj = (TsMap*)options.ptr_val;
-        TsValue v_host = obj->Get(TsValue(TsString::Create("host")));
+        TsValue v_host = obj->Get(TsString::Create("host"));
         if (v_host.type == ValueType::STRING_PTR) host = ((TsString*)v_host.ptr_val)->ToUtf8();
-        
-        TsValue v_hostname = obj->Get(TsValue(TsString::Create("hostname")));
+
+        TsValue v_hostname = obj->Get(TsString::Create("hostname"));
         if (v_hostname.type == ValueType::STRING_PTR) host = ((TsString*)v_hostname.ptr_val)->ToUtf8();
 
-        TsValue v_port = obj->Get(TsValue(TsString::Create("port")));
+        TsValue v_port = obj->Get(TsString::Create("port"));
         if (v_port.type == ValueType::NUMBER_INT) port = (int)v_port.i_val;
         else if (v_port.type == ValueType::NUMBER_DBL) port = (int)v_port.d_val;
         else port = is_https ? 443 : 80;
 
-        TsValue v_path = obj->Get(TsValue(TsString::Create("path")));
+        TsValue v_path = obj->Get(TsString::Create("path"));
         if (v_path.type == ValueType::STRING_PTR) path = ((TsString*)v_path.ptr_val)->ToUtf8();
 
-        TsValue v_method = obj->Get(TsValue(TsString::Create("method")));
+        TsValue v_method = obj->Get(TsString::Create("method"));
         if (v_method.type == ValueType::STRING_PTR) method = ((TsString*)v_method.ptr_val)->ToUtf8();
-        
-        TsValue v_headers = obj->Get(TsValue(TsString::Create("headers")));
+
+        TsValue v_headers = obj->Get(TsString::Create("headers"));
         if (v_headers.type == ValueType::OBJECT_PTR && v_headers.ptr_val) {
             headers = (TsMap*)v_headers.ptr_val;
         }
 
         // Check for agent option
-        TsValue v_agent = obj->Get(TsValue(TsString::Create("agent")));
+        TsValue v_agent = obj->Get(TsString::Create("agent"));
         if (v_agent.type == ValueType::OBJECT_PTR && v_agent.ptr_val) {
             agent = (TsHttpAgent*)v_agent.ptr_val;
         }
@@ -660,10 +675,7 @@ void TsClientRequest::OnTimeout(uv_timer_t* handle) {
 
     // Call the timeout callback if provided
     if (req->timeoutCallback) {
-        TsValue* cb = (TsValue*)req->timeoutCallback;
-        if (cb->type == ValueType::FUNCTION_PTR) {
-            ts_call_0(cb);
-        }
+        ts_call_0((TsValue*)req->timeoutCallback);
     }
 }
 
@@ -703,9 +715,12 @@ void TsClientRequest::SetSocketKeepAlive(bool enable, int initialDelay) {
 
 static TsValue* client_on_data(void* context, int argc, TsValue** argv) {
     TsClientRequest* self = (TsClientRequest*)context;
-    if (argc > 0 && argv[0]->type == ValueType::OBJECT_PTR) {
-        TsBuffer* buf = (TsBuffer*)argv[0]->ptr_val;
-        llhttp_execute(&self->parser, (const char*)buf->GetData(), buf->GetLength());
+    if (argc > 0) {
+        TsValue a0 = nanbox_to_tagged(argv[0]);
+        if (a0.type == ValueType::OBJECT_PTR) {
+            TsBuffer* buf = (TsBuffer*)a0.ptr_val;
+            llhttp_execute(&self->parser, (const char*)buf->GetData(), buf->GetLength());
+        }
     }
     return nullptr;
 }
@@ -742,11 +757,11 @@ void TsClientRequest::Connect() {
 
         if (options.type == ValueType::OBJECT_PTR) {
             TsMap* opts = (TsMap*)options.ptr_val;
-            TsValue v_reject = opts->Get(TsValue(TsString::Create("rejectUnauthorized")));
+            TsValue v_reject = opts->Get(TsString::Create("rejectUnauthorized"));
             if (v_reject.type == ValueType::BOOLEAN) rejectUnauthorized = v_reject.b_val;
-            
-            TsValue v_ca = opts->Get(TsValue(TsString::Create("ca")));
-            if (v_ca.type != ValueType::UNDEFINED) ca = &v_ca;
+
+            TsValue v_ca = opts->Get(TsString::Create("ca"));
+            if (v_ca.type != ValueType::UNDEFINED) ca = nanbox_from_tagged(v_ca);
         }
         
         secureSocket->SetVerify(rejectUnauthorized, ca);
@@ -879,7 +894,8 @@ TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
     // Reuse the same "connection" logic as TsHttpServer
     server->On("connection", ts_value_make_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
         TsHttpsServer* self = (TsHttpsServer*)ctx;
-        TsSocket* socket = (TsSocket*)argv[0]->ptr_val;
+        TsValue a0 = nanbox_to_tagged(argv[0]);
+        TsSocket* socket = (TsSocket*)a0.ptr_val;
 
         HttpContext* httpCtx = (HttpContext*)ts_alloc(sizeof(HttpContext));
         new (httpCtx) HttpContext(self, socket);
@@ -909,9 +925,12 @@ TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
 
         socket->On("data", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             HttpContext* httpCtx = (HttpContext*)ctx;
-            if (argc > 0 && argv[0]->type == ValueType::OBJECT_PTR) {
-                TsBuffer* buf = (TsBuffer*)argv[0]->ptr_val;
-                llhttp_execute(&httpCtx->parser, (const char*)buf->GetData(), buf->GetLength());
+            if (argc > 0) {
+                TsValue a0 = nanbox_to_tagged(argv[0]);
+                if (a0.type == ValueType::OBJECT_PTR) {
+                    TsBuffer* buf = (TsBuffer*)a0.ptr_val;
+                    llhttp_execute(&httpCtx->parser, (const char*)buf->GetData(), buf->GetLength());
+                }
             }
             return nullptr;
         }, httpCtx));
@@ -932,11 +951,12 @@ void TsHttpsServer::HandleConnection(int status) {
         void* mem = ts_alloc(sizeof(TsSecureSocket));
         TsSecureSocket* socket = new (mem) TsSecureSocket(client, true);
         
-        if (options && options->type == ValueType::OBJECT_PTR) {
-            TsMap* opts = (TsMap*)options->ptr_val;
-            
-            TsValue v_key = opts->Get(TsValue(TsString::Create("key")));
-            TsValue v_cert = opts->Get(TsValue(TsString::Create("cert")));
+        TsValue optDecoded = options ? nanbox_to_tagged(options) : TsValue{};
+        if (optDecoded.type == ValueType::OBJECT_PTR) {
+            TsMap* opts = (TsMap*)optDecoded.ptr_val;
+
+            TsValue v_key = opts->Get(TsString::Create("key"));
+            TsValue v_cert = opts->Get(TsString::Create("cert"));
             
             TsBuffer* keyBuf = nullptr;
             TsBuffer* certBuf = nullptr;
@@ -1005,33 +1025,34 @@ TsHttpsAgent* globalHttpsAgent = nullptr;
 
 // TsHttpAgent implementation
 TsHttpAgent::TsHttpAgent(TsValue* options) : TsEventEmitter() {
-    if (options && options->type == ValueType::OBJECT_PTR) {
-        TsMap* opts = (TsMap*)options->ptr_val;
-        
-        TsValue v_keepAlive = opts->Get(TsValue(TsString::Create("keepAlive")));
+    TsValue optDecoded = options ? nanbox_to_tagged(options) : TsValue{};
+    if (optDecoded.type == ValueType::OBJECT_PTR) {
+        TsMap* opts = (TsMap*)optDecoded.ptr_val;
+
+        TsValue v_keepAlive = opts->Get(TsString::Create("keepAlive"));
         if (v_keepAlive.type == ValueType::BOOLEAN) keepAlive = v_keepAlive.b_val;
-        
-        TsValue v_keepAliveMsecs = opts->Get(TsValue(TsString::Create("keepAliveMsecs")));
+
+        TsValue v_keepAliveMsecs = opts->Get(TsString::Create("keepAliveMsecs"));
         if (v_keepAliveMsecs.type == ValueType::NUMBER_INT) keepAliveMsecs = (int)v_keepAliveMsecs.i_val;
         else if (v_keepAliveMsecs.type == ValueType::NUMBER_DBL) keepAliveMsecs = (int)v_keepAliveMsecs.d_val;
-        
-        TsValue v_maxSockets = opts->Get(TsValue(TsString::Create("maxSockets")));
+
+        TsValue v_maxSockets = opts->Get(TsString::Create("maxSockets"));
         if (v_maxSockets.type == ValueType::NUMBER_INT) maxSockets = (int)v_maxSockets.i_val;
         else if (v_maxSockets.type == ValueType::NUMBER_DBL) maxSockets = (int)v_maxSockets.d_val;
-        
-        TsValue v_maxTotalSockets = opts->Get(TsValue(TsString::Create("maxTotalSockets")));
+
+        TsValue v_maxTotalSockets = opts->Get(TsString::Create("maxTotalSockets"));
         if (v_maxTotalSockets.type == ValueType::NUMBER_INT) maxTotalSockets = (int)v_maxTotalSockets.i_val;
         else if (v_maxTotalSockets.type == ValueType::NUMBER_DBL) maxTotalSockets = (int)v_maxTotalSockets.d_val;
-        
-        TsValue v_maxFreeSockets = opts->Get(TsValue(TsString::Create("maxFreeSockets")));
+
+        TsValue v_maxFreeSockets = opts->Get(TsString::Create("maxFreeSockets"));
         if (v_maxFreeSockets.type == ValueType::NUMBER_INT) maxFreeSockets = (int)v_maxFreeSockets.i_val;
         else if (v_maxFreeSockets.type == ValueType::NUMBER_DBL) maxFreeSockets = (int)v_maxFreeSockets.d_val;
-        
-        TsValue v_timeout = opts->Get(TsValue(TsString::Create("timeout")));
+
+        TsValue v_timeout = opts->Get(TsString::Create("timeout"));
         if (v_timeout.type == ValueType::NUMBER_INT) timeout = (int)v_timeout.i_val;
         else if (v_timeout.type == ValueType::NUMBER_DBL) timeout = (int)v_timeout.d_val;
-        
-        TsValue v_scheduling = opts->Get(TsValue(TsString::Create("scheduling")));
+
+        TsValue v_scheduling = opts->Get(TsString::Create("scheduling"));
         if (v_scheduling.type == ValueType::STRING_PTR) {
             scheduling = ((TsString*)v_scheduling.ptr_val)->ToUtf8();
         }

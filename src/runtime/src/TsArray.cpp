@@ -1,5 +1,6 @@
 #include "TsArray.h"
 #include "TsObject.h"
+#include "TsNanBox.h"
 #include "TsMap.h"
 #include "TsRegExp.h"
 #include "TsRuntime.h"
@@ -7,6 +8,7 @@
 #include "GC.h"
 #include "TsGC.h"
 #include <cstring>
+#include <cmath>
 #include <iostream>
 #include <new>
 #include <algorithm>
@@ -53,12 +55,24 @@ TsValue* TsArray::GetElementBoxed(size_t index) {
         }
     }
 
-    // Generic array - use heuristic for pointer vs int
     int64_t val = ((int64_t*)elements)[index];
-    if (val > 0xFFFFFFFF || val < 0) {
-        return ts_value_make_object((void*)val);
+    ElementKind kind = elementKind_;
+
+    // V8-style SMI: stored as raw int
+    if (kind == ElementKind::PackedSmi || kind == ElementKind::HoleySmi) {
+        return ts_value_make_int(val);
     }
-    return ts_value_make_int(val);
+
+    // V8-style Double: stored as raw double bits
+    if (kind == ElementKind::PackedDouble || kind == ElementKind::HoleyDouble) {
+        double d;
+        memcpy(&d, &val, sizeof(d));
+        return ts_value_make_double(d);
+    }
+
+    // PackedAny / generic: stored values are NaN-boxed uint64_t
+    // Return as-is (the stored value IS the NaN-boxed representation)
+    return (TsValue*)(uintptr_t)(uint64_t)val;
 }
 
 TsArray::TsArray(size_t initialCapacity, size_t elementSize) {
@@ -122,18 +136,14 @@ double TsArray::GetElementDouble(size_t index) {
         return ((double*)elements)[index];
     }
 
-    // Generic array - element is a TsValue* pointer
-    int64_t val = ((int64_t*)elements)[index];
-    TsValue* boxed = (TsValue*)val;
-    if (!boxed) return 0.0;
-
-    // Extract double from the boxed value
-    if (boxed->type == ValueType::NUMBER_DBL) {
-        return boxed->d_val;
-    } else if (boxed->type == ValueType::NUMBER_INT) {
-        return (double)boxed->i_val;
+    if (isSpecialized) {
+        // Specialized int array - raw integers
+        return (double)((int64_t*)elements)[index];
     }
-    return 0.0;
+
+    // Generic array - element is a NaN-boxed value
+    uint64_t nb = (uint64_t)((int64_t*)elements)[index];
+    return nanbox_to_number(nb);
 }
 
 void TsArray::PushDouble(double value) {
@@ -219,54 +229,48 @@ int64_t TsArray::Length() {
     return length;
 }
 
-// JavaScript default sort: convert elements to strings and compare lexicographically.
+// JavaScript default sort: convert NaN-boxed elements to strings and compare lexicographically.
 // undefined values sort to the end.
 static const char* elementToSortString(int64_t elem, char* buf, size_t bufSize) {
-    if (elem == 0) return "undefined";
+    uint64_t nb = (uint64_t)elem;
 
-    // Check if element is a boxed TsValue* (type field at offset 0, valid range 0-10)
-    uint8_t typeTag = *(uint8_t*)(uintptr_t)elem;
-    if (typeTag <= 10) {
-        TsValue* val = (TsValue*)(uintptr_t)elem;
-        switch (val->type) {
-            case ValueType::UNDEFINED: return "undefined";
-            case ValueType::NUMBER_INT:
-                snprintf(buf, bufSize, "%lld", (long long)val->i_val);
-                return buf;
-            case ValueType::NUMBER_DBL:
-                snprintf(buf, bufSize, "%.17g", val->d_val);
-                // Trim trailing zeros for cleaner output (match JS behavior)
-                if (strchr(buf, '.')) {
-                    size_t len = strlen(buf);
-                    while (len > 1 && buf[len-1] == '0') buf[--len] = '\0';
-                    if (len > 0 && buf[len-1] == '.') buf[--len] = '\0';
-                }
-                return buf;
-            case ValueType::STRING_PTR:
-                return ((TsString*)val->ptr_val)->ToUtf8();
-            case ValueType::BOOLEAN:
-                return val->b_val ? "true" : "false";
-            case ValueType::OBJECT_PTR:
-                if (!val->ptr_val) return "null";
-                return "[object Object]";
-            default:
-                return "[object Object]";
+    if (nanbox_is_undefined(nb) || nb == 0) return "undefined";
+    if (nanbox_is_null(nb)) return "null";
+    if (nanbox_is_bool(nb)) return nanbox_to_bool(nb) ? "true" : "false";
+    if (nanbox_is_int32(nb)) {
+        snprintf(buf, bufSize, "%d", nanbox_to_int32(nb));
+        return buf;
+    }
+    if (nanbox_is_double(nb)) {
+        snprintf(buf, bufSize, "%.17g", nanbox_to_double(nb));
+        // Trim trailing zeros for cleaner output (match JS behavior)
+        if (strchr(buf, '.')) {
+            size_t len = strlen(buf);
+            while (len > 1 && buf[len-1] == '0') buf[--len] = '\0';
+            if (len > 0 && buf[len-1] == '.') buf[--len] = '\0';
         }
+        return buf;
+    }
+    if (nanbox_is_ptr(nb)) {
+        void* ptr = nanbox_to_ptr(nb);
+        if (!ptr) return "null";
+        uint32_t magic = *(uint32_t*)ptr;
+        if (magic == TsString::MAGIC) {
+            return ((TsString*)ptr)->ToUtf8();
+        }
+        return "[object Object]";
     }
 
-    // Raw pointer - check magic at offset 0
-    uint32_t magic = *(uint32_t*)(uintptr_t)elem;
-    if (magic == TsString::MAGIC) {
-        return ((TsString*)(uintptr_t)elem)->ToUtf8();
-    }
-
+    // Fallback
     return "[object Object]";
 }
 
 static bool jsDefaultSortComparator(int64_t a, int64_t b) {
     // undefined sorts to the end
-    bool aUndef = (a == 0) || (*(uint8_t*)(uintptr_t)a <= 10 && ((TsValue*)(uintptr_t)a)->type == ValueType::UNDEFINED);
-    bool bUndef = (b == 0) || (*(uint8_t*)(uintptr_t)b <= 10 && ((TsValue*)(uintptr_t)b)->type == ValueType::UNDEFINED);
+    uint64_t nba = (uint64_t)a;
+    uint64_t nbb = (uint64_t)b;
+    bool aUndef = nanbox_is_undefined(nba) || nba == 0;
+    bool bUndef = nanbox_is_undefined(nbb) || nbb == 0;
     if (aUndef && bUndef) return false;
     if (aUndef) return false;  // a goes after b
     if (bUndef) return true;   // a goes before b
@@ -295,20 +299,16 @@ int64_t TsArray::IndexOf(int64_t value) {
         return -1;
     }
 
-    // For specialized integer arrays (PackedSmi), unbox the search value and compare directly
+    // For specialized integer arrays (PackedSmi), unbox the NaN-boxed search value
     if (isSpecialized) {
-        int64_t rawValue = value;
-        if ((uintptr_t)value > 0x10000) {
-            TsValue* maybeBoxed = (TsValue*)value;
-            uint8_t typeVal = *(uint8_t*)maybeBoxed;
-            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-            if (typeVal <= 10 && byte1 == 0) {
-                if (maybeBoxed->type == ValueType::NUMBER_INT) {
-                    rawValue = maybeBoxed->i_val;
-                } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                    rawValue = (int64_t)maybeBoxed->d_val;
-                }
-            }
+        uint64_t nb = (uint64_t)value;
+        int64_t rawValue;
+        if (nanbox_is_int32(nb)) {
+            rawValue = (int64_t)nanbox_to_int32(nb);
+        } else if (nanbox_is_double(nb)) {
+            rawValue = (int64_t)nanbox_to_double(nb);
+        } else {
+            rawValue = value;  // raw int passed directly
         }
         for (size_t i = 0; i < length; ++i) {
             if (((int64_t*)elements)[i] == rawValue) return (int64_t)i;
@@ -316,46 +316,34 @@ int64_t TsArray::IndexOf(int64_t value) {
         return -1;
     }
 
-    // For non-specialized (generic) arrays, elements are TsValue* pointers stored as int64.
-    // The search value is also a TsValue* - we need to compare values, not addresses.
-    TsValue* searchVal = (TsValue*)value;
-    if (!searchVal) return -1;
+    // For non-specialized (generic) arrays, elements are NaN-boxed values stored as int64.
+    // The search value is also NaN-boxed. Compare using NaN-box decoding.
+    uint64_t searchNB = (uint64_t)value;
 
     for (size_t i = 0; i < length; ++i) {
-        TsValue* elemVal = (TsValue*)((int64_t*)elements)[i];
-        if (!elemVal) continue;
+        uint64_t elemNB = (uint64_t)((int64_t*)elements)[i];
 
-        // Compare by type and value
-        if (elemVal->type == searchVal->type) {
-            switch (elemVal->type) {
-                case ValueType::NUMBER_INT:
-                    if (elemVal->i_val == searchVal->i_val) return (int64_t)i;
-                    break;
-                case ValueType::NUMBER_DBL:
-                    if (elemVal->d_val == searchVal->d_val) return (int64_t)i;
-                    break;
-                case ValueType::STRING_PTR:
-                    // Compare string pointers or values
-                    if (elemVal->ptr_val == searchVal->ptr_val) return (int64_t)i;
-                    // Also try comparing string contents
-                    if (elemVal->ptr_val && searchVal->ptr_val) {
-                        TsString* s1 = (TsString*)elemVal->ptr_val;
-                        TsString* s2 = (TsString*)searchVal->ptr_val;
-                        if (s1->Equals(s2)) return (int64_t)i;
-                    }
-                    break;
-                case ValueType::OBJECT_PTR:
-                case ValueType::ARRAY_PTR:
-                    // For objects/arrays, compare by pointer identity
-                    if (elemVal->ptr_val == searchVal->ptr_val) return (int64_t)i;
-                    break;
-                case ValueType::BOOLEAN:
-                    if (elemVal->b_val == searchVal->b_val) return (int64_t)i;
-                    break;
-                default:
-                    if (elemVal->i_val == searchVal->i_val) return (int64_t)i;
-                    break;
+        // Fast path: exact bit-level match (handles ints, bools, null, undefined, same pointer)
+        if (elemNB == searchNB) return (int64_t)i;
+
+        // String comparison: both must be pointers to TsString objects
+        if (nanbox_is_ptr(elemNB) && nanbox_is_ptr(searchNB)) {
+            void* ep = nanbox_to_ptr(elemNB);
+            void* sp = nanbox_to_ptr(searchNB);
+            if (ep && sp) {
+                uint32_t eMagic = *(uint32_t*)ep;
+                uint32_t sMagic = *(uint32_t*)sp;
+                if (eMagic == TsString::MAGIC && sMagic == TsString::MAGIC) {
+                    if (((TsString*)ep)->Equals((TsString*)sp)) return (int64_t)i;
+                }
             }
+        }
+
+        // Numeric cross-type: int32 vs double with same numeric value
+        if (nanbox_is_number(elemNB) && nanbox_is_number(searchNB)) {
+            double ed = nanbox_to_number(elemNB);
+            double sd = nanbox_to_number(searchNB);
+            if (ed == sd) return (int64_t)i;
         }
     }
     return -1;
@@ -378,17 +366,12 @@ int64_t TsArray::LastIndexOf(int64_t value) {
     // For specialized integer arrays (PackedSmi), unbox the search value and compare directly
     if (isSpecialized) {
         int64_t rawValue = value;
-        if ((uintptr_t)value > 0x10000) {
-            TsValue* maybeBoxed = (TsValue*)value;
-            uint8_t typeVal = *(uint8_t*)maybeBoxed;
-            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-            if (typeVal <= 10 && byte1 == 0) {
-                if (maybeBoxed->type == ValueType::NUMBER_INT) {
-                    rawValue = maybeBoxed->i_val;
-                } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                    rawValue = (int64_t)maybeBoxed->d_val;
-                }
-            }
+        // Decode NaN-boxed value to extract integer for comparison
+        TsValue decoded = nanbox_to_tagged((TsValue*)value);
+        if (decoded.type == ValueType::NUMBER_INT) {
+            rawValue = decoded.i_val;
+        } else if (decoded.type == ValueType::NUMBER_DBL) {
+            rawValue = (int64_t)decoded.d_val;
         }
         for (size_t i = length; i > 0; --i) {
             if (((int64_t*)elements)[i - 1] == rawValue) return (int64_t)(i - 1);
@@ -398,41 +381,33 @@ int64_t TsArray::LastIndexOf(int64_t value) {
 
     // For non-specialized (generic) arrays, elements are TsValue* pointers stored as int64.
     // The search value is also a TsValue* - we need to compare values, not addresses.
-    TsValue* searchVal = (TsValue*)value;
-    if (!searchVal) return -1;
+    // For non-specialized (generic) arrays, use NaN-box comparison
+    uint64_t searchNB = (uint64_t)value;
 
     for (size_t i = length; i > 0; --i) {
-        TsValue* elemVal = (TsValue*)((int64_t*)elements)[i - 1];
-        if (!elemVal) continue;
+        uint64_t elemNB = (uint64_t)((int64_t*)elements)[i - 1];
 
-        // Compare by type and value
-        if (elemVal->type == searchVal->type) {
-            switch (elemVal->type) {
-                case ValueType::NUMBER_INT:
-                    if (elemVal->i_val == searchVal->i_val) return (int64_t)(i - 1);
-                    break;
-                case ValueType::NUMBER_DBL:
-                    if (elemVal->d_val == searchVal->d_val) return (int64_t)(i - 1);
-                    break;
-                case ValueType::STRING_PTR:
-                    if (elemVal->ptr_val == searchVal->ptr_val) return (int64_t)(i - 1);
-                    if (elemVal->ptr_val && searchVal->ptr_val) {
-                        TsString* s1 = (TsString*)elemVal->ptr_val;
-                        TsString* s2 = (TsString*)searchVal->ptr_val;
-                        if (s1->Equals(s2)) return (int64_t)(i - 1);
-                    }
-                    break;
-                case ValueType::OBJECT_PTR:
-                case ValueType::ARRAY_PTR:
-                    if (elemVal->ptr_val == searchVal->ptr_val) return (int64_t)(i - 1);
-                    break;
-                case ValueType::BOOLEAN:
-                    if (elemVal->b_val == searchVal->b_val) return (int64_t)(i - 1);
-                    break;
-                default:
-                    if (elemVal->i_val == searchVal->i_val) return (int64_t)(i - 1);
-                    break;
+        // Fast path: exact bit-level match
+        if (elemNB == searchNB) return (int64_t)(i - 1);
+
+        // String comparison
+        if (nanbox_is_ptr(elemNB) && nanbox_is_ptr(searchNB)) {
+            void* ep = nanbox_to_ptr(elemNB);
+            void* sp = nanbox_to_ptr(searchNB);
+            if (ep && sp) {
+                uint32_t eMagic = *(uint32_t*)ep;
+                uint32_t sMagic = *(uint32_t*)sp;
+                if (eMagic == TsString::MAGIC && sMagic == TsString::MAGIC) {
+                    if (((TsString*)ep)->Equals((TsString*)sp)) return (int64_t)(i - 1);
+                }
             }
+        }
+
+        // Numeric cross-type comparison
+        if (nanbox_is_number(elemNB) && nanbox_is_number(searchNB)) {
+            double ed = nanbox_to_number(elemNB);
+            double sd = nanbox_to_number(searchNB);
+            if (ed == sd) return (int64_t)(i - 1);
         }
     }
     return -1;
@@ -456,26 +431,20 @@ void* TsArray::Flat(int64_t depth) {
     TsArray* result = TsArray::Create();
     for (size_t i = 0; i < length; ++i) {
         int64_t val = ((int64_t*)elements)[i];
-        if (depth > 0 && val > 0x1000 && !((val & 0xFFFF000000000000) == 0x7FF8000000000000)) {
-            // Check if it's a TsValue* with ARRAY_PTR type
-            TsValue* maybeBoxed = (TsValue*)val;
-            if (maybeBoxed->type == ValueType::ARRAY_PTR && maybeBoxed->ptr_val) {
-                TsArray* sub = (TsArray*)maybeBoxed->ptr_val;
-                TsArray* flattenedSub = (TsArray*)sub->Flat(depth - 1);
-                for (size_t j = 0; j < flattenedSub->length; ++j) {
-                    result->Push(((int64_t*)flattenedSub->elements)[j]);
+        uint64_t nb = (uint64_t)val;
+        if (depth > 0 && nanbox_is_ptr(nb)) {
+            void* ptr = nanbox_to_ptr(nb);
+            if (ptr) {
+                // Check magic at offset 0 for TsArray
+                uint32_t magic = *(uint32_t*)ptr;
+                if (magic == TsArray::MAGIC) {
+                    TsArray* sub = (TsArray*)ptr;
+                    TsArray* flattenedSub = (TsArray*)sub->Flat(depth - 1);
+                    for (size_t j = 0; j < flattenedSub->length; ++j) {
+                        result->Push(((int64_t*)flattenedSub->elements)[j]);
+                    }
+                    continue;
                 }
-                continue;
-            }
-            // Also check for raw TsArray* pointer (legacy/fallback)
-            uint32_t* magicPtr = (uint32_t*)val;
-            if (*magicPtr == TsArray::MAGIC) {
-                TsArray* sub = (TsArray*)val;
-                TsArray* flattenedSub = (TsArray*)sub->Flat(depth - 1);
-                for (size_t j = 0; j < flattenedSub->length; ++j) {
-                    result->Push(((int64_t*)flattenedSub->elements)[j]);
-                }
-                continue;
             }
         }
         result->Push(val);
@@ -500,9 +469,9 @@ void TsArray::ForEach(void* callback, void* thisArg) {
         return;
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return;
+    if (!cbVal) return;
 
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
@@ -527,9 +496,9 @@ void* TsArray::Map(void* callback, void* thisArg) {
         return result;
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
+    if (!cbVal) return nullptr;
 
     TsArray* result = TsArray::Create(length);
     for (size_t i = 0; i < length; ++i) {
@@ -558,9 +527,9 @@ void* TsArray::Filter(void* callback, void* thisArg) {
         return result;
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
+    if (!cbVal) return nullptr;
 
     // Preserve the source array's specialized type in the result
     TsArray* result;
@@ -608,9 +577,9 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
         return accumulator;
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
+    if (!cbVal) return nullptr;
 
     TsValue* accumulator = (TsValue*)initialValue;
     size_t startIdx = 0;
@@ -646,9 +615,9 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
         return accumulator;
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return nullptr;
+    if (!cbVal) return nullptr;
 
     TsValue* accumulator = (TsValue*)initialValue;
     size_t startIdx = length;
@@ -677,16 +646,16 @@ bool TsArray::Some(void* callback, void* thisArg) {
         return false;
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return false;
+    if (!cbVal) return false;
 
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
-        if (res->type == ValueType::BOOLEAN && res->b_val) return true;
+        if (ts_value_to_bool(res)) return true;
     }
     return false;
 }
@@ -702,16 +671,16 @@ bool TsArray::Every(void* callback, void* thisArg) {
         return true;
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return false;
+    if (!cbVal) return false;
 
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
-        if (res->type == ValueType::BOOLEAN && !res->b_val) return false;
+        if (!ts_value_to_bool(res)) return false;
     }
     return true;
 }
@@ -730,16 +699,16 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
         return ts_value_make_undefined();
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return ts_value_make_undefined();
+    if (!cbVal) return ts_value_make_undefined();
 
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
-        if (res->type == ValueType::BOOLEAN && res->b_val) {
+        if (ts_value_to_bool(res)) {
             return GetElementBoxed(i);
         }
     }
@@ -757,16 +726,16 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
         return -1;
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return -1;
+    if (!cbVal) return -1;
 
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
-        if (res->type == ValueType::BOOLEAN && res->b_val) return (int64_t)i;
+        if (ts_value_to_bool(res)) return (int64_t)i;
     }
     return -1;
 }
@@ -786,9 +755,9 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
         return ts_value_make_undefined();
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return ts_value_make_undefined();
+    if (!cbVal) return ts_value_make_undefined();
 
     for (size_t i = length; i > 0; --i) {
         size_t idx = i - 1;
@@ -796,7 +765,7 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
         TsValue* idxVal = ts_value_make_int(idx);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
-        if (res->type == ValueType::BOOLEAN && res->b_val) {
+        if (ts_value_to_bool(res)) {
             return GetElementBoxed(idx);
         }
     }
@@ -815,9 +784,9 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
         return -1;
     }
 
-    // Standard TsValue/TsFunction path
+    // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return -1;
+    if (!cbVal) return -1;
 
     for (size_t i = length; i > 0; --i) {
         size_t idx = i - 1;
@@ -825,7 +794,7 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
         TsValue* idxVal = ts_value_make_int(idx);
         TsValue* arr = ts_value_make_object(this);
         TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
-        if (res->type == ValueType::BOOLEAN && res->b_val) return (int64_t)idx;
+        if (ts_value_to_bool(res)) return (int64_t)idx;
     }
     return -1;
 }
@@ -1045,22 +1014,16 @@ void* TsArray::Slice(int64_t start, int64_t end) {
     size_t newLength = end - start;
     TsArray* result = TsArray::Create(newLength);
 
-    // Preserve specialized array type
+    // Preserve specialized array type and element kind
     if (isSpecialized) {
         result->isSpecialized = true;
         result->isDouble = isDouble;
+    }
+    result->elementKind_ = elementKind_;
 
-        // For specialized arrays, copy raw bytes and adjust length manually
-        // Both int64_t and double are 8 bytes
-        for (size_t i = 0; i < newLength; ++i) {
-            // Access as int64_t (raw bits) for both int and double specialized arrays
-            int64_t rawBits = ((int64_t*)elements)[start + i];
-            result->Push(rawBits);
-        }
-    } else {
-        for (size_t i = 0; i < newLength; ++i) {
-            result->Push(((int64_t*)elements)[start + i]);
-        }
+    for (size_t i = 0; i < newLength; ++i) {
+        int64_t rawBits = ((int64_t*)elements)[start + i];
+        result->Push(rawBits);
     }
     return result;
 }
@@ -1092,34 +1055,46 @@ void* TsArray::Join(void* separator) {
             continue;
         }
 
-        // Generic array - elements can be anything (int, double, pointer to TsValue or TsString)
-        int64_t val = ((int64_t*)elements)[i];
-        if (val == 0) {
-            ss << "null";
-        } else if (val > 0x1000) { // Heuristic for pointer
-            // First check if this is a boxed TsValue - check if first byte looks like ValueType enum (0-10)
-            uint8_t firstByte = *(uint8_t*)val;
-            if (firstByte <= 10) {
-                // Likely a TsValue* - convert to string via ts_string_from_value
-                TsString* str = (TsString*)ts_string_from_value((TsValue*)val);
-                if (str) {
-                    ss << str->ToUtf8();
-                } else {
-                    ss << "undefined";
-                }
+        // Generic array - elements are NaN-boxed values
+        uint64_t nb = (uint64_t)((int64_t*)elements)[i];
+        if (nanbox_is_undefined(nb)) {
+            // undefined joins as empty string (JS spec)
+        } else if (nanbox_is_null(nb) || nb == 0) {
+            // null joins as empty string (JS spec)
+        } else if (nanbox_is_int32(nb)) {
+            ss << nanbox_to_int32(nb);
+        } else if (nanbox_is_double(nb)) {
+            double d = nanbox_to_double(nb);
+            if (d == (int64_t)d && !std::isinf(d)) {
+                ss << (int64_t)d;
             } else {
-                // Check magic for raw objects
-                uint32_t* magicPtr = (uint32_t*)val;
-                if (*magicPtr == TsString::MAGIC) {
-                    ss << ((TsString*)val)->ToUtf8();
-                } else if (*magicPtr == TsArray::MAGIC) {
-                    ss << "[Array]";
+                ss << d;
+            }
+        } else if (nanbox_is_bool(nb)) {
+            ss << (nanbox_to_bool(nb) ? "true" : "false");
+        } else if (nanbox_is_ptr(nb)) {
+            void* ptr = nanbox_to_ptr(nb);
+            if (!ptr) {
+                // null pointer
+            } else {
+                uint32_t magic = *(uint32_t*)ptr;
+                if (magic == TsString::MAGIC) {
+                    ss << ((TsString*)ptr)->ToUtf8();
+                } else if (magic == TsArray::MAGIC) {
+                    // Nested array: recursively join with comma
+                    TsString* sub = (TsString*)((TsArray*)ptr)->Join(nullptr);
+                    if (sub) ss << sub->ToUtf8();
                 } else {
-                    ss << val;
+                    // Other object - use ts_string_from_value
+                    TsString* str = (TsString*)ts_string_from_value((TsValue*)(uintptr_t)nb);
+                    if (str) ss << str->ToUtf8();
+                    else ss << "[object Object]";
                 }
             }
         } else {
-            ss << val;
+            // Fallback: use ts_string_from_value
+            TsString* str = (TsString*)ts_string_from_value((TsValue*)(uintptr_t)nb);
+            if (str) ss << str->ToUtf8();
         }
     }
     return TsString::Create(ss.str().c_str());
@@ -1222,19 +1197,12 @@ extern "C" {
     }
 
     void ts_array_push(void* arr, void* value) {
-        // Unbox arr if it's a TsValue* pointing to an array
+        // Unbox arr if it's a NaN-boxed TsValue* pointing to an array
         void* rawArr = arr;
-        if (arr && (uintptr_t)arr > 0x10000) {
-            TsValue* maybeBoxed = (TsValue*)arr;
-            uint8_t typeVal = *(uint8_t*)maybeBoxed;
-            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-            uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
-            uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
-            // Check if it's a proper TsValue* (type <= 10, padding bytes are 0)
-            if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
-                if (maybeBoxed->type == ValueType::OBJECT_PTR || maybeBoxed->type == ValueType::ARRAY_PTR) {
-                    rawArr = maybeBoxed->ptr_val;
-                }
+        if (arr) {
+            TsValue decoded = nanbox_to_tagged((TsValue*)arr);
+            if ((decoded.type == ValueType::OBJECT_PTR || decoded.type == ValueType::ARRAY_PTR) && decoded.ptr_val) {
+                rawArr = decoded.ptr_val;
             }
         }
 
@@ -1284,138 +1252,65 @@ extern "C" {
             return;
         }
 
-        // ==== SLOW PATH: Non-specialized arrays (values may be TsValue* or raw) ====
-        // For non-specialized arrays, the value might be:
-        // 1. A boxed TsValue* pointer
-        // 2. Raw integer/double bits (via inttoptr from older code paths)
-
-        // V8-style element kind handling for non-specialized arrays
-        // (These element kinds are tracked for future optimization but arrays still use generic storage)
+        // ==== SLOW PATH: Non-specialized arrays with NaN-boxed values ====
+        // With NaN boxing, `value` is a NaN-boxed uint64_t (not a pointer to a TsValue struct).
+        // Decode using nanbox_is_* / nanbox_to_* helpers.
+        uint64_t nb = (uint64_t)(uintptr_t)value;
 
         // PackedSmi: Try to store as unboxed int64
         if (kind == ElementKind::PackedSmi || kind == ElementKind::HoleySmi) {
-            // For non-specialized SMI arrays, check if value is a boxed TsValue*
-            TsValue* maybeBoxed = (TsValue*)value;
-            if (maybeBoxed && (uintptr_t)value > 0x10000) {
-                uint8_t typeVal = *(uint8_t*)maybeBoxed;
-                uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-                uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
-                uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
-                if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
-                    // It's a boxed TsValue*
-                    if (maybeBoxed->type == ValueType::NUMBER_INT) {
-                        // SMI value - store directly
-                        int64_t val = maybeBoxed->i_val;
-                        // Check SMI range (-2^30 to 2^30-1 for 31-bit SMI)
-                        if (val >= -1073741824LL && val <= 1073741823LL) {
-                            array->Push(val);
-                            return;
-                        }
-                        // Out of SMI range - transition to Double
-                        array->TransitionTo(ElementKind::PackedDouble);
-                        int64_t dblBits;
-                        double dval = (double)val;
-                        memcpy(&dblBits, &dval, sizeof(dblBits));
-                        array->Push(dblBits);
-                        return;
-                    } else if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                        // Double value - transition to PackedDouble
-                        array->TransitionTo(ElementKind::PackedDouble);
-                        int64_t dblBits;
-                        memcpy(&dblBits, &maybeBoxed->d_val, sizeof(dblBits));
-                        array->Push(dblBits);
-                        return;
-                    } else {
-                        // Non-numeric - transition to PackedAny
-                        array->TransitionTo(ElementKind::PackedAny);
-                        TsValue* heapCopy = (TsValue*)ts_alloc(sizeof(TsValue));
-                        heapCopy->type = maybeBoxed->type;
-                        heapCopy->i_val = maybeBoxed->i_val;
-                        array->Push((int64_t)heapCopy);
-                        return;
-                    }
+            if (nanbox_is_int32(nb)) {
+                int32_t val = nanbox_to_int32(nb);
+                if (val >= -1073741824 && val <= 1073741823) {
+                    array->Push((int64_t)val);
+                    return;
                 }
-            }
-            // Raw integer value - store directly if in SMI range
-            if (bits >= -1073741824LL && bits <= 1073741823LL) {
-                array->Push(bits);
+                array->TransitionTo(ElementKind::PackedDouble);
+                double dval = (double)val;
+                int64_t dblBits;
+                memcpy(&dblBits, &dval, sizeof(dblBits));
+                array->Push(dblBits);
+                return;
+            } else if (nanbox_is_double(nb)) {
+                array->TransitionTo(ElementKind::PackedDouble);
+                double dval = nanbox_to_double(nb);
+                int64_t dblBits;
+                memcpy(&dblBits, &dval, sizeof(dblBits));
+                array->Push(dblBits);
+                return;
+            } else {
+                // Non-numeric (pointer, bool, null, undefined) - transition to PackedAny
+                array->TransitionTo(ElementKind::PackedAny);
+                array->Push((int64_t)nb);  // Store NaN-boxed value directly
                 return;
             }
-            // Out of SMI range - transition to Double
-            array->TransitionTo(ElementKind::PackedDouble);
-            double dval = (double)bits;
-            int64_t dblBits;
-            memcpy(&dblBits, &dval, sizeof(dblBits));
-            array->Push(dblBits);
-            return;
         }
 
         // PackedDouble: Store as unboxed double bits
         if (kind == ElementKind::PackedDouble || kind == ElementKind::HoleyDouble) {
-            // For non-specialized Double arrays, check if value is a boxed TsValue*
-            TsValue* maybeBoxed = (TsValue*)value;
-            if (maybeBoxed && (uintptr_t)value > 0x10000) {
-                uint8_t typeVal = *(uint8_t*)maybeBoxed;
-                uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-                uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
-                uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
-                if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
-                    // It's a boxed TsValue*
-                    if (maybeBoxed->type == ValueType::NUMBER_DBL) {
-                        int64_t dblBits;
-                        memcpy(&dblBits, &maybeBoxed->d_val, sizeof(dblBits));
-                        array->Push(dblBits);
-                        return;
-                    } else if (maybeBoxed->type == ValueType::NUMBER_INT) {
-                        double dval = (double)maybeBoxed->i_val;
-                        int64_t dblBits;
-                        memcpy(&dblBits, &dval, sizeof(dblBits));
-                        array->Push(dblBits);
-                        return;
-                    } else {
-                        // Non-numeric - transition to PackedAny
-                        array->TransitionTo(ElementKind::PackedAny);
-                        TsValue* heapCopy = (TsValue*)ts_alloc(sizeof(TsValue));
-                        heapCopy->type = maybeBoxed->type;
-                        heapCopy->i_val = maybeBoxed->i_val;
-                        array->Push((int64_t)heapCopy);
-                        return;
-                    }
-                }
-            }
-            // Raw bits - interpret using same heuristic as before
-            double asDouble;
-            memcpy(&asDouble, &bits, sizeof(asDouble));
-            double absMag = asDouble < 0 ? -asDouble : asDouble;
-            if (absMag < 1e-100 && bits != 0) {
-                // Likely an integer - convert to double
-                double dval = (double)bits;
-                memcpy(&bits, &dval, sizeof(bits));
-            }
-            array->Push(bits);
-            return;
-        }
-
-        // ==== PackedAny / generic path ====
-
-        // For generic (non-specialized) arrays, keep values boxed as TsValue*
-        // This preserves type information and avoids ambiguity (e.g., double 0.0 vs null)
-        TsValue* maybeBoxed = (TsValue*)value;
-        if (maybeBoxed && (uintptr_t)value > 0x10000) {
-            uint8_t typeVal = (uint8_t)maybeBoxed->type;
-            if (typeVal <= 10) {  // Valid ValueType range (0-10)
-                // It's a boxed TsValue* - COPY to heap to avoid stack pointer issues
-                // The caller may be using a stack-allocated alloca that gets reused in loops
-                TsValue* heapCopy = (TsValue*)ts_alloc(sizeof(TsValue));
-                heapCopy->type = maybeBoxed->type;
-                heapCopy->i_val = maybeBoxed->i_val;  // Copy the union
-                array->Push((int64_t)heapCopy);  // Store the heap-allocated copy
+            if (nanbox_is_double(nb)) {
+                double dval = nanbox_to_double(nb);
+                int64_t dblBits;
+                memcpy(&dblBits, &dval, sizeof(dblBits));
+                array->Push(dblBits);
+                return;
+            } else if (nanbox_is_int32(nb)) {
+                double dval = (double)nanbox_to_int32(nb);
+                int64_t dblBits;
+                memcpy(&dblBits, &dval, sizeof(dblBits));
+                array->Push(dblBits);
+                return;
+            } else {
+                // Non-numeric - transition to PackedAny
+                array->TransitionTo(ElementKind::PackedAny);
+                array->Push((int64_t)nb);  // Store NaN-boxed value directly
                 return;
             }
         }
 
-        // Not boxed or unknown type - store as-is
-        array->Push(bits);
+        // ==== PackedAny / generic path ====
+        // Store NaN-boxed value directly (no heap allocation needed)
+        array->Push((int64_t)nb);
     }
 
     void* ts_array_pop(void* arr) {
@@ -1517,12 +1412,9 @@ extern "C" {
             return result;
         }
 
-        // For non-specialized arrays, the stored value is a TsValue*
-        TsValue* stored = (TsValue*)val;
-        if (stored) {
-            return *stored;
-        }
-        return result;
+        // For non-specialized arrays, the stored value is a NaN-boxed uint64_t
+        // Convert to TsValue struct using nanbox_to_tagged
+        return nanbox_to_tagged((TsValue*)(uintptr_t)(uint64_t)val);
     }
 
     // Value-based set - takes TsValue by value
@@ -1558,9 +1450,8 @@ extern "C" {
             } else {
                 // Non-numeric - transition to PackedAny
                 array->TransitionTo(ElementKind::PackedAny);
-                TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-                *v = value;
-                array->Set(index, (int64_t)v);
+                TsValue* nb = nanbox_from_tagged(value);
+                array->Set(index, (int64_t)(uintptr_t)nb);
                 return;
             }
         }
@@ -1581,9 +1472,8 @@ extern "C" {
             } else {
                 // Non-numeric - transition to PackedAny
                 array->TransitionTo(ElementKind::PackedAny);
-                TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-                *v = value;
-                array->Set(index, (int64_t)v);
+                TsValue* nb = nanbox_from_tagged(value);
+                array->Set(index, (int64_t)(uintptr_t)nb);
                 return;
             }
         }
@@ -1603,34 +1493,21 @@ extern "C" {
         }
 
         // ==== PackedAny / generic path ====
-        // For non-specialized, we need to allocate a TsValue
-        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-        *v = value;
-        array->Set(index, (int64_t)v);
+        // Store NaN-boxed value directly (no heap allocation)
+        TsValue* nb = nanbox_from_tagged(value);
+        array->Set(index, (int64_t)(uintptr_t)nb);
     }
 
-    // Helper to extract raw TsArray* from potentially boxed TsValue*
+    // Helper to extract raw TsArray* from potentially NaN-boxed TsValue*
     static TsArray* unboxArrayIfNeeded(void* arr) {
         if (!arr) return nullptr;
 
-        // Check if this is a boxed TsValue* with ARRAY_PTR or OBJECT_PTR type
-        // Arrays stored as object properties get boxed as OBJECT_PTR
-        // TsValue first byte is the type enum (0-10), with zero padding bytes
-        if ((uintptr_t)arr > 0x10000) {
-            uint8_t typeVal = *(uint8_t*)arr;
-            uint8_t byte1 = *((uint8_t*)arr + 1);
-            uint8_t byte2 = *((uint8_t*)arr + 2);
-            uint8_t byte3 = *((uint8_t*)arr + 3);
-            // Check if it's a proper TsValue* (type <= 10, padding bytes are 0)
-            if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
-                TsValue* val = (TsValue*)arr;
-                if (val->type == ValueType::ARRAY_PTR || val->type == ValueType::OBJECT_PTR) {
-                    return (TsArray*)val->ptr_val;
-                }
-            }
-        }
+        // With NaN boxing, arr may be a NaN-boxed pointer (= raw pointer)
+        // Use ts_value_get_object to decode
+        void* raw = ts_value_get_object((TsValue*)arr);
+        if (raw) return (TsArray*)raw;
 
-        // It's already a raw array pointer
+        // Fallback: treat as raw array pointer
         return (TsArray*)arr;
     }
 
@@ -1650,22 +1527,10 @@ extern "C" {
     int64_t ts_array_length(void* arr) {
         if (!arr) return 0;
 
-        // Check if this is a boxed TsValue* with ARRAY_PTR or OBJECT_PTR type
-        // (arrays get boxed as OBJECT_PTR when stored via ts_value_make_object)
-        if ((uintptr_t)arr > 0x10000) {
-            TsValue* maybeBoxed = (TsValue*)arr;
-            uint8_t typeVal = *(uint8_t*)maybeBoxed;
-            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-            uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
-            uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
-            // Check if it's a proper TsValue* (type <= 10, padding bytes are 0)
-            if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
-                if (maybeBoxed->type == ValueType::ARRAY_PTR || maybeBoxed->type == ValueType::OBJECT_PTR) {
-                    arr = maybeBoxed->ptr_val;
-                    if (!arr) return 0;
-                }
-            }
-        }
+        // With NaN boxing, arr may be a NaN-boxed pointer
+        // Use ts_value_get_object to decode
+        void* raw = ts_value_get_object((TsValue*)arr);
+        if (raw) arr = raw;
 
         // Check magic to handle TsRegExpMatchArray
         uint32_t magic = *(uint32_t*)arr;
@@ -1678,32 +1543,16 @@ extern "C" {
     bool ts_array_isArray(void* value) {
         if (!value) return false;
 
-        // Check if this is a boxed TsValue*
-        if ((uintptr_t)value > 0x10000) {
-            TsValue* maybeBoxed = (TsValue*)value;
-            uint8_t typeVal = *(uint8_t*)maybeBoxed;
-            uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-            uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
-            uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
-            // Check if it's a proper TsValue* (type <= 10, padding bytes are 0)
-            if (typeVal <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
-                if (maybeBoxed->type == ValueType::ARRAY_PTR) {
-                    return true;
-                }
-                if (maybeBoxed->type == ValueType::OBJECT_PTR) {
-                    void* inner = maybeBoxed->ptr_val;
-                    if (inner) {
-                        uint32_t magic = *(uint32_t*)inner;
-                        return magic == TsArray::MAGIC || magic == 0x524D4154; // TsRegExpMatchArray
-                    }
-                }
-                return false;
-            }
+        // Decode NaN-boxed value
+        TsValue decoded = nanbox_to_tagged((TsValue*)value);
+        if (decoded.type == ValueType::ARRAY_PTR) {
+            return true;
         }
-
-        // Direct object pointer - check magic
-        uint32_t magic = *(uint32_t*)value;
-        return magic == TsArray::MAGIC || magic == 0x524D4154; // TsRegExpMatchArray::MAGIC
+        if (decoded.type == ValueType::OBJECT_PTR && decoded.ptr_val) {
+            uint32_t magic = *(uint32_t*)decoded.ptr_val;
+            return magic == TsArray::MAGIC || magic == 0x524D4154; // TsRegExpMatchArray
+        }
+        return false;
     }
 
     // Thread-local comparator state for use in std::sort
@@ -1932,18 +1781,14 @@ extern "C" {
     bool ts_array_is_array(void* value) {
         if (!value) return false;
 
-        // Check if the value is a TsValue* with ARRAY_PTR type
-        TsValue* v = (TsValue*)value;
-        if (v->type == ValueType::ARRAY_PTR && v->ptr_val) {
-            // It's a boxed array - check the underlying pointer
-            uint32_t* magic_ptr = (uint32_t*)v->ptr_val;
+        // Decode NaN-boxed value
+        TsValue decoded = nanbox_to_tagged((TsValue*)value);
+        if (decoded.type == ValueType::ARRAY_PTR && decoded.ptr_val) {
+            uint32_t* magic_ptr = (uint32_t*)decoded.ptr_val;
             return *magic_ptr == TsArray::MAGIC;
         }
 
-        // Check if the value has the TsArray magic number directly
-        // The magic is the first field of TsArray (at offset 0)
-        uint32_t* magic_ptr = (uint32_t*)value;
-        return *magic_ptr == TsArray::MAGIC;
+        return false;
     }
 
     void* ts_array_of(void* elementsArray) {
@@ -1962,9 +1807,11 @@ extern "C" {
         void* rawPtr = ts_value_get_object((TsValue*)arrayLike);
         if (!rawPtr) rawPtr = arrayLike;
 
-        // Get map function as TsValue* for calling
+        // Get map function as TsValue* for calling (NaN-boxed)
         TsValue* mapFnVal = (TsValue*)mapFn;
-        bool hasMapFn = mapFnVal && mapFnVal->type == ValueType::FUNCTION_PTR;
+        // With NaN boxing, a non-null function pointer is valid if it's a pointer above special range
+        uint64_t mapFnNB = (uint64_t)(uintptr_t)mapFn;
+        bool hasMapFn = mapFnVal && nanbox_is_ptr(mapFnNB);
 
         // Check if it's already an array
         if (ts_array_is_array(rawPtr)) {
@@ -1992,9 +1839,11 @@ extern "C" {
         }
 
         // Check if it's a string - convert to character array
-        TsValue* val = (TsValue*)arrayLike;
-        if (val->type == ValueType::STRING_PTR && val->ptr_val) {
-            TsString* str = (TsString*)val->ptr_val;
+        // With NaN boxing, arrayLike is a NaN-boxed pointer to a TsString
+        uint64_t alNB = (uint64_t)(uintptr_t)arrayLike;
+        if (nanbox_is_ptr(alNB) && nanbox_to_ptr(alNB) &&
+            *(uint32_t*)nanbox_to_ptr(alNB) == TsString::MAGIC) {
+            TsString* str = (TsString*)nanbox_to_ptr(alNB);
             const char* utf8 = str->ToUtf8();
             int64_t len = str->Length();
 
@@ -2124,9 +1973,9 @@ extern "C" {
                 *out_value = 0;
                 return;
             }
-            TsValue* stored = (TsValue*)raw_val;
-            *out_type = (uint8_t)stored->type;
-            *out_value = stored->i_val;
+            TsValue decoded = nanbox_to_tagged((TsValue*)raw_val);
+            *out_type = (uint8_t)decoded.type;
+            *out_value = decoded.i_val;
             return;
         }
 
@@ -2169,77 +2018,56 @@ extern "C" {
             return;
         }
 
-        // For non-specialized arrays, the stored value might be:
-        // 1. A TsValue* pointer (boxed value) - need to dereference
-        // 2. A raw object pointer (TsMap*, TsArray*, etc.) - ts_array_push stores raw ptrs
-        // 3. A raw primitive value (int, double bits) - for rest parameters
-        if (raw_val == 0) {
+        // For non-specialized arrays, stored values are NaN-boxed uint64_t.
+        // Decode using NaN-box helpers.
+        uint64_t nb = (uint64_t)raw_val;
+
+        if (nanbox_is_undefined(nb)) {
             *out_type = (uint8_t)ValueType::UNDEFINED;
             *out_value = 0;
             return;
         }
-
-        // SAFETY CHECK: If raw_val is too small to be a valid pointer, it's a raw primitive
-        // Valid heap pointers on Windows/Linux 64-bit are typically > 0x10000
-        if ((uint64_t)raw_val < 0x10000) {
-            // Definitely a raw integer, not a pointer
+        if (nanbox_is_null(nb)) {
+            *out_type = (uint8_t)ValueType::OBJECT_PTR;
+            *out_value = 0;
+            return;
+        }
+        if (nanbox_is_int32(nb)) {
             *out_type = (uint8_t)ValueType::NUMBER_INT;
-            *out_value = raw_val;
+            *out_value = (int64_t)nanbox_to_int32(nb);
             return;
         }
-
-        // Check if raw_val looks like a TsValue* (type field <= 10 AND padding bytes are 0)
-        // vs a raw object pointer (vtable pointer in first 8 bytes)
-        TsValue* maybeBoxed = (TsValue*)raw_val;
-        uint8_t typeField = *(uint8_t*)maybeBoxed;
-        uint8_t byte1 = *((uint8_t*)maybeBoxed + 1);
-        uint8_t byte2 = *((uint8_t*)maybeBoxed + 2);
-        uint8_t byte3 = *((uint8_t*)maybeBoxed + 3);
-
-        if (typeField <= 10 && byte1 == 0 && byte2 == 0 && byte3 == 0) {
-            // It's a proper TsValue* - extract type and value
-            *out_type = (uint8_t)maybeBoxed->type;
-            *out_value = maybeBoxed->i_val;
+        if (nanbox_is_double(nb)) {
+            *out_type = (uint8_t)ValueType::NUMBER_DBL;
+            double d = nanbox_to_double(nb);
+            memcpy(out_value, &d, sizeof(d));
             return;
         }
-
-        // Not a TsValue* - it's a raw object pointer stored by ts_array_push
-        // Check if it's a known object type by magic number
-        uint32_t magic0 = *(uint32_t*)raw_val;
-        uint32_t magic16 = *(uint32_t*)((char*)raw_val + 16);
-
-        // Check magic at offset 0 (TsArray, TsMap without vtable)
-        if (magic0 == 0x41525259 || // TsArray::MAGIC
-            magic0 == 0x4D415053 || // TsMap::MAGIC
-            magic0 == 0x53455453 || // TsSet::MAGIC
-            magic0 == 0x524D4154) { // TsRegExpMatchArray::MAGIC
+        if (nanbox_is_bool(nb)) {
+            *out_type = (uint8_t)ValueType::BOOLEAN;
+            *out_value = nanbox_to_bool(nb) ? 1 : 0;
+            return;
+        }
+        if (nanbox_is_ptr(nb)) {
+            void* ptr = nanbox_to_ptr(nb);
+            // Read magic to determine pointer sub-type
+            uint32_t magic0 = *(uint32_t*)ptr;
+            if (magic0 == 0x53545247) { // TsString::MAGIC
+                *out_type = (uint8_t)ValueType::STRING_PTR;
+                *out_value = (int64_t)(uintptr_t)ptr;
+                return;
+            }
+            if (magic0 == 0x41525259) { // TsArray::MAGIC
+                *out_type = (uint8_t)ValueType::ARRAY_PTR;
+                *out_value = (int64_t)(uintptr_t)ptr;
+                return;
+            }
             *out_type = (uint8_t)ValueType::OBJECT_PTR;
-            *out_value = raw_val;
-            return;
-        }
-
-        // Check magic at offset 16 (TsObject-derived classes with vtable)
-        if (magic16 == 0x4D415053 || // TsMap::MAGIC
-            magic16 == 0x53455453 || // TsSet::MAGIC
-            magic16 == 0x41525259 || // TsArray::MAGIC
-            magic16 == 0x46554E43 || // TsFunction::MAGIC
-            magic16 == 0x42554646 || // TsBuffer::MAGIC
-            magic16 == 0x534F434B || // TsSocket::MAGIC
-            magic16 == 0x45564E54) { // TsEventEmitter::MAGIC
-            *out_type = (uint8_t)ValueType::OBJECT_PTR;
-            *out_value = raw_val;
-            return;
-        }
-
-        // Check for TsString (magic at offset 0)
-        if (magic0 == 0x53545247) { // TsString::MAGIC "STRG"
-            *out_type = (uint8_t)ValueType::STRING_PTR;
-            *out_value = raw_val;
+            *out_value = (int64_t)(uintptr_t)ptr;
             return;
         }
 
         // Fallback: treat as raw integer value
-        // This handles cases where non-specialized arrays store raw numbers
         *out_type = (uint8_t)ValueType::NUMBER_INT;
         *out_value = raw_val;
     }
@@ -2278,10 +2106,11 @@ extern "C" {
             } else {
                 // Non-numeric - transition to PackedAny
                 array->TransitionTo(ElementKind::PackedAny);
-                TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
-                boxed->type = vtype;
-                boxed->i_val = val_value;
-                array->Set(index, (int64_t)boxed);
+                TsValue tv;
+                tv.type = vtype;
+                tv.i_val = val_value;
+                TsValue* nb = nanbox_from_tagged(tv);
+                array->Set(index, (int64_t)(uintptr_t)nb);
                 return;
             }
         }
@@ -2301,10 +2130,12 @@ extern "C" {
             } else {
                 // Non-numeric - transition to PackedAny
                 array->TransitionTo(ElementKind::PackedAny);
-                TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
-                boxed->type = vtype;
-                boxed->i_val = val_value;
-                array->Set(index, (int64_t)boxed);
+                // Reconstruct NaN-boxed value from type and value
+                TsValue tv;
+                tv.type = vtype;
+                tv.i_val = val_value;
+                TsValue* nb = nanbox_from_tagged(tv);
+                array->Set(index, (int64_t)(uintptr_t)nb);
                 return;
             }
         }
@@ -2319,13 +2150,12 @@ extern "C" {
 
         // ==== PackedAny / generic path ====
 
-        // For non-specialized arrays, we need to store a TsValue*
-        // Reconstruct a boxed TsValue from the type and value
-        TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
-        boxed->type = vtype;
-        boxed->i_val = val_value;  // Union - works for any type
-
-        array->Set(index, (int64_t)boxed);
+        // Reconstruct NaN-boxed value from type and value (no heap allocation)
+        TsValue tv;
+        tv.type = vtype;
+        tv.i_val = val_value;
+        TsValue* nb = nanbox_from_tagged(tv);
+        array->Set(index, (int64_t)(uintptr_t)nb);
     }
     
     // Get array length (ensure it's exported for inline IR)
@@ -2410,21 +2240,15 @@ extern "C" {
             // Create [index, value] pair as a 2-element array
             TsArray* pair = TsArray::Create(2);
 
-            // Box the index
-            TsValue* idxVal = (TsValue*)ts_alloc(sizeof(TsValue));
-            idxVal->type = ValueType::NUMBER_INT;
-            idxVal->i_val = i;
-            pair->Push((int64_t)idxVal);
+            // Box the index as NaN-boxed int
+            pair->Push((int64_t)(uintptr_t)ts_value_make_int(i));
 
-            // Get the value (already boxed for non-specialized arrays)
+            // Get the value (already NaN-boxed for non-specialized arrays)
             int64_t val = array->Get(i);
             pair->Push(val);
 
-            // Box the pair array as ARRAY_PTR
-            TsValue* pairVal = (TsValue*)ts_alloc(sizeof(TsValue));
-            pairVal->type = ValueType::ARRAY_PTR;
-            pairVal->ptr_val = pair;
-            entries->Push((int64_t)pairVal);
+            // Box the pair array as NaN-boxed pointer
+            entries->Push((int64_t)(uintptr_t)pair);
         }
 
         return entries;
@@ -2439,11 +2263,8 @@ extern "C" {
         TsArray* keys = TsArray::Create(len);
 
         for (int64_t i = 0; i < len; i++) {
-            // Box the index
-            TsValue* idxVal = (TsValue*)ts_alloc(sizeof(TsValue));
-            idxVal->type = ValueType::NUMBER_INT;
-            idxVal->i_val = i;
-            keys->Push((int64_t)idxVal);
+            // Box the index as NaN-boxed int
+            keys->Push((int64_t)(uintptr_t)ts_value_make_int(i));
         }
 
         return keys;

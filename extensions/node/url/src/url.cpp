@@ -1,3 +1,4 @@
+#include "TsNanBox.h"
 #include "TsURL.h"
 #include "TsArray.h"
 #include "TsMap.h"
@@ -1243,19 +1244,19 @@ extern "C" {
 
         // Set all properties on the result object
         // Note: TsMap::Set takes TsValue by value, so we dereference the TsValue* returned by ts_value_make_*
-        result->Set(TsString::Create("protocol"), *ts_value_make_string(TsString::Create(protocol.c_str())));
-        result->Set(TsString::Create("slashes"), *ts_value_make_bool(hasSlashes));
-        result->Set(TsString::Create("auth"), auth.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(auth.c_str())));
-        result->Set(TsString::Create("host"), host.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(host.c_str())));
-        result->Set(TsString::Create("port"), port.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(port.c_str())));
-        result->Set(TsString::Create("hostname"), hostname.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(hostname.c_str())));
-        result->Set(TsString::Create("hash"), hash.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(hash.c_str())));
-        result->Set(TsString::Create("search"), search.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(search.c_str())));
-        result->Set(TsString::Create("pathname"), pathname.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(pathname.c_str())));
+        result->Set(TsString::Create("protocol"), nanbox_to_tagged(ts_value_make_string(TsString::Create(protocol.c_str()))));
+        result->Set(TsString::Create("slashes"), nanbox_to_tagged(ts_value_make_bool(hasSlashes)));
+        result->Set(TsString::Create("auth"), auth.empty() ? nanbox_to_tagged(ts_value_make_null()) : nanbox_to_tagged(ts_value_make_string(TsString::Create(auth.c_str()))));
+        result->Set(TsString::Create("host"), host.empty() ? nanbox_to_tagged(ts_value_make_null()) : nanbox_to_tagged(ts_value_make_string(TsString::Create(host.c_str()))));
+        result->Set(TsString::Create("port"), port.empty() ? nanbox_to_tagged(ts_value_make_null()) : nanbox_to_tagged(ts_value_make_string(TsString::Create(port.c_str()))));
+        result->Set(TsString::Create("hostname"), hostname.empty() ? nanbox_to_tagged(ts_value_make_null()) : nanbox_to_tagged(ts_value_make_string(TsString::Create(hostname.c_str()))));
+        result->Set(TsString::Create("hash"), hash.empty() ? nanbox_to_tagged(ts_value_make_null()) : nanbox_to_tagged(ts_value_make_string(TsString::Create(hash.c_str()))));
+        result->Set(TsString::Create("search"), search.empty() ? nanbox_to_tagged(ts_value_make_null()) : nanbox_to_tagged(ts_value_make_string(TsString::Create(search.c_str()))));
+        result->Set(TsString::Create("pathname"), pathname.empty() ? nanbox_to_tagged(ts_value_make_null()) : nanbox_to_tagged(ts_value_make_string(TsString::Create(pathname.c_str()))));
 
         // path = pathname + search
         std::string path = pathname + search;
-        result->Set(TsString::Create("path"), path.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(path.c_str())));
+        result->Set(TsString::Create("path"), path.empty() ? nanbox_to_tagged(ts_value_make_null()) : nanbox_to_tagged(ts_value_make_string(TsString::Create(path.c_str()))));
 
         // query - either parsed object or string depending on parseQueryString
         if (parseQueryString && !query.empty()) {
@@ -1268,15 +1269,15 @@ extern "C" {
                 if (eqPos != std::string::npos) {
                     std::string key = percentDecode(pair.substr(0, eqPos));
                     std::string value = percentDecode(pair.substr(eqPos + 1));
-                    queryObj->Set(TsString::Create(key.c_str()), *ts_value_make_string(TsString::Create(value.c_str())));
+                    queryObj->Set(TsString::Create(key.c_str()), nanbox_to_tagged(ts_value_make_string(TsString::Create(value.c_str()))));
                 } else {
                     std::string key = percentDecode(pair);
-                    queryObj->Set(TsString::Create(key.c_str()), *ts_value_make_string(TsString::Create("")));
+                    queryObj->Set(TsString::Create(key.c_str()), nanbox_to_tagged(ts_value_make_string(TsString::Create(""))));
                 }
             }
-            result->Set(TsString::Create("query"), *ts_value_make_object(queryObj));
+            result->Set(TsString::Create("query"), nanbox_to_tagged(ts_value_make_object(queryObj)));
         } else {
-            result->Set(TsString::Create("query"), query.empty() ? *ts_value_make_null() : *ts_value_make_string(TsString::Create(query.c_str())));
+            result->Set(TsString::Create("query"), query.empty() ? nanbox_to_tagged(ts_value_make_null()) : nanbox_to_tagged(ts_value_make_string(TsString::Create(query.c_str()))));
         }
 
         // Rebuild href
@@ -1296,7 +1297,7 @@ extern "C" {
         href += pathname;
         href += search;
         href += hash;
-        result->Set(TsString::Create("href"), *ts_value_make_string(TsString::Create(href.c_str())));
+        result->Set(TsString::Create("href"), nanbox_to_tagged(ts_value_make_string(TsString::Create(href.c_str()))));
 
         return result;
     }

@@ -11,36 +11,11 @@
 #include <string>
 #include <stdio.h>
 
-// Helper to get TsUDPSocket from void* with proper unboxing
-// Handles single-boxed, double-boxed (from closures), and raw pointers
+// Helper to get TsUDPSocket from void* with proper NaN-box-aware unboxing
 static TsUDPSocket* GetUDPSocket(void* param) {
     if (!param) return nullptr;
-
-    void* rawPtr = param;
-
-    // Unwrap TsValue boxing - may be nested (double-boxed from closures)
-    // Loop to handle any level of boxing
-    for (int i = 0; i < 3; ++i) {  // Max 3 levels of boxing (should never need more than 2)
-        uint8_t typeField = *(uint8_t*)rawPtr;
-        if (typeField <= 10) {
-            // It's a TsValue - extract ptr_val
-            TsValue* val = (TsValue*)rawPtr;
-            if (val->type == ValueType::OBJECT_PTR ||
-                val->type == ValueType::ARRAY_PTR ||
-                val->type == ValueType::PROMISE_PTR ||
-                val->type == ValueType::FUNCTION_PTR) {
-                rawPtr = val->ptr_val;
-                if (!rawPtr) return nullptr;
-            } else {
-                // Not an object type (e.g., int, bool, undefined)
-                return nullptr;
-            }
-        } else {
-            // Not a TsValue - we've reached the raw pointer
-            break;
-        }
-    }
-
+    void* rawPtr = ts_value_get_object((TsValue*)param);
+    if (!rawPtr) rawPtr = param;
     return dynamic_cast<TsUDPSocket*>((TsObject*)rawPtr);
 }
 
@@ -52,21 +27,16 @@ static const char* GetString(void* param) {
     return str ? str->ToUtf8() : nullptr;
 }
 
-// Helper to get int from void*
+// Helper to get int from void* (NaN-box-aware)
 static int64_t GetInt(void* param) {
     if (!param) return 0;
-    TsValue* val = (TsValue*)param;
-    if (val->type == ValueType::NUMBER_INT) return val->i_val;
-    if (val->type == ValueType::NUMBER_DBL) return (int64_t)val->d_val;
-    return (int64_t)(uintptr_t)param;
+    return ts_value_get_int((TsValue*)param);
 }
 
-// Helper to get bool from void*
+// Helper to get bool from void* (NaN-box-aware)
 static bool GetBool(void* param) {
     if (!param) return false;
-    TsValue* val = (TsValue*)param;
-    if (val->type == ValueType::BOOLEAN) return val->b_val;
-    return (bool)(uintptr_t)param;
+    return ts_value_get_bool((TsValue*)param);
 }
 
 TsUDPSocket::TsUDPSocket(bool ipv6)
@@ -186,46 +156,41 @@ void TsUDPSocket::Send(void* msg, int offset, int length, int port, const char* 
     const char* data = nullptr;
     size_t dataLen = 0;
 
-    // Handle message - could be string, buffer, or boxed value
-    TsValue* val = (TsValue*)msg;
+    // Handle message - could be string, buffer, or NaN-boxed value
+    // Use NaN-box-aware decoding
+    TsValue val = nanbox_to_tagged((TsValue*)msg);
 
-    // Check if it's a TsValue with type info
-    if (val && (uint8_t)val->type <= 10) {
-        if (val->type == ValueType::STRING_PTR) {
-            // String value
-            TsString* str = (TsString*)val->ptr_val;
-            if (str) {
+    if (val.type == ValueType::STRING_PTR && val.ptr_val) {
+        TsString* str = (TsString*)val.ptr_val;
+        data = str->ToUtf8();
+        dataLen = strlen(data);
+    } else if (val.type == ValueType::OBJECT_PTR && val.ptr_val) {
+        // Object value - could be Buffer
+        TsBuffer* buffer = dynamic_cast<TsBuffer*>((TsObject*)val.ptr_val);
+        if (buffer) {
+            data = (const char*)buffer->GetData();
+            dataLen = buffer->GetLength();
+        } else {
+            // Check if it's a TsString via magic
+            uint32_t magic = *(uint32_t*)val.ptr_val;
+            if (magic == TsString::MAGIC) {
+                TsString* str = (TsString*)val.ptr_val;
                 data = str->ToUtf8();
                 dataLen = strlen(data);
             }
-        } else if (val->type == ValueType::OBJECT_PTR) {
-            // Object value - could be Buffer
-            void* rawObj = val->ptr_val;
-            TsBuffer* buffer = dynamic_cast<TsBuffer*>((TsObject*)rawObj);
-            if (buffer) {
-                data = (const char*)buffer->GetData();
-                dataLen = buffer->GetLength();
-            } else {
-                // Maybe it's a raw TsString
-                TsString* str = (TsString*)rawObj;
-                if (str && str->magic == 0x53545247) { // TsString::MAGIC
-                    data = str->ToUtf8();
-                    dataLen = strlen(data);
-                }
-            }
         }
     } else {
-        // Try as raw pointer
-        void* rawPtr = ts_value_get_object(val);
+        // Try as raw pointer (for unboxed heap pointers)
+        void* rawPtr = ts_value_get_object((TsValue*)msg);
         if (!rawPtr) rawPtr = msg;
 
-        // Try as TsString first (check magic)
-        TsString* str = (TsString*)rawPtr;
-        if (str && str->magic == 0x53545247) { // TsString::MAGIC
+        // Check magic to determine type
+        uint32_t magic = *(uint32_t*)rawPtr;
+        if (magic == TsString::MAGIC) {
+            TsString* str = (TsString*)rawPtr;
             data = str->ToUtf8();
             dataLen = strlen(data);
         } else {
-            // Try as Buffer
             TsBuffer* buffer = dynamic_cast<TsBuffer*>((TsObject*)rawPtr);
             if (buffer) {
                 data = (const char*)buffer->GetData();

@@ -9,6 +9,7 @@
 #include "TsReadStream.h"
 #include "TsWriteStream.h"
 #include "TsDate.h"
+#include "TsNanBox.h"
 #include "TsGC.h"
 #include <fstream>
 #include <sstream>
@@ -65,7 +66,7 @@ public:
         }
         d->vtable = TsMap_VTable;
 
-        d->Set(TsString::Create("name"), *ts_value_make_string(TsString::Create(name)));
+        d->Set(TsString::Create("name"), nanbox_to_tagged(ts_value_make_string(TsString::Create(name))));
         
         bool isFile = (type == UV_DIRENT_FILE);
         bool isDirectory = (type == UV_DIRENT_DIR);
@@ -75,13 +76,13 @@ public:
         bool isFIFO = (type == UV_DIRENT_FIFO);
         bool isSocket = (type == UV_DIRENT_SOCKET);
 
-        d->Set(TsString::Create("isFile"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFile)));
-        d->Set(TsString::Create("isDirectory"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isDirectory)));
-        d->Set(TsString::Create("isSymbolicLink"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSymbolicLink)));
-        d->Set(TsString::Create("isBlockDevice"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isBlockDevice)));
-        d->Set(TsString::Create("isCharacterDevice"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isCharacterDevice)));
-        d->Set(TsString::Create("isFIFO"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFIFO)));
-        d->Set(TsString::Create("isSocket"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSocket)));
+        d->Set(TsString::Create("isFile"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFile))));
+        d->Set(TsString::Create("isDirectory"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isDirectory))));
+        d->Set(TsString::Create("isSymbolicLink"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSymbolicLink))));
+        d->Set(TsString::Create("isBlockDevice"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isBlockDevice))));
+        d->Set(TsString::Create("isCharacterDevice"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isCharacterDevice))));
+        d->Set(TsString::Create("isFIFO"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFIFO))));
+        d->Set(TsString::Create("isSocket"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSocket))));
 
         return d;
     }
@@ -112,35 +113,35 @@ static void add_stats_methods(TsMap* stats, const uv_stat_t* st) {
     bool isSocket = false;
 #endif
 
-    stats->Set(TsString::Create("isFile"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFile)));
-    stats->Set(TsString::Create("isDirectory"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isDirectory)));
-    stats->Set(TsString::Create("isSymbolicLink"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSymbolicLink)));
-    stats->Set(TsString::Create("isBlockDevice"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isBlockDevice)));
-    stats->Set(TsString::Create("isCharacterDevice"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isCharacterDevice)));
-    stats->Set(TsString::Create("isFIFO"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFIFO)));
-    stats->Set(TsString::Create("isSocket"), *ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSocket)));
+    stats->Set(TsString::Create("isFile"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFile))));
+    stats->Set(TsString::Create("isDirectory"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isDirectory))));
+    stats->Set(TsString::Create("isSymbolicLink"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSymbolicLink))));
+    stats->Set(TsString::Create("isBlockDevice"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isBlockDevice))));
+    stats->Set(TsString::Create("isCharacterDevice"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isCharacterDevice))));
+    stats->Set(TsString::Create("isFIFO"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isFIFO))));
+    stats->Set(TsString::Create("isSocket"), nanbox_to_tagged(ts_value_make_function((void*)bool_return_helper, BOOL_TO_CONTEXT(isSocket))));
     
     stats->Set(TsString::Create("size"), TsValue((double)st->st_size));
     
     // mtime - modification time
     double mtime_ms = (double)st->st_mtim.tv_sec * 1000.0 + (double)st->st_mtim.tv_nsec / 1000000.0;
     stats->Set(TsString::Create("mtimeMs"), TsValue(mtime_ms));
-    stats->Set(TsString::Create("mtime"), *ts_value_make_object(TsDate::Create(mtime_ms)));
+    stats->Set(TsString::Create("mtime"), nanbox_to_tagged(ts_value_make_object(TsDate::Create(mtime_ms))));
 
     // atime - access time
     double atime_ms = (double)st->st_atim.tv_sec * 1000.0 + (double)st->st_atim.tv_nsec / 1000000.0;
     stats->Set(TsString::Create("atimeMs"), TsValue(atime_ms));
-    stats->Set(TsString::Create("atime"), *ts_value_make_object(TsDate::Create(atime_ms)));
+    stats->Set(TsString::Create("atime"), nanbox_to_tagged(ts_value_make_object(TsDate::Create(atime_ms))));
 
     // ctime - change time (inode change)
     double ctime_ms = (double)st->st_ctim.tv_sec * 1000.0 + (double)st->st_ctim.tv_nsec / 1000000.0;
     stats->Set(TsString::Create("ctimeMs"), TsValue(ctime_ms));
-    stats->Set(TsString::Create("ctime"), *ts_value_make_object(TsDate::Create(ctime_ms)));
+    stats->Set(TsString::Create("ctime"), nanbox_to_tagged(ts_value_make_object(TsDate::Create(ctime_ms))));
 
     // birthtime - creation time
     double birthtime_ms = (double)st->st_birthtim.tv_sec * 1000.0 + (double)st->st_birthtim.tv_nsec / 1000000.0;
     stats->Set(TsString::Create("birthtimeMs"), TsValue(birthtime_ms));
-    stats->Set(TsString::Create("birthtime"), *ts_value_make_object(TsDate::Create(birthtime_ms)));
+    stats->Set(TsString::Create("birthtime"), nanbox_to_tagged(ts_value_make_object(TsDate::Create(birthtime_ms))));
 
     stats->Set(TsString::Create("uid"), TsValue((int64_t)st->st_uid));
     stats->Set(TsString::Create("gid"), TsValue((int64_t)st->st_gid));
@@ -169,7 +170,7 @@ public:
         }
         d->vtable = TsMap_VTable;
 
-        d->Set(TsString::Create("path"), *ts_value_make_string(TsString::Create(path)));
+        d->Set(TsString::Create("path"), nanbox_to_tagged(ts_value_make_string(TsString::Create(path))));
         return d;
     }
 };
@@ -243,7 +244,7 @@ public:
         h->fd = fd;
         h->vtable = TsFileHandle_VTable;
 
-        h->Set(TsString::Create("fd"), *ts_value_make_double((double)fd));
+        h->Set(TsString::Create("fd"), nanbox_to_tagged(ts_value_make_double((double)fd)));
         return h;
     }
 };
@@ -340,7 +341,7 @@ static void fs_promise_callback(uv_fs_t* req) {
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(h));
         } else if (req->fs_type == UV_FS_READ || req->fs_type == UV_FS_WRITE) {
             TsMap* res = TsMap::Create();
-            res->Set(TsString::Create(req->fs_type == UV_FS_READ ? "bytesRead" : "bytesWritten"), *ts_value_make_double((double)req->result));
+            res->Set(TsString::Create(req->fs_type == UV_FS_READ ? "bytesRead" : "bytesWritten"), nanbox_to_tagged(ts_value_make_double((double)req->result)));
             if (work->bufs.size() > 0) {
                 res->Set(TsString::Create("buffers"), work->bufferValue);
             } else {
@@ -447,14 +448,14 @@ extern "C" {
         TsString* path = (TsString*)ts_value_get_string((TsValue*)path_val);
         if (!path) return;
 
-        TsValue pathVal = *ts_value_make_string(path);
+        TsValue pathVal = nanbox_to_tagged(ts_value_make_string(path));
         TsValue existingWatcherVal = watchFileMap->Get(pathVal);
         
         TsFSWatcher* watcher;
         if (existingWatcherVal.type == ValueType::UNDEFINED) {
             watcher = TsFSWatcher::Create();
             watcher->is_poll = true;
-            watchFileMap->Set(pathVal, *ts_value_make_object(watcher));
+            watchFileMap->Set(pathVal, nanbox_to_tagged(ts_value_make_object(watcher)));
 
             watcher->poll_handle = (uv_fs_poll_t*)ts_alloc(sizeof(uv_fs_poll_t));
             uv_fs_poll_init(uv_default_loop(), watcher->poll_handle);
@@ -505,7 +506,7 @@ extern "C" {
             return;
         }
 
-        TsValue pathVal = *ts_value_make_string(path);
+        TsValue pathVal = nanbox_to_tagged(ts_value_make_string(path));
         TsValue watcherVal = watchFileMap->Get(pathVal);
         if (watcherVal.type == ValueType::UNDEFINED) {
             return;
@@ -539,22 +540,15 @@ extern "C" {
 
 static TsString* unboxString(void* ptr) {
     if (!ptr) return nullptr;
-    
-    // Check if it's a raw TsString* FIRST
-    TsString* str = (TsString*)ptr;
-    if (str->magic == 0x53545247) { // TsString::MAGIC
-        return str;
+
+    // Decode NaN-boxed value
+    TsValue decoded = nanbox_to_tagged((TsValue*)ptr);
+    if (decoded.type == ValueType::STRING_PTR && decoded.ptr_val) {
+        return (TsString*)decoded.ptr_val;
     }
 
-    TsValue* val = (TsValue*)ptr;
-    // Check if it's a TsValue* containing a string
-    if (val->type == ValueType::STRING_PTR) {
-        TsString* s = (TsString*)val->ptr_val;
-        return s;
-    }
-    
     // Fallback: try to convert to string
-    TsString* res = (TsString*)ts_string_from_value(val);
+    TsString* res = (TsString*)ts_string_from_value((TsValue*)ptr);
     return res;
 }
 
@@ -700,16 +694,12 @@ void ts_fs_cpSync(void* src, void* dest, void* options) {
     // Check options for recursive flag
     if (options) {
         TsMap* opts = nullptr;
-        // Try to unbox as TsValue first
-        TsValue* val = (TsValue*)options;
-        if (val && val->type == ValueType::OBJECT_PTR && val->ptr_val) {
-            opts = dynamic_cast<TsMap*>((TsObject*)val->ptr_val);
-        }
-        if (!opts) {
-            opts = dynamic_cast<TsMap*>((TsObject*)options);
+        TsValue decoded = nanbox_to_tagged((TsValue*)options);
+        if (decoded.type == ValueType::OBJECT_PTR && decoded.ptr_val) {
+            opts = dynamic_cast<TsMap*>((TsObject*)decoded.ptr_val);
         }
         if (opts) {
-            TsValue recVal = opts->Get(TsValue(TsString::Create("recursive")));
+            TsValue recVal = opts->Get(TsString::Create("recursive"));
             if (recVal.type == ValueType::BOOLEAN) {
                 recursive = recVal.b_val;
             }
@@ -939,12 +929,14 @@ void* ts_fs_readdirSync(void* path, void* options) {
     
     bool withFileTypes = false;
     if (options) {
-        TsValue* optVal = (TsValue*)options;
-        if (optVal->type == ValueType::OBJECT_PTR) {
-            TsMap* optMap = (TsMap*)optVal->ptr_val;
-            TsValue wft = optMap->Get(TsString::Create("withFileTypes"));
-            if (wft.type == ValueType::BOOLEAN) {
-                withFileTypes = wft.b_val;
+        TsValue optDecoded = nanbox_to_tagged((TsValue*)options);
+        if (optDecoded.type == ValueType::OBJECT_PTR && optDecoded.ptr_val) {
+            TsMap* optMap = dynamic_cast<TsMap*>((TsObject*)optDecoded.ptr_val);
+            if (optMap) {
+                TsValue wft = optMap->Get(TsString::Create("withFileTypes"));
+                if (wft.type == ValueType::BOOLEAN) {
+                    withFileTypes = wft.b_val;
+                }
             }
         }
     }
@@ -1018,10 +1010,10 @@ void* ts_fs_opendirSync(void* path, void* options) {
     
     uv_dir_t* dir = (uv_dir_t*)req.ptr;
     TsDir* res = TsDir::Create(dir, pathCStr);
-    res->Set(TsString::Create("readSync"), *ts_value_make_function((void*)dir_read_sync_wrapper, res));
-    res->Set(TsString::Create("closeSync"), *ts_value_make_function((void*)dir_close_sync_wrapper, res));
-    res->Set(TsString::Create("read"), *ts_value_make_function((void*)dir_read_async_wrapper, res));
-    res->Set(TsString::Create("close"), *ts_value_make_function((void*)dir_close_async_wrapper, res));
+    res->Set(TsString::Create("readSync"), nanbox_to_tagged(ts_value_make_function((void*)dir_read_sync_wrapper, res)));
+    res->Set(TsString::Create("closeSync"), nanbox_to_tagged(ts_value_make_function((void*)dir_close_sync_wrapper, res)));
+    res->Set(TsString::Create("read"), nanbox_to_tagged(ts_value_make_function((void*)dir_read_async_wrapper, res)));
+    res->Set(TsString::Create("close"), nanbox_to_tagged(ts_value_make_function((void*)dir_close_async_wrapper, res)));
     
     uv_fs_req_cleanup(&req);
     return ts_value_make_object(res);
@@ -1130,14 +1122,17 @@ void* ts_fs_get_constants() {
 }
 
 static TsValue* readFile_promise_wrapper(void* context, TsValue* path) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_readFile_async(path->ptr_val);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_readFile_async(pd.ptr_val);
 }
 
 static TsValue* writeFile_promise_wrapper(void* context, TsValue* path, TsValue* content) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    if (!content || content->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_writeFile_async(path->ptr_val, content->ptr_val);
+    TsValue pd = nanbox_to_tagged(path);
+    TsValue cd = nanbox_to_tagged(content);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    if (cd.type != ValueType::STRING_PTR || !cd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_writeFile_async(pd.ptr_val, cd.ptr_val);
 }
 
 struct FSAsyncWork {
@@ -1263,10 +1258,10 @@ static void fs_fd_async_after_worker(uv_work_t* req, int status) {
             stats->Set(TsString::Create("mtimeMs"), TsValue(mtime_ms));
             stats->Set(TsString::Create("ctimeMs"), TsValue(ctime_ms));
             stats->Set(TsString::Create("birthtimeMs"), TsValue(birthtime_ms));
-            stats->Set(TsString::Create("atime"), *ts_value_make_object(TsDate::Create(atime_ms)));
-            stats->Set(TsString::Create("mtime"), *ts_value_make_object(TsDate::Create(mtime_ms)));
-            stats->Set(TsString::Create("ctime"), *ts_value_make_object(TsDate::Create(ctime_ms)));
-            stats->Set(TsString::Create("birthtime"), *ts_value_make_object(TsDate::Create(birthtime_ms)));
+            stats->Set(TsString::Create("atime"), nanbox_to_tagged(ts_value_make_object(TsDate::Create(atime_ms))));
+            stats->Set(TsString::Create("mtime"), nanbox_to_tagged(ts_value_make_object(TsDate::Create(mtime_ms))));
+            stats->Set(TsString::Create("ctime"), nanbox_to_tagged(ts_value_make_object(TsDate::Create(ctime_ms))));
+            stats->Set(TsString::Create("birthtime"), nanbox_to_tagged(ts_value_make_object(TsDate::Create(birthtime_ms))));
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(stats));
         } else {
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_undefined());
@@ -1652,10 +1647,10 @@ static void fs_async_after_worker(uv_work_t* req, int status) {
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_string(TsString::Create(work->string_res.c_str())));
         } else if (work->type == FSAsyncWork::OPENDIR) {
             TsDir* res = TsDir::Create(work->dir_ptr, work->path.c_str());
-            res->Set(TsString::Create("readSync"), *ts_value_make_function((void*)dir_read_sync_wrapper, res));
-            res->Set(TsString::Create("closeSync"), *ts_value_make_function((void*)dir_close_sync_wrapper, res));
-            res->Set(TsString::Create("read"), *ts_value_make_function((void*)dir_read_async_wrapper, res));
-            res->Set(TsString::Create("close"), *ts_value_make_function((void*)dir_close_async_wrapper, res));
+            res->Set(TsString::Create("readSync"), nanbox_to_tagged(ts_value_make_function((void*)dir_read_sync_wrapper, res)));
+            res->Set(TsString::Create("closeSync"), nanbox_to_tagged(ts_value_make_function((void*)dir_close_sync_wrapper, res)));
+            res->Set(TsString::Create("read"), nanbox_to_tagged(ts_value_make_function((void*)dir_read_async_wrapper, res)));
+            res->Set(TsString::Create("close"), nanbox_to_tagged(ts_value_make_function((void*)dir_close_async_wrapper, res)));
             ts::ts_promise_resolve_internal(work->promise, ts_value_make_object(res));
         } else if (work->type == FSAsyncWork::DIR_READ) {
             if (work->result > 0) {
@@ -1915,15 +1910,12 @@ void* ts_fs_cp_async(void* src, void* dest, void* options) {
     // Check options for recursive flag
     if (options) {
         TsMap* opts = nullptr;
-        TsValue* val = (TsValue*)options;
-        if (val && val->type == ValueType::OBJECT_PTR && val->ptr_val) {
-            opts = dynamic_cast<TsMap*>((TsObject*)val->ptr_val);
-        }
-        if (!opts) {
-            opts = dynamic_cast<TsMap*>((TsObject*)options);
+        TsValue optDecoded = nanbox_to_tagged((TsValue*)options);
+        if (optDecoded.type == ValueType::OBJECT_PTR && optDecoded.ptr_val) {
+            opts = dynamic_cast<TsMap*>((TsObject*)optDecoded.ptr_val);
         }
         if (opts) {
-            TsValue recVal = opts->Get(TsValue(TsString::Create("recursive")));
+            TsValue recVal = opts->Get(TsString::Create("recursive"));
             if (recVal.type == ValueType::BOOLEAN) {
                 work->recursive = recVal.b_val;
             }
@@ -2058,131 +2050,153 @@ void* ts_fs_appendFile_async(void* path, void* content) {
     return ts_value_make_promise(promise);
 }
 
+static double nanbox_get_number(TsValue* v) {
+    TsValue d = nanbox_to_tagged(v);
+    if (d.type == ValueType::NUMBER_INT) return (double)d.i_val;
+    if (d.type == ValueType::NUMBER_DBL) return d.d_val;
+    return 0;
+}
+
+static void* nanbox_get_ptr(TsValue* v) {
+    TsValue d = nanbox_to_tagged(v);
+    return d.ptr_val;
+}
+
 static TsValue* access_promise_wrapper(void* context, TsValue* path, TsValue* mode) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    double m = 0;
-    if (mode && (mode->type == ValueType::NUMBER_INT || mode->type == ValueType::NUMBER_DBL)) {
-        m = (mode->type == ValueType::NUMBER_INT) ? (double)mode->i_val : mode->d_val;
-    }
-    return (TsValue*)ts_fs_access_async(path->ptr_val, m);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    double m = mode ? nanbox_get_number(mode) : 0;
+    return (TsValue*)ts_fs_access_async(pd.ptr_val, m);
 }
 
 static TsValue* chmod_promise_wrapper(void* context, TsValue* path, TsValue* mode) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    if (!mode || (mode->type != ValueType::NUMBER_INT && mode->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
-    double m = (mode->type == ValueType::NUMBER_INT) ? (double)mode->i_val : mode->d_val;
-    return (TsValue*)ts_fs_chmod_async(path->ptr_val, m);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    double m = mode ? nanbox_get_number(mode) : 0;
+    return (TsValue*)ts_fs_chmod_async(pd.ptr_val, m);
 }
 
 static TsValue* chown_promise_wrapper(void* context, TsValue* path, TsValue* uid, TsValue* gid) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    if (!uid || (uid->type != ValueType::NUMBER_INT && uid->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
-    if (!gid || (gid->type != ValueType::NUMBER_INT && gid->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
-    double u = (uid->type == ValueType::NUMBER_INT) ? (double)uid->i_val : uid->d_val;
-    double g = (gid->type == ValueType::NUMBER_INT) ? (double)gid->i_val : gid->d_val;
-    return (TsValue*)ts_fs_chown_async(path->ptr_val, u, g);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    double u = uid ? nanbox_get_number(uid) : 0;
+    double g = gid ? nanbox_get_number(gid) : 0;
+    return (TsValue*)ts_fs_chown_async(pd.ptr_val, u, g);
 }
 
 static TsValue* utimes_promise_wrapper(void* context, TsValue* path, TsValue* atime, TsValue* mtime) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    if (!atime || (atime->type != ValueType::NUMBER_INT && atime->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
-    if (!mtime || (mtime->type != ValueType::NUMBER_INT && mtime->type != ValueType::NUMBER_DBL)) return ts_value_make_undefined();
-    double a = (atime->type == ValueType::NUMBER_INT) ? (double)atime->i_val : atime->d_val;
-    double m = (mtime->type == ValueType::NUMBER_INT) ? (double)mtime->i_val : mtime->d_val;
-    return (TsValue*)ts_fs_utimes_async(path->ptr_val, a, m);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    double a = atime ? nanbox_get_number(atime) : 0;
+    double m = mtime ? nanbox_get_number(mtime) : 0;
+    return (TsValue*)ts_fs_utimes_async(pd.ptr_val, a, m);
 }
 
 static TsValue* statfs_promise_wrapper(void* context, TsValue* path) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_statfs_async(path->ptr_val);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_statfs_async(pd.ptr_val);
 }
 
 static TsValue* link_promise_wrapper(void* context, TsValue* existingPath, TsValue* newPath) {
-    if (!existingPath || existingPath->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    if (!newPath || newPath->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_link_async(existingPath->ptr_val, newPath->ptr_val);
+    TsValue ep = nanbox_to_tagged(existingPath);
+    TsValue np = nanbox_to_tagged(newPath);
+    if (ep.type != ValueType::STRING_PTR || !ep.ptr_val) return ts_value_make_undefined();
+    if (np.type != ValueType::STRING_PTR || !np.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_link_async(ep.ptr_val, np.ptr_val);
 }
 
 static TsValue* symlink_promise_wrapper(void* context, TsValue* target, TsValue* path, TsValue* type) {
-    if (!target || target->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    void* t = type ? type->ptr_val : nullptr;
-    return (TsValue*)ts_fs_symlink_async(target->ptr_val, path->ptr_val, t);
+    TsValue td = nanbox_to_tagged(target);
+    TsValue pd = nanbox_to_tagged(path);
+    if (td.type != ValueType::STRING_PTR || !td.ptr_val) return ts_value_make_undefined();
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    void* t = type ? nanbox_get_ptr(type) : nullptr;
+    return (TsValue*)ts_fs_symlink_async(td.ptr_val, pd.ptr_val, t);
 }
 
 static TsValue* readlink_promise_wrapper(void* context, TsValue* path) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_readlink_async(path->ptr_val);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_readlink_async(pd.ptr_val);
 }
 
 static TsValue* realpath_promise_wrapper(void* context, TsValue* path) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_realpath_async(path->ptr_val);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_realpath_async(pd.ptr_val);
 }
 
 static TsValue* stat_promise_wrapper(void* context, TsValue* path) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_stat_async(path->ptr_val);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_stat_async(pd.ptr_val);
 }
 
 static TsValue* lstat_promise_wrapper(void* context, TsValue* path) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_lstat_async(path->ptr_val);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_lstat_async(pd.ptr_val);
 }
 
 static TsValue* rename_promise_wrapper(void* context, TsValue* oldPath, TsValue* newPath) {
-    if (!oldPath || oldPath->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    if (!newPath || newPath->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_rename_async(oldPath->ptr_val, newPath->ptr_val);
+    TsValue op = nanbox_to_tagged(oldPath);
+    TsValue np = nanbox_to_tagged(newPath);
+    if (op.type != ValueType::STRING_PTR || !op.ptr_val) return ts_value_make_undefined();
+    if (np.type != ValueType::STRING_PTR || !np.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_rename_async(op.ptr_val, np.ptr_val);
 }
 
 static TsValue* copyFile_promise_wrapper(void* context, TsValue* src, TsValue* dest, TsValue* flags) {
-    if (!src || src->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    if (!dest || dest->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    double f = 0;
-    if (flags && (flags->type == ValueType::NUMBER_INT || flags->type == ValueType::NUMBER_DBL)) {
-        f = (flags->type == ValueType::NUMBER_INT) ? (double)flags->i_val : flags->d_val;
-    }
-    return (TsValue*)ts_fs_copyFile_async(src->ptr_val, dest->ptr_val, f);
+    TsValue sd = nanbox_to_tagged(src);
+    TsValue dd = nanbox_to_tagged(dest);
+    if (sd.type != ValueType::STRING_PTR || !sd.ptr_val) return ts_value_make_undefined();
+    if (dd.type != ValueType::STRING_PTR || !dd.ptr_val) return ts_value_make_undefined();
+    double f = flags ? nanbox_get_number(flags) : 0;
+    return (TsValue*)ts_fs_copyFile_async(sd.ptr_val, dd.ptr_val, f);
 }
 
 static TsValue* truncate_promise_wrapper(void* context, TsValue* path, TsValue* len) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    double l = 0;
-    if (len && (len->type == ValueType::NUMBER_INT || len->type == ValueType::NUMBER_DBL)) {
-        l = (len->type == ValueType::NUMBER_INT) ? (double)len->i_val : len->d_val;
-    }
-    return (TsValue*)ts_fs_truncate_async(path->ptr_val, l);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    double l = len ? nanbox_get_number(len) : 0;
+    return (TsValue*)ts_fs_truncate_async(pd.ptr_val, l);
 }
 
 static TsValue* appendFile_promise_wrapper(void* context, TsValue* path, TsValue* data) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_appendFile_async(path->ptr_val, data);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_appendFile_async(pd.ptr_val, data);
 }
 
 static TsValue* mkdir_promise_wrapper(void* context, TsValue* path, TsValue* options) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_mkdir_async(path->ptr_val, options);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_mkdir_async(pd.ptr_val, options);
 }
 
 static TsValue* rmdir_promise_wrapper(void* context, TsValue* path, TsValue* options) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_rmdir_async(path->ptr_val, options);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_rmdir_async(pd.ptr_val, options);
 }
 
 static TsValue* rm_promise_wrapper(void* context, TsValue* path, TsValue* options) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_rm_async(path->ptr_val, options);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_rm_async(pd.ptr_val, options);
 }
 
 static TsValue* mkdtemp_promise_wrapper(void* context, TsValue* prefix) {
-    if (!prefix || prefix->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_mkdtemp_async(prefix->ptr_val);
+    TsValue pd = nanbox_to_tagged(prefix);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_mkdtemp_async(pd.ptr_val);
 }
 
 static TsValue* opendir_promise_wrapper(void* context, TsValue* path, TsValue* options) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_opendir_async(path->ptr_val, options);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_opendir_async(pd.ptr_val, options);
 }
 
 static TsValue* readdir_promise_wrapper(void* context, TsValue* path, TsValue* options) {
@@ -2201,12 +2215,10 @@ TsValue* ts_fs_filehandle_readv_async(TsValue* handle, TsValue* buffers, double 
 TsValue* ts_fs_filehandle_writev_async(TsValue* handle, TsValue* buffers, double position);
 
 static TsValue* open_promise_wrapper(void* context, TsValue* path, TsValue* flags, TsValue* mode) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    double m = 0666;
-    if (mode && (mode->type == ValueType::NUMBER_INT || mode->type == ValueType::NUMBER_DBL)) {
-        m = (mode->type == ValueType::NUMBER_INT) ? (double)mode->i_val : mode->d_val;
-    }
-    return (TsValue*)ts_fs_open_async(path->ptr_val, flags, m);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    double m = mode ? nanbox_get_number(mode) : 0666;
+    return (TsValue*)ts_fs_open_async(pd.ptr_val, flags, m);
 }
 
 static TsValue* read_promise_wrapper(void* context, TsValue* handle, TsValue* buffer, TsValue* offset, TsValue* length, TsValue* position) {
@@ -2234,8 +2246,9 @@ static TsValue* writev_promise_wrapper(void* context, TsValue* handle, TsValue* 
 }
 
 static TsValue* unlink_promise_wrapper(void* context, TsValue* path) {
-    if (!path || path->type != ValueType::STRING_PTR) return ts_value_make_undefined();
-    return (TsValue*)ts_fs_unlink_async(path->ptr_val);
+    TsValue pd = nanbox_to_tagged(path);
+    if (pd.type != ValueType::STRING_PTR || !pd.ptr_val) return ts_value_make_undefined();
+    return (TsValue*)ts_fs_unlink_async(pd.ptr_val);
 }
 
 // ============================================================================
@@ -2254,25 +2267,13 @@ static TsValue* FSWatchIterator_next(void* context, TsValue* value) {
     if (state->stopped) {
         // Return done result
         TsMap* result = TsMap::Create();
-        TsValue valueKey, doneKey;
-        valueKey.type = ValueType::STRING_PTR;
-        valueKey.ptr_val = TsString::Create("value");
-        doneKey.type = ValueType::STRING_PTR;
-        doneKey.ptr_val = TsString::Create("done");
-
-        TsValue undefinedVal;
-        undefinedVal.type = ValueType::UNDEFINED;
-        result->Set(valueKey, undefinedVal);
-
+        { TsValue undef; undef.type = ValueType::UNDEFINED; undef.i_val = 0; result->Set(TsString::Create("value"), undef); }
         TsValue doneVal;
         doneVal.type = ValueType::BOOLEAN;
         doneVal.b_val = true;
-        result->Set(doneKey, doneVal);
+        result->Set(TsString::Create("done"), doneVal);
 
-        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-        res->type = ValueType::OBJECT_PTR;
-        res->ptr_val = result;
-        ts::ts_promise_resolve_internal(promise, res);
+        ts::ts_promise_resolve_internal(promise, ts_value_make_object(result));
         return ts_value_make_promise(promise);
     }
 
@@ -2283,31 +2284,21 @@ static TsValue* FSWatchIterator_next(void* context, TsValue* value) {
 
         // Create event object { eventType, filename }
         TsMap* eventObj = TsMap::Create();
-        eventObj->Set(TsString::Create("eventType"), *ts_value_make_string(TsString::Create(event.eventType.c_str())));
-        eventObj->Set(TsString::Create("filename"), *ts_value_make_string(TsString::Create(event.filename.c_str())));
+        eventObj->Set(TsString::Create("eventType"), nanbox_to_tagged(ts_value_make_string(TsString::Create(event.eventType.c_str()))));
+        eventObj->Set(TsString::Create("filename"), nanbox_to_tagged(ts_value_make_string(TsString::Create(event.filename.c_str()))));
 
         // Create iterator result { value, done }
         TsMap* result = TsMap::Create();
-        TsValue valueKey, doneKey;
-        valueKey.type = ValueType::STRING_PTR;
-        valueKey.ptr_val = TsString::Create("value");
-        doneKey.type = ValueType::STRING_PTR;
-        doneKey.ptr_val = TsString::Create("done");
-
         TsValue valueVal;
         valueVal.type = ValueType::OBJECT_PTR;
         valueVal.ptr_val = eventObj;
-        result->Set(valueKey, valueVal);
-
+        result->Set(TsString::Create("value"), valueVal);
         TsValue doneVal;
         doneVal.type = ValueType::BOOLEAN;
         doneVal.b_val = false;
-        result->Set(doneKey, doneVal);
+        result->Set(TsString::Create("done"), doneVal);
 
-        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-        res->type = ValueType::OBJECT_PTR;
-        res->ptr_val = result;
-        ts::ts_promise_resolve_internal(promise, res);
+        ts::ts_promise_resolve_internal(promise, ts_value_make_object(result));
         return ts_value_make_promise(promise);
     }
 
@@ -2325,25 +2316,13 @@ static TsValue* FSWatchIterator_return(void* context, TsValue* value) {
 
     ts::TsPromise* promise = ts::ts_promise_create();
     TsMap* result = TsMap::Create();
-    TsValue valueKey, doneKey;
-    valueKey.type = ValueType::STRING_PTR;
-    valueKey.ptr_val = TsString::Create("value");
-    doneKey.type = ValueType::STRING_PTR;
-    doneKey.ptr_val = TsString::Create("done");
-
-    TsValue undefinedVal;
-    undefinedVal.type = ValueType::UNDEFINED;
-    result->Set(valueKey, undefinedVal);
-
+    { TsValue undef; undef.type = ValueType::UNDEFINED; undef.i_val = 0; result->Set(TsString::Create("value"), undef); }
     TsValue doneVal;
     doneVal.type = ValueType::BOOLEAN;
     doneVal.b_val = true;
-    result->Set(doneKey, doneVal);
+    result->Set(TsString::Create("done"), doneVal);
 
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::OBJECT_PTR;
-    res->ptr_val = result;
-    ts::ts_promise_resolve_internal(promise, res);
+    ts::ts_promise_resolve_internal(promise, ts_value_make_object(result));
     return ts_value_make_promise(promise);
 }
 
@@ -2365,31 +2344,21 @@ static void on_watch_event(uv_fs_event_t* handle, const char* filename, int even
 
         // Create event object { eventType, filename }
         TsMap* eventObj = TsMap::Create();
-        eventObj->Set(TsString::Create("eventType"), *ts_value_make_string(TsString::Create(event.eventType.c_str())));
-        eventObj->Set(TsString::Create("filename"), *ts_value_make_string(TsString::Create(event.filename.c_str())));
+        eventObj->Set(TsString::Create("eventType"), nanbox_to_tagged(ts_value_make_string(TsString::Create(event.eventType.c_str()))));
+        eventObj->Set(TsString::Create("filename"), nanbox_to_tagged(ts_value_make_string(TsString::Create(event.filename.c_str()))));
 
         // Create iterator result { value, done }
         TsMap* result = TsMap::Create();
-        TsValue valueKey, doneKey;
-        valueKey.type = ValueType::STRING_PTR;
-        valueKey.ptr_val = TsString::Create("value");
-        doneKey.type = ValueType::STRING_PTR;
-        doneKey.ptr_val = TsString::Create("done");
-
         TsValue valueVal;
         valueVal.type = ValueType::OBJECT_PTR;
         valueVal.ptr_val = eventObj;
-        result->Set(valueKey, valueVal);
-
+        result->Set(TsString::Create("value"), valueVal);
         TsValue doneVal;
         doneVal.type = ValueType::BOOLEAN;
         doneVal.b_val = false;
-        result->Set(doneKey, doneVal);
+        result->Set(TsString::Create("done"), doneVal);
 
-        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-        res->type = ValueType::OBJECT_PTR;
-        res->ptr_val = result;
-        ts::ts_promise_resolve_internal(promise, res);
+        ts::ts_promise_resolve_internal(promise, ts_value_make_object(result));
     } else {
         // Queue the event for later
         state->eventQueue.push(event);
@@ -2453,36 +2422,36 @@ extern "C" void* ts_fs_promises_watch(void* filename, void* options) {
 
 void* ts_fs_get_promises() {
     TsMap* promises = TsMap::Create();
-    promises->Set(TsString::Create("readFile"), *ts_value_make_function((void*)readFile_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("writeFile"), *ts_value_make_function((void*)writeFile_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("open"), *ts_value_make_function((void*)open_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("read"), *ts_value_make_function((void*)read_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("write"), *ts_value_make_function((void*)write_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("readv"), *ts_value_make_function((void*)readv_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("writev"), *ts_value_make_function((void*)writev_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("access"), *ts_value_make_function((void*)access_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("chmod"), *ts_value_make_function((void*)chmod_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("chown"), *ts_value_make_function((void*)chown_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("utimes"), *ts_value_make_function((void*)utimes_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("statfs"), *ts_value_make_function((void*)statfs_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("link"), *ts_value_make_function((void*)link_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("symlink"), *ts_value_make_function((void*)symlink_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("readlink"), *ts_value_make_function((void*)readlink_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("realpath"), *ts_value_make_function((void*)realpath_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("stat"), *ts_value_make_function((void*)stat_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("lstat"), *ts_value_make_function((void*)lstat_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("rename"), *ts_value_make_function((void*)rename_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("copyFile"), *ts_value_make_function((void*)copyFile_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("truncate"), *ts_value_make_function((void*)truncate_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("appendFile"), *ts_value_make_function((void*)appendFile_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("mkdir"), *ts_value_make_function((void*)mkdir_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("rmdir"), *ts_value_make_function((void*)rmdir_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("rm"), *ts_value_make_function((void*)rm_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("unlink"), *ts_value_make_function((void*)unlink_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("mkdtemp"), *ts_value_make_function((void*)mkdtemp_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("opendir"), *ts_value_make_function((void*)opendir_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("readdir"), *ts_value_make_function((void*)readdir_promise_wrapper, nullptr));
-    promises->Set(TsString::Create("watch"), *ts_value_make_function((void*)watch_promise_wrapper, nullptr));
+    promises->Set(TsString::Create("readFile"), nanbox_to_tagged(ts_value_make_function((void*)readFile_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("writeFile"), nanbox_to_tagged(ts_value_make_function((void*)writeFile_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("open"), nanbox_to_tagged(ts_value_make_function((void*)open_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("read"), nanbox_to_tagged(ts_value_make_function((void*)read_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("write"), nanbox_to_tagged(ts_value_make_function((void*)write_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("readv"), nanbox_to_tagged(ts_value_make_function((void*)readv_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("writev"), nanbox_to_tagged(ts_value_make_function((void*)writev_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("access"), nanbox_to_tagged(ts_value_make_function((void*)access_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("chmod"), nanbox_to_tagged(ts_value_make_function((void*)chmod_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("chown"), nanbox_to_tagged(ts_value_make_function((void*)chown_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("utimes"), nanbox_to_tagged(ts_value_make_function((void*)utimes_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("statfs"), nanbox_to_tagged(ts_value_make_function((void*)statfs_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("link"), nanbox_to_tagged(ts_value_make_function((void*)link_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("symlink"), nanbox_to_tagged(ts_value_make_function((void*)symlink_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("readlink"), nanbox_to_tagged(ts_value_make_function((void*)readlink_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("realpath"), nanbox_to_tagged(ts_value_make_function((void*)realpath_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("stat"), nanbox_to_tagged(ts_value_make_function((void*)stat_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("lstat"), nanbox_to_tagged(ts_value_make_function((void*)lstat_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("rename"), nanbox_to_tagged(ts_value_make_function((void*)rename_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("copyFile"), nanbox_to_tagged(ts_value_make_function((void*)copyFile_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("truncate"), nanbox_to_tagged(ts_value_make_function((void*)truncate_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("appendFile"), nanbox_to_tagged(ts_value_make_function((void*)appendFile_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("mkdir"), nanbox_to_tagged(ts_value_make_function((void*)mkdir_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("rmdir"), nanbox_to_tagged(ts_value_make_function((void*)rmdir_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("rm"), nanbox_to_tagged(ts_value_make_function((void*)rm_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("unlink"), nanbox_to_tagged(ts_value_make_function((void*)unlink_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("mkdtemp"), nanbox_to_tagged(ts_value_make_function((void*)mkdtemp_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("opendir"), nanbox_to_tagged(ts_value_make_function((void*)opendir_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("readdir"), nanbox_to_tagged(ts_value_make_function((void*)readdir_promise_wrapper, nullptr)));
+    promises->Set(TsString::Create("watch"), nanbox_to_tagged(ts_value_make_function((void*)watch_promise_wrapper, nullptr)));
     return ts_value_make_object(promises);
 }
 
@@ -2498,16 +2467,18 @@ void* ts_fs_readdir_async(void* path, void* options) {
     work->type = FSAsyncWork::READDIR;
     
     if (options) {
-        TsValue* optVal = (TsValue*)options;
-        if (optVal->type == ValueType::OBJECT_PTR) {
-            TsMap* optMap = (TsMap*)optVal->ptr_val;
-            TsValue withFileTypes = optMap->Get(TsString::Create("withFileTypes"));
-            if (withFileTypes.type == ValueType::BOOLEAN) {
-                work->withFileTypes = withFileTypes.b_val;
+        TsValue optDecoded = nanbox_to_tagged((TsValue*)options);
+        if (optDecoded.type == ValueType::OBJECT_PTR && optDecoded.ptr_val) {
+            TsMap* optMap = dynamic_cast<TsMap*>((TsObject*)optDecoded.ptr_val);
+            if (optMap) {
+                TsValue withFileTypes = optMap->Get(TsString::Create("withFileTypes"));
+                if (withFileTypes.type == ValueType::BOOLEAN) {
+                    work->withFileTypes = withFileTypes.b_val;
+                }
             }
         }
     }
-    
+
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
     req->data = work;
     uv_queue_work(uv_default_loop(), req, fs_async_worker, fs_async_after_worker);
@@ -2699,19 +2670,19 @@ void* ts_fs_open_async(void* path_val, void* flags_val, double mode) {
 
     int flags = O_RDONLY;
     if (flags_val && !ts_value_is_nullish((TsValue*)flags_val)) {
-        TsValue* f = (TsValue*)flags_val;
-        if (f->type == ValueType::STRING_PTR) {
-            const char* s = ((TsString*)f->ptr_val)->ToUtf8();
+        TsValue fd = nanbox_to_tagged((TsValue*)flags_val);
+        if (fd.type == ValueType::STRING_PTR && fd.ptr_val) {
+            const char* s = ((TsString*)fd.ptr_val)->ToUtf8();
             if (strcmp(s, "r") == 0) flags = O_RDONLY;
             else if (strcmp(s, "r+") == 0) flags = O_RDWR;
             else if (strcmp(s, "w") == 0) flags = O_WRONLY | O_CREAT | O_TRUNC;
             else if (strcmp(s, "w+") == 0) flags = O_RDWR | O_CREAT | O_TRUNC;
             else if (strcmp(s, "a") == 0) flags = O_WRONLY | O_CREAT | O_APPEND;
             else if (strcmp(s, "a+") == 0) flags = O_RDWR | O_CREAT | O_APPEND;
-        } else if (f->type == ValueType::NUMBER_INT) {
-            flags = (int)f->i_val;
-        } else if (f->type == ValueType::NUMBER_DBL) {
-            flags = (int)f->d_val;
+        } else if (fd.type == ValueType::NUMBER_INT) {
+            flags = (int)fd.i_val;
+        } else if (fd.type == ValueType::NUMBER_DBL) {
+            flags = (int)fd.d_val;
         }
     }
 
@@ -2843,22 +2814,17 @@ extern "C" double ts_fs_filehandle_get_fd(TsValue* handle) {
     if (!handle) {
         return -1;
     }
-    if (handle->type != ValueType::OBJECT_PTR) {
+    TsValue hd = nanbox_to_tagged(handle);
+    if (hd.type != ValueType::OBJECT_PTR || !hd.ptr_val) {
         return -1;
     }
-    TsString* keyStr = (TsString*)ts_string_create("fd");
-    // Use scalar helpers directly
-    uint64_t hash = (uint64_t)keyStr; // Use pointer as hash
-    int64_t bucket = __ts_map_find_bucket(handle->ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)keyStr);
-    if (bucket >= 0) {
-        uint8_t val_type;
-        int64_t val_union;
-        __ts_map_get_value_at(handle->ptr_val, bucket, &val_type, &val_union);
-        if (val_type == (uint8_t)ValueType::NUMBER_DBL) {
-            return *(double*)&val_union;
-        } else if (val_type == (uint8_t)ValueType::NUMBER_INT) {
-            return (double)val_union;
-        }
+    TsMap* map = dynamic_cast<TsMap*>((TsObject*)hd.ptr_val);
+    if (!map) return -1;
+    TsValue fdVal = map->Get(TsString::Create("fd"));
+    if (fdVal.type == ValueType::NUMBER_DBL) {
+        return fdVal.d_val;
+    } else if (fdVal.type == ValueType::NUMBER_INT) {
+        return (double)fdVal.i_val;
     }
     return -1;
 }
@@ -3216,7 +3182,8 @@ void ts_fs_readv(double fd, void* buffers_val, double position, void* callback) 
     work->callback = callback;
     for (int i = 0; i < buffers->Length(); ++i) {
         TsValue v = buffers->Get(i);
-        TsBuffer* b = (TsBuffer*)ts_value_get_object(&v);
+        // Direct field access — v is a TsValue struct, not a NaN-boxed pointer
+        TsBuffer* b = (TsBuffer*)v.ptr_val;
         if (b) {
             work->bufs.push_back(uv_buf_init((char*)b->GetData(), (unsigned int)b->GetLength()));
         }
@@ -3234,7 +3201,8 @@ void ts_fs_writev(double fd, void* buffers_val, double position, void* callback)
     work->callback = callback;
     for (int i = 0; i < buffers->Length(); ++i) {
         TsValue v = buffers->Get(i);
-        TsBuffer* b = (TsBuffer*)ts_value_get_object(&v);
+        // Direct field access — v is a TsValue struct, not a NaN-boxed pointer
+        TsBuffer* b = (TsBuffer*)v.ptr_val;
         if (b) {
             work->bufs.push_back(uv_buf_init((char*)b->GetData(), (unsigned int)b->GetLength()));
         }
@@ -3249,19 +3217,19 @@ void ts_fs_open(void* path_val, void* flags_val, double mode, void* callback) {
 
     int flags = O_RDONLY;
     if (flags_val && !ts_value_is_nullish((TsValue*)flags_val)) {
-        TsValue* f = (TsValue*)flags_val;
-        if (f->type == ValueType::STRING_PTR) {
-            const char* s = ((TsString*)f->ptr_val)->ToUtf8();
+        TsValue fd = nanbox_to_tagged((TsValue*)flags_val);
+        if (fd.type == ValueType::STRING_PTR && fd.ptr_val) {
+            const char* s = ((TsString*)fd.ptr_val)->ToUtf8();
             if (strcmp(s, "r") == 0) flags = O_RDONLY;
             else if (strcmp(s, "r+") == 0) flags = O_RDWR;
             else if (strcmp(s, "w") == 0) flags = O_WRONLY | O_CREAT | O_TRUNC;
             else if (strcmp(s, "w+") == 0) flags = O_RDWR | O_CREAT | O_TRUNC;
             else if (strcmp(s, "a") == 0) flags = O_WRONLY | O_CREAT | O_APPEND;
             else if (strcmp(s, "a+") == 0) flags = O_RDWR | O_CREAT | O_APPEND;
-        } else if (f->type == ValueType::NUMBER_INT) {
-            flags = (int)f->i_val;
-        } else if (f->type == ValueType::NUMBER_DBL) {
-            flags = (int)f->d_val;
+        } else if (fd.type == ValueType::NUMBER_INT) {
+            flags = (int)fd.i_val;
+        } else if (fd.type == ValueType::NUMBER_DBL) {
+            flags = (int)fd.d_val;
         }
     }
 
@@ -3313,19 +3281,19 @@ double ts_fs_openSync(void* path_val, void* flags_val, double mode) {
 
     int flags = O_RDONLY;
     if (flags_val && !ts_value_is_nullish((TsValue*)flags_val)) {
-        TsValue* f = (TsValue*)flags_val;
-        if (f->type == ValueType::STRING_PTR) {
-            const char* s = ((TsString*)f->ptr_val)->ToUtf8();
+        TsValue fd2 = nanbox_to_tagged((TsValue*)flags_val);
+        if (fd2.type == ValueType::STRING_PTR && fd2.ptr_val) {
+            const char* s = ((TsString*)fd2.ptr_val)->ToUtf8();
             if (strcmp(s, "r") == 0) flags = O_RDONLY;
             else if (strcmp(s, "r+") == 0) flags = O_RDWR;
             else if (strcmp(s, "w") == 0) flags = O_WRONLY | O_CREAT | O_TRUNC;
             else if (strcmp(s, "w+") == 0) flags = O_RDWR | O_CREAT | O_TRUNC;
             else if (strcmp(s, "a") == 0) flags = O_WRONLY | O_CREAT | O_APPEND;
             else if (strcmp(s, "a+") == 0) flags = O_RDWR | O_CREAT | O_APPEND;
-        } else if (f->type == ValueType::NUMBER_INT) {
-            flags = (int)f->i_val;
-        } else if (f->type == ValueType::NUMBER_DBL) {
-            flags = (int)f->d_val;
+        } else if (fd2.type == ValueType::NUMBER_INT) {
+            flags = (int)fd2.i_val;
+        } else if (fd2.type == ValueType::NUMBER_DBL) {
+            flags = (int)fd2.d_val;
         }
     }
 

@@ -143,23 +143,21 @@ void* TsSet::GetValues() {
     SetType* set = static_cast<SetType*>(impl);
     TsArray* values = TsArray::Create(set->size());
     for (auto const& val : *set) {
-        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-        *v = val;
-        values->Push((int64_t)v);
+        // Convert TsValue struct → NaN-boxed representation for array storage
+        values->Push((int64_t)(uintptr_t)nanbox_from_tagged(val));
     }
     return values;
 }
 
 void TsSet::ForEach(void* callback, void* thisArg) {
+    if (!callback) return;
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return;
 
     SetType* set = (SetType*)impl;
     for (auto const& val : *set) {
-        TsValue* v1 = (TsValue*)ts_alloc(sizeof(TsValue));
-        *v1 = val;
-        TsValue* v2 = (TsValue*)ts_alloc(sizeof(TsValue));
-        *v2 = val;
+        // Convert TsValue struct → NaN-boxed representation for callback args
+        TsValue* v1 = nanbox_from_tagged(val);
+        TsValue* v2 = nanbox_from_tagged(val);
         TsValue* s = ts_value_make_object(this);
         ts_call_3(cbVal, v1, v2, s);
     }
@@ -207,17 +205,14 @@ void ts_set_forEach(void* set, void* callback, void* thisArg) {
 }
 
 TsValue* ts_set_add_wrapper(void* context, TsValue* value) {
-    // Unbox context if it's a boxed TsValue* (e.g., from chaining: ws.add(a).add(b))
+    // context might be NaN-boxed TsValue* — extract the pointer
     void* rawCtx = context;
-    TsValue* maybeVal = (TsValue*)context;
-    if (maybeVal && (uint8_t)maybeVal->type <= 10 && maybeVal->type == ValueType::OBJECT_PTR && maybeVal->ptr_val) {
-        rawCtx = maybeVal->ptr_val;
+    uint64_t nb = (uint64_t)(uintptr_t)context;
+    if (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) {
+        rawCtx = nanbox_to_ptr(nb);
     }
     ts_set_add(rawCtx, value);
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::OBJECT_PTR;
-    res->ptr_val = rawCtx;
-    return res;
+    return ts_value_make_object(rawCtx);
 }
 
 TsValue* ts_set_has_wrapper(void* context, TsValue* value) {

@@ -75,18 +75,8 @@ extern "C" TsValue* ts_set_interval(TsValue* callback, int64_t delay) {
 extern "C" void ts_clear_timer(TsValue* timerId) {
     if (!timerId) return;
 
-    // Handle different value types - timer ID can come as int or boxed pointer
-    int64_t timerAddr = 0;
-    if (timerId->type == ValueType::NUMBER_INT) {
-        timerAddr = timerId->i_val;
-    } else if (timerId->type == ValueType::OBJECT_PTR && timerId->ptr_val) {
-        // Value might be boxed - try to extract int from nested TsValue
-        TsValue* inner = (TsValue*)timerId->ptr_val;
-        if (inner->type == ValueType::NUMBER_INT) {
-            timerAddr = inner->i_val;
-        }
-    }
-
+    // Timer ID is a NaN-boxed integer (the raw timer address)
+    int64_t timerAddr = ts_value_get_int(timerId);
     if (timerAddr == 0) return;
 
     uv_timer_t* timer = (uv_timer_t*)timerAddr;
@@ -172,9 +162,7 @@ static void on_promise_timer_callback(uv_timer_t* handle) {
         if (data->resolveValue) {
             ts_promise_resolve_internal(data->promise, data->resolveValue);
         } else {
-            TsValue undefinedVal;
-            undefinedVal.type = ValueType::UNDEFINED;
-            ts_promise_resolve_internal(data->promise, &undefinedVal);
+            ts_promise_resolve_internal(data->promise, ts_value_make_undefined());
         }
     }
 
@@ -259,10 +247,7 @@ struct IntervalState {
             doneVal.type = ValueType::BOOLEAN;
             doneVal.b_val = true;
             result->Set(k2, doneVal);
-            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            res->type = ValueType::OBJECT_PTR;
-            res->ptr_val = result;
-            ts_promise_resolve_internal(pendingPromise, res);
+            ts_promise_resolve_internal(pendingPromise, ts_value_make_object(result));
             pendingPromise = nullptr;
         }
     }
@@ -282,7 +267,7 @@ static void on_interval_timer_callback(uv_timer_t* handle) {
         k2.ptr_val = TsString::Create("done");
 
         if (state->resolveValue) {
-            result->Set(k1, *state->resolveValue);
+            result->Set(k1, nanbox_to_tagged(state->resolveValue));
         } else {
             TsValue undefinedVal;
             undefinedVal.type = ValueType::UNDEFINED;
@@ -293,11 +278,7 @@ static void on_interval_timer_callback(uv_timer_t* handle) {
         doneVal.b_val = false;
         result->Set(k2, doneVal);
 
-        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-        res->type = ValueType::OBJECT_PTR;
-        res->ptr_val = result;
-
-        ts_promise_resolve_internal(state->pendingPromise, res);
+        ts_promise_resolve_internal(state->pendingPromise, ts_value_make_object(result));
         state->pendingPromise = nullptr;
     }
 
@@ -330,10 +311,7 @@ static TsValue* IntervalIterator_next_internal(void* context) {
         doneVal.type = ValueType::BOOLEAN;
         doneVal.b_val = true;
         result->Set(k2, doneVal);
-        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-        res->type = ValueType::OBJECT_PTR;
-        res->ptr_val = result;
-        ts_promise_resolve_internal(promise, res);
+        ts_promise_resolve_internal(promise, ts_value_make_object(result));
         return ts_value_make_promise(promise);
     }
 
@@ -374,10 +352,7 @@ static TsValue* IntervalIterator_return_internal(void* context) {
     doneVal.type = ValueType::BOOLEAN;
     doneVal.b_val = true;
     result->Set(k2, doneVal);
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::OBJECT_PTR;
-    res->ptr_val = result;
-    ts_promise_resolve_internal(promise, res);
+    ts_promise_resolve_internal(promise, ts_value_make_object(result));
     return ts_value_make_promise(promise);
 }
 
@@ -395,14 +370,14 @@ extern "C" TsValue* ts_timers_promises_setInterval(int64_t delay, TsValue* value
     TsValue nextKey;
     nextKey.type = ValueType::STRING_PTR;
     nextKey.ptr_val = TsString::Create("next");
-    iteratorMap->Set(nextKey, *nextFunc);
+    iteratorMap->Set(nextKey, nanbox_to_tagged(nextFunc));
 
     // Set up the return() method (for early termination)
     TsValue* returnFunc = ts_value_make_function((void*)IntervalIterator_return_internal, state);
     TsValue returnKey;
     returnKey.type = ValueType::STRING_PTR;
     returnKey.ptr_val = TsString::Create("return");
-    iteratorMap->Set(returnKey, *returnFunc);
+    iteratorMap->Set(returnKey, nanbox_to_tagged(returnFunc));
 
     // Set up [Symbol.asyncIterator] to return itself
     // NOTE: For ts_call_0, COMPILED functions expect TsValue* (*)(void*)
@@ -412,7 +387,7 @@ extern "C" TsValue* ts_timers_promises_setInterval(int64_t delay, TsValue* value
     TsValue iterKey;
     iterKey.type = ValueType::STRING_PTR;
     iterKey.ptr_val = TsString::Create("[Symbol.asyncIterator]");
-    iteratorMap->Set(iterKey, *iterFunc);
+    iteratorMap->Set(iterKey, nanbox_to_tagged(iterFunc));
 
     return ts_value_make_object(iteratorMap);
 }

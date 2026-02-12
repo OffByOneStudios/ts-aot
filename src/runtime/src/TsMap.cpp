@@ -220,9 +220,8 @@ void* TsMap::GetKeys() {
     MapType* map = static_cast<MapType*>(impl);
     TsArray* keys = TsArray::Create(map->size());
     for (auto const& [key, val] : *map) {
-        TsValue* k = (TsValue*)ts_alloc(sizeof(TsValue));
-        *k = key;
-        keys->Push((int64_t)k);
+        // Convert TsValue struct → NaN-boxed representation for array storage
+        keys->Push((int64_t)(uintptr_t)nanbox_from_tagged(key));
     }
     return keys;
 }
@@ -231,9 +230,8 @@ void* TsMap::GetValues() {
     MapType* map = static_cast<MapType*>(impl);
     TsArray* values = TsArray::Create(map->size());
     for (auto const& [key, val] : *map) {
-        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-        *v = val;
-        values->Push((int64_t)v);
+        // Convert TsValue struct → NaN-boxed representation for array storage
+        values->Push((int64_t)(uintptr_t)nanbox_from_tagged(val));
     }
     return values;
 }
@@ -243,30 +241,23 @@ void* TsMap::GetEntries() {
     TsArray* entries = TsArray::Create(map->size());
     for (auto const& [key, val] : *map) {
         TsArray* entry = TsArray::Create(2);
-        
-        TsValue* k = (TsValue*)ts_alloc(sizeof(TsValue));
-        *k = key;
-        entry->Push((int64_t)k);
-        
-        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-        *v = val;
-        entry->Push((int64_t)v);
-        
+        // Convert TsValue struct → NaN-boxed representation for array storage
+        entry->Push((int64_t)(uintptr_t)nanbox_from_tagged(key));
+        entry->Push((int64_t)(uintptr_t)nanbox_from_tagged(val));
         entries->Push((int64_t)entry);
     }
     return entries;
 }
 
 void TsMap::ForEach(void* callback, void* thisArg) {
+    if (!callback) return;
     TsValue* cbVal = (TsValue*)callback;
-    if (!cbVal || cbVal->type != ValueType::FUNCTION_PTR) return;
 
     MapType* map = (MapType*)impl;
     for (auto const& [key, val] : *map) {
-        TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-        *v = val;
-        TsValue* k = (TsValue*)ts_alloc(sizeof(TsValue));
-        *k = key;
+        // Convert TsValue struct → NaN-boxed representation for callback args
+        TsValue* v = nanbox_from_tagged(val);
+        TsValue* k = nanbox_from_tagged(key);
         TsValue* m = ts_value_make_object(this);
         ts_call_3(cbVal, v, k, m);
     }
@@ -436,9 +427,9 @@ void* ts_map_copy_excluding_v2(void* obj, void* excluded_keys_array) {
     
     std::vector<TsString*> excluded_vec;
     for (int i = 0; i < excluded->Length(); i++) {
-        TsValue* val = (TsValue*)excluded->Get(i);
-        if (val->type == ValueType::STRING_PTR) {
-            excluded_vec.push_back((TsString*)val->ptr_val);
+        TsValue decoded = nanbox_to_tagged((TsValue*)excluded->Get(i));
+        if (decoded.type == ValueType::STRING_PTR && decoded.ptr_val) {
+            excluded_vec.push_back((TsString*)decoded.ptr_val);
         }
     }
     
@@ -446,26 +437,29 @@ void* ts_map_copy_excluding_v2(void* obj, void* excluded_keys_array) {
 }
 
 TsValue* ts_map_set_wrapper(void* context, TsValue* key, TsValue* value) {
-    // Use scalar helper directly
-    uint64_t hash = (uint64_t)key->i_val; // Use value as hash
-    __ts_map_set_at(context, hash, (uint8_t)key->type, key->i_val, (uint8_t)value->type, value->i_val);
+    // Decode NaN-boxed key and value
+    TsValue keyDecoded = nanbox_to_tagged(key);
+    TsValue valDecoded = nanbox_to_tagged(value);
+    uint64_t hash = (uint64_t)keyDecoded.i_val;
+    __ts_map_set_at(context, hash, (uint8_t)keyDecoded.type, keyDecoded.i_val, (uint8_t)valDecoded.type, valDecoded.i_val);
     return ts_value_make_undefined();
 }
 
 TsValue* ts_map_get_wrapper(void* context, TsValue* key) {
     // Use scalar helpers directly
-    uint64_t hash = (uint64_t)key->i_val; // Use value as hash for now
-    int64_t bucket = __ts_map_find_bucket(context, hash, (uint8_t)key->type, key->i_val);
+    uint64_t hash = (uint64_t)(uintptr_t)key; // NaN-boxed key
+    TsValue keyTV = nanbox_to_tagged(key);
+    int64_t bucket = __ts_map_find_bucket(context, hash, (uint8_t)keyTV.type, keyTV.i_val);
     if (bucket < 0) {
         return ts_value_make_undefined();
     }
-    TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
     uint8_t result_type;
     int64_t result_val;
     __ts_map_get_value_at(context, bucket, &result_type, &result_val);
-    result->type = (ValueType)result_type;
-    result->i_val = result_val;
-    return result;
+    TsValue result;
+    result.type = (ValueType)result_type;
+    result.i_val = result_val;
+    return nanbox_from_tagged(result);
 }
 
 TsValue* ts_map_has_wrapper(void* context, TsValue* key) {
@@ -497,9 +491,7 @@ TsValue* ts_map_get_property(void* obj, void* propName) {
     
     if (map->Has(key)) {
         TsValue val = map->Get(key);
-        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-        *res = val;
-        return res;
+        return nanbox_from_tagged(val);
     }
 
     if (strcmp(name, "get") == 0) {
@@ -678,14 +670,10 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
                      uint8_t val_type, int64_t val_val) {
     if (!map) return;
     
-    // Check if this is a boxed TsValue* instead of raw TsMap*
-    // TsValue has type enum (0-10) at offset 0
-    uint8_t firstByte = *(uint8_t*)map;
-    if (firstByte <= 10) {  // Could be a TsValue*
-        TsValue* maybeVal = (TsValue*)map;
-        if ((maybeVal->type == ValueType::OBJECT_PTR || maybeVal->type == ValueType::ARRAY_PTR) && maybeVal->ptr_val) {
-            map = maybeVal->ptr_val;  // Unwrap to get the raw object
-        }
+    // Check if this is a NaN-boxed TsValue* instead of raw TsMap*
+    TsValue decoded = nanbox_to_tagged((TsValue*)map);
+    if ((decoded.type == ValueType::OBJECT_PTR || decoded.type == ValueType::ARRAY_PTR) && decoded.ptr_val) {
+        map = decoded.ptr_val;  // Unwrap to get the raw object
     }
     
     // Verify this is actually a TsMap before using it
@@ -723,13 +711,11 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
             TsValue setterVal = tsmap->Get(setterKey);
             if (setterVal.type != ValueType::UNDEFINED) {
                 // Found a setter - invoke it with 'this' as the object and value as argument
-                TsValue* boxedObj = (TsValue*)ts_alloc(sizeof(TsValue));
-                boxedObj->type = ValueType::OBJECT_PTR;
-                boxedObj->ptr_val = map;
-                TsValue* boxedVal = (TsValue*)ts_alloc(sizeof(TsValue));
-                *boxedVal = val;
+                TsValue* boxedObj = ts_value_make_object(map);
+                TsValue* boxedVal = nanbox_from_tagged(val);
+                TsValue* setterFn = nanbox_from_tagged(setterVal);
                 TsValue* args[] = { boxedVal };
-                ts_function_call_with_this(&setterVal, boxedObj, 1, args);
+                ts_function_call_with_this(setterFn, boxedObj, 1, args);
                 return;  // Don't store the value directly - the setter handles it
             }
         }

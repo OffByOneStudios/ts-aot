@@ -239,16 +239,14 @@ extern "C" TsValue* ts_proxy_create(void* targetArg, void* handlerArg) {
     // Create proxy
     TsProxy* proxy = TsProxy::Create(target, handler);
 
-    TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
-    result->type = ValueType::OBJECT_PTR;
-    result->ptr_val = proxy;
-    return result;
+    return ts_value_make_object(proxy);
 }
 
 extern "C" TsValue* ts_proxy_revocable(void* targetArg, void* handlerArg) {
     // Create proxy
     TsValue* proxyVal = ts_proxy_create(targetArg, handlerArg);
-    TsProxy* proxy = (TsProxy*)proxyVal->ptr_val;
+    // proxyVal is NaN-boxed — extract proxy pointer
+    TsProxy* proxy = (TsProxy*)ts_value_get_object(proxyVal);
 
     // Create revoke function
     struct RevokeContext {

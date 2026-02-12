@@ -34,8 +34,8 @@ static TsValue* once_wrapper_func(void* context, int argc, TsValue** argv) {
 void TsEventEmitter::On(const char* event, void* callback) {
     // Emit 'newListener' BEFORE adding the listener
     if (strcmp(event, "newListener") != 0 && strcmp(event, "removeListener") != 0) {
-        TsValue eventNameVal = TsValue(TsString::Create(event));
-        TsValue* args[2] = { &eventNameVal, (TsValue*)callback };
+        TsValue* nbEventName = ts_value_make_string(TsString::Create(event));
+        TsValue* args[2] = { nbEventName, (TsValue*)callback };
         this->Emit("newListener", 2, (void**)args);
     }
 
@@ -83,8 +83,8 @@ void TsEventEmitter::PrependOnceListener(const char* event, void* callback) {
 void TsEventEmitter::PrependListener(const char* event, void* callback) {
     // Emit 'newListener' BEFORE adding the listener
     if (strcmp(event, "newListener") != 0 && strcmp(event, "removeListener") != 0) {
-        TsValue eventNameVal = TsValue(TsString::Create(event));
-        TsValue* args[2] = { &eventNameVal, (TsValue*)callback };
+        TsValue* nbEventName = ts_value_make_string(TsString::Create(event));
+        TsValue* args[2] = { nbEventName, (TsValue*)callback };
         this->Emit("newListener", 2, (void**)args);
     }
 
@@ -120,12 +120,13 @@ void TsEventEmitter::RemoveListener(const char* event, void* callback) {
     }
 
     TsArray* arr = (TsArray*)listenersVal.ptr_val;
-    TsValue* target = (TsValue*)callback;
 
+    // Decode the target callback from NaN-boxed pointer
+    TsValue targetVal = nanbox_to_tagged((TsValue*)callback);
     void* targetPtr = nullptr;
     void* targetCtx = nullptr;
-    if (target && target->type == ValueType::OBJECT_PTR) {
-        TsFunction* f = (TsFunction*)target->ptr_val;
+    if ((targetVal.type == ValueType::OBJECT_PTR || targetVal.type == ValueType::FUNCTION_PTR) && targetVal.ptr_val) {
+        TsFunction* f = (TsFunction*)targetVal.ptr_val;
         targetPtr = f->funcPtr;
         targetCtx = f->context;
     }
@@ -135,26 +136,34 @@ void TsEventEmitter::RemoveListener(const char* event, void* callback) {
         bool match = false;
         TsValue* actualCallback = existing;
 
-        if (existing == target) {
+        // Direct NaN-boxed pointer equality
+        if (existing == (TsValue*)callback) {
             match = true;
-        } else if (existing && (existing->type == ValueType::OBJECT_PTR || existing->type == ValueType::FUNCTION_PTR)) {
-            TsFunction* f = (TsFunction*)existing->ptr_val;
+        } else {
+            // Decode existing from NaN-boxed pointer
+            TsValue existingVal = nanbox_to_tagged(existing);
+            if ((existingVal.type == ValueType::OBJECT_PTR || existingVal.type == ValueType::FUNCTION_PTR) && existingVal.ptr_val) {
+                TsFunction* f = (TsFunction*)existingVal.ptr_val;
 
-            // Check if it's a once wrapper
-            if (f->funcPtr == (void*)once_wrapper_func) {
-                OnceContext* ctx = (OnceContext*)f->context;
-                if (ctx->originalCallback == target) {
-                    match = true;
-                    actualCallback = ctx->originalCallback;
-                } else if (targetPtr && (ctx->originalCallback->type == ValueType::OBJECT_PTR || ctx->originalCallback->type == ValueType::FUNCTION_PTR)) {
-                    TsFunction* origF = (TsFunction*)ctx->originalCallback->ptr_val;
-                    if (origF->funcPtr == targetPtr && origF->context == targetCtx) {
+                // Check if it's a once wrapper
+                if (f->funcPtr == (void*)once_wrapper_func) {
+                    OnceContext* ctx = (OnceContext*)f->context;
+                    if (ctx->originalCallback == (TsValue*)callback) {
                         match = true;
                         actualCallback = ctx->originalCallback;
+                    } else if (targetPtr) {
+                        TsValue origVal = nanbox_to_tagged(ctx->originalCallback);
+                        if ((origVal.type == ValueType::OBJECT_PTR || origVal.type == ValueType::FUNCTION_PTR) && origVal.ptr_val) {
+                            TsFunction* origF = (TsFunction*)origVal.ptr_val;
+                            if (origF->funcPtr == targetPtr && origF->context == targetCtx) {
+                                match = true;
+                                actualCallback = ctx->originalCallback;
+                            }
+                        }
                     }
+                } else if (targetPtr && f->funcPtr == targetPtr && f->context == targetCtx) {
+                    match = true;
                 }
-            } else if (targetPtr && f->funcPtr == targetPtr && f->context == targetCtx) {
-                match = true;
             }
         }
 
@@ -163,8 +172,8 @@ void TsEventEmitter::RemoveListener(const char* event, void* callback) {
 
             // Emit 'removeListener' AFTER removing the listener
             if (strcmp(event, "newListener") != 0 && strcmp(event, "removeListener") != 0) {
-                TsValue eventNameVal = TsValue(TsString::Create(event));
-                TsValue* args[2] = { &eventNameVal, actualCallback };
+                TsValue* nbEventName = ts_value_make_string(TsString::Create(event));
+                TsValue* args[2] = { nbEventName, actualCallback };
                 this->Emit("removeListener", 2, (void**)args);
             }
             return;
@@ -248,9 +257,10 @@ void* TsEventEmitter::Listeners(const char* event) {
     for (int i = 0; i < arr->Length(); i++) {
         TsValue* callback = (TsValue*)arr->Get(i);
 
-        // Check if this is a once-wrapper and unwrap it
-        if (callback && callback->type == ValueType::OBJECT_PTR) {
-            TsFunction* f = (TsFunction*)callback->ptr_val;
+        // Decode NaN-boxed callback to check if it's a once-wrapper
+        TsValue callbackVal = nanbox_to_tagged(callback);
+        if ((callbackVal.type == ValueType::OBJECT_PTR || callbackVal.type == ValueType::FUNCTION_PTR) && callbackVal.ptr_val) {
+            TsFunction* f = (TsFunction*)callbackVal.ptr_val;
             if (f->funcPtr == (void*)once_wrapper_func) {
                 // Unwrap to get original callback
                 OnceContext* ctx = (OnceContext*)f->context;

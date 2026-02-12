@@ -9,6 +9,7 @@
 #include "TsRuntime.h"
 #include "TsPromise.h"
 #include "GC.h"
+#include "TsNanBox.h"
 #include <cstring>
 #include <cstdio>
 
@@ -26,9 +27,9 @@ void* ts_readline_create_interface(void* options) {
 
         // Get input stream
         TsValue* inputVal = ts_object_get_property(rawOpts, "input");
-        if (inputVal && inputVal->type == ValueType::OBJECT_PTR) {
-            void* rawInput = ts_value_get_object(inputVal);
-            if (!rawInput) rawInput = inputVal->ptr_val;
+        TsValue inputDec = nanbox_to_tagged(inputVal);
+        if (inputDec.type == ValueType::OBJECT_PTR) {
+            void* rawInput = inputDec.ptr_val;
             TsReadable* input = dynamic_cast<TsReadable*>(((TsObject*)rawInput)->AsReadable());
             if (input) {
                 rl->SetInput(input);
@@ -37,9 +38,9 @@ void* ts_readline_create_interface(void* options) {
 
         // Get output stream
         TsValue* outputVal = ts_object_get_property(rawOpts, "output");
-        if (outputVal && outputVal->type == ValueType::OBJECT_PTR) {
-            void* rawOutput = ts_value_get_object(outputVal);
-            if (!rawOutput) rawOutput = outputVal->ptr_val;
+        TsValue outputDec = nanbox_to_tagged(outputVal);
+        if (outputDec.type == ValueType::OBJECT_PTR) {
+            void* rawOutput = outputDec.ptr_val;
             TsWritable* output = dynamic_cast<TsWritable*>(((TsObject*)rawOutput)->AsWritable());
             if (output) {
                 rl->SetOutput(output);
@@ -48,8 +49,9 @@ void* ts_readline_create_interface(void* options) {
 
         // Get prompt if provided
         TsValue* promptVal = ts_object_get_property(rawOpts, "prompt");
-        if (promptVal && promptVal->type == ValueType::STRING_PTR) {
-            TsString* promptStr = (TsString*)promptVal->ptr_val;
+        TsValue promptDec = nanbox_to_tagged(promptVal);
+        if (promptDec.type == ValueType::STRING_PTR) {
+            TsString* promptStr = (TsString*)promptDec.ptr_val;
             if (promptStr) {
                 rl->SetPrompt(promptStr->ToUtf8());
             }
@@ -302,10 +304,10 @@ void* ts_readline_async_iterator_next(void* iter) {
     ts::TsReadlineAsyncIterator* asyncIter = dynamic_cast<ts::TsReadlineAsyncIterator*>((TsObject*)rawIter);
     if (asyncIter) {
         ts::TsPromise* promise = asyncIter->Next();
-        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-        res->type = ValueType::PROMISE_PTR;
-        res->ptr_val = promise;
-        return res;
+        TsValue tv;
+        tv.type = ValueType::PROMISE_PTR;
+        tv.ptr_val = promise;
+        return nanbox_from_tagged(tv);
     }
     return nullptr;
 }

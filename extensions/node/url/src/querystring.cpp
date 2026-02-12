@@ -2,6 +2,7 @@
 #include "TsMap.h"
 #include "TsArray.h"
 #include "TsObject.h"
+#include "TsNanBox.h"
 #include "GC.h"
 #include <cstring>
 #include <string>
@@ -210,17 +211,18 @@ void* ts_querystring_stringify(void* obj, void* sep, void* eq) {
     int64_t keyCount = keys->Length();
 
     for (int64_t i = 0; i < keyCount; i++) {
-        TsValue* keyVal = (TsValue*)keys->Get(i);
-        if (!keyVal || keyVal->type == ValueType::UNDEFINED) continue;
+        TsValue* keyRaw = (TsValue*)keys->Get(i);
+        TsValue keyDec = nanbox_to_tagged(keyRaw);
+        if (keyDec.type == ValueType::UNDEFINED) continue;
 
         TsString* keyStr = nullptr;
-        if (keyVal->type == ValueType::STRING_PTR) {
-            keyStr = (TsString*)keyVal->ptr_val;
+        if (keyDec.type == ValueType::STRING_PTR) {
+            keyStr = (TsString*)keyDec.ptr_val;
         } else {
             continue;  // Skip non-string keys
         }
 
-        TsValue valueVal = map->Get(*keyVal);
+        TsValue valueVal = map->Get(keyDec);
         if (valueVal.type == ValueType::UNDEFINED) continue;
 
         // Escape the key
@@ -233,20 +235,21 @@ void* ts_querystring_stringify(void* obj, void* sep, void* eq) {
             // Output each array element with the same key
             int64_t arrLen = arr->Length();
             for (int64_t j = 0; j < arrLen; j++) {
-                TsValue* elemVal = (TsValue*)arr->Get(j);
-                if (!elemVal) continue;
+                TsValue* elemRaw = (TsValue*)arr->Get(j);
+                if (!elemRaw) continue;
+                TsValue elemDec = nanbox_to_tagged(elemRaw);
 
                 if (!first) result << sepStr;
                 first = false;
 
                 result << keyUtf8 << eqStr;
 
-                if (elemVal->type == ValueType::STRING_PTR) {
-                    TsString* escapedValue = (TsString*)ts_querystring_escape((TsString*)elemVal->ptr_val);
+                if (elemDec.type == ValueType::STRING_PTR) {
+                    TsString* escapedValue = (TsString*)ts_querystring_escape((TsString*)elemDec.ptr_val);
                     result << escapedValue->ToUtf8();
                 } else {
                     // Convert to string
-                    TsString* strVal = (TsString*)ts_string_from_value(elemVal);
+                    TsString* strVal = (TsString*)ts_string_from_value(elemRaw);
                     TsString* escapedValue = (TsString*)ts_querystring_escape(strVal);
                     result << escapedValue->ToUtf8();
                 }
