@@ -1,4 +1,5 @@
 #include "TsJSON.h"
+#include "TsNanBox.h"
 #include "TsString.h"
 #include "TsMap.h"
 #include "TsArray.h"
@@ -36,14 +37,9 @@ static TsValue json_to_ts(const json& j) {
         TsArray* arr = TsArray::Create();
         for (const auto& element : j) {
             TsValue val = json_to_ts(element);
-            int64_t raw = 0;
-            if (val.type == ValueType::NUMBER_INT) raw = val.i_val;
-            else if (val.type == ValueType::NUMBER_DBL) {
-                // Bit-cast double to int64_t for storage in array
-                std::memcpy(&raw, &val.d_val, sizeof(double));
-            }
-            else raw = (int64_t)val.ptr_val;
-            arr->Push(raw);
+            // Convert TsValue struct to NaN-boxed for array storage
+            uint64_t nb = (uint64_t)(uintptr_t)nanbox_from_tagged(val);
+            arr->Push((int64_t)nb);
         }
         TsValue v;
         std::memset(&v, 0, sizeof(TsValue));  // Zero-initialize including padding
@@ -92,16 +88,17 @@ static nlohmann::json ts_value_to_json(TsValue v, std::set<void*>& visited) {
 
 static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
     if (!p) return nullptr;
-    
-    // Check if it's a small integer (raw)
-    if ((uintptr_t)p < 4096) return (int64_t)p;
 
-    // Check if it's a bit-casted double (raw)
-    uint64_t val = (uint64_t)p;
-    if (val > 0x00007FFFFFFFFFFF) {
-        double d;
-        std::memcpy(&d, &val, sizeof(double));
-        // Format whole numbers as integers (10.0 -> 10, not 10.0)
+    // Decode NaN-boxed values
+    uint64_t nb = (uint64_t)(uintptr_t)p;
+    if (nanbox_is_undefined(nb)) return nullptr;
+    if (nanbox_is_null(nb)) return nullptr;
+    if (nanbox_is_bool(nb)) return nanbox_to_bool(nb);
+    if (nanbox_is_int32(nb)) {
+        return (int64_t)nanbox_to_int32(nb);
+    }
+    if (nanbox_is_double(nb)) {
+        double d = nanbox_to_double(nb);
         double intPart;
         if (std::modf(d, &intPart) == 0.0 &&
             d >= -9007199254740992.0 && d <= 9007199254740992.0) {
@@ -109,6 +106,9 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         }
         return d;
     }
+
+    // Must be a pointer (nanbox_is_ptr). Extract the raw pointer.
+    // Note: for heap pointers, the NaN-boxed representation IS the raw pointer value.
 
     // Check magic numbers. Some objects have a vtable (TsObject), some don't.
     // Layout varies:
@@ -157,30 +157,32 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         nlohmann::json j = nlohmann::json::object();
         TsArray* keys = (TsArray*)map->GetKeys();
         for (int64_t i = 0; i < keys->Length(); ++i) {
-            TsValue* kPtr = (TsValue*)keys->Get(i);
-            TsValue val = map->Get(*kPtr);
+            // keys->Get(i) returns a NaN-boxed value (pointer to TsString)
+            uint64_t keyNB = (uint64_t)keys->Get(i);
+            if (!nanbox_is_ptr(keyNB)) continue;  // JSON only supports string keys
+            void* keyPtr = nanbox_to_ptr(keyNB);
+            if (!keyPtr) continue;
+            if (*(uint32_t*)keyPtr != TsString::MAGIC) continue;
+
+            TsString* keyStr = (TsString*)keyPtr;
+            std::string keyStdStr = keyStr->ToUtf8();
+
+            // Create a TsValue struct for the key to pass to map->Get
+            TsValue keyTv;
+            std::memset(&keyTv, 0, sizeof(TsValue));
+            keyTv.type = ValueType::STRING_PTR;
+            keyTv.ptr_val = keyStr;
+            TsValue val = map->Get(keyTv);
             if (val.type == ValueType::UNDEFINED) continue;
-            
-            std::string keyStr;
-            if (kPtr->type == ValueType::STRING_PTR) {
-                keyStr = ((TsString*)kPtr->ptr_val)->ToUtf8();
-            } else {
-                // JSON only supports string keys
-                continue;
-            }
-            j[keyStr] = ts_value_to_json(val, visited);
+
+            j[keyStdStr] = ts_value_to_json(val, visited);
         }
         visited.erase(p);
         return j;
     }
 
-    // Fallback: check if it's a boxed TsValue
-    uint8_t type_byte = *(uint8_t*)p;
-    if (type_byte <= (uint8_t)ValueType::SYMBOL_PTR) {
-        return ts_value_to_json(*(TsValue*)p, visited);
-    }
-
-    return (int64_t)p;
+    // Fallback: unknown object type
+    return nlohmann::json::object();
 }
 
 static nlohmann::json ts_to_json(void* p) {
@@ -195,13 +197,8 @@ extern "C" {
         try {
             nlohmann::json j = nlohmann::json::parse(s->ToUtf8());
             TsValue val = json_to_ts(j);
-
-            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            // Zero-initialize to ensure padding bytes are zero
-            // This is required for ts_value_get_object's TsValue detection heuristic
-            std::memset(res, 0, sizeof(TsValue));
-            *res = val;
-            return res;
+            // Convert TsValue struct to NaN-boxed representation
+            return (void*)nanbox_from_tagged(val);
         } catch (...) {
             return nullptr;
         }

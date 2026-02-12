@@ -4,6 +4,7 @@
 #include "TsRuntime.h"
 #include "GC.h"
 #include "TsGC.h"
+#include "TsNanBox.h"
 #include <cmath>
 #include <unicode/unistr.h>
 #include <unicode/normlzr.h>
@@ -994,21 +995,9 @@ extern "C" {
         int64_t* codePoints = (int64_t*)ts_alloc(len * sizeof(int64_t));
         for (int64_t i = 0; i < len; i++) {
             int64_t rawVal = arr->Get(i);
-            // The value might be a boxed TsValue* or a raw int64
-            // Try to unbox it
-            TsValue* boxed = (TsValue*)rawVal;
-            if (boxed && ((uint8_t)boxed->type <= 10)) {
-                // Looks like a valid TsValue
-                if (boxed->type == ValueType::NUMBER_INT) {
-                    codePoints[i] = boxed->i_val;
-                } else if (boxed->type == ValueType::NUMBER_DBL) {
-                    codePoints[i] = (int64_t)boxed->d_val;
-                } else {
-                    codePoints[i] = rawVal;  // Fallback
-                }
-            } else {
-                codePoints[i] = rawVal;  // Already an int64
-            }
+            // Array elements are NaN-boxed values
+            uint64_t nb = (uint64_t)rawVal;
+            codePoints[i] = nanbox_to_int64(nb);
         }
         return TsString::FromCodePoint(codePoints, len);
     }
@@ -1021,12 +1010,10 @@ extern "C" {
         // Get the 'raw' property from the template object
         void* rawArray = ts_object_get_property(templateObj, "raw");
 
-        // Unbox if it's a TsValue*
-        TsValue* rawVal = (TsValue*)rawArray;
-        if (rawVal && ((uint8_t)rawVal->type <= 10)) {
-            if (rawVal->type == ValueType::OBJECT_PTR || rawVal->type == ValueType::ARRAY_PTR) {
-                rawArray = rawVal->ptr_val;
-            }
+        // Unbox if it's a NaN-boxed pointer
+        uint64_t rawNb = (uint64_t)(uintptr_t)rawArray;
+        if (nanbox_is_ptr(rawNb)) {
+            rawArray = nanbox_to_ptr(rawNb);
         }
 
         if (!rawArray) return TsString::Create("");
@@ -1043,17 +1030,15 @@ extern "C" {
         for (int64_t i = 0; i < rawLen; i++) {
             // Get raw string piece
             int64_t pieceVal = rawPieces->Get(i);
-            TsValue* pieceBoxed = (TsValue*)pieceVal;
+            uint64_t pieceNb = (uint64_t)pieceVal;
             TsString* piece = nullptr;
 
-            if (pieceBoxed && ((uint8_t)pieceBoxed->type <= 10)) {
-                if (pieceBoxed->type == ValueType::STRING_PTR) {
-                    piece = (TsString*)pieceBoxed->ptr_val;
-                } else if (pieceBoxed->type == ValueType::OBJECT_PTR) {
-                    piece = (TsString*)pieceBoxed->ptr_val;
+            if (nanbox_is_ptr(pieceNb)) {
+                void* pp = nanbox_to_ptr(pieceNb);
+                if (pp) {
+                    uint32_t m = *(uint32_t*)pp;
+                    if (m == 0x53545247) piece = (TsString*)pp; // TsString
                 }
-            } else {
-                piece = (TsString*)pieceVal;
             }
 
             if (piece) {
@@ -1063,42 +1048,32 @@ extern "C" {
             // Add substitution if available (there's one fewer substitution than raw pieces)
             if (subs && i < rawLen - 1 && i < subs->Length()) {
                 int64_t subVal = subs->Get(i);
-                TsValue* subBoxed = (TsValue*)subVal;
+                uint64_t subNb = (uint64_t)subVal;
 
-                if (subBoxed && ((uint8_t)subBoxed->type <= 10)) {
-                    switch (subBoxed->type) {
-                        case ValueType::STRING_PTR:
-                            if (subBoxed->ptr_val) {
-                                result += ((TsString*)subBoxed->ptr_val)->ToUtf8();
-                            }
-                            break;
-                        case ValueType::NUMBER_INT:
-                            result += std::to_string(subBoxed->i_val);
-                            break;
-                        case ValueType::NUMBER_DBL:
-                            result += std::to_string(subBoxed->d_val);
-                            break;
-                        case ValueType::BOOLEAN:
-                            result += subBoxed->b_val ? "true" : "false";
-                            break;
-                        case ValueType::UNDEFINED:
-                            result += "undefined";
-                            break;
-                        case ValueType::OBJECT_PTR:
-                            // Null is represented as OBJECT_PTR with null ptr_val
-                            if (subBoxed->ptr_val == nullptr) {
-                                result += "null";
-                            } else {
-                                result += "[object]";
-                            }
-                            break;
-                        default:
+                if (nanbox_is_undefined(subNb)) {
+                    result += "undefined";
+                } else if (nanbox_is_null(subNb)) {
+                    result += "null";
+                } else if (nanbox_is_true(subNb)) {
+                    result += "true";
+                } else if (nanbox_is_false(subNb)) {
+                    result += "false";
+                } else if (nanbox_is_int32(subNb)) {
+                    result += std::to_string(nanbox_to_int32(subNb));
+                } else if (nanbox_is_double(subNb)) {
+                    result += std::to_string(nanbox_to_double(subNb));
+                } else if (nanbox_is_ptr(subNb)) {
+                    void* sp = nanbox_to_ptr(subNb);
+                    if (!sp) {
+                        result += "null";
+                    } else {
+                        uint32_t sm = *(uint32_t*)sp;
+                        if (sm == 0x53545247) {
+                            result += ((TsString*)sp)->ToUtf8();
+                        } else {
                             result += "[object]";
-                            break;
+                        }
                     }
-                } else if (subVal) {
-                    // Assume it's a raw string pointer
-                    result += ((TsString*)subVal)->ToUtf8();
                 }
             }
         }
@@ -1264,26 +1239,30 @@ extern "C" {
     }
 
     void* ts_string_from_value(TsValue* val) {
-        if (!val) {
-            return TsString::GetInterned("undefined");
+        if (!val) return TsString::GetInterned("undefined");
+
+        uint64_t nb = nanbox_from_tsvalue_ptr(val);
+
+        if (nanbox_is_undefined(nb)) return TsString::GetInterned("undefined");
+        if (nanbox_is_null(nb))      return TsString::GetInterned("null");
+        if (nanbox_is_true(nb))      return TsString::GetInterned("true");
+        if (nanbox_is_false(nb))     return TsString::GetInterned("false");
+        if (nanbox_is_int32(nb))     return TsString::FromInt((int64_t)nanbox_to_int32(nb));
+        if (nanbox_is_double(nb))    return TsString::FromDouble(nanbox_to_double(nb));
+
+        if (nanbox_is_ptr(nb)) {
+            void* ptr = nanbox_to_ptr(nb);
+            if (!ptr) return TsString::GetInterned("null");
+            uint32_t magic = *(uint32_t*)ptr;
+            if (magic == 0x53545247) return ptr; // TsString
+            if (magic == 0x41525259) return TsString::GetInterned("[object Array]");
+            if (magic == 0x42494749) { // TsBigInt
+                // BigInt toString would need special handling
+                return TsString::GetInterned("[object BigInt]");
+            }
+            return TsString::GetInterned("[object Object]");
         }
 
-        // Check for raw TsString first by checking its magic
-        uint32_t magic = *(uint32_t*)val;
-        if (magic == 0x53545247) { // TsString::MAGIC
-            return val;
-        }
-
-        switch (val->type) {
-            case ValueType::UNDEFINED: return TsString::GetInterned("undefined");
-            case ValueType::NUMBER_INT: return TsString::FromInt(val->i_val);
-            case ValueType::NUMBER_DBL: return TsString::FromDouble(val->d_val);
-            case ValueType::BOOLEAN: return TsString::FromBool(val->b_val);
-            case ValueType::STRING_PTR: return val->ptr_val;
-            case ValueType::OBJECT_PTR: return TsString::GetInterned("[object Object]");
-            case ValueType::ARRAY_PTR: return TsString::GetInterned("[object Array]");
-            case ValueType::PROMISE_PTR: return TsString::GetInterned("[object Promise]");
-            default: return TsString::GetInterned("unknown");
-        }
+        return TsString::GetInterned("unknown");
     }
 }

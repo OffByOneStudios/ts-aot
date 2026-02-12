@@ -83,25 +83,24 @@ void* ts_bigint_to_string(void* bi, int32_t radix) {
 
 void* ts_bigint_from_value(TsValue* val) {
     if (!val) return TsBigInt::Create((int64_t)0);
-    
-    if (val->type == ValueType::NUMBER_INT) {
-        return TsBigInt::Create(val->i_val);
-    } else if (val->type == ValueType::NUMBER_DBL) {
-        return TsBigInt::Create((int64_t)val->d_val);
-    } else if (val->type == ValueType::STRING_PTR) {
-        return TsBigInt::Create(((TsString*)val->ptr_val)->ToUtf8());
-    } else if (val->type == ValueType::BIGINT_PTR) {
-        return val->ptr_val;
+
+    TsValue decoded = nanbox_to_tagged(val);
+    if (decoded.type == ValueType::NUMBER_INT) {
+        return TsBigInt::Create(decoded.i_val);
+    } else if (decoded.type == ValueType::NUMBER_DBL) {
+        return TsBigInt::Create((int64_t)decoded.d_val);
+    } else if (decoded.type == ValueType::STRING_PTR) {
+        return TsBigInt::Create(((TsString*)decoded.ptr_val)->ToUtf8());
+    } else if (decoded.type == ValueType::BIGINT_PTR) {
+        return decoded.ptr_val;
     }
-    
+
     return TsBigInt::Create((int64_t)0);
 }
 
 TsValue* ts_value_make_bigint(void* b) {
-    TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-    v->type = ValueType::BIGINT_PTR;
-    v->ptr_val = b;
-    return v;
+    // NaN boxing: pointer is encoded as-is (top 16 bits = 0 for valid pointers)
+    return (TsValue*)(uintptr_t)b;
 }
 
 // Arithmetic operations

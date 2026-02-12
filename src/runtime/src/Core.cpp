@@ -6,6 +6,7 @@
 #include "TsWriteStream.h"
 #include "TsReadStream.h"
 #include "TsGC.h"
+#include "TsNanBox.h"
 // TsCluster.h removed - cluster init is now done via ts_node_init_hook
 #include <cstdio>
 #include <setjmp.h>
@@ -139,8 +140,10 @@ TsValue* ts_debug_marker(TsValue* msg) {
 }
 
 void* ts_get_process_argv() {
-    if (!process_argv || process_argv->type != ValueType::ARRAY_PTR) return nullptr;
-    return process_argv->ptr_val;
+    if (!process_argv) return nullptr;
+    uint64_t nb = nanbox_from_tsvalue_ptr(process_argv);
+    if (!nanbox_is_ptr(nb)) return nullptr;
+    return nanbox_to_ptr(nb);
 }
 
 void* ts_get_process_env() {
@@ -158,7 +161,7 @@ void* ts_get_process_env() {
                 if (pos != std::string::npos) {
                     std::string key = entry.substr(0, pos);
                     std::string val = entry.substr(pos + 1);
-                    envMap->Set(TsString::Create(key.c_str()), *ts_value_make_string(ts_string_create(val.c_str())));
+                    envMap->Set(TsString::Create(key.c_str()), nanbox_to_tagged(ts_value_make_string(ts_string_create(val.c_str()))));
                 }
             }
         }
@@ -278,11 +281,11 @@ void* ts_process_get_version() {
 
 void* ts_process_get_versions() {
     TsMap* versions = TsMap::Create();
-    versions->Set(*ts_value_make_string(TsString::Create("node")), *ts_value_make_string(TsString::Create("20.0.0")));
-    versions->Set(*ts_value_make_string(TsString::Create("v8")), *ts_value_make_string(TsString::Create("11.3.0")));
-    versions->Set(*ts_value_make_string(TsString::Create("uv")), *ts_value_make_string(TsString::Create(uv_version_string())));
-    versions->Set(*ts_value_make_string(TsString::Create("icu")), *ts_value_make_string(TsString::Create("73.1")));
-    versions->Set(*ts_value_make_string(TsString::Create("ts-aot")), *ts_value_make_string(TsString::Create("1.0.0")));
+    versions->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("node"))), nanbox_to_tagged(ts_value_make_string(TsString::Create("20.0.0"))));
+    versions->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("v8"))), nanbox_to_tagged(ts_value_make_string(TsString::Create("11.3.0"))));
+    versions->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("uv"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(uv_version_string()))));
+    versions->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("icu"))), nanbox_to_tagged(ts_value_make_string(TsString::Create("73.1"))));
+    versions->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("ts-aot"))), nanbox_to_tagged(ts_value_make_string(TsString::Create("1.0.0"))));
     return ts_value_make_object(versions);
 }
 
@@ -379,24 +382,24 @@ void* ts_process_memory_usage() {
 #ifdef _WIN32
     PROCESS_MEMORY_COUNTERS pmc;
     if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
-        usage->Set(*ts_value_make_string(TsString::Create("rss")), *ts_value_make_int((int64_t)pmc.WorkingSetSize));
-        usage->Set(*ts_value_make_string(TsString::Create("heapTotal")), *ts_value_make_int((int64_t)pmc.PagefileUsage));
-        usage->Set(*ts_value_make_string(TsString::Create("heapUsed")), *ts_value_make_int((int64_t)pmc.WorkingSetSize));
+        usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("rss"))), nanbox_to_tagged(ts_value_make_int((int64_t)pmc.WorkingSetSize)));
+        usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("heapTotal"))), nanbox_to_tagged(ts_value_make_int((int64_t)pmc.PagefileUsage)));
+        usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("heapUsed"))), nanbox_to_tagged(ts_value_make_int((int64_t)pmc.WorkingSetSize)));
     } else {
-        usage->Set(*ts_value_make_string(TsString::Create("rss")), *ts_value_make_int(0));
-        usage->Set(*ts_value_make_string(TsString::Create("heapTotal")), *ts_value_make_int(0));
-        usage->Set(*ts_value_make_string(TsString::Create("heapUsed")), *ts_value_make_int(0));
+        usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("rss"))), nanbox_to_tagged(ts_value_make_int(0)));
+        usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("heapTotal"))), nanbox_to_tagged(ts_value_make_int(0)));
+        usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("heapUsed"))), nanbox_to_tagged(ts_value_make_int(0)));
     }
 #else
     size_t rss = 0;
     uv_resident_set_memory(&rss);
-    usage->Set(*ts_value_make_string(TsString::Create("rss")), *ts_value_make_int((int64_t)rss));
-    usage->Set(*ts_value_make_string(TsString::Create("heapTotal")), *ts_value_make_int((int64_t)rss));
-    usage->Set(*ts_value_make_string(TsString::Create("heapUsed")), *ts_value_make_int((int64_t)rss));
+    usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("rss"))), nanbox_to_tagged(ts_value_make_int((int64_t)rss)));
+    usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("heapTotal"))), nanbox_to_tagged(ts_value_make_int((int64_t)rss)));
+    usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("heapUsed"))), nanbox_to_tagged(ts_value_make_int((int64_t)rss)));
 #endif
     
-    usage->Set(*ts_value_make_string(TsString::Create("external")), *ts_value_make_int(0));
-    usage->Set(*ts_value_make_string(TsString::Create("arrayBuffers")), *ts_value_make_int(0));
+    usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("external"))), nanbox_to_tagged(ts_value_make_int(0)));
+    usage->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("arrayBuffers"))), nanbox_to_tagged(ts_value_make_int(0)));
     
     return ts_value_make_object(usage);
 }
@@ -419,8 +422,8 @@ void* ts_process_cpu_usage(void* prevUsage) {
     uv_rusage_t rusage;
     if (uv_getrusage(&rusage) != 0) {
         TsMap* result = TsMap::Create();
-        result->Set(*ts_value_make_string(TsString::Create("user")), *ts_value_make_int(0));
-        result->Set(*ts_value_make_string(TsString::Create("system")), *ts_value_make_int(0));
+        result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("user"))), nanbox_to_tagged(ts_value_make_int(0)));
+        result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("system"))), nanbox_to_tagged(ts_value_make_int(0)));
         return ts_value_make_object(result);
     }
     
@@ -431,18 +434,19 @@ void* ts_process_cpu_usage(void* prevUsage) {
         TsMap* prev = (TsMap*)ts_value_get_object((TsValue*)prevUsage);
         if (!prev) prev = (TsMap*)prevUsage;
         if (prev) {
-            TsValue userVal = prev->Get(*ts_value_make_string(TsString::Create("user")));
-            TsValue sysVal = prev->Get(*ts_value_make_string(TsString::Create("system")));
-            int64_t prevUser = ts_value_get_int(&userVal);
-            int64_t prevSys = ts_value_get_int(&sysVal);
+            TsValue userVal = prev->Get(nanbox_to_tagged(ts_value_make_string(TsString::Create("user"))));
+            TsValue sysVal = prev->Get(nanbox_to_tagged(ts_value_make_string(TsString::Create("system"))));
+            // Direct field access — userVal/sysVal are TsValue structs, not NaN-boxed pointers
+            int64_t prevUser = userVal.i_val;
+            int64_t prevSys = sysVal.i_val;
             userMicros -= prevUser;
             systemMicros -= prevSys;
         }
     }
     
     TsMap* result = TsMap::Create();
-    result->Set(*ts_value_make_string(TsString::Create("user")), *ts_value_make_int(userMicros));
-    result->Set(*ts_value_make_string(TsString::Create("system")), *ts_value_make_int(systemMicros));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("user"))), nanbox_to_tagged(ts_value_make_int(userMicros)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("system"))), nanbox_to_tagged(ts_value_make_int(systemMicros)));
     return ts_value_make_object(result);
 }
 
@@ -454,22 +458,22 @@ void* ts_process_resource_usage() {
         return ts_value_make_object(result);
     }
     
-    result->Set(*ts_value_make_string(TsString::Create("userCPUTime")), *ts_value_make_int((int64_t)rusage.ru_utime.tv_sec * 1000000 + (int64_t)rusage.ru_utime.tv_usec));
-    result->Set(*ts_value_make_string(TsString::Create("systemCPUTime")), *ts_value_make_int((int64_t)rusage.ru_stime.tv_sec * 1000000 + (int64_t)rusage.ru_stime.tv_usec));
-    result->Set(*ts_value_make_string(TsString::Create("maxRSS")), *ts_value_make_int((int64_t)rusage.ru_maxrss));
-    result->Set(*ts_value_make_string(TsString::Create("sharedMemorySize")), *ts_value_make_int(0));
-    result->Set(*ts_value_make_string(TsString::Create("unsharedDataSize")), *ts_value_make_int(0));
-    result->Set(*ts_value_make_string(TsString::Create("unsharedStackSize")), *ts_value_make_int(0));
-    result->Set(*ts_value_make_string(TsString::Create("minorPageFault")), *ts_value_make_int((int64_t)rusage.ru_minflt));
-    result->Set(*ts_value_make_string(TsString::Create("majorPageFault")), *ts_value_make_int((int64_t)rusage.ru_majflt));
-    result->Set(*ts_value_make_string(TsString::Create("swappedOut")), *ts_value_make_int((int64_t)rusage.ru_nswap));
-    result->Set(*ts_value_make_string(TsString::Create("fsRead")), *ts_value_make_int((int64_t)rusage.ru_inblock));
-    result->Set(*ts_value_make_string(TsString::Create("fsWrite")), *ts_value_make_int((int64_t)rusage.ru_oublock));
-    result->Set(*ts_value_make_string(TsString::Create("ipcSent")), *ts_value_make_int((int64_t)rusage.ru_msgsnd));
-    result->Set(*ts_value_make_string(TsString::Create("ipcReceived")), *ts_value_make_int((int64_t)rusage.ru_msgrcv));
-    result->Set(*ts_value_make_string(TsString::Create("signalsCount")), *ts_value_make_int((int64_t)rusage.ru_nsignals));
-    result->Set(*ts_value_make_string(TsString::Create("voluntaryContextSwitches")), *ts_value_make_int((int64_t)rusage.ru_nvcsw));
-    result->Set(*ts_value_make_string(TsString::Create("involuntaryContextSwitches")), *ts_value_make_int((int64_t)rusage.ru_nivcsw));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("userCPUTime"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_utime.tv_sec * 1000000 + (int64_t)rusage.ru_utime.tv_usec)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("systemCPUTime"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_stime.tv_sec * 1000000 + (int64_t)rusage.ru_stime.tv_usec)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("maxRSS"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_maxrss)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("sharedMemorySize"))), nanbox_to_tagged(ts_value_make_int(0)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("unsharedDataSize"))), nanbox_to_tagged(ts_value_make_int(0)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("unsharedStackSize"))), nanbox_to_tagged(ts_value_make_int(0)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("minorPageFault"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_minflt)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("majorPageFault"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_majflt)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("swappedOut"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_nswap)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("fsRead"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_inblock)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("fsWrite"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_oublock)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("ipcSent"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_msgsnd)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("ipcReceived"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_msgrcv)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("signalsCount"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_nsignals)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("voluntaryContextSwitches"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_nvcsw)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("involuntaryContextSwitches"))), nanbox_to_tagged(ts_value_make_int((int64_t)rusage.ru_nivcsw)));
     
     return ts_value_make_object(result);
 }
@@ -519,7 +523,7 @@ void* ts_process_get_config() {
     TsMap* variables = TsMap::Create();
     
     // Add some basic config info
-    variables->Set(*ts_value_make_string(TsString::Create("host_arch")), *ts_value_make_string(TsString::Create(
+    variables->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("host_arch"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(
 #ifdef _M_X64
         "x64"
 #elif _M_ARM64
@@ -527,9 +531,9 @@ void* ts_process_get_config() {
 #else
         "x64"
 #endif
-    )));
+    ))));
     
-    variables->Set(*ts_value_make_string(TsString::Create("host_os")), *ts_value_make_string(TsString::Create(
+    variables->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("host_os"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(
 #ifdef _WIN32
         "win32"
 #elif __APPLE__
@@ -537,29 +541,29 @@ void* ts_process_get_config() {
 #else
         "linux"
 #endif
-    )));
+    ))));
     
-    config->Set(*ts_value_make_string(TsString::Create("variables")), *ts_value_make_object(variables));
+    config->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("variables"))), nanbox_to_tagged(ts_value_make_object(variables)));
     return ts_value_make_object(config);
 }
 
 void* ts_process_get_features() {
     TsMap* features = TsMap::Create();
-    features->Set(*ts_value_make_string(TsString::Create("inspector")), *ts_value_make_bool(false));
-    features->Set(*ts_value_make_string(TsString::Create("debug")), *ts_value_make_bool(false));
-    features->Set(*ts_value_make_string(TsString::Create("uv")), *ts_value_make_bool(true));
-    features->Set(*ts_value_make_string(TsString::Create("ipv6")), *ts_value_make_bool(true));
-    features->Set(*ts_value_make_string(TsString::Create("tls_alpn")), *ts_value_make_bool(false));
-    features->Set(*ts_value_make_string(TsString::Create("tls_sni")), *ts_value_make_bool(false));
-    features->Set(*ts_value_make_string(TsString::Create("tls_ocsp")), *ts_value_make_bool(false));
-    features->Set(*ts_value_make_string(TsString::Create("tls")), *ts_value_make_bool(false));
+    features->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("inspector"))), nanbox_to_tagged(ts_value_make_bool(false)));
+    features->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("debug"))), nanbox_to_tagged(ts_value_make_bool(false)));
+    features->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("uv"))), nanbox_to_tagged(ts_value_make_bool(true)));
+    features->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("ipv6"))), nanbox_to_tagged(ts_value_make_bool(true)));
+    features->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("tls_alpn"))), nanbox_to_tagged(ts_value_make_bool(false)));
+    features->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("tls_sni"))), nanbox_to_tagged(ts_value_make_bool(false)));
+    features->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("tls_ocsp"))), nanbox_to_tagged(ts_value_make_bool(false)));
+    features->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("tls"))), nanbox_to_tagged(ts_value_make_bool(false)));
     return ts_value_make_object(features);
 }
 
 void* ts_process_get_release() {
     TsMap* release = TsMap::Create();
-    release->Set(*ts_value_make_string(TsString::Create("name")), *ts_value_make_string(TsString::Create("ts-aot")));
-    release->Set(*ts_value_make_string(TsString::Create("lts")), *ts_value_make_string(TsString::Create("")));
+    release->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("name"))), nanbox_to_tagged(ts_value_make_string(TsString::Create("ts-aot"))));
+    release->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("lts"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(""))));
     return ts_value_make_object(release);
 }
 
@@ -776,9 +780,9 @@ void* ts_process_get_report() {
     
     // Header info
     TsMap* header = TsMap::Create();
-    header->Set(*ts_value_make_string(TsString::Create("reportVersion")), *ts_value_make_int(1));
-    header->Set(*ts_value_make_string(TsString::Create("nodejsVersion")), *ts_value_make_string(TsString::Create("v20.0.0")));
-    header->Set(*ts_value_make_string(TsString::Create("platform")), *ts_value_make_string(TsString::Create(
+    header->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("reportVersion"))), nanbox_to_tagged(ts_value_make_int(1)));
+    header->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("nodejsVersion"))), nanbox_to_tagged(ts_value_make_string(TsString::Create("v20.0.0"))));
+    header->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("platform"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(
 #ifdef _WIN32
         "win32"
 #elif __APPLE__
@@ -786,8 +790,8 @@ void* ts_process_get_report() {
 #else
         "linux"
 #endif
-    )));
-    report->Set(*ts_value_make_string(TsString::Create("header")), *ts_value_make_object(header));
+    ))));
+    report->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("header"))), nanbox_to_tagged(ts_value_make_object(header)));
     
     return ts_value_make_object(report);
 }

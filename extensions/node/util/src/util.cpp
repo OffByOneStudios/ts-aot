@@ -1,5 +1,6 @@
 #include "TsUtil.h"
 #include "TsRuntime.h"
+#include "TsNanBox.h"
 #include "TsJSON.h"
 #include "TsBuffer.h"
 #include "TsMap.h"
@@ -36,40 +37,26 @@
 static TsString* formatValueToString(void* val) {
     if (!val) return TsString::Create("undefined");
 
-    // The value from array is stored as int64_t (pointer cast to int)
-    // It's a boxed TsValue* - get its string representation
-    TsValue* tv = (TsValue*)val;
-
-    // Check if valid TsValue type
-    uint8_t typeField = *(uint8_t*)tv;
-    if (typeField <= 10) {
-        // Valid TsValue - convert to string based on type
-        switch (tv->type) {
-            case ValueType::STRING_PTR:
-                return (TsString*)tv->ptr_val;
-            case ValueType::NUMBER_INT:
-                return TsString::FromInt(tv->i_val);
-            case ValueType::NUMBER_DBL:
-                return TsString::FromDouble(tv->d_val);
-            case ValueType::BOOLEAN:
-                return TsString::FromBool(tv->b_val);
-            case ValueType::UNDEFINED:
-                return TsString::Create("undefined");
-            case ValueType::OBJECT_PTR:
-            case ValueType::ARRAY_PTR: {
-                // For objects/arrays, use JSON stringify
-                TsString* json = (TsString*)ts_json_stringify(tv->ptr_val, nullptr, nullptr);
-                return json ? json : TsString::Create("[object Object]");
-            }
-            default:
-                return TsString::Create("[object]");
+    // Decode NaN-boxed value
+    TsValue tv = nanbox_to_tagged((TsValue*)val);
+    switch (tv.type) {
+        case ValueType::STRING_PTR:
+            return (TsString*)tv.ptr_val;
+        case ValueType::NUMBER_INT:
+            return TsString::FromInt(tv.i_val);
+        case ValueType::NUMBER_DBL:
+            return TsString::FromDouble(tv.d_val);
+        case ValueType::BOOLEAN:
+            return TsString::FromBool(tv.b_val);
+        case ValueType::UNDEFINED:
+            return TsString::Create("undefined");
+        case ValueType::OBJECT_PTR:
+        case ValueType::ARRAY_PTR: {
+            TsString* json = (TsString*)ts_json_stringify(tv.ptr_val, nullptr, nullptr);
+            return json ? json : TsString::Create("[object Object]");
         }
-    }
-
-    // Check if raw TsString
-    uint32_t magic = *(uint32_t*)val;
-    if (magic == TsString::MAGIC) {
-        return (TsString*)val;
+        default:
+            return TsString::Create("[object]");
     }
 
     return TsString::Create("[object]");
@@ -104,17 +91,11 @@ TsString* ts_util_format_impl(TsString* format, TsArray* args) {
                     if (args && argIndex < (size_t)args->Length()) {
                         void* val = (void*)args->Get(argIndex++);
                         if (val) {
-                            TsValue* tv = (TsValue*)val;
-                            uint8_t typeField = *(uint8_t*)tv;
-                            if (typeField <= 10) {
-                                // Valid boxed value
-                                if (tv->type == ValueType::NUMBER_INT) {
-                                    result << tv->i_val;
-                                } else if (tv->type == ValueType::NUMBER_DBL) {
-                                    result << (int64_t)tv->d_val;
-                                } else {
-                                    result << 0;
-                                }
+                            TsValue tv = nanbox_to_tagged((TsValue*)val);
+                            if (tv.type == ValueType::NUMBER_INT) {
+                                result << tv.i_val;
+                            } else if (tv.type == ValueType::NUMBER_DBL) {
+                                result << (int64_t)tv.d_val;
                             } else {
                                 result << 0;
                             }
@@ -127,16 +108,11 @@ TsString* ts_util_format_impl(TsString* format, TsArray* args) {
                     if (args && argIndex < (size_t)args->Length()) {
                         void* val = (void*)args->Get(argIndex++);
                         if (val) {
-                            TsValue* tv = (TsValue*)val;
-                            uint8_t typeField = *(uint8_t*)tv;
-                            if (typeField <= 10) {
-                                if (tv->type == ValueType::NUMBER_DBL) {
-                                    result << tv->d_val;
-                                } else if (tv->type == ValueType::NUMBER_INT) {
-                                    result << (double)tv->i_val;
-                                } else {
-                                    result << 0.0;
-                                }
+                            TsValue tv = nanbox_to_tagged((TsValue*)val);
+                            if (tv.type == ValueType::NUMBER_DBL) {
+                                result << tv.d_val;
+                            } else if (tv.type == ValueType::NUMBER_INT) {
+                                result << (double)tv.i_val;
                             } else {
                                 result << 0.0;
                             }
@@ -151,11 +127,10 @@ TsString* ts_util_format_impl(TsString* format, TsArray* args) {
                     if (args && argIndex < (size_t)args->Length()) {
                         void* val = (void*)args->Get(argIndex++);
                         if (val) {
-                            TsValue* tv = (TsValue*)val;
-                            uint8_t typeField = *(uint8_t*)tv;
+                            TsValue tv = nanbox_to_tagged((TsValue*)val);
                             void* objToStringify = val;
-                            if (typeField <= 10 && (tv->type == ValueType::OBJECT_PTR || tv->type == ValueType::ARRAY_PTR)) {
-                                objToStringify = tv->ptr_val;
+                            if ((tv.type == ValueType::OBJECT_PTR || tv.type == ValueType::ARRAY_PTR) && tv.ptr_val) {
+                                objToStringify = tv.ptr_val;
                             }
                             TsString* str = (TsString*)ts_json_stringify(objToStringify, nullptr, nullptr);
                             if (str) result << str->ToUtf8();
@@ -245,14 +220,11 @@ static TsString* inspectMap(TsMap* map, int depth, int currentDepth, bool colors
                 // Use GetElementBoxed for properly typed access
                 TsValue* keyElem = keys->GetElementBoxed(i);
                 TsString* keyStr = inspectValue(keyElem, depth, currentDepth + 1, colors);
-                // Get the value from the map
-                TsValue keyVal;
-                keyVal.type = keyElem ? keyElem->type : ValueType::UNDEFINED;
-                keyVal.ptr_val = keyElem ? keyElem->ptr_val : nullptr;
+                // Get the value from the map - decode NaN-boxed key
+                TsValue keyVal = nanbox_to_tagged(keyElem);
                 TsValue val = map->Get(keyVal);
-                // Box the value for inspection
-                TsValue* valBoxed = (TsValue*)ts_alloc(sizeof(TsValue));
-                *valBoxed = val;
+                // Box the value for inspection using nanbox_from_tagged
+                TsValue* valBoxed = nanbox_from_tagged(val);
                 TsString* valStr = inspectValue(valBoxed, depth, currentDepth + 1, colors);
                 result << (keyStr ? keyStr->ToUtf8() : "undefined") << " => " << (valStr ? valStr->ToUtf8() : "undefined");
             }
@@ -273,172 +245,118 @@ static TsString* inspectMap(TsMap* map, int depth, int currentDepth, bool colors
 static TsString* inspectValue(void* val, int depth, int currentDepth, bool colors) {
     if (!val) return TsString::Create("undefined");
 
-    // Check if it's a boxed TsValue
-    TsValue* tv = (TsValue*)val;
-    uint8_t typeField = *(uint8_t*)tv;
+    // Decode NaN-boxed value
+    TsValue tv = nanbox_to_tagged((TsValue*)val);
 
-    if (typeField <= (uint8_t)ValueType::FUNCTION_PTR) {
-        switch (tv->type) {
-            case ValueType::UNDEFINED:
-                return TsString::Create("undefined");
-            case ValueType::BOOLEAN:
-                return TsString::Create(tv->b_val ? "true" : "false");
-            case ValueType::NUMBER_INT: {
-                char buf[32];
-                snprintf(buf, sizeof(buf), "%lld", (long long)tv->i_val);
-                return TsString::Create(buf);
-            }
-            case ValueType::NUMBER_DBL: {
-                char buf[32];
-                if (std::isnan(tv->d_val)) return TsString::Create("NaN");
-                if (std::isinf(tv->d_val)) return TsString::Create(tv->d_val > 0 ? "Infinity" : "-Infinity");
-                snprintf(buf, sizeof(buf), "%.17g", tv->d_val);
-                return TsString::Create(buf);
-            }
-            case ValueType::STRING_PTR: {
-                TsString* s = (TsString*)tv->ptr_val;
-                if (!s) return TsString::Create("''");
-                std::string result = "'";
-                result += s->ToUtf8();
-                result += "'";
-                return TsString::Create(result.c_str());
-            }
-            case ValueType::ARRAY_PTR: {
-                TsArray* arr = (TsArray*)tv->ptr_val;
-                return inspectArray(arr, depth, currentDepth, colors);
-            }
-            case ValueType::OBJECT_PTR: {
-                void* ptr = tv->ptr_val;
-                // Check various object types by magic
-                if (ptr) {
-                    // First check if this is actually a pointer to another TsValue (double-boxed)
-                    uint8_t innerType = *(uint8_t*)ptr;
-                    if (innerType <= (uint8_t)ValueType::FUNCTION_PTR) {
-                        // This looks like a TsValue, recurse into it
-                        return inspectValue(ptr, depth, currentDepth, colors);
-                    }
-
-                    // Check magic at offset 0 for non-TsObject classes (TsDate, TsRegExp, TsArray, TsString, TsBuffer)
-                    uint32_t magic0 = *(uint32_t*)ptr;
-                    if (magic0 == TsDate::MAGIC) {
-                        TsDate* d = (TsDate*)ptr;
-                        return TsString::Create(d->ToISOString()->ToUtf8());
-                    }
-                    if (magic0 == TsRegExp::MAGIC) {
-                        TsRegExp* re = (TsRegExp*)ptr;
-                        TsString* source = re->GetSource();
-                        TsString* flags = re->GetFlags();
-                        std::string result = "/";
-                        result += (source ? source->ToUtf8() : "");
-                        result += "/";
-                        result += (flags ? flags->ToUtf8() : "");
-                        return TsString::Create(result.c_str());
-                    }
-                    if (magic0 == TsArray::MAGIC) {
-                        return inspectArray((TsArray*)ptr, depth, currentDepth, colors);
-                    }
-                    if (magic0 == TsString::MAGIC) {
-                        TsString* s = (TsString*)ptr;
-                        std::string result = "'";
-                        result += s->ToUtf8();
-                        result += "'";
-                        return TsString::Create(result.c_str());
-                    }
-                    if (magic0 == TsBuffer::MAGIC) {
-                        TsBuffer* buf = (TsBuffer*)ptr;
-                        std::ostringstream result;
-                        result << "<Buffer";
-                        size_t len = buf->GetLength();
-                        if (len > 0) {
-                            for (size_t i = 0; i < std::min(len, (size_t)50); i++) {
-                                char hex[4];
-                                snprintf(hex, sizeof(hex), " %02x", buf->GetData()[i]);
-                                result << hex;
-                            }
-                            if (len > 50) result << " ... " << (len - 50) << " more bytes";
-                        }
-                        result << ">";
-                        return TsString::Create(result.str().c_str());
-                    }
-                    // Check for TsObject-derived types: magic is at offset 16
-                    // (offset 0-7 = vtable, offset 8-15 = explicit vtable ptr, offset 16 = magic)
-                    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-                    if (magic16 == TsSet::MAGIC) {
-                        TsSet* s = (TsSet*)ptr;
-                        std::ostringstream result;
-                        result << "Set(" << s->Size() << ") { ";
-                        TsArray* values = (TsArray*)s->GetValues();
-                        if (values) {
-                            size_t len = (size_t)values->Length();
-                            for (size_t i = 0; i < len; i++) {
-                                if (i > 0) result << ", ";
-                                // Use GetElementBoxed for properly typed access
-                                TsValue* v = values->GetElementBoxed(i);
-                                TsString* vs = inspectValue(v, depth, currentDepth + 1, colors);
-                                result << (vs ? vs->ToUtf8() : "undefined");
-                            }
-                        }
-                        result << " }";
-                        return TsString::Create(result.str().c_str());
-                    }
-                    if (magic16 == TsMap::MAGIC) {
-                        return inspectMap((TsMap*)ptr, depth, currentDepth, colors);
-                    }
-                }
-                return TsString::Create("[Object]");
-            }
-            case ValueType::FUNCTION_PTR:
-                return TsString::Create("[Function]");
-            case ValueType::PROMISE_PTR:
-                return TsString::Create("Promise { <pending> }");
-            case ValueType::BIGINT_PTR:
-                return TsString::Create("[BigInt]");
-            case ValueType::SYMBOL_PTR:
-                return TsString::Create("Symbol()");
-            default:
-                break;
+    switch (tv.type) {
+        case ValueType::UNDEFINED:
+            return TsString::Create("undefined");
+        case ValueType::BOOLEAN:
+            return TsString::Create(tv.b_val ? "true" : "false");
+        case ValueType::NUMBER_INT: {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%lld", (long long)tv.i_val);
+            return TsString::Create(buf);
         }
-    }
-
-    // Raw pointer - check object types
-    uint32_t magic = *(uint32_t*)val;
-
-    // TsString
-    if (magic == TsString::MAGIC) {
-        TsString* s = (TsString*)val;
-        std::string result = "'";
-        result += s->ToUtf8();
-        result += "'";
-        return TsString::Create(result.c_str());
-    }
-
-    // TsArray
-    if (magic == TsArray::MAGIC) {
-        return inspectArray((TsArray*)val, depth, currentDepth, colors);
-    }
-
-    // TsDate (magic at offset 0)
-    if (magic == TsDate::MAGIC) {
-        TsDate* d = (TsDate*)val;
-        return TsString::Create(d->ToISOString()->ToUtf8());
-    }
-
-    // TsRegExp (magic at offset 0)
-    if (magic == TsRegExp::MAGIC) {
-        TsRegExp* re = (TsRegExp*)val;
-        TsString* source = re->GetSource();
-        TsString* flags = re->GetFlags();
-        std::string result = "/";
-        result += (source ? source->ToUtf8() : "");
-        result += "/";
-        result += (flags ? flags->ToUtf8() : "");
-        return TsString::Create(result.c_str());
-    }
-
-    // Check magic at offset 16 for TsObject-derived classes
-    uint32_t* magic16 = (uint32_t*)((char*)val + 16);
-    if (*magic16 == TsMap::MAGIC) {
-        return inspectMap((TsMap*)val, depth, currentDepth, colors);
+        case ValueType::NUMBER_DBL: {
+            char buf[32];
+            if (std::isnan(tv.d_val)) return TsString::Create("NaN");
+            if (std::isinf(tv.d_val)) return TsString::Create(tv.d_val > 0 ? "Infinity" : "-Infinity");
+            snprintf(buf, sizeof(buf), "%.17g", tv.d_val);
+            return TsString::Create(buf);
+        }
+        case ValueType::STRING_PTR: {
+            TsString* s = (TsString*)tv.ptr_val;
+            if (!s) return TsString::Create("''");
+            std::string result = "'";
+            result += s->ToUtf8();
+            result += "'";
+            return TsString::Create(result.c_str());
+        }
+        case ValueType::ARRAY_PTR: {
+            TsArray* arr = (TsArray*)tv.ptr_val;
+            return inspectArray(arr, depth, currentDepth, colors);
+        }
+        case ValueType::OBJECT_PTR: {
+            void* ptr = tv.ptr_val;
+            if (ptr) {
+                // Check magic at offset 0 for non-TsObject classes
+                uint32_t magic0 = *(uint32_t*)ptr;
+                if (magic0 == TsDate::MAGIC) {
+                    TsDate* d = (TsDate*)ptr;
+                    return TsString::Create(d->ToISOString()->ToUtf8());
+                }
+                if (magic0 == TsRegExp::MAGIC) {
+                    TsRegExp* re = (TsRegExp*)ptr;
+                    TsString* source = re->GetSource();
+                    TsString* flags = re->GetFlags();
+                    std::string result = "/";
+                    result += (source ? source->ToUtf8() : "");
+                    result += "/";
+                    result += (flags ? flags->ToUtf8() : "");
+                    return TsString::Create(result.c_str());
+                }
+                if (magic0 == TsArray::MAGIC) {
+                    return inspectArray((TsArray*)ptr, depth, currentDepth, colors);
+                }
+                if (magic0 == TsString::MAGIC) {
+                    TsString* s = (TsString*)ptr;
+                    std::string result = "'";
+                    result += s->ToUtf8();
+                    result += "'";
+                    return TsString::Create(result.c_str());
+                }
+                if (magic0 == TsBuffer::MAGIC) {
+                    TsBuffer* buf = (TsBuffer*)ptr;
+                    std::ostringstream result;
+                    result << "<Buffer";
+                    size_t len = buf->GetLength();
+                    if (len > 0) {
+                        for (size_t i = 0; i < std::min(len, (size_t)50); i++) {
+                            char hex[4];
+                            snprintf(hex, sizeof(hex), " %02x", buf->GetData()[i]);
+                            result << hex;
+                        }
+                        if (len > 50) result << " ... " << (len - 50) << " more bytes";
+                    }
+                    result << ">";
+                    return TsString::Create(result.str().c_str());
+                }
+                // Check for TsObject-derived types: magic at offset 16
+                uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+                if (magic16 == TsSet::MAGIC) {
+                    TsSet* s = (TsSet*)ptr;
+                    std::ostringstream result;
+                    result << "Set(" << s->Size() << ") { ";
+                    TsArray* values = (TsArray*)s->GetValues();
+                    if (values) {
+                        size_t len = (size_t)values->Length();
+                        for (size_t i = 0; i < len; i++) {
+                            if (i > 0) result << ", ";
+                            TsValue* v = values->GetElementBoxed(i);
+                            TsString* vs = inspectValue(v, depth, currentDepth + 1, colors);
+                            result << (vs ? vs->ToUtf8() : "undefined");
+                        }
+                    }
+                    result << " }";
+                    return TsString::Create(result.str().c_str());
+                }
+                if (magic16 == TsMap::MAGIC) {
+                    return inspectMap((TsMap*)ptr, depth, currentDepth, colors);
+                }
+            }
+            return TsString::Create("[Object]");
+        }
+        case ValueType::FUNCTION_PTR:
+            return TsString::Create("[Function]");
+        case ValueType::PROMISE_PTR:
+            return TsString::Create("Promise { <pending> }");
+        case ValueType::BIGINT_PTR:
+            return TsString::Create("[BigInt]");
+        case ValueType::SYMBOL_PTR:
+            return TsString::Create("Symbol()");
+        default:
+            break;
     }
 
     // Use JSON stringify as fallback
@@ -483,78 +401,43 @@ static bool isRawString(void* p) {
 }
 
 bool ts_util_is_deep_strict_equal_impl(void* val1, void* val2) {
-    // Same reference
+    // Same NaN-boxed reference
     if (val1 == val2) return true;
 
     // Both null/undefined
     if (!val1 && !val2) return true;
     if (!val1 || !val2) return false;
 
-    // Check if raw strings (compare directly)
-    if (isRawString(val1) && isRawString(val2)) {
-        return ((TsString*)val1)->Equals((TsString*)val2);
-    }
-
-    // Check if raw objects/arrays (compare via JSON)
-    bool isRaw1 = isRawObject(val1) || isRawArray(val1);
-    bool isRaw2 = isRawObject(val2) || isRawArray(val2);
-
-    if (isRaw1 && isRaw2) {
-        TsString* json1 = (TsString*)ts_json_stringify(val1, nullptr, nullptr);
-        TsString* json2 = (TsString*)ts_json_stringify(val2, nullptr, nullptr);
-
-        if (!json1 && !json2) return true;
-        if (!json1 || !json2) return false;
-
-        return json1->Equals(json2);
-    }
-
-    // If one is raw and one is not, they're different types
-    if (isRaw1 || isRaw2) {
-        return false;
-    }
-
-    // Try to interpret as boxed TsValue
-    TsValue* tv1 = (TsValue*)val1;
-    TsValue* tv2 = (TsValue*)val2;
-
-    // Sanity check that type values are in range
-    if ((uint8_t)tv1->type > (uint8_t)ValueType::FUNCTION_PTR ||
-        (uint8_t)tv2->type > (uint8_t)ValueType::FUNCTION_PTR) {
-        // Fall back to JSON comparison
-        TsString* json1 = (TsString*)ts_json_stringify(val1, nullptr, nullptr);
-        TsString* json2 = (TsString*)ts_json_stringify(val2, nullptr, nullptr);
-        if (!json1 && !json2) return true;
-        if (!json1 || !json2) return false;
-        return json1->Equals(json2);
-    }
+    // Decode NaN-boxed values
+    TsValue d1 = nanbox_to_tagged((TsValue*)val1);
+    TsValue d2 = nanbox_to_tagged((TsValue*)val2);
 
     // Check if both are undefined type
-    if (tv1->type == ValueType::UNDEFINED && tv2->type == ValueType::UNDEFINED) {
+    if (d1.type == ValueType::UNDEFINED && d2.type == ValueType::UNDEFINED) {
         return true;
     }
 
     // Different types = not equal
-    if (tv1->type != tv2->type) {
+    if (d1.type != d2.type) {
         return false;
     }
 
     // Compare based on type
-    switch (tv1->type) {
+    switch (d1.type) {
         case ValueType::NUMBER_INT:
-            return tv1->i_val == tv2->i_val;
+            return d1.i_val == d2.i_val;
 
         case ValueType::NUMBER_DBL:
             // Handle NaN specially (NaN === NaN is true in deepStrictEqual)
-            if (std::isnan(tv1->d_val) && std::isnan(tv2->d_val)) return true;
-            return tv1->d_val == tv2->d_val;
+            if (std::isnan(d1.d_val) && std::isnan(d2.d_val)) return true;
+            return d1.d_val == d2.d_val;
 
         case ValueType::BOOLEAN:
-            return tv1->b_val == tv2->b_val;
+            return d1.b_val == d2.b_val;
 
         case ValueType::STRING_PTR: {
-            TsString* s1 = (TsString*)tv1->ptr_val;
-            TsString* s2 = (TsString*)tv2->ptr_val;
+            TsString* s1 = (TsString*)d1.ptr_val;
+            TsString* s2 = (TsString*)d2.ptr_val;
             if (!s1 && !s2) return true;
             if (!s1 || !s2) return false;
             return s1->Equals(s2);
@@ -563,8 +446,8 @@ bool ts_util_is_deep_strict_equal_impl(void* val1, void* val2) {
         case ValueType::OBJECT_PTR:
         case ValueType::ARRAY_PTR: {
             // For objects and arrays, compare as JSON for deep equality
-            TsString* json1 = (TsString*)ts_json_stringify(tv1->ptr_val, nullptr, nullptr);
-            TsString* json2 = (TsString*)ts_json_stringify(tv2->ptr_val, nullptr, nullptr);
+            TsString* json1 = (TsString*)ts_json_stringify(d1.ptr_val, nullptr, nullptr);
+            TsString* json2 = (TsString*)ts_json_stringify(d2.ptr_val, nullptr, nullptr);
 
             if (!json1 && !json2) return true;
             if (!json1 || !json2) return false;
@@ -574,7 +457,7 @@ bool ts_util_is_deep_strict_equal_impl(void* val1, void* val2) {
 
         default:
             // For other types (Promise, BigInt, Symbol, Function), compare by reference
-            return tv1->ptr_val == tv2->ptr_val;
+            return d1.ptr_val == d2.ptr_val;
     }
 }
 
@@ -586,45 +469,44 @@ namespace TsUtilTypes {
 bool isPromise(void* value) {
     if (!value) return false;
 
-    // Unbox if it's a TsValue*
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    // Decode NaN-boxed value to get pointer
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR && decoded.type != ValueType::PROMISE_PTR) return false;
+    if (!decoded.ptr_val) return false;
 
     // TsPromise inherits from TsObject, check magic at standard offset
-    TsObject* obj = (TsObject*)rawPtr;
+    if (decoded.type == ValueType::PROMISE_PTR) return true;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == ts::TsPromise::MAGIC;
 }
 
 bool isTypedArray(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    // Check for Buffer and TypedArray types (both inherit from TsObject)
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsBuffer::MAGIC || obj->magic == TsTypedArray::MAGIC;
 }
 
 bool isArrayBuffer(void* value) {
-    // In our implementation, Buffer serves as ArrayBuffer
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsBuffer::MAGIC;
 }
 
 bool isArrayBufferView(void* value) {
-    // ArrayBufferView includes TypedArrays and DataView
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsTypedArray::MAGIC || obj->magic == TsDataView::MAGIC;
 }
 
@@ -637,63 +519,63 @@ bool isAsyncFunction(void* value) {
 bool isDate(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
     // TsDate does NOT inherit from TsObject - magic is at offset 0
-    uint32_t* magicPtr = (uint32_t*)rawPtr;
+    uint32_t* magicPtr = (uint32_t*)decoded.ptr_val;
     return *magicPtr == TsDate::MAGIC;
 }
 
 bool isMap(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
     // Check magic at offset 16 (TsMap specific layout)
-    uint32_t* magicPtr = (uint32_t*)((char*)rawPtr + 16);
+    uint32_t* magicPtr = (uint32_t*)((char*)decoded.ptr_val + 16);
     if (*magicPtr != TsMap::MAGIC) return false;
 
     // Must be an explicit Map (new Map()), not a plain object
-    TsMap* map = (TsMap*)rawPtr;
+    TsMap* map = (TsMap*)decoded.ptr_val;
     return map->IsExplicitMap();
 }
 
 bool isSet(void* value) {
     if (!value) return false;
-    
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
-    
-    TsObject* obj = (TsObject*)rawPtr;
+
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
+
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsSet::MAGIC;
 }
 
 bool isRegExp(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
     // TsRegExp does NOT inherit from TsObject - magic is at offset 0
-    uint32_t* magicPtr = (uint32_t*)rawPtr;
+    uint32_t* magicPtr = (uint32_t*)decoded.ptr_val;
     return *magicPtr == TsRegExp::MAGIC;
 }
 
 bool isNativeError(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
     // TsError is a TsMap with "name", "message", and "stack" properties
     // Check magic at offset 16 (TsMap/TsObject layout)
-    uint32_t* magicPtr = (uint32_t*)((char*)rawPtr + 16);
+    uint32_t* magicPtr = (uint32_t*)((char*)decoded.ptr_val + 16);
     if (*magicPtr != TsMap::MAGIC) return false;
 
     // Check for "name" property containing error type
-    TsMap* map = (TsMap*)rawPtr;
+    TsMap* map = (TsMap*)decoded.ptr_val;
     TsValue nameVal = map->Get(TsString::Create("name"));
     if (nameVal.type != ValueType::STRING_PTR) return false;
 
@@ -720,10 +602,9 @@ bool isGeneratorFunction(void* value) {
 
 bool isGeneratorObject(void* value) {
     if (!value) return false;
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
-    TsObject* obj = (TsObject*)rawPtr;
-    // Check for TsGenerator (sync generator objects) and TsAsyncGenerator
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == ts::TsGenerator::MAGIC || obj->magic == ts::TsAsyncGenerator::MAGIC;
 }
 
@@ -731,12 +612,12 @@ bool isGeneratorObject(void* value) {
 static TsTypedArray* getTypedArray(void* value) {
     if (!value) return nullptr;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return nullptr;
 
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     if (obj->magic == TsTypedArray::MAGIC) {
-        return (TsTypedArray*)rawPtr;
+        return (TsTypedArray*)decoded.ptr_val;
     }
     return nullptr;
 }
@@ -759,10 +640,10 @@ bool isInt32Array(void* value) {
 bool isUint8Array(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     // Buffer is effectively Uint8Array
     if (obj->magic == TsBuffer::MAGIC) return true;
 
@@ -809,38 +690,36 @@ bool isBigUint64Array(void* value) {
 bool isDataView(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    // TsDataView inherits from TsObject, check magic
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsDataView::MAGIC;
 }
 
 bool isProxy(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    // TsProxy has its own proxyMagic member
-    TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawPtr);
+    TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)decoded.ptr_val);
     return proxy != nullptr;
 }
 
 bool isWeakMap(void* value) {
     if (!value) return false;
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
-    TsObject* obj = (TsObject*)rawPtr;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsWeakMap::MAGIC;
 }
 
 bool isWeakSet(void* value) {
     if (!value) return false;
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
-    TsObject* obj = (TsObject*)rawPtr;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsWeakSet::MAGIC;
 }
 
@@ -853,40 +732,40 @@ bool isAnyArrayBuffer(void* value) {
 bool isBooleanObject(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsBooleanObject::MAGIC;
 }
 
 bool isNumberObject(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsNumberObject::MAGIC;
 }
 
 bool isStringObject(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsStringObject::MAGIC;
 }
 
 bool isSymbolObject(void* value) {
     if (!value) return false;
 
-    void* rawPtr = ts_value_get_object((TsValue*)value);
-    if (!rawPtr) rawPtr = value;
+    TsValue decoded = nanbox_to_tagged((TsValue*)value);
+    if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    TsObject* obj = (TsObject*)rawPtr;
+    TsObject* obj = (TsObject*)decoded.ptr_val;
     return obj->magic == TsSymbolObject::MAGIC;
 }
 
@@ -950,24 +829,18 @@ static TsValue* promisify_callback(void* ctx, int argc, TsValue** argv) {
 
     bool hasError = false;
     if (err) {
-        if (err->type == ValueType::UNDEFINED) {
+        TsValue errDecoded = nanbox_to_tagged(err);
+        if (errDecoded.type == ValueType::UNDEFINED) {
             hasError = false;
-        } else if (err->type == ValueType::OBJECT_PTR ||
-                   err->type == ValueType::STRING_PTR ||
-                   err->type == ValueType::NUMBER_INT ||
-                   err->type == ValueType::NUMBER_DBL ||
-                   err->type == ValueType::BOOLEAN) {
-            // For boolean, check if it's true
-            if (err->type == ValueType::BOOLEAN) {
-                hasError = err->b_val;
-            } else if (err->type == ValueType::NUMBER_INT) {
-                hasError = (err->i_val != 0);
-            } else if (err->type == ValueType::NUMBER_DBL) {
-                hasError = (err->d_val != 0.0);
-            } else {
-                // Object or string - check for null/empty
-                hasError = (err->ptr_val != nullptr);
-            }
+        } else if (errDecoded.type == ValueType::BOOLEAN) {
+            hasError = errDecoded.b_val;
+        } else if (errDecoded.type == ValueType::NUMBER_INT) {
+            hasError = (errDecoded.i_val != 0);
+        } else if (errDecoded.type == ValueType::NUMBER_DBL) {
+            hasError = (errDecoded.d_val != 0.0);
+        } else if (errDecoded.type == ValueType::OBJECT_PTR ||
+                   errDecoded.type == ValueType::STRING_PTR) {
+            hasError = (errDecoded.ptr_val != nullptr);
         }
     }
 
@@ -1011,11 +884,8 @@ static TsValue* promisified_wrapper(void* ctx, int argc, TsValue** argv) {
     // Call the original function with the new arguments
     ts_function_call(wrapperCtx->originalFunction, newArgc, newArgv);
 
-    // Return the promise as a boxed value
-    TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
-    result->type = ValueType::PROMISE_PTR;
-    result->ptr_val = promise;
-    return result;
+    // Return the promise as a NaN-boxed pointer
+    return (TsValue*)(uintptr_t)promise;
 }
 
 void* ts_util_promisify(void* fn) {
@@ -1040,14 +910,13 @@ void ts_util_inherits(void* constructor, void* superConstructor) {
 
     if (!constructor || !superConstructor) return;
 
-    // Unbox if needed
-    TsValue* ctorVal = (TsValue*)constructor;
-    TsValue* superVal = (TsValue*)superConstructor;
+    // Decode NaN-boxed values
+    TsValue ctorDecoded = nanbox_to_tagged((TsValue*)constructor);
+    TsValue superDecoded = nanbox_to_tagged((TsValue*)superConstructor);
 
     // If constructor is a function, set the super_ property
-    if (ctorVal->type == ValueType::FUNCTION_PTR) {
-        TsFunction* ctorFunc = (TsFunction*)ctorVal->ptr_val;
-        if (!ctorFunc) return;
+    if (ctorDecoded.type == ValueType::FUNCTION_PTR && ctorDecoded.ptr_val) {
+        TsFunction* ctorFunc = (TsFunction*)ctorDecoded.ptr_val;
 
         // Ensure properties map exists
         if (!ctorFunc->properties) {
@@ -1059,7 +928,7 @@ void ts_util_inherits(void* constructor, void* superConstructor) {
         TsValue keyVal;
         keyVal.type = ValueType::STRING_PTR;
         keyVal.ptr_val = superKey;
-        ctorFunc->properties->Set(keyVal, *superVal);
+        ctorFunc->properties->Set(keyVal, superDecoded);
     }
 
     // Note: Full prototype chain linking would require Object.create and
@@ -1164,12 +1033,17 @@ static TsValue* callbackify_catch_handler(void* ctx, int argc, TsValue** argv) {
 
     // If error is falsy, create an Error with a default message
     bool isFalsy = false;
-    if (!err || err->type == ValueType::UNDEFINED) {
+    if (!err) {
         isFalsy = true;
-    } else if (err->type == ValueType::BOOLEAN && !err->b_val) {
-        isFalsy = true;
-    } else if (err->type == ValueType::NUMBER_INT && err->i_val == 0) {
-        isFalsy = true;
+    } else {
+        TsValue errDecoded = nanbox_to_tagged(err);
+        if (errDecoded.type == ValueType::UNDEFINED) {
+            isFalsy = true;
+        } else if (errDecoded.type == ValueType::BOOLEAN && !errDecoded.b_val) {
+            isFalsy = true;
+        } else if (errDecoded.type == ValueType::NUMBER_INT && errDecoded.i_val == 0) {
+            isFalsy = true;
+        }
     }
 
     if (isFalsy) {
@@ -1201,8 +1075,15 @@ static TsValue* callbackified_wrapper(void* ctx, int argc, TsValue** argv) {
     TsValue* promiseVal = ts_function_call(wrapperCtx->originalFunction, origArgc, origArgv);
 
     // If result is a promise, attach then/catch handlers
-    if (promiseVal && promiseVal->type == ValueType::PROMISE_PTR) {
-        ts::TsPromise* promise = (ts::TsPromise*)promiseVal->ptr_val;
+    TsValue promiseDecoded;
+    if (promiseVal) {
+        promiseDecoded = nanbox_to_tagged(promiseVal);
+    } else {
+        promiseDecoded.type = ValueType::UNDEFINED;
+        promiseDecoded.i_val = 0;
+    }
+    if (promiseDecoded.type == ValueType::PROMISE_PTR && promiseDecoded.ptr_val) {
+        ts::TsPromise* promise = (ts::TsPromise*)promiseDecoded.ptr_val;
 
         // Create context for handlers
         CallbackifyPromiseContext* promiseCtx = (CallbackifyPromiseContext*)ts_alloc(sizeof(CallbackifyPromiseContext));
@@ -1235,19 +1116,11 @@ static TsValue* callbackified_wrapper(void* ctx, int argc, TsValue** argv) {
 }
 
 void* ts_util_callbackify(void* fn) {
-    // Unbox if needed
-    TsValue* fnVal = (TsValue*)fn;
-    void* rawFn = ts_value_get_object(fnVal);
-    if (!rawFn) rawFn = fn;
+    if (!fn) return nullptr;
 
-    // Create wrapper context
+    // Create wrapper context - store the original NaN-boxed function value
     CallbackifyWrapperContext* ctx = (CallbackifyWrapperContext*)ts_alloc(sizeof(CallbackifyWrapperContext));
-    ctx->originalFunction = (TsValue*)rawFn;
-
-    // If rawFn is a TsFunction, store the whole TsValue for proper calling
-    if (fnVal && (fnVal->type == ValueType::FUNCTION_PTR || fnVal->type == ValueType::OBJECT_PTR)) {
-        ctx->originalFunction = fnVal;
-    }
+    ctx->originalFunction = (TsValue*)fn;
 
     // Create and return the wrapper function
     return ts_value_make_native_function((void*)callbackified_wrapper, ctx);
@@ -1863,20 +1736,21 @@ static TsValue* debuglog_function(void* ctx, int argc, TsValue** argv) {
             continue;
         }
 
-        switch (arg->type) {
+        TsValue argDec = nanbox_to_tagged(arg);
+        switch (argDec.type) {
             case ValueType::STRING_PTR:
-                if (arg->ptr_val) {
-                    msg << ((TsString*)arg->ptr_val)->ToUtf8();
+                if (argDec.ptr_val) {
+                    msg << ((TsString*)argDec.ptr_val)->ToUtf8();
                 }
                 break;
             case ValueType::NUMBER_INT:
-                msg << arg->i_val;
+                msg << argDec.i_val;
                 break;
             case ValueType::NUMBER_DBL:
-                msg << arg->d_val;
+                msg << argDec.d_val;
                 break;
             case ValueType::BOOLEAN:
-                msg << (arg->b_val ? "true" : "false");
+                msg << (argDec.b_val ? "true" : "false");
                 break;
             case ValueType::UNDEFINED:
                 msg << "undefined";
@@ -2012,22 +1886,16 @@ void* ts_util_parse_args(void* configPtr) {
     std::unordered_map<std::string, std::string> optionTypes;
     std::unordered_map<std::string, bool> optionMultiple;
 
-    // Helper to extract string from possibly double-boxed value
+    // Helper to extract string from NaN-boxed value
     auto extractString = [](TsValue* val) -> TsString* {
-        if (!val || !val->ptr_val) return nullptr;
-        if (val->type == ValueType::STRING_PTR) {
-            return (TsString*)val->ptr_val;
-        } else if (val->type == ValueType::OBJECT_PTR) {
-            uint32_t magic = *(uint32_t*)val->ptr_val;
+        if (!val) return nullptr;
+        TsValue vd = nanbox_to_tagged(val);
+        if (vd.type == ValueType::STRING_PTR && vd.ptr_val) {
+            return (TsString*)vd.ptr_val;
+        } else if (vd.type == ValueType::OBJECT_PTR && vd.ptr_val) {
+            uint32_t magic = *(uint32_t*)vd.ptr_val;
             if (magic == TsString::MAGIC) {
-                return (TsString*)val->ptr_val;
-            }
-            // Check for double-boxed
-            TsValue* inner = (TsValue*)val->ptr_val;
-            if ((uint8_t)inner->type <= (uint8_t)ValueType::FUNCTION_PTR) {
-                if (inner->type == ValueType::STRING_PTR && inner->ptr_val) {
-                    return (TsString*)inner->ptr_val;
-                }
+                return (TsString*)vd.ptr_val;
             }
         }
         return nullptr;
@@ -2100,24 +1968,15 @@ void* ts_util_parse_args(void* configPtr) {
             TsValue* argVal = argsArray->GetElementBoxed(i);
             if (!argVal) continue;
 
-            // Handle double-boxed values: argVal might be OBJECT_PTR pointing to another TsValue
+            // Decode NaN-boxed value
             TsString* str = nullptr;
-            if (argVal->type == ValueType::STRING_PTR && argVal->ptr_val) {
-                str = (TsString*)argVal->ptr_val;
-            } else if (argVal->type == ValueType::OBJECT_PTR && argVal->ptr_val) {
-                // Check if ptr_val is a TsString
-                uint32_t magic = *(uint32_t*)argVal->ptr_val;
+            TsValue avd = nanbox_to_tagged(argVal);
+            if (avd.type == ValueType::STRING_PTR && avd.ptr_val) {
+                str = (TsString*)avd.ptr_val;
+            } else if (avd.type == ValueType::OBJECT_PTR && avd.ptr_val) {
+                uint32_t magic = *(uint32_t*)avd.ptr_val;
                 if (magic == TsString::MAGIC) {
-                    str = (TsString*)argVal->ptr_val;
-                } else {
-                    // It might be another TsValue (double-boxed)
-                    TsValue* inner = (TsValue*)argVal->ptr_val;
-                    if ((uint8_t)inner->type <= (uint8_t)ValueType::FUNCTION_PTR) {
-                        // It's a TsValue, use its value
-                        if (inner->type == ValueType::STRING_PTR && inner->ptr_val) {
-                            str = (TsString*)inner->ptr_val;
-                        }
-                    }
+                    str = (TsString*)avd.ptr_val;
                 }
             }
             if (str) {
@@ -2131,8 +1990,11 @@ void* ts_util_parse_args(void* configPtr) {
             int64_t len = processArgv->Length();
             for (int64_t i = 2; i < len; i++) {
                 TsValue* argVal = processArgv->GetElementBoxed(i);
-                if (argVal && argVal->type == ValueType::STRING_PTR && argVal->ptr_val) {
-                    args.push_back(((TsString*)argVal->ptr_val)->ToUtf8());
+                if (argVal) {
+                    TsValue avd2 = nanbox_to_tagged(argVal);
+                    if (avd2.type == ValueType::STRING_PTR && avd2.ptr_val) {
+                        args.push_back(((TsString*)avd2.ptr_val)->ToUtf8());
+                    }
                 }
             }
         }

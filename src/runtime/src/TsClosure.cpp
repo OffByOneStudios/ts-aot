@@ -3,6 +3,7 @@
 #include "../include/TsRuntime.h"
 #include "../include/GC.h"
 #include "../include/TsGC.h"
+#include "../include/TsNanBox.h"
 #include <new>
 #include <cstdio>
 
@@ -47,31 +48,25 @@ TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
 void* ts_closure_get_func(TsClosure* closure) {
     if (!closure) return nullptr;
 
-    // First, check if this might be a TsValue* (boxed function)
-    TsValue* val = (TsValue*)closure;
-    // Determine if this is a TsValue or a raw pointer by checking first byte.
-    // TsValue has ValueType enum (0-10) as first byte.
-    // Raw TsObject/TsClosure has a C++ vtable pointer (large value) at offset 0.
-    uint8_t firstByte = *(uint8_t*)closure;
-    if (firstByte <= (uint8_t)ValueType::FUNCTION_PTR) {
-        // Looks like a TsValue - check for FUNCTION_PTR or OBJECT_PTR
-        TsValue* val = (TsValue*)closure;
-        if (val->type == ValueType::FUNCTION_PTR || val->type == ValueType::OBJECT_PTR) {
-            void* ptr = val->ptr_val;
-            if (ptr) {
-                // The inner pointer is a real GC object, safe to read magic
-                TsObject* obj = (TsObject*)ptr;
-                if (obj->magic == 0x46554E43) { // TsFunction::MAGIC
-                    TsFunction* func = (TsFunction*)ptr;
-                    return func->funcPtr;
-                }
-                if (obj->magic == 0x434C5352) { // 'CLSR'
-                    TsClosure* cls = (TsClosure*)ptr;
-                    return cls->func_ptr;
-                }
-            }
+    // Check if this is a NaN-boxed pointer
+    uint64_t nb = (uint64_t)(uintptr_t)closure;
+    if (nanbox_is_ptr(nb)) {
+        void* ptr = nanbox_to_ptr(nb);
+        if (!ptr) return nullptr;
+        // Check magic to determine type
+        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+        if (magic16 == 0x46554E43) { // TsFunction::MAGIC
+            TsFunction* func = (TsFunction*)ptr;
+            return func->funcPtr;
         }
-        // TsValue but not a function/object type - can't extract func
+        if (magic16 == 0x434C5352) { // TsClosure 'CLSR'
+            TsClosure* cls = (TsClosure*)ptr;
+            return cls->func_ptr;
+        }
+        // Fall through to raw pointer checks below
+        closure = (TsClosure*)ptr;
+    } else if (!nanbox_is_special(nb) && nanbox_is_number(nb)) {
+        // NaN-boxed number - not a function
         return nullptr;
     }
 

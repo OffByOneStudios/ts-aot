@@ -2,6 +2,7 @@
 #include "TsString.h"
 #include "TsRuntime.h"
 #include "GC.h"
+#include "TsNanBox.h"
 #include <new>
 #include <cstdio>
 #include <string>
@@ -16,17 +17,28 @@
 // Helper to build stack trace and create error object
 static TsValue* buildErrorObject(TsString* msgStr, void* options) {
     TsMap* err = TsMap::Create();
-    err->Set(TsString::Create("message"), *ts_value_make_string(msgStr));
-    err->Set(TsString::Create("name"), *ts_value_make_string(TsString::Create("Error")));
+    err->Set(TsString::Create("message"), nanbox_to_tagged(ts_value_make_string(msgStr)));
+    err->Set(TsString::Create("name"), nanbox_to_tagged(ts_value_make_string(TsString::Create("Error"))));
 
     // ES2022: Handle options.cause
     if (options) {
-        TsValue* optVal = (TsValue*)options;
-        if (optVal->type == ValueType::OBJECT_PTR && optVal->ptr_val) {
-            TsMap* optMap = (TsMap*)optVal->ptr_val;
-            TsValue causeVal = optMap->Get(TsString::Create("cause"));
-            if (causeVal.type != ValueType::UNDEFINED) {
-                err->Set(TsString::Create("cause"), causeVal);
+        uint64_t optNb = (uint64_t)(uintptr_t)options;
+        if (nanbox_is_ptr(optNb)) {
+            void* optPtr = nanbox_to_ptr(optNb);
+            if (optPtr) {
+                // Check if it's a TsMap
+                uint32_t magic = *(uint32_t*)optPtr;
+                uint32_t magic16 = *(uint32_t*)((char*)optPtr + 16);
+                TsMap* optMap = nullptr;
+                if (magic == 0x4D415053) optMap = (TsMap*)optPtr;
+                else if (magic16 == 0x4D415053) optMap = (TsMap*)optPtr;
+                if (optMap) {
+                    TsValue causeKey; causeKey.type = ValueType::STRING_PTR; causeKey.ptr_val = TsString::Create("cause");
+                    TsValue causeVal = optMap->Get(causeKey);
+                    if (causeVal.type != ValueType::UNDEFINED) {
+                        err->Set(TsString::Create("cause"), causeVal);
+                    }
+                }
             }
         }
     }
@@ -77,12 +89,10 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
     ss << "    at <stack trace not supported on this platform>\n";
 #endif
 
-    err->Set(TsString::Create("stack"), *ts_value_make_string(TsString::Create(ss.str().c_str())));
+    err->Set(TsString::Create("stack"), nanbox_to_tagged(ts_value_make_string(TsString::Create(ss.str().c_str()))));
 
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::OBJECT_PTR;
-    res->ptr_val = err;
-    return res;
+    // Return NaN-boxed pointer to the error map
+    return (TsValue*)err;
 }
 
 extern "C" {

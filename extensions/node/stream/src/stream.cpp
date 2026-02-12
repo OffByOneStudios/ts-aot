@@ -13,6 +13,7 @@
 #include "TsArray.h"
 #include "TsObject.h"
 #include "TsRuntime.h"
+#include "TsNanBox.h"
 #include "TsTransform.h"
 #include "GC.h"
 #include <uv.h>
@@ -60,22 +61,26 @@ void* ts_fs_createReadStream_opts(void* path, void* options) {
 
         // Try to get properties
         TsValue* startVal = ts_object_get_property(rawOpts, "start");
-        if (startVal && (startVal->type == ValueType::NUMBER_INT || startVal->type == ValueType::NUMBER_DBL)) {
+        TsValue startDec = nanbox_to_tagged(startVal);
+        if (startDec.type == ValueType::NUMBER_INT || startDec.type == ValueType::NUMBER_DBL) {
             opts.start = ts_value_get_int(startVal);
         }
 
         TsValue* endVal = ts_object_get_property(rawOpts, "end");
-        if (endVal && (endVal->type == ValueType::NUMBER_INT || endVal->type == ValueType::NUMBER_DBL)) {
+        TsValue endDec = nanbox_to_tagged(endVal);
+        if (endDec.type == ValueType::NUMBER_INT || endDec.type == ValueType::NUMBER_DBL) {
             opts.end = ts_value_get_int(endVal);
         }
 
         TsValue* hwmVal = ts_object_get_property(rawOpts, "highWaterMark");
-        if (hwmVal && (hwmVal->type == ValueType::NUMBER_INT || hwmVal->type == ValueType::NUMBER_DBL)) {
+        TsValue hwmDec = nanbox_to_tagged(hwmVal);
+        if (hwmDec.type == ValueType::NUMBER_INT || hwmDec.type == ValueType::NUMBER_DBL) {
             opts.highWaterMark = (size_t)ts_value_get_int(hwmVal);
         }
 
         TsValue* autoCloseVal = ts_object_get_property(rawOpts, "autoClose");
-        if (autoCloseVal && autoCloseVal->type == ValueType::BOOLEAN) {
+        TsValue acDec = nanbox_to_tagged(autoCloseVal);
+        if (acDec.type == ValueType::BOOLEAN) {
             opts.autoClose = ts_value_get_bool(autoCloseVal);
         }
     }
@@ -158,20 +163,23 @@ void* ts_fs_createWriteStream_opts(void* path, void* options) {
 
         // Try to get properties
         TsValue* startVal = ts_object_get_property(rawOpts, "start");
-        if (startVal && (startVal->type == ValueType::NUMBER_INT || startVal->type == ValueType::NUMBER_DBL)) {
+        TsValue startDec = nanbox_to_tagged(startVal);
+        if (startDec.type == ValueType::NUMBER_INT || startDec.type == ValueType::NUMBER_DBL) {
             opts.start = ts_value_get_int(startVal);
             // If start is specified, don't truncate the file
             openFlags = O_WRONLY | O_CREAT;
         }
 
         TsValue* autoCloseVal = ts_object_get_property(rawOpts, "autoClose");
-        if (autoCloseVal && autoCloseVal->type == ValueType::BOOLEAN) {
+        TsValue acDec = nanbox_to_tagged(autoCloseVal);
+        if (acDec.type == ValueType::BOOLEAN) {
             opts.autoClose = ts_value_get_bool(autoCloseVal);
         }
 
         TsValue* flagsVal = ts_object_get_property(rawOpts, "flags");
-        if (flagsVal && flagsVal->type == ValueType::STRING_PTR) {
-            TsString* flagsStr = (TsString*)ts_value_get_string(flagsVal);
+        TsValue flagsDec = nanbox_to_tagged(flagsVal);
+        if (flagsDec.type == ValueType::STRING_PTR) {
+            TsString* flagsStr = (TsString*)flagsDec.ptr_val;
             if (flagsStr) {
                 const char* flagsCStr = flagsStr->ToUtf8();
                 if (strcmp(flagsCStr, "a") == 0) {
@@ -418,18 +426,18 @@ void* ts_readable_read(void* stream, int64_t size) {
 bool ts_writable_write(void* writable, void* val) {
     if (!writable || !val) return false;
 
-    TsValue* v = (TsValue*)val;
+    TsValue vd = nanbox_to_tagged((TsValue*)val);
     TsEventEmitter* emitter = (TsEventEmitter*)writable;
     TsWritable* w = dynamic_cast<TsWritable*>(emitter);
     if (!w) {
         w = (TsWritable*)writable;
     }
 
-    if (v->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)v->ptr_val;
+    if (vd.type == ValueType::STRING_PTR) {
+        TsString* str = (TsString*)vd.ptr_val;
         return w->Write((void*)str->ToUtf8(), str->Length());
-    } else if (v->type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)v->ptr_val;
+    } else if (vd.type == ValueType::OBJECT_PTR) {
+        TsObject* obj = (TsObject*)vd.ptr_val;
         if (obj && *(uint32_t*)obj == 0x42554646) { // TsBuffer::MAGIC
             TsBuffer* buf = (TsBuffer*)obj;
             return w->Write(buf->GetData(), buf->GetLength());
@@ -443,14 +451,14 @@ __declspec(noinline) void ts_writable_end(void* writable, void* dataPtr) {
         return;
     }
 
-    TsValue* data = (TsValue*)dataPtr;
+    TsValue dataDec = nanbox_to_tagged((TsValue*)dataPtr);
     TsEventEmitter* emitter = (TsEventEmitter*)writable;
     TsWritable* w = dynamic_cast<TsWritable*>(emitter);
     if (!w) {
         w = (TsWritable*)writable;
     }
 
-    if (data && data->type != ValueType::UNDEFINED) {
+    if (dataPtr && dataDec.type != ValueType::UNDEFINED) {
         ts_writable_write(writable, dataPtr);
     }
     w->End();

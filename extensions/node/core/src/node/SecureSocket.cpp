@@ -1,3 +1,4 @@
+#include "TsNanBox.h"
 #include "TsSecureSocket.h"
 #include "TsBuffer.h"
 #include "TsRuntime.h"
@@ -108,8 +109,9 @@ void TsSecureSocket::SetVerify(bool rejectUnauthorized, TsValue* ca) {
     }
     
     if (ca) {
-        if (ca->type == ValueType::STRING_PTR) {
-            TsString* sCa = (TsString*)ca->ptr_val;
+        TsValue caDecoded = nanbox_to_tagged(ca);
+        if (caDecoded.type == ValueType::STRING_PTR) {
+            TsString* sCa = (TsString*)caDecoded.ptr_val;
             BIO* cbio = BIO_new_mem_buf(sCa->ToUtf8(), -1);
             X509_STORE* store = SSL_CTX_get_cert_store(ssl_ctx);
             X509* x509 = nullptr;
@@ -118,8 +120,8 @@ void TsSecureSocket::SetVerify(bool rejectUnauthorized, TsValue* ca) {
                 X509_free(x509);
             }
             BIO_free(cbio);
-        } else if (ca->type == ValueType::OBJECT_PTR) {
-            TsBuffer* bCa = (TsBuffer*)ca->ptr_val;
+        } else if (caDecoded.type == ValueType::OBJECT_PTR) {
+            TsBuffer* bCa = (TsBuffer*)caDecoded.ptr_val;
             BIO* cbio = BIO_new_mem_buf(bCa->GetData(), (int)bCa->GetLength());
             X509_STORE* store = SSL_CTX_get_cert_store(ssl_ctx);
             X509* x509 = nullptr;
@@ -297,7 +299,7 @@ TsObject* TsSecureSocket::GetCertificate() const {
     if (subjectName) {
         char buf[256];
         X509_NAME_oneline(subjectName, buf, sizeof(buf));
-        obj->Set(*ts_value_make_string(TsString::Create("subject")), *ts_value_make_string(TsString::Create(buf)));
+        obj->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("subject"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(buf))));
     }
 
     // Get issuer
@@ -305,7 +307,7 @@ TsObject* TsSecureSocket::GetCertificate() const {
     if (issuerName) {
         char buf[256];
         X509_NAME_oneline(issuerName, buf, sizeof(buf));
-        obj->Set(*ts_value_make_string(TsString::Create("issuer")), *ts_value_make_string(TsString::Create(buf)));
+        obj->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("issuer"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(buf))));
     }
 
     return obj;
@@ -324,7 +326,7 @@ TsObject* TsSecureSocket::GetPeerCertificate(bool detailed) const {
     if (subjectName) {
         char buf[256];
         X509_NAME_oneline(subjectName, buf, sizeof(buf));
-        obj->Set(*ts_value_make_string(TsString::Create("subject")), *ts_value_make_string(TsString::Create(buf)));
+        obj->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("subject"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(buf))));
     }
 
     // Get issuer
@@ -332,7 +334,7 @@ TsObject* TsSecureSocket::GetPeerCertificate(bool detailed) const {
     if (issuerName) {
         char buf[256];
         X509_NAME_oneline(issuerName, buf, sizeof(buf));
-        obj->Set(*ts_value_make_string(TsString::Create("issuer")), *ts_value_make_string(TsString::Create(buf)));
+        obj->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("issuer"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(buf))));
     }
 
     // Get validity dates
@@ -345,7 +347,7 @@ TsObject* TsSecureSocket::GetPeerCertificate(bool detailed) const {
         int len = BIO_read(bio, dateBuf, sizeof(dateBuf) - 1);
         dateBuf[len > 0 ? len : 0] = '\0';
         BIO_free(bio);
-        obj->Set(*ts_value_make_string(TsString::Create("valid_from")), *ts_value_make_string(TsString::Create(dateBuf)));
+        obj->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("valid_from"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(dateBuf))));
     }
     if (notAfter) {
         BIO* bio = BIO_new(BIO_s_mem());
@@ -354,7 +356,7 @@ TsObject* TsSecureSocket::GetPeerCertificate(bool detailed) const {
         int len = BIO_read(bio, dateBuf, sizeof(dateBuf) - 1);
         dateBuf[len > 0 ? len : 0] = '\0';
         BIO_free(bio);
-        obj->Set(*ts_value_make_string(TsString::Create("valid_to")), *ts_value_make_string(TsString::Create(dateBuf)));
+        obj->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("valid_to"))), nanbox_to_tagged(ts_value_make_string(TsString::Create(dateBuf))));
     }
 
     X509_free(cert);  // We own this cert, must free
@@ -452,8 +454,9 @@ void TsSecureSocket::SetALPNProtocols(TsArray* protocols) {
     int64_t count = protocols->Length();
     for (int64_t i = 0; i < count; i++) {
         TsValue* val = ts_array_get_as_value(protocols, i);
-        if (val && val->type == ValueType::STRING_PTR) {
-            TsString* str = (TsString*)val->ptr_val;
+        TsValue vd = nanbox_to_tagged(val);
+        if (vd.type == ValueType::STRING_PTR) {
+            TsString* str = (TsString*)vd.ptr_val;
             const char* utf8 = str->ToUtf8();
             size_t len = strlen(utf8);
             if (len <= 255) {  // ALPN protocol name max length
@@ -469,8 +472,9 @@ void TsSecureSocket::SetALPNProtocols(TsArray* protocols) {
     size_t offset = 0;
     for (int64_t i = 0; i < count; i++) {
         TsValue* val = ts_array_get_as_value(protocols, i);
-        if (val && val->type == ValueType::STRING_PTR) {
-            TsString* str = (TsString*)val->ptr_val;
+        TsValue vd = nanbox_to_tagged(val);
+        if (vd.type == ValueType::STRING_PTR) {
+            TsString* str = (TsString*)vd.ptr_val;
             const char* utf8 = str->ToUtf8();
             size_t len = strlen(utf8);
             if (len <= 255) {
@@ -622,18 +626,21 @@ void* ts_tls_connect(void* options, void* callback) {
         const char* host = "localhost";
         int port = 443;
 
-        if (hostVal && hostVal->type == ValueType::STRING_PTR) {
-            host = ((TsString*)hostVal->ptr_val)->ToUtf8();
+        TsValue hd = nanbox_to_tagged(hostVal);
+        if (hd.type == ValueType::STRING_PTR) {
+            host = ((TsString*)hd.ptr_val)->ToUtf8();
         }
-        if (portVal && portVal->type == ValueType::NUMBER_INT) {
-            port = (int)portVal->i_val;
+        TsValue pd = nanbox_to_tagged(portVal);
+        if (pd.type == ValueType::NUMBER_INT) {
+            port = (int)pd.i_val;
         }
 
         // Set verification options
         TsValue* rejectVal = (TsValue*)ts_object_get_property(optsObj, "rejectUnauthorized");
+        TsValue rd = nanbox_to_tagged(rejectVal);
         bool reject = true;
-        if (rejectVal && rejectVal->type == ValueType::BOOLEAN) {
-            reject = rejectVal->b_val;
+        if (rd.type == ValueType::BOOLEAN) {
+            reject = rd.b_val;
         }
         socket->SetVerify(reject, nullptr);
 

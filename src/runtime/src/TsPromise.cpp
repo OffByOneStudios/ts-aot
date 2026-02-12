@@ -49,11 +49,7 @@ TsValue* create_generator_result(TsValue value, bool done) {
     TsMap* map = TsMap::Create();
     map->Set(TsString::Create("value"), value);
     map->Set(TsString::Create("done"), TsValue(done));
-    
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::OBJECT_PTR;
-    res->ptr_val = map;
-    return res;
+    return ts_value_make_object(map);
 }
 
 TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
@@ -61,12 +57,12 @@ TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
     done = false;
     static_cast<TsObject*>(this)->magic = MAGIC; // Set magic for type detection
 
-    TsValue nextFunc = *ts_value_make_function((void*)Generator_next_internal, this);
+    TsValue nextFunc = nanbox_to_tagged(ts_value_make_function((void*)Generator_next_internal, this));
     this->Set(TsString::Create("next"), nextFunc);
     
-    TsValue iterFunc = *ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
+    TsValue iterFunc = nanbox_to_tagged(ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
         return ts_value_make_object(ctx);
-    }, this);
+    }, this));
     this->Set(TsString::Create("[Symbol.iterator]"), iterFunc);
 }
 
@@ -92,12 +88,12 @@ TsAsyncGenerator::TsAsyncGenerator(AsyncContext* ctx) : ctx(ctx) {
     done = false;
     static_cast<TsObject*>(this)->magic = MAGIC; // Set magic for type detection
 
-    TsValue nextFunc = *ts_value_make_function((void*)AsyncGenerator_next_internal, this);
+    TsValue nextFunc = nanbox_to_tagged(ts_value_make_function((void*)AsyncGenerator_next_internal, this));
     this->Set(TsString::Create("next"), nextFunc);
     
-    TsValue iterFunc = *ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
+    TsValue iterFunc = nanbox_to_tagged(ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
         return ts_value_make_object(ctx);
-    }, this);
+    }, this));
     this->Set(TsString::Create("[Symbol.asyncIterator]"), iterFunc);
 }
 
@@ -120,10 +116,10 @@ extern "C" {
 
 void ts_async_yield(TsValue* value, AsyncContext* ctx) {
     ctx->yielded = true;
-    ctx->yieldedValue = *value;
-    
+    ctx->yieldedValue = nanbox_to_tagged(value);
+
     if (ctx->pendingNextPromise) {
-        ts_promise_resolve_internal(ctx->pendingNextPromise, create_generator_result(*value, false));
+        ts_promise_resolve_internal(ctx->pendingNextPromise, create_generator_result(nanbox_to_tagged(value), false));
         ctx->pendingNextPromise = nullptr;
     }
 }
@@ -149,7 +145,7 @@ void ts_generator_return(TsGenerator* gen, TsValue* value) {
     if (!gen) return;
     gen->done = true;
     if (value) {
-        gen->ctx->yieldedValue = *value;
+        gen->ctx->yieldedValue = nanbox_to_tagged(value);
     } else {
         gen->ctx->yieldedValue = TsValue(); // undefined
     }
@@ -182,10 +178,7 @@ TsValue* AsyncGenerator_next_internal(void* context, TsValue* value) {
     TsAsyncGenerator* gen = (TsAsyncGenerator*)context;
     if (!gen) return nullptr;
     TsPromise* p = gen->next(value);
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::PROMISE_PTR;
-    res->ptr_val = p;
-    return res;
+    return ts_value_make_promise(p);
 }
 
 TsValue* AsyncGenerator_next(TsValue* genVal, TsValue* value) {
@@ -196,7 +189,7 @@ void ts_async_generator_return(TsAsyncGenerator* gen, TsValue* value) {
     if (!gen) return;
     gen->done = true;
     if (value) {
-        gen->ctx->yieldedValue = *value;
+        gen->ctx->yieldedValue = nanbox_to_tagged(value);
     } else {
         gen->ctx->yieldedValue = TsValue(); // undefined
     }
@@ -210,32 +203,30 @@ extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
         return nullptr;
     }
 
+    TsValue iterVal = nanbox_to_tagged(iterable);
+
     // Check if it's an array (ARRAY_PTR type = 7) - wrap it in an async iterator
-    if (iterable->type == ValueType::ARRAY_PTR && iterable->ptr_val) {
-        uint32_t magic = *(uint32_t*)iterable->ptr_val;
+    if (iterVal.type == ValueType::ARRAY_PTR && iterVal.ptr_val) {
+        uint32_t magic = *(uint32_t*)iterVal.ptr_val;
         if (magic == TsArray::MAGIC) {
             // Create AsyncArrayIterator wrapper
             void* mem = ts_alloc(sizeof(AsyncArrayIterator));
-            AsyncArrayIterator* iter = new (mem) AsyncArrayIterator((TsArray*)iterable->ptr_val);
+            AsyncArrayIterator* iter = new (mem) AsyncArrayIterator((TsArray*)iterVal.ptr_val);
             // Set magic for identification
             *(uint32_t*)mem = ASYNC_ARRAY_ITER_MAGIC;
-
-            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            res->type = ValueType::OBJECT_PTR;
-            res->ptr_val = iter;
-            return res;
+            return ts_value_make_object(iter);
         }
     }
 
-    if (iterable->type == ValueType::OBJECT_PTR) {
+    if (iterVal.type == ValueType::OBJECT_PTR && iterVal.ptr_val) {
         TsString* key = TsString::Create("[Symbol.asyncIterator]");
         // Use scalar helpers directly
         uint64_t hash = (uint64_t)key; // Use pointer as hash
-        int64_t bucket = __ts_map_find_bucket(iterable->ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)key);
+        int64_t bucket = __ts_map_find_bucket(iterVal.ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)key);
         if (bucket >= 0) {
             uint8_t method_type;
             int64_t method_val;
-            __ts_map_get_value_at(iterable->ptr_val, bucket, &method_type, &method_val);
+            __ts_map_get_value_at(iterVal.ptr_val, bucket, &method_type, &method_val);
             // Check for both OBJECT_PTR and FUNCTION_PTR since ts_value_make_function uses FUNCTION_PTR
             if (method_type == (uint8_t)ValueType::OBJECT_PTR || method_type == (uint8_t)ValueType::FUNCTION_PTR) {
                 TsFunction* func = (TsFunction*)method_val;
@@ -253,11 +244,13 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
         return nullptr;
     }
 
+    TsValue iterVal = nanbox_to_tagged(iterator);
+
     // Check if it's our AsyncArrayIterator
-    if (iterator->type == ValueType::OBJECT_PTR && iterator->ptr_val) {
-        uint32_t magic = *(uint32_t*)iterator->ptr_val;
+    if (iterVal.type == ValueType::OBJECT_PTR && iterVal.ptr_val) {
+        uint32_t magic = *(uint32_t*)iterVal.ptr_val;
         if (magic == ASYNC_ARRAY_ITER_MAGIC) {
-            AsyncArrayIterator* iter = (AsyncArrayIterator*)iterator->ptr_val;
+            AsyncArrayIterator* iter = (AsyncArrayIterator*)iterVal.ptr_val;
             int64_t len = iter->array->Length();
 
             if (iter->index >= len) {
@@ -270,33 +263,27 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
                 // Wrap in resolved promise
                 TsPromise* p = ts_promise_create();
                 ts_promise_resolve_internal(p, result);
-
-                TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-                res->type = ValueType::PROMISE_PTR;
-                res->ptr_val = p;
-                return res;
+                return ts_value_make_promise(p);
             }
 
-            // Get current element
-            int64_t elemVal = iter->array->Get(iter->index);
+            // Get current element - stored as NaN-boxed TsValue* in array
+            TsValue* elemBoxed = (TsValue*)iter->array->Get(iter->index);
             iter->index++;
 
             // Create a new promise that resolves with { value, done: false } when elem resolves
             TsPromise* resultPromise = ts_promise_create();
 
-            // Check if the element is a boxed TsValue pointer
-            TsValue* elemBoxed = (TsValue*)elemVal;
+            // Decode the element using nanbox_to_tagged
+            TsValue elemDecoded = nanbox_to_tagged(elemBoxed);
 
-            // Check if it looks like a valid TsValue* by checking type field
-            if (elemBoxed && (unsigned)elemBoxed->type <= 10) {
-                // It's a boxed value - check for Promise
-                if ((elemBoxed->type == ValueType::OBJECT_PTR || elemBoxed->type == ValueType::PROMISE_PTR)
-                    && elemBoxed->ptr_val) {
-                    void* elemPtr = elemBoxed->ptr_val;
-                    // Check if it's a TsPromise by checking magic at offset 16
-                    uint32_t magicVal = *(uint32_t*)((char*)elemPtr + 16);
-                    if (magicVal == TsPromise::MAGIC) {
-                        TsPromise* elemPromise = (TsPromise*)elemPtr;
+            // Check for Promise
+            if ((elemDecoded.type == ValueType::OBJECT_PTR || elemDecoded.type == ValueType::PROMISE_PTR)
+                && elemDecoded.ptr_val) {
+                void* elemPtr = elemDecoded.ptr_val;
+                // Check if it's a TsPromise by checking magic at offset 16
+                uint32_t magicVal = *(uint32_t*)((char*)elemPtr + 16);
+                if (magicVal == TsPromise::MAGIC) {
+                    TsPromise* elemPromise = (TsPromise*)elemPtr;
                         // When elemPromise resolves, resolve resultPromise with { value, done: false }
                         TsValue onFulfilled;
                         onFulfilled.type = ValueType::OBJECT_PTR;
@@ -310,7 +297,7 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
 
                         void* wrapFuncAddr = (void*)(+[](void* context, TsValue* resolvedValue) -> TsValue* {
                             WrapContext* ctx = (WrapContext*)context;
-                            TsValue* iterResult = create_generator_result(*resolvedValue, false);
+                            TsValue* iterResult = create_generator_result(nanbox_to_tagged(resolvedValue), false);
                             ts_promise_resolve_internal(ctx->resultPromise, iterResult);
                             return nullptr;
                         });
@@ -319,41 +306,26 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
 
                         onFulfilled.ptr_val = wrapFunc;
                         elemPromise->then(onFulfilled);
-
-                        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-                        res->type = ValueType::PROMISE_PTR;
-                        res->ptr_val = resultPromise;
-                        return res;
+                        return ts_value_make_promise(resultPromise);
                     }
                 }
-                // Non-promise boxed value - resolve immediately
-                TsValue* iterResult = create_generator_result(*elemBoxed, false);
-                ts_promise_resolve_internal(resultPromise, iterResult);
-            } else {
-                // Raw number - resolve immediately
-                TsValue elemValue;
-                elemValue.type = ValueType::NUMBER_INT;
-                elemValue.i_val = elemVal;
-                TsValue* iterResult = create_generator_result(elemValue, false);
-                ts_promise_resolve_internal(resultPromise, iterResult);
-            }
 
-            TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-            res->type = ValueType::PROMISE_PTR;
-            res->ptr_val = resultPromise;
-            return res;
+            // Non-promise value - resolve immediately
+            TsValue* iterResult = create_generator_result(elemDecoded, false);
+            ts_promise_resolve_internal(resultPromise, iterResult);
+            return ts_value_make_promise(resultPromise);
         }
     }
 
-    if (iterator->type == ValueType::OBJECT_PTR) {
+    if (iterVal.type == ValueType::OBJECT_PTR && iterVal.ptr_val) {
         TsString* key = TsString::Create("next");
         // Use scalar helpers directly
         uint64_t hash = (uint64_t)key; // Use pointer as hash
-        int64_t bucket = __ts_map_find_bucket(iterator->ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)key);
+        int64_t bucket = __ts_map_find_bucket(iterVal.ptr_val, hash, (uint8_t)ValueType::STRING_PTR, (int64_t)key);
         if (bucket >= 0) {
             uint8_t method_type;
             int64_t method_val;
-            __ts_map_get_value_at(iterator->ptr_val, bucket, &method_type, &method_val);
+            __ts_map_get_value_at(iterVal.ptr_val, bucket, &method_type, &method_val);
             // Check for both OBJECT_PTR and FUNCTION_PTR since ts_value_make_function uses FUNCTION_PTR
             if (method_type == (uint8_t)ValueType::OBJECT_PTR || method_type == (uint8_t)ValueType::FUNCTION_PTR) {
                 TsFunction* func = (TsFunction*)method_val;
@@ -370,7 +342,7 @@ void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done) {
     if (!ctx->generator) return;
     ctx->generator->done = done;
     if (ctx->pendingNextPromise) {
-        TsValue* res = create_generator_result(*value, done);
+        TsValue* res = create_generator_result(nanbox_to_tagged(value), done);
         ts_promise_resolve_internal(ctx->pendingNextPromise, res);
         ctx->pendingNextPromise = nullptr;
     }
@@ -455,23 +427,21 @@ TsValue* ts_iterator_get(TsValue* iterable) {
     }
 
     // Check for raw TsArray* pointer (TsArray has no vtable, magic at offset 0)
+    TsValue iterDecoded = nanbox_to_tagged(iterable);
     if (rawObj) {
         uint32_t magic0 = *(uint32_t*)rawObj;
         if (magic0 == 0x41525259) { // TsArray::MAGIC
             TsArray* arr = (TsArray*)rawObj;
-            // Create a boxed ARRAY_PTR TsValue and use the array iterator path below
-            TsValue* boxedArr = (TsValue*)ts_alloc(sizeof(TsValue));
-            boxedArr->type = ValueType::ARRAY_PTR;
-            boxedArr->ptr_val = arr;
-            // Jump to array iterator creation
-            iterable = boxedArr;
+            // Update decoded value for array iterator path below
+            iterDecoded.type = ValueType::ARRAY_PTR;
+            iterDecoded.ptr_val = arr;
             // Fall through to ARRAY_PTR check below
         }
     }
 
     // Fall back to type-based check for explicit OBJECT_PTR values
-    if (iterable->type == ValueType::OBJECT_PTR) {
-        TsMap* obj = (TsMap*)iterable->ptr_val;
+    if (iterDecoded.type == ValueType::OBJECT_PTR) {
+        TsMap* obj = (TsMap*)iterDecoded.ptr_val;
         if (obj) {
             // Check for [Symbol.iterator] method
             TsString* iterKey = TsString::Create("[Symbol.iterator]");
@@ -503,8 +473,8 @@ TsValue* ts_iterator_get(TsValue* iterable) {
     }
 
     // For arrays, create an array iterator
-    if (iterable->type == ValueType::ARRAY_PTR) {
-        TsArray* arr = (TsArray*)iterable->ptr_val;
+    if (iterDecoded.type == ValueType::ARRAY_PTR) {
+        TsArray* arr = (TsArray*)iterDecoded.ptr_val;
         if (arr) {
             // Create a simple array iterator object
             TsMap* iterator = TsMap::Create();
@@ -516,11 +486,11 @@ TsValue* ts_iterator_get(TsValue* iterable) {
             idxKey.type = ValueType::STRING_PTR;
             idxKey.ptr_val = TsString::Create("__idx");
 
-            iterator->Set(arrKey, *iterable);
+            iterator->Set(arrKey, iterDecoded);
             iterator->Set(idxKey, TsValue((int64_t)0));
 
             // Create the next function that iterates over the array
-            TsValue nextFunc = *ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
+            TsValue nextFunc = nanbox_to_tagged(ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
                 TsMap* self = (TsMap*)ctx;
                 if (!self) return create_generator_result(TsValue(), true);
 
@@ -552,23 +522,19 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 self->Set(idxKey, TsValue(idx + 1));
 
                 if (elem) {
-                    return create_generator_result(*elem, false);
+                    return create_generator_result(nanbox_to_tagged(elem), false);
                 } else {
                     TsValue undef;
                     undef.type = ValueType::UNDEFINED;
                     return create_generator_result(undef, false);
                 }
-            }, iterator);
+            }, iterator));
 
             TsValue nextKey;
             nextKey.type = ValueType::STRING_PTR;
             nextKey.ptr_val = TsString::Create("next");
             iterator->Set(nextKey, nextFunc);
-
-            TsValue* result = (TsValue*)ts_alloc(sizeof(TsValue));
-            result->type = ValueType::OBJECT_PTR;
-            result->ptr_val = iterator;
-            return result;
+            return ts_value_make_object(iterator);
         }
     }
 
@@ -579,8 +545,9 @@ TsValue* ts_iterator_get(TsValue* iterable) {
 TsValue* ts_iterator_next(TsValue* iterator, TsValue* value) {
     if (!iterator) return nullptr;
 
-    if (iterator->type == ValueType::OBJECT_PTR) {
-        TsMap* obj = (TsMap*)iterator->ptr_val;
+    TsValue iterVal = nanbox_to_tagged(iterator);
+    if (iterVal.type == ValueType::OBJECT_PTR && iterVal.ptr_val) {
+        TsMap* obj = (TsMap*)iterVal.ptr_val;
         if (obj) {
             TsValue nextKeyVal;
             nextKeyVal.type = ValueType::STRING_PTR;
@@ -605,8 +572,9 @@ TsValue* ts_iterator_next(TsValue* iterator, TsValue* value) {
 bool ts_iterator_result_done(TsValue* result) {
     if (!result) return true;
 
-    if (result->type == ValueType::OBJECT_PTR) {
-        TsMap* obj = (TsMap*)result->ptr_val;
+    TsValue resVal = nanbox_to_tagged(result);
+    if (resVal.type == ValueType::OBJECT_PTR && resVal.ptr_val) {
+        TsMap* obj = (TsMap*)resVal.ptr_val;
         if (obj) {
             TsValue doneKeyVal;
             doneKeyVal.type = ValueType::STRING_PTR;
@@ -624,36 +592,28 @@ bool ts_iterator_result_done(TsValue* result) {
 // Get value from an iterator result
 TsValue* ts_iterator_result_value(TsValue* result) {
     if (!result) {
-        TsValue* undef = (TsValue*)ts_alloc(sizeof(TsValue));
-        undef->type = ValueType::UNDEFINED;
-        return undef;
+        return ts_value_make_undefined();
     }
 
-    if (result->type == ValueType::OBJECT_PTR) {
-        TsMap* obj = (TsMap*)result->ptr_val;
+    TsValue resVal = nanbox_to_tagged(result);
+    if (resVal.type == ValueType::OBJECT_PTR && resVal.ptr_val) {
+        TsMap* obj = (TsMap*)resVal.ptr_val;
         if (obj) {
             TsValue valueKeyVal;
             valueKeyVal.type = ValueType::STRING_PTR;
             valueKeyVal.ptr_val = TsString::Create("value");
             TsValue val = obj->Get(valueKeyVal);
-
-            TsValue* boxed = (TsValue*)ts_alloc(sizeof(TsValue));
-            *boxed = val;
-            return boxed;
+            return nanbox_from_tagged(val);
         }
     }
 
-    TsValue* undef = (TsValue*)ts_alloc(sizeof(TsValue));
-    undef->type = ValueType::UNDEFINED;
-    return undef;
+    return ts_value_make_undefined();
 }
 
 void ts_async_resume(AsyncContext* ctx, TsValue* value) {
-    // CRITICAL: value might be a stack pointer that becomes invalid after this function returns
-    // Allocate a heap copy to ensure it remains valid when the state machine resumes
-    TsValue* heapValue = (TsValue*)ts_alloc(sizeof(TsValue));
-    *heapValue = *value;
-    ctx->resumedValue = heapValue;
+    // With NaN boxing, the value IS the NaN-boxed uint64_t encoded as TsValue*.
+    // No heap copy needed - the value is self-contained in the pointer.
+    ctx->resumedValue = value;
 
     if (ctx->resumeFn) {
         ctx->resumeFn(ctx);
@@ -684,19 +644,22 @@ struct PromiseCallbackTask {
 };
 
 void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValue& value) {
+    // Convert stored TsValue struct to NaN-boxed for outgoing calls
+    TsValue* nbValue = nanbox_from_tagged(value);
+
     if (cb.asyncCtx) {
         cb.asyncCtx->error = (promise->state == PromiseState::Rejected);
-        ts_async_resume(cb.asyncCtx, &value);
+        ts_async_resume(cb.asyncCtx, nbValue);
         return;
     }
 
     if (cb.onFinally.type == ValueType::OBJECT_PTR && cb.onFinally.ptr_val) {
-        ts_call_0(&cb.onFinally);
+        ts_call_0(nanbox_from_tagged(cb.onFinally));
         if (cb.nextPromise) {
             if (promise->state == PromiseState::Fulfilled) {
-                ts_promise_resolve_internal(cb.nextPromise, &value);
+                ts_promise_resolve_internal(cb.nextPromise, nbValue);
             } else {
-                ts_promise_reject_internal(cb.nextPromise, &value);
+                ts_promise_reject_internal(cb.nextPromise, nbValue);
             }
         }
         return;
@@ -705,25 +668,21 @@ void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValu
     TsValue handler = (promise->state == PromiseState::Fulfilled) ? cb.onFulfilled : cb.onRejected;
 
     if ((handler.type == ValueType::OBJECT_PTR || handler.type == ValueType::FUNCTION_PTR) && handler.ptr_val) {
-        TsValue* result = ts_call_1(&handler, &value);
+        TsValue* result = ts_call_1(nanbox_from_tagged(handler), nbValue);
         if (cb.nextPromise) {
             if (result) {
-                // If result is a promise, we should really chain it, but for now we just resolve with it.
-                // TODO: Proper promise chaining if result is a TsPromise*
                 ts_promise_resolve_internal(cb.nextPromise, result);
             } else {
-                TsValue undefined;
-                undefined.type = ValueType::UNDEFINED;
-                ts_promise_resolve_internal(cb.nextPromise, &undefined);
+                ts_promise_resolve_internal(cb.nextPromise, ts_value_make_undefined());
             }
         }
     } else {
         // No handler, propagate
         if (cb.nextPromise) {
             if (promise->state == PromiseState::Fulfilled) {
-                ts_promise_resolve_internal(cb.nextPromise, &value);
+                ts_promise_resolve_internal(cb.nextPromise, nbValue);
             } else {
-                ts_promise_reject_internal(cb.nextPromise, &value);
+                ts_promise_reject_internal(cb.nextPromise, nbValue);
             }
         }
     }
@@ -733,7 +692,7 @@ void ts_promise_settle_microtask(void* data) {
     auto task = static_cast<PromiseResolveTask*>(data);
     TsPromise* promise = task->promise;
     if (promise->state == PromiseState::Rejected && !promise->handled) {
-        ts_console_log_value(&promise->value);
+        ts_console_log_value(nanbox_from_tagged(promise->value));
     }
 
     for (auto& cb : promise->callbacks) {
@@ -781,8 +740,10 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
         return;
     }
 
-    if (value && value->type == ValueType::PROMISE_PTR) {
-        TsPromise* other = (TsPromise*)value->ptr_val;
+    TsValue val = value ? nanbox_to_tagged(value) : TsValue();
+
+    if (val.type == ValueType::PROMISE_PTR && val.ptr_val) {
+        TsPromise* other = (TsPromise*)val.ptr_val;
         TsValue onFulfilled;
         onFulfilled.type = ValueType::OBJECT_PTR;
         TsFunction* f1 = new (ts_alloc(sizeof(TsFunction))) TsFunction(
@@ -800,7 +761,7 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
     }
 
     promise->state = PromiseState::Fulfilled;
-    promise->value = value ? *value : TsValue();
+    promise->value = val;
 
     auto task = static_cast<PromiseResolveTask*>(ts_alloc(sizeof(PromiseResolveTask)));
     task->promise = promise;
@@ -813,7 +774,7 @@ void ts_promise_reject_internal(TsPromise* promise, TsValue* reason) {
         return;
     }
     promise->state = PromiseState::Rejected;
-    promise->value = reason ? *reason : TsValue();
+    promise->value = reason ? nanbox_to_tagged(reason) : TsValue();
 
     auto task = static_cast<PromiseResolveTask*>(ts_alloc(sizeof(PromiseResolveTask)));
     task->promise = promise;
@@ -822,54 +783,43 @@ void ts_promise_reject_internal(TsPromise* promise, TsValue* reason) {
 }
 
 TsValue* ts_promise_resolve(void* context, TsValue* value) {
-    if (value && value->type == ValueType::PROMISE_PTR) {
+    TsValue val = value ? nanbox_to_tagged(value) : TsValue();
+    if (val.type == ValueType::PROMISE_PTR) {
         return value;
     }
     TsPromise* p = ts_promise_create();
     ts_promise_resolve_internal(p, value);
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::PROMISE_PTR;
-    res->ptr_val = p;
-    return res;
+    return ts_value_make_promise(p);
 }
 
 TsValue* ts_promise_reject(void* context, TsValue* reason) {
     TsPromise* p = ts_promise_create();
     ts_promise_reject_internal(p, reason);
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::PROMISE_PTR;
-    res->ptr_val = p;
-    return res;
+    return ts_value_make_promise(p);
 }
 
 TsValue* ts_promise_then(TsValue* promise, TsValue* onFulfilled, TsValue* onRejected) {
-    if (!promise || promise->type != ValueType::PROMISE_PTR) return nullptr;
-    TsPromise* p = (TsPromise*)promise->ptr_val;
-    TsPromise* next = p->then(onFulfilled ? *onFulfilled : TsValue(), onRejected ? *onRejected : TsValue());
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::PROMISE_PTR;
-    res->ptr_val = next;
-    return res;
+    TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
+    if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) return nullptr;
+    TsPromise* p = (TsPromise*)pVal.ptr_val;
+    TsPromise* next = p->then(onFulfilled ? nanbox_to_tagged(onFulfilled) : TsValue(), onRejected ? nanbox_to_tagged(onRejected) : TsValue());
+    return ts_value_make_promise(next);
 }
 
 TsValue* ts_promise_catch(TsValue* promise, TsValue* onRejected) {
-    if (!promise || promise->type != ValueType::PROMISE_PTR) return nullptr;
-    TsPromise* p = (TsPromise*)promise->ptr_val;
-    TsPromise* next = p->catch_error(onRejected ? *onRejected : TsValue());
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::PROMISE_PTR;
-    res->ptr_val = next;
-    return res;
+    TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
+    if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) return nullptr;
+    TsPromise* p = (TsPromise*)pVal.ptr_val;
+    TsPromise* next = p->catch_error(onRejected ? nanbox_to_tagged(onRejected) : TsValue());
+    return ts_value_make_promise(next);
 }
 
 TsValue* ts_promise_finally(TsValue* promise, TsValue* onFinally) {
-    if (!promise || promise->type != ValueType::PROMISE_PTR) return nullptr;
-    TsPromise* p = (TsPromise*)promise->ptr_val;
-    TsPromise* next = p->finally(onFinally ? *onFinally : TsValue());
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::PROMISE_PTR;
-    res->ptr_val = next;
-    return res;
+    TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
+    if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) return nullptr;
+    TsPromise* p = (TsPromise*)pVal.ptr_val;
+    TsPromise* next = p->finally(onFinally ? nanbox_to_tagged(onFinally) : TsValue());
+    return ts_value_make_promise(next);
 }
 
 TsValue* ts_promise_new(TsValue* executor) {
@@ -897,21 +847,17 @@ TsValue* ts_promise_new(TsValue* executor) {
     }
 
     // Return the promise
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    res->type = ValueType::PROMISE_PTR;
-    res->ptr_val = promise;
-    return res;
+    return ts_value_make_promise(promise);
 }
 
 TsValue* ts_promise_await(TsValue* promise) {
-    if (!promise || promise->type != ValueType::PROMISE_PTR) return promise;
-    TsPromise* p = (TsPromise*)promise->ptr_val;
+    TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
+    if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) return promise;
+    TsPromise* p = (TsPromise*)pVal.ptr_val;
 
     // If already settled, return value immediately
     if (p->state != PromiseState::Pending) {
-        TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-        *res = p->value;
-        return res;
+        return nanbox_from_tagged(p->value);
     }
 
     // Run both microtasks and event loop until the promise settles.
@@ -927,17 +873,16 @@ TsValue* ts_promise_await(TsValue* promise) {
         }
     }
 
-    TsValue* res = (TsValue*)ts_alloc(sizeof(TsValue));
-    *res = p->value;
-    return res;
+    return nanbox_from_tagged(p->value);
 }
 
 void ts_async_await(TsValue* promise, AsyncContext* ctx) {
-    if (!promise || promise->type != ValueType::PROMISE_PTR || !promise->ptr_val) {
+    TsValue pVal = promise ? nanbox_to_tagged(promise) : TsValue();
+    if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) {
         ts_async_resume(ctx, promise);
         return;
     }
-    TsPromise* p = (TsPromise*)promise->ptr_val;
+    TsPromise* p = (TsPromise*)pVal.ptr_val;
     p->then_async(ctx);
 }
 
@@ -969,10 +914,11 @@ TsValue* ts_promise_all_rejected_helper(void* context, TsValue* reason) {
 }
 
 TsValue* ts_promise_all(TsValue* iterableVal) {
-    if (!iterableVal || (iterableVal->type != ValueType::OBJECT_PTR && iterableVal->type != ValueType::ARRAY_PTR)) {
+    TsValue iterVal = iterableVal ? nanbox_to_tagged(iterableVal) : TsValue();
+    if (iterVal.type != ValueType::OBJECT_PTR && iterVal.type != ValueType::ARRAY_PTR) {
         return ts_promise_resolve(nullptr, ts_value_make_array(TsArray::Create(0)));
     }
-    TsArray* iterable = (TsArray*)iterableVal->ptr_val;
+    TsArray* iterable = (TsArray*)iterVal.ptr_val;
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
 
@@ -1016,11 +962,12 @@ TsValue* ts_promise_race_rejected_helper(void* context, TsValue* reason) {
 }
 
 TsValue* ts_promise_race(TsValue* iterableVal) {
-    if (!iterableVal || (iterableVal->type != ValueType::OBJECT_PTR && iterableVal->type != ValueType::ARRAY_PTR)) {
+    TsValue iterVal = iterableVal ? nanbox_to_tagged(iterableVal) : TsValue();
+    if (iterVal.type != ValueType::OBJECT_PTR && iterVal.type != ValueType::ARRAY_PTR) {
         ts::TsPromise* p = ts_promise_create();
         return ts_value_make_promise(p);
     }
-    TsArray* iterable = (TsArray*)iterableVal->ptr_val;
+    TsArray* iterable = (TsArray*)iterVal.ptr_val;
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
 
@@ -1055,7 +1002,7 @@ TsValue* ts_promise_all_settled_fulfilled_helper(void* context, TsValue* val) {
     status.type = ValueType::STRING_PTR;
     status.ptr_val = ts_string_create("fulfilled");
     obj->Set((TsString*)ts_string_create("status"), status);
-    obj->Set((TsString*)ts_string_create("value"), val ? *val : TsValue());
+    obj->Set((TsString*)ts_string_create("value"), val ? nanbox_to_tagged(val) : TsValue());
     e->ctx->results->Set(e->index, (int64_t)ts_value_make_object(obj));
     e->ctx->remaining--;
     if (e->ctx->remaining == 0) {
@@ -1071,7 +1018,7 @@ TsValue* ts_promise_all_settled_rejected_helper(void* context, TsValue* reason) 
     status.type = ValueType::STRING_PTR;
     status.ptr_val = ts_string_create("rejected");
     obj->Set((TsString*)ts_string_create("status"), status);
-    obj->Set((TsString*)ts_string_create("reason"), reason ? *reason : TsValue());
+    obj->Set((TsString*)ts_string_create("reason"), reason ? nanbox_to_tagged(reason) : TsValue());
     e->ctx->results->Set(e->index, (int64_t)ts_value_make_object(obj));
     e->ctx->remaining--;
     if (e->ctx->remaining == 0) {
@@ -1081,12 +1028,13 @@ TsValue* ts_promise_all_settled_rejected_helper(void* context, TsValue* reason) 
 }
 
 extern "C" TsValue* ts_promise_allSettled(TsValue* iterableVal) {
-    if (!iterableVal || (iterableVal->type != ValueType::OBJECT_PTR && iterableVal->type != ValueType::ARRAY_PTR)) {
+    TsValue iterVal = iterableVal ? nanbox_to_tagged(iterableVal) : TsValue();
+    if (iterVal.type != ValueType::OBJECT_PTR && iterVal.type != ValueType::ARRAY_PTR) {
         ts::TsPromise* p = ts_promise_create();
         ts_promise_resolve_internal(p, ts_value_make_array(TsArray::Create(0)));
         return ts_value_make_promise(p);
     }
-    TsArray* iterable = (TsArray*)iterableVal->ptr_val;
+    TsArray* iterable = (TsArray*)iterVal.ptr_val;
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
     if (total == 0) {
@@ -1164,21 +1112,22 @@ extern "C" TsValue* ts_promise_withResolvers() {
     result->Set(TsString::Create("promise"), promiseVal);
 
     // Set resolve property
-    result->Set(TsString::Create("resolve"), *resolveFunc);
+    result->Set(TsString::Create("resolve"), nanbox_to_tagged(resolveFunc));
 
     // Set reject property
-    result->Set(TsString::Create("reject"), *rejectFunc);
+    result->Set(TsString::Create("reject"), nanbox_to_tagged(rejectFunc));
 
     return ts_value_make_object(result);
 }
 
 extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
-    if (!iterableVal || (iterableVal->type != ValueType::OBJECT_PTR && iterableVal->type != ValueType::ARRAY_PTR)) {
+    TsValue iterVal = iterableVal ? nanbox_to_tagged(iterableVal) : TsValue();
+    if (iterVal.type != ValueType::OBJECT_PTR && iterVal.type != ValueType::ARRAY_PTR) {
         ts::TsPromise* p = ts_promise_create();
         ts_promise_reject_internal(p, iterableVal);
         return ts_value_make_promise(p);
     }
-    TsArray* iterable = (TsArray*)iterableVal->ptr_val;
+    TsArray* iterable = (TsArray*)iterVal.ptr_val;
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
     if (total == 0) {
@@ -1273,19 +1222,19 @@ void TsPromise::then_async(AsyncContext* asyncCtx) {
 
 static TsValue* ts_promise_then_wrapper(void* context, TsValue* onFulfilled, TsValue* onRejected) {
     TsPromise* promise = (TsPromise*)context;
-    TsPromise* next = promise->then(onFulfilled ? *onFulfilled : TsValue(), onRejected ? *onRejected : TsValue());
+    TsPromise* next = promise->then(onFulfilled ? nanbox_to_tagged(onFulfilled) : TsValue(), onRejected ? nanbox_to_tagged(onRejected) : TsValue());
     return ts_value_make_promise(next);
 }
 
 static TsValue* ts_promise_catch_wrapper(void* context, TsValue* onRejected) {
     TsPromise* promise = (TsPromise*)context;
-    TsPromise* next = promise->catch_error(onRejected ? *onRejected : TsValue());
+    TsPromise* next = promise->catch_error(onRejected ? nanbox_to_tagged(onRejected) : TsValue());
     return ts_value_make_promise(next);
 }
 
 static TsValue* ts_promise_finally_wrapper(void* context, TsValue* onFinally) {
     TsPromise* promise = (TsPromise*)context;
-    TsPromise* next = promise->finally(onFinally ? *onFinally : TsValue());
+    TsPromise* next = promise->finally(onFinally ? nanbox_to_tagged(onFinally) : TsValue());
     return ts_value_make_promise(next);
 }
 
@@ -1357,7 +1306,7 @@ void ts_async_context_yield(AsyncContext* ctx, TsValue* value) {
     if (ctx) {
         ctx->yielded = true;
         if (value) {
-            ctx->yieldedValue = *value;
+            ctx->yieldedValue = nanbox_to_tagged(value);
         } else {
             ctx->yieldedValue = TsValue();
         }

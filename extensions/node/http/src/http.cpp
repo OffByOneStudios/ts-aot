@@ -41,12 +41,14 @@ void* ts_https_create_server(TsValue* options, void* callback) {
 }
 
 void ts_http_server_listen(void* server, void* port_val, void* host, void* callback) {
-    TsValue* p = (TsValue*)port_val;
     int port = 0;
-    if (p->type == ValueType::NUMBER_DBL) {
-        port = (int)p->d_val;
-    } else if (p->type == ValueType::NUMBER_INT) {
-        port = (int)p->i_val;
+    if (port_val) {
+        TsValue pv = nanbox_to_tagged((TsValue*)port_val);
+        if (pv.type == ValueType::NUMBER_DBL) {
+            port = (int)pv.d_val;
+        } else if (pv.type == ValueType::NUMBER_INT) {
+            port = (int)pv.i_val;
+        }
     }
     const char* hostStr = nullptr;
     if (host && !ts_value_is_null((TsValue*)host) && !ts_value_is_undefined((TsValue*)host)) {
@@ -65,20 +67,24 @@ static void* unbox_ptr(void* ptr) {
 void ts_http_server_response_write_head(void* res, int64_t status, TsValue* headers) {
     TsServerResponse* r = (TsServerResponse*)unbox_ptr(res);
     TsObject* h = nullptr;
-    if (headers && headers->type == ValueType::OBJECT_PTR) {
-        h = (TsObject*)headers->ptr_val;
+    if (headers) {
+        TsValue hv = nanbox_to_tagged(headers);
+        if (hv.type == ValueType::OBJECT_PTR && hv.ptr_val) {
+            h = (TsObject*)hv.ptr_val;
+        }
     }
     r->WriteHead((int)status, h);
 }
 
 bool ts_http_server_response_write(void* res, void* data) {
     TsServerResponse* r = (TsServerResponse*)unbox_ptr(res);
-    TsValue* val = (TsValue*)data;
-    if (val->type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)val->ptr_val;
+    if (!data) return false;
+    TsValue val = nanbox_to_tagged((TsValue*)data);
+    if (val.type == ValueType::STRING_PTR && val.ptr_val) {
+        TsString* str = (TsString*)val.ptr_val;
         return r->Write((void*)str->ToUtf8(), str->Length());
-    } else if (val->type == ValueType::OBJECT_PTR) {
-        TsBuffer* buf = (TsBuffer*)val->ptr_val;
+    } else if (val.type == ValueType::OBJECT_PTR && val.ptr_val) {
+        TsBuffer* buf = (TsBuffer*)val.ptr_val;
         return r->Write(buf->GetData(), buf->GetLength());
     }
     return false;
@@ -496,13 +502,11 @@ int64_t ts_http_get_max_header_size() {
 void ts_http_validate_header_name(void* name) {
     if (!name) return;
     TsString* str = nullptr;
-    TsValue* val = (TsValue*)name;
-    if (val->type == ValueType::STRING_PTR) {
-        str = (TsString*)val->ptr_val;
-    } else if (val->type == ValueType::OBJECT_PTR) {
-        str = dynamic_cast<TsString*>((TsObject*)val->ptr_val);
-    } else {
-        str = (TsString*)name;
+    TsValue decoded = nanbox_to_tagged((TsValue*)name);
+    if (decoded.type == ValueType::STRING_PTR && decoded.ptr_val) {
+        str = (TsString*)decoded.ptr_val;
+    } else if (decoded.type == ValueType::OBJECT_PTR && decoded.ptr_val) {
+        str = dynamic_cast<TsString*>((TsObject*)decoded.ptr_val);
     }
     if (!str) return;
     // Validation stub - would throw in real Node.js on invalid chars

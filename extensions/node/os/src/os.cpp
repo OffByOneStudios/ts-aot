@@ -7,6 +7,7 @@
 #include "TsArray.h"
 #include "TsObject.h"
 #include "TsMap.h"
+#include "TsNanBox.h"
 #include "GC.h"
 #include <uv.h>
 #include <cstdlib>
@@ -238,16 +239,16 @@ void* ts_os_cpus() {
     TsArray* arr = TsArray::Create();
     for (int i = 0; i < count; i++) {
         TsMap* cpu = TsMap::Create();
-        cpu->Set(TsString::Create("model"), *ts_value_make_string(TsString::Create(cpus[i].model)));
-        cpu->Set(TsString::Create("speed"), *ts_value_make_int(cpus[i].speed));
+        cpu->Set(TsString::Create("model"), nanbox_to_tagged(ts_value_make_string(TsString::Create(cpus[i].model))));
+        cpu->Set(TsString::Create("speed"), nanbox_to_tagged(ts_value_make_int(cpus[i].speed)));
 
         TsMap* times = TsMap::Create();
-        times->Set(TsString::Create("user"), *ts_value_make_int(cpus[i].cpu_times.user));
-        times->Set(TsString::Create("nice"), *ts_value_make_int(cpus[i].cpu_times.nice));
-        times->Set(TsString::Create("sys"), *ts_value_make_int(cpus[i].cpu_times.sys));
-        times->Set(TsString::Create("idle"), *ts_value_make_int(cpus[i].cpu_times.idle));
-        times->Set(TsString::Create("irq"), *ts_value_make_int(cpus[i].cpu_times.irq));
-        cpu->Set(TsString::Create("times"), *ts_value_make_object(times));
+        times->Set(TsString::Create("user"), nanbox_to_tagged(ts_value_make_int(cpus[i].cpu_times.user)));
+        times->Set(TsString::Create("nice"), nanbox_to_tagged(ts_value_make_int(cpus[i].cpu_times.nice)));
+        times->Set(TsString::Create("sys"), nanbox_to_tagged(ts_value_make_int(cpus[i].cpu_times.sys)));
+        times->Set(TsString::Create("idle"), nanbox_to_tagged(ts_value_make_int(cpus[i].cpu_times.idle)));
+        times->Set(TsString::Create("irq"), nanbox_to_tagged(ts_value_make_int(cpus[i].cpu_times.irq)));
+        cpu->Set(TsString::Create("times"), nanbox_to_tagged(ts_value_make_object(times)));
 
         ts_array_push(arr, ts_value_make_object(cpu));
     }
@@ -279,28 +280,29 @@ void* ts_os_networkInterfaces() {
         char ip[46];  // IPv6 max length
         if (addresses[i].address.address4.sin_family == AF_INET) {
             uv_ip4_name(&addresses[i].address.address4, ip, sizeof(ip));
-            info->Set(TsString::Create("family"), *ts_value_make_string(TsString::Create("IPv4")));
+            info->Set(TsString::Create("family"), nanbox_to_tagged(ts_value_make_string(TsString::Create("IPv4"))));
         } else {
             uv_ip6_name(&addresses[i].address.address6, ip, sizeof(ip));
-            info->Set(TsString::Create("family"), *ts_value_make_string(TsString::Create("IPv6")));
+            info->Set(TsString::Create("family"), nanbox_to_tagged(ts_value_make_string(TsString::Create("IPv6"))));
         }
-        info->Set(TsString::Create("address"), *ts_value_make_string(TsString::Create(ip)));
+        info->Set(TsString::Create("address"), nanbox_to_tagged(ts_value_make_string(TsString::Create(ip))));
 
         char mac[18];
         char* phys = addresses[i].phys_addr;
         snprintf(mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x",
                  phys[0], phys[1], phys[2], phys[3], phys[4], phys[5]);
-        info->Set(TsString::Create("mac"), *ts_value_make_string(TsString::Create(mac)));
-        info->Set(TsString::Create("internal"), *ts_value_make_bool(addresses[i].is_internal));
+        info->Set(TsString::Create("mac"), nanbox_to_tagged(ts_value_make_string(TsString::Create(mac))));
+        info->Set(TsString::Create("internal"), nanbox_to_tagged(ts_value_make_bool(addresses[i].is_internal)));
 
         // Get or create array for this interface name
         TsValue existing = result->Get(name);
         TsArray* ifaceArr;
         if (existing.type != ValueType::UNDEFINED) {
-            ifaceArr = (TsArray*)ts_value_get_object(&existing);
+            // Direct field access — existing is a TsValue struct, not a NaN-boxed pointer
+            ifaceArr = (TsArray*)existing.ptr_val;
         } else {
             ifaceArr = TsArray::Create();
-            result->Set(name, *ts_value_make_object(ifaceArr));
+            result->Set(name, nanbox_to_tagged(ts_value_make_object(ifaceArr)));
         }
         ts_array_push(ifaceArr, ts_value_make_object(info));
     }
@@ -314,30 +316,30 @@ void* ts_os_userInfo() {
 
     uv_passwd_t pwd;
     if (uv_os_get_passwd(&pwd) == 0) {
-        info->Set(TsString::Create("uid"), *ts_value_make_int(pwd.uid));
-        info->Set(TsString::Create("gid"), *ts_value_make_int(pwd.gid));
-        info->Set(TsString::Create("username"), *ts_value_make_string(TsString::Create(pwd.username)));
-        info->Set(TsString::Create("homedir"), *ts_value_make_string(TsString::Create(pwd.homedir)));
-        info->Set(TsString::Create("shell"), *ts_value_make_string(TsString::Create(pwd.shell ? pwd.shell : "")));
+        info->Set(TsString::Create("uid"), nanbox_to_tagged(ts_value_make_int(pwd.uid)));
+        info->Set(TsString::Create("gid"), nanbox_to_tagged(ts_value_make_int(pwd.gid)));
+        info->Set(TsString::Create("username"), nanbox_to_tagged(ts_value_make_string(TsString::Create(pwd.username))));
+        info->Set(TsString::Create("homedir"), nanbox_to_tagged(ts_value_make_string(TsString::Create(pwd.homedir))));
+        info->Set(TsString::Create("shell"), nanbox_to_tagged(ts_value_make_string(TsString::Create(pwd.shell ? pwd.shell : ""))));
         uv_os_free_passwd(&pwd);
     } else {
 #ifdef _WIN32
         char username[UNLEN + 1];
         DWORD size = sizeof(username);
         if (GetUserNameA(username, &size)) {
-            info->Set(TsString::Create("username"), *ts_value_make_string(TsString::Create(username)));
+            info->Set(TsString::Create("username"), nanbox_to_tagged(ts_value_make_string(TsString::Create(username))));
         }
-        info->Set(TsString::Create("uid"), *ts_value_make_int(-1));
-        info->Set(TsString::Create("gid"), *ts_value_make_int(-1));
+        info->Set(TsString::Create("uid"), nanbox_to_tagged(ts_value_make_int(-1)));
+        info->Set(TsString::Create("gid"), nanbox_to_tagged(ts_value_make_int(-1)));
 #else
-        info->Set(TsString::Create("uid"), *ts_value_make_int(getuid()));
-        info->Set(TsString::Create("gid"), *ts_value_make_int(getgid()));
+        info->Set(TsString::Create("uid"), nanbox_to_tagged(ts_value_make_int(getuid())));
+        info->Set(TsString::Create("gid"), nanbox_to_tagged(ts_value_make_int(getgid())));
 
         struct passwd* pw = getpwuid(getuid());
         if (pw) {
-            info->Set(TsString::Create("username"), *ts_value_make_string(TsString::Create(pw->pw_name)));
-            info->Set(TsString::Create("homedir"), *ts_value_make_string(TsString::Create(pw->pw_dir)));
-            info->Set(TsString::Create("shell"), *ts_value_make_string(TsString::Create(pw->pw_shell)));
+            info->Set(TsString::Create("username"), nanbox_to_tagged(ts_value_make_string(TsString::Create(pw->pw_name))));
+            info->Set(TsString::Create("homedir"), nanbox_to_tagged(ts_value_make_string(TsString::Create(pw->pw_dir))));
+            info->Set(TsString::Create("shell"), nanbox_to_tagged(ts_value_make_string(TsString::Create(pw->pw_shell))));
         }
 #endif
     }
@@ -396,33 +398,33 @@ void* ts_os_get_signals() {
     TsMap* signals = TsMap::Create();
 
     // Common POSIX signals
-    signals->Set(TsString::Create("SIGHUP"), *ts_value_make_int(1));
-    signals->Set(TsString::Create("SIGINT"), *ts_value_make_int(2));
-    signals->Set(TsString::Create("SIGQUIT"), *ts_value_make_int(3));
-    signals->Set(TsString::Create("SIGILL"), *ts_value_make_int(4));
-    signals->Set(TsString::Create("SIGTRAP"), *ts_value_make_int(5));
-    signals->Set(TsString::Create("SIGABRT"), *ts_value_make_int(6));
-    signals->Set(TsString::Create("SIGFPE"), *ts_value_make_int(8));
-    signals->Set(TsString::Create("SIGKILL"), *ts_value_make_int(9));
-    signals->Set(TsString::Create("SIGSEGV"), *ts_value_make_int(11));
-    signals->Set(TsString::Create("SIGPIPE"), *ts_value_make_int(13));
-    signals->Set(TsString::Create("SIGALRM"), *ts_value_make_int(14));
-    signals->Set(TsString::Create("SIGTERM"), *ts_value_make_int(15));
-    signals->Set(TsString::Create("SIGCHLD"), *ts_value_make_int(17));
-    signals->Set(TsString::Create("SIGCONT"), *ts_value_make_int(18));
-    signals->Set(TsString::Create("SIGSTOP"), *ts_value_make_int(19));
-    signals->Set(TsString::Create("SIGTSTP"), *ts_value_make_int(20));
-    signals->Set(TsString::Create("SIGTTIN"), *ts_value_make_int(21));
-    signals->Set(TsString::Create("SIGTTOU"), *ts_value_make_int(22));
-    signals->Set(TsString::Create("SIGURG"), *ts_value_make_int(23));
-    signals->Set(TsString::Create("SIGXCPU"), *ts_value_make_int(24));
-    signals->Set(TsString::Create("SIGXFSZ"), *ts_value_make_int(25));
-    signals->Set(TsString::Create("SIGVTALRM"), *ts_value_make_int(26));
-    signals->Set(TsString::Create("SIGPROF"), *ts_value_make_int(27));
-    signals->Set(TsString::Create("SIGWINCH"), *ts_value_make_int(28));
-    signals->Set(TsString::Create("SIGIO"), *ts_value_make_int(29));
-    signals->Set(TsString::Create("SIGUSR1"), *ts_value_make_int(10));
-    signals->Set(TsString::Create("SIGUSR2"), *ts_value_make_int(12));
+    signals->Set(TsString::Create("SIGHUP"), nanbox_to_tagged(ts_value_make_int(1)));
+    signals->Set(TsString::Create("SIGINT"), nanbox_to_tagged(ts_value_make_int(2)));
+    signals->Set(TsString::Create("SIGQUIT"), nanbox_to_tagged(ts_value_make_int(3)));
+    signals->Set(TsString::Create("SIGILL"), nanbox_to_tagged(ts_value_make_int(4)));
+    signals->Set(TsString::Create("SIGTRAP"), nanbox_to_tagged(ts_value_make_int(5)));
+    signals->Set(TsString::Create("SIGABRT"), nanbox_to_tagged(ts_value_make_int(6)));
+    signals->Set(TsString::Create("SIGFPE"), nanbox_to_tagged(ts_value_make_int(8)));
+    signals->Set(TsString::Create("SIGKILL"), nanbox_to_tagged(ts_value_make_int(9)));
+    signals->Set(TsString::Create("SIGSEGV"), nanbox_to_tagged(ts_value_make_int(11)));
+    signals->Set(TsString::Create("SIGPIPE"), nanbox_to_tagged(ts_value_make_int(13)));
+    signals->Set(TsString::Create("SIGALRM"), nanbox_to_tagged(ts_value_make_int(14)));
+    signals->Set(TsString::Create("SIGTERM"), nanbox_to_tagged(ts_value_make_int(15)));
+    signals->Set(TsString::Create("SIGCHLD"), nanbox_to_tagged(ts_value_make_int(17)));
+    signals->Set(TsString::Create("SIGCONT"), nanbox_to_tagged(ts_value_make_int(18)));
+    signals->Set(TsString::Create("SIGSTOP"), nanbox_to_tagged(ts_value_make_int(19)));
+    signals->Set(TsString::Create("SIGTSTP"), nanbox_to_tagged(ts_value_make_int(20)));
+    signals->Set(TsString::Create("SIGTTIN"), nanbox_to_tagged(ts_value_make_int(21)));
+    signals->Set(TsString::Create("SIGTTOU"), nanbox_to_tagged(ts_value_make_int(22)));
+    signals->Set(TsString::Create("SIGURG"), nanbox_to_tagged(ts_value_make_int(23)));
+    signals->Set(TsString::Create("SIGXCPU"), nanbox_to_tagged(ts_value_make_int(24)));
+    signals->Set(TsString::Create("SIGXFSZ"), nanbox_to_tagged(ts_value_make_int(25)));
+    signals->Set(TsString::Create("SIGVTALRM"), nanbox_to_tagged(ts_value_make_int(26)));
+    signals->Set(TsString::Create("SIGPROF"), nanbox_to_tagged(ts_value_make_int(27)));
+    signals->Set(TsString::Create("SIGWINCH"), nanbox_to_tagged(ts_value_make_int(28)));
+    signals->Set(TsString::Create("SIGIO"), nanbox_to_tagged(ts_value_make_int(29)));
+    signals->Set(TsString::Create("SIGUSR1"), nanbox_to_tagged(ts_value_make_int(10)));
+    signals->Set(TsString::Create("SIGUSR2"), nanbox_to_tagged(ts_value_make_int(12)));
 
     return ts_value_make_object(signals);
 }
@@ -431,55 +433,55 @@ void* ts_os_get_errno() {
     TsMap* errnoMap = TsMap::Create();
 
     // Common POSIX error codes
-    errnoMap->Set(TsString::Create("EPERM"), *ts_value_make_int(1));
-    errnoMap->Set(TsString::Create("ENOENT"), *ts_value_make_int(2));
-    errnoMap->Set(TsString::Create("ESRCH"), *ts_value_make_int(3));
-    errnoMap->Set(TsString::Create("EINTR"), *ts_value_make_int(4));
-    errnoMap->Set(TsString::Create("EIO"), *ts_value_make_int(5));
-    errnoMap->Set(TsString::Create("ENXIO"), *ts_value_make_int(6));
-    errnoMap->Set(TsString::Create("E2BIG"), *ts_value_make_int(7));
-    errnoMap->Set(TsString::Create("ENOEXEC"), *ts_value_make_int(8));
-    errnoMap->Set(TsString::Create("EBADF"), *ts_value_make_int(9));
-    errnoMap->Set(TsString::Create("ECHILD"), *ts_value_make_int(10));
-    errnoMap->Set(TsString::Create("EAGAIN"), *ts_value_make_int(11));
-    errnoMap->Set(TsString::Create("ENOMEM"), *ts_value_make_int(12));
-    errnoMap->Set(TsString::Create("EACCES"), *ts_value_make_int(13));
-    errnoMap->Set(TsString::Create("EFAULT"), *ts_value_make_int(14));
-    errnoMap->Set(TsString::Create("EBUSY"), *ts_value_make_int(16));
-    errnoMap->Set(TsString::Create("EEXIST"), *ts_value_make_int(17));
-    errnoMap->Set(TsString::Create("EXDEV"), *ts_value_make_int(18));
-    errnoMap->Set(TsString::Create("ENODEV"), *ts_value_make_int(19));
-    errnoMap->Set(TsString::Create("ENOTDIR"), *ts_value_make_int(20));
-    errnoMap->Set(TsString::Create("EISDIR"), *ts_value_make_int(21));
-    errnoMap->Set(TsString::Create("EINVAL"), *ts_value_make_int(22));
-    errnoMap->Set(TsString::Create("ENFILE"), *ts_value_make_int(23));
-    errnoMap->Set(TsString::Create("EMFILE"), *ts_value_make_int(24));
-    errnoMap->Set(TsString::Create("ENOTTY"), *ts_value_make_int(25));
-    errnoMap->Set(TsString::Create("EFBIG"), *ts_value_make_int(27));
-    errnoMap->Set(TsString::Create("ENOSPC"), *ts_value_make_int(28));
-    errnoMap->Set(TsString::Create("ESPIPE"), *ts_value_make_int(29));
-    errnoMap->Set(TsString::Create("EROFS"), *ts_value_make_int(30));
-    errnoMap->Set(TsString::Create("EMLINK"), *ts_value_make_int(31));
-    errnoMap->Set(TsString::Create("EPIPE"), *ts_value_make_int(32));
-    errnoMap->Set(TsString::Create("EDOM"), *ts_value_make_int(33));
-    errnoMap->Set(TsString::Create("ERANGE"), *ts_value_make_int(34));
-    errnoMap->Set(TsString::Create("EDEADLK"), *ts_value_make_int(35));
-    errnoMap->Set(TsString::Create("ENAMETOOLONG"), *ts_value_make_int(36));
-    errnoMap->Set(TsString::Create("ENOLCK"), *ts_value_make_int(37));
-    errnoMap->Set(TsString::Create("ENOSYS"), *ts_value_make_int(38));
-    errnoMap->Set(TsString::Create("ENOTEMPTY"), *ts_value_make_int(39));
-    errnoMap->Set(TsString::Create("ELOOP"), *ts_value_make_int(40));
-    errnoMap->Set(TsString::Create("EWOULDBLOCK"), *ts_value_make_int(11));  // Same as EAGAIN
+    errnoMap->Set(TsString::Create("EPERM"), nanbox_to_tagged(ts_value_make_int(1)));
+    errnoMap->Set(TsString::Create("ENOENT"), nanbox_to_tagged(ts_value_make_int(2)));
+    errnoMap->Set(TsString::Create("ESRCH"), nanbox_to_tagged(ts_value_make_int(3)));
+    errnoMap->Set(TsString::Create("EINTR"), nanbox_to_tagged(ts_value_make_int(4)));
+    errnoMap->Set(TsString::Create("EIO"), nanbox_to_tagged(ts_value_make_int(5)));
+    errnoMap->Set(TsString::Create("ENXIO"), nanbox_to_tagged(ts_value_make_int(6)));
+    errnoMap->Set(TsString::Create("E2BIG"), nanbox_to_tagged(ts_value_make_int(7)));
+    errnoMap->Set(TsString::Create("ENOEXEC"), nanbox_to_tagged(ts_value_make_int(8)));
+    errnoMap->Set(TsString::Create("EBADF"), nanbox_to_tagged(ts_value_make_int(9)));
+    errnoMap->Set(TsString::Create("ECHILD"), nanbox_to_tagged(ts_value_make_int(10)));
+    errnoMap->Set(TsString::Create("EAGAIN"), nanbox_to_tagged(ts_value_make_int(11)));
+    errnoMap->Set(TsString::Create("ENOMEM"), nanbox_to_tagged(ts_value_make_int(12)));
+    errnoMap->Set(TsString::Create("EACCES"), nanbox_to_tagged(ts_value_make_int(13)));
+    errnoMap->Set(TsString::Create("EFAULT"), nanbox_to_tagged(ts_value_make_int(14)));
+    errnoMap->Set(TsString::Create("EBUSY"), nanbox_to_tagged(ts_value_make_int(16)));
+    errnoMap->Set(TsString::Create("EEXIST"), nanbox_to_tagged(ts_value_make_int(17)));
+    errnoMap->Set(TsString::Create("EXDEV"), nanbox_to_tagged(ts_value_make_int(18)));
+    errnoMap->Set(TsString::Create("ENODEV"), nanbox_to_tagged(ts_value_make_int(19)));
+    errnoMap->Set(TsString::Create("ENOTDIR"), nanbox_to_tagged(ts_value_make_int(20)));
+    errnoMap->Set(TsString::Create("EISDIR"), nanbox_to_tagged(ts_value_make_int(21)));
+    errnoMap->Set(TsString::Create("EINVAL"), nanbox_to_tagged(ts_value_make_int(22)));
+    errnoMap->Set(TsString::Create("ENFILE"), nanbox_to_tagged(ts_value_make_int(23)));
+    errnoMap->Set(TsString::Create("EMFILE"), nanbox_to_tagged(ts_value_make_int(24)));
+    errnoMap->Set(TsString::Create("ENOTTY"), nanbox_to_tagged(ts_value_make_int(25)));
+    errnoMap->Set(TsString::Create("EFBIG"), nanbox_to_tagged(ts_value_make_int(27)));
+    errnoMap->Set(TsString::Create("ENOSPC"), nanbox_to_tagged(ts_value_make_int(28)));
+    errnoMap->Set(TsString::Create("ESPIPE"), nanbox_to_tagged(ts_value_make_int(29)));
+    errnoMap->Set(TsString::Create("EROFS"), nanbox_to_tagged(ts_value_make_int(30)));
+    errnoMap->Set(TsString::Create("EMLINK"), nanbox_to_tagged(ts_value_make_int(31)));
+    errnoMap->Set(TsString::Create("EPIPE"), nanbox_to_tagged(ts_value_make_int(32)));
+    errnoMap->Set(TsString::Create("EDOM"), nanbox_to_tagged(ts_value_make_int(33)));
+    errnoMap->Set(TsString::Create("ERANGE"), nanbox_to_tagged(ts_value_make_int(34)));
+    errnoMap->Set(TsString::Create("EDEADLK"), nanbox_to_tagged(ts_value_make_int(35)));
+    errnoMap->Set(TsString::Create("ENAMETOOLONG"), nanbox_to_tagged(ts_value_make_int(36)));
+    errnoMap->Set(TsString::Create("ENOLCK"), nanbox_to_tagged(ts_value_make_int(37)));
+    errnoMap->Set(TsString::Create("ENOSYS"), nanbox_to_tagged(ts_value_make_int(38)));
+    errnoMap->Set(TsString::Create("ENOTEMPTY"), nanbox_to_tagged(ts_value_make_int(39)));
+    errnoMap->Set(TsString::Create("ELOOP"), nanbox_to_tagged(ts_value_make_int(40)));
+    errnoMap->Set(TsString::Create("EWOULDBLOCK"), nanbox_to_tagged(ts_value_make_int(11)));  // Same as EAGAIN
 
     // Network errors
-    errnoMap->Set(TsString::Create("ECONNREFUSED"), *ts_value_make_int(111));
-    errnoMap->Set(TsString::Create("ECONNRESET"), *ts_value_make_int(104));
-    errnoMap->Set(TsString::Create("ECONNABORTED"), *ts_value_make_int(103));
-    errnoMap->Set(TsString::Create("ETIMEDOUT"), *ts_value_make_int(110));
-    errnoMap->Set(TsString::Create("ENETUNREACH"), *ts_value_make_int(101));
-    errnoMap->Set(TsString::Create("EHOSTUNREACH"), *ts_value_make_int(113));
-    errnoMap->Set(TsString::Create("EADDRINUSE"), *ts_value_make_int(98));
-    errnoMap->Set(TsString::Create("EADDRNOTAVAIL"), *ts_value_make_int(99));
+    errnoMap->Set(TsString::Create("ECONNREFUSED"), nanbox_to_tagged(ts_value_make_int(111)));
+    errnoMap->Set(TsString::Create("ECONNRESET"), nanbox_to_tagged(ts_value_make_int(104)));
+    errnoMap->Set(TsString::Create("ECONNABORTED"), nanbox_to_tagged(ts_value_make_int(103)));
+    errnoMap->Set(TsString::Create("ETIMEDOUT"), nanbox_to_tagged(ts_value_make_int(110)));
+    errnoMap->Set(TsString::Create("ENETUNREACH"), nanbox_to_tagged(ts_value_make_int(101)));
+    errnoMap->Set(TsString::Create("EHOSTUNREACH"), nanbox_to_tagged(ts_value_make_int(113)));
+    errnoMap->Set(TsString::Create("EADDRINUSE"), nanbox_to_tagged(ts_value_make_int(98)));
+    errnoMap->Set(TsString::Create("EADDRNOTAVAIL"), nanbox_to_tagged(ts_value_make_int(99)));
 
     return ts_value_make_object(errnoMap);
 }
@@ -488,12 +490,12 @@ void* ts_os_get_priority_constants() {
     TsMap* priority = TsMap::Create();
 
     // Process priority constants (matching Node.js)
-    priority->Set(TsString::Create("PRIORITY_LOW"), *ts_value_make_int(19));
-    priority->Set(TsString::Create("PRIORITY_BELOW_NORMAL"), *ts_value_make_int(10));
-    priority->Set(TsString::Create("PRIORITY_NORMAL"), *ts_value_make_int(0));
-    priority->Set(TsString::Create("PRIORITY_ABOVE_NORMAL"), *ts_value_make_int(-7));
-    priority->Set(TsString::Create("PRIORITY_HIGH"), *ts_value_make_int(-14));
-    priority->Set(TsString::Create("PRIORITY_HIGHEST"), *ts_value_make_int(-20));
+    priority->Set(TsString::Create("PRIORITY_LOW"), nanbox_to_tagged(ts_value_make_int(19)));
+    priority->Set(TsString::Create("PRIORITY_BELOW_NORMAL"), nanbox_to_tagged(ts_value_make_int(10)));
+    priority->Set(TsString::Create("PRIORITY_NORMAL"), nanbox_to_tagged(ts_value_make_int(0)));
+    priority->Set(TsString::Create("PRIORITY_ABOVE_NORMAL"), nanbox_to_tagged(ts_value_make_int(-7)));
+    priority->Set(TsString::Create("PRIORITY_HIGH"), nanbox_to_tagged(ts_value_make_int(-14)));
+    priority->Set(TsString::Create("PRIORITY_HIGHEST"), nanbox_to_tagged(ts_value_make_int(-20)));
 
     return ts_value_make_object(priority);
 }
@@ -503,15 +505,15 @@ void* ts_os_get_constants() {
 
     // Get signals
     TsValue* signals = (TsValue*)ts_os_get_signals();
-    constants->Set(TsString::Create("signals"), *signals);
+    constants->Set(TsString::Create("signals"), nanbox_to_tagged(signals));
 
     // Get errno
     TsValue* errnoVal = (TsValue*)ts_os_get_errno();
-    constants->Set(TsString::Create("errno"), *errnoVal);
+    constants->Set(TsString::Create("errno"), nanbox_to_tagged(errnoVal));
 
     // Get priority
     TsValue* priority = (TsValue*)ts_os_get_priority_constants();
-    constants->Set(TsString::Create("priority"), *priority);
+    constants->Set(TsString::Create("priority"), nanbox_to_tagged(priority));
 
     return ts_value_make_object(constants);
 }

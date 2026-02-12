@@ -1,5 +1,6 @@
 #include "TsFetch.h"
 #include "GC.h"
+#include "TsNanBox.h"
 #include "TsRuntime.h"
 #include "TsPromise.h"
 #include "TsJSON.h"
@@ -256,9 +257,9 @@ void* ts_fetch(void* url_val, void* options_val) {
     std::vector<std::pair<std::string, std::string>> headers;
 
     if (options_val) {
-        TsValue* opt = (TsValue*)options_val;
-        if (opt->type == ValueType::OBJECT_PTR) {
-            TsMap* opt_map = (TsMap*)opt->ptr_val;
+        TsValue optDec = nanbox_to_tagged((TsValue*)options_val);
+        if (optDec.type == ValueType::OBJECT_PTR) {
+            TsMap* opt_map = (TsMap*)optDec.ptr_val;
 
             // Method
             TsValue m_val = opt_map->Get(TsString::Create("method"));

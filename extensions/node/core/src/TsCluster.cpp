@@ -3,6 +3,7 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsRuntime.h"
+#include "TsNanBox.h"
 #include "GC.h"
 #include <string.h>
 #include <stdlib.h>
@@ -243,7 +244,8 @@ void TsCluster::Disconnect(void* callback) {
                 keyVal.ptr_val = (void*)keyRaw;
 
                 TsValue workerVal = workers_->Get(keyVal);
-                void* workerPtr = ts_value_get_object(&workerVal);
+                // Direct field access — workerVal is a TsValue struct, not a NaN-boxed pointer
+                void* workerPtr = workerVal.ptr_val;
                 TsWorker* worker = dynamic_cast<TsWorker*>((TsObject*)workerPtr);
                 if (worker && worker->IsConnected()) {
                     worker->Disconnect();
@@ -259,16 +261,13 @@ void TsCluster::OnWorkerMessage(TsWorker* worker, void* message) {
     // Check if this is an internal cluster message
     // Internal messages have a 'cmd' field with values like 'online'
 
-    TsValue* msgVal = (TsValue*)message;
-    if (msgVal && msgVal->type == ValueType::OBJECT_PTR) {
-        TsObject* msgObj = (TsObject*)msgVal->ptr_val;
+    TsValue msgDec = nanbox_to_tagged((TsValue*)message);
+    if (msgDec.type == ValueType::OBJECT_PTR) {
+        TsObject* msgObj = (TsObject*)msgDec.ptr_val;
         TsMap* msgMap = dynamic_cast<TsMap*>(msgObj);
         if (msgMap) {
             // Check for 'cmd' field (internal cluster protocol)
-            TsValue cmdKey;
-            cmdKey.type = ValueType::STRING_PTR;
-            cmdKey.ptr_val = TsString::Create("cmd");
-            TsValue cmdVal = msgMap->Get(cmdKey);
+            TsValue cmdVal = msgMap->Get(TsString::Create("cmd"));
 
             if (cmdVal.type == ValueType::STRING_PTR) {
                 TsString* cmdStr = (TsString*)cmdVal.ptr_val;

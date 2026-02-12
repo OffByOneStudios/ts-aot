@@ -36,8 +36,8 @@ TsBuffer* TsTextEncoder::Encode(TsString* input) {
 void* TsTextEncoder::EncodeInto(TsString* source, TsBuffer* destination) {
     if (!source || !destination) {
         TsMap* result = TsMap::Create();
-        result->Set(*ts_value_make_string(TsString::Create("read")), *ts_value_make_int(0));
-        result->Set(*ts_value_make_string(TsString::Create("written")), *ts_value_make_int(0));
+        result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("read"))), nanbox_to_tagged(ts_value_make_int(0)));
+        result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("written"))), nanbox_to_tagged(ts_value_make_int(0)));
         return ts_value_make_object(result);
     }
     
@@ -49,8 +49,8 @@ void* TsTextEncoder::EncodeInto(TsString* source, TsBuffer* destination) {
     memcpy(destination->GetData(), utf8, written);
     
     TsMap* result = TsMap::Create();
-    result->Set(*ts_value_make_string(TsString::Create("read")), *ts_value_make_int((int64_t)written));
-    result->Set(*ts_value_make_string(TsString::Create("written")), *ts_value_make_int((int64_t)written));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("read"))), nanbox_to_tagged(ts_value_make_int((int64_t)written)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("written"))), nanbox_to_tagged(ts_value_make_int((int64_t)written)));
     return ts_value_make_object(result);
 }
 
@@ -131,8 +131,8 @@ void* ts_text_encoder_encode_into(void* encoder, void* source, void* destination
     TsTextEncoder* enc = (TsTextEncoder*)encoder;
     if (!enc) {
         TsMap* result = TsMap::Create();
-        result->Set(*ts_value_make_string(TsString::Create("read")), *ts_value_make_int(0));
-        result->Set(*ts_value_make_string(TsString::Create("written")), *ts_value_make_int(0));
+        result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("read"))), nanbox_to_tagged(ts_value_make_int(0)));
+        result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("written"))), nanbox_to_tagged(ts_value_make_int(0)));
         return ts_value_make_object(result);
     }
     

@@ -153,11 +153,11 @@ extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* p
     TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
     if (!obj) return ts_value_make_undefined();
 
-    TsValue* prop = (TsValue*)propArg;
+    TsValue propVal = nanbox_to_tagged((TsValue*)propArg);
     TsString* key = nullptr;
 
-    if (prop->type == ValueType::STRING_PTR) {
-        key = (TsString*)prop->ptr_val;
+    if (propVal.type == ValueType::STRING_PTR) {
+        key = (TsString*)propVal.ptr_val;
     } else {
         return ts_value_make_undefined();
     }
@@ -197,11 +197,11 @@ extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, voi
     TsMap* descriptor = dynamic_cast<TsMap*>((TsObject*)descRaw);
     if (!descriptor) return 0;
 
-    TsValue* prop = (TsValue*)propArg;
+    TsValue propVal = nanbox_to_tagged((TsValue*)propArg);
     TsString* key = nullptr;
 
-    if (prop->type == ValueType::STRING_PTR) {
-        key = (TsString*)prop->ptr_val;
+    if (propVal.type == ValueType::STRING_PTR) {
+        key = (TsString*)propVal.ptr_val;
     } else {
         return 0;
     }

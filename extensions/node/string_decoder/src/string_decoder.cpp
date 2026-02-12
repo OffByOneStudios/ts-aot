@@ -6,6 +6,7 @@
 #include "TsString.h"
 #include "TsBuffer.h"
 #include "TsRuntime.h"
+#include "TsNanBox.h"
 #include "GC.h"
 
 extern "C" {
@@ -13,9 +14,9 @@ extern "C" {
 void* ts_string_decoder_create(void* encoding) {
     TsString* enc = nullptr;
     if (encoding) {
-        TsValue* val = (TsValue*)encoding;
-        if (val->type == ValueType::STRING_PTR) {
-            enc = (TsString*)val->ptr_val;
+        TsValue vd = nanbox_to_tagged((TsValue*)encoding);
+        if (vd.type == ValueType::STRING_PTR) {
+            enc = (TsString*)vd.ptr_val;
         }
     }
 

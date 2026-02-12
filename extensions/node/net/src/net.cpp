@@ -8,6 +8,7 @@
 #include "TsString.h"
 #include "TsBuffer.h"
 #include "TsRuntime.h"
+#include "TsNanBox.h"
 #include "TsArray.h"
 #include "TsMap.h"
 #include "GC.h"
@@ -29,9 +30,14 @@ extern "C" {
 
     void ts_net_socket_connect(void* socket, void* port, void* host, void* callback) {
         TsSocket* s = (TsSocket*)socket;
-        TsValue* p = (TsValue*)port;
+        int portNum = 0;
+        if (port) {
+            TsValue pv = nanbox_to_tagged((TsValue*)port);
+            if (pv.type == ValueType::NUMBER_INT) portNum = (int)pv.i_val;
+            else if (pv.type == ValueType::NUMBER_DBL) portNum = (int)pv.d_val;
+        }
         TsString* h = (TsString*)host;
-        s->Connect(h->ToUtf8(), (int)p->i_val, callback);
+        s->Connect(h->ToUtf8(), portNum, callback);
     }
 
     // Socket address property getters
@@ -139,8 +145,12 @@ extern "C" {
     void* ts_net_socket_set_timeout(void* socket, void* msecs, void* callback) {
         TsSocket* s = getSocketFromVoid(socket);
         if (!s) return socket;
-        TsValue* m = (TsValue*)msecs;
-        int ms = m ? (int)m->i_val : 0;
+        int ms = 0;
+        if (msecs) {
+            TsValue mv = nanbox_to_tagged((TsValue*)msecs);
+            if (mv.type == ValueType::NUMBER_INT) ms = (int)mv.i_val;
+            else if (mv.type == ValueType::NUMBER_DBL) ms = (int)mv.d_val;
+        }
         s->SetTimeout(ms, callback);
         return socket;
     }
@@ -150,11 +160,11 @@ extern "C" {
         if (!s) return socket;
         bool nd = true;
         if (noDelay) {
-            TsValue* v = (TsValue*)noDelay;
-            if (v->type == ValueType::BOOLEAN) {
-                nd = v->b_val;
-            } else if (v->type == ValueType::NUMBER_INT) {
-                nd = v->i_val != 0;
+            TsValue v = nanbox_to_tagged((TsValue*)noDelay);
+            if (v.type == ValueType::BOOLEAN) {
+                nd = v.b_val;
+            } else if (v.type == ValueType::NUMBER_INT) {
+                nd = v.i_val != 0;
             }
         }
         s->SetNoDelay(nd);
@@ -166,17 +176,18 @@ extern "C" {
         if (!s) return socket;
         bool en = true;
         if (enable) {
-            TsValue* v = (TsValue*)enable;
-            if (v->type == ValueType::BOOLEAN) {
-                en = v->b_val;
-            } else if (v->type == ValueType::NUMBER_INT) {
-                en = v->i_val != 0;
+            TsValue v = nanbox_to_tagged((TsValue*)enable);
+            if (v.type == ValueType::BOOLEAN) {
+                en = v.b_val;
+            } else if (v.type == ValueType::NUMBER_INT) {
+                en = v.i_val != 0;
             }
         }
         int delay = 0;
         if (initialDelay) {
-            TsValue* d = (TsValue*)initialDelay;
-            delay = (int)d->i_val;
+            TsValue dv = nanbox_to_tagged((TsValue*)initialDelay);
+            if (dv.type == ValueType::NUMBER_INT) delay = (int)dv.i_val;
+            else if (dv.type == ValueType::NUMBER_DBL) delay = (int)dv.d_val;
         }
         s->SetKeepAlive(en, delay);
         return socket;
@@ -209,11 +220,11 @@ extern "C" {
         if (!input) return 0;
 
         TsString* str = nullptr;
-        TsValue* val = (TsValue*)input;
-        if (val->type == ValueType::STRING_PTR) {
-            str = (TsString*)val->ptr_val;
-        } else if (val->type == ValueType::OBJECT_PTR) {
-            str = dynamic_cast<TsString*>((TsObject*)val->ptr_val);
+        TsValue vd = nanbox_to_tagged((TsValue*)input);
+        if (vd.type == ValueType::STRING_PTR) {
+            str = (TsString*)vd.ptr_val;
+        } else if (vd.type == ValueType::OBJECT_PTR) {
+            str = dynamic_cast<TsString*>((TsObject*)vd.ptr_val);
         } else {
             str = (TsString*)input;
         }
@@ -279,11 +290,11 @@ struct TsSocketAddress : public TsObject {
 // Helper to extract string from boxed value
 static TsString* extractString(void* input) {
     if (!input) return nullptr;
-    TsValue* val = (TsValue*)input;
-    if (val->type == ValueType::STRING_PTR) {
-        return (TsString*)val->ptr_val;
-    } else if (val->type == ValueType::OBJECT_PTR) {
-        return dynamic_cast<TsString*>((TsObject*)val->ptr_val);
+    TsValue vd = nanbox_to_tagged((TsValue*)input);
+    if (vd.type == ValueType::STRING_PTR) {
+        return (TsString*)vd.ptr_val;
+    } else if (vd.type == ValueType::OBJECT_PTR) {
+        return dynamic_cast<TsString*>((TsObject*)vd.ptr_val);
     }
     return (TsString*)input;
 }
@@ -453,10 +464,10 @@ extern "C" {
     bool ts_net_block_list_is_block_list(void* value) {
         if (!value) return false;
 
-        TsValue* val = (TsValue*)value;
+        TsValue vd2 = nanbox_to_tagged((TsValue*)value);
         TsObject* obj = nullptr;
-        if (val->type == ValueType::OBJECT_PTR) {
-            obj = (TsObject*)val->ptr_val;
+        if (vd2.type == ValueType::OBJECT_PTR) {
+            obj = (TsObject*)vd2.ptr_val;
         } else {
             obj = (TsObject*)value;
         }
@@ -629,7 +640,7 @@ extern "C" {
                 hostStr = str->ToUtf8();
             }
         }
-        s->Listen((int)p->i_val, hostStr, callback);
+        s->Listen((int)ts_value_get_int((TsValue*)p), hostStr, callback);
     }
 
     void ts_net_server_close(void* server) {
@@ -669,9 +680,11 @@ extern "C" {
     void ts_net_server_set_maxConnections(void* server, void* value) {
         TsServer* s = (TsServer*)server;
         if (!s) return;
-        TsValue* v = (TsValue*)value;
-        if (v && v->type == ValueType::NUMBER_INT) {
-            s->maxConnections = (int)v->i_val;
+        if (value) {
+            TsValue vd3 = nanbox_to_tagged((TsValue*)value);
+            if (vd3.type == ValueType::NUMBER_INT) {
+                s->maxConnections = (int)vd3.i_val;
+            }
         }
     }
 

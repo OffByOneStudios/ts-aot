@@ -63,10 +63,8 @@ void* ts_symbol_key_for(void* sym) {
 }
 
 TsValue* ts_value_make_symbol(void* s) {
-    TsValue* v = (TsValue*)ts_alloc(sizeof(TsValue));
-    v->type = ValueType::SYMBOL_PTR;
-    v->ptr_val = s;
-    return v;
+    // NaN boxing: pointer is encoded as-is (top 16 bits = 0 for valid pointers)
+    return (TsValue*)(uintptr_t)s;
 }
 
 // ES2019: Symbol.prototype.description getter

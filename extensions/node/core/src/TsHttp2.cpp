@@ -2,6 +2,7 @@
 #include "TsError.h"
 #include "TsSymbol.h"
 #include "GC.h"
+#include "TsNanBox.h"
 #include <cstring>
 #include <cstdio>
 #include <fcntl.h>
@@ -578,13 +579,14 @@ void TsClientHttp2Session::Init(const char* authority, TsValue* options) {
         bool rejectUnauthorized = true;
         TsValue* ca = nullptr;
 
-        if (options && options->type == ValueType::OBJECT_PTR) {
-            TsMap* opts = (TsMap*)options->ptr_val;
-            TsValue v_reject = opts->Get(TsValue(TsString::Create("rejectUnauthorized")));
+        TsValue optDec = options ? nanbox_to_tagged(options) : TsValue{};
+        if (optDec.type == ValueType::OBJECT_PTR) {
+            TsMap* opts = (TsMap*)optDec.ptr_val;
+            TsValue v_reject = opts->Get(TsString::Create("rejectUnauthorized"));
             if (v_reject.type == ValueType::BOOLEAN) rejectUnauthorized = v_reject.b_val;
 
-            TsValue v_ca = opts->Get(TsValue(TsString::Create("ca")));
-            if (v_ca.type != ValueType::UNDEFINED) ca = &v_ca;
+            TsValue v_ca = opts->Get(TsString::Create("ca"));
+            if (v_ca.type != ValueType::UNDEFINED) ca = nanbox_from_tagged(v_ca);
         }
 
         secureSocket->SetVerify(rejectUnauthorized, ca);
@@ -1042,13 +1044,14 @@ void TsServerHttp2Stream::RespondWithFD(int fd, TsMap* headers, TsValue* options
     int64_t offset = 0;
     int64_t length = -1;  // -1 means read to end
 
-    if (options && options->type == ValueType::OBJECT_PTR) {
-        TsMap* opts = dynamic_cast<TsMap*>((TsObject*)options->ptr_val);
+    TsValue optDec2 = options ? nanbox_to_tagged(options) : TsValue{};
+    if (optDec2.type == ValueType::OBJECT_PTR) {
+        TsMap* opts = dynamic_cast<TsMap*>((TsObject*)optDec2.ptr_val);
         if (opts) {
-            TsValue offsetVal = opts->Get(TsValue(TsString::Create("offset")));
+            TsValue offsetVal = opts->Get(TsString::Create("offset"));
             if (offsetVal.type == ValueType::NUMBER_INT) offset = offsetVal.i_val;
 
-            TsValue lengthVal = opts->Get(TsValue(TsString::Create("length")));
+            TsValue lengthVal = opts->Get(TsString::Create("length"));
             if (lengthVal.type == ValueType::NUMBER_INT) length = lengthVal.i_val;
         }
     }
@@ -1120,16 +1123,17 @@ void TsServerHttp2Stream::RespondWithFile(const char* path, TsMap* headers, TsVa
     int64_t length = -1;
     void* onError = nullptr;
 
-    if (options && options->type == ValueType::OBJECT_PTR) {
-        TsMap* opts = dynamic_cast<TsMap*>((TsObject*)options->ptr_val);
+    TsValue optDec3 = options ? nanbox_to_tagged(options) : TsValue{};
+    if (optDec3.type == ValueType::OBJECT_PTR) {
+        TsMap* opts = dynamic_cast<TsMap*>((TsObject*)optDec3.ptr_val);
         if (opts) {
-            TsValue offsetVal = opts->Get(TsValue(TsString::Create("offset")));
+            TsValue offsetVal = opts->Get(TsString::Create("offset"));
             if (offsetVal.type == ValueType::NUMBER_INT) offset = offsetVal.i_val;
 
-            TsValue lengthVal = opts->Get(TsValue(TsString::Create("length")));
+            TsValue lengthVal = opts->Get(TsString::Create("length"));
             if (lengthVal.type == ValueType::NUMBER_INT) length = lengthVal.i_val;
 
-            TsValue onErrorVal = opts->Get(TsValue(TsString::Create("onError")));
+            TsValue onErrorVal = opts->Get(TsString::Create("onError"));
             if (onErrorVal.type == ValueType::FUNCTION_PTR || onErrorVal.type == ValueType::OBJECT_PTR) {
                 onError = onErrorVal.ptr_val;
             }
