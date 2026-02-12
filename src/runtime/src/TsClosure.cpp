@@ -2,6 +2,7 @@
 #include "../include/TsObject.h"
 #include "../include/TsRuntime.h"
 #include "../include/GC.h"
+#include "../include/TsGC.h"
 #include <new>
 #include <cstdio>
 
@@ -33,6 +34,9 @@ TsClosure* ts_closure_create(void* funcPtr, int64_t numCaptures) {
 void ts_closure_set_cell(TsClosure* closure, int64_t index, TsCell* cell) {
     if (!closure) return;
     closure->setCell(index, cell);
+    // Write barrier: cell pointer stored into closure's cells array
+    if (closure->cells && index >= 0 && index < closure->num_captures)
+        ts_gc_write_barrier(&closure->cells[index], cell);
 }
 
 TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
@@ -90,6 +94,9 @@ void ts_closure_init_capture(TsClosure* closure, int64_t index, TsValue* initial
     if (!closure) return;
     TsCell* cell = ts_cell_create(initialValue);
     closure->setCell(index, cell);
+    // Write barrier: cell pointer stored into closure's cells array
+    if (closure->cells && index >= 0 && index < closure->num_captures)
+        ts_gc_write_barrier(&closure->cells[index], cell);
 }
 
 // Check if a pointer is a TsClosure (by checking magic number)

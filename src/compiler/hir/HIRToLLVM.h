@@ -310,13 +310,17 @@ private:
     void lowerTypeOf(HIRInstruction* inst);
     void lowerInstanceOf(HIRInstruction* inst);
 
-    // GC operations (stub to Boehm)
+    // GC operations
     void lowerGCAlloc(HIRInstruction* inst);
     void lowerGCAllocArray(HIRInstruction* inst);
     void lowerGCStore(HIRInstruction* inst);
     void lowerGCLoad(HIRInstruction* inst);
     void lowerSafepoint(HIRInstruction* inst);
     void lowerSafepointPoll(HIRInstruction* inst);
+
+    // Nursery write barrier (emits inline card-marking after pointer stores)
+    void emitWriteBarrier(llvm::Value* slotAddr, llvm::Value* storedValue);
+    llvm::GlobalVariable* getOrDeclareGCGlobal(const std::string& name, llvm::Type* type);
 
     // Memory operations
     void lowerAlloca(HIRInstruction* inst);

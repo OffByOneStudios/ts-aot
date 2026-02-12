@@ -5,6 +5,7 @@
 #include "TsRuntime.h"
 #include "TsClosure.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <cstring>
 #include <iostream>
 #include <new>
@@ -74,10 +75,14 @@ void TsArray::Push(int64_t value) {
         void* newElements = ts_alloc(newCapacity * elementSize);
         std::memcpy(newElements, elements, length * elementSize);
         elements = newElements;
+        // Write barrier: elements field now points to potentially-nursery buffer
+        ts_gc_write_barrier((void*)&this->elements, newElements);
         capacity = newCapacity;
     }
     if (elementSize == 8) {
         ((int64_t*)elements)[length++] = value;
+        // Write barrier: value may be a pointer to a nursery object
+        ts_gc_write_barrier(&((int64_t*)elements)[length-1], (void*)value);
     } else if (elementSize == 4) {
         ((int32_t*)elements)[length++] = (int32_t)value;
     } else if (elementSize == 2) {
@@ -139,6 +144,8 @@ void TsArray::PushDouble(double value) {
             void* newElements = ts_alloc(newCapacity * elementSize);
             std::memcpy(newElements, elements, length * elementSize);
             elements = newElements;
+            // Write barrier: elements field now points to potentially-nursery buffer
+            ts_gc_write_barrier((void*)&this->elements, newElements);
             capacity = newCapacity;
         }
         ((double*)elements)[length++] = value;
@@ -156,12 +163,16 @@ void TsArray::Unshift(int64_t value) {
         void* newElements = ts_alloc(newCapacity * elementSize);
         std::memcpy((char*)newElements + elementSize, elements, length * elementSize);
         elements = newElements;
+        // Write barrier: elements field now points to potentially-nursery buffer
+        ts_gc_write_barrier((void*)&this->elements, newElements);
         capacity = newCapacity;
     } else {
         std::memmove((char*)elements + elementSize, elements, length * elementSize);
     }
     if (elementSize == 8) {
         ((int64_t*)elements)[0] = value;
+        // Write barrier: value may be a pointer to a nursery object
+        ts_gc_write_barrier(&((int64_t*)elements)[0], (void*)value);
     } else {
         std::memcpy(elements, &value, elementSize);
     }
@@ -200,6 +211,8 @@ void TsArray::Set(size_t index, int64_t value) {
     }
     if (elementSize != 8) return;
     ((int64_t*)elements)[index] = value;
+    // Write barrier: value may be a pointer to a nursery object
+    ts_gc_write_barrier(&((int64_t*)elements)[index], (void*)value);
 }
 
 int64_t TsArray::Length() {
@@ -1153,6 +1166,8 @@ void TsArray::TransitionTo(ElementKind newKind) {
             memcpy(&dblVal, &bits, sizeof(dblVal));
             TsValue* boxed = ts_value_make_double(dblVal);
             ((int64_t*)elements)[i] = (int64_t)boxed;
+            // Write barrier: boxed value may be in nursery
+            ts_gc_write_barrier(&((int64_t*)elements)[i], (void*)boxed);
         }
         isDouble = false;
         isSpecialized = false;
@@ -1166,6 +1181,8 @@ void TsArray::TransitionTo(ElementKind newKind) {
             int64_t smiVal = ((int64_t*)elements)[i];
             TsValue* boxed = ts_value_make_int(smiVal);
             ((int64_t*)elements)[i] = (int64_t)boxed;
+            // Write barrier: boxed value may be in nursery
+            ts_gc_write_barrier(&((int64_t*)elements)[i], (void*)boxed);
         }
         isSpecialized = false;
     }
@@ -1620,6 +1637,7 @@ extern "C" {
     void* ts_array_get_unchecked(void* arr, int64_t index) {
         TsArray* array = unboxArrayIfNeeded(arr);
         if (!array) return nullptr;
+        if (index < 0 || (size_t)index >= (size_t)array->Length()) return nullptr;
         return (void*)array->GetUnchecked(index);
     }
 

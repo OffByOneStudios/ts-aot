@@ -45,6 +45,57 @@ static const size_t MARK_WORKLIST_CAPACITY = 16384;
 static bool g_gc_verbose = false;
 
 // ============================================================================
+// Nursery Configuration
+// ============================================================================
+
+static const size_t DEFAULT_NURSERY_SPACE_SIZE = 2 * 1024 * 1024;  // 2MB per semi-space
+static const size_t NURSERY_MAX_OBJ_SIZE = 256;   // Objects <= 256 bytes go to nursery
+static const size_t NURSERY_SIZE_PREFIX = 8;       // 8-byte size header before each object
+
+// Forwarding entry: maps nursery address range → old-gen address
+struct NurseryForwardEntry {
+    uintptr_t nursery_addr;    // Start of nursery object
+    void* old_gen_addr;        // Promoted old-gen location
+    size_t size;               // Object size in bytes
+};
+
+struct Nursery {
+    void* region;              // Single contiguous VirtualAlloc (2 * space_size)
+    int active;                // 0 or 1 -- which semi-space is current
+    size_t cursor;             // Byte offset of next allocation in active space
+    size_t space_size;         // Size of each semi-space (default 2MB)
+    bool enabled;
+    size_t total_allocated;    // Total bytes bumped in nursery (for stats)
+    size_t alloc_count;        // Number of nursery allocations (for stats)
+
+    // Forwarding table from the last minor GC. Kept alive so that full GC
+    // can map stale nursery pointers (held by the conservative stack scanner)
+    // to their promoted old-gen addresses.
+    std::vector<NurseryForwardEntry> forwarding;
+};
+
+static Nursery g_nursery = {};
+
+// ============================================================================
+// Card Table Configuration
+// ============================================================================
+// One byte per 512-byte "card". When an old-gen store writes a nursery pointer,
+// the corresponding card is dirtied. During minor GC, dirty cards are scanned
+// to find old-gen-to-nursery references.
+
+static const size_t CARD_SHIFT = 9;                             // 512 bytes per card
+static const size_t CARD_SIZE = (size_t)1 << CARD_SHIFT;       // 512
+static const size_t CARD_TABLE_COVERAGE = (size_t)1 << 30;     // 1GB of address space
+static const size_t CARD_TABLE_SIZE = CARD_TABLE_COVERAGE >> CARD_SHIFT;  // 2M entries
+
+static uint8_t* g_card_table = nullptr;       // malloc'd (not GC-managed)
+static uintptr_t g_card_table_base = 0;       // lowest old-gen block address
+
+// Non-GC slot tracking: slots outside card table coverage that hold nursery pointers.
+// Safety net for any memory not covered by the card table (e.g., malloc'd structures).
+static std::vector<void**> g_non_gc_nursery_slots;
+
+// ============================================================================
 // Platform Memory
 // ============================================================================
 
@@ -179,6 +230,129 @@ struct GCHeap {
 static GCHeap* g_heap = nullptr;
 static bool g_in_collection = false;  // True while GC is running (lock held)
 
+// Exported globals for compiler inline write barriers
+extern "C" {
+    uint64_t ts_gc_nursery_base = 0;
+    uint64_t ts_gc_nursery_end = 0;
+    uint8_t* ts_gc_card_table_ptr = nullptr;
+    uint64_t ts_gc_card_table_base_addr = 0;
+}
+
+// Forward declarations for nursery helpers
+static void gc_mark_ptr(void* ptr);
+
+// ============================================================================
+// Nursery Helpers
+// ============================================================================
+
+static inline void* nursery_space(int idx) {
+    return (char*)g_nursery.region + (size_t)idx * g_nursery.space_size;
+}
+
+static inline bool is_nursery_ptr(void* ptr) {
+    // Single unsigned comparison: (addr - base) < total_size
+    uintptr_t addr = (uintptr_t)ptr;
+    return (addr - (uintptr_t)ts_gc_nursery_base) < (g_nursery.space_size * 2);
+}
+
+// Find the base address of a nursery object containing ptr, or nullptr
+static void* nursery_find_base(void* ptr) {
+    if (!g_nursery.enabled) return nullptr;
+    uintptr_t addr = (uintptr_t)ptr;
+
+    for (int space = 0; space < 2; space++) {
+        uintptr_t space_start = (uintptr_t)nursery_space(space);
+        uintptr_t space_end = space_start + g_nursery.space_size;
+
+        if (addr < space_start || addr >= space_end) continue;
+
+        // In Step 1, only the active space has objects
+        size_t limit = (space == g_nursery.active) ? g_nursery.cursor : 0;
+        if (limit == 0) return nullptr;
+
+        // Walk size-prefixed objects to find containing one
+        char* scan = (char*)space_start;
+        size_t offset = 0;
+        while (offset + NURSERY_SIZE_PREFIX <= limit) {
+            size_t obj_size = *(size_t*)(scan + offset);
+            if (obj_size == 0 || obj_size > NURSERY_MAX_OBJ_SIZE) break;
+
+            uintptr_t obj_addr = space_start + offset + NURSERY_SIZE_PREFIX;
+            if (addr >= obj_addr && addr < obj_addr + obj_size) {
+                return (void*)obj_addr;
+            }
+            offset += NURSERY_SIZE_PREFIX + obj_size;
+        }
+        return nullptr;
+    }
+    return nullptr;
+}
+
+// Scan all nursery objects conservatively during full GC mark phase.
+// Nursery objects may reference old-gen objects that must be marked live.
+static void gc_scan_nursery_roots() {
+    if (!g_nursery.enabled || g_nursery.cursor == 0) return;
+
+    // Scan current nursery objects for old-gen pointers to mark.
+    // Stale nursery pointers from previous minor GCs are handled by the
+    // forwarding table in gc_mark_ptr (which maps nursery→old-gen).
+    char* scan = (char*)nursery_space(g_nursery.active);
+    size_t offset = 0;
+
+    while (offset + NURSERY_SIZE_PREFIX <= g_nursery.cursor) {
+        size_t obj_size = *(size_t*)(scan + offset);
+        if (obj_size == 0 || obj_size > NURSERY_MAX_OBJ_SIZE) break;
+
+        void* obj = scan + offset + NURSERY_SIZE_PREFIX;
+        uintptr_t start = (uintptr_t)obj;
+        uintptr_t end = start + obj_size;
+
+        for (uintptr_t p = start; p + sizeof(void*) <= end; p += sizeof(void*)) {
+            void* candidate = *(void**)p;
+            if ((uintptr_t)candidate < 4096) continue;
+            if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
+            // gc_mark_ptr handles both nursery (via forwarding) and old-gen pointers
+            gc_mark_ptr(candidate);
+        }
+
+        offset += NURSERY_SIZE_PREFIX + obj_size;
+    }
+}
+
+// Clear the card table (called after minor GC completes)
+static void gc_clear_card_table() {
+    if (!g_card_table) return;
+    memset(g_card_table, 0, CARD_TABLE_SIZE);
+}
+
+// Scan dirty cards to find old-gen-to-nursery pointers.
+// Called during minor GC to find nursery roots from old-gen stores.
+// Returns count of nursery pointers found (for diagnostics).
+static size_t gc_scan_dirty_cards(void (*visitor)(void* nursery_ptr, void* old_gen_slot)) {
+    if (!g_card_table || !g_card_table_base) return 0;
+    size_t found = 0;
+
+    for (size_t i = 0; i < CARD_TABLE_SIZE; i++) {
+        if (!g_card_table[i]) continue;
+
+        // This card is dirty: scan the 512-byte region for nursery pointers
+        uintptr_t card_start = g_card_table_base + (i << CARD_SHIFT);
+        uintptr_t card_end = card_start + CARD_SIZE;
+
+        for (uintptr_t p = card_start; p + sizeof(void*) <= card_end; p += sizeof(void*)) {
+            void* candidate = *(void**)p;
+            if (!candidate) continue;
+            if ((uintptr_t)candidate < 4096) continue;
+            if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
+            if (is_nursery_ptr(candidate)) {
+                if (visitor) visitor(candidate, (void*)p);
+                found++;
+            }
+        }
+    }
+    return found;
+}
+
 // ============================================================================
 // Bitmap Helpers
 // ============================================================================
@@ -267,6 +441,13 @@ static BlockHeader* create_block(size_t slot_size, int class_idx) {
     bh->next = g_heap->block_lists[class_idx];
     g_heap->block_lists[class_idx] = bh;
 
+    // Update card table base address (track lowest old-gen block)
+    uintptr_t block_addr = (uintptr_t)mem;
+    if (g_card_table && (g_card_table_base == 0 || block_addr < g_card_table_base)) {
+        g_card_table_base = block_addr;
+        ts_gc_card_table_base_addr = (uint64_t)g_card_table_base;
+    }
+
     g_heap->descriptors_dirty = true;
     return bh;
 }
@@ -307,8 +488,9 @@ static void* alloc_from_block(BlockHeader* bh) {
     return nullptr; // Block is full
 }
 
-// Forward declaration
+// Forward declarations
 static void gc_collect_internal();
+static void gc_minor_collect_internal();
 
 static void* gc_alloc_small(size_t size) {
     int class_idx = find_size_class(size);
@@ -390,6 +572,13 @@ static void* gc_alloc_large(size_t size) {
         g_heap->peak_allocated = g_heap->total_allocated;
     }
 
+    // Update card table base for large object
+    uintptr_t data_addr = (uintptr_t)mem + sizeof(LargeObjHeader);
+    if (g_card_table && (g_card_table_base == 0 || data_addr < g_card_table_base)) {
+        g_card_table_base = data_addr;
+        ts_gc_card_table_base_addr = (uint64_t)g_card_table_base;
+    }
+
     // Data follows header, VirtualAlloc returns zeroed memory
     return (char*)mem + sizeof(LargeObjHeader);
 }
@@ -401,6 +590,11 @@ static void* gc_alloc_large(size_t size) {
 // Find the base address of the GC object containing ptr, or nullptr.
 static void* gc_find_base(void* ptr) {
     if (!ptr || !g_heap) return nullptr;
+
+    // Check nursery first (fast range check)
+    if (g_nursery.enabled && is_nursery_ptr(ptr)) {
+        return nursery_find_base(ptr);
+    }
 
     uintptr_t addr = (uintptr_t)ptr;
 
@@ -454,6 +648,35 @@ static void* gc_find_base(void* ptr) {
 // Mark a single pointer as live and push to worklist if newly marked
 static void gc_mark_ptr(void* ptr) {
     if (!ptr) return;
+
+    // Nursery pointers: the nursery object is always live until next minor GC.
+    // If we have a forwarding table from a previous minor GC, look up the
+    // old-gen copy and mark it instead. This ensures promoted objects stay
+    // alive when the stack holds stale nursery addresses.
+    if (g_nursery.enabled && is_nursery_ptr(ptr)) {
+        if (!g_nursery.forwarding.empty()) {
+            uintptr_t addr = (uintptr_t)ptr;
+            // Binary search for containing forwarding entry
+            auto& fwd = g_nursery.forwarding;
+            size_t lo = 0, hi = fwd.size();
+            while (lo < hi) {
+                size_t mid = lo + (hi - lo) / 2;
+                if (fwd[mid].nursery_addr + fwd[mid].size <= addr) {
+                    lo = mid + 1;
+                } else if (fwd[mid].nursery_addr > addr) {
+                    hi = mid;
+                } else {
+                    // Found: mark the old-gen copy
+                    size_t off = addr - fwd[mid].nursery_addr;
+                    void* old_gen_ptr = (char*)fwd[mid].old_gen_addr + off;
+                    // Recursive call with old-gen address (not nursery, so won't loop)
+                    gc_mark_ptr(old_gen_ptr);
+                    return;
+                }
+            }
+        }
+        return;  // Nursery pointer not in forwarding table (current alloc)
+    }
 
     uintptr_t addr = (uintptr_t)ptr;
 
@@ -654,6 +877,11 @@ static void gc_mark_phase() {
     gc_push_global_roots();
     gc_push_conservative_stack_roots();
     ts_gc_push_precise_stack_roots();  // Additional precise roots from LLVM statepoints
+
+    // Scan nursery objects as roots: nursery objects may reference old-gen objects
+    // that must be kept alive. Without this, old-gen objects only referenced from
+    // the nursery would be incorrectly swept.
+    gc_scan_nursery_roots();
 
     // Process mark worklist (BFS)
     while (!g_heap->mark_worklist.empty()) {
@@ -912,11 +1140,23 @@ static void gc_collect_internal() {
 
     g_in_collection = false;
 
+    // NOTE: Do NOT clear the forwarding table after full GC!
+    // The stack may still hold stale nursery pointers that need to be
+    // forwarded during subsequent full GCs. The forwarding table is
+    // only purged when the corresponding semi-space is reused (at the
+    // start of gc_minor_collect_internal).
+
     if (g_gc_verbose) {
         auto mark_us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
         auto sweep_us = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-        fprintf(stderr, "[TsGC]   mark=%lldus, sweep=%lldus\n",
+        fprintf(stderr, "[TsGC]   mark=%lldus, sweep=%lldus",
                 (long long)mark_us, (long long)sweep_us);
+        if (g_nursery.enabled) {
+            fprintf(stderr, ", nursery=%zuKB/%zuKB (%zu allocs)",
+                    g_nursery.cursor / 1024, g_nursery.space_size / 1024,
+                    g_nursery.alloc_count);
+        }
+        fprintf(stderr, "\n");
         fflush(stderr);
     }
 }
@@ -957,12 +1197,59 @@ static void gc_init() {
         if (mb > 0) g_max_heap_size = mb * 1024 * 1024;
     }
 
+    // Initialize nursery (bump-pointer allocator for short-lived objects)
+    bool nursery_disabled = false;
+    const char* nursery_env = getenv("TS_GC_NURSERY");
+    if (nursery_env && strcmp(nursery_env, "0") == 0) {
+        nursery_disabled = true;
+    }
+
+    if (!nursery_disabled) {
+        size_t nursery_total_mb = 4;  // Default 4MB total (2x 2MB semi-spaces)
+        const char* nursery_mb_env = getenv("TS_GC_NURSERY_MB");
+        if (nursery_mb_env) {
+            size_t mb = (size_t)atoi(nursery_mb_env);
+            if (mb >= 1 && mb <= 64) nursery_total_mb = mb;
+        }
+
+        g_nursery.space_size = (nursery_total_mb * 1024 * 1024) / 2;
+        size_t total_region = g_nursery.space_size * 2;
+
+        g_nursery.region = platform_alloc_large(total_region);
+        if (g_nursery.region) {
+            g_nursery.active = 0;
+            g_nursery.cursor = 0;
+            g_nursery.enabled = true;
+            g_nursery.total_allocated = 0;
+            g_nursery.alloc_count = 0;
+
+            ts_gc_nursery_base = (uint64_t)(uintptr_t)g_nursery.region;
+            ts_gc_nursery_end = ts_gc_nursery_base + total_region;
+
+            // Allocate card table for old-gen-to-nursery write barrier tracking.
+            // The card table base tracks the lowest old-gen allocation address.
+            // We defer setting g_card_table_base until the first old-gen block is allocated,
+            // since we don't know where old-gen memory will be yet.
+            g_card_table = (uint8_t*)calloc(CARD_TABLE_SIZE, 1);
+            if (g_card_table) {
+                ts_gc_card_table_ptr = g_card_table;
+            }
+        }
+    }
+
     if (g_gc_verbose) {
         fprintf(stderr, "[TsGC] Custom mark-sweep GC initialized "
-                "(threshold=%zuMB, growth=%.1f, max_heap=%zuMB)\n",
+                "(threshold=%zuMB, growth=%.1f, max_heap=%zuMB, nursery=%s",
                 g_min_gc_threshold / (1024*1024),
                 g_gc_growth_factor,
-                g_max_heap_size / (1024*1024));
+                g_max_heap_size / (1024*1024),
+                g_nursery.enabled ? "on" : "off");
+        if (g_nursery.enabled) {
+            fprintf(stderr, " %zuMB, cards=%s",
+                    g_nursery.space_size * 2 / (1024*1024),
+                    g_card_table ? "on" : "off");
+        }
+        fprintf(stderr, ")\n");
         fflush(stderr);
     }
 }
@@ -991,6 +1278,43 @@ void* ts_gc_alloc(size_t size) {
     if (!g_heap) gc_init();
     if (size == 0) size = 8; // Minimum allocation
 
+    // ---- Nursery fast path: no mutex, just bump pointer ----
+    if (g_nursery.enabled && size <= NURSERY_MAX_OBJ_SIZE) {
+        size_t alloc_size = (size + 7) & ~(size_t)7;  // Align to 8 bytes
+        size_t total = alloc_size + NURSERY_SIZE_PREFIX;
+        size_t new_cursor = g_nursery.cursor + total;
+
+        if (new_cursor <= g_nursery.space_size) {
+            char* base = (char*)nursery_space(g_nursery.active) + g_nursery.cursor;
+            *(size_t*)base = alloc_size;  // Store object size in prefix
+            void* result = base + NURSERY_SIZE_PREFIX;
+            g_nursery.cursor = new_cursor;
+            g_nursery.total_allocated += alloc_size;
+            g_nursery.alloc_count++;
+            return result;  // Already zeroed by VirtualAlloc
+        }
+
+        // Nursery full - trigger minor GC (promote all to old-gen, swap semi-spaces)
+        {
+            std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
+            gc_minor_collect_internal();
+        }
+
+        // Retry nursery allocation in the fresh semi-space
+        new_cursor = g_nursery.cursor + total;
+        if (new_cursor <= g_nursery.space_size) {
+            char* base = (char*)nursery_space(g_nursery.active) + g_nursery.cursor;
+            *(size_t*)base = alloc_size;
+            void* result = base + NURSERY_SIZE_PREFIX;
+            g_nursery.cursor = new_cursor;
+            g_nursery.total_allocated += alloc_size;
+            g_nursery.alloc_count++;
+            return result;
+        }
+        // Still can't fit (shouldn't happen, but fall through to old-gen)
+    }
+
+    // ---- Old-gen path (mutex-protected) ----
     void* result = nullptr;
     std::vector<PendingCallback> callbacks;
     {
@@ -1031,6 +1355,48 @@ void* ts_gc_alloc(size_t size) {
     }
 
     // Run finalizer callbacks outside the lock
+    for (auto& cb : callbacks) {
+        ts_call_1(cb.callback, cb.arg);
+    }
+
+    return result;
+}
+
+void* ts_gc_alloc_old_gen(size_t size) {
+    if (!g_heap) gc_init();
+    if (size == 0) size = 8;
+
+    void* result = nullptr;
+    std::vector<PendingCallback> callbacks;
+    {
+        std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
+
+        if (size <= MAX_SMALL_SIZE) {
+            result = gc_alloc_small(size);
+        } else {
+            result = gc_alloc_large(size);
+        }
+
+        if (!result) {
+            gc_collect_internal();
+            if (size <= MAX_SMALL_SIZE) {
+                result = gc_alloc_small(size);
+            } else {
+                result = gc_alloc_large(size);
+            }
+        }
+
+        if (!result) {
+            fprintf(stderr, "[TsGC] FATAL: Out of memory (old-gen) allocating %zu bytes\n", size);
+            fflush(stderr);
+            abort();
+        }
+
+        if (!g_heap->pending_callbacks.empty()) {
+            callbacks.swap(g_heap->pending_callbacks);
+        }
+    }
+
     for (auto& cb : callbacks) {
         ts_call_1(cb.callback, cb.arg);
     }
@@ -1142,6 +1508,404 @@ size_t ts_gc_live_size() {
 
 size_t ts_gc_collection_count() {
     return g_heap ? g_heap->collection_count : 0;
+}
+
+bool ts_gc_is_nursery(void* ptr) {
+    if (!g_nursery.enabled || !ptr) return false;
+    return is_nursery_ptr(ptr);
+}
+
+} // extern "C" -- pause for static internal function
+
+// ============================================================================
+// Minor GC (Nursery Promotion) - internal, called with gc_mutex held
+// ============================================================================
+// Promotes ALL nursery objects to old-gen. Does not attempt to distinguish
+// live from dead (full GC will collect dead promoted objects later).
+// Uses forwarding table to fix up internal nursery pointers in promoted
+// objects, dirty card slots, global roots, and stack slots.
+
+static void gc_minor_collect_internal() {
+    if (!g_nursery.enabled || g_nursery.cursor == 0) return;
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+
+    // Purge stale forwarding entries for the current active space.
+    // After semi-space swap, the active space is reused for new allocations.
+    // Old forwarding entries for addresses in this space are now stale and
+    // would confuse gc_mark_ptr during full GC.
+    if (!g_nursery.forwarding.empty()) {
+        uintptr_t space_start = (uintptr_t)nursery_space(g_nursery.active);
+        uintptr_t space_end = space_start + g_nursery.space_size;
+        auto new_end = std::remove_if(g_nursery.forwarding.begin(), g_nursery.forwarding.end(),
+            [space_start, space_end](const NurseryForwardEntry& e) {
+                return e.nursery_addr >= space_start && e.nursery_addr < space_end;
+            });
+        g_nursery.forwarding.erase(new_end, g_nursery.forwarding.end());
+    }
+
+    // Before promotion, ensure old-gen has room. Nursery may hold up to
+    // cursor bytes that need copying. If old-gen is tight, run a full GC
+    // first to free dead objects and make space for the promoted survivors.
+    if (g_heap->total_allocated + g_nursery.cursor > g_max_heap_size) {
+        gc_collect_internal();
+        if (g_gc_verbose) {
+            fprintf(stderr, "[TsGC] minor GC: pre-promotion full GC, total_allocated now %zuKB\n",
+                    g_heap->total_allocated / 1024);
+            fflush(stderr);
+        }
+    }
+
+    // Temporarily boost GC threshold to prevent gc_alloc_small from
+    // triggering a full gc_collect_internal() during promotion
+    size_t saved_threshold = g_heap->gc_threshold;
+    g_heap->gc_threshold = (size_t)-1; // Effectively disable full GC during promotion
+
+    // Phase 1: Walk nursery objects, copy each to old-gen
+    struct ForwardEntry {
+        uintptr_t nursery_addr;
+        void* old_gen_addr;
+        size_t size;
+    };
+    std::vector<ForwardEntry> forwarding;
+
+    char* scan = (char*)nursery_space(g_nursery.active);
+    size_t offset = 0;
+    size_t promoted_count = 0;
+    size_t promoted_bytes = 0;
+
+    while (offset + NURSERY_SIZE_PREFIX <= g_nursery.cursor) {
+        size_t obj_size = *(size_t*)(scan + offset);
+        if (obj_size == 0 || obj_size > NURSERY_MAX_OBJ_SIZE) break;
+
+        void* nursery_obj = scan + offset + NURSERY_SIZE_PREFIX;
+
+        // Allocate in old-gen (threshold boosted so no full GC triggered)
+        void* old_gen_obj = gc_alloc_small(obj_size);
+        if (old_gen_obj) {
+            memcpy(old_gen_obj, nursery_obj, obj_size);
+            ForwardEntry fe;
+            fe.nursery_addr = (uintptr_t)nursery_obj;
+            fe.old_gen_addr = old_gen_obj;
+            fe.size = obj_size;
+            forwarding.push_back(fe);
+            promoted_count++;
+            promoted_bytes += obj_size;
+        } else {
+            // OOM during promotion - stop promoting, leave rest in nursery
+            if (g_gc_verbose) {
+                fprintf(stderr, "[TsGC] minor GC: OOM during promotion at %zu/%zu bytes\n",
+                        promoted_bytes, g_nursery.cursor);
+                fflush(stderr);
+            }
+            break;
+        }
+
+        offset += NURSERY_SIZE_PREFIX + obj_size;
+    }
+
+    // Restore GC threshold
+    g_heap->gc_threshold = saved_threshold;
+
+    if (forwarding.empty()) {
+        g_nursery.active = 1 - g_nursery.active;
+        g_nursery.cursor = 0;
+        g_nursery.alloc_count = 0;
+        return;
+    }
+
+    // Sort forwarding table by nursery address for binary search
+    std::sort(forwarding.begin(), forwarding.end(),
+              [](const ForwardEntry& a, const ForwardEntry& b) {
+                  return a.nursery_addr < b.nursery_addr;
+              });
+
+    // Lookup helper: given a pointer, return forwarded address if it was in nursery.
+    // Searches BOTH the local forwarding table (current cycle) and the persistent
+    // g_nursery.forwarding table (previous cycle). This handles stale stack pointers
+    // from the previous minor GC that conservative scanning missed.
+    auto lookup_forward = [&](void* ptr) -> void* {
+        if (!is_nursery_ptr(ptr)) return ptr;
+        uintptr_t addr = (uintptr_t)ptr;
+
+        // Search local forwarding table (current cycle's active space)
+        {
+            size_t lo = 0, hi = forwarding.size();
+            while (lo < hi) {
+                size_t mid = lo + (hi - lo) / 2;
+                if (forwarding[mid].nursery_addr + forwarding[mid].size <= addr) {
+                    lo = mid + 1;
+                } else if (forwarding[mid].nursery_addr > addr) {
+                    hi = mid;
+                } else {
+                    size_t off = addr - forwarding[mid].nursery_addr;
+                    return (char*)forwarding[mid].old_gen_addr + off;
+                }
+            }
+        }
+
+        // Search persistent forwarding table (previous cycle's other space)
+        {
+            size_t lo = 0, hi = g_nursery.forwarding.size();
+            while (lo < hi) {
+                size_t mid = lo + (hi - lo) / 2;
+                if (g_nursery.forwarding[mid].nursery_addr + g_nursery.forwarding[mid].size <= addr) {
+                    lo = mid + 1;
+                } else if (g_nursery.forwarding[mid].nursery_addr > addr) {
+                    hi = mid;
+                } else {
+                    size_t off = addr - g_nursery.forwarding[mid].nursery_addr;
+                    return (char*)g_nursery.forwarding[mid].old_gen_addr + off;
+                }
+            }
+        }
+
+        return ptr; // Not forwarded
+    };
+
+    // Phase 2a: Fix up promoted objects' internal nursery pointers (old-gen copies)
+    for (auto& fwd : forwarding) {
+        uintptr_t obj_start = (uintptr_t)fwd.old_gen_addr;
+        uintptr_t obj_end = obj_start + fwd.size;
+
+        for (uintptr_t p = obj_start; p + sizeof(void*) <= obj_end; p += sizeof(void*)) {
+            void* candidate = *(void**)p;
+            if (!candidate) continue;
+            if ((uintptr_t)candidate < 4096) continue;
+            if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
+
+            if (is_nursery_ptr(candidate)) {
+                void* forwarded = lookup_forward(candidate);
+                if (forwarded != candidate) {
+                    *(void**)p = forwarded;
+                }
+            }
+        }
+    }
+
+    // Save forwarding table for use by full GC's gc_mark_ptr.
+    // When the stack holds stale nursery addresses, gc_mark_ptr looks them up
+    // here to find and mark the promoted old-gen copies.
+    // Append to existing forwarding (may accumulate from multiple minor GCs).
+    for (auto& fe : forwarding) {
+        NurseryForwardEntry nfe;
+        nfe.nursery_addr = fe.nursery_addr;
+        nfe.old_gen_addr = fe.old_gen_addr;
+        nfe.size = fe.size;
+        g_nursery.forwarding.push_back(nfe);
+    }
+    // Keep sorted for binary search in gc_mark_ptr
+    std::sort(g_nursery.forwarding.begin(), g_nursery.forwarding.end(),
+              [](const NurseryForwardEntry& a, const NurseryForwardEntry& b) {
+                  return a.nursery_addr < b.nursery_addr;
+              });
+
+    // Phase 3: Fix up dirty card entries (old-gen → nursery pointers)
+    // Iterate over actual old-gen blocks (not all card entries, which may cover unmapped memory)
+    if (g_card_table && g_card_table_base) {
+        // Helper lambda to scan a memory range for dirty-card nursery pointers
+        auto fixup_range = [&](uintptr_t range_start, uintptr_t range_end) {
+            // Compute which card indices cover this range
+            if (range_start < g_card_table_base) range_start = g_card_table_base;
+            size_t card_lo = (range_start - g_card_table_base) >> CARD_SHIFT;
+            size_t card_hi = ((range_end - g_card_table_base) + CARD_SIZE - 1) >> CARD_SHIFT;
+            if (card_hi > CARD_TABLE_SIZE) card_hi = CARD_TABLE_SIZE;
+
+            for (size_t ci = card_lo; ci < card_hi; ci++) {
+                if (!g_card_table[ci]) continue;
+
+                uintptr_t scan_start = g_card_table_base + (ci << CARD_SHIFT);
+                uintptr_t scan_end = scan_start + CARD_SIZE;
+                // Clamp to actual block boundaries
+                if (scan_start < range_start) scan_start = range_start;
+                if (scan_end > range_end) scan_end = range_end;
+
+                for (uintptr_t p = scan_start; p + sizeof(void*) <= scan_end; p += sizeof(void*)) {
+                    void* candidate = *(void**)p;
+                    if (!candidate) continue;
+                    if ((uintptr_t)candidate < 4096) continue;
+                    if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
+
+                    if (is_nursery_ptr(candidate)) {
+                        void* forwarded = lookup_forward(candidate);
+                        if (forwarded != candidate) {
+                            *(void**)p = forwarded;
+                        }
+                    }
+                }
+            }
+        };
+
+        // Scan small-object blocks
+        for (int i = 0; i < NUM_SIZE_CLASSES; i++) {
+            for (BlockHeader* bh = g_heap->block_lists[i]; bh; bh = bh->next) {
+                uintptr_t bstart = (uintptr_t)bh->block_mem;
+                uintptr_t bend = bstart + BLOCK_SIZE;
+                fixup_range(bstart, bend);
+            }
+        }
+
+        // Scan large objects
+        for (LargeObjHeader* lo = g_heap->large_sentinel.next;
+             lo != &g_heap->large_sentinel; lo = lo->next) {
+            uintptr_t dstart = (uintptr_t)lo + sizeof(LargeObjHeader);
+            uintptr_t dend = dstart + lo->data_size;
+            fixup_range(dstart, dend);
+        }
+    }
+
+    // Phase 3b: Fix up non-GC slots (slots outside card table coverage)
+    if (!g_non_gc_nursery_slots.empty()) {
+        size_t non_gc_fixups = 0;
+        for (void** slot : g_non_gc_nursery_slots) {
+            if (slot && *slot && is_nursery_ptr(*slot)) {
+                void* forwarded = lookup_forward(*slot);
+                if (forwarded != *slot) {
+                    *slot = forwarded;
+                    non_gc_fixups++;
+                }
+            }
+        }
+        if (g_gc_verbose && non_gc_fixups > 0) {
+            fprintf(stderr, "[TsGC] minor GC: fixed up %zu non-GC nursery slots\n", non_gc_fixups);
+            fflush(stderr);
+        }
+        g_non_gc_nursery_slots.clear();
+    }
+
+    // Phase 4: Fix up global roots
+    for (void** root : g_heap->global_roots) {
+        if (root && *root && is_nursery_ptr(*root)) {
+            void* forwarded = lookup_forward(*root);
+            if (forwarded != *root) {
+                *root = forwarded;
+            }
+        }
+    }
+
+    // Phase 5: Fix up weak refs
+    for (void** loc : g_heap->weak_refs) {
+        if (loc && *loc && is_nursery_ptr(*loc)) {
+            void* forwarded = lookup_forward(*loc);
+            if (forwarded != *loc) {
+                *loc = forwarded;
+            }
+        }
+    }
+
+    // Phase 5b: Fix up finalizer entries (target, callback, held_value, token)
+    for (auto& fin : g_heap->finalizers) {
+        if (fin.target && is_nursery_ptr(fin.target)) {
+            void* fwd = lookup_forward(fin.target);
+            if (fwd != fin.target) fin.target = fwd;
+        }
+        if (fin.callback && is_nursery_ptr(fin.callback)) {
+            void* fwd = lookup_forward(fin.callback);
+            if (fwd != fin.callback) fin.callback = fwd;
+        }
+        if (fin.held_value && is_nursery_ptr(fin.held_value)) {
+            void* fwd = lookup_forward(fin.held_value);
+            if (fwd != fin.held_value) fin.held_value = fwd;
+        }
+        if (fin.unregister_token && is_nursery_ptr(fin.unregister_token)) {
+            void* fwd = lookup_forward(fin.unregister_token);
+            if (fwd != fin.unregister_token) fin.unregister_token = fwd;
+        }
+    }
+
+    // Phase 6: Rewrite stale nursery pointers on the stack.
+    // After promotion, the stack may hold stale pointers to nursery objects
+    // that have been copied to old-gen. When the semi-space is reused in the
+    // next cycle, those stale pointers would read overwritten/garbage data.
+    // Fix: scan the stack conservatively and rewrite nursery pointers to
+    // their forwarded old-gen addresses.
+    // False-positive risk is minimal: nursery is 4MB out of 128TB user-mode
+    // address space, and we verify against the forwarding table.
+    {
+        // Flush callee-saved registers to the stack
+        volatile jmp_buf regs;
+        setjmp((jmp_buf&)regs);
+
+#ifdef _WIN32
+        NT_TIB* tib = (NT_TIB*)NtCurrentTeb();
+        uintptr_t stack_high = (uintptr_t)tib->StackBase;
+#else
+        uintptr_t stack_high = 0;
+        {
+            volatile uintptr_t anchor = 0;
+            stack_high = (uintptr_t)&anchor + 1024 * 1024;
+        }
+#endif
+
+        volatile uintptr_t stack_anchor = 0;
+        uintptr_t scan_start = ((uintptr_t)&stack_anchor) & ~(uintptr_t)7;
+
+        size_t rewrites = 0;
+        for (uintptr_t p = scan_start; p + sizeof(void*) <= stack_high; p += sizeof(void*)) {
+            void* candidate = *(void**)p;
+            if (!candidate) continue;
+            if ((uintptr_t)candidate < 4096) continue;
+            if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
+
+            if (is_nursery_ptr(candidate)) {
+                void* forwarded = lookup_forward(candidate);
+                if (forwarded != candidate) {
+                    *(void**)p = forwarded;
+                    rewrites++;
+                }
+            }
+        }
+
+        if (g_gc_verbose && rewrites > 0) {
+            fprintf(stderr, "[TsGC] minor GC: rewrote %zu stale stack pointers\n", rewrites);
+            fflush(stderr);
+        }
+    }
+
+    // Phase 7: Swap semi-spaces
+    // Now safe — stack pointers have been updated to old-gen addresses.
+    g_nursery.active = 1 - g_nursery.active;
+    g_nursery.cursor = 0;
+    g_nursery.alloc_count = 0;
+
+    // Phase 8: Clear card table
+    gc_clear_card_table();
+
+    if (g_gc_verbose) {
+        auto t1 = std::chrono::high_resolution_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        fprintf(stderr, "[TsGC] minor GC: promoted %zu objects (%zuKB) in %.2fms\n",
+                promoted_count, promoted_bytes / 1024, ms);
+        fflush(stderr);
+    }
+}
+
+extern "C" { // Resume extern "C" for public API
+
+void ts_gc_minor_collect() {
+    if (!g_heap || !g_nursery.enabled) return;
+    std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
+    gc_minor_collect_internal();
+}
+
+void ts_gc_write_barrier(void* slot_addr, void* stored_value) {
+    // Fast reject: no card table, no nursery, or null value
+    if (!g_card_table || !g_nursery.enabled || !stored_value) return;
+
+    // Only dirty the card if stored_value points into the nursery
+    if (!is_nursery_ptr(stored_value)) return;
+
+    // Compute card index from slot address (the old-gen location being written to)
+    uintptr_t offset = (uintptr_t)slot_addr - g_card_table_base;
+    size_t idx = offset >> CARD_SHIFT;
+
+    if (idx < CARD_TABLE_SIZE) {
+        g_card_table[idx] = 1;
+    } else {
+        // Slot is outside card table coverage (e.g., malloc'd memory).
+        // Track it for fixup during minor GC.
+        g_non_gc_nursery_slots.push_back((void**)slot_addr);
+    }
 }
 
 } // extern "C"
