@@ -1016,7 +1016,7 @@ extern "C" {
             rawArray = nanbox_to_ptr(rawNb);
         }
 
-        if (!rawArray) return TsString::Create("");
+        if (!rawArray || rawNb < 0x10000) return TsString::Create("");  // Guard NaN-boxed specials
 
         TsArray* rawPieces = (TsArray*)rawArray;
         TsArray* subs = substitutionsArray ? (TsArray*)substitutionsArray : nullptr;

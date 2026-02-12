@@ -9,11 +9,12 @@ class TsTextEncoder : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x54584E43; // "TXNC"
     static TsTextEncoder* Create();
-    
+
     TsBuffer* Encode(TsString* input);
     void* EncodeInto(TsString* source, TsBuffer* destination);
     TsString* GetEncoding() { return encoding; }
-    
+    TsValue GetPropertyVirtual(const char* key) override;
+
 private:
     TsTextEncoder();
     TsString* encoding;
@@ -24,12 +25,13 @@ class TsTextDecoder : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x54584443; // "TXDC"
     static TsTextDecoder* Create(TsString* label = nullptr, bool fatal = false, bool ignoreBOM = false);
-    
+
     TsString* Decode(TsBuffer* input);
     TsString* GetEncoding() { return encoding; }
     bool IsFatal() { return fatal; }
     bool IgnoreBOM() { return ignoreBOM; }
-    
+    TsValue GetPropertyVirtual(const char* key) override;
+
 private:
     TsTextDecoder(TsString* label, bool fatal, bool ignoreBOM);
     TsString* encoding;

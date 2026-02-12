@@ -170,18 +170,21 @@ void* ts_set_create() {
 }
 
 void ts_set_add(void* set, TsValue* value) {
-    if (!set || !value) return;
-    ((TsSet*)set)->Add(*value);
+    if (!set) return;
+    TsValue v = nanbox_to_tagged(value);
+    ((TsSet*)set)->Add(v);
 }
 
 bool ts_set_has(void* set, TsValue* value) {
-    if (!set || !value) return false;
-    return ((TsSet*)set)->Has(*value);
+    if (!set) return false;
+    TsValue v = nanbox_to_tagged(value);
+    return ((TsSet*)set)->Has(v);
 }
 
 bool ts_set_delete(void* set, TsValue* value) {
-    if (!set || !value) return false;
-    return ((TsSet*)set)->Delete(*value);
+    if (!set) return false;
+    TsValue v = nanbox_to_tagged(value);
+    return ((TsSet*)set)->Delete(v);
 }
 
 void ts_set_clear(void* set) {

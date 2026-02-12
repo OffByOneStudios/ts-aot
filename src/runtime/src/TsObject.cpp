@@ -17,6 +17,7 @@
 #include "TsBoundFunction.h"
 #include "TsClosure.h"
 #include "TsProxy.h"
+#include "TsTextEncoding.h"
 #include "GC.h"
 #include "TsGC.h"  // For ts_gc_base()
 #include "TsNanBox.h"
@@ -728,13 +729,14 @@ TsValue* ts_value_make_int(int64_t i) {
             return vbaseResult;
         }
 
-        // Fall back to direct cast - ONLY for TsPromise which is the only TsObject subclass
-        // that implements GetPropertyVirtual() with real behavior.
+        // Fall back to direct cast for TsObject subclasses that implement GetPropertyVirtual().
         // With NaN boxing, obj is always a raw pointer here (non-pointer values are filtered
-        // by the caller). Check magic at offset 16 for TsPromise.
+        // by the caller). Check magic at offset 16 for known subclasses.
         if (ts_gc_base(obj)) {
             uint32_t magic16 = *(uint32_t*)((uint8_t*)obj + 16);
-            if (magic16 == 0x50524F4D) { // TsPromise::MAGIC "PROM"
+            if (magic16 == 0x50524F4D ||  // TsPromise::MAGIC "PROM"
+                magic16 == 0x54584E43 ||  // TsTextEncoder::MAGIC "TXNC"
+                magic16 == 0x54584443) {  // TsTextDecoder::MAGIC "TXDC"
                 TsObject* tsObj = (TsObject*)obj;
                 TsValue result = tsObj->GetPropertyVirtual(keyStr);
                 if (result.type != ValueType::UNDEFINED) {
@@ -2928,6 +2930,27 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
             } else if (keyIsInt) {
                 return ts_value_make_double(ta->Get((size_t)keyIdx));
+            }
+            return ts_value_make_undefined();
+        }
+
+        // Check for TsTextEncoder (magic at offset 16)
+        if (magic16 == 0x54584E43) { // TsTextEncoder::MAGIC "TXNC"
+            TsTextEncoder* enc = (TsTextEncoder*)rawObj;
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k && strcmp(k, "encoding") == 0) return ts_value_make_string(enc->GetEncoding());
+            }
+            return ts_value_make_undefined();
+        }
+        // Check for TsTextDecoder (magic at offset 16)
+        if (magic16 == 0x54584443) { // TsTextDecoder::MAGIC "TXDC"
+            TsTextDecoder* dec = (TsTextDecoder*)rawObj;
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k && strcmp(k, "encoding") == 0) return ts_value_make_string(dec->GetEncoding());
+                if (k && strcmp(k, "fatal") == 0) return ts_value_make_bool(dec->IsFatal());
+                if (k && strcmp(k, "ignoreBOM") == 0) return ts_value_make_bool(dec->IgnoreBOM());
             }
             return ts_value_make_undefined();
         }

@@ -18,6 +18,16 @@ TsTextEncoder* TsTextEncoder::Create() {
     return new (mem) TsTextEncoder();
 }
 
+TsValue TsTextEncoder::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "encoding") == 0) {
+        TsValue v;
+        v.type = ValueType::STRING_PTR;
+        v.ptr_val = encoding;
+        return v;
+    }
+    return TsObject::GetPropertyVirtual(key);
+}
+
 TsBuffer* TsTextEncoder::Encode(TsString* input) {
     if (!input) {
         return TsBuffer::Create(0);
@@ -80,6 +90,28 @@ TsTextDecoder::TsTextDecoder(TsString* label, bool fatal, bool ignoreBOM)
 TsTextDecoder* TsTextDecoder::Create(TsString* label, bool fatal, bool ignoreBOM) {
     void* mem = ts_alloc(sizeof(TsTextDecoder));
     return new (mem) TsTextDecoder(label, fatal, ignoreBOM);
+}
+
+TsValue TsTextDecoder::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "encoding") == 0) {
+        TsValue v;
+        v.type = ValueType::STRING_PTR;
+        v.ptr_val = encoding;
+        return v;
+    }
+    if (strcmp(key, "fatal") == 0) {
+        TsValue v;
+        v.type = ValueType::BOOLEAN;
+        v.b_val = fatal;
+        return v;
+    }
+    if (strcmp(key, "ignoreBOM") == 0) {
+        TsValue v;
+        v.type = ValueType::BOOLEAN;
+        v.b_val = ignoreBOM;
+        return v;
+    }
+    return TsObject::GetPropertyVirtual(key);
 }
 
 TsString* TsTextDecoder::Decode(TsBuffer* input) {
