@@ -5,6 +5,9 @@
 #include "TsString.h"
 #include "TsObject.h"
 
+// Forward declaration for write barrier
+extern "C" void ts_gc_write_barrier(void* slot_addr, void* stored_value);
+
 class TsMap : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x4D415053; // "MAPS"
@@ -22,11 +25,14 @@ public:
     void ForEach(void* callback, void* thisArg = nullptr);
     TsMap* CopyExcluding(std::vector<TsString*>& excluded);
     
-    void* impl; // Pointer to std::unordered_map - public for inline IR helpers
+    void* impl; // Pointer to TsHashTable - public for inline IR helpers
 
     // Prototype chain support
     TsMap* GetPrototype() const { return prototype; }
-    void SetPrototype(TsMap* proto) { prototype = proto; }
+    void SetPrototype(TsMap* proto) {
+        prototype = proto;
+        if (proto) ts_gc_write_barrier((void*)&this->prototype, proto);
+    }
     bool WouldCreateCycle(TsMap* proto) const;
 
     // Object state flags
