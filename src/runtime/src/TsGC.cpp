@@ -1763,35 +1763,29 @@ static void gc_mark_nursery_live() {
         if (root && *root) mark_nursery_obj(*root);
     }
 
-    // Root source 3: Old-gen → nursery pointers (conservative scan of allocated slots)
-    // Required because STL containers (TsMap, TsSet) bypass write barriers.
-    for (size_t i = 0; i < NUM_SIZE_CLASSES; i++) {
-        for (BlockHeader* bh = g_heap->block_lists[i]; bh; bh = bh->next) {
-            if (!bh->block_mem || bh->live_count == 0) continue;
-            uintptr_t bstart = (uintptr_t)bh->block_mem;
-            for (size_t slot = 0; slot < bh->slot_count; slot++) {
-                if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
-                uintptr_t s = bstart + slot * bh->slot_size;
-                uintptr_t e = s + bh->slot_size;
-                for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
-                    void* c = *(void**)p;
-                    if ((uintptr_t)c < 4096 || (uintptr_t)c > 0x00007FFFFFFFFFFF) continue;
-                    mark_nursery_obj(c);
-                }
+    // Root source 3: Old-gen → nursery pointers (card-table scan)
+    // All containers (TsMap, TsSet) now use write barriers via TsHashTable,
+    // so dirty cards are sufficient to find old-gen → nursery references.
+    if (g_card_table && g_card_table_base) {
+        for (size_t i = 0; i < CARD_TABLE_SIZE; i++) {
+            if (!g_card_table[i]) continue;
+            uintptr_t card_start = g_card_table_base + (i << CARD_SHIFT);
+            uintptr_t card_end = card_start + CARD_SIZE;
+#ifdef _WIN32
+            MEMORY_BASIC_INFORMATION mbi;
+            if (VirtualQuery((void*)card_start, &mbi, sizeof(mbi)) == 0 ||
+                mbi.State != MEM_COMMIT) continue;
+#endif
+            for (uintptr_t p = card_start; p + sizeof(void*) <= card_end; p += sizeof(void*)) {
+                void* c = *(void**)p;
+                if ((uintptr_t)c < 4096 || (uintptr_t)c > 0x00007FFFFFFFFFFF) continue;
+                mark_nursery_obj(c);
             }
         }
     }
-    // Large objects
-    for (LargeObjHeader* lo = g_heap->large_sentinel.next;
-         lo != &g_heap->large_sentinel; lo = lo->next) {
-        if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
-        uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
-        uintptr_t e = s + lo->data_size;
-        for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
-            void* c = *(void**)p;
-            if ((uintptr_t)c < 4096 || (uintptr_t)c > 0x00007FFFFFFFFFFF) continue;
-            mark_nursery_obj(c);
-        }
+    // Also scan non-GC nursery slots (outside card table coverage range)
+    for (void** slot : g_non_gc_nursery_slots) {
+        if (slot && *slot) mark_nursery_obj(*slot);
     }
 
     // Root source 4: Weak refs
@@ -2086,86 +2080,58 @@ static void gc_minor_collect_internal() {
     }
 
     if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 3\n"); fflush(stderr); }
-    // Phase 3: Scan ALL old-gen memory for nursery pointers and fix them.
-    // We scan every word in old-gen (not just dirty cards) because C++ runtime
-    // containers (TsMap's std::unordered_map, TsArray's TsAllocator, etc.)
-    // perform internal stores to GC-managed memory WITHOUT write barriers.
-    // The card table alone cannot track these stores.
+    // Phase 3: Scan dirty cards for nursery pointers and fix them.
+    // All containers now use write barriers (TsHashTable), so dirty cards
+    // are sufficient to find old-gen → nursery references.
     {
         size_t phase3_fixups = 0;
-        auto fixup_range_all = [&](uintptr_t range_start, uintptr_t range_end) {
-            for (uintptr_t p = range_start; p + sizeof(void*) <= range_end; p += sizeof(void*)) {
-                void* candidate = *(void**)p;
-                if (!candidate) continue;
-                if ((uintptr_t)candidate < 4096) continue;
-                if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
+        auto fixup_word = [&](uintptr_t p) {
+            void* candidate = *(void**)p;
+            if (!candidate) return;
+            if ((uintptr_t)candidate < 4096) return;
+            if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) return;
 
-                if (is_nursery_ptr(candidate)) {
-                    void* forwarded = lookup_forward(candidate);
-                    if (forwarded != candidate) {
-                        *(void**)p = forwarded;  // Promoted → rewrite
-                        phase3_fixups++;
-                    }
-                    // If pinned → leave as-is (still valid nursery address)
-                    // Dirty the card so next GC knows about old→nursery ref
-                    else if (g_card_table && g_card_table_base) {
-                        uintptr_t off = p - g_card_table_base;
-                        size_t idx = off >> CARD_SHIFT;
-                        if (idx < CARD_TABLE_SIZE) {
-                            g_card_table[idx] = 1;
-                        }
+            if (is_nursery_ptr(candidate)) {
+                void* forwarded = lookup_forward(candidate);
+                if (forwarded != candidate) {
+                    *(void**)p = forwarded;  // Promoted → rewrite
+                    phase3_fixups++;
+                }
+                // If pinned → leave as-is (still valid nursery address)
+                // Re-dirty the card so next GC knows about old→nursery ref
+                else if (g_card_table && g_card_table_base) {
+                    uintptr_t off = p - g_card_table_base;
+                    size_t idx = off >> CARD_SHIFT;
+                    if (idx < CARD_TABLE_SIZE) {
+                        g_card_table[idx] = 1;
                     }
                 }
             }
         };
 
-        // Helper to verify an entire memory range is committed.
-        // Walks VirtualQuery regions to ensure all pages are committed.
-        auto is_range_committed = [](void* addr, size_t size) -> bool {
+        if (g_card_table && g_card_table_base) {
+            for (size_t i = 0; i < CARD_TABLE_SIZE; i++) {
+                if (!g_card_table[i]) continue;
+                uintptr_t card_start = g_card_table_base + (i << CARD_SHIFT);
+                uintptr_t card_end = card_start + CARD_SIZE;
 #ifdef _WIN32
-            MEMORY_BASIC_INFORMATION mbi;
-            uintptr_t cursor = (uintptr_t)addr;
-            uintptr_t end = cursor + size;
-            while (cursor < end) {
-                if (VirtualQuery((void*)cursor, &mbi, sizeof(mbi)) == 0) return false;
-                if (mbi.State != MEM_COMMIT) return false;
-                cursor = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
-            }
-            return true;
-#else
-            return true;
+                MEMORY_BASIC_INFORMATION mbi;
+                if (VirtualQuery((void*)card_start, &mbi, sizeof(mbi)) == 0 ||
+                    mbi.State != MEM_COMMIT) {
+                    g_card_table[i] = 0;  // Clear stale card
+                    continue;
+                }
 #endif
-        };
-
-        // Scan small-object blocks - only scan ALLOCATED slots, not entire block.
-        // This avoids reading freed/decommitted memory and is more targeted.
-        for (size_t i = 0; i < NUM_SIZE_CLASSES; i++) {
-            for (BlockHeader* bh = g_heap->block_lists[i]; bh; bh = bh->next) {
-                if (!bh->block_mem || bh->live_count == 0) continue;
-                if (!is_range_committed(bh->block_mem, BLOCK_SIZE)) continue;
-                uintptr_t bstart = (uintptr_t)bh->block_mem;
-                // Scan only allocated slots using the bitmap
-                for (size_t slot = 0; slot < bh->slot_count; slot++) {
-                    if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
-                    uintptr_t slot_start = bstart + slot * bh->slot_size;
-                    uintptr_t slot_end = slot_start + bh->slot_size;
-                    fixup_range_all(slot_start, slot_end);
+                // Clear card before scanning — will be re-dirtied for pinned objects
+                g_card_table[i] = 0;
+                for (uintptr_t p = card_start; p + sizeof(void*) <= card_end; p += sizeof(void*)) {
+                    fixup_word(p);
                 }
             }
-        }
-
-        // Scan large objects
-        for (LargeObjHeader* lo = g_heap->large_sentinel.next;
-             lo != &g_heap->large_sentinel; lo = lo->next) {
-            if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
-            uintptr_t dstart = (uintptr_t)lo + sizeof(LargeObjHeader);
-            if (!is_range_committed((void*)dstart, lo->data_size)) continue;
-            uintptr_t dend = dstart + lo->data_size;
-            fixup_range_all(dstart, dend);
         }
 
         if (g_gc_verbose && phase3_fixups > 0) {
-            fprintf(stderr, "[TsGC] minor GC phase 3: fixed %zu old-gen → nursery pointers\n",
+            fprintf(stderr, "[TsGC] minor GC phase 3: fixed %zu old-gen → nursery pointers (card scan)\n",
                     phase3_fixups);
             fflush(stderr);
         }

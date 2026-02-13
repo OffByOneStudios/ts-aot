@@ -1,4 +1,5 @@
 #include "TsMap.h"
+#include "TsHashTable.h"
 #include "TsWeakMap.h"
 #include "TsArray.h"
 #include "TsObject.h"
@@ -7,7 +8,6 @@
 #include "TsSymbol.h"
 #include "GC.h"
 #include "TsGC.h"
-#include <unordered_map>
 #include <string>
 #include <cstring>
 #include <new>
@@ -16,92 +16,9 @@
 #include <cmath>
 #include <utility>
 
-// Allocator - uses old-gen directly to avoid nursery.
-// STL containers manage internal bucket/node pointers without write barriers,
-// so their allocations must bypass the nursery to prevent stale pointer issues.
-template <class T>
-struct TsAllocator {
-    typedef T value_type;
-    TsAllocator() = default;
-    template <class U> constexpr TsAllocator(const TsAllocator<U>&) noexcept {}
-    T* allocate(std::size_t n) {
-        if (n > std::size_t(-1) / sizeof(T)) throw std::bad_alloc();
-        if (auto p = static_cast<T*>(ts_gc_alloc_old_gen(n * sizeof(T)))) return p;
-        throw std::bad_alloc();
-    }
-    void deallocate(T* p, std::size_t) noexcept { }
-};
-template <class T, class U>
-bool operator==(const TsAllocator<T>&, const TsAllocator<U>&) { return true; }
-template <class T, class U>
-bool operator!=(const TsAllocator<T>&, const TsAllocator<U>&) { return false; }
-
-// Hash and Equal for TsValue
-struct TsValueHash {
-    std::size_t operator()(const TsValue& v) const {
-        switch (v.type) {
-            case ValueType::UNDEFINED: return 0;
-            case ValueType::NUMBER_INT: return std::hash<int64_t>{}(v.i_val);
-            case ValueType::NUMBER_DBL: return std::hash<double>{}(v.d_val);
-            case ValueType::BOOLEAN: return std::hash<bool>{}(v.b_val);
-            case ValueType::STRING_PTR: {
-                if (!v.ptr_val) return 0;
-                TsString* s = (TsString*)v.ptr_val;
-                const char* str = s->ToUtf8();
-                if (!str) return 0;
-                size_t h = 5381;
-                int c;
-                while ((c = *str++))
-                    h = ((h << 5) + h) + c;
-                return h;
-            }
-            case ValueType::BIGINT_PTR: {
-                if (!v.ptr_val) return 0;
-                TsBigInt* bi = (TsBigInt*)v.ptr_val;
-                const char* str = bi->ToString();
-                if (!str) return 0;
-                size_t h = 5381;
-                int c;
-                while ((c = *str++))
-                    h = ((h << 5) + h) + c;
-                return h;
-            }
-            default: return std::hash<void*>{}(v.ptr_val);
-        }
-    }
-};
-
-struct TsValueEqual {
-    bool operator()(const TsValue& lhs, const TsValue& rhs) const {
-        if (lhs.type != rhs.type) return false;
-        switch (lhs.type) {
-            case ValueType::UNDEFINED: return true;
-            case ValueType::NUMBER_INT: return lhs.i_val == rhs.i_val;
-            case ValueType::NUMBER_DBL: {
-                if (std::isnan(lhs.d_val) && std::isnan(rhs.d_val)) return true; // SameValueZero
-                return lhs.d_val == rhs.d_val;
-            }
-            case ValueType::BOOLEAN: return lhs.b_val == rhs.b_val;
-            case ValueType::STRING_PTR: {
-                if (!lhs.ptr_val || !rhs.ptr_val) return lhs.ptr_val == rhs.ptr_val;
-                const char* a = ((TsString*)lhs.ptr_val)->ToUtf8();
-                const char* b = ((TsString*)rhs.ptr_val)->ToUtf8();
-                if (!a || !b) return a == b;
-                return std::strcmp(a, b) == 0;
-            }
-            case ValueType::BIGINT_PTR: {
-                if (!lhs.ptr_val || !rhs.ptr_val) return lhs.ptr_val == rhs.ptr_val;
-                const char* a = ((TsBigInt*)lhs.ptr_val)->ToString();
-                const char* b = ((TsBigInt*)rhs.ptr_val)->ToString();
-                if (!a || !b) return a == b;
-                return std::strcmp(a, b) == 0;
-            }
-            default: return lhs.ptr_val == rhs.ptr_val;
-        }
-    }
-};
-
-using MapType = std::unordered_map<TsValue, TsValue, TsValueHash, TsValueEqual, TsAllocator<std::pair<const TsValue, TsValue>>>;
+// Define TsHashTable static members (declared in TsHashTable.h)
+TsValueHash TsHashTable::hasher_;
+TsValueEqual TsHashTable::equal_;
 
 void* TsMap_VTable[2] = { nullptr, nullptr };
 extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
@@ -128,124 +45,70 @@ void TsMap::InitInPlace(void* mem) {
 }
 
 TsMap::TsMap() {
-    TsObject::magic = MAGIC;  // Set base class magic for type detection
-    // Allocate in old-gen: STL unordered_map has internal self-referential
-    // pointers (sentinel node) that would break if the object were promoted
-    // from nursery (memcpy doesn't preserve self-references correctly).
-    void* mem = ts_gc_alloc_old_gen(sizeof(MapType));
-    impl = new(mem) MapType();
+    TsObject::magic = MAGIC;
+    impl = TsHashTable::Create();
 }
 
 void TsMap::Set(TsValue key, TsValue value) {
-    // If frozen, silently ignore all modifications
     if (frozen) return;
 
-    // If sealed, only allow modification of existing properties
-    if (sealed) {
-        auto* map = (MapType*)impl;
-        auto it = map->find(key);
-        if (it != map->end()) {
-            it->second = value;  // Modify existing
-            // Write barriers: key/value may contain pointers to nursery objects
-            if (value.ptr_val)
-                ts_gc_write_barrier(&it->second.ptr_val, value.ptr_val);
-        }
-        return;  // Silently ignore adding new properties
+    if (sealed || !extensible) {
+        auto* ht = (TsHashTable*)impl;
+        if (!ht->Has(key)) return;  // Don't add new properties
     }
 
-    // If not extensible, don't allow adding new properties
-    if (!extensible) {
-        auto* map = (MapType*)impl;
-        auto it = map->find(key);
-        if (it != map->end()) {
-            it->second = value;  // Modify existing OK
-            // Write barriers: key/value may contain pointers to nursery objects
-            if (value.ptr_val)
-                ts_gc_write_barrier(&it->second.ptr_val, value.ptr_val);
-        }
-        return;  // Silently ignore adding new properties
-    }
-
-    ((MapType*)impl)->insert_or_assign(key, value);
-    // Write barriers: key and value may contain pointers to nursery objects.
-    // Node memory is in old-gen (TsAllocator uses ts_gc_alloc_old_gen),
-    // so the card table covers these slot addresses.
-    {
-        auto it = ((MapType*)impl)->find(key);
-        if (it != ((MapType*)impl)->end()) {
-            if (key.ptr_val)
-                ts_gc_write_barrier((void*)&it->first.ptr_val, key.ptr_val);
-            if (value.ptr_val)
-                ts_gc_write_barrier(&it->second.ptr_val, value.ptr_val);
-        }
-    }
+    ((TsHashTable*)impl)->Set(key, value);
 }
 
 TsValue TsMap::Get(TsValue key) {
-    auto* map = (MapType*)impl;
-    auto it = map->find(key);
-    if (it != map->end()) {
-        return it->second;
-    }
-    return TsValue();
+    return ((TsHashTable*)impl)->Get(key);
 }
 
 bool TsMap::Has(TsValue key) {
-    MapType* map = static_cast<MapType*>(impl);
-    return map->find(key) != map->end();
+    return ((TsHashTable*)impl)->Has(key);
 }
 
 bool TsMap::Delete(TsValue key) {
-    // If frozen or sealed, deletion is not allowed
     if (frozen || sealed) return false;
-
-    MapType* map = static_cast<MapType*>(impl);
-    return map->erase(key) > 0;
+    return ((TsHashTable*)impl)->Delete(key);
 }
 
 void TsMap::Clear() {
-    // If frozen or sealed, don't allow clearing
     if (frozen || sealed) return;
-
-    MapType* map = static_cast<MapType*>(impl);
-    map->clear();
+    ((TsHashTable*)impl)->Clear();
 }
 
 int64_t TsMap::Size() {
-    MapType* map = static_cast<MapType*>(impl);
-    return static_cast<int64_t>(map->size());
+    return static_cast<int64_t>(((TsHashTable*)impl)->Size());
 }
 
 void* TsMap::GetKeys() {
-    MapType* map = static_cast<MapType*>(impl);
-    TsArray* keys = TsArray::Create(map->size());
-    for (auto const& [key, val] : *map) {
-        // Convert TsValue struct → NaN-boxed representation for array storage
+    auto* ht = (TsHashTable*)impl;
+    TsArray* keys = TsArray::Create(ht->Size());
+    ht->ForEach([&](const TsValue& key, const TsValue& val) {
         keys->Push((int64_t)(uintptr_t)nanbox_from_tagged(key));
-    }
+    });
     return keys;
 }
 
 void* TsMap::GetValues() {
-    MapType* map = static_cast<MapType*>(impl);
-    TsArray* values = TsArray::Create(map->size());
-    for (auto const& [key, val] : *map) {
-        // Convert TsValue struct → NaN-boxed representation for array storage
+    auto* ht = (TsHashTable*)impl;
+    TsArray* values = TsArray::Create(ht->Size());
+    ht->ForEach([&](const TsValue& key, const TsValue& val) {
         values->Push((int64_t)(uintptr_t)nanbox_from_tagged(val));
-    }
+    });
     return values;
 }
 
 void* TsMap::GetEntries() {
-    MapType* map = static_cast<MapType*>(impl);
-    TsArray* entries = TsArray::Create(map->size());
-    for (auto const& [key, val] : *map) {
+    auto* ht = (TsHashTable*)impl;
+    TsArray* entries = TsArray::Create(ht->Size());
+    ht->ForEach([&](const TsValue& key, const TsValue& val) {
         TsArray* entry = TsArray::Create(2);
-        // Convert TsValue struct → NaN-boxed representation for array storage
         entry->Push((int64_t)(uintptr_t)nanbox_from_tagged(key));
         entry->Push((int64_t)(uintptr_t)nanbox_from_tagged(val));
         entries->Push((int64_t)entry);
-    }
+    });
     return entries;
 }
 
@@ -253,24 +116,23 @@ void TsMap::ForEach(void* callback, void* thisArg) {
     if (!callback) return;
     TsValue* cbVal = (TsValue*)callback;
 
-    MapType* map = (MapType*)impl;
-    for (auto const& [key, val] : *map) {
-        // Convert TsValue struct → NaN-boxed representation for callback args
+    auto* ht = (TsHashTable*)impl;
+    ht->ForEach([&](const TsValue& key, const TsValue& val) {
         TsValue* v = nanbox_from_tagged(val);
         TsValue* k = nanbox_from_tagged(key);
         TsValue* m = ts_value_make_object(this);
         ts_call_3(cbVal, v, k, m);
-    }
+    });
 }
 
 TsMap* TsMap::CopyExcluding(std::vector<TsString*>& excluded) {
     TsMap* dest = TsMap::Create();
-    MapType* map = (MapType*)impl;
+    auto* ht = (TsHashTable*)impl;
 
-    for (auto const& [key, val] : *map) {
+    ht->ForEach([&](const TsValue& key, const TsValue& val) {
         if (key.type != ValueType::STRING_PTR) {
             dest->Set(key, val);
-            continue;
+            return;
         }
 
         TsString* sKey = (TsString*)key.ptr_val;
@@ -284,17 +146,15 @@ TsMap* TsMap::CopyExcluding(std::vector<TsString*>& excluded) {
         if (!found) {
             dest->Set(key, val);
         }
-    }
+    });
     return dest;
 }
 
 bool TsMap::WouldCreateCycle(TsMap* proto) const {
-    // Check if setting 'proto' as our prototype would create a cycle
-    // Walk proto's prototype chain and see if we appear in it
     TsMap* current = proto;
     while (current != nullptr) {
         if (current == this) {
-            return true;  // Would create a cycle
+            return true;
         }
         current = current->prototype;
     }
@@ -320,7 +180,6 @@ void* ts_map_create_explicit() {
     return map;
 }
 
-// Helper for CommonJS module initialization - sets a property by C string key
 void ts_map_set_cstr(void* map, const char* key, void* value) {
     if (!map || !key) return;
     TsMap* tsMap = (TsMap*)map;
@@ -333,7 +192,6 @@ void ts_map_set_cstr(void* map, const char* key, void* value) {
     tsMap->Set(keyVal, valVal);
 }
 
-// Helper for setting string values with proper STRING_PTR type
 void ts_map_set_cstr_string(void* map, const char* key, void* stringValue) {
     if (!map || !key) return;
     TsMap* tsMap = (TsMap*)map;
@@ -346,8 +204,6 @@ void ts_map_set_cstr_string(void* map, const char* key, void* stringValue) {
     tsMap->Set(keyVal, valVal);
 }
 
-// Value-based API variants - avoid heap allocation by passing/returning TsValue by value
-// These are more efficient for hot paths where the caller can use stack-allocated TsValue
 void ts_map_set_v(void* map, TsValue key, TsValue value) {
     if (!map) return;
     if (g_debug_lodash_module_map && map == g_debug_lodash_module_map && key.type == ValueType::STRING_PTR) {
@@ -426,7 +282,7 @@ void ts_map_forEach(void* map, void* callback, void* thisArg) {
 void* ts_map_copy_excluding_v2(void* obj, void* excluded_keys_array) {
     TsMap* map = (TsMap*)obj;
     TsArray* excluded = (TsArray*)excluded_keys_array;
-    
+
     std::vector<TsString*> excluded_vec;
     for (int i = 0; i < excluded->Length(); i++) {
         TsValue decoded = nanbox_to_tagged((TsValue*)excluded->Get(i));
@@ -434,12 +290,11 @@ void* ts_map_copy_excluding_v2(void* obj, void* excluded_keys_array) {
             excluded_vec.push_back((TsString*)decoded.ptr_val);
         }
     }
-    
+
     return map->CopyExcluding(excluded_vec);
 }
 
 TsValue* ts_map_set_wrapper(void* context, TsValue* key, TsValue* value) {
-    // Decode NaN-boxed key and value
     TsValue keyDecoded = nanbox_to_tagged(key);
     TsValue valDecoded = nanbox_to_tagged(value);
     uint64_t hash = (uint64_t)keyDecoded.i_val;
@@ -448,8 +303,7 @@ TsValue* ts_map_set_wrapper(void* context, TsValue* key, TsValue* value) {
 }
 
 TsValue* ts_map_get_wrapper(void* context, TsValue* key) {
-    // Use scalar helpers directly
-    uint64_t hash = (uint64_t)(uintptr_t)key; // NaN-boxed key
+    uint64_t hash = (uint64_t)(uintptr_t)key;
     TsValue keyTV = nanbox_to_tagged(key);
     int64_t bucket = __ts_map_find_bucket(context, hash, (uint8_t)keyTV.type, keyTV.i_val);
     if (bucket < 0) {
@@ -485,12 +339,12 @@ TsValue* ts_map_get_property(void* obj, void* propName) {
     TsMap* map = (TsMap*)obj;
     TsString* prop = (TsString*)propName;
     const char* name = prop->ToUtf8();
-    
+
     // Fallback: look in the map (for object-like behavior)
     TsValue key;
     key.type = ValueType::STRING_PTR;
     key.ptr_val = prop;
-    
+
     if (map->Has(key)) {
         TsValue val = map->Get(key);
         return nanbox_from_tagged(val);
@@ -509,38 +363,30 @@ TsValue* ts_map_get_property(void* obj, void* propName) {
     } else if (strcmp(name, "size") == 0) {
         return ts_value_make_int(ts_map_size(obj));
     }
-    
+
     return ts_value_make_undefined();
 }
 
 // ============================================================
 // Inline IR Helpers - Scalar-based API to avoid struct passing
-// These functions take TsValue fields separately (type as i8, value as i64)
-// to avoid Windows x64 ABI issues with 16-byte struct passing
 // ============================================================
 
-// Helper: Build TsValue from scalar fields
 static TsValue __ts_value_from_scalars(uint8_t type, int64_t value) {
     TsValue v;
     v.type = (ValueType)type;
-    // Union interpretation: int64 can hold pointer, int, or double bits
     v.i_val = value;
     return v;
 }
 
 // Find bucket index for given key, or -1 if not found
 // Walks the prototype chain to find inherited properties
-// Returns: bucket index (>= 0) if found, -1 if not found
-// Also sets *out_map to the TsMap* where the key was found (needed for prototype chain)
 int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val) {
     if (!map) {
         return -1;
     }
 
-    // Verify this is actually a TsMap before using it
     uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
     if (magic != TsMap::MAGIC) {
-        // Not a TsMap - return not found
         return -1;
     }
 
@@ -548,7 +394,6 @@ int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int
     TsValue key = __ts_value_from_scalars(key_type, key_val);
 
     // For JavaScript object property semantics, numeric keys should be coerced to strings.
-    // Try the original key first, then try string-coerced version for numeric keys.
     TsValue stringKey;
     bool hasStringKey = false;
     if (key.type == ValueType::NUMBER_INT) {
@@ -560,7 +405,6 @@ int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int
     } else if (key.type == ValueType::NUMBER_DBL) {
         char buf[64];
         double d = key.d_val;
-        // Check if it's an integer value stored as double
         if (d == (int64_t)d && d >= -9007199254740991.0 && d <= 9007199254740991.0) {
             snprintf(buf, sizeof(buf), "%lld", (long long)(int64_t)d);
         } else {
@@ -574,27 +418,17 @@ int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int
     // Walk the prototype chain looking for the key
     TsMap* currentMap = tsmap;
     while (currentMap != nullptr) {
-        MapType* impl = (MapType*)currentMap->impl;
-        bool found = false;
-        int64_t bucketIdx = -1;
+        TsHashTable* ht = (TsHashTable*)currentMap->impl;
 
         // Try original key first
-        auto it = impl->find(key);
-        if (it != impl->end()) {
-            found = true;
-            bucketIdx = std::distance(impl->begin(), it);
-        }
+        size_t idx = ht->FindIndex(key);
 
         // If not found and we have a string-coerced key, try that
-        if (!found && hasStringKey) {
-            it = impl->find(stringKey);
-            if (it != impl->end()) {
-                found = true;
-                bucketIdx = std::distance(impl->begin(), it);
-            }
+        if (idx == TsHashTable::NOT_FOUND && hasStringKey) {
+            idx = ht->FindIndex(stringKey);
         }
 
-        if (found) {
+        if (idx != TsHashTable::NOT_FOUND) {
             // Calculate how far down the prototype chain we found it
             int64_t protoDepth = 0;
             TsMap* check = tsmap;
@@ -604,7 +438,7 @@ int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int
             }
 
             // Pack protoDepth and bucketIdx: upper 16 bits = protoDepth, lower 48 bits = bucket
-            int64_t result = (protoDepth << 48) | (bucketIdx & 0xFFFFFFFFFFFFLL);
+            int64_t result = (protoDepth << 48) | ((int64_t)idx & 0xFFFFFFFFFFFFLL);
             return result;
         }
         currentMap = currentMap->GetPrototype();
@@ -614,8 +448,6 @@ int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int
 }
 
 // Get value at bucket index via out-parameters
-// bucket_idx encodes prototype depth in upper 16 bits and actual bucket in lower 48 bits
-// Avoids returning TsValue struct (Windows x64 ABI issue)
 void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int64_t* out_value) {
     if (!map || bucket_idx < 0) {
         *out_type = (uint8_t)ValueType::UNDEFINED;
@@ -623,7 +455,6 @@ void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int
         return;
     }
 
-    // Verify this is actually a TsMap before using it
     uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
     if (magic != TsMap::MAGIC) {
         *out_type = (uint8_t)ValueType::UNDEFINED;
@@ -647,23 +478,19 @@ void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int
         return;
     }
 
-    MapType* impl = (MapType*)tsmap->impl;
-
-    if (actualBucketIdx >= (int64_t)impl->size()) {
+    TsHashTable* ht = (TsHashTable*)tsmap->impl;
+    TsValue entryKey, entryVal;
+    if (!ht->GetEntryAt((size_t)actualBucketIdx, &entryKey, &entryVal)) {
         *out_type = (uint8_t)ValueType::UNDEFINED;
         *out_value = 0;
         return;
     }
 
-    auto it = impl->begin();
-    std::advance(it, actualBucketIdx);
-
-    *out_type = (uint8_t)it->second.type;
-    // For NUMBER_DBL, the value is in d_val, not i_val - need to bit-cast
-    if (it->second.type == ValueType::NUMBER_DBL) {
-        std::memcpy(out_value, &it->second.d_val, sizeof(double));
+    *out_type = (uint8_t)entryVal.type;
+    if (entryVal.type == ValueType::NUMBER_DBL) {
+        std::memcpy(out_value, &entryVal.d_val, sizeof(double));
     } else {
-        *out_value = it->second.i_val;
+        *out_value = entryVal.i_val;
     }
 }
 
@@ -671,17 +498,15 @@ void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int
 void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val,
                      uint8_t val_type, int64_t val_val) {
     if (!map) return;
-    
+
     // Check if this is a NaN-boxed TsValue* instead of raw TsMap*
     TsValue decoded = nanbox_to_tagged((TsValue*)map);
     if ((decoded.type == ValueType::OBJECT_PTR || decoded.type == ValueType::ARRAY_PTR) && decoded.ptr_val) {
-        map = decoded.ptr_val;  // Unwrap to get the raw object
+        map = decoded.ptr_val;
     }
-    
-    // Verify this is actually a TsMap before using it
+
     uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
     if (magic != TsMap::MAGIC) {
-        // Not a TsMap - silently fail to avoid crash
         return;
     }
 
@@ -692,11 +517,10 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
         if (keyUtf8 && std::strcmp(keyUtf8, "exports") == 0) {
             std::printf("[__ts_map_set_at] module.exports write: val_type=%d val_val=%p\n",
                         (int)val_type, (void*)val_val);
-            // TEMP DEBUG: Log stack trace context
             std::printf("[__ts_map_set_at]   map=%p key_hash=%llx\n", map, (unsigned long long)key_hash);
         }
     }
-    
+
     TsMap* tsmap = (TsMap*)map;
     TsValue key = __ts_value_from_scalars(key_type, key_val);
     TsValue val = __ts_value_from_scalars(val_type, val_val);
@@ -712,13 +536,12 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
             setterKey.ptr_val = TsString::GetInterned(setterKeyName.c_str());
             TsValue setterVal = tsmap->Get(setterKey);
             if (setterVal.type != ValueType::UNDEFINED) {
-                // Found a setter - invoke it with 'this' as the object and value as argument
                 TsValue* boxedObj = ts_value_make_object(map);
                 TsValue* boxedVal = nanbox_from_tagged(val);
                 TsValue* setterFn = nanbox_from_tagged(setterVal);
                 TsValue* args[] = { boxedVal };
                 ts_function_call_with_this(setterFn, boxedObj, 1, args);
-                return;  // Don't store the value directly - the setter handles it
+                return;
             }
         }
     }
@@ -736,7 +559,6 @@ TsWeakMap* TsWeakMap::Create() {
     void* mem = ts_alloc(sizeof(TsWeakMap));
     TsWeakMap* map = new(mem) TsWeakMap();
 
-    // Use same vtable as TsMap
     if (!TsMap_VTable[1]) {
         TsMap_VTable[1] = (void*)ts_map_get_property;
     }
@@ -746,7 +568,5 @@ TsWeakMap* TsWeakMap::Create() {
 }
 
 TsWeakMap::TsWeakMap() : TsMap() {
-    // Override magic to distinguish from regular Map
     TsObject::magic = MAGIC;
 }
-
