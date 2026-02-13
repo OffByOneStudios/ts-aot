@@ -57,6 +57,26 @@ extern "C" {
 
 static std::unordered_map<std::string, TsValue*> g_module_cache;
 
+// GC scanner for module cache: keeps cached module objects alive during full GC.
+// Minor GC fixup: fixes up nursery pointers when objects are promoted.
+static struct ModuleCacheScanner {
+    ModuleCacheScanner() {
+        ts_gc_register_scanner([](void*) {
+            for (auto& [key, val] : g_module_cache) {
+                if (val) ts_gc_mark_object(val);
+            }
+        }, nullptr);
+        ts_gc_register_minor_fixup([](void*) {
+            for (auto& [key, val] : g_module_cache) {
+                if (val) {
+                    void* fixed = ts_gc_minor_lookup_forward(val);
+                    if (fixed != val) val = (TsValue*)fixed;
+                }
+            }
+        }, nullptr);
+    }
+} g_module_cache_scanner;
+
 // Debug hook: captures the TsMap* backing lodash's synthetic module object.
 // Used by TsMap.cpp to trace writes to module.exports.
 extern "C" void* g_debug_lodash_module_map = nullptr;

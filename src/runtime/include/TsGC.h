@@ -48,12 +48,23 @@ size_t ts_gc_collection_count();
 
 // Nursery support
 bool ts_gc_is_nursery(void* ptr);     // Check if pointer is in nursery
+void ts_gc_nursery_info(void** out_base, size_t* out_size);
 void ts_gc_minor_collect();            // Trigger minor (nursery) collection
 void ts_gc_write_barrier(void* slot_addr, void* stored_value);  // Card-marking barrier
 
 // Allocate directly in old-gen, bypassing nursery.
 // Use for STL container allocators whose internal pointer updates bypass write barriers.
 void* ts_gc_alloc_old_gen(size_t size);
+
+// Minor GC fixup callback: called during minor GC to fix up nursery pointers
+// in external data structures (caches, registries) not covered by card table.
+// Use ts_gc_minor_lookup_forward() inside the callback to resolve nursery pointers.
+typedef void (*ts_gc_minor_fixup_callback)(void* context);
+void ts_gc_register_minor_fixup(ts_gc_minor_fixup_callback cb, void* context);
+
+// Resolve a nursery pointer to its new old-gen address during minor GC.
+// Only valid inside a minor fixup callback. Returns the same pointer if pinned or not nursery.
+void* ts_gc_minor_lookup_forward(void* ptr);
 
 // Exported globals for compiler inline write barriers
 extern uint64_t ts_gc_nursery_base;

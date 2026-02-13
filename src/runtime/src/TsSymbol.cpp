@@ -32,7 +32,10 @@ TsSymbol* TsSymbol::For(TsString* key) {
     if (symbol_registry.count(k)) {
         return symbol_registry[k];
     }
-    TsSymbol* sym = Create(key);
+    // Allocate in old-gen: symbol_registry is in malloc'd memory,
+    // invisible to nursery GC card table
+    TsSymbol* sym = (TsSymbol*)ts_gc_alloc_old_gen(sizeof(TsSymbol));
+    new (sym) TsSymbol(key);
     symbol_registry[k] = sym;
     return sym;
 }

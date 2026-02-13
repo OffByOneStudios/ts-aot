@@ -89,6 +89,73 @@ static LONG WINAPI ts_vectored_exception_handler(PEXCEPTION_POINTERS info) {
 
     fprintf(stderr, "[ts-aot] VectoredException: code=0x%08lx addr=%p module=%s\n",
             (unsigned long)code, addr, (modName[0] ? modName : "<unknown>"));
+
+    // On access violation, dump registers and disassembly for nursery GC debugging
+    if (code == 0xC0000005 && info->ContextRecord) {
+        CONTEXT* ctx = info->ContextRecord;
+        // Print the faulting address from exception params
+        if (info->ExceptionRecord->NumberParameters >= 2) {
+            fprintf(stderr, "[ts-aot] Fault: %s address %p\n",
+                    info->ExceptionRecord->ExceptionInformation[0] == 0 ? "reading" : "writing",
+                    (void*)info->ExceptionRecord->ExceptionInformation[1]);
+        }
+        fprintf(stderr, "[ts-aot] Registers:\n");
+        fprintf(stderr, "  RAX=%016llX  RBX=%016llX  RCX=%016llX\n", ctx->Rax, ctx->Rbx, ctx->Rcx);
+        fprintf(stderr, "  RDX=%016llX  RSI=%016llX  RDI=%016llX\n", ctx->Rdx, ctx->Rsi, ctx->Rdi);
+        fprintf(stderr, "  RSP=%016llX  RBP=%016llX  RIP=%016llX\n", ctx->Rsp, ctx->Rbp, ctx->Rip);
+        fprintf(stderr, "  R8 =%016llX  R9 =%016llX  R10=%016llX\n", ctx->R8, ctx->R9, ctx->R10);
+        fprintf(stderr, "  R11=%016llX  R12=%016llX  R13=%016llX\n", ctx->R11, ctx->R12, ctx->R13);
+        fprintf(stderr, "  R14=%016llX  R15=%016llX\n", ctx->R14, ctx->R15);
+
+        // Print instruction bytes at crash site
+        fprintf(stderr, "[ts-aot] Instruction bytes at RIP:");
+        unsigned char* ip = (unsigned char*)(uintptr_t)ctx->Rip;
+        for (int i = 0; i < 16; i++) {
+            fprintf(stderr, " %02X", ip[i]);
+        }
+        fprintf(stderr, "\n");
+
+        // Print stack words around RSP
+        fprintf(stderr, "[ts-aot] Stack near RSP:\n");
+        uint64_t* sp = (uint64_t*)(uintptr_t)ctx->Rsp;
+        for (int i = -2; i < 16; i++) {
+            fprintf(stderr, "  [RSP%+d] = %016llX\n", i*8, sp[i]);
+        }
+
+        // Check which registers point into nursery
+        void* nursery_base = nullptr;
+        size_t nursery_size = 0;
+        ts_gc_nursery_info(&nursery_base, &nursery_size);
+        if (nursery_base) {
+            fprintf(stderr, "[ts-aot] Nursery: base=%p size=%zuKB end=%p\n",
+                    nursery_base, nursery_size / 1024,
+                    (void*)((char*)nursery_base + nursery_size));
+        }
+
+        DWORD64 regs[] = { ctx->Rax, ctx->Rbx, ctx->Rcx, ctx->Rdx, ctx->Rsi, ctx->Rdi,
+                           ctx->R8, ctx->R9, ctx->R10, ctx->R11, ctx->R12, ctx->R13,
+                           ctx->R14, ctx->R15, ctx->Rbp };
+        const char* names[] = { "RAX", "RBX", "RCX", "RDX", "RSI", "RDI",
+                                "R8", "R9", "R10", "R11", "R12", "R13",
+                                "R14", "R15", "RBP" };
+        for (int i = 0; i < 15; i++) {
+            if (regs[i] > 4096 && regs[i] <= 0x00007FFFFFFFFFFF) {
+                if (ts_gc_is_nursery((void*)regs[i])) {
+                    size_t off = (size_t)((char*)(uintptr_t)regs[i] - (char*)nursery_base);
+                    fprintf(stderr, "  ** %s=%016llX is NURSERY (offset=%zu) **\n", names[i], regs[i], off);
+                }
+            }
+        }
+        // Also check faulting address
+        if (info->ExceptionRecord->NumberParameters >= 2) {
+            DWORD64 faultAddr = info->ExceptionRecord->ExceptionInformation[1];
+            if (faultAddr > 4096 && faultAddr <= 0x00007FFFFFFFFFFF && ts_gc_is_nursery((void*)faultAddr)) {
+                size_t off = (size_t)((char*)(uintptr_t)faultAddr - (char*)nursery_base);
+                fprintf(stderr, "  ** Faulting address %016llX is NURSERY (offset=%zu) **\n", faultAddr, off);
+            }
+        }
+    }
+
     fflush(stderr);
 
     return EXCEPTION_CONTINUE_SEARCH;

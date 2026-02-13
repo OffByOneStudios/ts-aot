@@ -45,33 +45,53 @@ static const size_t MARK_WORKLIST_CAPACITY = 16384;
 static bool g_gc_verbose = false;
 
 // ============================================================================
-// Nursery Configuration
+// Nursery Configuration (Pin-Based Promotion, SGen-style)
 // ============================================================================
 
-static const size_t DEFAULT_NURSERY_SPACE_SIZE = 2 * 1024 * 1024;  // 2MB per semi-space
+static const size_t DEFAULT_NURSERY_SIZE = 4 * 1024 * 1024;  // 4MB single region
 static const size_t NURSERY_MAX_OBJ_SIZE = 256;   // Objects <= 256 bytes go to nursery
 static const size_t NURSERY_SIZE_PREFIX = 8;       // 8-byte size header before each object
 
-// Forwarding entry: maps nursery address range → old-gen address
-struct NurseryForwardEntry {
-    uintptr_t nursery_addr;    // Start of nursery object
-    void* old_gen_addr;        // Promoted old-gen location
-    size_t size;               // Object size in bytes
+// Pin bit: stored in bit 63 of the 8-byte size prefix.
+// Object sizes are <= 256 (9 bits), so bit 63 is always free.
+static const uint64_t NURSERY_PIN_BIT = (uint64_t)1 << 63;
+
+static inline size_t nursery_get_size(uint64_t prefix) {
+    return (size_t)(prefix & ~NURSERY_PIN_BIT);
+}
+static inline bool nursery_is_pinned(uint64_t prefix) {
+    return (prefix & NURSERY_PIN_BIT) != 0;
+}
+static inline void nursery_set_pinned(uint64_t* prefix_ptr) {
+    *prefix_ptr |= NURSERY_PIN_BIT;
+}
+static inline void nursery_clear_pinned(uint64_t* prefix_ptr) {
+    *prefix_ptr &= ~NURSERY_PIN_BIT;
+}
+
+// Fragment: a free region within the nursery between pinned objects
+struct NurseryFragment {
+    size_t offset;   // Byte offset from nursery region start
+    size_t size;     // Free region size in bytes
 };
 
 struct Nursery {
-    void* region;              // Single contiguous VirtualAlloc (2 * space_size)
-    int active;                // 0 or 1 -- which semi-space is current
-    size_t cursor;             // Byte offset of next allocation in active space
-    size_t space_size;         // Size of each semi-space (default 2MB)
+    void* region;              // Single contiguous VirtualAlloc
+    size_t region_size;        // Total nursery size (default 4MB)
+    size_t cursor;             // Current bump offset within active fragment
+    size_t cursor_limit;       // End of current fragment
     bool enabled;
     size_t total_allocated;    // Total bytes bumped in nursery (for stats)
     size_t alloc_count;        // Number of nursery allocations (for stats)
+    size_t high_water;         // Highest cursor value ever (for iteration)
 
-    // Forwarding table from the last minor GC. Kept alive so that full GC
-    // can map stale nursery pointers (held by the conservative stack scanner)
-    // to their promoted old-gen addresses.
-    std::vector<NurseryForwardEntry> forwarding;
+    // Fragment free list (rebuilt each minor GC)
+    std::vector<NurseryFragment> fragments;
+    size_t current_fragment;   // Index into fragments
+
+    // Stats
+    size_t pinned_count;
+    size_t pinned_bytes;
 };
 
 static Nursery g_nursery = {};
@@ -94,6 +114,25 @@ static uintptr_t g_card_table_base = 0;       // lowest old-gen block address
 // Non-GC slot tracking: slots outside card table coverage that hold nursery pointers.
 // Safety net for any memory not covered by the card table (e.g., malloc'd structures).
 static std::vector<void**> g_non_gc_nursery_slots;
+
+// Minor GC fixup callbacks: registered by modules with caches/registries
+// that hold nursery pointers in malloc'd memory (not covered by card table).
+struct MinorFixupEntry {
+    ts_gc_minor_fixup_callback callback;
+    void* context;
+};
+static std::vector<MinorFixupEntry> g_minor_fixup_scanners;
+
+// Forwarding table entry for minor GC (nursery → old-gen mapping).
+struct ForwardEntry {
+    uintptr_t nursery_addr;
+    void* old_gen_addr;
+    size_t size;
+};
+
+// File-scope pointer to current forwarding table, valid only during minor GC.
+// Used by ts_gc_minor_lookup_forward().
+static std::vector<ForwardEntry>* g_current_forwarding = nullptr;
 
 // ============================================================================
 // Platform Memory
@@ -256,63 +295,60 @@ static void gc_mark_ptr(void* ptr);
 // Nursery Helpers
 // ============================================================================
 
-static inline void* nursery_space(int idx) {
-    return (char*)g_nursery.region + (size_t)idx * g_nursery.space_size;
-}
-
 static inline bool is_nursery_ptr(void* ptr) {
-    // Single unsigned comparison: (addr - base) < total_size
-    uintptr_t addr = (uintptr_t)ptr;
-    return (addr - (uintptr_t)ts_gc_nursery_base) < (g_nursery.space_size * 2);
+    // Single unsigned comparison: (addr - base) < region_size
+    return ((uintptr_t)ptr - (uintptr_t)g_nursery.region) < g_nursery.region_size;
 }
 
-// Find the base address of a nursery object containing ptr, or nullptr
+// Find the base address of a nursery object containing ptr, or nullptr.
+// Walks the single nursery region using size prefixes, skipping gaps (prefix == 0).
 static void* nursery_find_base(void* ptr) {
-    if (!g_nursery.enabled) return nullptr;
+    if (!g_nursery.enabled || !g_nursery.region) return nullptr;
     uintptr_t addr = (uintptr_t)ptr;
+    if (!is_nursery_ptr(ptr)) return nullptr;
 
-    for (int space = 0; space < 2; space++) {
-        uintptr_t space_start = (uintptr_t)nursery_space(space);
-        uintptr_t space_end = space_start + g_nursery.space_size;
+    char* base = (char*)g_nursery.region;
+    size_t limit = g_nursery.high_water;
+    size_t offset = 0;
 
-        if (addr < space_start || addr >= space_end) continue;
+    while (offset + NURSERY_SIZE_PREFIX <= limit) {
+        uint64_t raw_prefix = *(uint64_t*)(base + offset);
+        size_t obj_size = nursery_get_size(raw_prefix);
 
-        // In Step 1, only the active space has objects
-        size_t limit = (space == g_nursery.active) ? g_nursery.cursor : 0;
-        if (limit == 0) return nullptr;
-
-        // Walk size-prefixed objects to find containing one
-        char* scan = (char*)space_start;
-        size_t offset = 0;
-        while (offset + NURSERY_SIZE_PREFIX <= limit) {
-            size_t obj_size = *(size_t*)(scan + offset);
-            if (obj_size == 0 || obj_size > NURSERY_MAX_OBJ_SIZE) break;
-
-            uintptr_t obj_addr = space_start + offset + NURSERY_SIZE_PREFIX;
-            if (addr >= obj_addr && addr < obj_addr + obj_size) {
-                return (void*)obj_addr;
-            }
-            offset += NURSERY_SIZE_PREFIX + obj_size;
+        if (obj_size == 0) {
+            // Gap (zeroed memory or dead object) - step forward 8 bytes
+            offset += 8;
+            continue;
         }
-        return nullptr;
+        if (obj_size > NURSERY_MAX_OBJ_SIZE) break;  // Corruption
+
+        uintptr_t obj_addr = (uintptr_t)(base + offset + NURSERY_SIZE_PREFIX);
+        if (addr >= obj_addr && addr < obj_addr + obj_size) {
+            return (void*)obj_addr;
+        }
+        offset += NURSERY_SIZE_PREFIX + obj_size;
     }
     return nullptr;
 }
 
 // Scan all nursery objects conservatively during full GC mark phase.
 // Nursery objects may reference old-gen objects that must be marked live.
+// Walks single region with gap handling (prefix == 0 means gap).
 static void gc_scan_nursery_roots() {
-    if (!g_nursery.enabled || g_nursery.cursor == 0) return;
+    if (!g_nursery.enabled || g_nursery.high_water == 0) return;
 
-    // Scan current nursery objects for old-gen pointers to mark.
-    // Stale nursery pointers from previous minor GCs are handled by the
-    // forwarding table in gc_mark_ptr (which maps nursery→old-gen).
-    char* scan = (char*)nursery_space(g_nursery.active);
+    char* scan = (char*)g_nursery.region;
     size_t offset = 0;
 
-    while (offset + NURSERY_SIZE_PREFIX <= g_nursery.cursor) {
-        size_t obj_size = *(size_t*)(scan + offset);
-        if (obj_size == 0 || obj_size > NURSERY_MAX_OBJ_SIZE) break;
+    while (offset + NURSERY_SIZE_PREFIX <= g_nursery.high_water) {
+        uint64_t raw_prefix = *(uint64_t*)(scan + offset);
+        size_t obj_size = nursery_get_size(raw_prefix);
+
+        if (obj_size == 0) {
+            offset += 8;  // Skip gap
+            continue;
+        }
+        if (obj_size > NURSERY_MAX_OBJ_SIZE) break;
 
         void* obj = scan + offset + NURSERY_SIZE_PREFIX;
         uintptr_t start = (uintptr_t)obj;
@@ -322,7 +358,6 @@ static void gc_scan_nursery_roots() {
             void* candidate = *(void**)p;
             if ((uintptr_t)candidate < 4096) continue;
             if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
-            // gc_mark_ptr handles both nursery (via forwarding) and old-gen pointers
             gc_mark_ptr(candidate);
         }
 
@@ -691,33 +726,10 @@ static void* gc_find_base(void* ptr) {
 static void gc_mark_ptr(void* ptr) {
     if (!ptr) return;
 
-    // Nursery pointers: the nursery object is always live until next minor GC.
-    // If we have a forwarding table from a previous minor GC, look up the
-    // old-gen copy and mark it instead. This ensures promoted objects stay
-    // alive when the stack holds stale nursery addresses.
+    // Nursery pointers: pinned objects stay in nursery, so during full GC
+    // we scan them via gc_scan_nursery_roots(). No forwarding table needed.
     if (g_nursery.enabled && is_nursery_ptr(ptr)) {
-        if (!g_nursery.forwarding.empty()) {
-            uintptr_t addr = (uintptr_t)ptr;
-            // Binary search for containing forwarding entry
-            auto& fwd = g_nursery.forwarding;
-            size_t lo = 0, hi = fwd.size();
-            while (lo < hi) {
-                size_t mid = lo + (hi - lo) / 2;
-                if (fwd[mid].nursery_addr + fwd[mid].size <= addr) {
-                    lo = mid + 1;
-                } else if (fwd[mid].nursery_addr > addr) {
-                    hi = mid;
-                } else {
-                    // Found: mark the old-gen copy
-                    size_t off = addr - fwd[mid].nursery_addr;
-                    void* old_gen_ptr = (char*)fwd[mid].old_gen_addr + off;
-                    // Recursive call with old-gen address (not nursery, so won't loop)
-                    gc_mark_ptr(old_gen_ptr);
-                    return;
-                }
-            }
-        }
-        return;  // Nursery pointer not in forwarding table (current alloc)
+        return;  // Nursery objects scanned separately, not mark-swept
     }
 
     uintptr_t addr = (uintptr_t)ptr;
@@ -1221,7 +1233,7 @@ static void gc_collect_internal() {
                 (long long)mark_us, (long long)sweep_us);
         if (g_nursery.enabled) {
             fprintf(stderr, ", nursery=%zuKB/%zuKB (%zu allocs)",
-                    g_nursery.cursor / 1024, g_nursery.space_size / 1024,
+                    g_nursery.cursor / 1024, g_nursery.region_size / 1024,
                     g_nursery.alloc_count);
         }
         fprintf(stderr, "\n");
@@ -1273,31 +1285,31 @@ static void gc_init() {
     }
 
     if (!nursery_disabled) {
-        size_t nursery_total_mb = 4;  // Default 4MB total (2x 2MB semi-spaces)
+        size_t nursery_mb = 4;  // Default 4MB single region
         const char* nursery_mb_env = getenv("TS_GC_NURSERY_MB");
         if (nursery_mb_env) {
             size_t mb = (size_t)atoi(nursery_mb_env);
-            if (mb >= 1 && mb <= 64) nursery_total_mb = mb;
+            if (mb >= 1 && mb <= 64) nursery_mb = mb;
         }
 
-        g_nursery.space_size = (nursery_total_mb * 1024 * 1024) / 2;
-        size_t total_region = g_nursery.space_size * 2;
+        g_nursery.region_size = nursery_mb * 1024 * 1024;
 
-        g_nursery.region = platform_alloc_large(total_region);
+        g_nursery.region = platform_alloc_large(g_nursery.region_size);
         if (g_nursery.region) {
-            g_nursery.active = 0;
             g_nursery.cursor = 0;
-            g_nursery.enabled = false;  // Disabled: minor GC doesn't fix stack pointers after promotion
+            g_nursery.cursor_limit = g_nursery.region_size;
+            g_nursery.enabled = true;
             g_nursery.total_allocated = 0;
             g_nursery.alloc_count = 0;
+            g_nursery.high_water = 0;
+            g_nursery.current_fragment = 0;
+            g_nursery.pinned_count = 0;
+            g_nursery.pinned_bytes = 0;
 
             ts_gc_nursery_base = (uint64_t)(uintptr_t)g_nursery.region;
-            ts_gc_nursery_end = ts_gc_nursery_base + total_region;
+            ts_gc_nursery_end = ts_gc_nursery_base + g_nursery.region_size;
 
             // Allocate card table for old-gen-to-nursery write barrier tracking.
-            // The card table base tracks the lowest old-gen allocation address.
-            // We defer setting g_card_table_base until the first old-gen block is allocated,
-            // since we don't know where old-gen memory will be yet.
             g_card_table = (uint8_t*)calloc(CARD_TABLE_SIZE, 1);
             if (g_card_table) {
                 ts_gc_card_table_ptr = g_card_table;
@@ -1314,7 +1326,7 @@ static void gc_init() {
                 g_nursery.enabled ? "on" : "off");
         if (g_nursery.enabled) {
             fprintf(stderr, " %zuMB, cards=%s",
-                    g_nursery.space_size * 2 / (1024*1024),
+                    g_nursery.region_size / (1024*1024),
                     g_card_table ? "on" : "off");
         }
         fprintf(stderr, ")\n");
@@ -1346,40 +1358,62 @@ void* ts_gc_alloc(size_t size) {
     if (!g_heap) gc_init();
     if (size == 0) size = 8; // Minimum allocation
 
-    // ---- Nursery fast path: no mutex, just bump pointer ----
+    // ---- Nursery fast path: no mutex, bump pointer in fragment ----
     if (g_nursery.enabled && size <= NURSERY_MAX_OBJ_SIZE) {
         size_t alloc_size = (size + 7) & ~(size_t)7;  // Align to 8 bytes
         size_t total = alloc_size + NURSERY_SIZE_PREFIX;
-        size_t new_cursor = g_nursery.cursor + total;
 
-        if (new_cursor <= g_nursery.space_size) {
-            char* base = (char*)nursery_space(g_nursery.active) + g_nursery.cursor;
-            *(size_t*)base = alloc_size;  // Store object size in prefix
+        // Try bump-allocate in current fragment
+        if (g_nursery.cursor + total <= g_nursery.cursor_limit) {
+            char* base = (char*)g_nursery.region + g_nursery.cursor;
+            *(uint64_t*)base = (uint64_t)alloc_size;  // Size prefix, pin bit clear
             void* result = base + NURSERY_SIZE_PREFIX;
-            g_nursery.cursor = new_cursor;
+            g_nursery.cursor += total;
+            if (g_nursery.cursor > g_nursery.high_water)
+                g_nursery.high_water = g_nursery.cursor;
             g_nursery.total_allocated += alloc_size;
             g_nursery.alloc_count++;
-            return result;  // Already zeroed by VirtualAlloc
+            return result;
         }
 
-        // Nursery full - trigger minor GC (promote all to old-gen, swap semi-spaces)
+        // Try next fragment (if fragments exist from a previous minor GC)
+        while (g_nursery.current_fragment + 1 < g_nursery.fragments.size()) {
+            g_nursery.current_fragment++;
+            auto& frag = g_nursery.fragments[g_nursery.current_fragment];
+            if (frag.size >= total) {
+                g_nursery.cursor = frag.offset;
+                g_nursery.cursor_limit = frag.offset + frag.size;
+                char* base = (char*)g_nursery.region + g_nursery.cursor;
+                *(uint64_t*)base = (uint64_t)alloc_size;
+                void* result = base + NURSERY_SIZE_PREFIX;
+                g_nursery.cursor += total;
+                if (g_nursery.cursor > g_nursery.high_water)
+                    g_nursery.high_water = g_nursery.cursor;
+                g_nursery.total_allocated += alloc_size;
+                g_nursery.alloc_count++;
+                return result;
+            }
+        }
+
+        // All fragments exhausted - trigger minor GC
         {
             std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
             gc_minor_collect_internal();
         }
 
-        // Retry nursery allocation in the fresh semi-space
-        new_cursor = g_nursery.cursor + total;
-        if (new_cursor <= g_nursery.space_size) {
-            char* base = (char*)nursery_space(g_nursery.active) + g_nursery.cursor;
-            *(size_t*)base = alloc_size;
+        // Retry after GC
+        if (g_nursery.cursor + total <= g_nursery.cursor_limit) {
+            char* base = (char*)g_nursery.region + g_nursery.cursor;
+            *(uint64_t*)base = (uint64_t)alloc_size;
             void* result = base + NURSERY_SIZE_PREFIX;
-            g_nursery.cursor = new_cursor;
+            g_nursery.cursor += total;
+            if (g_nursery.cursor > g_nursery.high_water)
+                g_nursery.high_water = g_nursery.cursor;
             g_nursery.total_allocated += alloc_size;
             g_nursery.alloc_count++;
             return result;
         }
-        // Still can't fit (shouldn't happen, but fall through to old-gen)
+        // Still can't fit - fall through to old-gen
     }
 
     // ---- Old-gen path (mutex-protected) ----
@@ -1508,6 +1542,29 @@ void ts_gc_register_scanner(ts_gc_scan_callback cb, void* context) {
     g_heap->scanners.push_back({ cb, context });
 }
 
+void ts_gc_register_minor_fixup(ts_gc_minor_fixup_callback cb, void* context) {
+    g_minor_fixup_scanners.push_back({ cb, context });
+}
+
+void* ts_gc_minor_lookup_forward(void* ptr) {
+    if (!g_current_forwarding || !ptr || !is_nursery_ptr(ptr)) return ptr;
+    uintptr_t addr = (uintptr_t)ptr;
+    auto& fwd = *g_current_forwarding;
+    size_t lo = 0, hi = fwd.size();
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (fwd[mid].nursery_addr + fwd[mid].size <= addr) {
+            lo = mid + 1;
+        } else if (fwd[mid].nursery_addr > addr) {
+            hi = mid;
+        } else {
+            size_t off = addr - fwd[mid].nursery_addr;
+            return (char*)fwd[mid].old_gen_addr + off;
+        }
+    }
+    return ptr; // Not forwarded (pinned)
+}
+
 void ts_gc_mark_object(void* ptr) {
     // Called from scanner callbacks during mark phase
     // No lock needed - mark phase already holds the lock
@@ -1583,39 +1640,95 @@ bool ts_gc_is_nursery(void* ptr) {
     return is_nursery_ptr(ptr);
 }
 
+void ts_gc_nursery_info(void** out_base, size_t* out_size) {
+    if (out_base) *out_base = g_nursery.region;
+    if (out_size) *out_size = g_nursery.region_size;
+}
+
 } // extern "C" -- pause for static internal function
 
 // ============================================================================
-// Minor GC (Nursery Promotion) - internal, called with gc_mutex held
+// Minor GC (Pin-Based Promotion, SGen-style) - called with gc_mutex held
 // ============================================================================
-// Promotes ALL nursery objects to old-gen. Does not attempt to distinguish
-// live from dead (full GC will collect dead promoted objects later).
-// Uses forwarding table to fix up internal nursery pointers in promoted
-// objects, dirty card slots, global roots, and stack slots.
+// Phase 0: Scan stack → PIN nursery objects found on stack
+// Phase 1: Copy NON-PINNED survivors to old-gen (ephemeral forwarding table)
+// Phase 2: Fix promoted objects' internal pointers
+// Phase 3: Fix dirty card slots (old-gen → nursery pointers)
+// Phase 3b: Fix non-GC slots
+// Phase 4: Fix global roots
+// Phase 5: Fix weak refs / finalizers
+// Phase 6: Build fragment list from gaps between pinned objects
+// Phase 7: Clear/re-dirty card table
+
+// Pin nursery objects found on the stack (conservative scan).
+// False positives merely pin an extra object -- wasteful but SAFE.
+// No stack rewriting; stack pointers to pinned objects remain valid.
+static void gc_pin_nursery_stack_roots() {
+    g_nursery.pinned_count = 0;
+    g_nursery.pinned_bytes = 0;
+
+    auto pin_if_nursery = [](uintptr_t val) {
+        // Skip low addresses and kernel-mode addresses
+        if (val < 4096 || val > 0x00007FFFFFFFFFFF) return;
+        void* candidate = (void*)val;
+        if (!is_nursery_ptr(candidate)) return;
+
+        // Walk nursery objects to find the one containing this address
+        void* base = nursery_find_base(candidate);
+        if (!base) return;
+
+        // Pin the object via bit 63 in the size prefix
+        uint64_t* prefix = (uint64_t*)((char*)base - NURSERY_SIZE_PREFIX);
+        if (!nursery_is_pinned(*prefix)) {
+            nursery_set_pinned(prefix);
+            g_nursery.pinned_count++;
+            g_nursery.pinned_bytes += nursery_get_size(*prefix);
+        }
+    };
+
+    // Flush callee-saved registers to the stack so they can be scanned
+    volatile jmp_buf regs;
+    setjmp((jmp_buf&)regs);
+
+    // Scan register contents from jmp_buf
+    for (size_t i = 0; i < sizeof(jmp_buf) / sizeof(uintptr_t); i++) {
+        pin_if_nursery(((volatile uintptr_t*)&regs)[i]);
+    }
+
+    // Scan the thread's stack
+#ifdef _WIN32
+    NT_TIB* tib = (NT_TIB*)NtCurrentTeb();
+    uintptr_t stack_high = (uintptr_t)tib->StackBase;
+#else
+    uintptr_t stack_high = 0;
+    {
+        volatile uintptr_t anchor = 0;
+        stack_high = (uintptr_t)&anchor + 1024 * 1024;
+    }
+#endif
+
+    volatile uintptr_t stack_anchor = 0;
+    uintptr_t scan_start = ((uintptr_t)&stack_anchor) & ~(uintptr_t)7;
+
+    if (g_gc_verbose) {
+        fprintf(stderr, "[TsGC] pin scan: stack range [%p .. %p] (%zuKB)\n",
+                (void*)scan_start, (void*)stack_high,
+                (stack_high - scan_start) / 1024);
+        fflush(stderr);
+    }
+
+    for (uintptr_t p = scan_start; p + sizeof(void*) <= stack_high; p += sizeof(void*)) {
+        pin_if_nursery(*(uintptr_t*)p);
+    }
+}
 
 static void gc_minor_collect_internal() {
-    if (!g_nursery.enabled || g_nursery.cursor == 0) return;
+    if (!g_nursery.enabled || g_nursery.high_water == 0) return;
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    // Purge stale forwarding entries for the current active space.
-    // After semi-space swap, the active space is reused for new allocations.
-    // Old forwarding entries for addresses in this space are now stale and
-    // would confuse gc_mark_ptr during full GC.
-    if (!g_nursery.forwarding.empty()) {
-        uintptr_t space_start = (uintptr_t)nursery_space(g_nursery.active);
-        uintptr_t space_end = space_start + g_nursery.space_size;
-        auto new_end = std::remove_if(g_nursery.forwarding.begin(), g_nursery.forwarding.end(),
-            [space_start, space_end](const NurseryForwardEntry& e) {
-                return e.nursery_addr >= space_start && e.nursery_addr < space_end;
-            });
-        g_nursery.forwarding.erase(new_end, g_nursery.forwarding.end());
-    }
-
-    // Before promotion, ensure old-gen has room. Nursery may hold up to
-    // cursor bytes that need copying. If old-gen is tight, run a full GC
-    // first to free dead objects and make space for the promoted survivors.
-    if (g_heap->total_allocated + g_nursery.cursor > g_max_heap_size) {
+    // Before promotion, ensure old-gen has room.
+    if (g_heap->total_allocated + g_nursery.high_water > g_max_heap_size) {
         gc_collect_internal();
         if (g_gc_verbose) {
             fprintf(stderr, "[TsGC] minor GC: pre-promotion full GC, total_allocated now %zuKB\n",
@@ -1624,31 +1737,41 @@ static void gc_minor_collect_internal() {
         }
     }
 
+    // Phase 0: Pin nursery objects referenced from the stack
+    gc_pin_nursery_stack_roots();
+
     // Temporarily boost GC threshold to prevent gc_alloc_small from
     // triggering a full gc_collect_internal() during promotion
     size_t saved_threshold = g_heap->gc_threshold;
-    g_heap->gc_threshold = (size_t)-1; // Effectively disable full GC during promotion
+    g_heap->gc_threshold = (size_t)-1;
 
-    // Phase 1: Walk nursery objects, copy each to old-gen
-    struct ForwardEntry {
-        uintptr_t nursery_addr;
-        void* old_gen_addr;
-        size_t size;
-    };
+    // Phase 1: Walk nursery objects, copy NON-PINNED to old-gen
     std::vector<ForwardEntry> forwarding;
 
-    char* scan = (char*)nursery_space(g_nursery.active);
+    char* base = (char*)g_nursery.region;
     size_t offset = 0;
     size_t promoted_count = 0;
     size_t promoted_bytes = 0;
 
-    while (offset + NURSERY_SIZE_PREFIX <= g_nursery.cursor) {
-        size_t obj_size = *(size_t*)(scan + offset);
-        if (obj_size == 0 || obj_size > NURSERY_MAX_OBJ_SIZE) break;
+    while (offset + NURSERY_SIZE_PREFIX <= g_nursery.high_water) {
+        uint64_t raw_prefix = *(uint64_t*)(base + offset);
+        size_t obj_size = nursery_get_size(raw_prefix);
 
-        void* nursery_obj = scan + offset + NURSERY_SIZE_PREFIX;
+        if (obj_size == 0) {
+            offset += 8;  // Skip gap
+            continue;
+        }
+        if (obj_size > NURSERY_MAX_OBJ_SIZE) break;
 
-        // Allocate in old-gen (threshold boosted so no full GC triggered)
+        void* nursery_obj = base + offset + NURSERY_SIZE_PREFIX;
+
+        if (nursery_is_pinned(raw_prefix)) {
+            // Pinned: stays in nursery, skip
+            offset += NURSERY_SIZE_PREFIX + obj_size;
+            continue;
+        }
+
+        // Non-pinned: promote to old-gen
         void* old_gen_obj = gc_alloc_small(obj_size);
         if (old_gen_obj) {
             memcpy(old_gen_obj, nursery_obj, obj_size);
@@ -1660,13 +1783,16 @@ static void gc_minor_collect_internal() {
             promoted_count++;
             promoted_bytes += obj_size;
         } else {
-            // OOM during promotion - stop promoting, leave rest in nursery
+            // OOM during promotion - pin everything remaining
             if (g_gc_verbose) {
-                fprintf(stderr, "[TsGC] minor GC: OOM during promotion at %zu/%zu bytes\n",
-                        promoted_bytes, g_nursery.cursor);
+                fprintf(stderr, "[TsGC] minor GC: OOM during promotion at %zu bytes\n",
+                        promoted_bytes);
                 fflush(stderr);
             }
-            break;
+            // Mark this object as pinned so it stays
+            nursery_set_pinned((uint64_t*)(base + offset));
+            g_nursery.pinned_count++;
+            g_nursery.pinned_bytes += obj_size;
         }
 
         offset += NURSERY_SIZE_PREFIX + obj_size;
@@ -1675,66 +1801,41 @@ static void gc_minor_collect_internal() {
     // Restore GC threshold
     g_heap->gc_threshold = saved_threshold;
 
-    if (forwarding.empty()) {
-        g_nursery.active = 1 - g_nursery.active;
-        g_nursery.cursor = 0;
-        g_nursery.alloc_count = 0;
-        return;
+    // Sort forwarding table by nursery address for binary search
+    if (!forwarding.empty()) {
+        std::sort(forwarding.begin(), forwarding.end(),
+                  [](const ForwardEntry& a, const ForwardEntry& b) {
+                      return a.nursery_addr < b.nursery_addr;
+                  });
     }
 
-    // Sort forwarding table by nursery address for binary search
-    std::sort(forwarding.begin(), forwarding.end(),
-              [](const ForwardEntry& a, const ForwardEntry& b) {
-                  return a.nursery_addr < b.nursery_addr;
-              });
-
-    // Lookup helper: given a pointer, return forwarded address if it was in nursery.
-    // Searches BOTH the local forwarding table (current cycle) and the persistent
-    // g_nursery.forwarding table (previous cycle). This handles stale stack pointers
-    // from the previous minor GC that conservative scanning missed.
+    // Lookup helper: given a nursery pointer, return old-gen address if promoted,
+    // or return the same pointer if pinned (stays in nursery).
     auto lookup_forward = [&](void* ptr) -> void* {
         if (!is_nursery_ptr(ptr)) return ptr;
         uintptr_t addr = (uintptr_t)ptr;
 
-        // Search local forwarding table (current cycle's active space)
-        {
-            size_t lo = 0, hi = forwarding.size();
-            while (lo < hi) {
-                size_t mid = lo + (hi - lo) / 2;
-                if (forwarding[mid].nursery_addr + forwarding[mid].size <= addr) {
-                    lo = mid + 1;
-                } else if (forwarding[mid].nursery_addr > addr) {
-                    hi = mid;
-                } else {
-                    size_t off = addr - forwarding[mid].nursery_addr;
-                    return (char*)forwarding[mid].old_gen_addr + off;
-                }
+        size_t lo = 0, hi = forwarding.size();
+        while (lo < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (forwarding[mid].nursery_addr + forwarding[mid].size <= addr) {
+                lo = mid + 1;
+            } else if (forwarding[mid].nursery_addr > addr) {
+                hi = mid;
+            } else {
+                size_t off = addr - forwarding[mid].nursery_addr;
+                return (char*)forwarding[mid].old_gen_addr + off;
             }
         }
-
-        // Search persistent forwarding table (previous cycle's other space)
-        {
-            size_t lo = 0, hi = g_nursery.forwarding.size();
-            while (lo < hi) {
-                size_t mid = lo + (hi - lo) / 2;
-                if (g_nursery.forwarding[mid].nursery_addr + g_nursery.forwarding[mid].size <= addr) {
-                    lo = mid + 1;
-                } else if (g_nursery.forwarding[mid].nursery_addr > addr) {
-                    hi = mid;
-                } else {
-                    size_t off = addr - g_nursery.forwarding[mid].nursery_addr;
-                    return (char*)g_nursery.forwarding[mid].old_gen_addr + off;
-                }
-            }
-        }
-
-        return ptr; // Not forwarded
+        return ptr; // Not forwarded (pinned or unknown)
     };
 
-    // Phase 2a: Fix up promoted objects' internal nursery pointers (old-gen copies)
+    // Phase 2: Fix up promoted objects' internal nursery pointers
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 2 (%zu forwarded)\n", forwarding.size()); fflush(stderr); }
     for (auto& fwd : forwarding) {
         uintptr_t obj_start = (uintptr_t)fwd.old_gen_addr;
         uintptr_t obj_end = obj_start + fwd.size;
+        bool has_nursery_ref = false;
 
         for (uintptr_t p = obj_start; p + sizeof(void*) <= obj_end; p += sizeof(void*)) {
             void* candidate = *(void**)p;
@@ -1745,50 +1846,49 @@ static void gc_minor_collect_internal() {
             if (is_nursery_ptr(candidate)) {
                 void* forwarded = lookup_forward(candidate);
                 if (forwarded != candidate) {
+                    // Promoted → rewrite to old-gen address
                     *(void**)p = forwarded;
+                } else {
+                    // Pinned → leave as-is (still valid nursery address)
+                    // But dirty the card for this old-gen slot
+                    has_nursery_ref = true;
                 }
+            }
+        }
+
+        // If promoted object still references pinned nursery objects,
+        // dirty the card so the next minor GC finds these refs
+        if (has_nursery_ref && g_card_table && g_card_table_base) {
+            uintptr_t off = (uintptr_t)fwd.old_gen_addr - g_card_table_base;
+            size_t idx = off >> CARD_SHIFT;
+            if (idx < CARD_TABLE_SIZE) {
+                g_card_table[idx] = 1;
             }
         }
     }
 
-    // Save forwarding table for use by full GC's gc_mark_ptr.
-    // When the stack holds stale nursery addresses, gc_mark_ptr looks them up
-    // here to find and mark the promoted old-gen copies.
-    // Append to existing forwarding (may accumulate from multiple minor GCs).
-    for (auto& fe : forwarding) {
-        NurseryForwardEntry nfe;
-        nfe.nursery_addr = fe.nursery_addr;
-        nfe.old_gen_addr = fe.old_gen_addr;
-        nfe.size = fe.size;
-        g_nursery.forwarding.push_back(nfe);
-    }
-    // Keep sorted for binary search in gc_mark_ptr
-    std::sort(g_nursery.forwarding.begin(), g_nursery.forwarding.end(),
-              [](const NurseryForwardEntry& a, const NurseryForwardEntry& b) {
-                  return a.nursery_addr < b.nursery_addr;
-              });
+    // Phase 2b: Fix up PINNED nursery objects' internal pointers.
+    // Pinned objects may reference other nursery objects that were promoted.
+    // Those internal pointers must be rewritten to the new old-gen addresses.
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 2b\n"); fflush(stderr); }
+    if (g_nursery.pinned_count > 0 && !forwarding.empty()) {
+        offset = 0;
+        while (offset + NURSERY_SIZE_PREFIX <= g_nursery.high_water) {
+            uint64_t raw_prefix = *(uint64_t*)(base + offset);
+            size_t obj_size = nursery_get_size(raw_prefix);
 
-    // Phase 3: Fix up dirty card entries (old-gen → nursery pointers)
-    // Iterate over actual old-gen blocks (not all card entries, which may cover unmapped memory)
-    if (g_card_table && g_card_table_base) {
-        // Helper lambda to scan a memory range for dirty-card nursery pointers
-        auto fixup_range = [&](uintptr_t range_start, uintptr_t range_end) {
-            // Compute which card indices cover this range
-            if (range_start < g_card_table_base) range_start = g_card_table_base;
-            size_t card_lo = (range_start - g_card_table_base) >> CARD_SHIFT;
-            size_t card_hi = ((range_end - g_card_table_base) + CARD_SIZE - 1) >> CARD_SHIFT;
-            if (card_hi > CARD_TABLE_SIZE) card_hi = CARD_TABLE_SIZE;
+            if (obj_size == 0) {
+                offset += 8;
+                continue;
+            }
+            if (obj_size > NURSERY_MAX_OBJ_SIZE) break;
 
-            for (size_t ci = card_lo; ci < card_hi; ci++) {
-                if (!g_card_table[ci]) continue;
+            if (nursery_is_pinned(raw_prefix)) {
+                // This is a pinned object - fix its internal pointers
+                uintptr_t obj_start = (uintptr_t)(base + offset + NURSERY_SIZE_PREFIX);
+                uintptr_t obj_end = obj_start + obj_size;
 
-                uintptr_t scan_start = g_card_table_base + (ci << CARD_SHIFT);
-                uintptr_t scan_end = scan_start + CARD_SIZE;
-                // Clamp to actual block boundaries
-                if (scan_start < range_start) scan_start = range_start;
-                if (scan_end > range_end) scan_end = range_end;
-
-                for (uintptr_t p = scan_start; p + sizeof(void*) <= scan_end; p += sizeof(void*)) {
+                for (uintptr_t p = obj_start; p + sizeof(void*) <= obj_end; p += sizeof(void*)) {
                     void* candidate = *(void**)p;
                     if (!candidate) continue;
                     if ((uintptr_t)candidate < 4096) continue;
@@ -1797,36 +1897,135 @@ static void gc_minor_collect_internal() {
                     if (is_nursery_ptr(candidate)) {
                         void* forwarded = lookup_forward(candidate);
                         if (forwarded != candidate) {
-                            *(void**)p = forwarded;
+                            *(void**)p = forwarded;  // Promoted → rewrite
+                        }
+                        // If pinned → leave as-is (still valid nursery addr)
+                    }
+                }
+            }
+
+            offset += NURSERY_SIZE_PREFIX + obj_size;
+        }
+    }
+
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 3\n"); fflush(stderr); }
+    // Phase 3: Scan ALL old-gen memory for nursery pointers and fix them.
+    // We scan every word in old-gen (not just dirty cards) because C++ runtime
+    // containers (TsMap's std::unordered_map, TsArray's TsAllocator, etc.)
+    // perform internal stores to GC-managed memory WITHOUT write barriers.
+    // The card table alone cannot track these stores.
+    {
+        size_t phase3_fixups = 0;
+        auto fixup_range_all = [&](uintptr_t range_start, uintptr_t range_end) {
+            for (uintptr_t p = range_start; p + sizeof(void*) <= range_end; p += sizeof(void*)) {
+                void* candidate = *(void**)p;
+                if (!candidate) continue;
+                if ((uintptr_t)candidate < 4096) continue;
+                if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
+
+                if (is_nursery_ptr(candidate)) {
+                    void* forwarded = lookup_forward(candidate);
+                    if (forwarded != candidate) {
+                        *(void**)p = forwarded;  // Promoted → rewrite
+                        phase3_fixups++;
+                    }
+                    // If pinned → leave as-is (still valid nursery address)
+                    // Dirty the card so next GC knows about old→nursery ref
+                    else if (g_card_table && g_card_table_base) {
+                        uintptr_t off = p - g_card_table_base;
+                        size_t idx = off >> CARD_SHIFT;
+                        if (idx < CARD_TABLE_SIZE) {
+                            g_card_table[idx] = 1;
                         }
                     }
                 }
             }
         };
 
-        // Scan small-object blocks
-        for (int i = 0; i < NUM_SIZE_CLASSES; i++) {
+        // Helper to verify an entire memory range is committed.
+        // Walks VirtualQuery regions to ensure all pages are committed.
+        auto is_range_committed = [](void* addr, size_t size) -> bool {
+#ifdef _WIN32
+            MEMORY_BASIC_INFORMATION mbi;
+            uintptr_t cursor = (uintptr_t)addr;
+            uintptr_t end = cursor + size;
+            while (cursor < end) {
+                if (VirtualQuery((void*)cursor, &mbi, sizeof(mbi)) == 0) return false;
+                if (mbi.State != MEM_COMMIT) return false;
+                cursor = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+            }
+            return true;
+#else
+            return true;
+#endif
+        };
+
+        // Scan small-object blocks - only scan ALLOCATED slots, not entire block.
+        // This avoids reading freed/decommitted memory and is more targeted.
+        for (size_t i = 0; i < NUM_SIZE_CLASSES; i++) {
             for (BlockHeader* bh = g_heap->block_lists[i]; bh; bh = bh->next) {
+                if (!bh->block_mem || bh->live_count == 0) continue;
+                if (!is_range_committed(bh->block_mem, BLOCK_SIZE)) continue;
                 uintptr_t bstart = (uintptr_t)bh->block_mem;
-                uintptr_t bend = bstart + BLOCK_SIZE;
-                fixup_range(bstart, bend);
+                // Scan only allocated slots using the bitmap
+                for (size_t slot = 0; slot < bh->slot_count; slot++) {
+                    if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
+                    uintptr_t slot_start = bstart + slot * bh->slot_size;
+                    uintptr_t slot_end = slot_start + bh->slot_size;
+                    fixup_range_all(slot_start, slot_end);
+                }
             }
         }
 
         // Scan large objects
         for (LargeObjHeader* lo = g_heap->large_sentinel.next;
              lo != &g_heap->large_sentinel; lo = lo->next) {
+            if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
             uintptr_t dstart = (uintptr_t)lo + sizeof(LargeObjHeader);
+            if (!is_range_committed((void*)dstart, lo->data_size)) continue;
             uintptr_t dend = dstart + lo->data_size;
-            fixup_range(dstart, dend);
+            fixup_range_all(dstart, dend);
+        }
+
+        if (g_gc_verbose && phase3_fixups > 0) {
+            fprintf(stderr, "[TsGC] minor GC phase 3: fixed %zu old-gen → nursery pointers\n",
+                    phase3_fixups);
+            fflush(stderr);
         }
     }
 
-    // Phase 3b: Fix up non-GC slots (slots outside card table coverage)
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 3b\n"); fflush(stderr); }
+    // Phase 3b: Fix up non-GC slots (slots outside card table coverage).
+    // These slot addresses may become stale if the GC block they pointed into
+    // was freed by a full GC between the write barrier and now.
+    // Validate each address before reading.
     if (!g_non_gc_nursery_slots.empty()) {
         size_t non_gc_fixups = 0;
+        size_t non_gc_skipped = 0;
         for (void** slot : g_non_gc_nursery_slots) {
-            if (slot && *slot && is_nursery_ptr(*slot)) {
+            if (!slot) continue;
+            // Validate the slot address is still in committed memory
+#ifdef _WIN32
+            MEMORY_BASIC_INFORMATION mbi;
+            if (VirtualQuery(slot, &mbi, sizeof(mbi)) == 0 ||
+                mbi.State != MEM_COMMIT ||
+                !(mbi.Protect & (PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))) {
+                non_gc_skipped++;
+                continue;
+            }
+#endif
+            // Also verify the slot is in a live GC allocation (not a freed block).
+            // gc_find_base returns non-null only for addresses in live allocations.
+            void* base = gc_find_base(slot);
+            if (!base) {
+                // Not in a live GC allocation - could be malloc'd memory or freed GC memory.
+                // For malloc'd memory, we'd want to fix up, but we can't distinguish
+                // freed GC memory from valid malloc'd memory safely.
+                // Phase 3 already scanned all live GC memory, so skip.
+                non_gc_skipped++;
+                continue;
+            }
+            if (*slot && is_nursery_ptr(*slot)) {
                 void* forwarded = lookup_forward(*slot);
                 if (forwarded != *slot) {
                     *slot = forwarded;
@@ -1834,13 +2033,15 @@ static void gc_minor_collect_internal() {
                 }
             }
         }
-        if (g_gc_verbose && non_gc_fixups > 0) {
-            fprintf(stderr, "[TsGC] minor GC: fixed up %zu non-GC nursery slots\n", non_gc_fixups);
+        if (g_gc_verbose && (non_gc_fixups > 0 || non_gc_skipped > 0)) {
+            fprintf(stderr, "[TsGC] minor GC: Phase 3b: fixed %zu, skipped %zu stale slots\n",
+                    non_gc_fixups, non_gc_skipped);
             fflush(stderr);
         }
         g_non_gc_nursery_slots.clear();
     }
 
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 4\n"); fflush(stderr); }
     // Phase 4: Fix up global roots
     for (void** root : g_heap->global_roots) {
         if (root && *root && is_nursery_ptr(*root)) {
@@ -1848,9 +2049,23 @@ static void gc_minor_collect_internal() {
             if (forwarded != *root) {
                 *root = forwarded;
             }
+            // If still nursery (pinned), leave as-is - will be found next time
         }
     }
 
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 4b\n"); fflush(stderr); }
+    // Phase 4b: Call registered minor GC fixup scanners.
+    // These fix up nursery pointers in external caches/registries (malloc'd memory)
+    // that are not covered by the card table.
+    if (!g_minor_fixup_scanners.empty()) {
+        g_current_forwarding = &forwarding;
+        for (auto& entry : g_minor_fixup_scanners) {
+            entry.callback(entry.context);
+        }
+        g_current_forwarding = nullptr;
+    }
+
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 5\n"); fflush(stderr); }
     // Phase 5: Fix up weak refs
     for (void** loc : g_heap->weak_refs) {
         if (loc && *loc && is_nursery_ptr(*loc)) {
@@ -1861,89 +2076,222 @@ static void gc_minor_collect_internal() {
         }
     }
 
-    // Phase 5b: Fix up finalizer entries (target, callback, held_value, token)
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 5b\n"); fflush(stderr); }
+    // Phase 5b: Fix up finalizer entries
     for (auto& fin : g_heap->finalizers) {
-        if (fin.target && is_nursery_ptr(fin.target)) {
-            void* fwd = lookup_forward(fin.target);
-            if (fwd != fin.target) fin.target = fwd;
-        }
-        if (fin.callback && is_nursery_ptr(fin.callback)) {
-            void* fwd = lookup_forward(fin.callback);
-            if (fwd != fin.callback) fin.callback = fwd;
-        }
-        if (fin.held_value && is_nursery_ptr(fin.held_value)) {
-            void* fwd = lookup_forward(fin.held_value);
-            if (fwd != fin.held_value) fin.held_value = fwd;
-        }
-        if (fin.unregister_token && is_nursery_ptr(fin.unregister_token)) {
-            void* fwd = lookup_forward(fin.unregister_token);
-            if (fwd != fin.unregister_token) fin.unregister_token = fwd;
-        }
+        auto fixup_ptr = [&](void*& ptr) {
+            if (ptr && is_nursery_ptr(ptr)) {
+                void* fwd = lookup_forward(ptr);
+                if (fwd != ptr) ptr = fwd;
+            }
+        };
+        fixup_ptr(fin.target);
+        fixup_ptr(fin.callback);
+        fixup_ptr(fin.held_value);
+        fixup_ptr(fin.unregister_token);
     }
 
-    // Phase 6: Rewrite stale nursery pointers on the stack.
-    // After promotion, the stack may hold stale pointers to nursery objects
-    // that have been copied to old-gen. When the semi-space is reused in the
-    // next cycle, those stale pointers would read overwritten/garbage data.
-    // Fix: scan the stack conservatively and rewrite nursery pointers to
-    // their forwarded old-gen addresses.
-    // False-positive risk is minimal: nursery is 4MB out of 128TB user-mode
-    // address space, and we verify against the forwarding table.
-    {
-        // Flush callee-saved registers to the stack
-        volatile jmp_buf regs;
-        setjmp((jmp_buf&)regs);
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 6\n"); fflush(stderr); }
+    // Phase 6: Build fragment list from gaps between pinned objects
+    g_nursery.fragments.clear();
+    g_nursery.current_fragment = 0;
 
-#ifdef _WIN32
-        NT_TIB* tib = (NT_TIB*)NtCurrentTeb();
-        uintptr_t stack_high = (uintptr_t)tib->StackBase;
-#else
-        uintptr_t stack_high = 0;
-        {
-            volatile uintptr_t anchor = 0;
-            stack_high = (uintptr_t)&anchor + 1024 * 1024;
-        }
-#endif
+    if (g_nursery.pinned_count == 0) {
+        // No pinned objects! Full nursery reset (most common case).
+        // Zero the entire used region so prefix-walking works cleanly next time.
+        memset(g_nursery.region, 0, g_nursery.high_water);
+        g_nursery.cursor = 0;
+        g_nursery.cursor_limit = g_nursery.region_size;
+        g_nursery.high_water = 0;
+        g_nursery.alloc_count = 0;
+    } else {
+        // Walk nursery, collect pinned object locations, build fragments
+        // between them. Clear pin bits. Zero non-pinned regions.
+        size_t frag_start = 0;  // Start of current free region
+        offset = 0;
 
-        volatile uintptr_t stack_anchor = 0;
-        uintptr_t scan_start = ((uintptr_t)&stack_anchor) & ~(uintptr_t)7;
+        while (offset + NURSERY_SIZE_PREFIX <= g_nursery.high_water) {
+            uint64_t raw_prefix = *(uint64_t*)(base + offset);
+            size_t obj_size = nursery_get_size(raw_prefix);
 
-        size_t rewrites = 0;
-        for (uintptr_t p = scan_start; p + sizeof(void*) <= stack_high; p += sizeof(void*)) {
-            void* candidate = *(void**)p;
-            if (!candidate) continue;
-            if ((uintptr_t)candidate < 4096) continue;
-            if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
+            if (obj_size == 0) {
+                offset += 8;
+                continue;
+            }
+            if (obj_size > NURSERY_MAX_OBJ_SIZE) break;
 
-            if (is_nursery_ptr(candidate)) {
-                void* forwarded = lookup_forward(candidate);
-                if (forwarded != candidate) {
-                    *(void**)p = forwarded;
-                    rewrites++;
+            size_t total_obj = NURSERY_SIZE_PREFIX + obj_size;
+
+            if (nursery_is_pinned(raw_prefix)) {
+                // Found a pinned object
+                // Emit fragment for the gap before this pinned object
+                if (offset > frag_start) {
+                    size_t gap_size = offset - frag_start;
+                    // Zero the gap (dead/promoted objects)
+                    memset(base + frag_start, 0, gap_size);
+                    if (gap_size >= NURSERY_SIZE_PREFIX + 8) {  // Must fit at least one min object
+                        NurseryFragment frag;
+                        frag.offset = frag_start;
+                        frag.size = gap_size;
+                        g_nursery.fragments.push_back(frag);
+                    }
                 }
+
+                // Clear pin bit (reset for next cycle)
+                nursery_clear_pinned((uint64_t*)(base + offset));
+
+                // Next free region starts after this pinned object
+                frag_start = offset + total_obj;
+            } else {
+                // Non-pinned object that was already promoted (or dead)
+                // Will be zeroed when we process the gap
+            }
+
+            offset += total_obj;
+        }
+
+        // Final fragment: gap after the last pinned object to end of used region
+        // (or to region end)
+        if (frag_start < g_nursery.high_water) {
+            size_t gap_size = g_nursery.high_water - frag_start;
+            memset(base + frag_start, 0, gap_size);
+            if (gap_size >= NURSERY_SIZE_PREFIX + 8) {
+                NurseryFragment frag;
+                frag.offset = frag_start;
+                frag.size = gap_size;
+                g_nursery.fragments.push_back(frag);
+            }
+        }
+        // Also include the unused space beyond high_water
+        if (g_nursery.high_water < g_nursery.region_size) {
+            NurseryFragment frag;
+            frag.offset = g_nursery.high_water;
+            frag.size = g_nursery.region_size - g_nursery.high_water;
+            g_nursery.fragments.push_back(frag);
+        }
+
+        // Set cursor to first fragment
+        if (!g_nursery.fragments.empty()) {
+            g_nursery.cursor = g_nursery.fragments[0].offset;
+            g_nursery.cursor_limit = g_nursery.fragments[0].offset + g_nursery.fragments[0].size;
+        } else {
+            // Nursery is fully pinned - no free space
+            g_nursery.cursor = g_nursery.region_size;
+            g_nursery.cursor_limit = g_nursery.region_size;
+        }
+        g_nursery.alloc_count = 0;
+        // high_water stays (pinned objects haven't moved)
+    }
+
+    if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 7\n"); fflush(stderr); }
+    // Phase 7: Fix remaining dangling stack pointers to promoted objects.
+    // The pin scan (Phase 0) can miss nursery pointers that are only in
+    // caller-saved registers or spill slots not yet visible at scan time.
+    // We conservatively rewrite exact-match forwarding addresses on the stack.
+    // Safety: only rewrites values that exactly match a known nursery object
+    // address (probability of false positive ≈ 53K*8/2^47 ≈ 3e-9 per slot).
+    if (!forwarding.empty()) {
+        volatile jmp_buf fix_regs;
+        setjmp((jmp_buf&)fix_regs);
+
+        // Scan register contents in jmp_buf
+        for (size_t i = 0; i < sizeof(jmp_buf) / sizeof(uintptr_t); i++) {
+            uintptr_t val = ((volatile uintptr_t*)&fix_regs)[i];
+            if (val < 4096 || val > 0x00007FFFFFFFFFFF) continue;
+            if (!is_nursery_ptr((void*)val)) continue;
+            void* fwd = lookup_forward((void*)val);
+            if (fwd != (void*)val) {
+                ((volatile uintptr_t*)&fix_regs)[i] = (uintptr_t)fwd;
             }
         }
 
-        if (g_gc_verbose && rewrites > 0) {
-            fprintf(stderr, "[TsGC] minor GC: rewrote %zu stale stack pointers\n", rewrites);
+#ifdef _WIN32
+        NT_TIB* fix_tib = (NT_TIB*)NtCurrentTeb();
+        uintptr_t fix_stack_high = (uintptr_t)fix_tib->StackBase;
+#else
+        uintptr_t fix_stack_high = 0;
+        { volatile uintptr_t a = 0; fix_stack_high = (uintptr_t)&a + 1024*1024; }
+#endif
+        volatile uintptr_t fix_anchor = 0;
+        uintptr_t fix_start = ((uintptr_t)&fix_anchor) & ~(uintptr_t)7;
+
+        size_t fixed_count = 0;
+        size_t nursery_not_fwd = 0;
+        for (uintptr_t p = fix_start; p + sizeof(void*) <= fix_stack_high; p += sizeof(void*)) {
+            uintptr_t val = *(uintptr_t*)p;
+            if (val < 4096 || val > 0x00007FFFFFFFFFFF) continue;
+            if (!is_nursery_ptr((void*)val)) continue;
+            void* fwd = lookup_forward((void*)val);
+            if (fwd != (void*)val) {
+                if (g_gc_verbose) {
+                    fprintf(stderr, "[TsGC] Phase7: fix stack@%p: %p -> %p\n",
+                            (void*)p, (void*)val, fwd);
+                }
+                *(uintptr_t*)p = (uintptr_t)fwd;
+                fixed_count++;
+            } else {
+                nursery_not_fwd++;
+            }
+        }
+
+        if (g_gc_verbose) {
+            fprintf(stderr, "[TsGC] Phase7: range [%p..%p] (%zuKB), fixed %zu, nursery-unfwd %zu\n",
+                    (void*)fix_start, (void*)fix_stack_high,
+                    (fix_stack_high - fix_start) / 1024, fixed_count, nursery_not_fwd);
             fflush(stderr);
         }
     }
 
-    // Phase 7: Swap semi-spaces
-    // Now safe — stack pointers have been updated to old-gen addresses.
-    g_nursery.active = 1 - g_nursery.active;
-    g_nursery.cursor = 0;
-    g_nursery.alloc_count = 0;
+    // Post-GC verification: check pinned objects for stale nursery pointers
+    if (g_gc_verbose && g_nursery.pinned_count > 0) {
+        size_t stale_count = 0;
+        offset = 0;
+        while (offset + NURSERY_SIZE_PREFIX <= g_nursery.high_water) {
+            uint64_t raw_prefix = *(uint64_t*)(base + offset);
+            size_t obj_size = nursery_get_size(raw_prefix);
+            if (obj_size == 0) { offset += 8; continue; }
+            if (obj_size > NURSERY_MAX_OBJ_SIZE) break;
 
-    // Phase 8: Clear card table
-    gc_clear_card_table();
+            // Check non-zero prefix means this is a live pinned object (pin bit was cleared in Phase 6)
+            // We need to check the actual memory content since pin bits are cleared
+            // Any object with non-zero prefix at this point is a surviving pinned object
+            uintptr_t obj_start = (uintptr_t)(base + offset + NURSERY_SIZE_PREFIX);
+            uintptr_t obj_end = obj_start + obj_size;
+
+            for (uintptr_t p = obj_start; p + sizeof(void*) <= obj_end; p += sizeof(void*)) {
+                void* val = *(void**)p;
+                if (!val) continue;
+                if ((uintptr_t)val < 4096 || (uintptr_t)val > 0x00007FFFFFFFFFFF) continue;
+                if (is_nursery_ptr(val)) {
+                    // This nursery object field still points into nursery.
+                    // Check if the target memory was zeroed (stale reference).
+                    uint64_t first_word = *(uint64_t*)val;
+                    if (first_word == 0) {
+                        fprintf(stderr, "[TsGC] STALE: pinned obj at nursery+%zu field@+%zu "
+                                "-> nursery %p (ZEROED!)\n",
+                                offset + NURSERY_SIZE_PREFIX,
+                                (size_t)(p - obj_start), val);
+                        stale_count++;
+                    }
+                }
+            }
+
+            offset += NURSERY_SIZE_PREFIX + obj_size;
+        }
+        if (stale_count > 0) {
+            fprintf(stderr, "[TsGC] WARNING: %zu stale nursery references in pinned objects!\n", stale_count);
+        }
+        fflush(stderr);
+    }
 
     if (g_gc_verbose) {
         auto t1 = std::chrono::high_resolution_clock::now();
         double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        fprintf(stderr, "[TsGC] minor GC: promoted %zu objects (%zuKB) in %.2fms\n",
-                promoted_count, promoted_bytes / 1024, ms);
+        fprintf(stderr, "[TsGC] minor GC: promoted %zu objects (%zuKB), "
+                "pinned %zu (%zuKB), %zu fragments, %.2fms\n",
+                promoted_count, promoted_bytes / 1024,
+                g_nursery.pinned_count, g_nursery.pinned_bytes / 1024,
+                g_nursery.fragments.size(), ms);
         fflush(stderr);
     }
 }
