@@ -3559,6 +3559,69 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
         }
 
+        // Case 4b: Nested object method call - path.posix.join(...), path.win32.basename(...), etc.
+        // Pattern: <module>.<nested>.<method>(...)
+        {
+            auto* innerPropAccess = dynamic_cast<ast::PropertyAccessExpression*>(propAccess->expression.get());
+            if (innerPropAccess) {
+                auto* moduleIdent = dynamic_cast<ast::Identifier*>(innerPropAccess->expression.get());
+                if (moduleIdent) {
+                    auto& registry = ext::ExtensionRegistry::instance();
+                    const ext::MethodDefinition* methodDef = registry.findNestedObjectMethod(
+                        moduleIdent->name, innerPropAccess->name, propAccess->name);
+                    if (methodDef && methodDef->lowering) {
+                        std::string runtimeFunc;
+                        if (methodDef->hirName) {
+                            runtimeFunc = *methodDef->hirName;
+                        } else {
+                            runtimeFunc = "ts_" + moduleIdent->name + "_" + innerPropAccess->name + "_" + propAccess->name;
+                        }
+                        auto resultType = extTypeRefToHIR(methodDef->returns);
+
+                        // Handle rest parameters (same logic as Case 4)
+                        size_t restParamIndex = SIZE_MAX;
+                        for (size_t i = 0; i < methodDef->params.size(); ++i) {
+                            if (methodDef->params[i].rest) {
+                                restParamIndex = i;
+                                break;
+                            }
+                        }
+                        if (restParamIndex != SIZE_MAX && args.size() >= restParamIndex) {
+                            std::vector<std::shared_ptr<HIRValue>> packedArgs;
+                            for (size_t i = 0; i < restParamIndex; ++i) {
+                                packedArgs.push_back(args[i]);
+                            }
+                            auto restArray = builder_.createCall("ts_array_create", {}, HIRType::makeArray(HIRType::makeAny(), false));
+                            for (size_t i = restParamIndex; i < args.size(); ++i) {
+                                auto boxedArg = boxValueIfNeeded(args[i]);
+                                builder_.createCall("ts_array_push", {restArray, boxedArg}, HIRType::makeInt64());
+                            }
+                            packedArgs.push_back(restArray);
+
+                            // Inject platform constant (e.g., 1=win32, 2=posix) for _ex functions
+                            if (methodDef->platformArg) {
+                                packedArgs.push_back(builder_.createConstInt(*methodDef->platformArg));
+                            }
+
+                            lastValue_ = builder_.createCall(runtimeFunc, packedArgs, resultType);
+                            return;
+                        }
+
+                        // Non-rest args: inject platformArg if present
+                        if (methodDef->platformArg) {
+                            auto argsWithPlatform = args;
+                            argsWithPlatform.push_back(builder_.createConstInt(*methodDef->platformArg));
+                            lastValue_ = builder_.createCall(runtimeFunc, argsWithPlatform, resultType);
+                            return;
+                        }
+
+                        lastValue_ = builder_.createCall(runtimeFunc, args, resultType);
+                        return;
+                    }
+                }
+            }
+        }
+
         // Handle Function.prototype.call(thisArg, ...args)
         if (propAccess->name == "call" && !args.empty()) {
             auto func = lowerExpression(propAccess->expression.get());
@@ -4420,6 +4483,41 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 return;
             }
         }
+
+        // Check for nested object property getters (e.g., path.posix.sep, path.win32.delimiter)
+        auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get());
+        if (propAccess) {
+            auto* parentIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+            if (parentIdent) {
+                auto& extReg = ext::ExtensionRegistry::instance();
+                const ext::PropertyDefinition* propDef = extReg.findNestedObjectProperty(
+                    parentIdent->name, propAccess->name, node->name);
+                if (propDef && propDef->getter && propDef->lowering) {
+                    std::string getterFunc = *propDef->getter;
+                    std::shared_ptr<HIRType> retType;
+                    switch (propDef->lowering->returns) {
+                        case ext::LoweringType::I32:
+                        case ext::LoweringType::I1:
+                            retType = HIRType::makeBool();
+                            break;
+                        case ext::LoweringType::I64:
+                            retType = HIRType::makeInt64();
+                            break;
+                        case ext::LoweringType::F64:
+                            retType = HIRType::makeFloat64();
+                            break;
+                        case ext::LoweringType::Void:
+                            retType = HIRType::makeVoid();
+                            break;
+                        default:
+                            retType = HIRType::makeAny();
+                            break;
+                    }
+                    lastValue_ = builder_.createCall(getterFunc, {}, retType);
+                    return;
+                }
+            }
+        }
     }
 
     // Handle optional chaining: obj?.prop
@@ -4458,7 +4556,50 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 }
 
 void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
-    auto obj = builder_.createNewObjectDynamic();
+    // Pre-scan: check if ALL properties are static string names (eligible for flat object)
+    HIRShape* flatShape = nullptr;
+    bool allStatic = true;
+    std::vector<std::string> propNames;
+
+    for (auto& prop : node->properties) {
+        if (dynamic_cast<ast::SpreadElement*>(prop.get())) {
+            allStatic = false;
+            break;
+        }
+        if (dynamic_cast<ast::MethodDefinition*>(prop.get())) {
+            allStatic = false;
+            break;
+        }
+        if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
+            if (pa->name.empty()) {
+                allStatic = false;
+                break;
+            }
+            propNames.push_back(pa->name);
+        } else if (auto* spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
+            if (spa->name.empty()) {
+                allStatic = false;
+                break;
+            }
+            propNames.push_back(spa->name);
+        } else {
+            allStatic = false;
+            break;
+        }
+    }
+
+    if (allStatic && !propNames.empty()) {
+        auto shape = std::make_unique<HIRShape>();
+        shape->id = nextShapeId_++;
+        for (uint32_t i = 0; i < (uint32_t)propNames.size(); i++) {
+            shape->propertyOffsets[propNames[i]] = i;
+        }
+        shape->size = 8 + (uint32_t)propNames.size() * 8 + 8;
+        flatShape = shape.get();
+        module_->shapes.push_back(std::move(shape));
+    }
+
+    auto obj = builder_.createNewObjectDynamic(flatShape);
 
     for (auto& prop : node->properties) {
         // Handle spread element: {...other}

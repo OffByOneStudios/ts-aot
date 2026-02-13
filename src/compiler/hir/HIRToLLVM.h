@@ -196,6 +196,9 @@ private:
     // Used to avoid boxing string args when callee param is String-typed (not Any)
     std::map<std::string, std::vector<std::shared_ptr<HIRType>>> userFunctionParams_;
 
+    // Flat object shape tracking: maps HIR value ID to its shape (for flat object fast path)
+    std::map<uint32_t, HIRShape*> flatObjectShapes_;
+
     // Get or create LLVM value for HIR value
     llvm::Value* getValue(const std::shared_ptr<HIRValue>& hirValue);
 
@@ -339,6 +342,7 @@ private:
     // Object operations
     void lowerNewObject(HIRInstruction* inst);
     void lowerNewObjectDynamic(HIRInstruction* inst);
+    void lowerNewFlatObject(HIRInstruction* inst);
     void lowerGetPropStatic(HIRInstruction* inst);
     void lowerGetPropDynamic(HIRInstruction* inst);
     void lowerSetPropStatic(HIRInstruction* inst);

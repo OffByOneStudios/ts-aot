@@ -409,6 +409,10 @@ static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
         std::fprintf(stream, "Set(%lld)", ((TsSet*)ptr)->Size());
         return;
     }
+    if (magic == 0x464C4154) { // Flat object
+        std::fprintf(stream, "[object Object]");
+        return;
+    }
 
     // Check magic at offset 16 for TsObject-derived types
     uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
@@ -459,6 +463,7 @@ TsString* ts_typeof(void* val) {
         if (magic == 0x41525259) return TsString::Create("object");   // TsArray
         if (magic == 0x4D415053) return TsString::Create("object");   // TsMap
         if (magic == 0x46554E43) return TsString::Create("function"); // TsFunction
+        if (magic == 0x464C4154) return TsString::Create("object");   // Flat object
 
         // Check offset 16 for TsObject-derived types
         uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);

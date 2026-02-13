@@ -4,6 +4,7 @@
 #include "TsArray.h"
 #include "TsString.h"
 #include "TsRuntime.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 
 // Reflect provides static methods for interceptable JavaScript operations
@@ -67,6 +68,10 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
     // Get arguments array
     void* argsRaw = ts_nanbox_safe_unbox(argsArg);
 
+    if (argsRaw && is_flat_object(argsRaw)) {
+        return ts_value_make_undefined();
+    }
+
     TsArray* argsArray = dynamic_cast<TsArray*>((TsObject*)argsRaw);
     if (!argsArray) {
         return ts_value_make_undefined();
@@ -117,6 +122,8 @@ extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
     void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return 0;
 
+    if (is_flat_object(target)) return 1;  // Flat objects are extensible (via overflow)
+
     TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
     if (obj) {
         return obj->IsExtensible() ? 1 : 0;
@@ -127,6 +134,8 @@ extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
 extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
     void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return 0;
+
+    if (is_flat_object(target)) return 0;  // Can't prevent extensions on flat objects
 
     TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
     if (obj) {
@@ -139,6 +148,11 @@ extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
 extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* propArg) {
     void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return ts_value_make_undefined();
+
+    // Convert flat objects for interop
+    if (is_flat_object(target)) {
+        target = ts_flat_object_to_map(target);
+    }
 
     TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
     if (!obj) return ts_value_make_undefined();
@@ -178,10 +192,17 @@ extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, voi
     void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return 0;
 
+    if (is_flat_object(target)) {
+        target = ts_flat_object_to_map(target);
+    }
+
     TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
     if (!obj) return 0;
 
     void* descRaw = ts_nanbox_safe_unbox(descriptorArg);
+    if (descRaw && is_flat_object(descRaw)) {
+        descRaw = ts_flat_object_to_map(descRaw);
+    }
     TsMap* descriptor = dynamic_cast<TsMap*>((TsObject*)descRaw);
     if (!descriptor) return 0;
 

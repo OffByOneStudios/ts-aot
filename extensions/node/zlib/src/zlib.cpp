@@ -15,6 +15,7 @@
 #include "TsObject.h"
 #include "TsRuntime.h"
 #include "TsError.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 #include <cstring>
 #include <algorithm>
@@ -30,6 +31,11 @@ TsZlibOptions TsZlibOptions::FromValue(TsValue* options) {
 
     void* rawOpts = ts_value_get_object(options);
     if (!rawOpts) rawOpts = options;
+
+    // Convert flat objects to TsMap for interop
+    if (is_flat_object(rawOpts)) {
+        rawOpts = ts_flat_object_to_map(rawOpts);
+    }
 
     TsMap* map = dynamic_cast<TsMap*>((TsObject*)rawOpts);
     if (!map) return opts;
@@ -95,6 +101,11 @@ TsBrotliOptions TsBrotliOptions::FromValue(TsValue* options) {
 
     void* rawOpts = ts_value_get_object(options);
     if (!rawOpts) rawOpts = options;
+
+    // Convert flat objects to TsMap for interop
+    if (is_flat_object(rawOpts)) {
+        rawOpts = ts_flat_object_to_map(rawOpts);
+    }
 
     TsMap* map = dynamic_cast<TsMap*>((TsObject*)rawOpts);
     if (!map) return opts;

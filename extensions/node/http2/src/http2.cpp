@@ -9,6 +9,7 @@
 #include "TsBuffer.h"
 #include "TsSymbol.h"
 #include "TsError.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 #include "TsGC.h"
 
@@ -66,8 +67,14 @@ void* ts_http2_get_packed_settings(void* settings) {
     size_t offset = 0;
 
     // Get settings from map
-    TsMap* settingsMap = dynamic_cast<TsMap*>((TsObject*)ts_value_get_object((TsValue*)settings));
-    if (!settingsMap) settingsMap = dynamic_cast<TsMap*>((TsObject*)settings);
+    void* rawSettings = ts_value_get_object((TsValue*)settings);
+    if (rawSettings && is_flat_object(rawSettings)) rawSettings = ts_flat_object_to_map(rawSettings);
+    TsMap* settingsMap = rawSettings ? dynamic_cast<TsMap*>((TsObject*)rawSettings) : nullptr;
+    if (!settingsMap) {
+        void* rawS = (void*)settings;
+        if (rawS && is_flat_object(rawS)) rawS = ts_flat_object_to_map(rawS);
+        settingsMap = rawS ? dynamic_cast<TsMap*>((TsObject*)rawS) : nullptr;
+    }
 
     auto writeSetting = [&](uint16_t id, uint32_t value) {
         data[offset++] = (id >> 8) & 0xFF;
@@ -370,7 +377,8 @@ void* ts_http2_client_session_request(void* session, void* headers, void* option
     if (!s) return nullptr;
 
     void* rawHeaders = ts_nanbox_safe_unbox(headers);
-    TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
+    if (rawHeaders && is_flat_object(rawHeaders)) rawHeaders = ts_flat_object_to_map(rawHeaders);
+    TsMap* headersMap = rawHeaders ? dynamic_cast<TsMap*>((TsObject*)rawHeaders) : nullptr;
 
     TsClientHttp2Stream* stream = s->Request(headersMap, (TsValue*)options);
     if (!stream) return nullptr;
@@ -500,7 +508,8 @@ void ts_http2_server_stream_additional_headers(void* stream, void* headers) {
     if (!s) return;
 
     void* rawHeaders = ts_nanbox_safe_unbox(headers);
-    TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
+    if (rawHeaders && is_flat_object(rawHeaders)) rawHeaders = ts_flat_object_to_map(rawHeaders);
+    TsMap* headersMap = rawHeaders ? dynamic_cast<TsMap*>((TsObject*)rawHeaders) : nullptr;
 
     s->AdditionalHeaders(headersMap);
 }
@@ -511,7 +520,8 @@ void ts_http2_server_stream_push_stream(void* stream, void* headers, void* optio
     if (!s) return;
 
     void* rawHeaders = ts_nanbox_safe_unbox(headers);
-    TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
+    if (rawHeaders && is_flat_object(rawHeaders)) rawHeaders = ts_flat_object_to_map(rawHeaders);
+    TsMap* headersMap = rawHeaders ? dynamic_cast<TsMap*>((TsObject*)rawHeaders) : nullptr;
 
     s->PushStream(headersMap, (TsValue*)options, callback);
 }
@@ -522,7 +532,8 @@ void ts_http2_server_stream_respond(void* stream, void* headers, void* options) 
     if (!s) return;
 
     void* rawHeaders = ts_nanbox_safe_unbox(headers);
-    TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
+    if (rawHeaders && is_flat_object(rawHeaders)) rawHeaders = ts_flat_object_to_map(rawHeaders);
+    TsMap* headersMap = rawHeaders ? dynamic_cast<TsMap*>((TsObject*)rawHeaders) : nullptr;
 
     s->Respond(headersMap, (TsValue*)options);
 }
@@ -533,7 +544,8 @@ void ts_http2_server_stream_respond_with_fd(void* stream, int64_t fd, void* head
     if (!s) return;
 
     void* rawHeaders = ts_nanbox_safe_unbox(headers);
-    TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
+    if (rawHeaders && is_flat_object(rawHeaders)) rawHeaders = ts_flat_object_to_map(rawHeaders);
+    TsMap* headersMap = rawHeaders ? dynamic_cast<TsMap*>((TsObject*)rawHeaders) : nullptr;
 
     s->RespondWithFD((int)fd, headersMap, (TsValue*)options);
 }
@@ -547,7 +559,8 @@ void ts_http2_server_stream_respond_with_file(void* stream, void* path, void* he
     TsString* pathStr = dynamic_cast<TsString*>((TsObject*)rawPath);
 
     void* rawHeaders = ts_nanbox_safe_unbox(headers);
-    TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
+    if (rawHeaders && is_flat_object(rawHeaders)) rawHeaders = ts_flat_object_to_map(rawHeaders);
+    TsMap* headersMap = rawHeaders ? dynamic_cast<TsMap*>((TsObject*)rawHeaders) : nullptr;
 
     s->RespondWithFile(pathStr ? pathStr->ToUtf8() : nullptr, headersMap, (TsValue*)options);
 }

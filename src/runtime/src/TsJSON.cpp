@@ -6,6 +6,7 @@
 #include "TsObject.h"
 #include "TsDate.h"
 #include "TsRegExp.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 #include <nlohmann/json.hpp>
 #include <string>
@@ -142,6 +143,45 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         for (int64_t i = 0; i < arr->Length(); ++i) {
             // TsArray::Get returns raw int64_t, which might be a pointer or a boxed value
             j.push_back(ts_to_json_internal((void*)arr->Get(i), visited));
+        }
+        visited.erase(p);
+        return j;
+    }
+
+    // Flat inline-slot object (magic at offset 0)
+    if (magic == FLAT_MAGIC) {
+        if (visited.find(p) != visited.end()) {
+            throw std::runtime_error("Circular reference in JSON.stringify");
+        }
+        visited.insert(p);
+        uint32_t shapeId = flat_object_shape_id(p);
+        ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+        nlohmann::json j = nlohmann::json::object();
+        if (desc) {
+            for (uint32_t i = 0; i < desc->numSlots; i++) {
+                uint64_t val = *(uint64_t*)((char*)p + 8 + i * 8);
+                j[desc->propNames[i]] = ts_to_json_internal((void*)(uintptr_t)val, visited);
+            }
+            // Check overflow map
+            void* overflow = *(void**)((char*)p + 8 + desc->numSlots * 8);
+            if (overflow) {
+                TsMap* map = (TsMap*)overflow;
+                TsArray* keys = (TsArray*)map->GetKeys();
+                for (int64_t i = 0; i < keys->Length(); i++) {
+                    uint64_t keyNB = (uint64_t)keys->Get(i);
+                    if (!nanbox_is_ptr(keyNB)) continue;
+                    void* keyPtr = nanbox_to_ptr(keyNB);
+                    if (!keyPtr || *(uint32_t*)keyPtr != TsString::MAGIC) continue;
+                    TsString* keyStr = (TsString*)keyPtr;
+                    TsValue keyTv;
+                    std::memset(&keyTv, 0, sizeof(TsValue));
+                    keyTv.type = ValueType::STRING_PTR;
+                    keyTv.ptr_val = keyStr;
+                    TsValue val = map->Get(keyTv);
+                    if (val.type == ValueType::UNDEFINED) continue;
+                    j[keyStr->ToUtf8()] = ts_value_to_json(val, visited);
+                }
+            }
         }
         visited.erase(p);
         return j;

@@ -3,6 +3,7 @@
 #include "TsPromise.h"
 #include "TsArray.h"
 #include "TsObject.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 #include <cstring>
 #include <cstdio>  // For debug fprintf
@@ -255,7 +256,8 @@ static DnsLookupOptions parse_lookup_options(void* optionsPtr) {
 
     void* rawPtr = ts_nanbox_safe_unbox(optionsPtr);
 
-    TsMap* options = dynamic_cast<TsMap*>((TsObject*)rawPtr);
+    if (rawPtr && is_flat_object(rawPtr)) rawPtr = ts_flat_object_to_map(rawPtr);
+    TsMap* options = rawPtr ? dynamic_cast<TsMap*>((TsObject*)rawPtr) : nullptr;
     if (!options) return opts;
 
     // Check 'family' option

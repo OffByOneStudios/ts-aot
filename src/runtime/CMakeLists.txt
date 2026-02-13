@@ -79,6 +79,7 @@ add_library(tsruntime STATIC
     src/StackMap.cpp
     src/GCRoots.cpp
     src/TsGC.cpp
+    src/TsFlatObject.cpp
 )
 
 # ICU data stub library - provides minimal icudt74_dat symbol for external data mode.

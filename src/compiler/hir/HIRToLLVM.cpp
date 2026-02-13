@@ -257,6 +257,71 @@ void HIRToLLVM::createMainFunction() {
         }
     }
 
+    // Register flat object shapes before ts_main
+    if (hirModule_ && !hirModule_->shapes.empty()) {
+        // Declare ts_shape_register(uint32_t shapeId, ShapeDescriptor* desc)
+        llvm::FunctionType* registerFT = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { builder_->getInt32Ty(), builder_->getPtrTy() },
+            false
+        );
+        llvm::FunctionCallee registerFn = module_->getOrInsertFunction("ts_shape_register", registerFT);
+
+        // ShapeDescriptor struct type: { i32 magic, i32 numSlots, ptr propNames }
+        llvm::StructType* shapeDescTy = llvm::StructType::get(context_, {
+            builder_->getInt32Ty(),  // magic
+            builder_->getInt32Ty(),  // numSlots
+            builder_->getPtrTy()     // propNames
+        });
+
+        for (auto& shape : hirModule_->shapes) {
+            uint32_t numSlots = (uint32_t)shape->propertyOffsets.size();
+
+            // Build ordered list of property names (sorted by slot index)
+            std::vector<std::pair<uint32_t, std::string>> orderedProps;
+            for (auto& [name, idx] : shape->propertyOffsets) {
+                orderedProps.push_back({idx, name});
+            }
+            std::sort(orderedProps.begin(), orderedProps.end());
+
+            // Emit global string constants for each property name
+            std::vector<llvm::Constant*> namePtrs;
+            for (auto& [idx, name] : orderedProps) {
+                auto* strConst = llvm::ConstantDataArray::getString(context_, name, true);
+                auto* strGlobal = new llvm::GlobalVariable(
+                    *module_, strConst->getType(), true,
+                    llvm::GlobalValue::PrivateLinkage, strConst,
+                    "flat.prop." + std::to_string(shape->id) + "." + name);
+                namePtrs.push_back(strGlobal);
+            }
+
+            // Emit global array of property name pointers
+            auto* ptrArrayTy = llvm::ArrayType::get(builder_->getPtrTy(), numSlots);
+            auto* ptrArray = llvm::ConstantArray::get(ptrArrayTy, namePtrs);
+            auto* nameArrayGlobal = new llvm::GlobalVariable(
+                *module_, ptrArrayTy, true,
+                llvm::GlobalValue::PrivateLinkage, ptrArray,
+                "flat.names." + std::to_string(shape->id));
+
+            // Emit ShapeDescriptor struct constant
+            auto* descConst = llvm::ConstantStruct::get(shapeDescTy, {
+                llvm::ConstantInt::get(builder_->getInt32Ty(), 0x464C4154),  // magic
+                llvm::ConstantInt::get(builder_->getInt32Ty(), numSlots),     // numSlots
+                nameArrayGlobal                                                // propNames
+            });
+            auto* descGlobal = new llvm::GlobalVariable(
+                *module_, shapeDescTy, true,
+                llvm::GlobalValue::PrivateLinkage, descConst,
+                "flat.desc." + std::to_string(shape->id));
+
+            // Call ts_shape_register(shapeId, &descriptor)
+            builder_->CreateCall(registerFT, registerFn.getCallee(), {
+                llvm::ConstantInt::get(builder_->getInt32Ty(), shape->id),
+                descGlobal
+            });
+        }
+    }
+
     // Call ts_main(argc, argv, user_main)
     llvm::Value* result = builder_->CreateCall(
         tsMainFt, tsMain.getCallee(),
@@ -500,6 +565,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     blockMap_.clear();
     closureParam_ = nullptr;
     capturedVarCells_.clear();
+    flatObjectShapes_.clear();
     asyncPromise_ = nullptr;
     generatorObject_ = nullptr;
     asyncContext_ = nullptr;
@@ -2153,6 +2219,11 @@ void HIRToLLVM::lowerLogicalAnd(HIRInstruction* inst) {
         if (val->getType()->isIntegerTy(64)) return emitInlineBoxInt(val);
         if (val->getType()->isDoubleTy()) return emitInlineBoxFloat(val);
         if (val->getType()->isIntegerTy(1)) return emitInlineBoxBool(val);
+        // Handle i32 and other integer types (e.g., boolean getters returning i32)
+        if (val->getType()->isIntegerTy()) {
+            llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt64Ty());
+            return emitInlineBoxInt(ext);
+        }
         return val;
     };
 
@@ -2204,6 +2275,11 @@ void HIRToLLVM::lowerLogicalOr(HIRInstruction* inst) {
         if (val->getType()->isIntegerTy(64)) return emitInlineBoxInt(val);
         if (val->getType()->isDoubleTy()) return emitInlineBoxFloat(val);
         if (val->getType()->isIntegerTy(1)) return emitInlineBoxBool(val);
+        // Handle i32 and other integer types (e.g., boolean getters returning i32)
+        if (val->getType()->isIntegerTy()) {
+            llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt64Ty());
+            return emitInlineBoxInt(ext);
+        }
         return val;
     };
 
@@ -2852,8 +2928,90 @@ void HIRToLLVM::lowerNewObject(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerNewObjectDynamic(HIRInstruction* inst) {
-    // Same as NewObject for now
+    if (inst->objectShape) {
+        lowerNewFlatObject(inst);
+        return;
+    }
     lowerNewObject(inst);
+}
+
+void HIRToLLVM::lowerNewFlatObject(HIRInstruction* inst) {
+    HIRShape* shape = inst->objectShape;
+    uint32_t numSlots = (uint32_t)shape->propertyOffsets.size();
+    uint32_t totalSize = 8 + numSlots * 8 + 8;  // header(8) + slots(N*8) + overflow(8)
+
+    llvm::Value* result;
+
+    // Check if we can stack-allocate this flat object
+    bool canStackAlloc = !inst->escapes &&
+                         !isAsyncFunction_ &&
+                         !isGeneratorFunction_ &&
+                         stackAllocCount_ < kMaxStackAllocObjects &&
+                         (stackAllocBytes_ + (int)totalSize) <= kMaxStackAllocBytes;
+
+    if (canStackAlloc) {
+        // Stack allocate at function entry
+        llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+        llvm::BasicBlock* entryBB = &currentFunction_->getEntryBlock();
+        builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
+        auto* allocaInst = builder_->CreateAlloca(
+            llvm::ArrayType::get(builder_->getInt8Ty(), totalSize),
+            nullptr, "stack.flat");
+        allocaInst->setAlignment(llvm::Align(8));
+        result = allocaInst;
+        stackAllocCount_++;
+        stackAllocBytes_ += totalSize;
+    } else {
+        // Heap allocation via GC
+        auto gcAllocFn = getOrDeclareRuntimeFunction("ts_gc_alloc",
+            builder_->getPtrTy(), {builder_->getInt64Ty()});
+        llvm::Value* sizeVal = llvm::ConstantInt::get(builder_->getInt64Ty(), totalSize);
+        result = rawToGCPtr(builder_->CreateCall(gcAllocFn, {sizeVal}));
+    }
+
+    // Write FLAT_MAGIC (0x464C4154) at offset 0
+    llvm::Value* magicPtr = builder_->CreateGEP(
+        builder_->getInt8Ty(), result,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
+    builder_->CreateStore(
+        llvm::ConstantInt::get(builder_->getInt32Ty(), 0x464C4154),
+        magicPtr);
+
+    // Write shapeId at offset 4
+    llvm::Value* shapeIdPtr = builder_->CreateGEP(
+        builder_->getInt8Ty(), result,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 4));
+    builder_->CreateStore(
+        llvm::ConstantInt::get(builder_->getInt32Ty(), shape->id),
+        shapeIdPtr);
+
+    // Initialize all slots to NANBOX_UNDEFINED (0x0A)
+    for (uint32_t i = 0; i < numSlots; i++) {
+        uint32_t offset = 8 + i * 8;
+        llvm::Value* slotPtr = builder_->CreateGEP(
+            builder_->getInt8Ty(), result,
+            llvm::ConstantInt::get(builder_->getInt64Ty(), offset));
+        llvm::Value* undefVal = builder_->CreateIntToPtr(
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0A),
+            builder_->getPtrTy());
+        builder_->CreateStore(undefVal, slotPtr);
+    }
+
+    // Initialize overflow map pointer to null
+    uint32_t overflowOffset = 8 + numSlots * 8;
+    llvm::Value* overflowPtr = builder_->CreateGEP(
+        builder_->getInt8Ty(), result,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), overflowOffset));
+    builder_->CreateStore(
+        llvm::ConstantPointerNull::get(builder_->getPtrTy()),
+        overflowPtr);
+
+    // Track this flat object shape for fast-path SetPropStatic
+    if (inst->result) {
+        flatObjectShapes_[inst->result->id] = shape;
+    }
+
+    setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
@@ -3005,6 +3163,70 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
     llvm::Value* obj = gcPtrToRaw(getOperandValue(inst->operands[0]));
     std::string propName = getOperandString(inst->operands[1]);
     llvm::Value* val = gcPtrToRaw(getOperandValue(inst->operands[2]));
+
+    // ---- Flat object fast path ----
+    // If operand[0] is a flat object we created, store directly into slot
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        auto it = flatObjectShapes_.find((*hirVal)->id);
+        if (it != flatObjectShapes_.end()) {
+            HIRShape* shape = it->second;
+            auto slotIt = shape->propertyOffsets.find(propName);
+            if (slotIt != shape->propertyOffsets.end()) {
+                uint32_t offset = 8 + slotIt->second * 8;
+
+                // NaN-box the value using branchless select (avoids creating new blocks
+                // that would break PHI predecessors in the same HIR block)
+                llvm::Value* boxed = val;
+                if (val->getType()->isIntegerTy(64)) {
+                    // Branchless int NaN-boxing: select between int32 and double paths
+                    llvm::Value* trunc = builder_->CreateTrunc(val, builder_->getInt32Ty(), "nb.trunc");
+                    llvm::Value* sext = builder_->CreateSExt(trunc, builder_->getInt64Ty(), "nb.sext");
+                    llvm::Value* fits = builder_->CreateICmpEQ(val, sext, "nb.fits_i32");
+
+                    // Int32 path: tag with 0xFFFE prefix
+                    llvm::Value* masked = builder_->CreateAnd(val,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x00000000FFFFFFFFULL), "nb.masked");
+                    llvm::Value* tagged = builder_->CreateOr(masked,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0xFFFE000000000000ULL), "nb.tagged");
+
+                    // Double path: convert to double, bias
+                    llvm::Value* dbl = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "nb.dbl");
+                    llvm::Value* bits = builder_->CreateBitCast(dbl, builder_->getInt64Ty(), "nb.bits");
+                    llvm::Value* biased = builder_->CreateAdd(bits,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "nb.biased");
+
+                    llvm::Value* selected = builder_->CreateSelect(fits, tagged, biased, "nb.sel");
+                    boxed = builder_->CreateIntToPtr(selected, builder_->getPtrTy(), "nb.ptr");
+                } else if (val->getType()->isDoubleTy()) {
+                    // Branchless double NaN-boxing: bias by 2^49
+                    llvm::Value* bits = builder_->CreateBitCast(val, builder_->getInt64Ty(), "nb.bits");
+                    llvm::Value* biased = builder_->CreateAdd(bits,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "nb.biased");
+                    boxed = builder_->CreateIntToPtr(biased, builder_->getPtrTy(), "nb.ptr");
+                } else if (val->getType()->isIntegerTy(1)) {
+                    // Branchless bool NaN-boxing: false=6, true=7
+                    llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt64Ty(), "nb.ext");
+                    llvm::Value* result = builder_->CreateAdd(ext,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 6), "nb.bool");
+                    boxed = builder_->CreateIntToPtr(result, builder_->getPtrTy(), "nb.ptr");
+                }
+                // ptr-typed values (objects, strings, arrays) are already NaN-box-compatible
+
+                // Store into slot
+                llvm::Value* slotPtr = builder_->CreateGEP(
+                    builder_->getInt8Ty(), obj,
+                    llvm::ConstantInt::get(builder_->getInt64Ty(), offset));
+                builder_->CreateStore(boxed, slotPtr);
+
+                // Write barrier for GC
+                if (boxed->getType()->isPointerTy()) {
+                    emitWriteBarrier(slotPtr, boxed);
+                }
+                return;
+            }
+            // Property not in shape - fall through to regular TsMap path
+        }
+    }
 
     // Box the object - ts_object_set_dynamic expects TsValue*, not raw TsMap*
     if (obj->getType()->isPointerTy()) {
@@ -5376,6 +5598,7 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
     bool isClosureFunction = (funcName.find("__arrow_fn_") == 0) ||
                              (funcName.find("__closure_") == 0) ||
                              (funcName.find("__anon_fn_") == 0) ||
+                             (funcName.find("__fn_expr_") == 0) ||
                              (funcName.find("__lambda_") == 0);
     bool isSetterFunction = (funcName.find("__setter_") == 0);
     bool isGetterFunction = (funcName.find("__getter_") == 0);

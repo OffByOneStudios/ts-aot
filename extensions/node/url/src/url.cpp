@@ -2,6 +2,7 @@
 #include "TsURL.h"
 #include "TsArray.h"
 #include "TsMap.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include <new>
@@ -775,6 +776,10 @@ extern "C" {
         // Try to get as TsURL first (WHATWG URL instance)
         void* objPtr = ts_value_get_object((TsValue*)urlArg);
         if (!objPtr) objPtr = urlArg;
+
+        if (is_flat_object(objPtr)) {
+            objPtr = ts_flat_object_to_map(objPtr);
+        }
 
         TsURL* url = dynamic_cast<TsURL*>((TsObject*)objPtr);
         if (url) {

@@ -67,6 +67,7 @@ inline TsValue nanbox_to_tagged(TsValue* v) {
         uint32_t magic0 = *(uint32_t*)ptr;
         if (magic0 == 0x53545247) { tv.type = ValueType::STRING_PTR; tv.ptr_val = ptr; return tv; }
         if (magic0 == 0x41525259) { tv.type = ValueType::ARRAY_PTR; tv.ptr_val = ptr; return tv; }
+        if (magic0 == 0x464C4154) { tv.type = ValueType::OBJECT_PTR; tv.ptr_val = ptr; return tv; } // FLAT_MAGIC
         uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
         if (magic16 == 0x50524F4D) { tv.type = ValueType::PROMISE_PTR; tv.ptr_val = ptr; return tv; }
         if (magic16 == 0x42494749) { tv.type = ValueType::BIGINT_PTR; tv.ptr_val = ptr; return tv; }

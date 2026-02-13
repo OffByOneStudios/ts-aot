@@ -7,6 +7,7 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsBuffer.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 
 #include <cstring>
@@ -248,7 +249,8 @@ void ts_server_response_add_trailers(void* res, void* trailers) {
     if (!r) return;
 
     void* rawTrailers = ts_nanbox_safe_unbox(trailers);
-    TsMap* trailersMap = dynamic_cast<TsMap*>((TsObject*)rawTrailers);
+    if (rawTrailers && is_flat_object(rawTrailers)) rawTrailers = ts_flat_object_to_map(rawTrailers);
+    TsMap* trailersMap = rawTrailers ? dynamic_cast<TsMap*>((TsObject*)rawTrailers) : nullptr;
     if (trailersMap) {
         r->AddTrailers(trailersMap);
     }

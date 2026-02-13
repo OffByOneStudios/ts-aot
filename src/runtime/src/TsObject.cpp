@@ -20,6 +20,7 @@
 #include "TsTextEncoding.h"
 #include "GC.h"
 #include "TsGC.h"  // For ts_gc_base()
+#include "TsFlatObject.h"
 #include "TsNanBox.h"
 #include "TsRuntime.h"
 #include "MemoryTracker.h"
@@ -829,6 +830,11 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic20 = *(uint32_t*)((char*)obj + 20);
         uint32_t magic24 = *(uint32_t*)((char*)obj + 24);
 
+        // Check for flat inline-slot object (magic at offset 0)
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            return (TsValue*)ts_flat_object_get_property(obj, keyStr);
+        }
+
         // Check for TsRegExp (magic at offset 0) - handle BEFORE dynamic_cast!
         if (magic0 == 0x52454758) { // TsRegExp::MAGIC ("REGX")
             TsRegExp* re = (TsRegExp*)obj;
@@ -1167,6 +1173,10 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!nanbox_is_ptr(nb)) return nullptr;
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return nullptr;
+
+        // Flat objects are not TsObject-derived, skip them
+        uint32_t magic0 = *(uint32_t*)ptr;
+        if (magic0 == 0x464C4154) return nullptr; // FLAT_MAGIC
 
         // Only do dynamic_cast for objects that could be TsProxy
         uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
@@ -1837,6 +1847,12 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
+        // Check flat object (magic at offset 0)
+        uint32_t magic0 = *(uint32_t*)rawPtr;
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            return ts_value_make_array((TsArray*)ts_flat_object_keys(rawPtr));
+        }
+
         // Check if this is a Proxy - dispatch through ownKeys trap
         TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawPtr);
         if (proxy) {
@@ -1856,10 +1872,16 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.values(obj) - returns array of values
     TsValue* ts_object_values(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
-        
+
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
-        
+
+        // Check flat object (magic at offset 0)
+        uint32_t magic0 = *(uint32_t*)rawPtr;
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            return ts_value_make_array((TsArray*)ts_flat_object_values(rawPtr));
+        }
+
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_values(rawPtr));
@@ -1873,6 +1895,12 @@ TsValue* ts_value_make_int(int64_t i) {
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
+
+        // Check flat object (magic at offset 0)
+        uint32_t magic0_e = *(uint32_t*)rawPtr;
+        if (magic0_e == 0x464C4154) { // FLAT_MAGIC
+            return ts_value_make_array((TsArray*)ts_flat_object_entries(rawPtr));
+        }
 
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
@@ -1932,6 +1960,11 @@ TsValue* ts_value_make_int(int64_t i) {
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
+
+        // Handle flat objects
+        if (is_flat_object(rawPtr)) {
+            return ts_value_make_array((TsArray*)ts_flat_object_keys(rawPtr));
+        }
 
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
@@ -2043,6 +2076,11 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
+        // Convert flat objects to TsMap first
+        if (is_flat_object(rawPtr)) {
+            rawPtr = ts_flat_object_to_map(rawPtr);
+        }
+
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) {  // TsMap::MAGIC
@@ -2059,6 +2097,11 @@ TsValue* ts_value_make_int(int64_t i) {
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
+
+        // Convert flat objects to TsMap first
+        if (is_flat_object(rawPtr)) {
+            rawPtr = ts_flat_object_to_map(rawPtr);
+        }
 
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
@@ -2077,6 +2120,11 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
+        // Convert flat objects to TsMap first
+        if (is_flat_object(rawPtr)) {
+            rawPtr = ts_flat_object_to_map(rawPtr);
+        }
+
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) {  // TsMap::MAGIC
@@ -2093,6 +2141,11 @@ TsValue* ts_value_make_int(int64_t i) {
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
+
+        // Flat objects are never frozen (they haven't been converted)
+        if (is_flat_object(rawPtr)) {
+            return ts_value_make_bool(false);
+        }
 
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
@@ -2111,6 +2164,11 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
+        // Flat objects are never sealed (they haven't been converted)
+        if (is_flat_object(rawPtr)) {
+            return ts_value_make_bool(false);
+        }
+
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) {  // TsMap::MAGIC
@@ -2127,6 +2185,11 @@ TsValue* ts_value_make_int(int64_t i) {
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
+
+        // Flat objects are always extensible (via overflow map)
+        if (is_flat_object(rawPtr)) {
+            return ts_value_make_bool(true);
+        }
 
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
@@ -2149,6 +2212,11 @@ TsValue* ts_value_make_int(int64_t i) {
             return obj;
         }
 
+        // Convert flat object to TsMap
+        if (is_flat_object(rawPtr)) {
+            rawPtr = ts_flat_object_to_map(rawPtr);
+        }
+
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic != 0x4D415053) {  // TsMap::MAGIC
@@ -2169,6 +2237,11 @@ TsValue* ts_value_make_int(int64_t i) {
         void* descRaw = ts_value_get_object(descriptor);
         if (!descRaw) {
             return obj;  // descriptor must be an object
+        }
+
+        // Convert flat descriptor to TsMap
+        if (is_flat_object(descRaw)) {
+            descRaw = ts_flat_object_to_map(descRaw);
         }
 
         uint32_t descMagic = *(uint32_t*)((char*)descRaw + 16);
@@ -2256,6 +2329,11 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
+        // Convert flat objects to TsMap
+        if (is_flat_object(rawPtr)) {
+            rawPtr = ts_flat_object_to_map(rawPtr);
+        }
+
         // Check if target is a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic != 0x4D415053) {
@@ -2265,6 +2343,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Get the descriptors object
         void* descRaw = ts_value_get_object(descriptors);
         if (!descRaw) descRaw = descriptors;
+
+        // Convert flat descriptor object to TsMap
+        if (is_flat_object(descRaw)) {
+            descRaw = ts_flat_object_to_map(descRaw);
+        }
 
         uint32_t descMagic = *(uint32_t*)((char*)descRaw + 16);
         if (descMagic != 0x4D415053) {
@@ -2302,6 +2385,11 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) {
             return ts_value_make_object(nullptr);  // undefined for non-objects
+        }
+
+        // Convert flat object to TsMap
+        if (is_flat_object(rawPtr)) {
+            rawPtr = ts_flat_object_to_map(rawPtr);
         }
 
         // Check if it's a TsMap
@@ -2366,6 +2454,11 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
+        // Convert flat object to TsMap
+        if (is_flat_object(rawPtr)) {
+            rawPtr = ts_flat_object_to_map(rawPtr);
+        }
+
         // Check if it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic != 0x4D415053) {
@@ -2399,24 +2492,54 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_assign(TsValue* target, TsValue* source) {
         if (!target) return target;
         if (!source) return target;
-        
+
         void* targetRaw = ts_value_get_object(target);
         if (!targetRaw) targetRaw = target;
-        
+
         void* sourceRaw = ts_value_get_object(source);
         if (!sourceRaw) sourceRaw = source;
-        
+
+        // Check for flat source object
+        uint32_t sourceMagic0 = *(uint32_t*)sourceRaw;
+        bool sourceIsFlat = (sourceMagic0 == 0x464C4154); // FLAT_MAGIC
+
+        // Check for flat target object
+        uint32_t targetMagic0 = *(uint32_t*)targetRaw;
+        bool targetIsFlat = (targetMagic0 == 0x464C4154); // FLAT_MAGIC
+
+        if (sourceIsFlat) {
+            // Copy from flat source to target
+            uint32_t shapeId = flat_object_shape_id(sourceRaw);
+            ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+            if (desc) {
+                for (uint32_t i = 0; i < desc->numSlots; i++) {
+                    uint64_t val = *(uint64_t*)((char*)sourceRaw + 8 + i * 8);
+                    TsString* keyStr = TsString::Create(desc->propNames[i]);
+                    if (targetIsFlat) {
+                        ts_flat_object_set_property(targetRaw, desc->propNames[i], (void*)(uintptr_t)val);
+                    } else {
+                        uint32_t targetMagic16 = *(uint32_t*)((char*)targetRaw + 16);
+                        if (targetMagic16 == 0x4D415053) {
+                            TsMap* targetMap = (TsMap*)targetRaw;
+                            TsValue tv = nanbox_to_tagged((TsValue*)(uintptr_t)val);
+                            targetMap->Set(TsValue(keyStr), tv);
+                        }
+                    }
+                }
+            }
+            return target;
+        }
+
         // Check both are TsMaps (magic at offset 16 - see TsObject.h layout)
         uint32_t targetMagic = *(uint32_t*)((char*)targetRaw + 16);
         uint32_t sourceMagic = *(uint32_t*)((char*)sourceRaw + 16);
-        
-        if (targetMagic != 0x4D415053 || sourceMagic != 0x4D415053) {
+
+        if (sourceMagic != 0x4D415053) {
             return target;
         }
-        
-        TsMap* targetMap = (TsMap*)targetRaw;
+
         TsMap* sourceMap = (TsMap*)sourceRaw;
-        
+
         // Get entries from source and copy to target
         TsArray* entries = (TsArray*)sourceMap->GetEntries();
         int64_t len = entries->Length();
@@ -2424,9 +2547,18 @@ TsValue* ts_value_make_int(int64_t i) {
             TsArray* entry = (TsArray*)entries->Get(i);
             TsValue* key = (TsValue*)entry->Get(0);
             TsValue* val = (TsValue*)entry->Get(1);
-            targetMap->Set(nanbox_to_tagged(key), nanbox_to_tagged(val));
+            if (targetIsFlat) {
+                TsString* keyStr = (TsString*)ts_nanbox_safe_unbox(key);
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k) ts_flat_object_set_property(targetRaw, k, val);
+                }
+            } else if (targetMagic == 0x4D415053) {
+                TsMap* targetMap = (TsMap*)targetRaw;
+                targetMap->Set(nanbox_to_tagged(key), nanbox_to_tagged(val));
+            }
         }
-        
+
         return target;
     }
     
@@ -2436,6 +2568,17 @@ TsValue* ts_value_make_int(int64_t i) {
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
+
+        // Check for flat object first
+        uint32_t magic0 = *(uint32_t*)rawPtr;
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            void* propRaw = ts_nanbox_safe_unbox(prop);
+            if (!propRaw) return false;
+            TsString* keyStr = (TsString*)propRaw;
+            const char* k = keyStr->ToUtf8();
+            if (!k) return false;
+            return ts_flat_object_has_property(rawPtr, k);
+        }
 
         // Check for TsMap (magic at offset 16, 20, or 24 depending on object layout)
         uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
@@ -2820,6 +2963,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (magic0 == 0x4D415053) return TsString::Create("object");
             if (magic0 == 0x53455453) return TsString::Create("object");
             if (magic0 == 0x46554E43) return TsString::Create("function");
+            if (magic0 == 0x464C4154) return TsString::Create("object"); // FLAT_MAGIC
 
             uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
             if (magic16 == 0x4D415053) return TsString::Create("object");
@@ -2882,6 +3026,15 @@ TsValue* ts_value_make_int(int64_t i) {
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) return ts_object_get_property(rawObj, k);
+            }
+            return ts_value_make_undefined();
+        }
+
+        // Handle flat object
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k) return (TsValue*)ts_flat_object_get_property(rawObj, k);
             }
             return ts_value_make_undefined();
         }
@@ -3095,6 +3248,23 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return;
 
+        // Check flat object (magic at offset 0)
+        uint32_t magic0_sd = *(uint32_t*)rawObj;
+        if (magic0_sd == 0x464C4154) { // FLAT_MAGIC
+            // Need to extract key as C string
+            uint64_t keyNb = nanbox_from_tsvalue_ptr(key);
+            if (nanbox_is_ptr(keyNb)) {
+                void* keyPtr = nanbox_to_ptr(keyNb);
+                if (keyPtr && *(uint32_t*)keyPtr == 0x53545247) { // TsString::MAGIC
+                    const char* keyCStr = ((TsString*)keyPtr)->ToUtf8();
+                    if (keyCStr) {
+                        ts_flat_object_set_property(rawObj, keyCStr, value);
+                        return;
+                    }
+                }
+            }
+        }
+
         // Check if this is a Proxy - dispatch through proxy trap
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
         if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC || magic16 == 0x54415252) {
@@ -3194,6 +3364,19 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
         uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
 
+        // Check for flat inline-slot object (magic at offset 0)
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            if (keyStr) {
+                const char* keyCStr = keyStr->ToUtf8();
+                if (keyCStr) {
+                    // Convert TaggedValue to NaN-boxed for ts_flat_object_set_property
+                    TsValue* nbValue = nanbox_from_tagged(value);
+                    ts_flat_object_set_property(rawObj, keyCStr, nbValue);
+                    return value;
+                }
+            }
+        }
+
         // Check for TsFunction (can have properties like _.chunk)
         if (magic16 == 0x46554E43) { // TsFunction::MAGIC ("FUNC")
             TsFunction* func = (TsFunction*)rawObj;
@@ -3240,6 +3423,16 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return false;
 
+        // Check for flat object BEFORE any dynamic_cast (flat objects have no vtable)
+        uint32_t magic0 = *(uint32_t*)rawObj;
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            if (!keyStr) return false;
+            const char* k = keyStr->ToUtf8();
+            if (!k) return false;
+            return ts_flat_object_has_property(rawObj, k);
+        }
+
         // Check if this is a Proxy - dispatch through proxy trap
         TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
         if (proxy) {
@@ -3278,6 +3471,14 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!obj || !key) return false;
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return false;
+
+        // Check for flat object BEFORE any dynamic_cast (flat objects have no vtable)
+        uint32_t magic0 = *(uint32_t*)rawObj;
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            // Flat objects don't support delete on inline slots
+            // but could delete from overflow map
+            return false;
+        }
 
         // Check if this is a Proxy - dispatch through proxy trap
         TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
@@ -3319,6 +3520,10 @@ TsValue* ts_value_make_int(int64_t i) {
 
         void* rawMap = nanbox_to_ptr(objNb);
         if (!rawMap) return 0;
+
+        // Check for flat object first
+        uint32_t magic0 = *(uint32_t*)rawMap;
+        if (magic0 == 0x464C4154) return 0; // FLAT_MAGIC - can't delete inline slots
 
         // Check magic to confirm it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawMap + 16);
@@ -3551,6 +3756,18 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Try to get the object from context (could be boxed TsValue or raw pointer)
         void* obj = ts_nanbox_safe_unbox(ctx);
+
+        // Handle flat objects
+        if (obj && is_flat_object(obj)) {
+            TsValue* keyVal = argv[0];
+            TsValue keyTV = nanbox_to_tagged(keyVal);
+            if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+                TsString* keyStr = (TsString*)keyTV.ptr_val;
+                const char* k = keyStr->ToUtf8();
+                if (k) return ts_value_make_bool(ts_flat_object_has_property(obj, k));
+            }
+            return ts_value_make_bool(false);
+        }
 
         // Check if it's a TsMap
         TsMap* map = dynamic_cast<TsMap*>((TsObject*)obj);

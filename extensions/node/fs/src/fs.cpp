@@ -10,6 +10,7 @@
 #include "TsWriteStream.h"
 #include "TsDate.h"
 #include "TsNanBox.h"
+#include "TsFlatObject.h"
 #include "TsGC.h"
 #include <fstream>
 #include <sstream>
@@ -696,7 +697,9 @@ void ts_fs_cpSync(void* src, void* dest, void* options) {
         TsMap* opts = nullptr;
         TsValue decoded = nanbox_to_tagged((TsValue*)options);
         if (decoded.type == ValueType::OBJECT_PTR && decoded.ptr_val) {
-            opts = dynamic_cast<TsMap*>((TsObject*)decoded.ptr_val);
+            void* rawVal = decoded.ptr_val;
+            if (is_flat_object(rawVal)) rawVal = ts_flat_object_to_map(rawVal);
+            opts = dynamic_cast<TsMap*>((TsObject*)rawVal);
         }
         if (opts) {
             TsValue recVal = opts->Get(TsString::Create("recursive"));
@@ -931,7 +934,9 @@ void* ts_fs_readdirSync(void* path, void* options) {
     if (options) {
         TsValue optDecoded = nanbox_to_tagged((TsValue*)options);
         if (optDecoded.type == ValueType::OBJECT_PTR && optDecoded.ptr_val) {
-            TsMap* optMap = dynamic_cast<TsMap*>((TsObject*)optDecoded.ptr_val);
+            void* rawVal = optDecoded.ptr_val;
+            if (is_flat_object(rawVal)) rawVal = ts_flat_object_to_map(rawVal);
+            TsMap* optMap = dynamic_cast<TsMap*>((TsObject*)rawVal);
             if (optMap) {
                 TsValue wft = optMap->Get(TsString::Create("withFileTypes"));
                 if (wft.type == ValueType::BOOLEAN) {
@@ -1912,7 +1917,9 @@ void* ts_fs_cp_async(void* src, void* dest, void* options) {
         TsMap* opts = nullptr;
         TsValue optDecoded = nanbox_to_tagged((TsValue*)options);
         if (optDecoded.type == ValueType::OBJECT_PTR && optDecoded.ptr_val) {
-            opts = dynamic_cast<TsMap*>((TsObject*)optDecoded.ptr_val);
+            void* rawVal = optDecoded.ptr_val;
+            if (is_flat_object(rawVal)) rawVal = ts_flat_object_to_map(rawVal);
+            opts = dynamic_cast<TsMap*>((TsObject*)rawVal);
         }
         if (opts) {
             TsValue recVal = opts->Get(TsString::Create("recursive"));
@@ -2469,7 +2476,9 @@ void* ts_fs_readdir_async(void* path, void* options) {
     if (options) {
         TsValue optDecoded = nanbox_to_tagged((TsValue*)options);
         if (optDecoded.type == ValueType::OBJECT_PTR && optDecoded.ptr_val) {
-            TsMap* optMap = dynamic_cast<TsMap*>((TsObject*)optDecoded.ptr_val);
+            void* rawVal = optDecoded.ptr_val;
+            if (is_flat_object(rawVal)) rawVal = ts_flat_object_to_map(rawVal);
+            TsMap* optMap = dynamic_cast<TsMap*>((TsObject*)rawVal);
             if (optMap) {
                 TsValue withFileTypes = optMap->Get(TsString::Create("withFileTypes"));
                 if (withFileTypes.type == ValueType::BOOLEAN) {
@@ -2818,7 +2827,9 @@ extern "C" double ts_fs_filehandle_get_fd(TsValue* handle) {
     if (hd.type != ValueType::OBJECT_PTR || !hd.ptr_val) {
         return -1;
     }
-    TsMap* map = dynamic_cast<TsMap*>((TsObject*)hd.ptr_val);
+    void* rawHd = hd.ptr_val;
+    if (is_flat_object(rawHd)) rawHd = ts_flat_object_to_map(rawHd);
+    TsMap* map = dynamic_cast<TsMap*>((TsObject*)rawHd);
     if (!map) return -1;
     TsValue fdVal = map->Get(TsString::Create("fd"));
     if (fdVal.type == ValueType::NUMBER_DBL) {

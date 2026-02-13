@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define
-// CHECK: ts_map_create
+// CHECK: ts_gc_alloc
 // OUTPUT: 3
 
 const obj1 = { a: 1 };
