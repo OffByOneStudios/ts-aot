@@ -95,8 +95,7 @@ void* ts_http2_get_packed_settings(void* settings) {
 }
 
 void* ts_http2_get_unpacked_settings(void* buffer) {
-    void* rawBuffer = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuffer) rawBuffer = buffer;
+    void* rawBuffer = ts_nanbox_safe_unbox(buffer);
 
     TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)rawBuffer);
     if (!buf) return ts_http2_get_default_settings();
@@ -179,43 +178,37 @@ void* ts_http2_get_constants() {
 
 // Session property getters
 void* ts_http2_session_get_alpn_protocol(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     return s ? s->alpnProtocol : nullptr;
 }
 
 bool ts_http2_session_get_closed(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     return s ? s->closed : true;
 }
 
 bool ts_http2_session_get_connecting(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     return s ? s->connecting : false;
 }
 
 bool ts_http2_session_get_destroyed(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     return s ? s->destroyed : true;
 }
 
 bool ts_http2_session_get_encrypted(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     return s ? s->encrypted : false;
 }
 
 void* ts_http2_session_get_local_settings(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (!s) return nullptr;
 
@@ -236,8 +229,7 @@ void* ts_http2_session_get_local_settings(void* session) {
 }
 
 void* ts_http2_session_get_remote_settings(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (!s) return nullptr;
 
@@ -258,51 +250,44 @@ void* ts_http2_session_get_remote_settings(void* session) {
 }
 
 void* ts_http2_session_get_socket(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     return s ? s->socket : nullptr;
 }
 
 int64_t ts_http2_session_get_type(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     return s ? s->type : -1;
 }
 
 void* ts_http2_session_get_state(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     return s ? s->GetState() : nullptr;
 }
 
 // Session methods
 void ts_http2_session_close(void* session, void* callback) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (s) s->Close(callback);
 }
 
 void ts_http2_session_destroy(void* session, void* error, int64_t code) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (s) s->Destroy(error, (int)code);
 }
 
 void ts_http2_session_goaway(void* session, int64_t code, int64_t lastStreamId, void* data) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (!s) return;
 
     TsBuffer* buf = nullptr;
     if (data) {
-        void* rawData = ts_value_get_object((TsValue*)data);
-        if (!rawData) rawData = data;
+        void* rawData = ts_nanbox_safe_unbox(data);
         buf = dynamic_cast<TsBuffer*>((TsObject*)rawData);
     }
 
@@ -310,15 +295,13 @@ void ts_http2_session_goaway(void* session, int64_t code, int64_t lastStreamId, 
 }
 
 bool ts_http2_session_ping(void* session, void* payload, void* callback) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (!s) return false;
 
     TsBuffer* buf = nullptr;
     if (payload) {
-        void* rawPayload = ts_value_get_object((TsValue*)payload);
-        if (!rawPayload) rawPayload = payload;
+        void* rawPayload = ts_nanbox_safe_unbox(payload);
         buf = dynamic_cast<TsBuffer*>((TsObject*)rawPayload);
     }
 
@@ -326,29 +309,25 @@ bool ts_http2_session_ping(void* session, void* payload, void* callback) {
 }
 
 void ts_http2_session_ref(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (s) s->Ref();
 }
 
 void ts_http2_session_unref(void* session) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (s) s->Unref();
 }
 
 void ts_http2_session_set_timeout(void* session, int64_t msecs, void* callback) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (s) s->SetTimeout((int)msecs, callback);
 }
 
 void ts_http2_session_settings(void* session, void* settings) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsHttp2Session* s = dynamic_cast<TsHttp2Session*>((TsObject*)raw);
     if (!s) return;
 
@@ -359,17 +338,14 @@ void ts_http2_session_settings(void* session, void* settings) {
 
 // ServerHttp2Session specific
 void ts_http2_server_session_altsvc(void* session, void* alt, void* origin) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsServerHttp2Session* s = dynamic_cast<TsServerHttp2Session*>((TsObject*)raw);
     if (!s) return;
 
-    void* rawAlt = ts_value_get_object((TsValue*)alt);
-    if (!rawAlt) rawAlt = alt;
+    void* rawAlt = ts_nanbox_safe_unbox(alt);
     TsString* altStr = dynamic_cast<TsString*>((TsObject*)rawAlt);
 
-    void* rawOrigin = ts_value_get_object((TsValue*)origin);
-    if (!rawOrigin) rawOrigin = origin;
+    void* rawOrigin = ts_nanbox_safe_unbox(origin);
     TsString* originStr = dynamic_cast<TsString*>((TsObject*)rawOrigin);
 
     s->Altsvc(altStr ? altStr->ToUtf8() : nullptr,
@@ -377,13 +353,11 @@ void ts_http2_server_session_altsvc(void* session, void* alt, void* origin) {
 }
 
 void ts_http2_server_session_origin(void* session, void* origins) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsServerHttp2Session* s = dynamic_cast<TsServerHttp2Session*>((TsObject*)raw);
     if (!s) return;
 
-    void* rawOrigins = ts_value_get_object((TsValue*)origins);
-    if (!rawOrigins) rawOrigins = origins;
+    void* rawOrigins = ts_nanbox_safe_unbox(origins);
     TsArray* originsArr = dynamic_cast<TsArray*>((TsObject*)rawOrigins);
 
     s->Origin(originsArr);
@@ -391,13 +365,11 @@ void ts_http2_server_session_origin(void* session, void* origins) {
 
 // ClientHttp2Session specific
 void* ts_http2_client_session_request(void* session, void* headers, void* options) {
-    void* raw = ts_value_get_object((TsValue*)session);
-    if (!raw) raw = session;
+    void* raw = ts_nanbox_safe_unbox(session);
     TsClientHttp2Session* s = dynamic_cast<TsClientHttp2Session*>((TsObject*)raw);
     if (!s) return nullptr;
 
-    void* rawHeaders = ts_value_get_object((TsValue*)headers);
-    if (!rawHeaders) rawHeaders = headers;
+    void* rawHeaders = ts_nanbox_safe_unbox(headers);
     TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
 
     TsClientHttp2Stream* stream = s->Request(headersMap, (TsValue*)options);
@@ -413,197 +385,168 @@ void* ts_http2_client_session_request(void* session, void* headers, void* option
 
 // Stream property getters
 bool ts_http2_stream_get_aborted(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->aborted : true;
 }
 
 int64_t ts_http2_stream_get_buffer_size(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? (int64_t)s->bufferSize : 0;
 }
 
 bool ts_http2_stream_get_closed(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->closed : true;
 }
 
 bool ts_http2_stream_get_destroyed(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->destroyed : true;
 }
 
 bool ts_http2_stream_get_end_after_headers(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->endAfterHeaders : false;
 }
 
 int64_t ts_http2_stream_get_id(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->id : -1;
 }
 
 bool ts_http2_stream_get_pending(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->pending : false;
 }
 
 int64_t ts_http2_stream_get_rst_code(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->rstCode : 0;
 }
 
 void* ts_http2_stream_get_sent_headers(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->sentHeaders : nullptr;
 }
 
 void* ts_http2_stream_get_sent_info_headers(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->sentInfoHeaders : nullptr;
 }
 
 void* ts_http2_stream_get_sent_trailers(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->sentTrailers : nullptr;
 }
 
 void* ts_http2_stream_get_session(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->session : nullptr;
 }
 
 void* ts_http2_stream_get_state(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     return s ? s->GetState() : nullptr;
 }
 
 // Stream methods
 void ts_http2_stream_close(void* stream, int64_t code, void* callback) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     if (s) s->Close((int)code, callback);
 }
 
 void ts_http2_stream_priority(void* stream, void* options) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     if (s) s->Priority((TsValue*)options);
 }
 
 void ts_http2_stream_set_timeout(void* stream, int64_t msecs, void* callback) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsHttp2Stream* s = dynamic_cast<TsHttp2Stream*>((TsObject*)raw);
     if (s) s->SetTimeout((int)msecs, callback);
 }
 
 // ServerHttp2Stream specific
 bool ts_http2_server_stream_get_headers_sent(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsServerHttp2Stream* s = dynamic_cast<TsServerHttp2Stream*>((TsObject*)raw);
     return s ? s->headersSent : false;
 }
 
 bool ts_http2_server_stream_get_push_allowed(void* stream) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsServerHttp2Stream* s = dynamic_cast<TsServerHttp2Stream*>((TsObject*)raw);
     return s ? s->pushAllowed : false;
 }
 
 void ts_http2_server_stream_additional_headers(void* stream, void* headers) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsServerHttp2Stream* s = dynamic_cast<TsServerHttp2Stream*>((TsObject*)raw);
     if (!s) return;
 
-    void* rawHeaders = ts_value_get_object((TsValue*)headers);
-    if (!rawHeaders) rawHeaders = headers;
+    void* rawHeaders = ts_nanbox_safe_unbox(headers);
     TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
 
     s->AdditionalHeaders(headersMap);
 }
 
 void ts_http2_server_stream_push_stream(void* stream, void* headers, void* options, void* callback) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsServerHttp2Stream* s = dynamic_cast<TsServerHttp2Stream*>((TsObject*)raw);
     if (!s) return;
 
-    void* rawHeaders = ts_value_get_object((TsValue*)headers);
-    if (!rawHeaders) rawHeaders = headers;
+    void* rawHeaders = ts_nanbox_safe_unbox(headers);
     TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
 
     s->PushStream(headersMap, (TsValue*)options, callback);
 }
 
 void ts_http2_server_stream_respond(void* stream, void* headers, void* options) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsServerHttp2Stream* s = dynamic_cast<TsServerHttp2Stream*>((TsObject*)raw);
     if (!s) return;
 
-    void* rawHeaders = ts_value_get_object((TsValue*)headers);
-    if (!rawHeaders) rawHeaders = headers;
+    void* rawHeaders = ts_nanbox_safe_unbox(headers);
     TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
 
     s->Respond(headersMap, (TsValue*)options);
 }
 
 void ts_http2_server_stream_respond_with_fd(void* stream, int64_t fd, void* headers, void* options) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsServerHttp2Stream* s = dynamic_cast<TsServerHttp2Stream*>((TsObject*)raw);
     if (!s) return;
 
-    void* rawHeaders = ts_value_get_object((TsValue*)headers);
-    if (!rawHeaders) rawHeaders = headers;
+    void* rawHeaders = ts_nanbox_safe_unbox(headers);
     TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
 
     s->RespondWithFD((int)fd, headersMap, (TsValue*)options);
 }
 
 void ts_http2_server_stream_respond_with_file(void* stream, void* path, void* headers, void* options) {
-    void* raw = ts_value_get_object((TsValue*)stream);
-    if (!raw) raw = stream;
+    void* raw = ts_nanbox_safe_unbox(stream);
     TsServerHttp2Stream* s = dynamic_cast<TsServerHttp2Stream*>((TsObject*)raw);
     if (!s) return;
 
-    void* rawPath = ts_value_get_object((TsValue*)path);
-    if (!rawPath) rawPath = path;
+    void* rawPath = ts_nanbox_safe_unbox(path);
     TsString* pathStr = dynamic_cast<TsString*>((TsObject*)rawPath);
 
-    void* rawHeaders = ts_value_get_object((TsValue*)headers);
-    if (!rawHeaders) rawHeaders = headers;
+    void* rawHeaders = ts_nanbox_safe_unbox(headers);
     TsMap* headersMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
 
     s->RespondWithFile(pathStr ? pathStr->ToUtf8() : nullptr, headersMap, (TsValue*)options);
@@ -625,8 +568,7 @@ void* ts_http2_get_sensitive_headers() {
 // =============================================================================
 
 void* ts_http2_server_listen(void* server, int64_t port, void* host, void* callback) {
-    void* raw = ts_value_get_object((TsValue*)server);
-    if (!raw) raw = server;
+    void* raw = ts_nanbox_safe_unbox(server);
     TsHttp2Server* srv = dynamic_cast<TsHttp2Server*>((TsObject*)raw);
     if (!srv) return nullptr;
 
@@ -653,8 +595,7 @@ void* ts_http2_server_listen(void* server, int64_t port, void* host, void* callb
     // Host is optional - if provided, extract it
     const char* hostStr = nullptr;
     if (host) {
-        void* rawHost = ts_value_get_object((TsValue*)host);
-        if (!rawHost) rawHost = host;
+        void* rawHost = ts_nanbox_safe_unbox(host);
         TsString* hostString = dynamic_cast<TsString*>((TsObject*)rawHost);
         if (hostString) {
             hostStr = hostString->ToUtf8();
@@ -670,8 +611,7 @@ void* ts_http2_server_listen(void* server, int64_t port, void* host, void* callb
 }
 
 void ts_http2_server_close(void* server, void* callback) {
-    void* raw = ts_value_get_object((TsValue*)server);
-    if (!raw) raw = server;
+    void* raw = ts_nanbox_safe_unbox(server);
     TsHttp2Server* srv = dynamic_cast<TsHttp2Server*>((TsObject*)raw);
     if (!srv) return;
 
@@ -683,8 +623,7 @@ void ts_http2_server_close(void* server, void* callback) {
 }
 
 void* ts_http2_server_address(void* server) {
-    void* raw = ts_value_get_object((TsValue*)server);
-    if (!raw) raw = server;
+    void* raw = ts_nanbox_safe_unbox(server);
     TsHttp2Server* srv = dynamic_cast<TsHttp2Server*>((TsObject*)raw);
     if (!srv) return nullptr;
 
@@ -692,8 +631,7 @@ void* ts_http2_server_address(void* server) {
 }
 
 void ts_http2_server_set_timeout(void* server, int64_t msecs, void* callback) {
-    void* raw = ts_value_get_object((TsValue*)server);
-    if (!raw) raw = server;
+    void* raw = ts_nanbox_safe_unbox(server);
     TsHttp2Server* srv = dynamic_cast<TsHttp2Server*>((TsObject*)raw);
     if (!srv) return;
 

@@ -145,8 +145,7 @@ int64_t ts_cluster_SCHED_RR() {
 // Worker C API
 
 int64_t ts_worker_get_id(void* worker) {
-    void* rawPtr = ts_value_get_object((TsValue*)worker);
-    if (!rawPtr) rawPtr = worker;
+    void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);
     if (!w) return -1;
@@ -155,8 +154,7 @@ int64_t ts_worker_get_id(void* worker) {
 }
 
 void* ts_worker_get_process(void* worker) {
-    void* rawPtr = ts_value_get_object((TsValue*)worker);
-    if (!rawPtr) rawPtr = worker;
+    void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);
     if (!w) return ts_value_make_undefined();
@@ -168,8 +166,7 @@ void* ts_worker_get_process(void* worker) {
 }
 
 bool ts_worker_is_dead(void* worker) {
-    void* rawPtr = ts_value_get_object((TsValue*)worker);
-    if (!rawPtr) rawPtr = worker;
+    void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);
     if (!w) return true;
@@ -178,8 +175,7 @@ bool ts_worker_is_dead(void* worker) {
 }
 
 bool ts_worker_exited_after_disconnect(void* worker) {
-    void* rawPtr = ts_value_get_object((TsValue*)worker);
-    if (!rawPtr) rawPtr = worker;
+    void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);
     if (!w) return false;
@@ -188,8 +184,7 @@ bool ts_worker_exited_after_disconnect(void* worker) {
 }
 
 bool ts_worker_is_connected(void* worker) {
-    void* rawPtr = ts_value_get_object((TsValue*)worker);
-    if (!rawPtr) rawPtr = worker;
+    void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);
     if (!w) return false;
@@ -198,8 +193,7 @@ bool ts_worker_is_connected(void* worker) {
 }
 
 bool ts_worker_send(void* worker, void* message, void* sendHandle) {
-    void* rawPtr = ts_value_get_object((TsValue*)worker);
-    if (!rawPtr) rawPtr = worker;
+    void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);
     if (!w) return false;
@@ -208,8 +202,7 @@ bool ts_worker_send(void* worker, void* message, void* sendHandle) {
 }
 
 void ts_worker_disconnect(void* worker) {
-    void* rawPtr = ts_value_get_object((TsValue*)worker);
-    if (!rawPtr) rawPtr = worker;
+    void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);
     if (!w) return;
@@ -218,16 +211,14 @@ void ts_worker_disconnect(void* worker) {
 }
 
 void ts_worker_kill(void* worker, void* signal) {
-    void* rawPtr = ts_value_get_object((TsValue*)worker);
-    if (!rawPtr) rawPtr = worker;
+    void* rawPtr = ts_nanbox_safe_unbox(worker);
 
     TsWorker* w = dynamic_cast<TsWorker*>((TsObject*)rawPtr);
     if (!w) return;
 
     const char* sig = "SIGTERM";
     if (signal) {
-        void* sigRaw = ts_value_get_object((TsValue*)signal);
-        if (!sigRaw) sigRaw = signal;
+        void* sigRaw = ts_nanbox_safe_unbox(signal);
         TsString* sigStr = dynamic_cast<TsString*>((TsObject*)sigRaw);
         if (sigStr) {
             sig = sigStr->ToUtf8();

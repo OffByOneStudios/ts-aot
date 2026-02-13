@@ -42,8 +42,7 @@ extern "C" {
 
     // Socket address property getters
     void* ts_net_socket_get_remote_address(void* socket) {
-        void* rawPtr = ts_value_get_object((TsValue*)socket);
-        if (!rawPtr) rawPtr = socket;
+        void* rawPtr = ts_nanbox_safe_unbox(socket);
         TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
         if (!s) return ts_value_make_undefined();
         const char* addr = s->GetRemoteAddress();
@@ -52,16 +51,14 @@ extern "C" {
     }
 
     int64_t ts_net_socket_get_remote_port(void* socket) {
-        void* rawPtr = ts_value_get_object((TsValue*)socket);
-        if (!rawPtr) rawPtr = socket;
+        void* rawPtr = ts_nanbox_safe_unbox(socket);
         TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
         if (!s) return 0;
         return s->GetRemotePort();
     }
 
     void* ts_net_socket_get_remote_family(void* socket) {
-        void* rawPtr = ts_value_get_object((TsValue*)socket);
-        if (!rawPtr) rawPtr = socket;
+        void* rawPtr = ts_nanbox_safe_unbox(socket);
         TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
         if (!s) return ts_value_make_undefined();
         const char* family = s->GetRemoteFamily();
@@ -70,8 +67,7 @@ extern "C" {
     }
 
     void* ts_net_socket_get_local_address(void* socket) {
-        void* rawPtr = ts_value_get_object((TsValue*)socket);
-        if (!rawPtr) rawPtr = socket;
+        void* rawPtr = ts_nanbox_safe_unbox(socket);
         TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
         if (!s) return ts_value_make_undefined();
         const char* addr = s->GetLocalAddress();
@@ -80,16 +76,14 @@ extern "C" {
     }
 
     int64_t ts_net_socket_get_local_port(void* socket) {
-        void* rawPtr = ts_value_get_object((TsValue*)socket);
-        if (!rawPtr) rawPtr = socket;
+        void* rawPtr = ts_nanbox_safe_unbox(socket);
         TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
         if (!s) return 0;
         return s->GetLocalPort();
     }
 
     void* ts_net_socket_get_local_family(void* socket) {
-        void* rawPtr = ts_value_get_object((TsValue*)socket);
-        if (!rawPtr) rawPtr = socket;
+        void* rawPtr = ts_nanbox_safe_unbox(socket);
         TsSocket* s = dynamic_cast<TsSocket*>((TsObject*)rawPtr);
         if (!s) return ts_value_make_undefined();
         const char* family = s->GetLocalFamily();

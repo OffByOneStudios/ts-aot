@@ -2,6 +2,7 @@
 #include "TsMap.h"
 #include "TsArray.h"
 #include "TsObject.h"
+#include "TsRuntime.h"
 #include "TsNanBox.h"
 #include "GC.h"
 #include <cstring>
@@ -197,8 +198,7 @@ void* ts_querystring_stringify(void* obj, void* sep, void* eq) {
     if (!obj) return TsString::Create("");
 
     // Unbox if needed
-    void* rawPtr = ts_value_get_object((TsValue*)obj);
-    if (!rawPtr) rawPtr = obj;
+    void* rawPtr = ts_nanbox_safe_unbox(obj);
 
     TsMap* map = dynamic_cast<TsMap*>((TsObject*)rawPtr);
     if (!map) return TsString::Create("");

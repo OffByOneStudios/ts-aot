@@ -253,8 +253,7 @@ static DnsLookupOptions parse_lookup_options(void* optionsPtr) {
 
     if (!optionsPtr) return opts;
 
-    void* rawPtr = ts_value_get_object((TsValue*)optionsPtr);
-    if (!rawPtr) rawPtr = optionsPtr;
+    void* rawPtr = ts_nanbox_safe_unbox(optionsPtr);
 
     TsMap* options = dynamic_cast<TsMap*>((TsObject*)rawPtr);
     if (!options) return opts;

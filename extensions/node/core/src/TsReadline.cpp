@@ -139,8 +139,7 @@ void TsReadlineInterface::OnData(void* chunk) {
     // Get the chunk as a string
     TsString* chunkStr = nullptr;
     if (chunk) {
-        void* rawChunk = ts_value_get_object((TsValue*)chunk);
-        if (!rawChunk) rawChunk = chunk;
+        void* rawChunk = ts_nanbox_safe_unbox(chunk);
         chunkStr = dynamic_cast<TsString*>((TsObject*)rawChunk);
     }
 

@@ -8,6 +8,7 @@
 #include "TsInspectorExt.h"
 #include "TsInspector.h"
 #include "TsObject.h"
+#include "TsRuntime.h"
 #include "TsString.h"
 #include "GC.h"
 
@@ -63,8 +64,7 @@ void* ts_inspector_session_create() {
 void ts_inspector_session_connect(void* session) {
     if (!session) return;
 
-    void* rawPtr = ts_value_get_object((TsValue*)session);
-    if (!rawPtr) rawPtr = session;
+    void* rawPtr = ts_nanbox_safe_unbox(session);
 
     ts::TsInspectorSession* s = dynamic_cast<ts::TsInspectorSession*>((TsObject*)rawPtr);
     if (s) {
@@ -76,8 +76,7 @@ void ts_inspector_session_connect(void* session) {
 void ts_inspector_session_connect_to_main_thread(void* session) {
     if (!session) return;
 
-    void* rawPtr = ts_value_get_object((TsValue*)session);
-    if (!rawPtr) rawPtr = session;
+    void* rawPtr = ts_nanbox_safe_unbox(session);
 
     ts::TsInspectorSession* s = dynamic_cast<ts::TsInspectorSession*>((TsObject*)rawPtr);
     if (s) {
@@ -89,8 +88,7 @@ void ts_inspector_session_connect_to_main_thread(void* session) {
 void ts_inspector_session_disconnect(void* session) {
     if (!session) return;
 
-    void* rawPtr = ts_value_get_object((TsValue*)session);
-    if (!rawPtr) rawPtr = session;
+    void* rawPtr = ts_nanbox_safe_unbox(session);
 
     ts::TsInspectorSession* s = dynamic_cast<ts::TsInspectorSession*>((TsObject*)rawPtr);
     if (s) {

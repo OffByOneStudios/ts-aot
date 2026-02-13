@@ -142,16 +142,14 @@ void* ts_incoming_message_rawHeaders(void* ctx, void* msg) {
 }
 
 void* ts_incoming_message_rawTrailers(void* ctx, void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsIncomingMessage* m = dynamic_cast<TsIncomingMessage*>((TsObject*)rawPtr);
     if (!m) return TsArray::Create();
     return m->rawTrailers ? m->rawTrailers : TsArray::Create();
 }
 
 void* ts_incoming_message_trailers(void* ctx, void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsIncomingMessage* m = dynamic_cast<TsIncomingMessage*>((TsObject*)rawPtr);
     if (!m) {
         return TsMap::Create();
@@ -163,8 +161,7 @@ void* ts_incoming_message_trailers(void* ctx, void* msg) {
 }
 
 void* ts_incoming_message_socket(void* ctx, void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsIncomingMessage* m = dynamic_cast<TsIncomingMessage*>((TsObject*)rawPtr);
     if (!m || !m->socket) {
         return nullptr;
@@ -173,8 +170,7 @@ void* ts_incoming_message_socket(void* ctx, void* msg) {
 }
 
 bool ts_incoming_message_aborted(void* ctx, void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsIncomingMessage* m = dynamic_cast<TsIncomingMessage*>((TsObject*)rawPtr);
     if (!m) {
         return false;
@@ -185,56 +181,49 @@ bool ts_incoming_message_aborted(void* ctx, void* msg) {
 // ===== OutgoingMessage/ServerResponse property getters =====
 
 bool ts_outgoing_message_get_headers_sent(void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return false;
     return m->headersSent;
 }
 
 bool ts_outgoing_message_get_writable_ended(void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return false;
     return m->writableEnded;
 }
 
 bool ts_outgoing_message_get_writable_finished(void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return false;
     return m->writableFinished;
 }
 
 int64_t ts_server_response_get_status_code(void* res) {
-    void* rawPtr = ts_value_get_object((TsValue*)res);
-    if (!rawPtr) rawPtr = res;
+    void* rawPtr = ts_nanbox_safe_unbox(res);
     TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
     if (!r) return 200;
     return r->statusCode;
 }
 
 void* ts_server_response_get_status_message(void* res) {
-    void* rawPtr = ts_value_get_object((TsValue*)res);
-    if (!rawPtr) rawPtr = res;
+    void* rawPtr = ts_nanbox_safe_unbox(res);
     TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
     if (!r) return nullptr;
     return r->statusMessage;
 }
 
 void ts_server_response_set_status_code(void* res, int64_t code) {
-    void* rawPtr = ts_value_get_object((TsValue*)res);
-    if (!rawPtr) rawPtr = res;
+    void* rawPtr = ts_nanbox_safe_unbox(res);
     TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
     if (!r) return;
     r->statusCode = (int)code;
 }
 
 void ts_server_response_set_status_message(void* res, void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)res);
-    if (!rawPtr) rawPtr = res;
+    void* rawPtr = ts_nanbox_safe_unbox(res);
     TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
     if (!r) return;
 
@@ -247,21 +236,18 @@ void ts_server_response_set_status_message(void* res, void* msg) {
 }
 
 void ts_server_response_set_timeout(void* res, int64_t msecs, void* callback) {
-    void* rawPtr = ts_value_get_object((TsValue*)res);
-    if (!rawPtr) rawPtr = res;
+    void* rawPtr = ts_nanbox_safe_unbox(res);
     TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
     if (!r) return;
     r->SetTimeout((int)msecs, callback);
 }
 
 void ts_server_response_add_trailers(void* res, void* trailers) {
-    void* rawPtr = ts_value_get_object((TsValue*)res);
-    if (!rawPtr) rawPtr = res;
+    void* rawPtr = ts_nanbox_safe_unbox(res);
     TsServerResponse* r = dynamic_cast<TsServerResponse*>((TsObject*)rawPtr);
     if (!r) return;
 
-    void* rawTrailers = ts_value_get_object((TsValue*)trailers);
-    if (!rawTrailers) rawTrailers = trailers;
+    void* rawTrailers = ts_nanbox_safe_unbox(trailers);
     TsMap* trailersMap = dynamic_cast<TsMap*>((TsObject*)rawTrailers);
     if (trailersMap) {
         r->AddTrailers(trailersMap);
@@ -271,40 +257,35 @@ void ts_server_response_add_trailers(void* res, void* trailers) {
 // ===== ClientRequest property getters =====
 
 void* ts_client_request_get_path(void* req) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return nullptr;
     return TsString::Create(r->path.c_str());
 }
 
 void* ts_client_request_get_method(void* req) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return nullptr;
     return TsString::Create(r->method.c_str());
 }
 
 void* ts_client_request_get_host(void* req) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return nullptr;
     return TsString::Create(r->host.c_str());
 }
 
 void* ts_client_request_get_protocol(void* req) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return nullptr;
     return TsString::Create(r->is_https ? "https:" : "http:");
 }
 
 void* ts_client_request_get_header(void* req, void* name) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return nullptr;
 
@@ -321,8 +302,7 @@ void* ts_client_request_get_header(void* req, void* name) {
 }
 
 void ts_client_request_set_header(void* req, void* name, void* value) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return;
 
@@ -336,64 +316,56 @@ void ts_client_request_set_header(void* req, void* name, void* value) {
 }
 
 void* ts_client_request_get_socket(void* req) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return nullptr;
     return r->socket;
 }
 
 void ts_client_request_set_timeout(void* req, int64_t msecs, void* callback) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return;
     r->SetTimeout((int)msecs, callback);
 }
 
 void ts_client_request_set_no_delay(void* req, int64_t noDelay) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return;
     r->SetNoDelay(noDelay != 0);
 }
 
 void ts_client_request_set_socket_keep_alive(void* req, int64_t enable, int64_t initialDelay) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return;
     r->SetSocketKeepAlive(enable != 0, (int)initialDelay);
 }
 
 bool ts_client_request_get_reused_socket(void* req) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return false;
     return r->reusedSocket;
 }
 
 int64_t ts_client_request_get_max_headers_count(void* req) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return 2000;
     return r->maxHeadersCount;
 }
 
 void ts_client_request_set_max_headers_count(void* req, int64_t count) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return;
     r->maxHeadersCount = (int)count;
 }
 
 void* ts_client_request_get_raw_header_names(void* req) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return TsArray::Create();
     return r->GetRawHeaderNames();
@@ -520,8 +492,7 @@ void ts_http_validate_header_value(void* name, void* value) {
 // ===== OutgoingMessage header methods =====
 
 void ts_outgoing_message_set_header(void* msg, void* name, void* value) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return;
 
@@ -533,8 +504,7 @@ void ts_outgoing_message_set_header(void* msg, void* name, void* value) {
 }
 
 void* ts_outgoing_message_get_header(void* msg, void* name) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return nullptr;
 
@@ -546,16 +516,14 @@ void* ts_outgoing_message_get_header(void* msg, void* name) {
 }
 
 void* ts_outgoing_message_get_headers(void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return TsMap::Create();
     return m->GetHeaders();
 }
 
 bool ts_outgoing_message_has_header(void* msg, void* name) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return false;
 
@@ -567,8 +535,7 @@ bool ts_outgoing_message_has_header(void* msg, void* name) {
 }
 
 void ts_outgoing_message_remove_header(void* msg, void* name) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return;
 
@@ -580,16 +547,14 @@ void ts_outgoing_message_remove_header(void* msg, void* name) {
 }
 
 void* ts_outgoing_message_get_header_names(void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return TsArray::Create();
     return m->GetHeaderNames();
 }
 
 void ts_outgoing_message_flush_headers(void* msg) {
-    void* rawPtr = ts_value_get_object((TsValue*)msg);
-    if (!rawPtr) rawPtr = msg;
+    void* rawPtr = ts_nanbox_safe_unbox(msg);
     TsOutgoingMessage* m = dynamic_cast<TsOutgoingMessage*>((TsObject*)rawPtr);
     if (!m) return;
     m->FlushHeaders();
@@ -643,80 +608,70 @@ void ts_http_set_max_idle_http_parsers(int64_t max) {
 // ===== Server timeout/configuration =====
 
 void ts_http_server_set_timeout(void* server, int64_t msecs, void* callback) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return;
     s->SetTimeout((int)msecs, callback);
 }
 
 int64_t ts_http_server_get_timeout(void* server) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return 0;
     return s->timeout;
 }
 
 int64_t ts_http_server_get_keep_alive_timeout(void* server) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return 5000;
     return s->keepAliveTimeout;
 }
 
 void ts_http_server_set_keep_alive_timeout(void* server, int64_t msecs) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return;
     s->keepAliveTimeout = (int)msecs;
 }
 
 int64_t ts_http_server_get_headers_timeout(void* server) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return 60000;
     return s->headersTimeout;
 }
 
 void ts_http_server_set_headers_timeout(void* server, int64_t msecs) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return;
     s->headersTimeout = (int)msecs;
 }
 
 int64_t ts_http_server_get_request_timeout(void* server) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return 0;
     return s->requestTimeout;
 }
 
 void ts_http_server_set_request_timeout(void* server, int64_t msecs) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return;
     s->requestTimeout = (int)msecs;
 }
 
 int64_t ts_http_server_get_max_headers_count(void* server) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return 2000;
     return s->maxHeadersCount;
 }
 
 void ts_http_server_set_max_headers_count(void* server, int64_t count) {
-    void* rawPtr = ts_value_get_object((TsValue*)server);
-    if (!rawPtr) rawPtr = server;
+    void* rawPtr = ts_nanbox_safe_unbox(server);
     TsHttpServer* s = dynamic_cast<TsHttpServer*>((TsObject*)rawPtr);
     if (!s) return;
     s->maxHeadersCount = (int)count;
@@ -819,8 +774,7 @@ void* ts_websocket_create(void* url, void* protocols) {
 
 void ts_websocket_send(void* ws, void* data) {
     if (!ws) return;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return;
     w->Send((TsValue*)data);
@@ -828,8 +782,7 @@ void ts_websocket_send(void* ws, void* data) {
 
 void ts_websocket_close(void* ws, int64_t code, void* reason) {
     if (!ws) return;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return;
     TsString* reasonStr = (TsString*)ts_value_get_string((TsValue*)reason);
@@ -838,8 +791,7 @@ void ts_websocket_close(void* ws, int64_t code, void* reason) {
 
 void ts_websocket_ping(void* ws, void* data) {
     if (!ws) return;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return;
     w->Ping((TsValue*)data);
@@ -847,8 +799,7 @@ void ts_websocket_ping(void* ws, void* data) {
 
 void ts_websocket_pong(void* ws, void* data) {
     if (!ws) return;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return;
     w->Pong((TsValue*)data);
@@ -856,8 +807,7 @@ void ts_websocket_pong(void* ws, void* data) {
 
 int64_t ts_websocket_get_ready_state(void* ws) {
     if (!ws) return 3;  // CLOSED
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return 3;
     return w->readyState;
@@ -865,8 +815,7 @@ int64_t ts_websocket_get_ready_state(void* ws) {
 
 void* ts_websocket_get_url(void* ws) {
     if (!ws) return TsString::Create("");
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return TsString::Create("");
     return w->url;
@@ -874,8 +823,7 @@ void* ts_websocket_get_url(void* ws) {
 
 void* ts_websocket_get_protocol(void* ws) {
     if (!ws) return TsString::Create("");
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return TsString::Create("");
     return w->protocol;
@@ -883,8 +831,7 @@ void* ts_websocket_get_protocol(void* ws) {
 
 void* ts_websocket_get_extensions(void* ws) {
     if (!ws) return TsString::Create("");
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return TsString::Create("");
     return w->extensions;
@@ -892,8 +839,7 @@ void* ts_websocket_get_extensions(void* ws) {
 
 int64_t ts_websocket_get_buffered_amount(void* ws) {
     if (!ws) return 0;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return 0;
     return w->bufferedAmount;
@@ -901,8 +847,7 @@ int64_t ts_websocket_get_buffered_amount(void* ws) {
 
 void* ts_websocket_get_binary_type(void* ws) {
     if (!ws) return TsString::Create("blob");
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return TsString::Create("blob");
     return w->binaryType;
@@ -910,8 +855,7 @@ void* ts_websocket_get_binary_type(void* ws) {
 
 void ts_websocket_set_binary_type(void* ws, void* type) {
     if (!ws) return;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return;
     TsString* typeStr = (TsString*)ts_value_get_string((TsValue*)type);
@@ -920,8 +864,7 @@ void ts_websocket_set_binary_type(void* ws, void* type) {
 
 void ts_websocket_set_onopen(void* ws, void* callback) {
     if (!ws) return;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return;
     w->onopen = callback;
@@ -929,8 +872,7 @@ void ts_websocket_set_onopen(void* ws, void* callback) {
 
 void ts_websocket_set_onmessage(void* ws, void* callback) {
     if (!ws) return;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return;
     w->onmessage = callback;
@@ -938,8 +880,7 @@ void ts_websocket_set_onmessage(void* ws, void* callback) {
 
 void ts_websocket_set_onclose(void* ws, void* callback) {
     if (!ws) return;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return;
     w->onclose = callback;
@@ -947,8 +888,7 @@ void ts_websocket_set_onclose(void* ws, void* callback) {
 
 void ts_websocket_set_onerror(void* ws, void* callback) {
     if (!ws) return;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return;
     w->onerror = callback;
@@ -956,8 +896,7 @@ void ts_websocket_set_onerror(void* ws, void* callback) {
 
 void* ts_websocket_get_onopen(void* ws) {
     if (!ws) return nullptr;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return nullptr;
     return w->onopen;
@@ -965,8 +904,7 @@ void* ts_websocket_get_onopen(void* ws) {
 
 void* ts_websocket_get_onmessage(void* ws) {
     if (!ws) return nullptr;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return nullptr;
     return w->onmessage;
@@ -974,8 +912,7 @@ void* ts_websocket_get_onmessage(void* ws) {
 
 void* ts_websocket_get_onclose(void* ws) {
     if (!ws) return nullptr;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return nullptr;
     return w->onclose;
@@ -983,16 +920,14 @@ void* ts_websocket_get_onclose(void* ws) {
 
 void* ts_websocket_get_onerror(void* ws) {
     if (!ws) return nullptr;
-    void* rawWs = ts_value_get_object((TsValue*)ws);
-    if (!rawWs) rawWs = ws;
+    void* rawWs = ts_nanbox_safe_unbox(ws);
     TsWebSocket* w = dynamic_cast<TsWebSocket*>((TsObject*)rawWs);
     if (!w) return nullptr;
     return w->onerror;
 }
 
 void ts_client_request_flush_headers(void* req) {
-    void* rawPtr = ts_value_get_object((TsValue*)req);
-    if (!rawPtr) rawPtr = req;
+    void* rawPtr = ts_nanbox_safe_unbox(req);
     TsClientRequest* r = dynamic_cast<TsClientRequest*>((TsObject*)rawPtr);
     if (!r) return;
     // flushHeaders is a no-op hint - headers are sent on first write/end

@@ -305,6 +305,14 @@ private:
     void lowerUnboxString(HIRInstruction* inst);
     void lowerUnboxObject(HIRInstruction* inst);
 
+    // Inline NaN-boxing helpers (emit IR directly instead of runtime calls)
+    llvm::Value* emitInlineBoxInt(llvm::Value* val);     // i64 → ptr (NaN-boxed)
+    llvm::Value* emitInlineUnboxInt(llvm::Value* val);   // ptr (NaN-boxed) → i64
+    llvm::Value* emitInlineBoxFloat(llvm::Value* val);   // double → ptr (NaN-boxed)
+    llvm::Value* emitInlineUnboxFloat(llvm::Value* val); // ptr (NaN-boxed) → double
+    llvm::Value* emitInlineBoxBool(llvm::Value* val);    // i1 → ptr (NaN-boxed)
+    llvm::Value* emitInlineUnboxBool(llvm::Value* val);  // ptr (NaN-boxed) → i1
+
     // Type checking
     void lowerTypeCheck(HIRInstruction* inst);
     void lowerTypeOf(HIRInstruction* inst);

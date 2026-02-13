@@ -19,8 +19,7 @@ static TsEventEmitter* getEmitter(void* emitter) {
     // Guard against NaN-boxed non-pointer values (numbers, bools, undefined, null)
     uint64_t nb = (uint64_t)(uintptr_t)emitter;
     if (nanbox_is_number(nb) || nanbox_is_special(nb)) return nullptr;
-    void* rawPtr = ts_value_get_object((TsValue*)emitter);
-    if (!rawPtr) rawPtr = emitter;
+    void* rawPtr = ts_nanbox_safe_unbox(emitter);
     TsObject* obj = (TsObject*)rawPtr;
     TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
     if (!e) e = obj->AsEventEmitter();

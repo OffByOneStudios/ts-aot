@@ -129,8 +129,7 @@ void ts_performance_clear_measures(void* nameArg) {
 void* ts_performance_entry_get_name(void* entryArg) {
     if (!entryArg) return ts_value_make_string(TsString::Create(""));
 
-    void* raw = ts_value_get_object((TsValue*)entryArg);
-    if (!raw) raw = entryArg;
+    void* raw = ts_nanbox_safe_unbox(entryArg);
 
     TsPerformanceEntry* entry = dynamic_cast<TsPerformanceEntry*>((TsObject*)raw);
     if (!entry) return ts_value_make_string(TsString::Create(""));
@@ -141,8 +140,7 @@ void* ts_performance_entry_get_name(void* entryArg) {
 void* ts_performance_entry_get_entry_type(void* entryArg) {
     if (!entryArg) return ts_value_make_string(TsString::Create(""));
 
-    void* raw = ts_value_get_object((TsValue*)entryArg);
-    if (!raw) raw = entryArg;
+    void* raw = ts_nanbox_safe_unbox(entryArg);
 
     TsPerformanceEntry* entry = dynamic_cast<TsPerformanceEntry*>((TsObject*)raw);
     if (!entry) return ts_value_make_string(TsString::Create(""));
@@ -153,8 +151,7 @@ void* ts_performance_entry_get_entry_type(void* entryArg) {
 double ts_performance_entry_get_start_time(void* entryArg) {
     if (!entryArg) return 0.0;
 
-    void* raw = ts_value_get_object((TsValue*)entryArg);
-    if (!raw) raw = entryArg;
+    void* raw = ts_nanbox_safe_unbox(entryArg);
 
     TsPerformanceEntry* entry = dynamic_cast<TsPerformanceEntry*>((TsObject*)raw);
     if (!entry) return 0.0;
@@ -165,8 +162,7 @@ double ts_performance_entry_get_start_time(void* entryArg) {
 double ts_performance_entry_get_duration(void* entryArg) {
     if (!entryArg) return 0.0;
 
-    void* raw = ts_value_get_object((TsValue*)entryArg);
-    if (!raw) raw = entryArg;
+    void* raw = ts_nanbox_safe_unbox(entryArg);
 
     TsPerformanceEntry* entry = dynamic_cast<TsPerformanceEntry*>((TsObject*)raw);
     if (!entry) return 0.0;
@@ -179,14 +175,12 @@ void* ts_performance_event_loop_utilization(void* util1Arg, void* util2Arg) {
     TsEventLoopUtilization* util2 = nullptr;
 
     if (util1Arg) {
-        void* raw = ts_value_get_object((TsValue*)util1Arg);
-        if (!raw) raw = util1Arg;
+        void* raw = ts_nanbox_safe_unbox(util1Arg);
         util1 = dynamic_cast<TsEventLoopUtilization*>((TsObject*)raw);
     }
 
     if (util2Arg) {
-        void* raw = ts_value_get_object((TsValue*)util2Arg);
-        if (!raw) raw = util2Arg;
+        void* raw = ts_nanbox_safe_unbox(util2Arg);
         util2 = dynamic_cast<TsEventLoopUtilization*>((TsObject*)raw);
     }
 
@@ -202,8 +196,7 @@ void* ts_performance_timerify(void* fn) {
 double ts_elu_get_idle(void* eluArg) {
     if (!eluArg) return 0.0;
 
-    void* raw = ts_value_get_object((TsValue*)eluArg);
-    if (!raw) raw = eluArg;
+    void* raw = ts_nanbox_safe_unbox(eluArg);
 
     TsEventLoopUtilization* elu = dynamic_cast<TsEventLoopUtilization*>((TsObject*)raw);
     if (!elu) return 0.0;
@@ -214,8 +207,7 @@ double ts_elu_get_idle(void* eluArg) {
 double ts_elu_get_active(void* eluArg) {
     if (!eluArg) return 0.0;
 
-    void* raw = ts_value_get_object((TsValue*)eluArg);
-    if (!raw) raw = eluArg;
+    void* raw = ts_nanbox_safe_unbox(eluArg);
 
     TsEventLoopUtilization* elu = dynamic_cast<TsEventLoopUtilization*>((TsObject*)raw);
     if (!elu) return 0.0;
@@ -226,8 +218,7 @@ double ts_elu_get_active(void* eluArg) {
 double ts_elu_get_utilization(void* eluArg) {
     if (!eluArg) return 0.0;
 
-    void* raw = ts_value_get_object((TsValue*)eluArg);
-    if (!raw) raw = eluArg;
+    void* raw = ts_nanbox_safe_unbox(eluArg);
 
     TsEventLoopUtilization* elu = dynamic_cast<TsEventLoopUtilization*>((TsObject*)raw);
     if (!elu) return 0.0;
@@ -249,16 +240,14 @@ void ts_performance_observer_observe(void* observerArg, void* optionsArg) {
     // Extract entryTypes from options
     TsArray* entryTypes = nullptr;
     if (optionsArg) {
-        void* rawOpts = ts_value_get_object((TsValue*)optionsArg);
-        if (!rawOpts) rawOpts = optionsArg;
+        void* rawOpts = ts_nanbox_safe_unbox(optionsArg);
 
         // Try to get entryTypes property from options object
         TsObject* optsObj = (TsObject*)rawOpts;
         if (optsObj) {
             void* entryTypesVal = ts_object_get_property(optsObj, "entryTypes");
             if (entryTypesVal) {
-                void* rawArr = ts_value_get_object((TsValue*)entryTypesVal);
-                if (!rawArr) rawArr = entryTypesVal;
+                void* rawArr = ts_nanbox_safe_unbox(entryTypesVal);
                 entryTypes = (TsArray*)rawArr;
             }
         }
@@ -287,8 +276,7 @@ void* ts_performance_observer_take_records(void* observerArg) {
 void* ts_performance_observer_entry_list_get_entries(void* listArg) {
     if (!listArg) return ts_value_make_object(TsArray::Create());
 
-    void* raw = ts_value_get_object((TsValue*)listArg);
-    if (!raw) raw = listArg;
+    void* raw = ts_nanbox_safe_unbox(listArg);
 
     TsPerformanceObserverEntryList* list = dynamic_cast<TsPerformanceObserverEntryList*>((TsObject*)raw);
     if (!list) return ts_value_make_object(TsArray::Create());
@@ -299,8 +287,7 @@ void* ts_performance_observer_entry_list_get_entries(void* listArg) {
 void* ts_performance_observer_entry_list_get_entries_by_name(void* listArg, void* nameArg, void* typeArg) {
     if (!listArg) return ts_value_make_object(TsArray::Create());
 
-    void* raw = ts_value_get_object((TsValue*)listArg);
-    if (!raw) raw = listArg;
+    void* raw = ts_nanbox_safe_unbox(listArg);
 
     TsPerformanceObserverEntryList* list = dynamic_cast<TsPerformanceObserverEntryList*>((TsObject*)raw);
     if (!list) return ts_value_make_object(TsArray::Create());
@@ -321,8 +308,7 @@ void* ts_performance_observer_entry_list_get_entries_by_name(void* listArg, void
 void* ts_performance_observer_entry_list_get_entries_by_type(void* listArg, void* typeArg) {
     if (!listArg) return ts_value_make_object(TsArray::Create());
 
-    void* raw = ts_value_get_object((TsValue*)listArg);
-    if (!raw) raw = listArg;
+    void* raw = ts_nanbox_safe_unbox(listArg);
 
     TsPerformanceObserverEntryList* list = dynamic_cast<TsPerformanceObserverEntryList*>((TsObject*)raw);
     if (!list) return ts_value_make_object(TsArray::Create());

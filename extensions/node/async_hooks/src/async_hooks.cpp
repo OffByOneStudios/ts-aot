@@ -30,8 +30,7 @@ void* ts_async_hooks_executionAsyncResource() {
 
 void* ts_async_hooks_createHook(void* callbacks) {
     // Unbox if needed
-    void* rawPtr = ts_value_get_object((TsValue*)callbacks);
-    if (!rawPtr) rawPtr = callbacks;
+    void* rawPtr = ts_nanbox_safe_unbox(callbacks);
 
     TsValue* cbVal = (TsValue*)callbacks;
     ts::TsAsyncHook* hook = ts::TsAsyncHook::Create(cbVal);
@@ -46,8 +45,7 @@ void* ts_async_local_storage_create() {
 
 void* ts_async_local_storage_getStore(void* als) {
     // Unbox if needed
-    void* rawPtr = ts_value_get_object((TsValue*)als);
-    if (!rawPtr) rawPtr = als;
+    void* rawPtr = ts_nanbox_safe_unbox(als);
 
     ts::TsAsyncLocalStorage* storage = dynamic_cast<ts::TsAsyncLocalStorage*>((TsObject*)rawPtr);
     if (!storage) return ts_value_make_undefined();
@@ -57,8 +55,7 @@ void* ts_async_local_storage_getStore(void* als) {
 
 void* ts_async_local_storage_run(void* als, void* store, void* callback, int argc, void** args) {
     // Unbox AsyncLocalStorage
-    void* rawPtr = ts_value_get_object((TsValue*)als);
-    if (!rawPtr) rawPtr = als;
+    void* rawPtr = ts_nanbox_safe_unbox(als);
 
     ts::TsAsyncLocalStorage* storage = dynamic_cast<ts::TsAsyncLocalStorage*>((TsObject*)rawPtr);
     if (!storage) return ts_value_make_undefined();
@@ -71,8 +68,7 @@ void* ts_async_local_storage_run(void* als, void* store, void* callback, int arg
 
 void* ts_async_local_storage_exit(void* als, void* callback, int argc, void** args) {
     // Unbox AsyncLocalStorage
-    void* rawPtr = ts_value_get_object((TsValue*)als);
-    if (!rawPtr) rawPtr = als;
+    void* rawPtr = ts_nanbox_safe_unbox(als);
 
     ts::TsAsyncLocalStorage* storage = dynamic_cast<ts::TsAsyncLocalStorage*>((TsObject*)rawPtr);
     if (!storage) return ts_value_make_undefined();
@@ -85,8 +81,7 @@ void* ts_async_local_storage_exit(void* als, void* callback, int argc, void** ar
 
 void ts_async_local_storage_enterWith(void* als, void* store) {
     // Unbox AsyncLocalStorage
-    void* rawPtr = ts_value_get_object((TsValue*)als);
-    if (!rawPtr) rawPtr = als;
+    void* rawPtr = ts_nanbox_safe_unbox(als);
 
     ts::TsAsyncLocalStorage* storage = dynamic_cast<ts::TsAsyncLocalStorage*>((TsObject*)rawPtr);
     if (!storage) return;
@@ -96,8 +91,7 @@ void ts_async_local_storage_enterWith(void* als, void* store) {
 
 void ts_async_local_storage_disable(void* als) {
     // Unbox AsyncLocalStorage
-    void* rawPtr = ts_value_get_object((TsValue*)als);
-    if (!rawPtr) rawPtr = als;
+    void* rawPtr = ts_nanbox_safe_unbox(als);
 
     ts::TsAsyncLocalStorage* storage = dynamic_cast<ts::TsAsyncLocalStorage*>((TsObject*)rawPtr);
     if (!storage) return;
@@ -130,8 +124,7 @@ void* ts_async_resource_create(void* type, int64_t triggerAsyncId) {
 
 int64_t ts_async_resource_asyncId(void* resource) {
     // Unbox
-    void* rawPtr = ts_value_get_object((TsValue*)resource);
-    if (!rawPtr) rawPtr = resource;
+    void* rawPtr = ts_nanbox_safe_unbox(resource);
 
     ts::TsAsyncResource* res = dynamic_cast<ts::TsAsyncResource*>((TsObject*)rawPtr);
     if (!res) return -1;
@@ -141,8 +134,7 @@ int64_t ts_async_resource_asyncId(void* resource) {
 
 int64_t ts_async_resource_triggerAsyncId(void* resource) {
     // Unbox
-    void* rawPtr = ts_value_get_object((TsValue*)resource);
-    if (!rawPtr) rawPtr = resource;
+    void* rawPtr = ts_nanbox_safe_unbox(resource);
 
     ts::TsAsyncResource* res = dynamic_cast<ts::TsAsyncResource*>((TsObject*)rawPtr);
     if (!res) return -1;
@@ -152,8 +144,7 @@ int64_t ts_async_resource_triggerAsyncId(void* resource) {
 
 void* ts_async_resource_runInAsyncScope(void* resource, void* fn, void* thisArg, int argc, void** args) {
     // Unbox
-    void* rawPtr = ts_value_get_object((TsValue*)resource);
-    if (!rawPtr) rawPtr = resource;
+    void* rawPtr = ts_nanbox_safe_unbox(resource);
 
     ts::TsAsyncResource* res = dynamic_cast<ts::TsAsyncResource*>((TsObject*)rawPtr);
     if (!res) return ts_value_make_undefined();
@@ -164,8 +155,7 @@ void* ts_async_resource_runInAsyncScope(void* resource, void* fn, void* thisArg,
 
 void* ts_async_resource_bind(void* resource, void* fn) {
     // Unbox
-    void* rawPtr = ts_value_get_object((TsValue*)resource);
-    if (!rawPtr) rawPtr = resource;
+    void* rawPtr = ts_nanbox_safe_unbox(resource);
 
     ts::TsAsyncResource* res = dynamic_cast<ts::TsAsyncResource*>((TsObject*)rawPtr);
     if (!res) return fn;
@@ -175,8 +165,7 @@ void* ts_async_resource_bind(void* resource, void* fn) {
 
 void* ts_async_resource_emitDestroy(void* resource) {
     // Unbox
-    void* rawPtr = ts_value_get_object((TsValue*)resource);
-    if (!rawPtr) rawPtr = resource;
+    void* rawPtr = ts_nanbox_safe_unbox(resource);
 
     ts::TsAsyncResource* res = dynamic_cast<ts::TsAsyncResource*>((TsObject*)rawPtr);
     if (!res) return resource;
@@ -188,8 +177,7 @@ void* ts_async_resource_emitDestroy(void* resource) {
 // AsyncHook functions
 void* ts_async_hook_enable(void* hook) {
     // Unbox
-    void* rawPtr = ts_value_get_object((TsValue*)hook);
-    if (!rawPtr) rawPtr = hook;
+    void* rawPtr = ts_nanbox_safe_unbox(hook);
 
     ts::TsAsyncHook* h = dynamic_cast<ts::TsAsyncHook*>((TsObject*)rawPtr);
     if (!h) return hook;
@@ -200,8 +188,7 @@ void* ts_async_hook_enable(void* hook) {
 
 void* ts_async_hook_disable(void* hook) {
     // Unbox
-    void* rawPtr = ts_value_get_object((TsValue*)hook);
-    if (!rawPtr) rawPtr = hook;
+    void* rawPtr = ts_nanbox_safe_unbox(hook);
 
     ts::TsAsyncHook* h = dynamic_cast<ts::TsAsyncHook*>((TsObject*)rawPtr);
     if (!h) return hook;

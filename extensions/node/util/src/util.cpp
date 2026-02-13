@@ -791,8 +791,7 @@ void* ts_util_format(void* format, void* args) {
     formatStr = (TsString*)rawFormat;
     
     // Unbox args if needed
-    void* rawArgs = ts_value_get_object((TsValue*)args);
-    if (!rawArgs) rawArgs = args;
+    void* rawArgs = ts_nanbox_safe_unbox(args);
     TsArray* argsArr = (TsArray*)rawArgs;
     
     return ts_util_format_impl(formatStr, argsArr);
@@ -1815,8 +1814,7 @@ void* ts_util_parse_args(void* configPtr) {
     // Unbox the config if provided
     TsMap* config = nullptr;
     if (configPtr) {
-        void* rawPtr = ts_value_get_object((TsValue*)configPtr);
-        if (!rawPtr) rawPtr = configPtr;
+        void* rawPtr = ts_nanbox_safe_unbox(configPtr);
         uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
         if (magic16 == TsMap::MAGIC) {
             config = (TsMap*)rawPtr;

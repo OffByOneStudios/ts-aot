@@ -86,8 +86,7 @@ TsBuffer* TsBuffer::FromArrayBuffer(void* arrayBuffer, int64_t byteOffset, int64
     if (!arrayBuffer) return Create(0);
 
     // Unbox if needed
-    void* rawPtr = ts_value_get_object((TsValue*)arrayBuffer);
-    if (!rawPtr) rawPtr = arrayBuffer;
+    void* rawPtr = ts_nanbox_safe_unbox(arrayBuffer);
 
     // Check if it's a TsBuffer (our ArrayBuffer implementation)
     TsBuffer* srcBuf = dynamic_cast<TsBuffer*>((TsObject*)rawPtr);
@@ -905,8 +904,7 @@ extern "C" {
     void* ts_buffer_from_buffer(void* buf) {
         if (!buf) return TsBuffer::Create(0);
         // Unbox if needed
-        void* rawPtr = ts_value_get_object((TsValue*)buf);
-        if (!rawPtr) rawPtr = buf;
+        void* rawPtr = ts_nanbox_safe_unbox(buf);
         TsBuffer* srcBuf = dynamic_cast<TsBuffer*>((TsObject*)rawPtr);
         if (!srcBuf) return TsBuffer::Create(0);
         return TsBuffer::FromBuffer(srcBuf);
