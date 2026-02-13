@@ -5,6 +5,7 @@
 #include "TsTTY.h"
 #include "TsBuffer.h"
 #include "TsObject.h"
+#include "TsRuntime.h"
 #include "TsError.h"
 #include "GC.h"
 #include <cstring>
@@ -100,8 +101,7 @@ bool ts_tty_write_stream_write(void* stream, void* data) {
     if (!tty || !data) return false;
 
     // Unbox the data if needed
-    void* rawData = ts_value_get_object((TsValue*)data);
-    if (!rawData) rawData = data;
+    void* rawData = ts_nanbox_safe_unbox(data);
 
     TsString* str = dynamic_cast<TsString*>((TsObject*)rawData);
     if (str) {

@@ -56,8 +56,7 @@ void* ts_fs_createReadStream_opts(void* path, void* options) {
 
     if (options) {
         // Unbox if needed
-        void* rawOpts = ts_value_get_object((TsValue*)options);
-        if (!rawOpts) rawOpts = options;
+        void* rawOpts = ts_nanbox_safe_unbox(options);
 
         // Try to get properties
         TsValue* startVal = ts_object_get_property(rawOpts, "start");
@@ -102,8 +101,7 @@ void* ts_fs_createReadStream_opts(void* path, void* options) {
 // ReadStream property accessors
 int64_t ts_read_stream_bytes_read(void* stream) {
     if (!stream) return 0;
-    void* rawPtr = ts_value_get_object((TsValue*)stream);
-    if (!rawPtr) rawPtr = stream;
+    void* rawPtr = ts_nanbox_safe_unbox(stream);
     TsReadStream* rs = dynamic_cast<TsReadStream*>((TsEventEmitter*)rawPtr);
     if (!rs) return 0;
     return rs->GetBytesRead();
@@ -111,8 +109,7 @@ int64_t ts_read_stream_bytes_read(void* stream) {
 
 void* ts_read_stream_path(void* stream) {
     if (!stream) return nullptr;
-    void* rawPtr = ts_value_get_object((TsValue*)stream);
-    if (!rawPtr) rawPtr = stream;
+    void* rawPtr = ts_nanbox_safe_unbox(stream);
     TsReadStream* rs = dynamic_cast<TsReadStream*>((TsEventEmitter*)rawPtr);
     if (!rs) return nullptr;
     const char* path = rs->GetPath();
@@ -122,8 +119,7 @@ void* ts_read_stream_path(void* stream) {
 
 bool ts_read_stream_pending(void* stream) {
     if (!stream) return true;
-    void* rawPtr = ts_value_get_object((TsValue*)stream);
-    if (!rawPtr) rawPtr = stream;
+    void* rawPtr = ts_nanbox_safe_unbox(stream);
     TsReadStream* rs = dynamic_cast<TsReadStream*>((TsEventEmitter*)rawPtr);
     if (!rs) return true;
     return rs->IsPending();
@@ -158,8 +154,7 @@ void* ts_fs_createWriteStream_opts(void* path, void* options) {
 
     if (options) {
         // Unbox if needed
-        void* rawOpts = ts_value_get_object((TsValue*)options);
-        if (!rawOpts) rawOpts = options;
+        void* rawOpts = ts_nanbox_safe_unbox(options);
 
         // Try to get properties
         TsValue* startVal = ts_object_get_property(rawOpts, "start");
@@ -226,8 +221,7 @@ void ts_fs_write_stream_end(void* stream) {
 // WriteStream property accessors
 int64_t ts_write_stream_bytes_written(void* stream) {
     if (!stream) return 0;
-    void* rawPtr = ts_value_get_object((TsValue*)stream);
-    if (!rawPtr) rawPtr = stream;
+    void* rawPtr = ts_nanbox_safe_unbox(stream);
     TsWriteStream* ws = dynamic_cast<TsWriteStream*>((TsEventEmitter*)rawPtr);
     if (!ws) return 0;
     return ws->GetBytesWritten();
@@ -235,8 +229,7 @@ int64_t ts_write_stream_bytes_written(void* stream) {
 
 void* ts_write_stream_path(void* stream) {
     if (!stream) return nullptr;
-    void* rawPtr = ts_value_get_object((TsValue*)stream);
-    if (!rawPtr) rawPtr = stream;
+    void* rawPtr = ts_nanbox_safe_unbox(stream);
     TsWriteStream* ws = dynamic_cast<TsWriteStream*>((TsEventEmitter*)rawPtr);
     if (!ws) return nullptr;
     const char* path = ws->GetPath();
@@ -246,8 +239,7 @@ void* ts_write_stream_path(void* stream) {
 
 bool ts_write_stream_pending(void* stream) {
     if (!stream) return true;
-    void* rawPtr = ts_value_get_object((TsValue*)stream);
-    if (!rawPtr) rawPtr = stream;
+    void* rawPtr = ts_nanbox_safe_unbox(stream);
     TsWriteStream* ws = dynamic_cast<TsWriteStream*>((TsEventEmitter*)rawPtr);
     if (!ws) return true;
     return ws->IsPending();
@@ -347,8 +339,7 @@ bool ts_readable_readable_did_read(void* stream) {
 void* ts_readable_readable_encoding(void* stream) {
     if (!stream) return nullptr;
 
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
 
     TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
     if (!r) return nullptr;
@@ -362,8 +353,7 @@ void* ts_readable_readable_encoding(void* stream) {
 void* ts_readable_set_encoding(void* stream, void* encoding) {
     if (!stream) return nullptr;
 
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
 
     TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
     if (!r) return stream;
@@ -386,8 +376,7 @@ void* ts_readable_set_encoding(void* stream, void* encoding) {
 void ts_readable_unshift(void* stream, void* chunk) {
     if (!stream || !chunk) return;
 
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
 
     TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
     if (!r) return;
@@ -398,8 +387,7 @@ void ts_readable_unshift(void* stream, void* chunk) {
 void* ts_readable_read(void* stream, int64_t size) {
     if (!stream) return nullptr;
 
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
 
     TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
     if (!r) r = ((TsObject*)rawStream)->AsReadable();
@@ -553,8 +541,7 @@ bool ts_writable_writable_aborted(void* stream) {
 void* ts_writable_set_default_encoding(void* stream, void* encoding) {
     if (!stream) return nullptr;
 
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
 
     TsWritable* w = dynamic_cast<TsWritable*>((TsEventEmitter*)rawStream);
     if (!w) return stream;
@@ -672,8 +659,7 @@ TsValue* pipeline_finish_cb(void* context, int argc, TsValue** argv) {
 
 static TsEventEmitter* unbox_stream(void* arg) {
     if (!arg) return nullptr;
-    void* rawPtr = ts_value_get_object((TsValue*)arg);
-    if (!rawPtr) rawPtr = arg;
+    void* rawPtr = ts_nanbox_safe_unbox(arg);
     TsEventEmitter* ee = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
     if (!ee) ee = ((TsObject*)rawPtr)->AsEventEmitter();
     return ee;
@@ -820,8 +806,7 @@ TsValue* finished_cleanup_fn(void* context, int argc, TsValue** argv) {
 void* ts_stream_finished(void* stream, void* optionsOrCallback, void* callback) {
     if (!stream) return ts_value_make_native_function((void*)finished_cleanup_fn, nullptr);
 
-    void* rawPtr = ts_value_get_object((TsValue*)stream);
-    if (!rawPtr) rawPtr = stream;
+    void* rawPtr = ts_nanbox_safe_unbox(stream);
 
     TsEventEmitter* emitter = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
     if (!emitter) {
@@ -933,8 +918,7 @@ private:
 void* ts_readable_from(void* iterable) {
     if (!iterable) return nullptr;
 
-    void* rawPtr = ts_value_get_object((TsValue*)iterable);
-    if (!rawPtr) rawPtr = iterable;
+    void* rawPtr = ts_nanbox_safe_unbox(iterable);
 
     uint32_t magic = *(uint32_t*)rawPtr;
     if (magic != TsArray::MAGIC) {
@@ -1001,15 +985,13 @@ TsValue* wrap_close_cb(void* context, int argc, TsValue** argv) {
 void* ts_readable_wrap(void* readable, void* oldStream) {
     if (!readable || !oldStream) return readable;
 
-    void* rawReadable = ts_value_get_object((TsValue*)readable);
-    if (!rawReadable) rawReadable = readable;
+    void* rawReadable = ts_nanbox_safe_unbox(readable);
 
     TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawReadable);
     if (!r) r = ((TsObject*)rawReadable)->AsReadable();
     if (!r) return readable;
 
-    void* rawOldStream = ts_value_get_object((TsValue*)oldStream);
-    if (!rawOldStream) rawOldStream = oldStream;
+    void* rawOldStream = ts_nanbox_safe_unbox(oldStream);
 
     TsEventEmitter* oldEmitter = dynamic_cast<TsEventEmitter*>((TsObject*)rawOldStream);
     if (!oldEmitter) oldEmitter = ((TsObject*)rawOldStream)->AsEventEmitter();
@@ -1043,8 +1025,7 @@ void* ts_stream_transform_create(void* options) {
 }
 
 void ts_stream_transform_push(void* transformPtr, void* data) {
-    void* rawPtr = ts_value_get_object((TsValue*)transformPtr);
-    if (!rawPtr) rawPtr = transformPtr;
+    void* rawPtr = ts_nanbox_safe_unbox(transformPtr);
 
     TsTransform* transform = dynamic_cast<TsTransform*>((TsObject*)rawPtr);
     if (!transform) return;
@@ -1053,8 +1034,7 @@ void ts_stream_transform_push(void* transformPtr, void* data) {
 }
 
 void ts_stream_transform_push_null(void* transformPtr) {
-    void* rawPtr = ts_value_get_object((TsValue*)transformPtr);
-    if (!rawPtr) rawPtr = transformPtr;
+    void* rawPtr = ts_nanbox_safe_unbox(transformPtr);
 
     TsTransform* transform = dynamic_cast<TsTransform*>((TsObject*)rawPtr);
     if (!transform) return;
@@ -1063,8 +1043,7 @@ void ts_stream_transform_push_null(void* transformPtr) {
 }
 
 void ts_stream_transform_set_transform(void* transformPtr, void* callback) {
-    void* rawPtr = ts_value_get_object((TsValue*)transformPtr);
-    if (!rawPtr) rawPtr = transformPtr;
+    void* rawPtr = ts_nanbox_safe_unbox(transformPtr);
 
     TsTransform* transform = dynamic_cast<TsTransform*>((TsObject*)rawPtr);
     if (!transform) return;
@@ -1073,8 +1052,7 @@ void ts_stream_transform_set_transform(void* transformPtr, void* callback) {
 }
 
 void ts_stream_transform_set_flush(void* transformPtr, void* callback) {
-    void* rawPtr = ts_value_get_object((TsValue*)transformPtr);
-    if (!rawPtr) rawPtr = transformPtr;
+    void* rawPtr = ts_nanbox_safe_unbox(transformPtr);
 
     TsTransform* transform = dynamic_cast<TsTransform*>((TsObject*)rawPtr);
     if (!transform) return;

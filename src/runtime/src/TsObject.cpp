@@ -431,6 +431,19 @@ TsValue* ts_value_make_int(int64_t i) {
         return nanbox_to_ptr(nb);
     }
 
+    // Safe unbox: extract heap pointer from void* that may be NaN-boxed.
+    // Returns nullptr for NaN-boxed specials (undefined, null, true, false).
+    // Returns the raw heap pointer for valid object pointers.
+    void* ts_nanbox_safe_unbox(void* arg) {
+        if (!arg) return nullptr;
+        void* raw = ts_value_get_object((TsValue*)arg);
+        if (raw) return raw;
+        // NaN-boxed special or number - not a valid heap pointer
+        if ((uint64_t)(uintptr_t)arg < 0x10000) return nullptr;
+        // Raw pointer that wasn't NaN-boxed
+        return arg;
+    }
+
     // Strict equality comparison for NaN-boxed values (implements === semantics)
     bool ts_value_strict_eq_bool(TsValue* lhs, TsValue* rhs) {
         // Treat nullptr as undefined
@@ -2413,8 +2426,7 @@ TsValue* ts_value_make_int(int64_t i) {
             TsMap* map = (TsMap*)rawPtr;
 
             // Get the property name as a string
-            void* propRaw = ts_value_get_object((TsValue*)prop);
-            if (!propRaw) propRaw = prop;
+            void* propRaw = ts_nanbox_safe_unbox(prop);
 
             TsValue propVal;
             propVal.type = ValueType::STRING_PTR;
@@ -2447,8 +2459,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!entry) continue;
             
             // Unbox entry if needed
-            void* entryRaw = ts_value_get_object((TsValue*)entry);
-            if (!entryRaw) entryRaw = entry;
+            void* entryRaw = ts_nanbox_safe_unbox(entry);
             
             uint32_t entryMagic = *(uint32_t*)entryRaw;
             if (entryMagic != 0x41525259) continue;
@@ -3519,8 +3530,7 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         // Try to get the object from context (could be boxed TsValue or raw pointer)
-        void* obj = ts_value_get_object((TsValue*)ctx);
-        if (!obj) obj = ctx;
+        void* obj = ts_nanbox_safe_unbox(ctx);
 
         // Check if it's a TsMap
         TsMap* map = dynamic_cast<TsMap*>((TsObject*)obj);
@@ -4053,8 +4063,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!weakmap || !key) return weakmap;
         TsMap* map = (TsMap*)weakmap;
 
-        void* rawKey = ts_value_get_object((TsValue*)key);
-        if (!rawKey) rawKey = key;
+        void* rawKey = ts_nanbox_safe_unbox(key);
 
         TsValue keyVal;
         keyVal.type = ValueType::OBJECT_PTR;
@@ -4075,8 +4084,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!weakmap || !key) return ts_value_make_undefined();
         TsMap* map = (TsMap*)weakmap;
 
-        void* rawKey = ts_value_get_object((TsValue*)key);
-        if (!rawKey) rawKey = key;
+        void* rawKey = ts_nanbox_safe_unbox(key);
 
         TsValue keyVal;
         keyVal.type = ValueType::OBJECT_PTR;
@@ -4090,8 +4098,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!weakmap || !key) return false;
         TsMap* map = (TsMap*)weakmap;
 
-        void* rawKey = ts_value_get_object((TsValue*)key);
-        if (!rawKey) rawKey = key;
+        void* rawKey = ts_nanbox_safe_unbox(key);
 
         TsValue keyVal;
         keyVal.type = ValueType::OBJECT_PTR;
@@ -4104,8 +4111,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!weakmap || !key) return false;
         TsMap* map = (TsMap*)weakmap;
 
-        void* rawKey = ts_value_get_object((TsValue*)key);
-        if (!rawKey) rawKey = key;
+        void* rawKey = ts_nanbox_safe_unbox(key);
 
         TsValue keyVal;
         keyVal.type = ValueType::OBJECT_PTR;
@@ -4126,8 +4132,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!weakset || !value) return weakset;
         TsSet* set = (TsSet*)weakset;
 
-        void* rawValue = ts_value_get_object((TsValue*)value);
-        if (!rawValue) rawValue = value;
+        void* rawValue = ts_nanbox_safe_unbox(value);
 
         TsValue val;
         val.type = ValueType::OBJECT_PTR;
@@ -4141,8 +4146,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!weakset || !value) return false;
         TsSet* set = (TsSet*)weakset;
 
-        void* rawValue = ts_value_get_object((TsValue*)value);
-        if (!rawValue) rawValue = value;
+        void* rawValue = ts_nanbox_safe_unbox(value);
 
         TsValue val;
         val.type = ValueType::OBJECT_PTR;
@@ -4155,8 +4159,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!weakset || !value) return false;
         TsSet* set = (TsSet*)weakset;
 
-        void* rawValue = ts_value_get_object((TsValue*)value);
-        if (!rawValue) rawValue = value;
+        void* rawValue = ts_nanbox_safe_unbox(value);
 
         TsValue val;
         val.type = ValueType::OBJECT_PTR;
@@ -4205,8 +4208,7 @@ TsValue* ts_value_make_int(int64_t i) {
         memset(&propsVal, 0, sizeof(TsValue));
         if (props) {
             // Unbox if needed
-            void* rawProps = ts_value_get_object((TsValue*)props);
-            if (!rawProps) rawProps = props;
+            void* rawProps = ts_nanbox_safe_unbox(props);
             propsVal.type = ValueType::OBJECT_PTR;
             propsVal.ptr_val = rawProps;
         } else {
@@ -4226,8 +4228,7 @@ TsValue* ts_value_make_int(int64_t i) {
         memset(&childrenVal, 0, sizeof(TsValue));
         if (children) {
             // Unbox if needed
-            void* rawChildren = ts_value_get_object((TsValue*)children);
-            if (!rawChildren) rawChildren = children;
+            void* rawChildren = ts_nanbox_safe_unbox(children);
             childrenVal.type = ValueType::ARRAY_PTR;
             childrenVal.ptr_val = rawChildren;
         } else {

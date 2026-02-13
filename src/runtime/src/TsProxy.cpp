@@ -228,11 +228,9 @@ TsValue* TsProxy::ownKeys() {
 
 extern "C" TsValue* ts_proxy_create(void* targetArg, void* handlerArg) {
     // Unbox arguments
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
 
-    void* handlerRaw = ts_value_get_object((TsValue*)handlerArg);
-    if (!handlerRaw) handlerRaw = handlerArg;
+    void* handlerRaw = ts_nanbox_safe_unbox(handlerArg);
 
     TsMap* handler = dynamic_cast<TsMap*>((TsObject*)handlerRaw);
 
@@ -277,8 +275,7 @@ extern "C" TsValue* ts_proxy_revocable(void* targetArg, void* handlerArg) {
 }
 
 extern "C" TsValue* ts_proxy_get(void* proxyArg, void* propArg, void* receiverArg) {
-    void* rawProxy = ts_value_get_object((TsValue*)proxyArg);
-    if (!rawProxy) rawProxy = proxyArg;
+    void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
     // Check if it's actually a proxy
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
@@ -291,8 +288,7 @@ extern "C" TsValue* ts_proxy_get(void* proxyArg, void* propArg, void* receiverAr
 }
 
 extern "C" int64_t ts_proxy_set(void* proxyArg, void* propArg, void* valueArg, void* receiverArg) {
-    void* rawProxy = ts_value_get_object((TsValue*)proxyArg);
-    if (!rawProxy) rawProxy = proxyArg;
+    void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
@@ -304,8 +300,7 @@ extern "C" int64_t ts_proxy_set(void* proxyArg, void* propArg, void* valueArg, v
 }
 
 extern "C" int64_t ts_proxy_has(void* proxyArg, void* propArg) {
-    void* rawProxy = ts_value_get_object((TsValue*)proxyArg);
-    if (!rawProxy) rawProxy = proxyArg;
+    void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
@@ -316,8 +311,7 @@ extern "C" int64_t ts_proxy_has(void* proxyArg, void* propArg) {
 }
 
 extern "C" int64_t ts_proxy_delete(void* proxyArg, void* propArg) {
-    void* rawProxy = ts_value_get_object((TsValue*)proxyArg);
-    if (!rawProxy) rawProxy = proxyArg;
+    void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
@@ -328,8 +322,7 @@ extern "C" int64_t ts_proxy_delete(void* proxyArg, void* propArg) {
 }
 
 extern "C" TsValue* ts_proxy_apply(void* proxyArg, void* thisArg, void* argsArg, int64_t argCount) {
-    void* rawProxy = ts_value_get_object((TsValue*)proxyArg);
-    if (!rawProxy) rawProxy = proxyArg;
+    void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
@@ -341,8 +334,7 @@ extern "C" TsValue* ts_proxy_apply(void* proxyArg, void* thisArg, void* argsArg,
 }
 
 extern "C" TsValue* ts_proxy_construct(void* proxyArg, void* argsArg, int64_t argCount, void* newTargetArg) {
-    void* rawProxy = ts_value_get_object((TsValue*)proxyArg);
-    if (!rawProxy) rawProxy = proxyArg;
+    void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
@@ -353,8 +345,7 @@ extern "C" TsValue* ts_proxy_construct(void* proxyArg, void* argsArg, int64_t ar
 }
 
 extern "C" TsValue* ts_proxy_ownKeys(void* proxyArg) {
-    void* rawProxy = ts_value_get_object((TsValue*)proxyArg);
-    if (!rawProxy) rawProxy = proxyArg;
+    void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
@@ -366,8 +357,7 @@ extern "C" TsValue* ts_proxy_ownKeys(void* proxyArg) {
 }
 
 extern "C" int64_t ts_is_proxy(void* objArg) {
-    void* raw = ts_value_get_object((TsValue*)objArg);
-    if (!raw) raw = objArg;
+    void* raw = ts_nanbox_safe_unbox(objArg);
     if (!raw) return 0;
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)raw);

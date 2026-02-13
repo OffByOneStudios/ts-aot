@@ -10,8 +10,7 @@
 // These methods directly access targets without going through Proxy traps
 
 extern "C" TsValue* ts_reflect_get(void* targetArg, void* propArg, void* receiverArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return ts_value_make_undefined();
 
     // If receiver is null, use target
@@ -22,8 +21,7 @@ extern "C" TsValue* ts_reflect_get(void* targetArg, void* propArg, void* receive
 }
 
 extern "C" int64_t ts_reflect_set(void* targetArg, void* propArg, void* valueArg, void* receiverArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return 0;
 
     // If receiver is null, use target
@@ -35,24 +33,21 @@ extern "C" int64_t ts_reflect_set(void* targetArg, void* propArg, void* valueArg
 }
 
 extern "C" int64_t ts_reflect_has(void* targetArg, void* propArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return 0;
 
     return ts_object_has_prop(ts_value_box_any(target), (TsValue*)propArg) ? 1 : 0;
 }
 
 extern "C" int64_t ts_reflect_deleteProperty(void* targetArg, void* propArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return 0;
 
     return ts_object_delete_prop(ts_value_box_any(target), (TsValue*)propArg) ? 1 : 0;
 }
 
 extern "C" TsValue* ts_reflect_apply(void* targetArg, void* thisArgArg, void* argsArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return ts_value_make_undefined();
 
     TsValue* funcVal = ts_value_box_any(target);
@@ -63,16 +58,14 @@ extern "C" TsValue* ts_reflect_apply(void* targetArg, void* thisArgArg, void* ar
 }
 
 extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* newTargetArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return ts_value_make_undefined();
 
     // If newTarget is null, use target
     if (!newTargetArg) newTargetArg = target;
 
     // Get arguments array
-    void* argsRaw = ts_value_get_object((TsValue*)argsArg);
-    if (!argsRaw) argsRaw = argsArg;
+    void* argsRaw = ts_nanbox_safe_unbox(argsArg);
 
     TsArray* argsArray = dynamic_cast<TsArray*>((TsObject*)argsRaw);
     if (!argsArray) {
@@ -121,8 +114,7 @@ extern "C" int64_t ts_reflect_setPrototypeOf(void* targetArg, void* protoArg) {
 }
 
 extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return 0;
 
     TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
@@ -133,8 +125,7 @@ extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
 }
 
 extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return 0;
 
     TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
@@ -146,8 +137,7 @@ extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
 }
 
 extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* propArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return ts_value_make_undefined();
 
     TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
@@ -185,15 +175,13 @@ extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* p
 }
 
 extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, void* descriptorArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return 0;
 
     TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
     if (!obj) return 0;
 
-    void* descRaw = ts_value_get_object((TsValue*)descriptorArg);
-    if (!descRaw) descRaw = descriptorArg;
+    void* descRaw = ts_nanbox_safe_unbox(descriptorArg);
     TsMap* descriptor = dynamic_cast<TsMap*>((TsObject*)descRaw);
     if (!descriptor) return 0;
 
@@ -217,8 +205,7 @@ extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, voi
 }
 
 extern "C" TsValue* ts_reflect_ownKeys(void* targetArg) {
-    void* target = ts_value_get_object((TsValue*)targetArg);
-    if (!target) target = targetArg;
+    void* target = ts_nanbox_safe_unbox(targetArg);
     if (!target) return ts_value_make_array(TsArray::Create());
 
     // Use ts_object_keys which returns an array

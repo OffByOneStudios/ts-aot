@@ -13,6 +13,7 @@
 
 #include "TsZlib.h"
 #include "TsObject.h"
+#include "TsRuntime.h"
 #include "TsError.h"
 #include "GC.h"
 #include <cstring>
@@ -180,8 +181,7 @@ void TsZlibBase::Reset() {
 
 extern "C" void* ts_zlib_gzip_sync(void* buffer, void* options) {
     // Unbox buffer
-    void* rawBuf = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuf) rawBuf = buffer;
+    void* rawBuf = ts_nanbox_safe_unbox(buffer);
     TsBuffer* input = dynamic_cast<TsBuffer*>((TsObject*)rawBuf);
     if (!input) {
         return ts_error_create((void*)TsString::Create("First argument must be a Buffer"));
@@ -229,8 +229,7 @@ extern "C" void* ts_zlib_gzip_sync(void* buffer, void* options) {
 
 extern "C" void* ts_zlib_gunzip_sync(void* buffer, void* options) {
     // Unbox buffer
-    void* rawBuf = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuf) rawBuf = buffer;
+    void* rawBuf = ts_nanbox_safe_unbox(buffer);
     TsBuffer* input = dynamic_cast<TsBuffer*>((TsObject*)rawBuf);
     if (!input) {
         return ts_error_create((void*)TsString::Create("First argument must be a Buffer"));
@@ -305,8 +304,7 @@ extern "C" void* ts_zlib_gunzip_sync(void* buffer, void* options) {
 // =============================================================================
 
 extern "C" void* ts_zlib_deflate_sync(void* buffer, void* options) {
-    void* rawBuf = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuf) rawBuf = buffer;
+    void* rawBuf = ts_nanbox_safe_unbox(buffer);
     TsBuffer* input = dynamic_cast<TsBuffer*>((TsObject*)rawBuf);
     if (!input) {
         return ts_error_create((void*)TsString::Create("First argument must be a Buffer"));
@@ -347,8 +345,7 @@ extern "C" void* ts_zlib_deflate_sync(void* buffer, void* options) {
 }
 
 extern "C" void* ts_zlib_inflate_sync(void* buffer, void* options) {
-    void* rawBuf = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuf) rawBuf = buffer;
+    void* rawBuf = ts_nanbox_safe_unbox(buffer);
     TsBuffer* input = dynamic_cast<TsBuffer*>((TsObject*)rawBuf);
     if (!input) {
         return ts_error_create((void*)TsString::Create("First argument must be a Buffer"));
@@ -417,8 +414,7 @@ extern "C" void* ts_zlib_inflate_sync(void* buffer, void* options) {
 // =============================================================================
 
 extern "C" void* ts_zlib_deflate_raw_sync(void* buffer, void* options) {
-    void* rawBuf = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuf) rawBuf = buffer;
+    void* rawBuf = ts_nanbox_safe_unbox(buffer);
     TsBuffer* input = dynamic_cast<TsBuffer*>((TsObject*)rawBuf);
     if (!input) {
         return ts_error_create((void*)TsString::Create("First argument must be a Buffer"));
@@ -460,8 +456,7 @@ extern "C" void* ts_zlib_deflate_raw_sync(void* buffer, void* options) {
 }
 
 extern "C" void* ts_zlib_inflate_raw_sync(void* buffer, void* options) {
-    void* rawBuf = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuf) rawBuf = buffer;
+    void* rawBuf = ts_nanbox_safe_unbox(buffer);
     TsBuffer* input = dynamic_cast<TsBuffer*>((TsObject*)rawBuf);
     if (!input) {
         return ts_error_create((void*)TsString::Create("First argument must be a Buffer"));
@@ -531,8 +526,7 @@ extern "C" void* ts_zlib_inflate_raw_sync(void* buffer, void* options) {
 // =============================================================================
 
 extern "C" void* ts_zlib_unzip_sync(void* buffer, void* options) {
-    void* rawBuf = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuf) rawBuf = buffer;
+    void* rawBuf = ts_nanbox_safe_unbox(buffer);
     TsBuffer* input = dynamic_cast<TsBuffer*>((TsObject*)rawBuf);
     if (!input) {
         return ts_error_create((void*)TsString::Create("First argument must be a Buffer"));
@@ -602,8 +596,7 @@ extern "C" void* ts_zlib_unzip_sync(void* buffer, void* options) {
 // =============================================================================
 
 extern "C" void* ts_zlib_brotli_compress_sync(void* buffer, void* options) {
-    void* rawBuf = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuf) rawBuf = buffer;
+    void* rawBuf = ts_nanbox_safe_unbox(buffer);
     TsBuffer* input = dynamic_cast<TsBuffer*>((TsObject*)rawBuf);
     if (!input) {
         return ts_error_create((void*)TsString::Create("First argument must be a Buffer"));
@@ -642,8 +635,7 @@ extern "C" void* ts_zlib_brotli_compress_sync(void* buffer, void* options) {
 }
 
 extern "C" void* ts_zlib_brotli_decompress_sync(void* buffer, void* options) {
-    void* rawBuf = ts_value_get_object((TsValue*)buffer);
-    if (!rawBuf) rawBuf = buffer;
+    void* rawBuf = ts_nanbox_safe_unbox(buffer);
     TsBuffer* input = dynamic_cast<TsBuffer*>((TsObject*)rawBuf);
     if (!input) {
         return ts_error_create((void*)TsString::Create("First argument must be a Buffer"));
@@ -845,8 +837,7 @@ extern "C" void* ts_zlib_create_brotli_decompress(void* options) {
 // =============================================================================
 
 extern "C" void ts_zlib_flush(void* stream, int64_t kind, void* callback) {
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
     TsZlibBase* zlib = dynamic_cast<TsZlibBase*>((TsObject*)rawStream);
     if (zlib) {
         zlib->Flush((int)kind, callback);
@@ -854,8 +845,7 @@ extern "C" void ts_zlib_flush(void* stream, int64_t kind, void* callback) {
 }
 
 extern "C" void ts_zlib_close(void* stream, void* callback) {
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
     TsZlibBase* zlib = dynamic_cast<TsZlibBase*>((TsObject*)rawStream);
     if (zlib) {
         zlib->Close(callback);
@@ -863,8 +853,7 @@ extern "C" void ts_zlib_close(void* stream, void* callback) {
 }
 
 extern "C" void ts_zlib_params(void* stream, int64_t level, int64_t strategy, void* callback) {
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
     TsDeflate* deflate = dynamic_cast<TsDeflate*>((TsObject*)rawStream);
     if (deflate) {
         deflate->Params((int)level, (int)strategy, callback);
@@ -872,8 +861,7 @@ extern "C" void ts_zlib_params(void* stream, int64_t level, int64_t strategy, vo
 }
 
 extern "C" void ts_zlib_reset(void* stream) {
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
     TsZlibBase* zlib = dynamic_cast<TsZlibBase*>((TsObject*)rawStream);
     if (zlib) {
         zlib->Reset();
@@ -881,8 +869,7 @@ extern "C" void ts_zlib_reset(void* stream) {
 }
 
 extern "C" int64_t ts_zlib_get_bytes_written(void* stream) {
-    void* rawStream = ts_value_get_object((TsValue*)stream);
-    if (!rawStream) rawStream = stream;
+    void* rawStream = ts_nanbox_safe_unbox(stream);
     TsZlibBase* zlib = dynamic_cast<TsZlibBase*>((TsObject*)rawStream);
     if (zlib) {
         return (int64_t)zlib->bytesWritten;
@@ -895,8 +882,7 @@ extern "C" int64_t ts_zlib_get_bytes_written(void* stream) {
 // =============================================================================
 
 extern "C" int64_t ts_zlib_crc32(void* data, int64_t value) {
-    void* rawData = ts_value_get_object((TsValue*)data);
-    if (!rawData) rawData = data;
+    void* rawData = ts_nanbox_safe_unbox(data);
 
     // Check if it's a Buffer
     TsBuffer* buffer = dynamic_cast<TsBuffer*>((TsObject*)rawData);

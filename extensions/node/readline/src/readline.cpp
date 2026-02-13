@@ -22,8 +22,7 @@ void* ts_readline_create_interface(void* options) {
     ts::TsReadlineInterface* rl = ts::TsReadlineInterface::Create();
 
     if (options) {
-        void* rawOpts = ts_value_get_object((TsValue*)options);
-        if (!rawOpts) rawOpts = options;
+        void* rawOpts = ts_nanbox_safe_unbox(options);
 
         // Get input stream
         TsValue* inputVal = ts_object_get_property(rawOpts, "input");
@@ -64,8 +63,7 @@ void* ts_readline_create_interface(void* options) {
 void ts_readline_close(void* rl) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -76,8 +74,7 @@ void ts_readline_close(void* rl) {
 void ts_readline_pause(void* rl) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -88,8 +85,7 @@ void ts_readline_pause(void* rl) {
 void ts_readline_resume(void* rl) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -100,8 +96,7 @@ void ts_readline_resume(void* rl) {
 void ts_readline_prompt(void* rl, void* preserveCursor) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -116,8 +111,7 @@ void ts_readline_prompt(void* rl, void* preserveCursor) {
 void ts_readline_set_prompt(void* rl, void* prompt) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface && prompt) {
@@ -130,8 +124,7 @@ void ts_readline_set_prompt(void* rl, void* prompt) {
 void ts_readline_question(void* rl, void* query, void* callback) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -144,8 +137,7 @@ void ts_readline_question(void* rl, void* query, void* callback) {
 void ts_readline_write(void* rl, void* data) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface && data) {
@@ -158,8 +150,7 @@ void ts_readline_write(void* rl, void* data) {
 void* ts_readline_get_line(void* rl) {
     if (!rl) return TsString::Create("");
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -172,8 +163,7 @@ void* ts_readline_get_line(void* rl) {
 int64_t ts_readline_get_cursor(void* rl) {
     if (!rl) return 0;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -185,8 +175,7 @@ int64_t ts_readline_get_cursor(void* rl) {
 void* ts_readline_get_prompt(void* rl) {
     if (!rl) return TsString::Create("");
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -284,8 +273,7 @@ void ts_readline_emit_keypress_events(void* stream, void* iface) {
 void* ts_readline_get_async_iterator(void* rl) {
     if (!rl) return nullptr;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -298,8 +286,7 @@ void* ts_readline_get_async_iterator(void* rl) {
 void* ts_readline_async_iterator_next(void* iter) {
     if (!iter) return nullptr;
 
-    void* rawIter = ts_value_get_object((TsValue*)iter);
-    if (!rawIter) rawIter = iter;
+    void* rawIter = ts_nanbox_safe_unbox(iter);
 
     ts::TsReadlineAsyncIterator* asyncIter = dynamic_cast<ts::TsReadlineAsyncIterator*>((TsObject*)rawIter);
     if (asyncIter) {
@@ -317,8 +304,7 @@ void* ts_readline_async_iterator_next(void* iter) {
 void ts_readline_emit_sigint(void* rl) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -329,8 +315,7 @@ void ts_readline_emit_sigint(void* rl) {
 void ts_readline_emit_sigtstp(void* rl) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {
@@ -341,8 +326,7 @@ void ts_readline_emit_sigtstp(void* rl) {
 void ts_readline_emit_sigcont(void* rl) {
     if (!rl) return;
 
-    void* rawRl = ts_value_get_object((TsValue*)rl);
-    if (!rawRl) rawRl = rl;
+    void* rawRl = ts_nanbox_safe_unbox(rl);
 
     ts::TsReadlineInterface* iface = dynamic_cast<ts::TsReadlineInterface*>((TsObject*)rawRl);
     if (iface) {

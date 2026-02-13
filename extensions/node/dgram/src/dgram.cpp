@@ -14,8 +14,7 @@
 // Helper to get TsUDPSocket from void* with proper NaN-box-aware unboxing
 static TsUDPSocket* GetUDPSocket(void* param) {
     if (!param) return nullptr;
-    void* rawPtr = ts_value_get_object((TsValue*)param);
-    if (!rawPtr) rawPtr = param;
+    void* rawPtr = ts_nanbox_safe_unbox(param);
     return dynamic_cast<TsUDPSocket*>((TsObject*)rawPtr);
 }
 
@@ -181,8 +180,7 @@ void TsUDPSocket::Send(void* msg, int offset, int length, int port, const char* 
         }
     } else {
         // Try as raw pointer (for unboxed heap pointers)
-        void* rawPtr = ts_value_get_object((TsValue*)msg);
-        if (!rawPtr) rawPtr = msg;
+        void* rawPtr = ts_nanbox_safe_unbox(msg);
 
         // Check magic to determine type
         uint32_t magic = *(uint32_t*)rawPtr;

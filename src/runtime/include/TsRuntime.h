@@ -234,6 +234,7 @@ TsValue* ts_value_make_object(void* o);
 TsValue* ts_value_make_bigint(void* b);
 TsValue* ts_value_make_symbol(void* s);
 void* ts_value_get_object(TsValue* v);
+void* ts_nanbox_safe_unbox(void* arg);  // Safe unbox: returns nullptr for NaN-boxed specials
 TsValue* ts_value_make_promise(void* p);
 TsValue* ts_value_make_function(void* funcPtr, void* context);
 void* ts_function_get_ptr(TsValue* val);

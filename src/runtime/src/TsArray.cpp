@@ -1686,8 +1686,7 @@ extern "C" {
 
     void* ts_array_join(void* arr, void* separator) {
         // Unbox if arr is a TsValue* (boxed array)
-        void* rawArr = ts_value_get_object((TsValue*)arr);
-        if (!rawArr) rawArr = arr;
+        void* rawArr = ts_nanbox_safe_unbox(arr);
         return ((TsArray*)rawArr)->Join(separator);
     }
 
@@ -1760,10 +1759,8 @@ extern "C" {
 
     void* ts_array_concat(void* arr, void* other) {
         // Unbox if arr is a TsValue* (boxed array)
-        void* rawArr = ts_value_get_object((TsValue*)arr);
-        if (!rawArr) rawArr = arr;
-        void* rawOther = ts_value_get_object((TsValue*)other);
-        if (!rawOther) rawOther = other;
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        void* rawOther = ts_nanbox_safe_unbox(other);
 
         TsArray* first = (TsArray*)rawArr;
         TsArray* second = (TsArray*)rawOther;
@@ -1811,8 +1808,7 @@ extern "C" {
         }
 
         // Unbox if it's a TsValue*
-        void* rawPtr = ts_value_get_object((TsValue*)arrayLike);
-        if (!rawPtr) rawPtr = arrayLike;
+        void* rawPtr = ts_nanbox_safe_unbox(arrayLike);
 
         // Get map function as TsValue* for calling (NaN-boxed)
         TsValue* mapFnVal = (TsValue*)mapFn;

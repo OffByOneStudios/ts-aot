@@ -39,8 +39,7 @@ void* ts_child_process_spawn(void* command, void* args, void* options) {
     // Unbox args array
     std::vector<std::string> argsVec;
     if (args) {
-        void* rawArgs = ts_value_get_object((TsValue*)args);
-        if (!rawArgs) rawArgs = args;
+        void* rawArgs = ts_nanbox_safe_unbox(args);
 
         // Check if it's a TsArray by magic number
         uint32_t magic = *(uint32_t*)rawArgs;
@@ -64,8 +63,7 @@ void* ts_child_process_spawn(void* command, void* args, void* options) {
     bool windowsHide = false;
 
     if (options) {
-        void* rawOpts = ts_value_get_object((TsValue*)options);
-        if (!rawOpts) rawOpts = options;
+        void* rawOpts = ts_nanbox_safe_unbox(options);
 
         // Check for TsMap by magic number at various offsets
         uint32_t magic16 = *(uint32_t*)((char*)rawOpts + 16);
@@ -136,8 +134,7 @@ void* ts_child_process_exec(void* command, void* options, void* callback) {
 
 void* ts_child_process_exec_sync(void* command, void* options) {
     // Get the shell command
-    void* rawCmd = ts_value_get_object((TsValue*)command);
-    if (!rawCmd) rawCmd = command;
+    void* rawCmd = ts_nanbox_safe_unbox(command);
     TsString* cmdStr = (TsString*)rawCmd;
     const char* cmd = cmdStr ? cmdStr->ToUtf8() : nullptr;
     if (!cmd) return ts_value_make_null();
@@ -196,8 +193,7 @@ void* ts_child_process_exec_file_sync(void* file, void* args, void* options) {
     // Unbox args array
     std::vector<std::string> argsVec;
     if (args) {
-        void* rawArgs = ts_value_get_object((TsValue*)args);
-        if (!rawArgs) rawArgs = args;
+        void* rawArgs = ts_nanbox_safe_unbox(args);
 
         uint32_t magic = *(uint32_t*)rawArgs;
         if (magic == 0x41525259) { // TsArray::MAGIC
@@ -283,8 +279,7 @@ void* ts_child_process_fork(void* modulePath, void* args, void* options) {
     // Unbox args array
     std::vector<std::string> argsVec;
     if (args) {
-        void* rawArgs = ts_value_get_object((TsValue*)args);
-        if (!rawArgs) rawArgs = args;
+        void* rawArgs = ts_nanbox_safe_unbox(args);
 
         uint32_t magic = *(uint32_t*)rawArgs;
         if (magic == 0x41525259) { // TsArray::MAGIC
@@ -305,8 +300,7 @@ void* ts_child_process_fork(void* modulePath, void* args, void* options) {
     bool detached = false;
 
     if (options) {
-        void* rawOpts = ts_value_get_object((TsValue*)options);
-        if (!rawOpts) rawOpts = options;
+        void* rawOpts = ts_nanbox_safe_unbox(options);
 
         uint32_t magic16 = *(uint32_t*)((char*)rawOpts + 16);
         if (magic16 == 0x4D415053) { // TsMap::MAGIC "MAPS"
@@ -357,8 +351,7 @@ void* ts_child_process_spawn_sync(void* command, void* args, void* options) {
     // Unbox args array
     std::vector<std::string> argsVec;
     if (args) {
-        void* rawArgs = ts_value_get_object((TsValue*)args);
-        if (!rawArgs) rawArgs = args;
+        void* rawArgs = ts_nanbox_safe_unbox(args);
 
         uint32_t magic = *(uint32_t*)rawArgs;
         if (magic == 0x41525259) { // TsArray::MAGIC
@@ -504,15 +497,13 @@ void* ts_child_process_spawn_sync(void* command, void* args, void* options) {
 }
 
 bool ts_child_process_kill(void* cp, void* signal) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc) return false;
 
     const char* sig = "SIGTERM";
     if (signal) {
-        void* rawSig = ts_value_get_object((TsValue*)signal);
-        if (!rawSig) rawSig = signal;
+        void* rawSig = ts_nanbox_safe_unbox(signal);
         TsString* sigStr = (TsString*)rawSig;
         if (sigStr) sig = sigStr->ToUtf8();
     }
@@ -521,29 +512,25 @@ bool ts_child_process_kill(void* cp, void* signal) {
 }
 
 int64_t ts_child_process_get_pid(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     return proc ? proc->GetPid() : -1;
 }
 
 bool ts_child_process_get_connected(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     return proc ? proc->IsConnected() : false;
 }
 
 bool ts_child_process_get_killed(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     return proc ? proc->IsKilled() : false;
 }
 
 void* ts_child_process_get_exit_code(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc) return ts_value_make_null();
     int code = proc->GetExitCode();
@@ -551,8 +538,7 @@ void* ts_child_process_get_exit_code(void* cp) {
 }
 
 void* ts_child_process_get_signal_code(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc) return ts_value_make_null();
     const char* sig = proc->GetSignalCode();
@@ -560,8 +546,7 @@ void* ts_child_process_get_signal_code(void* cp) {
 }
 
 void* ts_child_process_get_spawnfile(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc) return nullptr;
     const char* file = proc->GetSpawnfile();
@@ -570,48 +555,42 @@ void* ts_child_process_get_spawnfile(void* cp) {
 }
 
 void* ts_child_process_get_spawnargs(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc) return ts_value_make_null();
     return ts_value_make_object(proc->GetSpawnargs());
 }
 
 void* ts_child_process_get_stdin(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc || !proc->GetStdin()) return ts_value_make_null();
     return ts_value_make_object(proc->GetStdin());
 }
 
 void* ts_child_process_get_stdout(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc || !proc->GetStdout()) return ts_value_make_null();
     return ts_value_make_object(proc->GetStdout());
 }
 
 void* ts_child_process_get_stderr(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc || !proc->GetStderr()) return ts_value_make_null();
     return ts_value_make_object(proc->GetStderr());
 }
 
 void* ts_child_process_get_channel(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc || !proc->GetChannel()) return ts_value_make_null();
     return ts_value_make_object(proc->GetChannel());
 }
 
 void* ts_child_process_get_stdio(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc) return ts_value_make_null();
 
@@ -643,31 +622,27 @@ void* ts_child_process_get_stdio(void* cp) {
 }
 
 bool ts_child_process_send(void* cp, void* message, void* sendHandle) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (!proc) return false;
     return proc->Send(message, sendHandle);
 }
 
 void ts_child_process_disconnect(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (proc) proc->Disconnect();
 }
 
 void* ts_child_process_ref(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (proc) proc->Ref();
     return cp;
 }
 
 void* ts_child_process_unref(void* cp) {
-    void* rawCp = ts_value_get_object((TsValue*)cp);
-    if (!rawCp) rawCp = cp;
+    void* rawCp = ts_nanbox_safe_unbox(cp);
     TsChildProcess* proc = dynamic_cast<TsChildProcess*>((TsObject*)rawCp);
     if (proc) proc->Unref();
     return cp;

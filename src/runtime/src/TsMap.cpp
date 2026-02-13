@@ -383,12 +383,14 @@ bool ts_map_delete_v(void* map, TsValue key) {
 
 bool ts_map_has(void* map, TsValue* key) {
     if (!map || !key) return false;
-    return ((TsMap*)map)->Has(*key);
+    TsValue vk = nanbox_to_tagged(key);
+    return ((TsMap*)map)->Has(vk);
 }
 
 bool ts_map_delete(void* map, TsValue* key) {
     if (!map || !key) return false;
-    return ((TsMap*)map)->Delete(*key);
+    TsValue vk = nanbox_to_tagged(key);
+    return ((TsMap*)map)->Delete(vk);
 }
 
 void ts_map_clear(void* map) {

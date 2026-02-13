@@ -50,8 +50,7 @@ extern "C" {
 
 void* ts_weakref_create(void* target) {
     // Unbox if needed
-    void* rawTarget = ts_value_get_object((TsValue*)target);
-    if (!rawTarget) rawTarget = target;
+    void* rawTarget = ts_nanbox_safe_unbox(target);
     return TsWeakRef::Create(rawTarget);
 }
 
@@ -71,8 +70,7 @@ void ts_finalization_registry_register(void* registry, void* target, void* heldV
     TsFinalizationRegistry* reg = (TsFinalizationRegistry*)registry;
 
     // Unbox target if needed
-    void* rawTarget = ts_value_get_object((TsValue*)target);
-    if (!rawTarget) rawTarget = target;
+    void* rawTarget = ts_nanbox_safe_unbox(target);
 
     // Register with the GC: when rawTarget is collected, schedule
     // reg->cleanupCallback(heldValue) via process.nextTick

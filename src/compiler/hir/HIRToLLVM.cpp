@@ -2147,24 +2147,12 @@ void HIRToLLVM::lowerLogicalAnd(HIRInstruction* inst) {
     }
 
     // General case: short-circuit with value propagation
-    // Box operands to ptr if needed for phi node compatibility
+    // Box operands to ptr if needed for phi node compatibility (inline NaN boxing)
     auto boxIfNeeded = [this](llvm::Value* val) -> llvm::Value* {
         if (val->getType()->isPointerTy()) return val;
-        if (val->getType()->isIntegerTy(64)) {
-            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
-            auto fn = module_->getOrInsertFunction("ts_value_make_int", ft);
-            return builder_->CreateCall(ft, fn.getCallee(), { val });
-        }
-        if (val->getType()->isDoubleTy()) {
-            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
-            auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
-            return builder_->CreateCall(ft, fn.getCallee(), { val });
-        }
-        if (val->getType()->isIntegerTy(1)) {
-            auto fn = getTsValueMakeBool();
-            llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt32Ty());
-            return builder_->CreateCall(fn, { ext });
-        }
+        if (val->getType()->isIntegerTy(64)) return emitInlineBoxInt(val);
+        if (val->getType()->isDoubleTy()) return emitInlineBoxFloat(val);
+        if (val->getType()->isIntegerTy(1)) return emitInlineBoxBool(val);
         return val;
     };
 
@@ -2210,24 +2198,12 @@ void HIRToLLVM::lowerLogicalOr(HIRInstruction* inst) {
     }
 
     // General case: short-circuit with value propagation
-    // Box operands to ptr if needed for phi node compatibility
+    // Box operands to ptr if needed for phi node compatibility (inline NaN boxing)
     auto boxIfNeeded = [this](llvm::Value* val) -> llvm::Value* {
         if (val->getType()->isPointerTy()) return val;
-        if (val->getType()->isIntegerTy(64)) {
-            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
-            auto fn = module_->getOrInsertFunction("ts_value_make_int", ft);
-            return builder_->CreateCall(ft, fn.getCallee(), { val });
-        }
-        if (val->getType()->isDoubleTy()) {
-            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
-            auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
-            return builder_->CreateCall(ft, fn.getCallee(), { val });
-        }
-        if (val->getType()->isIntegerTy(1)) {
-            auto fn = getTsValueMakeBool();
-            llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt32Ty());
-            return builder_->CreateCall(fn, { ext });
-        }
+        if (val->getType()->isIntegerTy(64)) return emitInlineBoxInt(val);
+        if (val->getType()->isDoubleTy()) return emitInlineBoxFloat(val);
+        if (val->getType()->isIntegerTy(1)) return emitInlineBoxBool(val);
         return val;
     };
 
@@ -2312,38 +2288,180 @@ void HIRToLLVM::lowerCastBoolToI64(HIRInstruction* inst) {
 }
 
 //==============================================================================
+// Inline NaN-Boxing Helpers
+//==============================================================================
+
+// BoxInt: i64 → ptr (NaN-boxed)
+// If value fits in int32, tag with 0xFFFE prefix. Otherwise convert to double and bias.
+llvm::Value* HIRToLLVM::emitInlineBoxInt(llvm::Value* val) {
+    // Check if value fits in int32 range
+    llvm::Value* trunc = builder_->CreateTrunc(val, builder_->getInt32Ty(), "nb.trunc");
+    llvm::Value* sext = builder_->CreateSExt(trunc, builder_->getInt64Ty(), "nb.sext");
+    llvm::Value* fits = builder_->CreateICmpEQ(val, sext, "nb.fits_i32");
+
+    llvm::Function* fn = builder_->GetInsertBlock()->getParent();
+    llvm::BasicBlock* int32BB = llvm::BasicBlock::Create(context_, "nb.int32", fn);
+    llvm::BasicBlock* doubleBB = llvm::BasicBlock::Create(context_, "nb.double", fn);
+    llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(context_, "nb.merge", fn);
+
+    builder_->CreateCondBr(fits, int32BB, doubleBB);
+
+    // Int32 path: tag with 0xFFFE prefix
+    builder_->SetInsertPoint(int32BB);
+    llvm::Value* masked = builder_->CreateAnd(val,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x00000000FFFFFFFFULL), "nb.masked");
+    llvm::Value* tagged = builder_->CreateOr(masked,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0xFFFE000000000000ULL), "nb.tagged");
+    llvm::Value* ptr1 = builder_->CreateIntToPtr(tagged, builder_->getPtrTy(), "nb.ptr_i32");
+    builder_->CreateBr(mergeBB);
+
+    // Double path: convert to double, bias
+    builder_->SetInsertPoint(doubleBB);
+    llvm::Value* dbl = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "nb.dbl");
+    llvm::Value* bits = builder_->CreateBitCast(dbl, builder_->getInt64Ty(), "nb.bits");
+    llvm::Value* biased = builder_->CreateAdd(bits,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "nb.biased");
+    llvm::Value* ptr2 = builder_->CreateIntToPtr(biased, builder_->getPtrTy(), "nb.ptr_dbl");
+    builder_->CreateBr(mergeBB);
+
+    // Merge
+    builder_->SetInsertPoint(mergeBB);
+    llvm::PHINode* phi = builder_->CreatePHI(builder_->getPtrTy(), 2, "nb.boxed_int");
+    phi->addIncoming(ptr1, int32BB);
+    phi->addIncoming(ptr2, doubleBB);
+    return phi;
+}
+
+// UnboxInt: ptr (NaN-boxed) → i64
+// Check top 16 bits for int32 tag, else treat as biased double.
+llvm::Value* HIRToLLVM::emitInlineUnboxInt(llvm::Value* val) {
+    llvm::Value* raw = builder_->CreatePtrToInt(val, builder_->getInt64Ty(), "nb.raw");
+    llvm::Value* top16 = builder_->CreateLShr(raw,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 48), "nb.top16");
+    llvm::Value* isInt32 = builder_->CreateICmpEQ(top16,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0xFFFE), "nb.is_i32");
+
+    llvm::Function* fn = builder_->GetInsertBlock()->getParent();
+    llvm::BasicBlock* intBB = llvm::BasicBlock::Create(context_, "nb.unbox_int", fn);
+    llvm::BasicBlock* fltBB = llvm::BasicBlock::Create(context_, "nb.unbox_flt", fn);
+    llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(context_, "nb.unbox_merge", fn);
+
+    builder_->CreateCondBr(isInt32, intBB, fltBB);
+
+    // Int32 path: extract lower 32 bits and sign-extend
+    builder_->SetInsertPoint(intBB);
+    llvm::Value* lo32 = builder_->CreateTrunc(raw, builder_->getInt32Ty(), "nb.lo32");
+    llvm::Value* result_int = builder_->CreateSExt(lo32, builder_->getInt64Ty(), "nb.sext_i32");
+    builder_->CreateBr(mergeBB);
+
+    // Float path: unbias and convert to i64
+    builder_->SetInsertPoint(fltBB);
+    llvm::Value* unbiased = builder_->CreateSub(raw,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "nb.unbiased");
+    llvm::Value* dbl = builder_->CreateBitCast(unbiased, builder_->getDoubleTy(), "nb.dbl");
+    llvm::Value* result_flt = builder_->CreateFPToSI(dbl, builder_->getInt64Ty(), "nb.fptosi");
+    builder_->CreateBr(mergeBB);
+
+    // Merge
+    builder_->SetInsertPoint(mergeBB);
+    llvm::PHINode* phi = builder_->CreatePHI(builder_->getInt64Ty(), 2, "nb.unboxed_int");
+    phi->addIncoming(result_int, intBB);
+    phi->addIncoming(result_flt, fltBB);
+    return phi;
+}
+
+// BoxFloat: double → ptr (NaN-boxed)
+// Bias the IEEE754 bits by 2^49.
+llvm::Value* HIRToLLVM::emitInlineBoxFloat(llvm::Value* val) {
+    llvm::Value* bits = builder_->CreateBitCast(val, builder_->getInt64Ty(), "nb.f_bits");
+    llvm::Value* biased = builder_->CreateAdd(bits,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "nb.f_biased");
+    return builder_->CreateIntToPtr(biased, builder_->getPtrTy(), "nb.boxed_float");
+}
+
+// UnboxFloat: ptr (NaN-boxed) → double
+// Check for int32 tag first, otherwise unbias.
+llvm::Value* HIRToLLVM::emitInlineUnboxFloat(llvm::Value* val) {
+    llvm::Value* raw = builder_->CreatePtrToInt(val, builder_->getInt64Ty(), "nb.uf_raw");
+    llvm::Value* top16 = builder_->CreateLShr(raw,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 48), "nb.uf_top16");
+    llvm::Value* isInt32 = builder_->CreateICmpEQ(top16,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0xFFFE), "nb.uf_is_i32");
+
+    llvm::Function* fn = builder_->GetInsertBlock()->getParent();
+    llvm::BasicBlock* intBB = llvm::BasicBlock::Create(context_, "nb.uf_int", fn);
+    llvm::BasicBlock* fltBB = llvm::BasicBlock::Create(context_, "nb.uf_flt", fn);
+    llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(context_, "nb.uf_merge", fn);
+
+    builder_->CreateCondBr(isInt32, intBB, fltBB);
+
+    // Int32 path: extract and convert to double
+    builder_->SetInsertPoint(intBB);
+    llvm::Value* lo32 = builder_->CreateTrunc(raw, builder_->getInt32Ty(), "nb.uf_lo32");
+    llvm::Value* ext = builder_->CreateSExt(lo32, builder_->getInt64Ty(), "nb.uf_sext");
+    llvm::Value* result_int = builder_->CreateSIToFP(ext, builder_->getDoubleTy(), "nb.uf_sitofp");
+    builder_->CreateBr(mergeBB);
+
+    // Float path: unbias
+    builder_->SetInsertPoint(fltBB);
+    llvm::Value* unbiased = builder_->CreateSub(raw,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "nb.uf_unbiased");
+    llvm::Value* result_flt = builder_->CreateBitCast(unbiased, builder_->getDoubleTy(), "nb.uf_dbl");
+    builder_->CreateBr(mergeBB);
+
+    // Merge
+    builder_->SetInsertPoint(mergeBB);
+    llvm::PHINode* phi = builder_->CreatePHI(builder_->getDoubleTy(), 2, "nb.unboxed_float");
+    phi->addIncoming(result_int, intBB);
+    phi->addIncoming(result_flt, fltBB);
+    return phi;
+}
+
+// BoxBool: i1 → ptr (NaN-boxed)
+// TRUE = 0x07, FALSE = 0x06
+llvm::Value* HIRToLLVM::emitInlineBoxBool(llvm::Value* val) {
+    llvm::Value* truePtr = builder_->CreateIntToPtr(
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x07), builder_->getPtrTy());
+    llvm::Value* falsePtr = builder_->CreateIntToPtr(
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x06), builder_->getPtrTy());
+    return builder_->CreateSelect(val, truePtr, falsePtr, "nb.boxed_bool");
+}
+
+// UnboxBool: ptr (NaN-boxed) → i1
+// TRUE = 0x07
+llvm::Value* HIRToLLVM::emitInlineUnboxBool(llvm::Value* val) {
+    llvm::Value* raw = builder_->CreatePtrToInt(val, builder_->getInt64Ty(), "nb.ub_raw");
+    return builder_->CreateICmpEQ(raw,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x07), "nb.unboxed_bool");
+}
+
+//==============================================================================
 // Boxing Operations
 //==============================================================================
 
 void HIRToLLVM::lowerBoxInt(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
-    auto fn = getTsValueMakeInt();
-    llvm::Value* result = builder_->CreateCall(fn, {val});
+    llvm::Value* result = emitInlineBoxInt(val);
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerBoxFloat(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
-    auto fn = getTsValueMakeDouble();
-    llvm::Value* result = builder_->CreateCall(fn, {val});
+    llvm::Value* result = emitInlineBoxFloat(val);
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerBoxBool(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
-    auto fn = getTsValueMakeBool();
-    // Extend bool to i32 for calling convention
-    llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
-    llvm::Value* result = builder_->CreateCall(fn, {extended});
+    llvm::Value* result = emitInlineBoxBool(val);
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerBoxString(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
     val = gcPtrToRaw(val);  // Strip addrspace(1) for runtime call
-    auto fn = getTsValueMakeString();
-    llvm::Value* result = builder_->CreateCall(fn, {val});
-    setValue(inst->result, result);
+    // Pointers are raw in NaN boxing - string pointers pass through
+    setValue(inst->result, val);
 }
 
 void HIRToLLVM::lowerBoxObject(HIRInstruction* inst) {
@@ -2352,27 +2470,21 @@ void HIRToLLVM::lowerBoxObject(HIRInstruction* inst) {
 
     llvm::Value* result;
     if (val->getType()->isPointerTy()) {
-        // Actual pointer - use ts_value_make_object
-        auto fn = getTsValueMakeObject();
-        result = builder_->CreateCall(fn, {val});
+        // Pointers are raw in NaN boxing - pass through
+        result = val;
     } else if (val->getType()->isIntegerTy(1)) {
-        // Boolean - use ts_value_make_bool
-        auto fn = getTsValueMakeBool();
-        llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty(), "bool_ext");
-        result = builder_->CreateCall(fn, {extended});
+        // Boolean - inline box
+        result = emitInlineBoxBool(val);
     } else if (val->getType()->isIntegerTy(64)) {
-        // Integer - use ts_value_make_int
-        auto fn = getTsValueMakeInt();
-        result = builder_->CreateCall(fn, {val});
+        // Integer - inline box
+        result = emitInlineBoxInt(val);
     } else if (val->getType()->isDoubleTy()) {
-        // Double - use ts_value_make_double
-        auto fn = getTsValueMakeDouble();
-        result = builder_->CreateCall(fn, {val});
+        // Double - inline box
+        result = emitInlineBoxFloat(val);
     } else if (val->getType()->isIntegerTy(32)) {
-        // i32 - extend to i64 and box as int
-        auto fn = getTsValueMakeInt();
+        // i32 - extend to i64 and inline box
         llvm::Value* extended = builder_->CreateSExt(val, builder_->getInt64Ty(), "i32_ext");
-        result = builder_->CreateCall(fn, {extended});
+        result = emitInlineBoxInt(extended);
     } else {
         // Fall back to treating it as a pointer (may fail)
         auto fn = getTsValueMakeObject();
@@ -2387,29 +2499,26 @@ void HIRToLLVM::lowerBoxObject(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerUnboxInt(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
-    auto fn = getTsValueGetInt();
-    llvm::Value* result = builder_->CreateCall(fn, {val});
+    llvm::Value* result = emitInlineUnboxInt(val);
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerUnboxFloat(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
-    auto fn = getTsValueGetDouble();
-    llvm::Value* result = builder_->CreateCall(fn, {val});
+    llvm::Value* result = emitInlineUnboxFloat(val);
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerUnboxBool(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
-    auto fn = getTsValueGetBool();
-    llvm::Value* result = builder_->CreateCall(fn, {val});
-    // Truncate to i1
-    result = builder_->CreateTrunc(result, builder_->getInt1Ty());
+    llvm::Value* result = emitInlineUnboxBool(val);
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerUnboxString(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
+    // Pointers are raw in NaN boxing - string pointers pass through
+    // Still need runtime call for type checking (could be a number or special)
     auto fn = getTsValueGetString();
     llvm::Value* result = builder_->CreateCall(fn, {val});
     setValue(inst->result, result);
@@ -2417,6 +2526,8 @@ void HIRToLLVM::lowerUnboxString(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerUnboxObject(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
+    // Pointers are raw in NaN boxing, but we still need to filter out
+    // numbers and specials. Use runtime call for safety.
     auto fn = getTsValueGetObject();
     llvm::Value* result = builder_->CreateCall(fn, {val});
     setValue(inst->result, result);
@@ -2436,19 +2547,13 @@ void HIRToLLVM::lowerTypeCheck(HIRInstruction* inst) {
 void HIRToLLVM::lowerTypeOf(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
 
-    // ts_typeof expects a boxed TsValue*, so we need to box primitives
+    // ts_typeof expects a boxed TsValue*, so we need to box primitives (inline NaN boxing)
     if (val->getType()->isDoubleTy()) {
-        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
-        auto boxFn = module_->getOrInsertFunction("ts_value_make_double", ft);
-        val = builder_->CreateCall(ft, boxFn.getCallee(), { val });
+        val = emitInlineBoxFloat(val);
     } else if (val->getType()->isIntegerTy(64)) {
-        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
-        auto boxFn = module_->getOrInsertFunction("ts_value_make_int", ft);
-        val = builder_->CreateCall(ft, boxFn.getCallee(), { val });
+        val = emitInlineBoxInt(val);
     } else if (val->getType()->isIntegerTy(1)) {
-        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
-        auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", ft);
-        val = builder_->CreateCall(ft, boxFn.getCallee(), { val });
+        val = emitInlineBoxBool(val);
     }
     // If val is already a pointer, pass it directly
 
@@ -2629,42 +2734,30 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
         llvm::Type* valType = val->getType();
 
         // When storing to an Any-typed alloca (ptr), we need to box non-pointer values
+        // (inline NaN boxing - no heap allocation)
         if (expectedType->kind == HIRTypeKind::Any && targetType->isPointerTy()) {
             if (valType->isIntegerTy(64)) {
-                // Box integer
-                auto fn = getTsValueMakeInt();
-                val = builder_->CreateCall(fn, {val});
+                val = emitInlineBoxInt(val);
             } else if (valType->isDoubleTy()) {
-                // Box double
-                auto fn = getTsValueMakeDouble();
-                val = builder_->CreateCall(fn, {val});
+                val = emitInlineBoxFloat(val);
             } else if (valType->isIntegerTy(1)) {
-                // Box boolean
-                llvm::Value* i32Val = builder_->CreateZExt(val, builder_->getInt32Ty());
-                auto fn = getTsValueMakeBool();
-                val = builder_->CreateCall(fn, {i32Val});
+                val = emitInlineBoxBool(val);
             }
             // If val is already a pointer, no boxing needed
         }
         // When storing to a primitive-typed alloca but value is a pointer (e.g., from await),
         // we need to unbox the value first
         else if (valType->isPointerTy() && targetType->isDoubleTy()) {
-            // Unbox: TsValue* -> double
-            auto unboxFn = getOrDeclareRuntimeFunction("ts_value_get_double",
-                builder_->getDoubleTy(), { builder_->getPtrTy() });
-            val = builder_->CreateCall(unboxFn, { val }, "unboxed_double");
+            // Unbox: TsValue* -> double (inline NaN unboxing)
+            val = emitInlineUnboxFloat(val);
         }
         else if (valType->isPointerTy() && targetType->isIntegerTy(64)) {
-            // Unbox: TsValue* -> int64
-            auto unboxFn = getOrDeclareRuntimeFunction("ts_value_get_int",
-                builder_->getInt64Ty(), { builder_->getPtrTy() });
-            val = builder_->CreateCall(unboxFn, { val }, "unboxed_int");
+            // Unbox: TsValue* -> int64 (inline NaN unboxing)
+            val = emitInlineUnboxInt(val);
         }
         else if (valType->isPointerTy() && targetType->isIntegerTy(1)) {
-            // Unbox: TsValue* -> bool
-            auto unboxFn = getOrDeclareRuntimeFunction("ts_value_get_bool",
-                builder_->getInt1Ty(), { builder_->getPtrTy() });
-            val = builder_->CreateCall(unboxFn, { val }, "unboxed_bool");
+            // Unbox: TsValue* -> bool (inline NaN unboxing)
+            val = emitInlineUnboxBool(val);
         }
         // Handle type coercion: i64 -> f64
         else if (valType->isIntegerTy(64) && targetType->isDoubleTy()) {
@@ -2794,16 +2887,13 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
         auto boxObjFn = getTsValueMakeObject();
         obj = builder_->CreateCall(boxObjFn, {obj});
     } else if (!obj->getType()->isPointerTy()) {
-        // Non-pointer types (bool, int, double) need boxing
+        // Non-pointer types (bool, int, double) need boxing (inline NaN boxing)
         if (obj->getType()->isIntegerTy(1)) {
-            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool", builder_->getPtrTy(), {builder_->getInt1Ty()});
-            obj = builder_->CreateCall(boxFn, {obj});
+            obj = emitInlineBoxBool(obj);
         } else if (obj->getType()->isIntegerTy(64)) {
-            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int", builder_->getPtrTy(), {builder_->getInt64Ty()});
-            obj = builder_->CreateCall(boxFn, {obj});
+            obj = emitInlineBoxInt(obj);
         } else if (obj->getType()->isDoubleTy()) {
-            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double", builder_->getPtrTy(), {builder_->getDoubleTy()});
-            obj = builder_->CreateCall(boxFn, {obj});
+            obj = emitInlineBoxFloat(obj);
         }
     }
     // Pin boxed obj — ts_string_create/ts_value_make_string below can trigger GC
@@ -3496,15 +3586,19 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
-    // Handle ts_value_is_undefined - returns bool, not ptr
+    // Handle ts_value_is_undefined - inline NaN boxing check (0x0A) + nullptr
+    // Runtime semantics: nullptr is also treated as undefined (for default params)
     if (funcName == "ts_value_is_undefined") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
         llvm::Value* result;
         if (arg->getType()->isPointerTy()) {
-            llvm::FunctionType* ft = llvm::FunctionType::get(
-                builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_undefined", ft);
-            result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+            // Inline: ptrtoint == NANBOX_UNDEFINED (0x0A) || arg == nullptr
+            llvm::Value* raw = builder_->CreatePtrToInt(arg, builder_->getInt64Ty(), "nb.is_undef_raw");
+            llvm::Value* isUndef = builder_->CreateICmpEQ(raw,
+                llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0A), "nb.is_undef");
+            llvm::Value* isNull = builder_->CreateICmpEQ(arg,
+                llvm::ConstantPointerNull::get(builder_->getPtrTy()), "nb.is_nullptr");
+            result = builder_->CreateOr(isUndef, isNull, "nb.is_undef_or_null");
         } else {
             // Non-pointer types (double, i64, i1) are never undefined
             result = builder_->getFalse();
@@ -3515,32 +3609,31 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
-    // Handle ts_value_is_null - returns bool, not ptr
-    // Also generates a raw null pointer check (icmp eq ptr, null) since runtime functions
-    // like RegExp_exec return raw nullptr (not boxed null TsValue) for "no match"
+    // Handle ts_value_is_null - inline NaN boxing check (0x02) + raw nullptr check
     if (funcName == "ts_value_is_null") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
-        // Generate: ts_value_is_null(arg) || arg == null
-        // This handles both boxed null (TsValue with OBJECT_PTR/nullptr) and raw null pointers
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_null", ft);
-        llvm::Value* boxedCheck = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        // Inline: ptrtoint == NANBOX_NULL (0x02) || arg == nullptr
+        llvm::Value* raw = builder_->CreatePtrToInt(arg, builder_->getInt64Ty(), "nb.is_null_raw");
+        llvm::Value* boxedCheck = builder_->CreateICmpEQ(raw,
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 0x02), "nb.is_null_boxed");
         llvm::Value* rawNullCheck = builder_->CreateICmpEQ(arg, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
-        llvm::Value* result = builder_->CreateOr(boxedCheck, rawNullCheck);
+        llvm::Value* result = builder_->CreateOr(boxedCheck, rawNullCheck, "nb.is_null");
         if (inst->result) {
             setValue(inst->result, result);
         }
         return;
     }
 
-    // Handle ts_value_is_nullish - returns bool, not ptr
+    // Handle ts_value_is_nullish - inline NaN boxing check (0x02 || 0x0A || nullptr)
     if (funcName == "ts_value_is_nullish") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_is_nullish", ft);
-        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        llvm::Value* raw = builder_->CreatePtrToInt(arg, builder_->getInt64Ty(), "nb.is_nullish_raw");
+        llvm::Value* isNull = builder_->CreateICmpEQ(raw,
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 0x02), "nb.is_null2");
+        llvm::Value* isUndef = builder_->CreateICmpEQ(raw,
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0A), "nb.is_undef2");
+        llvm::Value* isRawNull = builder_->CreateICmpEQ(arg, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+        llvm::Value* result = builder_->CreateOr(builder_->CreateOr(isNull, isUndef), isRawNull, "nb.is_nullish");
         if (inst->result) {
             setValue(inst->result, result);
         }
@@ -3560,19 +3653,21 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
-    // Handle ts_value_make_bool - takes i32, returns ptr
+    // Handle ts_value_make_bool - inline NaN boxing
     if (funcName == "ts_value_make_bool") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
-        // Truncate i64 to i32 if needed
-        if (arg->getType()->isIntegerTy(64)) {
-            arg = builder_->CreateTrunc(arg, builder_->getInt32Ty(), "trunc_to_i32");
-        } else if (arg->getType()->isIntegerTy(1)) {
-            arg = builder_->CreateZExt(arg, builder_->getInt32Ty(), "zext_to_i32");
+        // Convert to i1 for emitInlineBoxBool
+        llvm::Value* boolVal;
+        if (arg->getType()->isIntegerTy(1)) {
+            boolVal = arg;
+        } else if (arg->getType()->isIntegerTy(64)) {
+            boolVal = builder_->CreateICmpNE(arg, llvm::ConstantInt::get(builder_->getInt64Ty(), 0), "to_bool");
+        } else if (arg->getType()->isIntegerTy(32)) {
+            boolVal = builder_->CreateICmpNE(arg, llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "to_bool");
+        } else {
+            boolVal = builder_->getTrue(); // fallback
         }
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            builder_->getPtrTy(), { builder_->getInt32Ty() }, false);
-        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
-        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        llvm::Value* result = emitInlineBoxBool(boolVal);
         if (inst->result) {
             setValue(inst->result, result);
         }
@@ -4180,7 +4275,8 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
         llvmArgs.push_back(arg);
     }
 
-    // Pad missing optional arguments with null/zero values
+    // Pad missing optional arguments with null for pointers, zero for primitives.
+    // Extension/C functions use null-pointer checks for "not provided".
     size_t numProvidedArgs = inst->operands.size() - 1;  // -1 for function name
     while (llvmArgs.size() < argTys.size()) {
         size_t idx = llvmArgs.size();
@@ -4192,7 +4288,6 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
         } else if (expectedType->isDoubleTy()) {
             llvmArgs.push_back(llvm::ConstantFP::get(expectedType, 0.0));
         } else {
-            // Fallback to null pointer for unknown types
             llvmArgs.push_back(llvm::ConstantPointerNull::get(builder_->getPtrTy()));
         }
     }
