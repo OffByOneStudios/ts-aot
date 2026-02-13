@@ -53,11 +53,14 @@ static const size_t NURSERY_MAX_OBJ_SIZE = 256;   // Objects <= 256 bytes go to 
 static const size_t NURSERY_SIZE_PREFIX = 8;       // 8-byte size header before each object
 
 // Pin bit: stored in bit 63 of the 8-byte size prefix.
-// Object sizes are <= 256 (9 bits), so bit 63 is always free.
-static const uint64_t NURSERY_PIN_BIT = (uint64_t)1 << 63;
+// Mark bit: stored in bit 62 (used during minor GC liveness tracing).
+// Object sizes are <= 256 (9 bits), so bits 62-63 are always free.
+static const uint64_t NURSERY_PIN_BIT  = (uint64_t)1 << 63;
+static const uint64_t NURSERY_MARK_BIT = (uint64_t)1 << 62;
+static const uint64_t NURSERY_META_MASK = NURSERY_PIN_BIT | NURSERY_MARK_BIT;
 
 static inline size_t nursery_get_size(uint64_t prefix) {
-    return (size_t)(prefix & ~NURSERY_PIN_BIT);
+    return (size_t)(prefix & ~NURSERY_META_MASK);
 }
 static inline bool nursery_is_pinned(uint64_t prefix) {
     return (prefix & NURSERY_PIN_BIT) != 0;
@@ -67,6 +70,12 @@ static inline void nursery_set_pinned(uint64_t* prefix_ptr) {
 }
 static inline void nursery_clear_pinned(uint64_t* prefix_ptr) {
     *prefix_ptr &= ~NURSERY_PIN_BIT;
+}
+static inline bool nursery_is_marked(uint64_t prefix) {
+    return (prefix & NURSERY_MARK_BIT) != 0;
+}
+static inline void nursery_set_marked(uint64_t* prefix_ptr) {
+    *prefix_ptr |= NURSERY_MARK_BIT;
 }
 
 // Fragment: a free region within the nursery between pinned objects
@@ -1660,6 +1669,165 @@ void ts_gc_nursery_info(void** out_base, size_t* out_size) {
 // Phase 6: Build fragment list from gaps between pinned objects
 // Phase 7: Clear/re-dirty card table
 
+// ============================================================================
+// Nursery Liveness Tracing
+// ============================================================================
+// Marks nursery objects that are reachable from roots. Dead (unmarked) objects
+// are skipped during promotion, so they stay in the nursery and get wiped on
+// reset — zero cost, same as V8's young generation.
+
+// Nursery object entry for fast binary-search lookup during liveness tracing.
+struct NurseryObjEntry {
+    uintptr_t start;      // Object data start address (after prefix)
+    uintptr_t prefix_ptr; // Address of the 8-byte size prefix
+    size_t size;          // Object data size
+};
+
+static void gc_mark_nursery_live() {
+    // Step 1: Build sorted nursery object table for O(log N) lookup.
+    // This replaces the O(N) nursery_find_base() walk that was the bottleneck.
+    std::vector<NurseryObjEntry> nursery_objects;
+    nursery_objects.reserve(4096);
+
+    {
+        char* base = (char*)g_nursery.region;
+        size_t offset = 0;
+        while (offset + NURSERY_SIZE_PREFIX <= g_nursery.high_water) {
+            uint64_t raw = *(uint64_t*)(base + offset);
+            size_t obj_size = nursery_get_size(raw);
+            if (obj_size == 0) { offset += 8; continue; }
+            if (obj_size > NURSERY_MAX_OBJ_SIZE) break;
+            NurseryObjEntry entry;
+            entry.start = (uintptr_t)(base + offset + NURSERY_SIZE_PREFIX);
+            entry.prefix_ptr = (uintptr_t)(base + offset);
+            entry.size = obj_size;
+            nursery_objects.push_back(entry);
+            offset += NURSERY_SIZE_PREFIX + obj_size;
+        }
+    }
+
+    if (nursery_objects.empty()) return;
+
+    // Worklist of indices into nursery_objects to scan
+    std::vector<size_t> worklist;
+    worklist.reserve(1024);
+
+    size_t marked_count = 0;
+
+    // Helper: given a candidate pointer, binary search for containing nursery object.
+    // Returns index into nursery_objects or SIZE_MAX if not found.
+    auto find_nursery_obj = [&](uintptr_t addr) -> size_t {
+        // Binary search: find last entry with start <= addr
+        size_t lo = 0, hi = nursery_objects.size();
+        while (lo < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (nursery_objects[mid].start <= addr) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if (lo == 0) return SIZE_MAX;
+        lo--;  // nursery_objects[lo].start <= addr
+        if (addr < nursery_objects[lo].start + nursery_objects[lo].size) {
+            return lo;  // addr is within this object
+        }
+        return SIZE_MAX;
+    };
+
+    // Helper: mark a nursery object as live, add to worklist if newly marked
+    auto mark_nursery_obj = [&](void* ptr) {
+        if (!is_nursery_ptr(ptr)) return;
+        size_t idx = find_nursery_obj((uintptr_t)ptr);
+        if (idx == SIZE_MAX) return;
+        uint64_t* prefix = (uint64_t*)nursery_objects[idx].prefix_ptr;
+        if (!nursery_is_marked(*prefix)) {
+            nursery_set_marked(prefix);
+            worklist.push_back(idx);
+            marked_count++;
+        }
+    };
+
+    // Root source 1: Pinned objects (stack roots) — already pinned by Phase 0
+    for (size_t i = 0; i < nursery_objects.size(); i++) {
+        uint64_t raw = *(uint64_t*)nursery_objects[i].prefix_ptr;
+        if (nursery_is_pinned(raw)) {
+            nursery_set_marked((uint64_t*)nursery_objects[i].prefix_ptr);
+            worklist.push_back(i);
+            marked_count++;
+        }
+    }
+
+    // Root source 2: Global roots
+    for (void** root : g_heap->global_roots) {
+        if (root && *root) mark_nursery_obj(*root);
+    }
+
+    // Root source 3: Old-gen → nursery pointers (conservative scan of allocated slots)
+    // Required because STL containers (TsMap, TsSet) bypass write barriers.
+    for (size_t i = 0; i < NUM_SIZE_CLASSES; i++) {
+        for (BlockHeader* bh = g_heap->block_lists[i]; bh; bh = bh->next) {
+            if (!bh->block_mem || bh->live_count == 0) continue;
+            uintptr_t bstart = (uintptr_t)bh->block_mem;
+            for (size_t slot = 0; slot < bh->slot_count; slot++) {
+                if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
+                uintptr_t s = bstart + slot * bh->slot_size;
+                uintptr_t e = s + bh->slot_size;
+                for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                    void* c = *(void**)p;
+                    if ((uintptr_t)c < 4096 || (uintptr_t)c > 0x00007FFFFFFFFFFF) continue;
+                    mark_nursery_obj(c);
+                }
+            }
+        }
+    }
+    // Large objects
+    for (LargeObjHeader* lo = g_heap->large_sentinel.next;
+         lo != &g_heap->large_sentinel; lo = lo->next) {
+        if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
+        uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
+        uintptr_t e = s + lo->data_size;
+        for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+            void* c = *(void**)p;
+            if ((uintptr_t)c < 4096 || (uintptr_t)c > 0x00007FFFFFFFFFFF) continue;
+            mark_nursery_obj(c);
+        }
+    }
+
+    // Root source 4: Weak refs
+    for (void** loc : g_heap->weak_refs) {
+        if (loc && *loc) mark_nursery_obj(*loc);
+    }
+
+    // Root source 5: Finalizer entries
+    for (auto& fin : g_heap->finalizers) {
+        mark_nursery_obj(fin.target);
+        mark_nursery_obj(fin.callback);
+        mark_nursery_obj(fin.held_value);
+    }
+
+    // BFS tracing: scan marked nursery objects for nursery-to-nursery pointers
+    while (!worklist.empty()) {
+        size_t idx = worklist.back();
+        worklist.pop_back();
+
+        uintptr_t start = nursery_objects[idx].start;
+        uintptr_t end = start + nursery_objects[idx].size;
+
+        for (uintptr_t p = start; p + sizeof(void*) <= end; p += sizeof(void*)) {
+            void* c = *(void**)p;
+            if ((uintptr_t)c < 4096 || (uintptr_t)c > 0x00007FFFFFFFFFFF) continue;
+            mark_nursery_obj(c);
+        }
+    }
+
+    if (g_gc_verbose) {
+        fprintf(stderr, "[TsGC] nursery liveness: %zu live (marked), %zu dead (skipped) of %zu total\n",
+                marked_count, nursery_objects.size() - marked_count, nursery_objects.size());
+        fflush(stderr);
+    }
+}
+
 // Pin nursery objects found on the stack (conservative scan).
 // False positives merely pin an extra object -- wasteful but SAFE.
 // No stack rewriting; stack pointers to pinned objects remain valid.
@@ -1740,6 +1908,9 @@ static void gc_minor_collect_internal() {
     // Phase 0: Pin nursery objects referenced from the stack
     gc_pin_nursery_stack_roots();
 
+    // Phase 0b: Mark live nursery objects (root discovery + BFS tracing)
+    gc_mark_nursery_live();
+
     // Temporarily boost GC threshold to prevent gc_alloc_small from
     // triggering a full gc_collect_internal() during promotion
     size_t saved_threshold = g_heap->gc_threshold;
@@ -1771,7 +1942,13 @@ static void gc_minor_collect_internal() {
             continue;
         }
 
-        // Non-pinned: promote to old-gen
+        // Skip unmarked (dead) objects — they stay in nursery and get wiped on reset
+        if (!nursery_is_marked(raw_prefix)) {
+            offset += NURSERY_SIZE_PREFIX + obj_size;
+            continue;
+        }
+
+        // Live, non-pinned: promote to old-gen
         void* old_gen_obj = gc_alloc_small(obj_size);
         if (old_gen_obj) {
             memcpy(old_gen_obj, nursery_obj, obj_size);
@@ -2137,8 +2314,8 @@ static void gc_minor_collect_internal() {
                     }
                 }
 
-                // Clear pin bit (reset for next cycle)
-                nursery_clear_pinned((uint64_t*)(base + offset));
+                // Clear pin and mark bits (reset for next cycle)
+                *(uint64_t*)(base + offset) &= ~NURSERY_META_MASK;
 
                 // Next free region starts after this pinned object
                 frag_start = offset + total_obj;
