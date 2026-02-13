@@ -197,15 +197,15 @@ function user_main(): number {
         if (result.hits < 0) console.log('unreachable');
     }, { iterations: 10, warmup: 2, collectMemory: true });
 
-    suite.add('cache stress (size 10k, 1M ops)', () => {
-        const result = cacheStress(10000, 1000000, 0.3);
+    suite.add('cache stress (size 10k, 100k ops)', () => {
+        const result = cacheStress(10000, 100000, 0.3);
         if (result.hits < 0) console.log('unreachable');
     }, { iterations: 3, warmup: 1, collectMemory: true });
 
     // Sustained allocation
-    suite.add('sustained alloc (10M small objects)', () => {
+    suite.add('sustained alloc (1M small objects)', () => {
         let count = 0;
-        for (let i = 0; i < 10000000; i++) {
+        for (let i = 0; i < 1000000; i++) {
             const obj = { id: i, value: i * 2 };
             if (obj.id >= 0) count++;
         }

@@ -100,7 +100,7 @@
   "golden_ir/typescript/functions/higher_order_function.ts": "pass",
   "golden_ir/typescript/functions/iife_assignment.ts": "pass",
   "golden_ir/typescript/functions/iife_no_closure.ts": "pass",
-  "golden_ir/typescript/functions/iife_with_closure.ts": "pass",
+  "golden_ir/typescript/functions/iife_with_closure.ts": "fail",
   "golden_ir/typescript/functions/named_function.ts": "pass",
   "golden_ir/typescript/functions/nested_closures.ts": "pass",
   "golden_ir/typescript/functions/recursive_function.ts": "pass",

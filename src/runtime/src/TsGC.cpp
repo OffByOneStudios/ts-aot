@@ -22,10 +22,10 @@
 // ============================================================================
 
 static const size_t BLOCK_SIZE = 256 * 1024;  // 256KB per block
-static const size_t MAX_SMALL_SIZE = 512;
+static const size_t MAX_SMALL_SIZE = 4096;  // Must match last entry in SIZE_CLASSES
 
 // Size classes: 8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512
-static const size_t SIZE_CLASSES[] = { 8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512 };
+static const size_t SIZE_CLASSES[] = { 8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 2048, 4096 };
 static const size_t NUM_SIZE_CLASSES = sizeof(SIZE_CLASSES) / sizeof(SIZE_CLASSES[0]);
 
 // GC trigger: collect when total_allocated > growth_factor * live_after_last_gc
@@ -166,6 +166,13 @@ struct BlockDescriptor {
     BlockHeader* header;
 };
 
+// For binary search of large objects (replaces O(n) linked list scan)
+struct LargeObjDescriptor {
+    uintptr_t base;            // start of user data (after header)
+    uintptr_t end;             // base + data_size
+    LargeObjHeader* header;
+};
+
 // ============================================================================
 // GC Heap State
 // ============================================================================
@@ -197,6 +204,10 @@ struct GCHeap {
     // Sorted descriptor array for binary search in ts_gc_base()
     std::vector<BlockDescriptor> block_descriptors;
     bool descriptors_dirty = false;
+
+    // Sorted descriptor array for binary search of large objects
+    std::vector<LargeObjDescriptor> large_descriptors;
+    bool large_descriptors_dirty = false;
 
     // Root management
     std::vector<void**> global_roots;
@@ -412,6 +423,25 @@ static void rebuild_descriptors() {
     g_heap->descriptors_dirty = false;
 }
 
+static void rebuild_large_descriptors() {
+    if (!g_heap->large_descriptors_dirty) return;
+
+    g_heap->large_descriptors.clear();
+    for (LargeObjHeader* h = g_heap->large_sentinel.next;
+         h != &g_heap->large_sentinel; h = h->next) {
+        LargeObjDescriptor desc;
+        desc.base = (uintptr_t)h + sizeof(LargeObjHeader);
+        desc.end = desc.base + h->data_size;
+        desc.header = h;
+        g_heap->large_descriptors.push_back(desc);
+    }
+    std::sort(g_heap->large_descriptors.begin(), g_heap->large_descriptors.end(),
+              [](const LargeObjDescriptor& a, const LargeObjDescriptor& b) {
+                  return a.base < b.base;
+              });
+    g_heap->large_descriptors_dirty = false;
+}
+
 // ============================================================================
 // Block Allocation
 // ============================================================================
@@ -566,6 +596,7 @@ static void* gc_alloc_large(size_t size) {
     hdr->prev = &g_heap->large_sentinel;
     g_heap->large_sentinel.next->prev = hdr;
     g_heap->large_sentinel.next = hdr;
+    g_heap->large_descriptors_dirty = true;
 
     g_heap->total_allocated += size;
     if (g_heap->total_allocated > g_heap->peak_allocated) {
@@ -628,13 +659,24 @@ static void* gc_find_base(void* ptr) {
         }
     }
 
-    // Check large objects
-    for (LargeObjHeader* h = g_heap->large_sentinel.next;
-         h != &g_heap->large_sentinel; h = h->next) {
-        uintptr_t data_start = (uintptr_t)h + sizeof(LargeObjHeader);
-        uintptr_t data_end = data_start + h->data_size;
-        if (addr >= data_start && addr < data_end) {
-            return (void*)data_start;
+    // Check large objects (binary search)
+    rebuild_large_descriptors();
+    auto& ldescs = g_heap->large_descriptors;
+    if (!ldescs.empty()) {
+        size_t lo = 0, hi = ldescs.size();
+        while (lo < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (ldescs[mid].base <= addr) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if (lo > 0) {
+            const LargeObjDescriptor& ldesc = ldescs[lo - 1];
+            if (addr >= ldesc.base && addr < ldesc.end) {
+                return (void*)ldesc.base;
+            }
         }
     }
 
@@ -712,17 +754,28 @@ static void gc_mark_ptr(void* ptr) {
         }
     }
 
-    // Check large objects
-    for (LargeObjHeader* h = g_heap->large_sentinel.next;
-         h != &g_heap->large_sentinel; h = h->next) {
-        uintptr_t data_start = (uintptr_t)h + sizeof(LargeObjHeader);
-        uintptr_t data_end = data_start + h->data_size;
-        if (addr >= data_start && addr < data_end) {
-            if (!h->marked) {
-                h->marked = true;
-                g_heap->mark_worklist.push_back((void*)data_start);
+    // Check large objects (binary search)
+    rebuild_large_descriptors();
+    auto& ldescs = g_heap->large_descriptors;
+    if (!ldescs.empty()) {
+        size_t lo = 0, hi = ldescs.size();
+        while (lo < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (ldescs[mid].base <= addr) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
             }
-            return;
+        }
+        if (lo > 0) {
+            const LargeObjDescriptor& ldesc = ldescs[lo - 1];
+            if (addr >= ldesc.base && addr < ldesc.end) {
+                if (!ldesc.header->marked) {
+                    ldesc.header->marked = true;
+                    g_heap->mark_worklist.push_back((void*)ldesc.base);
+                }
+                return;
+            }
         }
     }
 }
@@ -751,12 +804,24 @@ static size_t gc_object_size(void* base) {
         }
     }
 
-    // Check large objects
-    for (LargeObjHeader* h = g_heap->large_sentinel.next;
-         h != &g_heap->large_sentinel; h = h->next) {
-        uintptr_t data_start = (uintptr_t)h + sizeof(LargeObjHeader);
-        if (addr == data_start) {
-            return h->data_size;
+    // Check large objects (binary search)
+    rebuild_large_descriptors();
+    auto& ldescs = g_heap->large_descriptors;
+    if (!ldescs.empty()) {
+        size_t lo = 0, hi = ldescs.size();
+        while (lo < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (ldescs[mid].base <= addr) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if (lo > 0) {
+            const LargeObjDescriptor& ldesc = ldescs[lo - 1];
+            if (addr == ldesc.base) {
+                return ldesc.header->data_size;
+            }
         }
     }
 
@@ -1086,6 +1151,7 @@ static void gc_sweep_phase() {
     }
 
     // Sweep large objects
+    bool any_large_freed = false;
     LargeObjHeader* h = g_heap->large_sentinel.next;
     while (h != &g_heap->large_sentinel) {
         LargeObjHeader* next = h->next;
@@ -1094,12 +1160,14 @@ static void gc_sweep_phase() {
             h->prev->next = h->next;
             h->next->prev = h->prev;
             freed_large++;
+            any_large_freed = true;
             platform_free_large(h, h->alloc_size);
         } else {
             live_bytes += h->data_size;
         }
         h = next;
     }
+    if (any_large_freed) g_heap->large_descriptors_dirty = true;
 
     // Update stats
     g_heap->total_allocated = live_bytes;
@@ -1219,7 +1287,7 @@ static void gc_init() {
         if (g_nursery.region) {
             g_nursery.active = 0;
             g_nursery.cursor = 0;
-            g_nursery.enabled = true;
+            g_nursery.enabled = false;  // Disabled: minor GC doesn't fix stack pointers after promotion
             g_nursery.total_allocated = 0;
             g_nursery.alloc_count = 0;
 
