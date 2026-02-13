@@ -63,6 +63,9 @@ public:
     
     uint32_t magic = MAGIC;
 
+    // Create a TsString in old-gen (for caching - bypasses nursery)
+    static TsString* CreateInOldGen(const char* utf8Str);
+
 private:
     TsString(const char* utf8Str);
     TsString(const char* utf8Str, uint32_t len);

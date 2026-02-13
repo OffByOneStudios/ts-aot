@@ -77,6 +77,38 @@ TsString* TsString::Create(const char* utf8Str) {
     }
 }
 
+// Create a TsString directly in old-gen (bypasses nursery).
+// Used for cached/interned strings which are long-lived and stored in
+// global caches that are invisible to the nursery GC's card table.
+TsString* TsString::CreateInOldGen(const char* utf8Str) {
+    if (!utf8Str) utf8Str = "";
+    size_t len = std::strlen(utf8Str);
+
+    bool isAscii = true;
+    if (len < 64) {
+        for (size_t i = 0; i < len; ++i) {
+            if ((unsigned char)utf8Str[i] > 127) {
+                isAscii = false;
+                break;
+            }
+        }
+    } else {
+        isAscii = false;
+    }
+
+    void* mem = ts_gc_alloc_old_gen(sizeof(TsString));
+    if (isAscii) {
+        return new(mem) TsString(utf8Str, (uint32_t)len);
+    } else {
+        // Constructor allocates ICU string via ts_alloc (may go to nursery).
+        // Since TsString is in old-gen, we need a write barrier so minor GC
+        // knows this old-gen object references a nursery pointer.
+        TsString* str = new(mem) TsString(utf8Str);
+        ts_gc_write_barrier(&str->data.heap.impl, str->data.heap.impl);
+        return str;
+    }
+}
+
 TsString* TsString::GetInterned(const char* utf8Str) {
     if (!utf8Str) return Create(""); // Empty string fallback
 
@@ -95,15 +127,16 @@ TsString* TsString::GetInterned(const char* utf8Str) {
     if (it != globalStringCache.end()) {
         return it->second; // Cache hit!
     }
-    
-    // Cache miss - create new string
-    TsString* str = Create(utf8Str);
-    
+
+    // Cache miss - create in old-gen (cached strings are long-lived,
+    // and globalStringCache is in malloc'd memory invisible to card table)
+    TsString* str = CreateInOldGen(utf8Str);
+
     // Add to cache if not too large
     if (globalStringCache.size() < MAX_CACHE_SIZE) {
         globalStringCache[key] = str;
     }
-    
+
     return str;
 }
 
@@ -182,11 +215,12 @@ TsString* TsString::FromInt(int64_t value) {
         if (it != numericStringCache.end()) {
             return it->second;
         }
-        
-        // Not in cache, create and cache it
+
+        // Not in cache, create in old-gen and cache it
+        // (numericStringCache is in malloc'd memory, invisible to card table)
         char buf[32];
         int len = std::snprintf(buf, sizeof(buf), "%lld", value);
-        TsString* str = Create(buf);
+        TsString* str = CreateInOldGen(buf);
         numericStringCache[value] = str;
         return str;
     }
@@ -220,13 +254,16 @@ TsString* TsString::FromDouble(double value) {
 
     char buf[64];
     int len = std::snprintf(buf, sizeof(buf), "%g", value);
-    TsString* str = Create(buf);
 
-    // Cache if not too large
+    // Create in old-gen if caching (doubleStringCache is in malloc'd memory)
+    TsString* str;
     if (doubleStringCache.size() < MAX_DOUBLE_CACHE) {
+        str = CreateInOldGen(buf);
         doubleStringCache[value] = str;
+    } else {
+        str = Create(buf);
     }
-    
+
     return str;
 }
 
