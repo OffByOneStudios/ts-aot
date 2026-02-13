@@ -416,17 +416,24 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 func->returnType = HIRType::makeAny();
             }
 
+            // Push function to module BEFORE lowering body so recursive calls
+            // can find this function (e.g., fib calling fib). Without this,
+            // the recursive call's return type defaults to Any, causing
+            // ts_value_add instead of native fadd for arithmetic.
+            auto* funcPtr = func.get();
+            module_->functions.push_back(std::move(func));
+
             // Create entry block and set up for lowering
-            auto entryBlock = func->createBlock("entry");
-            currentFunction_ = func.get();
+            auto entryBlock = funcPtr->createBlock("entry");
+            currentFunction_ = funcPtr;
             currentBlock_ = entryBlock;
             builder_.setInsertPoint(entryBlock);
 
             // Push function scope and bind parameters
-            pushFunctionScope(func.get());
-            func->nextValueId = static_cast<uint32_t>(func->params.size());
-            for (size_t i = 0; i < func->params.size(); ++i) {
-                const auto& [paramName, paramType] = func->params[i];
+            pushFunctionScope(funcPtr);
+            funcPtr->nextValueId = static_cast<uint32_t>(funcPtr->params.size());
+            for (size_t i = 0; i < funcPtr->params.size(); ++i) {
+                const auto& [paramName, paramType] = funcPtr->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
 
                 // Check if this parameter has a default value
@@ -440,9 +447,9 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                         {paramValue}, HIRType::makeBool());
 
                     // Create basic blocks for the conditional
-                    auto defaultBB = func->createBlock("default_param");
-                    auto usedBB = func->createBlock("use_param");
-                    auto mergeBB = func->createBlock("param_merge");
+                    auto defaultBB = funcPtr->createBlock("default_param");
+                    auto usedBB = funcPtr->createBlock("use_param");
+                    auto mergeBB = funcPtr->createBlock("param_merge");
 
                     // Branch based on undefined check
                     builder_.createCondBranch(isUndefined, defaultBB, usedBB);
@@ -484,7 +491,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 auto paramValue = std::make_shared<HIRValue>(
                     static_cast<uint32_t>(dp.paramIndex),
                     HIRType::makeAny(),
-                    func->params[dp.paramIndex].first);
+                    funcPtr->params[dp.paramIndex].first);
                 if (dp.objPattern) {
                     lowerObjectBindingPattern(dp.objPattern, paramValue);
                 } else if (dp.arrPattern) {
@@ -557,7 +564,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
             // Add implicit return if needed
             if (!hasTerminator()) {
-                if (func->returnType->kind == HIRTypeKind::Void) {
+                if (funcPtr->returnType->kind == HIRTypeKind::Void) {
                     builder_.createReturnVoid();
                 } else {
                     // Return undefined for non-void functions without explicit return
@@ -567,7 +574,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
 
             popScope();
-            module_->functions.push_back(std::move(func));
+            // func already pushed to module_->functions before body lowering
         } else if (auto* methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
             // Handle method definitions (similar to above)
             if (methodNode->isAbstract || !methodNode->hasBody) continue;
@@ -619,8 +626,12 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 func->returnType = HIRType::makeAny();
             }
 
-            auto entryBlock = func->createBlock("entry");
-            currentFunction_ = func.get();
+            // Push method to module BEFORE lowering body (same reason as functions above)
+            auto* methPtr = func.get();
+            module_->functions.push_back(std::move(func));
+
+            auto entryBlock = methPtr->createBlock("entry");
+            currentFunction_ = methPtr;
             currentBlock_ = entryBlock;
             builder_.setInsertPoint(entryBlock);
 
@@ -639,13 +650,13 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
 
-            pushFunctionScope(func.get());
-            for (size_t i = 0; i < func->params.size(); ++i) {
-                const auto& [paramName, paramType] = func->params[i];
+            pushFunctionScope(methPtr);
+            for (size_t i = 0; i < methPtr->params.size(); ++i) {
+                const auto& [paramName, paramType] = methPtr->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
                 defineVariable(paramName, paramValue);
             }
-            func->nextValueId = static_cast<uint32_t>(func->params.size());
+            methPtr->nextValueId = static_cast<uint32_t>(methPtr->params.size());
 
             // For constructors of imported classes, emit field initializers
             // before the constructor body (mirrors visitClassDeclaration behavior)
@@ -683,7 +694,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
 
             if (!hasTerminator()) {
-                if (func->returnType->kind == HIRTypeKind::Void) {
+                if (methPtr->returnType->kind == HIRTypeKind::Void) {
                     builder_.createReturnVoid();
                 } else {
                     auto undef = builder_.createConstUndefined();
@@ -707,23 +718,22 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                         }
                     }
                     if (hirClass) {
-                        HIRFunction* funcPtr = func.get();
                         if (methodNode->name == "constructor") {
-                            hirClass->constructor = funcPtr;
+                            hirClass->constructor = methPtr;
                         } else if (methodNode->isStatic) {
-                            hirClass->staticMethods[methodNode->name] = funcPtr;
+                            hirClass->staticMethods[methodNode->name] = methPtr;
                         } else {
                             std::string methodKey = methodNode->name;
                             if (methodNode->isGetter) methodKey = "__getter_" + methodNode->name;
                             else if (methodNode->isSetter) methodKey = "__setter_" + methodNode->name;
-                            hirClass->methods[methodKey] = funcPtr;
-                            hirClass->vtable.push_back({methodKey, funcPtr});
+                            hirClass->methods[methodKey] = methPtr;
+                            hirClass->vtable.push_back({methodKey, methPtr});
                         }
                     }
                 }
             }
 
-            module_->functions.push_back(std::move(func));
+            // func already pushed to module_ before body lowering
         }
     }
 
