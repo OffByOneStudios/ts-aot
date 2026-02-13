@@ -5,6 +5,7 @@
 #include "TsRegExp.h"
 #include "TsRuntime.h"
 #include "TsClosure.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 #include "TsGC.h"
 #include <cstring>
@@ -1894,6 +1895,9 @@ extern "C" {
         }
 
         // Check if it's an object with a 'length' property (array-like)
+        if (is_flat_object(rawPtr)) {
+            rawPtr = ts_flat_object_to_map(rawPtr);
+        }
         TsMap* map = dynamic_cast<TsMap*>((TsObject*)rawPtr);
         if (map) {
             // Try to get 'length' property

@@ -8,8 +8,7 @@ function user_main(): number {
         // Connection handler
     });
 
-    // Listen on port 0 (OS assigns available port)
-    server.listen(8765, () => {
+    server.on('listening', () => {
         console.log("Server listening callback invoked");
 
         const addr = server.address();
@@ -19,12 +18,23 @@ function user_main(): number {
             console.log("address property: " + addr.address);
             console.log("family property: " + addr.family);
             console.log("port property: " + addr.port);
-            console.log("port is correct: " + (addr.port === 8765));
+            console.log("port is number: " + (typeof addr.port === 'number'));
+            console.log("port is positive: " + (addr.port > 0));
         }
 
         server.close();
         console.log("All server.address() tests passed!");
+        process.exit(0);
     });
+
+    // Listen on port 0 (OS assigns available port)
+    server.listen(0);
+
+    // Timeout in case callback doesn't fire
+    setTimeout(() => {
+        console.log("FAIL: Timeout - listen callback never fired");
+        process.exit(1);
+    }, 5000);
 
     return 0;
 }

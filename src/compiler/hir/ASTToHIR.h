@@ -341,6 +341,9 @@ private:
     // Counter for generating unique class expression names
     int classExprCounter_ = 0;
 
+    // Counter for generating unique flat object shape IDs
+    uint32_t nextShapeId_ = 0;
+
     // Scope management
     void pushScope();
     void pushFunctionScope(HIRFunction* func);  // Push scope that marks function boundary

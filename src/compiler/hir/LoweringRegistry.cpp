@@ -1574,6 +1574,23 @@ static void registerObjectMethods(
             SPDLOG_DEBUG("Registered lowering from extension: {} -> {} (nested object {}.{}.{})",
                          hirName, method.call, objectName, nestedName, methodName);
         }
+
+        // Register nested object property getters (e.g., path.posix.sep, path.win32.delimiter)
+        for (const auto& [propName, prop] : nestedObj->properties) {
+            if (!prop.getter || !prop.lowering) continue;
+
+            const std::string& getterName = *prop.getter;
+            if (reg.hasLowering(getterName)) continue;
+
+            LoweringSpecBuilder builder(getterName);
+            // No self pointer for module-level nested property getters
+            buildLoweringSpec(builder, *prop.lowering);
+
+            reg.registerLowering(getterName, builder.build());
+            registeredCount++;
+            SPDLOG_DEBUG("Registered nested getter lowering from extension: {} (object {}.{}.{})",
+                         getterName, objectName, nestedName, propName);
+        }
     }
 }
 

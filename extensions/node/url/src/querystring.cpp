@@ -4,6 +4,7 @@
 #include "TsObject.h"
 #include "TsRuntime.h"
 #include "TsNanBox.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 #include <cstring>
 #include <string>
@@ -200,7 +201,8 @@ void* ts_querystring_stringify(void* obj, void* sep, void* eq) {
     // Unbox if needed
     void* rawPtr = ts_nanbox_safe_unbox(obj);
 
-    TsMap* map = dynamic_cast<TsMap*>((TsObject*)rawPtr);
+    if (rawPtr && is_flat_object(rawPtr)) rawPtr = ts_flat_object_to_map(rawPtr);
+    TsMap* map = rawPtr ? dynamic_cast<TsMap*>((TsObject*)rawPtr) : nullptr;
     if (!map) return TsString::Create("");
 
     std::ostringstream result;

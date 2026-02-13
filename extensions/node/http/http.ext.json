@@ -523,13 +523,17 @@
           "lowering": { "args": [], "returns": "ptr" }
         },
         "maxHeaderSize": {
-          "type": "int"
+          "type": "int",
+          "getter": "ts_http_get_max_header_size",
+          "lowering": { "args": [], "returns": "i64" }
         },
         "Agent": {
           "type": "Agent"
         },
         "globalAgent": {
-          "type": "Agent"
+          "type": "Agent",
+          "getter": "ts_http_get_global_agent",
+          "lowering": { "args": [], "returns": "ptr" }
         },
         "WebSocket": {
           "type": "WebSocket"

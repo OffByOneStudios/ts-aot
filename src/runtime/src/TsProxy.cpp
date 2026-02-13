@@ -3,6 +3,7 @@
 #include "TsString.h"
 #include "TsArray.h"
 #include "TsRuntime.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 #include <cstring>
 #include <cstdio>
@@ -232,6 +233,11 @@ extern "C" TsValue* ts_proxy_create(void* targetArg, void* handlerArg) {
 
     void* handlerRaw = ts_nanbox_safe_unbox(handlerArg);
 
+    // Convert flat objects to TsMap for handler
+    if (handlerRaw && is_flat_object(handlerRaw)) {
+        handlerRaw = ts_flat_object_to_map(handlerRaw);
+    }
+
     TsMap* handler = dynamic_cast<TsMap*>((TsObject*)handlerRaw);
 
     // Create proxy
@@ -277,6 +283,11 @@ extern "C" TsValue* ts_proxy_revocable(void* targetArg, void* handlerArg) {
 extern "C" TsValue* ts_proxy_get(void* proxyArg, void* propArg, void* receiverArg) {
     void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
+    // Flat objects have no vtable - skip dynamic_cast
+    if (!rawProxy || is_flat_object(rawProxy)) {
+        return ts_object_get_dynamic((TsValue*)proxyArg, (TsValue*)propArg);
+    }
+
     // Check if it's actually a proxy
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
@@ -290,6 +301,11 @@ extern "C" TsValue* ts_proxy_get(void* proxyArg, void* propArg, void* receiverAr
 extern "C" int64_t ts_proxy_set(void* proxyArg, void* propArg, void* valueArg, void* receiverArg) {
     void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
+    if (!rawProxy || is_flat_object(rawProxy)) {
+        ts_object_set_dynamic((TsValue*)proxyArg, (TsValue*)propArg, (TsValue*)valueArg);
+        return 1;
+    }
+
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
         ts_object_set_dynamic((TsValue*)proxyArg, (TsValue*)propArg, (TsValue*)valueArg);
@@ -302,6 +318,10 @@ extern "C" int64_t ts_proxy_set(void* proxyArg, void* propArg, void* valueArg, v
 extern "C" int64_t ts_proxy_has(void* proxyArg, void* propArg) {
     void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
+    if (!rawProxy || is_flat_object(rawProxy)) {
+        return ts_object_has_prop((TsValue*)proxyArg, (TsValue*)propArg) ? 1 : 0;
+    }
+
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
         return ts_object_has_prop((TsValue*)proxyArg, (TsValue*)propArg) ? 1 : 0;
@@ -313,6 +333,10 @@ extern "C" int64_t ts_proxy_has(void* proxyArg, void* propArg) {
 extern "C" int64_t ts_proxy_delete(void* proxyArg, void* propArg) {
     void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
+    if (!rawProxy || is_flat_object(rawProxy)) {
+        return ts_object_delete_prop((TsValue*)proxyArg, (TsValue*)propArg) ? 1 : 0;
+    }
+
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
         return ts_object_delete_prop((TsValue*)proxyArg, (TsValue*)propArg) ? 1 : 0;
@@ -323,6 +347,10 @@ extern "C" int64_t ts_proxy_delete(void* proxyArg, void* propArg) {
 
 extern "C" TsValue* ts_proxy_apply(void* proxyArg, void* thisArg, void* argsArg, int64_t argCount) {
     void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
+
+    if (!rawProxy || is_flat_object(rawProxy)) {
+        return ts_function_apply((TsValue*)proxyArg, (TsValue*)thisArg, (TsValue*)argsArg);
+    }
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
@@ -336,6 +364,10 @@ extern "C" TsValue* ts_proxy_apply(void* proxyArg, void* thisArg, void* argsArg,
 extern "C" TsValue* ts_proxy_construct(void* proxyArg, void* argsArg, int64_t argCount, void* newTargetArg) {
     void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
 
+    if (!rawProxy || is_flat_object(rawProxy)) {
+        return ts_value_make_undefined();
+    }
+
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
         return ts_value_make_undefined();
@@ -346,6 +378,10 @@ extern "C" TsValue* ts_proxy_construct(void* proxyArg, void* argsArg, int64_t ar
 
 extern "C" TsValue* ts_proxy_ownKeys(void* proxyArg) {
     void* rawProxy = ts_nanbox_safe_unbox(proxyArg);
+
+    if (!rawProxy || is_flat_object(rawProxy)) {
+        return ts_object_keys((TsValue*)proxyArg);
+    }
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawProxy);
     if (!proxy) {
@@ -359,6 +395,9 @@ extern "C" TsValue* ts_proxy_ownKeys(void* proxyArg) {
 extern "C" int64_t ts_is_proxy(void* objArg) {
     void* raw = ts_nanbox_safe_unbox(objArg);
     if (!raw) return 0;
+
+    // Flat objects have no vtable - never a proxy
+    if (is_flat_object(raw)) return 0;
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)raw);
     return proxy ? 1 : 0;

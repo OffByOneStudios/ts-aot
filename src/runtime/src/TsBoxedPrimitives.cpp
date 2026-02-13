@@ -1,5 +1,6 @@
 #include "../include/TsBoxedPrimitives.h"
 #include "../include/TsSymbol.h"
+#include "../include/TsFlatObject.h"
 #include "../include/GC.h"
 
 // TsBooleanObject implementation
@@ -45,6 +46,7 @@ void* ts_symbol_object_create(void* symValue) {
 }
 
 bool ts_boolean_object_value(void* obj) {
+    if (!obj || is_flat_object(obj)) return false;
     TsBooleanObject* boolObj = dynamic_cast<TsBooleanObject*>((TsObject*)obj);
     if (boolObj) {
         return boolObj->GetValue();
@@ -53,6 +55,7 @@ bool ts_boolean_object_value(void* obj) {
 }
 
 double ts_number_object_value(void* obj) {
+    if (!obj || is_flat_object(obj)) return 0.0;
     TsNumberObject* numObj = dynamic_cast<TsNumberObject*>((TsObject*)obj);
     if (numObj) {
         return numObj->GetValue();
@@ -61,6 +64,7 @@ double ts_number_object_value(void* obj) {
 }
 
 void* ts_string_object_value(void* obj) {
+    if (!obj || is_flat_object(obj)) return nullptr;
     TsStringObject* strObj = dynamic_cast<TsStringObject*>((TsObject*)obj);
     if (strObj) {
         return strObj->GetValue();
@@ -69,6 +73,7 @@ void* ts_string_object_value(void* obj) {
 }
 
 void* ts_symbol_object_value(void* obj) {
+    if (!obj || is_flat_object(obj)) return nullptr;
     TsSymbolObject* symObj = dynamic_cast<TsSymbolObject*>((TsObject*)obj);
     if (symObj) {
         return symObj->GetValue();

@@ -6,6 +6,7 @@
 #include "TsSocket.h"
 #include "TsMap.h"
 #include "TsArray.h"
+#include "TsFlatObject.h"
 #include <uv.h>
 #include <llhttp.h>
 #include <iostream>
@@ -536,33 +537,42 @@ TsClientRequest::TsClientRequest(TsValue* optionsPtr, void* callback, bool is_ht
             }
         }
     } else if (options.type == ValueType::OBJECT_PTR) {
-        TsMap* obj = (TsMap*)options.ptr_val;
-        TsValue v_host = obj->Get(TsString::Create("host"));
-        if (v_host.type == ValueType::STRING_PTR) host = ((TsString*)v_host.ptr_val)->ToUtf8();
-
-        TsValue v_hostname = obj->Get(TsString::Create("hostname"));
-        if (v_hostname.type == ValueType::STRING_PTR) host = ((TsString*)v_hostname.ptr_val)->ToUtf8();
-
-        TsValue v_port = obj->Get(TsString::Create("port"));
-        if (v_port.type == ValueType::NUMBER_INT) port = (int)v_port.i_val;
-        else if (v_port.type == ValueType::NUMBER_DBL) port = (int)v_port.d_val;
-        else port = is_https ? 443 : 80;
-
-        TsValue v_path = obj->Get(TsString::Create("path"));
-        if (v_path.type == ValueType::STRING_PTR) path = ((TsString*)v_path.ptr_val)->ToUtf8();
-
-        TsValue v_method = obj->Get(TsString::Create("method"));
-        if (v_method.type == ValueType::STRING_PTR) method = ((TsString*)v_method.ptr_val)->ToUtf8();
-
-        TsValue v_headers = obj->Get(TsString::Create("headers"));
-        if (v_headers.type == ValueType::OBJECT_PTR && v_headers.ptr_val) {
-            headers = (TsMap*)v_headers.ptr_val;
+        void* rawOpts = options.ptr_val;
+        if (rawOpts && is_flat_object(rawOpts)) {
+            rawOpts = ts_flat_object_to_map(rawOpts);
         }
+        TsMap* obj = dynamic_cast<TsMap*>((TsObject*)rawOpts);
+        if (obj) {
+            TsValue v_host = obj->Get(TsString::Create("host"));
+            if (v_host.type == ValueType::STRING_PTR) host = ((TsString*)v_host.ptr_val)->ToUtf8();
 
-        // Check for agent option
-        TsValue v_agent = obj->Get(TsString::Create("agent"));
-        if (v_agent.type == ValueType::OBJECT_PTR && v_agent.ptr_val) {
-            agent = (TsHttpAgent*)v_agent.ptr_val;
+            TsValue v_hostname = obj->Get(TsString::Create("hostname"));
+            if (v_hostname.type == ValueType::STRING_PTR) host = ((TsString*)v_hostname.ptr_val)->ToUtf8();
+
+            TsValue v_port = obj->Get(TsString::Create("port"));
+            if (v_port.type == ValueType::NUMBER_INT) port = (int)v_port.i_val;
+            else if (v_port.type == ValueType::NUMBER_DBL) port = (int)v_port.d_val;
+            else port = is_https ? 443 : 80;
+
+            TsValue v_path = obj->Get(TsString::Create("path"));
+            if (v_path.type == ValueType::STRING_PTR) path = ((TsString*)v_path.ptr_val)->ToUtf8();
+
+            TsValue v_method = obj->Get(TsString::Create("method"));
+            if (v_method.type == ValueType::STRING_PTR) method = ((TsString*)v_method.ptr_val)->ToUtf8();
+
+            TsValue v_headers = obj->Get(TsString::Create("headers"));
+            if (v_headers.type == ValueType::OBJECT_PTR && v_headers.ptr_val) {
+                void* rawHeaders = v_headers.ptr_val;
+                if (is_flat_object(rawHeaders)) rawHeaders = ts_flat_object_to_map(rawHeaders);
+                TsMap* hdrMap = dynamic_cast<TsMap*>((TsObject*)rawHeaders);
+                if (hdrMap) headers = hdrMap;
+            }
+
+            // Check for agent option
+            TsValue v_agent = obj->Get(TsString::Create("agent"));
+            if (v_agent.type == ValueType::OBJECT_PTR && v_agent.ptr_val) {
+                agent = (TsHttpAgent*)v_agent.ptr_val;
+            }
         }
     }
 
@@ -756,12 +766,16 @@ void TsClientRequest::Connect() {
         TsValue* ca = nullptr;
 
         if (options.type == ValueType::OBJECT_PTR) {
-            TsMap* opts = (TsMap*)options.ptr_val;
-            TsValue v_reject = opts->Get(TsString::Create("rejectUnauthorized"));
-            if (v_reject.type == ValueType::BOOLEAN) rejectUnauthorized = v_reject.b_val;
+            void* rawOpts2 = options.ptr_val;
+            if (rawOpts2 && is_flat_object(rawOpts2)) rawOpts2 = ts_flat_object_to_map(rawOpts2);
+            TsMap* opts = dynamic_cast<TsMap*>((TsObject*)rawOpts2);
+            if (opts) {
+                TsValue v_reject = opts->Get(TsString::Create("rejectUnauthorized"));
+                if (v_reject.type == ValueType::BOOLEAN) rejectUnauthorized = v_reject.b_val;
 
-            TsValue v_ca = opts->Get(TsString::Create("ca"));
-            if (v_ca.type != ValueType::UNDEFINED) ca = nanbox_from_tagged(v_ca);
+                TsValue v_ca = opts->Get(TsString::Create("ca"));
+                if (v_ca.type != ValueType::UNDEFINED) ca = nanbox_from_tagged(v_ca);
+            }
         }
         
         secureSocket->SetVerify(rejectUnauthorized, ca);
@@ -953,11 +967,13 @@ void TsHttpsServer::HandleConnection(int status) {
         
         TsValue optDecoded = options ? nanbox_to_tagged(options) : TsValue{};
         if (optDecoded.type == ValueType::OBJECT_PTR) {
-            TsMap* opts = (TsMap*)optDecoded.ptr_val;
+            void* rawOpts3 = optDecoded.ptr_val;
+            if (rawOpts3 && is_flat_object(rawOpts3)) rawOpts3 = ts_flat_object_to_map(rawOpts3);
+            TsMap* opts = dynamic_cast<TsMap*>((TsObject*)rawOpts3);
 
-            TsValue v_key = opts->Get(TsString::Create("key"));
-            TsValue v_cert = opts->Get(TsString::Create("cert"));
-            
+            TsValue v_key = opts ? opts->Get(TsString::Create("key")) : TsValue{};
+            TsValue v_cert = opts ? opts->Get(TsString::Create("cert")) : TsValue{};
+
             TsBuffer* keyBuf = nullptr;
             TsBuffer* certBuf = nullptr;
 
@@ -1027,7 +1043,10 @@ TsHttpsAgent* globalHttpsAgent = nullptr;
 TsHttpAgent::TsHttpAgent(TsValue* options) : TsEventEmitter() {
     TsValue optDecoded = options ? nanbox_to_tagged(options) : TsValue{};
     if (optDecoded.type == ValueType::OBJECT_PTR) {
-        TsMap* opts = (TsMap*)optDecoded.ptr_val;
+        void* rawAgentOpts = optDecoded.ptr_val;
+        if (rawAgentOpts && is_flat_object(rawAgentOpts)) rawAgentOpts = ts_flat_object_to_map(rawAgentOpts);
+        TsMap* opts = dynamic_cast<TsMap*>((TsObject*)rawAgentOpts);
+        if (!opts) return;
 
         TsValue v_keepAlive = opts->Get(TsString::Create("keepAlive"));
         if (v_keepAlive.type == ValueType::BOOLEAN) keepAlive = v_keepAlive.b_val;

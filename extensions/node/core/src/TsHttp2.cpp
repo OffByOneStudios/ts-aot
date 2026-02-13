@@ -1,6 +1,7 @@
 #include "TsHttp2.h"
 #include "TsError.h"
 #include "TsSymbol.h"
+#include "TsFlatObject.h"
 #include "GC.h"
 #include "TsNanBox.h"
 #include <cstring>
@@ -1046,7 +1047,9 @@ void TsServerHttp2Stream::RespondWithFD(int fd, TsMap* headers, TsValue* options
 
     TsValue optDec2 = options ? nanbox_to_tagged(options) : TsValue{};
     if (optDec2.type == ValueType::OBJECT_PTR) {
-        TsMap* opts = dynamic_cast<TsMap*>((TsObject*)optDec2.ptr_val);
+        void* rawOpt2 = optDec2.ptr_val;
+        if (rawOpt2 && is_flat_object(rawOpt2)) rawOpt2 = ts_flat_object_to_map(rawOpt2);
+        TsMap* opts = rawOpt2 ? dynamic_cast<TsMap*>((TsObject*)rawOpt2) : nullptr;
         if (opts) {
             TsValue offsetVal = opts->Get(TsString::Create("offset"));
             if (offsetVal.type == ValueType::NUMBER_INT) offset = offsetVal.i_val;
@@ -1125,7 +1128,9 @@ void TsServerHttp2Stream::RespondWithFile(const char* path, TsMap* headers, TsVa
 
     TsValue optDec3 = options ? nanbox_to_tagged(options) : TsValue{};
     if (optDec3.type == ValueType::OBJECT_PTR) {
-        TsMap* opts = dynamic_cast<TsMap*>((TsObject*)optDec3.ptr_val);
+        void* rawOpt3 = optDec3.ptr_val;
+        if (rawOpt3 && is_flat_object(rawOpt3)) rawOpt3 = ts_flat_object_to_map(rawOpt3);
+        TsMap* opts = rawOpt3 ? dynamic_cast<TsMap*>((TsObject*)rawOpt3) : nullptr;
         if (opts) {
             TsValue offsetVal = opts->Get(TsString::Create("offset"));
             if (offsetVal.type == ValueType::NUMBER_INT) offset = offsetVal.i_val;
@@ -1409,8 +1414,14 @@ void TsHttp2SecureServer::HandleConnection(int status) {
 
     // Apply TLS options (certificate, key, etc.) if provided
     if (tlsOptions) {
-        TsMap* optsMap = dynamic_cast<TsMap*>((TsObject*)ts_value_get_object(tlsOptions));
-        if (!optsMap) optsMap = dynamic_cast<TsMap*>((TsObject*)tlsOptions);
+        void* rawTls = ts_value_get_object(tlsOptions);
+        if (rawTls && is_flat_object(rawTls)) rawTls = ts_flat_object_to_map(rawTls);
+        TsMap* optsMap = rawTls ? dynamic_cast<TsMap*>((TsObject*)rawTls) : nullptr;
+        if (!optsMap) {
+            void* rawTls2 = (void*)tlsOptions;
+            if (rawTls2 && is_flat_object(rawTls2)) rawTls2 = ts_flat_object_to_map(rawTls2);
+            optsMap = rawTls2 ? dynamic_cast<TsMap*>((TsObject*)rawTls2) : nullptr;
+        }
 
         if (optsMap) {
             // Get cert and key

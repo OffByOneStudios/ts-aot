@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define
-// CHECK: @ts_object_set_dynamic
+// CHECK: @ts_gc_alloc
 // OUTPUT: 14
 
 function user_main(): void {

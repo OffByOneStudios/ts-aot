@@ -18,6 +18,7 @@ struct HIRBlock;
 struct HIRInstruction;
 struct HIRType;
 struct HIRValue;
+struct HIRShape;
 
 //==============================================================================
 // HIR Types - Simplified type system for IR level
@@ -320,6 +321,9 @@ struct HIRInstruction {
 
     // Escape analysis
     bool escapes = true;            // Conservative default: object escapes function scope
+
+    // Flat object shape (for NewObjectDynamic with known property names)
+    HIRShape* objectShape = nullptr;
 
     // Metadata
     uint32_t sourceLocation = 0;    // Line number for debugging

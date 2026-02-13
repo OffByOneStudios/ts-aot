@@ -16,6 +16,7 @@
 #include "TsSymbol.h"
 #include "GC.h"
 #include "TsGC.h"
+#include "TsFlatObject.h"
 #include <sstream>
 #include <cstdio>
 #include <cstring>
@@ -702,6 +703,8 @@ bool isProxy(void* value) {
 
     TsValue decoded = nanbox_to_tagged((TsValue*)value);
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
+
+    if (is_flat_object(decoded.ptr_val)) return false;
 
     TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)decoded.ptr_val);
     return proxy != nullptr;

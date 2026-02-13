@@ -666,10 +666,11 @@ public:
         return result;
     }
 
-    std::shared_ptr<HIRValue> createNewObjectDynamic() {
+    std::shared_ptr<HIRValue> createNewObjectDynamic(HIRShape* shape = nullptr) {
         auto result = createValue(HIRType::makeObject());
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::NewObjectDynamic);
         inst->result = result;
+        inst->objectShape = shape;
         emit(std::move(inst));
         return result;
     }
