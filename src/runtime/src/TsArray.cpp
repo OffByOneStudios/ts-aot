@@ -92,6 +92,8 @@ void TsArray::Push(int64_t value) {
         elements = newElements;
         // Write barrier: elements field now points to potentially-nursery buffer
         ts_gc_write_barrier((void*)&this->elements, newElements);
+        // Dirty cards for copied elements (may contain nursery pointers)
+        ts_gc_write_barrier_range(newElements, length * elementSize);
         capacity = newCapacity;
     }
     if (elementSize == 8) {
@@ -157,6 +159,8 @@ void TsArray::PushDouble(double value) {
             elements = newElements;
             // Write barrier: elements field now points to potentially-nursery buffer
             ts_gc_write_barrier((void*)&this->elements, newElements);
+            // Dirty cards for copied elements (may contain nursery pointers)
+            ts_gc_write_barrier_range(newElements, length * elementSize);
             capacity = newCapacity;
         }
         ((double*)elements)[length++] = value;
@@ -176,6 +180,8 @@ void TsArray::Unshift(int64_t value) {
         elements = newElements;
         // Write barrier: elements field now points to potentially-nursery buffer
         ts_gc_write_barrier((void*)&this->elements, newElements);
+        // Dirty cards for copied elements (may contain nursery pointers)
+        ts_gc_write_barrier_range((char*)newElements + elementSize, length * elementSize);
         capacity = newCapacity;
     } else {
         std::memmove((char*)elements + elementSize, elements, length * elementSize);
@@ -971,6 +977,7 @@ TsArray* TsArray::With(int64_t index, int64_t value) {
         if (isSpecialized) {
             result = TsArray::CreateSpecialized(length, elementSize, isDouble);
             std::memcpy(result->elements, elements, length * elementSize);
+            ts_gc_write_barrier_range(result->elements, length * elementSize);
         } else {
             result = TsArray::Create(length);
             int64_t* srcElems = (int64_t*)elements;
@@ -986,6 +993,7 @@ TsArray* TsArray::With(int64_t index, int64_t value) {
         result = TsArray::CreateSpecialized(length, elementSize, isDouble);
         // Copy all elements first
         std::memcpy(result->elements, elements, length * elementSize);
+        ts_gc_write_barrier_range(result->elements, length * elementSize);
         // Then replace the element at index
         if (isDouble) {
             double* dstElems = (double*)result->elements;

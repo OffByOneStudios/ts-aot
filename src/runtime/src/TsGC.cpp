@@ -44,6 +44,10 @@ static const size_t MARK_WORKLIST_CAPACITY = 16384;
 // Verbose diagnostics via TS_GC_VERBOSE=1
 static bool g_gc_verbose = false;
 
+// Card-table verification: TS_GC_VERIFY_CARDS=1 does a full old-gen scan
+// after the card-table scan and reports any missed nursery pointers.
+static bool g_verify_cards = false;
+
 // ============================================================================
 // Nursery Configuration (Pin-Based Promotion, SGen-style)
 // ============================================================================
@@ -114,15 +118,21 @@ static Nursery g_nursery = {};
 
 static const size_t CARD_SHIFT = 9;                             // 512 bytes per card
 static const size_t CARD_SIZE = (size_t)1 << CARD_SHIFT;       // 512
-static const size_t CARD_TABLE_COVERAGE = (size_t)1 << 30;     // 1GB of address space
-static const size_t CARD_TABLE_SIZE = CARD_TABLE_COVERAGE >> CARD_SHIFT;  // 2M entries
+static const size_t CARD_TABLE_SIZE = (size_t)1 << 21;         // 2M entries (modular indexing)
 
 static uint8_t* g_card_table = nullptr;       // malloc'd (not GC-managed)
-static uintptr_t g_card_table_base = 0;       // lowest old-gen block address
 
 // Non-GC slot tracking: slots outside card table coverage that hold nursery pointers.
 // Safety net for any memory not covered by the card table (e.g., malloc'd structures).
 static std::vector<void**> g_non_gc_nursery_slots;
+
+// Modular card index: maps any virtual address to a card table entry.
+// Uses power-of-2 masking for fast computation. Different addresses may alias
+// to the same card (false positives), which causes extra scanning but no
+// missed pointers — a safe trade-off.
+static inline size_t card_index(uintptr_t addr) {
+    return (addr >> CARD_SHIFT) & (CARD_TABLE_SIZE - 1);
+}
 
 // Minor GC fixup callbacks: registered by modules with caches/registries
 // that hold nursery pointers in malloc'd memory (not covered by card table).
@@ -294,7 +304,7 @@ extern "C" {
     uint64_t ts_gc_nursery_base = 0;
     uint64_t ts_gc_nursery_end = 0;
     uint8_t* ts_gc_card_table_ptr = nullptr;
-    uint64_t ts_gc_card_table_base_addr = 0;
+    uint64_t ts_gc_card_table_base_addr = 0;  // Unused with modular indexing, kept for ABI compat
 }
 
 // Forward declarations for nursery helpers
@@ -380,32 +390,25 @@ static void gc_clear_card_table() {
     memset(g_card_table, 0, CARD_TABLE_SIZE);
 }
 
-// Scan dirty cards to find old-gen-to-nursery pointers.
-// Called during minor GC to find nursery roots from old-gen stores.
-// Returns count of nursery pointers found (for diagnostics).
-static size_t gc_scan_dirty_cards(void (*visitor)(void* nursery_ptr, void* old_gen_slot)) {
-    if (!g_card_table || !g_card_table_base) return 0;
-    size_t found = 0;
-
-    for (size_t i = 0; i < CARD_TABLE_SIZE; i++) {
-        if (!g_card_table[i]) continue;
-
-        // This card is dirty: scan the 512-byte region for nursery pointers
-        uintptr_t card_start = g_card_table_base + (i << CARD_SHIFT);
-        uintptr_t card_end = card_start + CARD_SIZE;
-
-        for (uintptr_t p = card_start; p + sizeof(void*) <= card_end; p += sizeof(void*)) {
-            void* candidate = *(void**)p;
-            if (!candidate) continue;
-            if ((uintptr_t)candidate < 4096) continue;
-            if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
-            if (is_nursery_ptr(candidate)) {
-                if (visitor) visitor(candidate, (void*)p);
-                found++;
-            }
+// Check if any card covering the range [start, start+size) is dirty.
+static inline bool card_range_is_dirty(uintptr_t start, size_t size) {
+    if (!g_card_table) return false;
+    size_t lo = card_index(start);
+    size_t hi = card_index(start + size - 1);
+    // Modular wrap: if lo > hi, check both ranges
+    if (lo <= hi) {
+        for (size_t i = lo; i <= hi; i++) {
+            if (g_card_table[i]) return true;
+        }
+    } else {
+        for (size_t i = lo; i < CARD_TABLE_SIZE; i++) {
+            if (g_card_table[i]) return true;
+        }
+        for (size_t i = 0; i <= hi; i++) {
+            if (g_card_table[i]) return true;
         }
     }
-    return found;
+    return false;
 }
 
 // ============================================================================
@@ -515,12 +518,7 @@ static BlockHeader* create_block(size_t slot_size, int class_idx) {
     bh->next = g_heap->block_lists[class_idx];
     g_heap->block_lists[class_idx] = bh;
 
-    // Update card table base address (track lowest old-gen block)
-    uintptr_t block_addr = (uintptr_t)mem;
-    if (g_card_table && (g_card_table_base == 0 || block_addr < g_card_table_base)) {
-        g_card_table_base = block_addr;
-        ts_gc_card_table_base_addr = (uint64_t)g_card_table_base;
-    }
+    // Card table uses modular indexing — no base tracking needed.
 
     g_heap->descriptors_dirty = true;
     return bh;
@@ -647,12 +645,7 @@ static void* gc_alloc_large(size_t size) {
         g_heap->peak_allocated = g_heap->total_allocated;
     }
 
-    // Update card table base for large object
-    uintptr_t data_addr = (uintptr_t)mem + sizeof(LargeObjHeader);
-    if (g_card_table && (g_card_table_base == 0 || data_addr < g_card_table_base)) {
-        g_card_table_base = data_addr;
-        ts_gc_card_table_base_addr = (uint64_t)g_card_table_base;
-    }
+    // Card table uses modular indexing — no base tracking needed.
 
     // Data follows header, VirtualAlloc returns zeroed memory
     return (char*)mem + sizeof(LargeObjHeader);
@@ -1263,6 +1256,9 @@ static void gc_init() {
     if (getenv("TS_GC_VERBOSE")) {
         g_gc_verbose = true;
     }
+    if (getenv("TS_GC_VERIFY_CARDS")) {
+        g_verify_cards = true;
+    }
 
     // Tunable GC parameters via environment variables
     const char* threshold_env = getenv("TS_GC_MIN_THRESHOLD_MB");
@@ -1319,6 +1315,8 @@ static void gc_init() {
             ts_gc_nursery_end = ts_gc_nursery_base + g_nursery.region_size;
 
             // Allocate card table for old-gen-to-nursery write barrier tracking.
+            // Uses modular indexing (addr >> CARD_SHIFT) & (CARD_TABLE_SIZE - 1)
+            // so no base address is needed.
             g_card_table = (uint8_t*)calloc(CARD_TABLE_SIZE, 1);
             if (g_card_table) {
                 ts_gc_card_table_ptr = g_card_table;
@@ -1763,29 +1761,98 @@ static void gc_mark_nursery_live() {
         if (root && *root) mark_nursery_obj(*root);
     }
 
-    // Root source 3: Old-gen → nursery pointers (card-table scan)
-    // All containers (TsMap, TsSet) now use write barriers via TsHashTable,
-    // so dirty cards are sufficient to find old-gen → nursery references.
-    if (g_card_table && g_card_table_base) {
-        for (size_t i = 0; i < CARD_TABLE_SIZE; i++) {
-            if (!g_card_table[i]) continue;
-            uintptr_t card_start = g_card_table_base + (i << CARD_SHIFT);
-            uintptr_t card_end = card_start + CARD_SIZE;
-#ifdef _WIN32
-            MEMORY_BASIC_INFORMATION mbi;
-            if (VirtualQuery((void*)card_start, &mbi, sizeof(mbi)) == 0 ||
-                mbi.State != MEM_COMMIT) continue;
-#endif
-            for (uintptr_t p = card_start; p + sizeof(void*) <= card_end; p += sizeof(void*)) {
+    // Root source 3: Old-gen → nursery pointers (card-table guided block scan)
+    // Uses modular card indexing: for each allocated old-gen slot, check if its
+    // card is dirty, and if so scan the slot for nursery pointers.
+    // This avoids address reconstruction issues with modular indexing.
+    if (g_card_table) {
+        for (size_t sc = 0; sc < NUM_SIZE_CLASSES; sc++) {
+            for (BlockHeader* bh = g_heap->block_lists[sc]; bh; bh = bh->next) {
+                if (!bh->block_mem || bh->live_count == 0) continue;
+                uintptr_t bstart = (uintptr_t)bh->block_mem;
+                for (size_t slot = 0; slot < bh->slot_count; slot++) {
+                    if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
+                    uintptr_t s = bstart + slot * bh->slot_size;
+                    // Check if any card covering this slot is dirty
+                    if (!card_range_is_dirty(s, bh->slot_size)) continue;
+                    uintptr_t e = s + bh->slot_size;
+                    for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                        void* c = *(void**)p;
+                        if ((uintptr_t)c < 4096 || (uintptr_t)c > 0x00007FFFFFFFFFFF) continue;
+                        mark_nursery_obj(c);
+                    }
+                }
+            }
+        }
+        // Large objects
+        for (LargeObjHeader* lo = g_heap->large_sentinel.next;
+             lo != &g_heap->large_sentinel; lo = lo->next) {
+            if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
+            uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
+            if (!card_range_is_dirty(s, lo->data_size)) continue;
+            uintptr_t e = s + lo->data_size;
+            for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
                 void* c = *(void**)p;
                 if ((uintptr_t)c < 4096 || (uintptr_t)c > 0x00007FFFFFFFFFFF) continue;
                 mark_nursery_obj(c);
             }
         }
     }
-    // Also scan non-GC nursery slots (outside card table coverage range)
+    // Also scan non-GC nursery slots (outside GC-managed memory)
     for (void** slot : g_non_gc_nursery_slots) {
         if (slot && *slot) mark_nursery_obj(*slot);
+    }
+
+    // Root source 3v: Verification-only full old-gen scan.
+    // Only runs when TS_GC_VERIFY_CARDS=1 for debugging.
+    if (g_verify_cards) {
+        size_t verify_found = 0;
+        auto verify_and_mark = [&](uintptr_t p) {
+            void* c = *(void**)p;
+            if ((uintptr_t)c < 4096 || (uintptr_t)c > 0x00007FFFFFFFFFFF) return;
+            if (!is_nursery_ptr(c)) return;
+            size_t nidx = find_nursery_obj((uintptr_t)c);
+            if (nidx == SIZE_MAX) return;
+            uint64_t* prefix = (uint64_t*)nursery_objects[nidx].prefix_ptr;
+            if (nursery_is_marked(*prefix)) return;
+            nursery_set_marked(prefix);
+            worklist.push_back(nidx);
+            marked_count++;
+            verify_found++;
+            if (verify_found <= 10) {
+                size_t cidx = card_index(p);
+                fprintf(stderr, "[TsGC] MISSED: slot %p -> nursery %p (card=%zu %s)\n",
+                    (void*)p, c, cidx, g_card_table[cidx] ? "DIRTY" : "CLEAN");
+                fflush(stderr);
+            }
+        };
+        for (size_t sc_v = 0; sc_v < NUM_SIZE_CLASSES; sc_v++) {
+            for (BlockHeader* bh = g_heap->block_lists[sc_v]; bh; bh = bh->next) {
+                if (!bh->block_mem || bh->live_count == 0) continue;
+                uintptr_t bstart = (uintptr_t)bh->block_mem;
+                for (size_t slot = 0; slot < bh->slot_count; slot++) {
+                    if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
+                    uintptr_t s = bstart + slot * bh->slot_size;
+                    uintptr_t e = s + bh->slot_size;
+                    for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                        verify_and_mark(p);
+                    }
+                }
+            }
+        }
+        for (LargeObjHeader* lo = g_heap->large_sentinel.next;
+             lo != &g_heap->large_sentinel; lo = lo->next) {
+            if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
+            uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
+            uintptr_t e = s + lo->data_size;
+            for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                verify_and_mark(p);
+            }
+        }
+        if (verify_found > 0) {
+            fprintf(stderr, "[TsGC] VERIFY: full scan found %zu missed nursery refs!\n", verify_found);
+            fflush(stderr);
+        }
     }
 
     // Root source 4: Weak refs
@@ -2006,7 +2073,6 @@ static void gc_minor_collect_internal() {
     for (auto& fwd : forwarding) {
         uintptr_t obj_start = (uintptr_t)fwd.old_gen_addr;
         uintptr_t obj_end = obj_start + fwd.size;
-        bool has_nursery_ref = false;
 
         for (uintptr_t p = obj_start; p + sizeof(void*) <= obj_end; p += sizeof(void*)) {
             void* candidate = *(void**)p;
@@ -2021,19 +2087,11 @@ static void gc_minor_collect_internal() {
                     *(void**)p = forwarded;
                 } else {
                     // Pinned → leave as-is (still valid nursery address)
-                    // But dirty the card for this old-gen slot
-                    has_nursery_ref = true;
+                    // Dirty the card for THIS specific slot so next minor GC finds it.
+                    if (g_card_table) {
+                        g_card_table[card_index(p)] = 1;
+                    }
                 }
-            }
-        }
-
-        // If promoted object still references pinned nursery objects,
-        // dirty the card so the next minor GC finds these refs
-        if (has_nursery_ref && g_card_table && g_card_table_base) {
-            uintptr_t off = (uintptr_t)fwd.old_gen_addr - g_card_table_base;
-            size_t idx = off >> CARD_SHIFT;
-            if (idx < CARD_TABLE_SIZE) {
-                g_card_table[idx] = 1;
             }
         }
     }
@@ -2080,11 +2138,13 @@ static void gc_minor_collect_internal() {
     }
 
     if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 3\n"); fflush(stderr); }
-    // Phase 3: Scan dirty cards for nursery pointers and fix them.
-    // All containers now use write barriers (TsHashTable), so dirty cards
-    // are sufficient to find old-gen → nursery references.
+    // Phase 3: Scan old-gen slots with dirty cards for nursery pointers and fix them.
+    // Uses modular card indexing: iterate allocated slots, check card, fix pointers.
     {
         size_t phase3_fixups = 0;
+        // Collect card indices to re-dirty for pinned nursery references.
+        // Can't re-dirty inline because bulk clear follows the scan.
+        std::vector<size_t> redirty_cards;
         auto fixup_word = [&](uintptr_t p) {
             void* candidate = *(void**)p;
             if (!candidate) return;
@@ -2096,37 +2156,47 @@ static void gc_minor_collect_internal() {
                 if (forwarded != candidate) {
                     *(void**)p = forwarded;  // Promoted → rewrite
                     phase3_fixups++;
-                }
-                // If pinned → leave as-is (still valid nursery address)
-                // Re-dirty the card so next GC knows about old→nursery ref
-                else if (g_card_table && g_card_table_base) {
-                    uintptr_t off = p - g_card_table_base;
-                    size_t idx = off >> CARD_SHIFT;
-                    if (idx < CARD_TABLE_SIZE) {
-                        g_card_table[idx] = 1;
-                    }
+                } else {
+                    // Pinned → record card for re-dirtying after bulk clear
+                    redirty_cards.push_back(card_index(p));
                 }
             }
         };
 
-        if (g_card_table && g_card_table_base) {
-            for (size_t i = 0; i < CARD_TABLE_SIZE; i++) {
-                if (!g_card_table[i]) continue;
-                uintptr_t card_start = g_card_table_base + (i << CARD_SHIFT);
-                uintptr_t card_end = card_start + CARD_SIZE;
-#ifdef _WIN32
-                MEMORY_BASIC_INFORMATION mbi;
-                if (VirtualQuery((void*)card_start, &mbi, sizeof(mbi)) == 0 ||
-                    mbi.State != MEM_COMMIT) {
-                    g_card_table[i] = 0;  // Clear stale card
-                    continue;
+        if (g_card_table) {
+            // Scan all allocated slots whose cards are dirty (don't clear yet —
+            // modular indexing means multiple slots can alias the same card).
+            for (size_t sc = 0; sc < NUM_SIZE_CLASSES; sc++) {
+                for (BlockHeader* bh = g_heap->block_lists[sc]; bh; bh = bh->next) {
+                    if (!bh->block_mem || bh->live_count == 0) continue;
+                    uintptr_t bstart = (uintptr_t)bh->block_mem;
+                    for (size_t slot = 0; slot < bh->slot_count; slot++) {
+                        if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
+                        uintptr_t s = bstart + slot * bh->slot_size;
+                        if (!card_range_is_dirty(s, bh->slot_size)) continue;
+                        uintptr_t e = s + bh->slot_size;
+                        for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                            fixup_word(p);
+                        }
+                    }
                 }
-#endif
-                // Clear card before scanning — will be re-dirtied for pinned objects
-                g_card_table[i] = 0;
-                for (uintptr_t p = card_start; p + sizeof(void*) <= card_end; p += sizeof(void*)) {
+            }
+            // Large objects
+            for (LargeObjHeader* lo = g_heap->large_sentinel.next;
+                 lo != &g_heap->large_sentinel; lo = lo->next) {
+                if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
+                uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
+                if (!card_range_is_dirty(s, lo->data_size)) continue;
+                uintptr_t e = s + lo->data_size;
+                for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
                     fixup_word(p);
                 }
+            }
+
+            // Bulk clear card table, then re-dirty for pinned references
+            memset(g_card_table, 0, CARD_TABLE_SIZE);
+            for (size_t idx : redirty_cards) {
+                g_card_table[idx] = 1;
             }
         }
 
@@ -2134,6 +2204,40 @@ static void gc_minor_collect_internal() {
             fprintf(stderr, "[TsGC] minor GC phase 3: fixed %zu old-gen → nursery pointers (card scan)\n",
                     phase3_fixups);
             fflush(stderr);
+        }
+
+        // Phase 3v: Verification-only full old-gen scan.
+        if (g_verify_cards) {
+            size_t card_only_fixups = phase3_fixups;
+            for (size_t sc_v = 0; sc_v < NUM_SIZE_CLASSES; sc_v++) {
+                for (BlockHeader* bh = g_heap->block_lists[sc_v]; bh; bh = bh->next) {
+                    if (!bh->block_mem || bh->live_count == 0) continue;
+                    uintptr_t bstart = (uintptr_t)bh->block_mem;
+                    for (size_t slot = 0; slot < bh->slot_count; slot++) {
+                        if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
+                        uintptr_t s = bstart + slot * bh->slot_size;
+                        uintptr_t e = s + bh->slot_size;
+                        for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                            fixup_word(p);
+                        }
+                    }
+                }
+            }
+            for (LargeObjHeader* lo = g_heap->large_sentinel.next;
+                 lo != &g_heap->large_sentinel; lo = lo->next) {
+                if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
+                uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
+                uintptr_t e = s + lo->data_size;
+                for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                    fixup_word(p);
+                }
+            }
+            size_t missed_fixups = phase3_fixups - card_only_fixups;
+            if (missed_fixups > 0) {
+                fprintf(stderr, "[TsGC] VERIFY: full scan found %zu missed fixups (card scan found %zu)\n",
+                        missed_fixups, card_only_fixups);
+                fflush(stderr);
+            }
         }
     }
 
@@ -2454,16 +2558,38 @@ void ts_gc_write_barrier(void* slot_addr, void* stored_value) {
     // Only dirty the card if stored_value points into the nursery
     if (!is_nursery_ptr(stored_value)) return;
 
-    // Compute card index from slot address (the old-gen location being written to)
-    uintptr_t offset = (uintptr_t)slot_addr - g_card_table_base;
-    size_t idx = offset >> CARD_SHIFT;
+    // Modular card index — always valid, no overflow possible
+    size_t idx = card_index((uintptr_t)slot_addr);
+    g_card_table[idx] = 1;
+}
 
-    if (idx < CARD_TABLE_SIZE) {
-        g_card_table[idx] = 1;
+void ts_gc_verify_write_barrier(void* slot_addr, void* stored_value) {
+    // No-op — modular card indexing guarantees all indices are valid.
+}
+
+// Dirty all cards spanning [start, start+size).
+// Call after memcpy/memmove of pointer-containing data into old-gen.
+void ts_gc_write_barrier_range(void* start, size_t size) {
+    if (!g_card_table || !g_nursery.enabled || size == 0) return;
+
+    uintptr_t lo = (uintptr_t)start;
+    uintptr_t hi = lo + size;
+    size_t idx_lo = card_index(lo);
+    size_t idx_hi = card_index(hi - 1);
+
+    // Modular wrap: dirty all cards from lo to hi
+    if (idx_lo <= idx_hi) {
+        for (size_t i = idx_lo; i <= idx_hi; i++) {
+            g_card_table[i] = 1;
+        }
     } else {
-        // Slot is outside card table coverage (e.g., malloc'd memory).
-        // Track it for fixup during minor GC.
-        g_non_gc_nursery_slots.push_back((void**)slot_addr);
+        // Wraps around card table boundary
+        for (size_t i = idx_lo; i < CARD_TABLE_SIZE; i++) {
+            g_card_table[i] = 1;
+        }
+        for (size_t i = 0; i <= idx_hi; i++) {
+            g_card_table[i] = 1;
+        }
     }
 }
 

@@ -257,10 +257,12 @@ private:
         entries_[slot].key = key;
         entries_[slot].value = value;
         // Write barriers for pointer-type values stored into old-gen
-        if (key.ptr_val)
+        if (key.ptr_val) {
             ts_gc_write_barrier(&entries_[slot].key.ptr_val, key.ptr_val);
-        if (value.ptr_val)
+        }
+        if (value.ptr_val) {
             ts_gc_write_barrier(&entries_[slot].value.ptr_val, value.ptr_val);
+        }
     }
 
     void rehash(size_t new_capacity) {
