@@ -949,6 +949,11 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .build());
 
+    reg.registerLowering("ts_map_create_explicit",
+        lowering("ts_map_create_explicit")
+            .returnsPtr()
+            .build());
+
     reg.registerLowering("ts_map_init_inplace",
         lowering("ts_map_init_inplace")
             .returnsVoid()

@@ -23,7 +23,7 @@ static const int MIN_CACHED_INT = -100;  // Cache negative numbers too
 // Caches ALL strings to eliminate duplicate allocations during property access
 static std::unordered_map<std::string, TsString*> globalStringCache;
 static const size_t MAX_INTERN_SIZE = 256; // Only intern strings <= 256 chars
-static const size_t MAX_CACHE_SIZE = 10000; // Prevent unbounded growth
+static const size_t MAX_CACHE_SIZE = 100000; // Allow more interned strings for Map-heavy workloads
 
 // Cache for non-integer doubles (was function-local, moved to file scope for GC scanning)
 static std::unordered_map<double, TsString*> doubleStringCache;
@@ -140,9 +140,21 @@ TsString* TsString::GetInterned(const char* utf8Str) {
     return str;
 }
 
+TsString* TsString::FindInterned(const char* utf8Str) {
+    if (!utf8Str) return nullptr;
+    size_t len = std::strlen(utf8Str);
+    if (len > MAX_INTERN_SIZE) return nullptr;
+    std::string key(utf8Str, len);
+    auto it = globalStringCache.find(key);
+    if (it != globalStringCache.end()) return it->second;
+    return nullptr;
+}
+
 TsString::TsString(const char* utf8Str, uint32_t len) {
     magic = MAGIC;
     isSmall = true;
+    hashComputed = false;
+    cachedHash = 0;
     length = len;
     std::memcpy(data.inlineBuffer, utf8Str, len);
     if (len < 64) data.inlineBuffer[len] = '\0';
@@ -151,6 +163,8 @@ TsString::TsString(const char* utf8Str, uint32_t len) {
 TsString::TsString(const char* utf8Str) {
     magic = MAGIC;
     isSmall = false;
+    hashComputed = false;
+    cachedHash = 0;
     // Allocate the ICU string on the GC heap as well
     void* mem = ts_alloc(sizeof(icu::UnicodeString));
     // Must use fromUTF8 to properly interpret the UTF-8 encoding
@@ -174,15 +188,38 @@ const char* TsString::ToUtf8() {
     return data.heap.utf8Buffer;
 }
 
+uint32_t TsString::Hash() {
+    if (hashComputed) return cachedHash;
+    const char* str = ToUtf8();
+    if (!str) { cachedHash = 0; hashComputed = true; return 0; }
+    uint32_t h = 5381;
+    int c;
+    while ((c = (unsigned char)*str++))
+        h = ((h << 5) + h) + c;
+    cachedHash = h;
+    hashComputed = true;
+    return h;
+}
+
 TsString* TsString::Concat(TsString* a, TsString* b) {
     if (!a || !b) return nullptr; // Safety check
-    
-    if (a->isSmall && b->isSmall && (a->length + b->length < 16)) {
-        char buf[16];
-        std::memcpy(buf, a->data.inlineBuffer, a->length);
-        std::memcpy(buf + a->length, b->data.inlineBuffer, b->length);
-        buf[a->length + b->length] = '\0';
-        return Create(buf);
+
+    // Fast path: both small ASCII, result fits in inlineBuffer (< 64 bytes)
+    if (a->isSmall && b->isSmall) {
+        uint32_t totalLen = a->length + b->length;
+        if (totalLen < 64) {
+            void* mem = ts_alloc(sizeof(TsString));
+            TsString* result = new(mem) TsString();
+            result->magic = MAGIC;
+            result->isSmall = true;
+            result->hashComputed = false;
+            result->cachedHash = 0;
+            result->length = totalLen;
+            std::memcpy(result->data.inlineBuffer, a->data.inlineBuffer, a->length);
+            std::memcpy(result->data.inlineBuffer + a->length, b->data.inlineBuffer, b->length);
+            result->data.inlineBuffer[totalLen] = '\0';
+            return result;
+        }
     }
 
     icu::UnicodeString s1;
@@ -198,9 +235,9 @@ TsString* TsString::Concat(TsString* a, TsString* b) {
     } else {
         s2 = *static_cast<icu::UnicodeString*>(b->data.heap.impl);
     }
-    
+
     icu::UnicodeString result = s1 + s2;
-    
+
     std::string str;
     result.toUTF8String(str);
     return Create(str.c_str());

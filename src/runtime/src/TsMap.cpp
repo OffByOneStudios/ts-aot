@@ -177,6 +177,10 @@ void ts_map_init_inplace(void* mem) {
 void* ts_map_create_explicit() {
     TsMap* map = TsMap::Create();
     map->SetExplicitMap(true);
+    // Pre-size explicit Maps (new Map()) to 64 to reduce rehashing
+    if (map->impl) {
+        ((TsHashTable*)map->impl)->Resize(64);
+    }
     return map;
 }
 
@@ -316,6 +320,34 @@ TsValue* ts_map_get_wrapper(void* context, TsValue* key) {
     result.type = (ValueType)result_type;
     result.i_val = result_val;
     return nanbox_from_tagged(result);
+}
+
+// Fast path for Map.get() — bypasses nanbox decode, magic checks, prototype chain,
+// and numeric-to-string coercion. Used by the compiler for typed Map access.
+TsValue* ts_map_get_fast(void* map, TsValue* key) {
+    TsValue keyTV = nanbox_to_tagged(key);
+    TsHashTable* ht = (TsHashTable*)((TsMap*)map)->impl;
+    TsValue result = ht->Get(keyTV);
+    if (result.type == ValueType::UNDEFINED) {
+        return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    }
+    return nanbox_from_tagged(result);
+}
+
+// Fast path for Map.set() — bypasses nanbox decode into __ts_map_set_at's
+// magic check, setter check, and NaN-box unboxing of the map parameter.
+TsValue* ts_map_set_fast(void* map, TsValue* key, TsValue* value) {
+    TsValue keyTV = nanbox_to_tagged(key);
+    TsValue valTV = nanbox_to_tagged(value);
+    ((TsMap*)map)->Set(keyTV, valTV);
+    return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+}
+
+// Fast path for Map.has()
+TsValue* ts_map_has_fast(void* map, TsValue* key) {
+    TsValue keyTV = nanbox_to_tagged(key);
+    TsHashTable* ht = (TsHashTable*)((TsMap*)map)->impl;
+    return ts_value_make_bool(ht->Has(keyTV));
 }
 
 TsValue* ts_map_has_wrapper(void* context, TsValue* key) {
@@ -526,7 +558,8 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
     TsValue val = __ts_value_from_scalars(val_type, val_val);
 
     // Check for setter (__setter_<propertyName>) if key is a string
-    if (key.type == ValueType::STRING_PTR && key.ptr_val) {
+    // Skip for explicit Maps (new Map()) — they don't have setters
+    if (!tsmap->IsExplicitMap() && key.type == ValueType::STRING_PTR && key.ptr_val) {
         TsString* keyStr = (TsString*)key.ptr_val;
         const char* keyUtf8 = keyStr->ToUtf8();
         if (keyUtf8) {

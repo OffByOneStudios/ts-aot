@@ -4044,7 +4044,7 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
 
     // Handle built-in Map class
     if (className == "Map") {
-        lastValue_ = builder_.createCall("ts_map_create", {}, HIRType::makeMap());
+        lastValue_ = builder_.createCall("ts_map_create_explicit", {}, HIRType::makeMap());
         return;
     }
 

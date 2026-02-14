@@ -37,13 +37,7 @@ struct TsValueHash {
             case ValueType::BOOLEAN: return std::hash<bool>{}(v.b_val);
             case ValueType::STRING_PTR: {
                 if (!v.ptr_val) return 0;
-                const char* str = ((TsString*)v.ptr_val)->ToUtf8();
-                if (!str) return 0;
-                size_t h = 5381;
-                int c;
-                while ((c = *str++))
-                    h = ((h << 5) + h) + c;
-                return h;
+                return ((TsString*)v.ptr_val)->Hash();
             }
             case ValueType::BIGINT_PTR: {
                 if (!v.ptr_val) return 0;
@@ -72,11 +66,11 @@ struct TsValueEqual {
             }
             case ValueType::BOOLEAN: return lhs.b_val == rhs.b_val;
             case ValueType::STRING_PTR: {
-                if (!lhs.ptr_val || !rhs.ptr_val) return lhs.ptr_val == rhs.ptr_val;
-                const char* a = ((TsString*)lhs.ptr_val)->ToUtf8();
-                const char* b = ((TsString*)rhs.ptr_val)->ToUtf8();
-                if (!a || !b) return a == b;
-                return std::strcmp(a, b) == 0;
+                if (lhs.ptr_val == rhs.ptr_val) return true;  // Pointer equality (interned strings)
+                if (!lhs.ptr_val || !rhs.ptr_val) return false;
+                TsString* a = (TsString*)lhs.ptr_val;
+                TsString* b = (TsString*)rhs.ptr_val;
+                return a->Equals(b);  // Length check + memcmp/ICU comparison
             }
             case ValueType::BIGINT_PTR: {
                 if (!lhs.ptr_val || !rhs.ptr_val) return lhs.ptr_val == rhs.ptr_val;
@@ -131,7 +125,8 @@ public:
 
         // New key — grow if needed, then insert
         if (size_ >= grow_thresh_) {
-            rehash(capacity_ * 2);
+            size_t new_cap = capacity_ < 256 ? capacity_ * 4 : capacity_ * 2;
+            rehash(new_cap);
         }
 
         insert_entry(key, value);
@@ -165,6 +160,13 @@ public:
     }
 
     size_t Size() const { return size_; }
+
+    void Resize(size_t new_capacity) {
+        if (new_capacity <= capacity_) return;
+        size_t cap = capacity_;
+        while (cap < new_capacity) cap <<= 1;
+        rehash(cap);
+    }
 
     // Iterate all live entries. Callback receives (const TsValue& key, const TsValue& value).
     template<typename F>
@@ -220,17 +222,10 @@ private:
         return (hash >> 7) & (capacity_ - 1);
     }
 
-    size_t probe_distance(size_t slot, const TsValue& key) const {
-        size_t hash = hasher_(key);
-        size_t ideal = h1_from_hash(hash);
-        return (slot + capacity_ - ideal) & (capacity_ - 1);
-    }
-
     size_t find_slot(const TsValue& key) const {
         size_t hash = hasher_(key);
         uint8_t h2 = h2_from_hash(hash);
         size_t idx = h1_from_hash(hash);
-        size_t dist = 0;
 
         for (;;) {
             uint8_t c = ctrl_[idx];
@@ -241,15 +236,8 @@ private:
                 return idx;
             }
 
-            // Robin Hood: if current occupant's probe distance is less than ours,
-            // the key we're looking for can't be further ahead
-            if (c != CTRL_DELETED) {
-                size_t occ_dist = probe_distance(idx, entries_[idx].key);
-                if (occ_dist < dist) return NOT_FOUND;
-            }
-
+            // Linear probe — skip deleted and non-matching slots
             idx = (idx + 1) & (capacity_ - 1);
-            dist++;
         }
     }
 
@@ -298,34 +286,17 @@ private:
         size_t hash = hasher_(key);
         uint8_t h2 = h2_from_hash(hash);
         size_t idx = h1_from_hash(hash);
-        size_t dist = 0;
-
-        TsValue ins_key = key;
-        TsValue ins_val = value;
-        uint8_t ins_h2 = h2;
 
         for (;;) {
             uint8_t c = ctrl_[idx];
 
             if (c == CTRL_EMPTY || c == CTRL_DELETED) {
-                ctrl_[idx] = ins_h2;
-                store_entry(idx, ins_key, ins_val);
+                ctrl_[idx] = h2;
+                store_entry(idx, key, value);
                 return;
             }
 
-            size_t occ_dist = probe_distance(idx, entries_[idx].key);
-            if (occ_dist < dist) {
-                std::swap(ins_h2, ctrl_[idx]);
-                TsValue tmp_key = entries_[idx].key;
-                TsValue tmp_val = entries_[idx].value;
-                store_entry(idx, ins_key, ins_val);
-                ins_key = tmp_key;
-                ins_val = tmp_val;
-                dist = occ_dist;
-            }
-
             idx = (idx + 1) & (capacity_ - 1);
-            dist++;
         }
     }
 };
