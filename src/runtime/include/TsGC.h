@@ -51,6 +51,7 @@ bool ts_gc_is_nursery(void* ptr);     // Check if pointer is in nursery
 void ts_gc_nursery_info(void** out_base, size_t* out_size);
 void ts_gc_minor_collect();            // Trigger minor (nursery) collection
 void ts_gc_write_barrier(void* slot_addr, void* stored_value);  // Card-marking barrier
+void ts_gc_write_barrier_range(void* start, size_t size);  // Dirty cards for bulk memcpy
 
 // Allocate directly in old-gen, bypassing nursery.
 // Use for STL container allocators whose internal pointer updates bypass write barriers.
@@ -70,6 +71,6 @@ void* ts_gc_minor_lookup_forward(void* ptr);
 extern uint64_t ts_gc_nursery_base;
 extern uint64_t ts_gc_nursery_end;
 extern uint8_t* ts_gc_card_table_ptr;
-extern uint64_t ts_gc_card_table_base_addr;
+extern uint64_t ts_gc_card_table_base_addr;  // Unused with modular indexing, kept for ABI compat
 
 }
