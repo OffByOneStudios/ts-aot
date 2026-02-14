@@ -12,6 +12,13 @@ public:
     // Factory method with string interning (cache shared strings)
     static TsString* GetInterned(const char* utf8Str);
 
+    // Lookup-only interning: returns nullptr if the string is not in the intern cache.
+    // Does NOT allocate or create a new string on cache miss.
+    static TsString* FindInterned(const char* utf8Str);
+
+    // Cached hash (lazy-computed djb2). TsString is immutable so hash never goes stale.
+    uint32_t Hash();
+
     // Get UTF-8 representation (cached)
     const char* ToUtf8();
     const char* GetBuffer() { return ToUtf8(); }
@@ -67,10 +74,13 @@ public:
     static TsString* CreateInOldGen(const char* utf8Str);
 
 private:
+    TsString() = default;  // For Concat fast path only
     TsString(const char* utf8Str);
     TsString(const char* utf8Str, uint32_t len);
     uint32_t length = 0;
     bool isSmall = false;
+    bool hashComputed = false;
+    uint32_t cachedHash = 0;
     union {
         struct {
             void* impl;       // Pointer to icu::UnicodeString

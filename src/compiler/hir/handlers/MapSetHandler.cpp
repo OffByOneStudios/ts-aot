@@ -239,12 +239,12 @@ private:
         key = boxForMapSet(key, inst->operands[2], lowerer);
         value = boxForMapSet(value, inst->operands[3], lowerer);
 
-        // Call ts_map_set_wrapper(void* map, TsValue* key, TsValue* value) -> TsValue*
+        // Use fast path: ts_map_set_fast(void* map, TsValue* key, TsValue* value)
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder.getPtrTy(),
             { builder.getPtrTy(), builder.getPtrTy(), builder.getPtrTy() },
             false);
-        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_set_wrapper", ft);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_set_fast", ft);
         return builder.CreateCall(ft, fn.getCallee(), { map, key, value });
     }
 
@@ -259,12 +259,12 @@ private:
         // Box key
         key = boxForMapSet(key, inst->operands[2], lowerer);
 
-        // Call ts_map_get_wrapper(void* map, TsValue* key) -> TsValue*
+        // Use fast path: ts_map_get_fast(void* map, TsValue* key)
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder.getPtrTy(),
             { builder.getPtrTy(), builder.getPtrTy() },
             false);
-        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_get_wrapper", ft);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_get_fast", ft);
         return builder.CreateCall(ft, fn.getCallee(), { map, key });
     }
 
@@ -284,7 +284,7 @@ private:
             builder.getPtrTy(),
             { builder.getPtrTy(), builder.getPtrTy() },
             false);
-        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_has_wrapper", ft);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_has_fast", ft);
         llvm::Value* boxedResult = builder.CreateCall(ft, fn.getCallee(), { map, key });
 
         // Unbox the result to bool
@@ -488,7 +488,7 @@ private:
             builder.getPtrTy(),
             { builder.getPtrTy(), builder.getPtrTy(), builder.getPtrTy() },
             false);
-        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_set_wrapper", ft);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_set_fast", ft);
         return builder.CreateCall(ft, fn.getCallee(), { obj, key, value });
     }
 
@@ -506,7 +506,7 @@ private:
             builder.getPtrTy(),
             { builder.getPtrTy(), builder.getPtrTy() },
             false);
-        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_get_wrapper", ft);
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_map_get_fast", ft);
         return builder.CreateCall(ft, fn.getCallee(), { obj, key });
     }
 
