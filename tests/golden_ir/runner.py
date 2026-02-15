@@ -206,10 +206,10 @@ class GoldenIRRunner:
         if full_path.is_file():
             return [full_path]
         elif full_path.is_dir():
-            # Recursively find all .ts and .js files
+            # Recursively find all .ts and .js files (excluding .d.ts declaration files)
             test_files = []
             for ext in ['*.ts', '*.js']:
-                test_files.extend(full_path.rglob(ext))
+                test_files.extend(f for f in full_path.rglob(ext) if not f.name.endswith('.d.ts'))
             return sorted(test_files)
         else:
             print(color_text(f"ERROR: Test path not found: {self.test_path}", Colors.RED))
