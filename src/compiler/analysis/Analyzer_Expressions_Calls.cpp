@@ -94,7 +94,8 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
 
         if (!calleeName.empty()) {
             std::string modPath = currentModule ? currentModule->path : "";
-            functionUsages[calleeName].push_back({argTypes, {}, modPath});
+            auto importRes = resolveImportSourcePath(calleeName);
+            functionUsages[calleeName].push_back({argTypes, {}, modPath, importRes.modulePath, importRes.originalName});
 
             if (calleeName == "require" && !node->arguments.empty()) {
                 if (auto lit = dynamic_cast<ast::StringLiteral*>(node->arguments[0].get())) {
@@ -635,7 +636,8 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         
         std::string modPath = currentModule ? currentModule->path : "";
         if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
-            functionUsages[id->name].push_back({argTypes, resolvedTypeArguments, modPath});
+            auto importRes = resolveImportSourcePath(id->name);
+            functionUsages[id->name].push_back({argTypes, resolvedTypeArguments, modPath, importRes.modulePath, importRes.originalName});
         } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
             if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Namespace) {
                 auto nsType = std::static_pointer_cast<NamespaceType>(prop->expression->inferredType);
@@ -700,7 +702,8 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
         }
         SPDLOG_INFO("Recording function usage for {}: argTypes=[{}]", calleeName, argTypesStr);
         std::string modPath = currentModule ? currentModule->path : "";
-        functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments, modPath});
+        auto importRes = resolveImportSourcePath(calleeName);
+        functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments, modPath, importRes.modulePath, importRes.originalName});
     }
 
     // If the callee is Any type, the return type must also be Any

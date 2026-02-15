@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <memory>
 #include "Type.h"
 #include "../ast/AstNodes.h"
@@ -37,6 +38,12 @@ private:
     
     ast::FunctionDeclaration* findFunction(Analyzer& analyzer, const std::string& name, const std::string& modulePath = "");
     ast::ClassDeclaration* findClass(Analyzer& analyzer, const std::string& name);
+
+    // Follow re-export chains to find the original function/class declaration
+    ast::FunctionDeclaration* followReExportChain(Analyzer& analyzer, const std::string& name,
+                                                   const std::string& modulePath, std::set<std::string> visited);
+    ast::ClassDeclaration* followReExportChainClass(Analyzer& analyzer, const std::string& name,
+                                                     const std::string& modulePath, std::set<std::string> visited);
 };
 
 } // namespace ts

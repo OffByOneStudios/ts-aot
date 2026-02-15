@@ -13,10 +13,18 @@
 
 namespace ts {
 
+// Result of resolving an import to its source module
+struct ImportResolution {
+    std::string modulePath;     // Absolute path to the source module
+    std::string originalName;   // Original exported name (e.g., "foo" for `import { foo as bar }`)
+};
+
 struct CallSignature {
     std::vector<std::shared_ptr<Type>> argTypes;
     std::vector<std::shared_ptr<Type>> typeArguments;
-    std::string modulePath;  // Module where this call was made (for disambiguating same-named functions)
+    std::string modulePath;          // Module where this call was made (for disambiguating same-named functions)
+    std::string sourceModulePath;    // Source module where the function is defined (for imported functions)
+    std::string sourceExportedName;  // Original exported name in the source module (for aliased imports)
 };
 
 class Analyzer : public ast::Visitor {
@@ -91,6 +99,9 @@ public:
     // Get/set current file path (for module resolution context in codegen)
     const std::string& getCurrentFilePath() const { return currentFilePath; }
     void setCurrentFilePath(const std::string& path) { currentFilePath = path; }
+
+    // Access the module resolver (for re-export chain resolution in Monomorphizer)
+    ModuleResolver& getModuleResolver() { return moduleResolver; }
 
 private:
     SymbolTable symbols;
@@ -230,6 +241,9 @@ private:
 
     // Compile-time constant expression evaluation for enum members
     std::optional<int64_t> evaluateConstantExpression(ast::Expression* expr, const std::map<std::string, std::variant<int, std::string>>& enumMembers);
+
+    // Resolve the source module path and original name for an imported function/class name
+    ImportResolution resolveImportSourcePath(const std::string& calleeName);
 
     std::shared_ptr<ClassType> currentClass;
     std::string currentMethodName;

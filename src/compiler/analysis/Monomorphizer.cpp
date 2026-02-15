@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 #include <set>
 #include <iostream>
+#include <filesystem>
 
 namespace ts {
 
@@ -409,8 +410,11 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
         for (const auto& [name, calls] : currentUsages) {
             for (const auto& call : calls) {
-                // Find function in the module where the call was made (handles same-named functions)
-                ast::FunctionDeclaration* funcNode = findFunction(analyzer, name, call.modulePath);
+                // Find function in the source module if known, otherwise in the calling module
+                std::string searchPath = call.sourceModulePath.empty() ? call.modulePath : call.sourceModulePath;
+                // Use the original exported name if available (handles aliased imports)
+                std::string searchName = call.sourceExportedName.empty() ? name : call.sourceExportedName;
+                ast::FunctionDeclaration* funcNode = findFunction(analyzer, searchName, searchPath);
                 if (!funcNode) continue;
 
                 // Check if function has a rest parameter and transform argTypes accordingly
@@ -1179,6 +1183,21 @@ ast::FunctionDeclaration* Monomorphizer::findFunction(Analyzer& analyzer, const 
             }
         }
     }
+    // Fallback: follow re-export chains to find the original declaration.
+    // E.g., barrel files: export { add } from './math' -- no FunctionDeclaration in barrel
+    if (!firstMatch && !modulePath.empty()) {
+        auto reExportResult = followReExportChain(analyzer, name, modulePath, {});
+        if (reExportResult) return reExportResult;
+    }
+    if (!firstMatch) {
+        // Try re-export chains in all modules
+        for (auto& [path, module] : analyzer.modules) {
+            if (!module->ast) continue;
+            auto reExportResult = followReExportChain(analyzer, name, path, {});
+            if (reExportResult) return reExportResult;
+        }
+    }
+
     // Fallback: check if 'name' is a default import alias in the calling module.
     // E.g., `import myAdd from './math_default'` uses "myAdd" locally but the
     // exported function may be named "add" or anonymous.
@@ -1237,6 +1256,169 @@ ast::ClassDeclaration* Monomorphizer::findClass(Analyzer& analyzer, const std::s
             }
         }
     }
+
+    // Fallback: follow re-export chains to find the original class declaration
+    for (auto& [path, module] : analyzer.modules) {
+        if (!module->ast) continue;
+        auto reExportResult = followReExportChainClass(analyzer, name, path, {});
+        if (reExportResult) return reExportResult;
+    }
+
+    // Fallback: check if 'name' is a default import alias.
+    // E.g., `import MyAlias from './mod'` where mod has `export default class Foo`
+    for (auto& [modPath, mod] : analyzer.modules) {
+        if (!mod->ast) continue;
+        for (auto& stmt : mod->ast->body) {
+            auto* importDecl = dynamic_cast<ast::ImportDeclaration*>(stmt.get());
+            if (!importDecl || importDecl->defaultImport != name) continue;
+
+            std::string spec = importDecl->moduleSpecifier;
+            if (spec.size() > 2 && spec.substr(0, 2) == "./") {
+                spec = spec.substr(2);
+            }
+
+            for (auto& [srcPath, srcMod] : analyzer.modules) {
+                if (!srcMod->ast) continue;
+                if (srcPath.find(spec) == std::string::npos) continue;
+                for (auto& srcStmt : srcMod->ast->body) {
+                    auto* cls = dynamic_cast<ast::ClassDeclaration*>(srcStmt.get());
+                    if (cls && cls->isDefaultExport) return cls;
+                }
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+ast::FunctionDeclaration* Monomorphizer::followReExportChain(
+    Analyzer& analyzer, const std::string& name,
+    const std::string& modulePath, std::set<std::string> visited)
+{
+    // Prevent infinite loops from circular re-exports
+    if (visited.count(modulePath)) return nullptr;
+    visited.insert(modulePath);
+
+    auto it = analyzer.modules.find(modulePath);
+    if (it == analyzer.modules.end() || !it->second->ast) return nullptr;
+
+    // First: check if this module has a FunctionDeclaration with this name
+    for (auto& stmt : it->second->ast->body) {
+        if (auto func = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            if (func->name == name && !func->body.empty()) return func;
+        }
+    }
+
+    // Second: scan ExportDeclaration nodes for re-exports
+    for (auto& stmt : it->second->ast->body) {
+        auto* exportDecl = dynamic_cast<ast::ExportDeclaration*>(stmt.get());
+        if (!exportDecl) continue;
+
+        if (exportDecl->moduleSpecifier.empty()) {
+            // Local export alias: export { localFn as publicName }
+            for (auto& spec : exportDecl->namedExports) {
+                if (spec.name == name) {
+                    std::string localName = spec.propertyName.empty() ? spec.name : spec.propertyName;
+                    // Search for localName in THIS module's function declarations
+                    for (auto& s : it->second->ast->body) {
+                        if (auto func = dynamic_cast<ast::FunctionDeclaration*>(s.get())) {
+                            if (func->name == localName && !func->body.empty()) return func;
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Re-export from another module
+        if (exportDecl->isStarExport) {
+            // export * from './other' -- follow into the source module
+            auto resolved = analyzer.getModuleResolver().resolve(exportDecl->moduleSpecifier,
+                                                             std::filesystem::path(modulePath));
+            if (resolved.isValid()) {
+                auto result = followReExportChain(analyzer, name, resolved.path, visited);
+                if (result) return result;
+            }
+        } else {
+            for (auto& spec : exportDecl->namedExports) {
+                if (spec.name == name) {
+                    // The original name in the source module
+                    std::string originalName = spec.propertyName.empty() ? spec.name : spec.propertyName;
+                    auto resolved = analyzer.getModuleResolver().resolve(exportDecl->moduleSpecifier,
+                                                                     std::filesystem::path(modulePath));
+                    if (resolved.isValid()) {
+                        auto result = followReExportChain(analyzer, originalName, resolved.path, visited);
+                        if (result) return result;
+                    }
+                }
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+ast::ClassDeclaration* Monomorphizer::followReExportChainClass(
+    Analyzer& analyzer, const std::string& name,
+    const std::string& modulePath, std::set<std::string> visited)
+{
+    // Prevent infinite loops from circular re-exports
+    if (visited.count(modulePath)) return nullptr;
+    visited.insert(modulePath);
+
+    auto it = analyzer.modules.find(modulePath);
+    if (it == analyzer.modules.end() || !it->second->ast) return nullptr;
+
+    // First: check if this module has a ClassDeclaration with this name
+    for (auto& stmt : it->second->ast->body) {
+        if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+            if (cls->name == name) return cls;
+        }
+    }
+
+    // Second: scan ExportDeclaration nodes for re-exports
+    for (auto& stmt : it->second->ast->body) {
+        auto* exportDecl = dynamic_cast<ast::ExportDeclaration*>(stmt.get());
+        if (!exportDecl) continue;
+
+        if (exportDecl->moduleSpecifier.empty()) {
+            // Local export alias
+            for (auto& spec : exportDecl->namedExports) {
+                if (spec.name == name) {
+                    std::string localName = spec.propertyName.empty() ? spec.name : spec.propertyName;
+                    for (auto& s : it->second->ast->body) {
+                        if (auto cls = dynamic_cast<ast::ClassDeclaration*>(s.get())) {
+                            if (cls->name == localName) return cls;
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Re-export from another module
+        if (exportDecl->isStarExport) {
+            auto resolved = analyzer.getModuleResolver().resolve(exportDecl->moduleSpecifier,
+                                                             std::filesystem::path(modulePath));
+            if (resolved.isValid()) {
+                auto result = followReExportChainClass(analyzer, name, resolved.path, visited);
+                if (result) return result;
+            }
+        } else {
+            for (auto& spec : exportDecl->namedExports) {
+                if (spec.name == name) {
+                    std::string originalName = spec.propertyName.empty() ? spec.name : spec.propertyName;
+                    auto resolved = analyzer.getModuleResolver().resolve(exportDecl->moduleSpecifier,
+                                                                     std::filesystem::path(modulePath));
+                    if (resolved.isValid()) {
+                        auto result = followReExportChainClass(analyzer, originalName, resolved.path, visited);
+                        if (result) return result;
+                    }
+                }
+            }
+        }
+    }
+
     return nullptr;
 }
 
