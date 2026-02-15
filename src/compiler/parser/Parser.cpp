@@ -592,7 +592,7 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             auto ns = std::make_unique<ast::NamespaceDeclaration>();
             if (check(TokenKind::StringLiteral)) {
                 // declare module 'string-literal' — ambient module declaration
-                ns->name = current_.value;
+                ns->name = Lexer::getStringValue(current_.text);
                 ns->isAmbientModule = true;
                 advance();
             } else {

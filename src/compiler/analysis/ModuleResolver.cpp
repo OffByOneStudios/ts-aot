@@ -179,7 +179,7 @@ ResolvedModule ModuleResolver::resolveNodeModules(const std::string& specifier, 
     fs::path searchDir = fromDir;
     while (true) {
         fs::path nodeModules = searchDir / "node_modules" / packageName;
-        
+
         if (fs::exists(nodeModules) && fs::is_directory(nodeModules)) {
             SPDLOG_DEBUG("Found package at: {}", nodeModules.string());
             
@@ -516,13 +516,29 @@ std::optional<std::string> ModuleResolver::resolveExportCondition(const nlohmann
     if (val.is_string()) {
         return val.get<std::string>();
     }
+    if (val.is_null()) {
+        // Explicitly blocked export (null target)
+        return std::nullopt;
+    }
+    if (val.is_array()) {
+        // Array of fallback conditions — try each in order, return first that resolves
+        // e.g., [{"import": "./index.mjs"}, {"require": "./index.cjs"}, "./fallback.js"]
+        for (const auto& item : val) {
+            auto result = resolveExportCondition(item);
+            if (result) return result;
+        }
+        return std::nullopt;
+    }
     if (!val.is_object()) {
         return std::nullopt;
     }
-    // Priority: types > import > require > node > default
+    // Priority: types > default > require > import > node
+    // AOT compilers aren't strictly ESM or CJS, so prefer "default" first.
+    // Prefer "require" over "import" because CJS entry points are usually .js
+    // while ESM entries are .mjs which may not exist in all packages.
     // This handles arbitrarily nested conditionals like:
     // { "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" } }
-    for (const char* key : {"types", "import", "require", "node", "default"}) {
+    for (const char* key : {"types", "default", "require", "import", "node"}) {
         if (val.contains(key)) {
             auto result = resolveExportCondition(val[key]);
             if (result) return result;
@@ -578,14 +594,40 @@ std::optional<PackageJson> ModuleResolver::parsePackageJson(const fs::path& pack
             auto& exports = j["exports"];
             if (exports.is_string()) {
                 pkg.exports["."] = exports.get<std::string>();
+            } else if (exports.is_array()) {
+                // "exports": ["./index.mjs", "./index.cjs"] — array fallback for root
+                auto resolved = resolveExportCondition(exports);
+                if (resolved) {
+                    pkg.exports["."] = *resolved;
+                }
             } else if (exports.is_object()) {
+                // Check if this is a subpath map (keys start with ".") or a root condition map
+                // Root condition: { "import": "./index.mjs", "require": "./index.cjs" }
+                // Subpath map: { ".": "./index.js", "./utils": "./src/utils.js" }
+                bool hasSubpathKeys = false;
                 for (auto& [key, val] : exports.items()) {
-                    auto resolved = resolveExportCondition(val);
+                    if (!key.empty() && key[0] == '.') {
+                        hasSubpathKeys = true;
+                        break;
+                    }
+                }
+
+                if (!hasSubpathKeys) {
+                    // Root condition map — resolve the whole object as "."
+                    auto resolved = resolveExportCondition(exports);
                     if (resolved) {
-                        if (key.find('*') != std::string::npos) {
-                            pkg.wildcardExports.push_back({key, *resolved});
-                        } else {
-                            pkg.exports[key] = *resolved;
+                        pkg.exports["."] = *resolved;
+                    }
+                } else {
+                    // Subpath map — resolve each key's value
+                    for (auto& [key, val] : exports.items()) {
+                        auto resolved = resolveExportCondition(val);
+                        if (resolved) {
+                            if (key.find('*') != std::string::npos) {
+                                pkg.wildcardExports.push_back({key, *resolved});
+                            } else {
+                                pkg.exports[key] = *resolved;
+                            }
                         }
                     }
                 }
