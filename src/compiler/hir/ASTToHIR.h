@@ -49,6 +49,10 @@ private:
     // Store specializations for looking up function info during call generation
     const std::vector<Specialization>* specializations_ = nullptr;
 
+    // Map from locally imported name -> (extension module name, exported name)
+    // E.g., { "join" -> {"path", "join"} } for `import { join } from 'path'`
+    std::map<std::string, std::pair<std::string, std::string>> extensionImports_;
+
     // Value counter for SSA names (%v0, %v1, etc.)
     int valueCounter_ = 0;
 

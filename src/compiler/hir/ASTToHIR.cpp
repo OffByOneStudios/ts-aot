@@ -2651,8 +2651,25 @@ void ASTToHIR::visitThrowStatement(ast::ThrowStatement* node) {
 }
 
 void ASTToHIR::visitImportDeclaration(ast::ImportDeclaration* node) {
-    // Imports are handled at module resolution time
-    // Nothing to do at HIR level
+    // Track named imports from extension modules so we can route their calls
+    // through the extension registry instead of treating them as user functions.
+    // E.g., `import { join } from 'path'` -> extensionImports_["join"] = {"path", "join"}
+    auto& registry = ext::ExtensionRegistry::instance();
+    std::string modSpec = node->moduleSpecifier;
+    // Strip "node:" prefix
+    if (modSpec.size() > 5 && modSpec.substr(0, 5) == "node:") {
+        modSpec = modSpec.substr(5);
+    }
+
+    if (registry.isRegisteredModule(modSpec) || registry.isRegisteredObject(modSpec)) {
+        for (const auto& spec : node->namedImports) {
+            std::string exportedName = spec.propertyName.empty() ? spec.name : spec.propertyName;
+            extensionImports_[spec.name] = { modSpec, exportedName };
+        }
+        if (!node->defaultImport.empty()) {
+            extensionImports_[node->defaultImport] = { modSpec, "default" };
+        }
+    }
 }
 
 void ASTToHIR::visitExportDeclaration(ast::ExportDeclaration* node) {
@@ -3994,6 +4011,51 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         }
         // If still not found, determine if this is a runtime function or user function
         if (!targetFunc) {
+            // Check if this is a named import from an extension module
+            // e.g., import { join } from 'path'; join('a', 'b')
+            auto extIt = extensionImports_.find(ident->name);
+            if (extIt != extensionImports_.end()) {
+                const auto& [moduleName, exportedName] = extIt->second;
+                auto& extReg2 = ext::ExtensionRegistry::instance();
+                const ext::MethodDefinition* methodDef = extReg2.findObjectMethod(moduleName, exportedName);
+
+                std::string runtimeFunc;
+                if (methodDef && methodDef->hirName) {
+                    runtimeFunc = *methodDef->hirName;
+                } else {
+                    runtimeFunc = "ts_" + moduleName + "_" + exportedName;
+                }
+                auto resultType = methodDef ? extTypeRefToHIR(methodDef->returns) : HIRType::makeAny();
+
+                // Handle rest parameters (same logic as Case 4)
+                if (methodDef) {
+                    size_t restParamIndex = SIZE_MAX;
+                    for (size_t i = 0; i < methodDef->params.size(); ++i) {
+                        if (methodDef->params[i].rest) {
+                            restParamIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (restParamIndex != SIZE_MAX && args.size() >= restParamIndex) {
+                        std::vector<std::shared_ptr<HIRValue>> packedArgs;
+                        for (size_t i = 0; i < restParamIndex; ++i) {
+                            packedArgs.push_back(args[i]);
+                        }
+                        auto restArray = builder_.createCall("ts_array_create", {}, HIRType::makeArray(HIRType::makeAny(), false));
+                        for (size_t i = restParamIndex; i < args.size(); ++i) {
+                            auto boxedArg = boxValueIfNeeded(args[i]);
+                            builder_.createCall("ts_array_push", {restArray, boxedArg}, HIRType::makeInt64());
+                        }
+                        packedArgs.push_back(restArray);
+                        lastValue_ = builder_.createCall(runtimeFunc, packedArgs, resultType);
+                        return;
+                    }
+                }
+
+                lastValue_ = builder_.createCall(runtimeFunc, args, resultType);
+                return;
+            }
             // Check ExtensionRegistry: if this is a registered module/object being called
             // directly (e.g., assert(true)), use its "default" method
             auto& extReg = ext::ExtensionRegistry::instance();
