@@ -44,7 +44,10 @@ struct PackageJson {
     
     // "exports" field (conditional exports) - simplified for now
     std::map<std::string, std::string> exports;
-    
+
+    // Wildcard export patterns: "./*" -> "./dist/*.js"
+    std::vector<std::pair<std::string, std::string>> wildcardExports;
+
     bool isValid() const { return !name.empty(); }
 };
 

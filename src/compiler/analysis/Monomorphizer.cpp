@@ -1179,6 +1179,52 @@ ast::FunctionDeclaration* Monomorphizer::findFunction(Analyzer& analyzer, const 
             }
         }
     }
+    // Fallback: check if 'name' is a default import alias in the calling module.
+    // E.g., `import myAdd from './math_default'` uses "myAdd" locally but the
+    // exported function may be named "add" or anonymous.
+    if (!firstMatch && !modulePath.empty()) {
+        auto callingModIt = analyzer.modules.find(modulePath);
+        if (callingModIt != analyzer.modules.end() && callingModIt->second->ast) {
+            for (auto& stmt : callingModIt->second->ast->body) {
+                auto* importDecl = dynamic_cast<ast::ImportDeclaration*>(stmt.get());
+                if (!importDecl || importDecl->defaultImport != name) continue;
+
+                // Found matching default import. Try to resolve the source module
+                // by matching the import specifier against loaded module paths.
+                std::string spec = importDecl->moduleSpecifier;
+                // Strip leading "./" for relative imports
+                if (spec.size() > 2 && spec.substr(0, 2) == "./") {
+                    spec = spec.substr(2);
+                }
+
+                for (auto& [srcPath, srcMod] : analyzer.modules) {
+                    if (!srcMod->ast) continue;
+                    // Check if this module's path matches the import specifier
+                    // (path contains the specifier basename)
+                    if (srcPath.find(spec) == std::string::npos) continue;
+
+                    for (auto& srcStmt : srcMod->ast->body) {
+                        auto* func = dynamic_cast<ast::FunctionDeclaration*>(srcStmt.get());
+                        if (func && func->isDefaultExport && !func->body.empty()) {
+                            return func;
+                        }
+                    }
+                }
+
+                // If specifier matching failed, search all modules as last resort
+                for (auto& [srcPath, srcMod] : analyzer.modules) {
+                    if (!srcMod->ast) continue;
+                    for (auto& srcStmt : srcMod->ast->body) {
+                        auto* func = dynamic_cast<ast::FunctionDeclaration*>(srcStmt.get());
+                        if (func && func->isDefaultExport && !func->body.empty()) {
+                            return func;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     return firstMatch;  // Return first match if no implementation found (edge case)
 }
 

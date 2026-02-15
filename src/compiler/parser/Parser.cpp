@@ -1682,6 +1682,7 @@ ast::StmtPtr Parser::parseImportDeclaration() {
         advance();
         if (check(TokenKind::OpenBrace) || check(TokenKind::Star) || current_.kind == TokenKind::Identifier) {
             isTypeOnly = true;
+            node->isTypeOnly = true;
         } else {
             restoreState(saved);
         }
@@ -1706,17 +1707,19 @@ ast::StmtPtr Parser::parseImportDeclaration() {
         advance(); // {
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             // Skip 'type' in individual imports: import { type Foo } from '...'
+            bool specIsTypeOnly = false;
             if (current_.kind == TokenKind::KW_type) {
                 auto saved = saveState();
                 advance();
                 if (isIdentifierOrKeyword() && !check(TokenKind::Comma) && !check(TokenKind::CloseBrace)) {
-                    // This was 'type Foo' - a type-only import
+                    specIsTypeOnly = true;
                 } else {
                     restoreState(saved);
                 }
             }
             ast::ImportSpecifier spec;
             spec.name = identifierName();
+            spec.isTypeOnly = specIsTypeOnly;
 
             if (current_.kind == TokenKind::KW_as) {
                 advance();

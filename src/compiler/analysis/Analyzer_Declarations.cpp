@@ -121,6 +121,8 @@ void Analyzer::visitProgram(ast::Program* node) {
 }
 
 void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
+    // Type-only imports: still load module for type resolution,
+    // but skip runtime symbol definitions for type-only specifiers
     auto module = loadModule(node->moduleSpecifier);
     if (!module) {
         return;

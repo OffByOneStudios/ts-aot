@@ -189,8 +189,10 @@ ResolvedModule ModuleResolver::resolveNodeModules(const std::string& specifier, 
                 fs::path pkgJsonPath = nodeModules / "package.json";
                 if (fs::exists(pkgJsonPath)) {
                     auto pkg = parsePackageJson(pkgJsonPath);
-                    if (pkg && !pkg->exports.empty()) {
+                    if (pkg && (!pkg->exports.empty() || !pkg->wildcardExports.empty())) {
                         std::string exportKey = "." + subpath; // e.g., "./utils"
+
+                        // Try exact match first
                         auto it = pkg->exports.find(exportKey);
                         if (it != pkg->exports.end()) {
                             fs::path resolved = nodeModules / it->second;
@@ -210,6 +212,51 @@ ResolvedModule ModuleResolver::resolveNodeModules(const std::string& specifier, 
                                     .packageName = packageName,
                                     .isExternal = true
                                 };
+                            }
+                        }
+
+                        // Try wildcard patterns: "./*" -> "./dist/*.js"
+                        for (const auto& [pattern, target] : pkg->wildcardExports) {
+                            size_t starPos = pattern.find('*');
+                            if (starPos == std::string::npos) continue;
+                            std::string prefix = pattern.substr(0, starPos);
+                            std::string suffix = pattern.substr(starPos + 1);
+
+                            bool prefixMatch = exportKey.size() >= prefix.size() &&
+                                               exportKey.substr(0, prefix.size()) == prefix;
+                            bool suffixMatch = suffix.empty() ||
+                                               (exportKey.size() >= suffix.size() &&
+                                                exportKey.substr(exportKey.size() - suffix.size()) == suffix);
+
+                            if (prefixMatch && suffixMatch &&
+                                exportKey.size() >= prefix.size() + suffix.size()) {
+                                std::string match = exportKey.substr(
+                                    prefix.size(),
+                                    exportKey.size() - prefix.size() - suffix.size());
+                                std::string resolvedTarget = target;
+                                size_t tStar = resolvedTarget.find('*');
+                                if (tStar != std::string::npos) {
+                                    resolvedTarget = resolvedTarget.substr(0, tStar) + match +
+                                                     resolvedTarget.substr(tStar + 1);
+                                }
+                                fs::path resolved = nodeModules / resolvedTarget;
+                                if (fs::exists(resolved)) {
+                                    return ResolvedModule{
+                                        .path = resolved.string(),
+                                        .type = getModuleType(resolved),
+                                        .packageName = packageName,
+                                        .isExternal = true
+                                    };
+                                }
+                                auto withExt2 = tryExtensions(resolved);
+                                if (withExt2) {
+                                    return ResolvedModule{
+                                        .path = withExt2->string(),
+                                        .type = getModuleType(*withExt2),
+                                        .packageName = packageName,
+                                        .isExternal = true
+                                    };
+                                }
                             }
                         }
                     }
@@ -535,7 +582,11 @@ std::optional<PackageJson> ModuleResolver::parsePackageJson(const fs::path& pack
                 for (auto& [key, val] : exports.items()) {
                     auto resolved = resolveExportCondition(val);
                     if (resolved) {
-                        pkg.exports[key] = *resolved;
+                        if (key.find('*') != std::string::npos) {
+                            pkg.wildcardExports.push_back({key, *resolved});
+                        } else {
+                            pkg.exports[key] = *resolved;
+                        }
                     }
                 }
             }

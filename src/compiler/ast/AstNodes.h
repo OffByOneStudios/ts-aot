@@ -499,6 +499,7 @@ struct InterfaceDeclaration : Statement {
 struct ImportSpecifier {
     std::string name;
     std::string propertyName;
+    bool isTypeOnly = false;
 };
 
 struct ImportDeclaration : Statement {
@@ -506,6 +507,7 @@ struct ImportDeclaration : Statement {
     std::string defaultImport;
     std::vector<ImportSpecifier> namedImports;
     std::string namespaceImport;
+    bool isTypeOnly = false;
     std::string getKind() const override { return "ImportDeclaration"; }
     void accept(Visitor* visitor) override { visitor->visitImportDeclaration(this); }
 };
