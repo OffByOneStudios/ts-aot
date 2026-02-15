@@ -1,8 +1,7 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // CHECK: define
-// CHECK: @ts_gc_alloc
+// CHECK: @__ts_nursery_alloc
 // CHECK: store i32 1179402580
-// CHECK: @ts_object_get_dynamic
 // OUTPUT: 1
 // OUTPUT: 2
 

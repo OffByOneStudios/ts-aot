@@ -159,11 +159,11 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         nlohmann::json j = nlohmann::json::object();
         if (desc) {
             for (uint32_t i = 0; i < desc->numSlots; i++) {
-                uint64_t val = *(uint64_t*)((char*)p + 8 + i * 8);
+                uint64_t val = *(uint64_t*)((char*)p + 16 + i * 8);
                 j[desc->propNames[i]] = ts_to_json_internal((void*)(uintptr_t)val, visited);
             }
             // Check overflow map
-            void* overflow = *(void**)((char*)p + 8 + desc->numSlots * 8);
+            void* overflow = *(void**)((char*)p + 16 + desc->numSlots * 8);
             if (overflow) {
                 TsMap* map = (TsMap*)overflow;
                 TsArray* keys = (TsArray*)map->GetKeys();

@@ -2513,7 +2513,7 @@ TsValue* ts_value_make_int(int64_t i) {
             ShapeDescriptor* desc = ts_shape_lookup(shapeId);
             if (desc) {
                 for (uint32_t i = 0; i < desc->numSlots; i++) {
-                    uint64_t val = *(uint64_t*)((char*)sourceRaw + 8 + i * 8);
+                    uint64_t val = *(uint64_t*)((char*)sourceRaw + 16 + i * 8);
                     TsString* keyStr = TsString::Create(desc->propNames[i]);
                     if (targetIsFlat) {
                         ts_flat_object_set_property(targetRaw, desc->propNames[i], (void*)(uintptr_t)val);

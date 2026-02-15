@@ -135,6 +135,9 @@ private:
     // HIR module pointer (set during lower())
     HIRModule* hirModule_ = nullptr;
 
+    // Inline nursery allocator function (created once per module, inlined by LLVM)
+    llvm::FunctionCallee getOrCreateNurseryAllocFn();
+
     // Escape analysis: stack allocation tracking per function
     int stackAllocCount_ = 0;           // Number of stack-allocated objects in current function
     int stackAllocBytes_ = 0;           // Total bytes of stack-allocated objects in current function
@@ -198,6 +201,9 @@ private:
 
     // Flat object shape tracking: maps HIR value ID to its shape (for flat object fast path)
     std::map<uint32_t, HIRShape*> flatObjectShapes_;
+
+    // Scalar-replaced objects: maps HIR value ID to per-property allocas (SROA)
+    std::map<uint32_t, std::map<std::string, llvm::AllocaInst*>> scalarReplacedObjects_;
 
     // Get or create LLVM value for HIR value
     llvm::Value* getValue(const std::shared_ptr<HIRValue>& hirValue);

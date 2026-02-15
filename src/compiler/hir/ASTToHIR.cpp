@@ -282,6 +282,12 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         shape->size = propertyOffset;
         hirClass->shape = shape;
 
+        // Register class shape for flat object codegen if it has properties
+        if (!shape->propertyOffsets.empty()) {
+            shape->id = nextShapeId_++;
+            module_->shapes.push_back(shape);
+        }
+
         // Generate default constructor for imported classes with field initializers
         // but no explicit constructor (mirrors visitClassDeclaration behavior)
         bool hasPropertyInitializers = false;
@@ -4148,8 +4154,15 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
 
     // Create new object with the correct type
     std::shared_ptr<HIRValue> newObj;
-    if (hirClass && hirClass->shape) {
-        // Use the class's shape to create a properly typed object
+    if (hirClass && hirClass->shape && hirClass->shape->id != UINT32_MAX) {
+        // Use flat object layout for class instances with registered shapes
+        newObj = builder_.createNewObjectDynamic(hirClass->shape.get());
+        // Set type to Class so codegen can find the vtable
+        if (newObj && newObj->type) {
+            newObj->type = HIRType::makeClass(className, hirClass->shape->id);
+        }
+    } else if (hirClass && hirClass->shape) {
+        // Class with shape but no properties (no flat object)
         newObj = builder_.createNewObject(hirClass->shape.get());
     } else {
         // Fallback to dynamic object (for built-in or unknown classes)
@@ -4589,14 +4602,14 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
     }
 
     if (allStatic && !propNames.empty()) {
-        auto shape = std::make_unique<HIRShape>();
+        auto shape = std::make_shared<HIRShape>();
         shape->id = nextShapeId_++;
         for (uint32_t i = 0; i < (uint32_t)propNames.size(); i++) {
             shape->propertyOffsets[propNames[i]] = i;
         }
-        shape->size = 8 + (uint32_t)propNames.size() * 8 + 8;
+        shape->size = 16 + (uint32_t)propNames.size() * 8 + 8;
         flatShape = shape.get();
-        module_->shapes.push_back(std::move(shape));
+        module_->shapes.push_back(shape);
     }
 
     auto obj = builder_.createNewObjectDynamic(flatShape);
@@ -5946,6 +5959,12 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     shape->size = propertyOffset;
     hirClass->shape = shape;
 
+    // Register class shape for flat object codegen if it has properties
+    if (!shape->propertyOffsets.empty()) {
+        shape->id = nextShapeId_++;
+        module_->shapes.push_back(shape);
+    }
+
     // Static property pass: create globals for static properties
     for (auto& memberPtr : node->members) {
         if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
@@ -6254,6 +6273,12 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     }
     shape->size = propertyOffset;
     hirClass->shape = shape;
+
+    // Register class shape for flat object codegen if it has properties
+    if (!shape->propertyOffsets.empty()) {
+        shape->id = nextShapeId_++;
+        module_->shapes.push_back(shape);
+    }
 
     // Static property pass: create globals for static properties
     for (auto& memberPtr : node->members) {

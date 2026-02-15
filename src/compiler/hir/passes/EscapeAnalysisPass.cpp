@@ -52,6 +52,90 @@ PassResult EscapeAnalysisPass::runOnFunction(HIRFunction& func) {
                 SPDLOG_DEBUG("EscapeAnalysis: {} does not escape in {}",
                     inst->result->name, func.name);
             }
+
+            // Check SROA eligibility: flat object where ALL uses are
+            // GetPropStatic/SetPropStatic (directly or through local alloca load).
+            // This runs independently of escape analysis — if SROA is possible,
+            // we also mark the object as non-escaping.
+            if (inst->objectShape) {
+                bool canSR = true;
+                auto srIt = useMap_.find(allocVal);
+                if (srIt != useMap_.end()) {
+                    for (HIRInstruction* use : srIt->second) {
+                        // Direct SetPropStatic/GetPropStatic with alloc as operand[0]
+                        if (use->opcode == HIROpcode::SetPropStatic ||
+                            use->opcode == HIROpcode::GetPropStatic) {
+                            if (use->operands.size() < 1) { canSR = false; break; }
+                            if (auto* v = std::get_if<std::shared_ptr<HIRValue>>(&use->operands[0])) {
+                                if (v->get() != allocVal) { canSR = false; break; }
+                            } else { canSR = false; break; }
+                            continue;
+                        }
+                        // Store to local alloca: follow through loads
+                        if (use->opcode == HIROpcode::Store || use->opcode == HIROpcode::GCStore) {
+                            if (use->operands.size() < 2) { canSR = false; break; }
+                            // Check alloc is operand[0] (the value being stored)
+                            bool isAllocVal = false;
+                            if (auto* v = std::get_if<std::shared_ptr<HIRValue>>(&use->operands[0])) {
+                                isAllocVal = (v->get() == allocVal);
+                            }
+                            if (!isAllocVal) { canSR = false; break; }
+                            // Check dest is a local alloca
+                            HIRValue* destVal = nullptr;
+                            if (auto* v = std::get_if<std::shared_ptr<HIRValue>>(&use->operands[1])) {
+                                destVal = v->get();
+                            }
+                            if (!destVal) { canSR = false; break; }
+                            auto defIt = definingInst_.find(destVal);
+                            if (defIt == definingInst_.end() ||
+                                defIt->second->opcode != HIROpcode::Alloca) {
+                                canSR = false; break;
+                            }
+                            // Check all uses of the alloca: must only be Load, Store(of allocVal), or the Store we're looking at
+                            auto allocaUseIt = useMap_.find(destVal);
+                            if (allocaUseIt != useMap_.end()) {
+                                for (HIRInstruction* allocaUse : allocaUseIt->second) {
+                                    if (allocaUse->opcode == HIROpcode::Load) {
+                                        // Follow through: check that all uses of the loaded value
+                                        // are GetPropStatic/SetPropStatic with it as operand[0]
+                                        if (!allocaUse->result) { canSR = false; break; }
+                                        auto loadUseIt = useMap_.find(allocaUse->result.get());
+                                        if (loadUseIt != useMap_.end()) {
+                                            for (HIRInstruction* loadUse : loadUseIt->second) {
+                                                if (loadUse->opcode != HIROpcode::GetPropStatic &&
+                                                    loadUse->opcode != HIROpcode::SetPropStatic) {
+                                                    canSR = false; break;
+                                                }
+                                                if (loadUse->operands.size() < 1) { canSR = false; break; }
+                                                if (auto* lv = std::get_if<std::shared_ptr<HIRValue>>(&loadUse->operands[0])) {
+                                                    if (lv->get() != allocaUse->result.get()) { canSR = false; break; }
+                                                } else { canSR = false; break; }
+                                            }
+                                        }
+                                        if (!canSR) break;
+                                    } else if (allocaUse->opcode == HIROpcode::Store || allocaUse->opcode == HIROpcode::GCStore) {
+                                        // Store into alloca is fine (it's how the var is set)
+                                    } else {
+                                        canSR = false; break;
+                                    }
+                                }
+                            }
+                            if (!canSR) break;
+                            continue;
+                        }
+                        // Any other use: not SROA-eligible
+                        canSR = false;
+                        break;
+                    }
+                }
+                if (canSR) {
+                    inst->scalarReplaceable = true;
+                    inst->escapes = false;  // SROA-eligible objects don't escape
+                    changed = true;
+                    SPDLOG_DEBUG("EscapeAnalysis: {} is scalar-replaceable in {}",
+                        inst->result->name, func.name);
+                }
+            }
         }
     }
 
@@ -176,7 +260,7 @@ bool EscapeAnalysisPass::useEscapes(HIRInstruction* use, HIRValue* allocValue) c
         case HIROpcode::Store:
         case HIROpcode::GCStore: {
             // store %val, %ptr — if the value is our alloc, it escapes
-            if (use->operands.size() >= 1) {
+            if (use->operands.size() >= 2) {
                 if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&use->operands[0])) {
                     if (valPtr->get() == allocValue) {
                         return true;

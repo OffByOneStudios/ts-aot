@@ -566,6 +566,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     closureParam_ = nullptr;
     capturedVarCells_.clear();
     flatObjectShapes_.clear();
+    scalarReplacedObjects_.clear();
     asyncPromise_ = nullptr;
     generatorObject_ = nullptr;
     asyncContext_ = nullptr;
@@ -1633,7 +1634,7 @@ llvm::Value* HIRToLLVM::ensureI64ForBitwise(llvm::Value* val) {
     if (val->getType()->isPointerTy()) {
         // Unbox pointer (TsValue*) to i64
         auto unboxFn = getTsValueGetInt();
-        return builder_->CreateCall(unboxFn, {val}, "unbox_i64");
+        return builder_->CreateCall(unboxFn, {val});
     }
     return val;
 }
@@ -1866,8 +1867,7 @@ void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
     if (lhsIsPointer) {
         if (otherIsBool) {
             auto unboxFn = getTsValueGetBool();
-            lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs_bool");
-            // getTsValueGetBool returns i32, truncate to i1 for boolean comparison
+            lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
             lhs = builder_->CreateICmpNE(lhs, llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "to_i1");
         } else {
             auto unboxFn = getTsValueGetInt();
@@ -1877,7 +1877,7 @@ void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
     if (rhsIsPointer) {
         if (otherIsBool) {
             auto unboxFn = getTsValueGetBool();
-            rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs_bool");
+            rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
             rhs = builder_->CreateICmpNE(rhs, llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "to_i1");
         } else {
             auto unboxFn = getTsValueGetInt();
@@ -1951,7 +1951,7 @@ void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
     if (lhsIsPointer) {
         if (otherIsBoolNe) {
             auto unboxFn = getTsValueGetBool();
-            lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs_bool");
+            lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
             lhs = builder_->CreateICmpNE(lhs, llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "to_i1");
         } else {
             auto unboxFn = getTsValueGetInt();
@@ -1961,7 +1961,7 @@ void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
     if (rhsIsPointer) {
         if (otherIsBoolNe) {
             auto unboxFn = getTsValueGetBool();
-            rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs_bool");
+            rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
             rhs = builder_->CreateICmpNE(rhs, llvm::ConstantInt::get(builder_->getInt32Ty(), 0), "to_i1");
         } else {
             auto unboxFn = getTsValueGetInt();
@@ -2062,6 +2062,7 @@ void HIRToLLVM::lowerCmpEqF64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
     // Type coercion: convert i64 to f64 if needed
+    // Use runtime call (not inline unbox) because operands may be TsString* needing coercion
     if (lhs->getType()->isPointerTy()) {
         auto unboxFn = getTsValueGetDouble();
         lhs = builder_->CreateCall(unboxFn, {lhs});
@@ -2768,6 +2769,18 @@ void HIRToLLVM::lowerAlloca(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerLoad(HIRInstruction* inst) {
+    // SROA: If loading from an alloca that holds a scalar-replaced object,
+    // propagate the SR mapping to the load result (no actual load needed)
+    if (auto* srcHir = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[1])) {
+        auto srIt = scalarReplacedObjects_.find((*srcHir)->id);
+        if (srIt != scalarReplacedObjects_.end() && inst->result) {
+            scalarReplacedObjects_[inst->result->id] = srIt->second;
+            // Set a dummy value - actual property access goes through SR path
+            setValue(inst->result, llvm::PoisonValue::get(builder_->getPtrTy()));
+            return;
+        }
+    }
+
     auto type = getOperandType(inst->operands[0]);
     llvm::Type* llvmType = getLLVMType(type);
     // Void type cannot be used for load - use ptr instead (loads undefined/null)
@@ -2785,6 +2798,20 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
         SPDLOG_ERROR("      lowerStore: not enough operands");
         return;
     }
+
+    // SROA: If storing a scalar-replaced object to a local alloca, propagate
+    // the SR mapping to the alloca HIR value ID (so loads will find it)
+    if (auto* valHir = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        auto srIt = scalarReplacedObjects_.find((*valHir)->id);
+        if (srIt != scalarReplacedObjects_.end()) {
+            // Propagate SR mapping to the destination alloca's HIR value ID
+            if (auto* destHir = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[1])) {
+                scalarReplacedObjects_[(*destHir)->id] = srIt->second;
+            }
+            return;  // No actual store needed - object is scalar-replaced
+        }
+    }
+
     llvm::Value* val = gcPtrToRaw(getOperandValue(inst->operands[0]));
     SPDLOG_INFO("      lowerStore: val={}", val ? "non-null" : "NULL");
     if (!val) {
@@ -2938,7 +2965,40 @@ void HIRToLLVM::lowerNewObjectDynamic(HIRInstruction* inst) {
 void HIRToLLVM::lowerNewFlatObject(HIRInstruction* inst) {
     HIRShape* shape = inst->objectShape;
     uint32_t numSlots = (uint32_t)shape->propertyOffsets.size();
-    uint32_t totalSize = 8 + numSlots * 8 + 8;  // header(8) + slots(N*8) + overflow(8)
+    uint32_t totalSize = 16 + numSlots * 8 + 8;  // header(8) + vtable(8) + slots(N*8) + overflow(8)
+
+    // SROA: Replace the entire object with per-property allocas
+    if (inst->scalarReplaceable && inst->result) {
+        std::map<std::string, llvm::AllocaInst*> propAllocas;
+
+        // Create allocas at function entry (one per property)
+        {
+            llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+            llvm::BasicBlock* entryBB = &currentFunction_->getEntryBlock();
+            builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
+
+            for (auto& [name, slotIdx] : shape->propertyOffsets) {
+                auto* alloca = builder_->CreateAlloca(
+                    builder_->getPtrTy(), nullptr, "sr." + name);
+                // Initialize to NANBOX_UNDEFINED (0x0A)
+                builder_->CreateStore(
+                    builder_->CreateIntToPtr(
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0A),
+                        builder_->getPtrTy()),
+                    alloca);
+                propAllocas[name] = alloca;
+            }
+        }
+
+        scalarReplacedObjects_[inst->result->id] = std::move(propAllocas);
+
+        // Set a dummy value (poison) — scalar-replaced objects shouldn't be used as pointers
+        setValue(inst->result, llvm::PoisonValue::get(builder_->getPtrTy()));
+
+        // Still track shape for fallback path
+        flatObjectShapes_[inst->result->id] = shape;
+        return;
+    }
 
     llvm::Value* result;
 
@@ -2962,11 +3022,10 @@ void HIRToLLVM::lowerNewFlatObject(HIRInstruction* inst) {
         stackAllocCount_++;
         stackAllocBytes_ += totalSize;
     } else {
-        // Heap allocation via GC
-        auto gcAllocFn = getOrDeclareRuntimeFunction("ts_gc_alloc",
-            builder_->getPtrTy(), {builder_->getInt64Ty()});
+        // Heap allocation: call module-level nursery bump allocator (inlined by LLVM)
         llvm::Value* sizeVal = llvm::ConstantInt::get(builder_->getInt64Ty(), totalSize);
-        result = rawToGCPtr(builder_->CreateCall(gcAllocFn, {sizeVal}));
+        auto allocFn = getOrCreateNurseryAllocFn();
+        result = rawToGCPtr(builder_->CreateCall(allocFn, {sizeVal}));
     }
 
     // Write FLAT_MAGIC (0x464C4154) at offset 0
@@ -2985,9 +3044,24 @@ void HIRToLLVM::lowerNewFlatObject(HIRInstruction* inst) {
         llvm::ConstantInt::get(builder_->getInt32Ty(), shape->id),
         shapeIdPtr);
 
+    // Write vtable pointer at offset 8
+    // For class instances, store the class VTable; for object literals, store null
+    llvm::Value* vtableSlot = builder_->CreateGEP(
+        builder_->getInt8Ty(), result,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 8));
+    llvm::Value* vtableVal = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    if (!shape->className.empty()) {
+        std::string vtableGlobalName = shape->className + "_VTable_Global";
+        llvm::GlobalVariable* vtableGlobal = module_->getGlobalVariable(vtableGlobalName);
+        if (vtableGlobal) {
+            vtableVal = vtableGlobal;
+        }
+    }
+    builder_->CreateStore(vtableVal, vtableSlot);
+
     // Initialize all slots to NANBOX_UNDEFINED (0x0A)
     for (uint32_t i = 0; i < numSlots; i++) {
-        uint32_t offset = 8 + i * 8;
+        uint32_t offset = 16 + i * 8;
         llvm::Value* slotPtr = builder_->CreateGEP(
             builder_->getInt8Ty(), result,
             llvm::ConstantInt::get(builder_->getInt64Ty(), offset));
@@ -2998,7 +3072,7 @@ void HIRToLLVM::lowerNewFlatObject(HIRInstruction* inst) {
     }
 
     // Initialize overflow map pointer to null
-    uint32_t overflowOffset = 8 + numSlots * 8;
+    uint32_t overflowOffset = 16 + numSlots * 8;
     llvm::Value* overflowPtr = builder_->CreateGEP(
         builder_->getInt8Ty(), result,
         llvm::ConstantInt::get(builder_->getInt64Ty(), overflowOffset));
@@ -3015,8 +3089,48 @@ void HIRToLLVM::lowerNewFlatObject(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
-    llvm::Value* obj = gcPtrToRaw(getOperandValue(inst->operands[0]));
     std::string propName = getOperandString(inst->operands[1]);
+
+    // ---- SROA fast path: load from per-property alloca ----
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        auto srIt = scalarReplacedObjects_.find((*hirVal)->id);
+        if (srIt != scalarReplacedObjects_.end()) {
+            auto propIt = srIt->second.find(propName);
+            if (propIt != srIt->second.end()) {
+                llvm::Value* nanboxed = builder_->CreateLoad(
+                    builder_->getPtrTy(), propIt->second, "sr.get");
+
+                // Unbox based on expected type
+                llvm::Value* result = nanboxed;
+                std::shared_ptr<HIRType> type = nullptr;
+                if (inst->operands.size() > 2) type = getOperandType(inst->operands[2]);
+                if (!type && inst->result && inst->result->type) type = inst->result->type;
+
+                if (type) {
+                    if (type->kind == HIRTypeKind::Int64) {
+                        result = emitInlineUnboxInt(nanboxed);
+                    } else if (type->kind == HIRTypeKind::Float64) {
+                        result = emitInlineUnboxFloat(nanboxed);
+                    } else if (type->kind == HIRTypeKind::Bool) {
+                        result = emitInlineUnboxBool(nanboxed);
+                    } else if (type->kind == HIRTypeKind::String) {
+                        result = builder_->CreateCall(getTsValueGetString(), {nanboxed});
+                    } else if (type->kind == HIRTypeKind::Array ||
+                               type->kind == HIRTypeKind::Object ||
+                               type->kind == HIRTypeKind::Class ||
+                               type->kind == HIRTypeKind::Map ||
+                               type->kind == HIRTypeKind::Set) {
+                        result = builder_->CreateCall(getTsValueGetObject(), {nanboxed});
+                    }
+                }
+
+                setValue(inst->result, result);
+                return;
+            }
+        }
+    }
+
+    llvm::Value* obj = gcPtrToRaw(getOperandValue(inst->operands[0]));
 
     // Fast path: String.length -> ts_string_length()
     if (propName == "length") {
@@ -3028,6 +3142,53 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
                 setValue(inst->result, result);
                 return;
             }
+        }
+    }
+
+    // ---- Flat object fast path ----
+    // Mirror of lowerSetPropStatic fast path: read directly from inline slot
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        auto it = flatObjectShapes_.find((*hirVal)->id);
+        if (it != flatObjectShapes_.end()) {
+            HIRShape* shape = it->second;
+            auto slotIt = shape->propertyOffsets.find(propName);
+            if (slotIt != shape->propertyOffsets.end()) {
+                uint32_t offset = 16 + slotIt->second * 8;
+
+                // Load NaN-boxed value from slot
+                llvm::Value* slotPtr = builder_->CreateGEP(
+                    builder_->getInt8Ty(), obj,
+                    llvm::ConstantInt::get(builder_->getInt64Ty(), offset));
+                llvm::Value* nanboxed = builder_->CreateLoad(builder_->getPtrTy(), slotPtr, "flat.get");
+
+                // Unbox based on expected type
+                llvm::Value* result = nanboxed;
+                std::shared_ptr<HIRType> type = nullptr;
+                if (inst->operands.size() > 2) type = getOperandType(inst->operands[2]);
+                if (!type && inst->result && inst->result->type) type = inst->result->type;
+
+                if (type) {
+                    if (type->kind == HIRTypeKind::Int64) {
+                        result = emitInlineUnboxInt(nanboxed);
+                    } else if (type->kind == HIRTypeKind::Float64) {
+                        result = emitInlineUnboxFloat(nanboxed);
+                    } else if (type->kind == HIRTypeKind::Bool) {
+                        result = emitInlineUnboxBool(nanboxed);
+                    } else if (type->kind == HIRTypeKind::String) {
+                        result = builder_->CreateCall(getTsValueGetString(), {nanboxed});
+                    } else if (type->kind == HIRTypeKind::Array ||
+                               type->kind == HIRTypeKind::Object ||
+                               type->kind == HIRTypeKind::Class ||
+                               type->kind == HIRTypeKind::Map ||
+                               type->kind == HIRTypeKind::Set) {
+                        result = builder_->CreateCall(getTsValueGetObject(), {nanboxed});
+                    }
+                }
+
+                setValue(inst->result, result);
+                return;
+            }
+            // Property not in shape — fall through to slow path
         }
     }
 
@@ -3084,14 +3245,11 @@ void HIRToLLVM::lowerGetPropStatic(HIRInstruction* inst) {
 
     if (type) {
         if (type->kind == HIRTypeKind::Int64) {
-            auto unboxFn = getTsValueGetInt();
-            result = builder_->CreateCall(unboxFn, {result});
+            result = emitInlineUnboxInt(result);
         } else if (type->kind == HIRTypeKind::Float64) {
-            auto unboxFn = getTsValueGetDouble();
-            result = builder_->CreateCall(unboxFn, {result});
+            result = emitInlineUnboxFloat(result);
         } else if (type->kind == HIRTypeKind::Bool) {
-            auto unboxFn = getTsValueGetBool();
-            result = builder_->CreateCall(unboxFn, {result});
+            result = emitInlineUnboxBool(result);
         } else if (type->kind == HIRTypeKind::String) {
             auto unboxFn = getTsValueGetString();
             result = builder_->CreateCall(unboxFn, {result});
@@ -3142,14 +3300,11 @@ void HIRToLLVM::lowerGetPropDynamic(HIRInstruction* inst) {
     if (inst->result && inst->result->type) {
         auto type = inst->result->type;
         if (type->kind == HIRTypeKind::Int64) {
-            auto unboxFn = getTsValueGetInt();
-            result = builder_->CreateCall(unboxFn, {result});
+            result = emitInlineUnboxInt(result);
         } else if (type->kind == HIRTypeKind::Float64) {
-            auto unboxFn = getTsValueGetDouble();
-            result = builder_->CreateCall(unboxFn, {result});
+            result = emitInlineUnboxFloat(result);
         } else if (type->kind == HIRTypeKind::Bool) {
-            auto unboxFn = getTsValueGetBool();
-            result = builder_->CreateCall(unboxFn, {result});
+            result = emitInlineUnboxBool(result);
         } else if (type->kind == HIRTypeKind::String) {
             auto unboxFn = getTsValueGetString();
             result = builder_->CreateCall(unboxFn, {result});
@@ -3160,8 +3315,51 @@ void HIRToLLVM::lowerGetPropDynamic(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
-    llvm::Value* obj = gcPtrToRaw(getOperandValue(inst->operands[0]));
     std::string propName = getOperandString(inst->operands[1]);
+
+    // ---- SROA fast path: store into per-property alloca ----
+    if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        auto srIt = scalarReplacedObjects_.find((*hirVal)->id);
+        if (srIt != scalarReplacedObjects_.end()) {
+            auto propIt = srIt->second.find(propName);
+            if (propIt != srIt->second.end()) {
+                llvm::Value* val = gcPtrToRaw(getOperandValue(inst->operands[2]));
+
+                // NaN-box the value (same branchless logic as flat path)
+                llvm::Value* boxed = val;
+                if (val->getType()->isIntegerTy(64)) {
+                    llvm::Value* trunc = builder_->CreateTrunc(val, builder_->getInt32Ty(), "sr.trunc");
+                    llvm::Value* sext = builder_->CreateSExt(trunc, builder_->getInt64Ty(), "sr.sext");
+                    llvm::Value* fits = builder_->CreateICmpEQ(val, sext, "sr.fits");
+                    llvm::Value* masked = builder_->CreateAnd(val,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x00000000FFFFFFFFULL), "sr.masked");
+                    llvm::Value* tagged = builder_->CreateOr(masked,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0xFFFE000000000000ULL), "sr.tagged");
+                    llvm::Value* dbl = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "sr.dbl");
+                    llvm::Value* bits = builder_->CreateBitCast(dbl, builder_->getInt64Ty(), "sr.bits");
+                    llvm::Value* biased = builder_->CreateAdd(bits,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "sr.biased");
+                    llvm::Value* selected = builder_->CreateSelect(fits, tagged, biased, "sr.sel");
+                    boxed = builder_->CreateIntToPtr(selected, builder_->getPtrTy(), "sr.ptr");
+                } else if (val->getType()->isDoubleTy()) {
+                    llvm::Value* bits = builder_->CreateBitCast(val, builder_->getInt64Ty(), "sr.bits");
+                    llvm::Value* biased = builder_->CreateAdd(bits,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "sr.biased");
+                    boxed = builder_->CreateIntToPtr(biased, builder_->getPtrTy(), "sr.ptr");
+                } else if (val->getType()->isIntegerTy(1)) {
+                    llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt64Ty(), "sr.ext");
+                    llvm::Value* result = builder_->CreateAdd(ext,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 6), "sr.bool");
+                    boxed = builder_->CreateIntToPtr(result, builder_->getPtrTy(), "sr.ptr");
+                }
+
+                builder_->CreateStore(boxed, propIt->second);
+                return;
+            }
+        }
+    }
+
+    llvm::Value* obj = gcPtrToRaw(getOperandValue(inst->operands[0]));
     llvm::Value* val = gcPtrToRaw(getOperandValue(inst->operands[2]));
 
     // ---- Flat object fast path ----
@@ -3172,7 +3370,7 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
             HIRShape* shape = it->second;
             auto slotIt = shape->propertyOffsets.find(propName);
             if (slotIt != shape->propertyOffsets.end()) {
-                uint32_t offset = 8 + slotIt->second * 8;
+                uint32_t offset = 16 + slotIt->second * 8;
 
                 // NaN-box the value using branchless select (avoids creating new blocks
                 // that would break PHI predecessors in the same HIR block)
@@ -3620,14 +3818,11 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
     if (inst->result && inst->result->type) {
         auto& type = inst->result->type;
         if (type->kind == HIRTypeKind::Int64) {
-            auto unboxFn = getTsValueGetInt();
-            result = builder_->CreateCall(unboxFn, {result});
+            result = emitInlineUnboxInt(result);
         } else if (type->kind == HIRTypeKind::Float64) {
-            auto unboxFn = getTsValueGetDouble();
-            result = builder_->CreateCall(unboxFn, {result});
+            result = emitInlineUnboxFloat(result);
         } else if (type->kind == HIRTypeKind::Bool) {
-            auto unboxFn = getTsValueGetBool();
-            result = builder_->CreateCall(unboxFn, {result});
+            result = emitInlineUnboxBool(result);
         }
         // For Any, String, Object - leave as pointer
     }
@@ -7152,6 +7347,92 @@ llvm::FunctionCallee HIRToLLVM::getOrDeclareRuntimeFunction(
 ) {
     llvm::FunctionType* ft = llvm::FunctionType::get(returnType, paramTypes, isVarArg);
     return module_->getOrInsertFunction(name, ft);
+}
+
+llvm::FunctionCallee HIRToLLVM::getOrCreateNurseryAllocFn() {
+    // Check if already created in this module
+    if (auto* existing = module_->getFunction("__ts_nursery_alloc")) {
+        return llvm::FunctionCallee(existing->getFunctionType(), existing);
+    }
+
+    // Create an AlwaysInline function that does nursery bump-pointer with fallback
+    llvm::FunctionType* ft = llvm::FunctionType::get(
+        builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+    llvm::Function* fn = llvm::Function::Create(
+        ft, llvm::Function::InternalLinkage, "__ts_nursery_alloc", module_.get());
+    fn->addFnAttr(llvm::Attribute::AlwaysInline);
+    fn->addFnAttr(llvm::Attribute::NoUnwind);
+
+    // Save current insert point
+    llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+
+    // Create basic blocks
+    llvm::BasicBlock* entryBB = llvm::BasicBlock::Create(context_, "entry", fn);
+    llvm::BasicBlock* fastBB = llvm::BasicBlock::Create(context_, "nursery.fast", fn);
+    llvm::BasicBlock* slowBB = llvm::BasicBlock::Create(context_, "nursery.slow", fn);
+    llvm::BasicBlock* doneBB = llvm::BasicBlock::Create(context_, "done", fn);
+
+    llvm::Argument* sizeArg = fn->getArg(0);
+    sizeArg->setName("size");
+
+    // Entry: load cursor/limit, check if nursery has space
+    builder_->SetInsertPoint(entryBB);
+
+    // Align size to 8 bytes: allocSize = (size + 7) & ~7
+    llvm::Value* seven = llvm::ConstantInt::get(builder_->getInt64Ty(), 7);
+    llvm::Value* mask = llvm::ConstantInt::get(builder_->getInt64Ty(), ~(uint64_t)7);
+    llvm::Value* allocSize = builder_->CreateAnd(
+        builder_->CreateAdd(sizeArg, seven), mask, "alloc_size");
+    // total = allocSize + 8 (size prefix)
+    llvm::Value* total = builder_->CreateAdd(
+        allocSize, llvm::ConstantInt::get(builder_->getInt64Ty(), 8), "total");
+
+    auto* cursorGlobal = module_->getOrInsertGlobal("ts_nursery_cursor", builder_->getPtrTy());
+    auto* limitGlobal = module_->getOrInsertGlobal("ts_nursery_cursor_limit", builder_->getPtrTy());
+
+    llvm::Value* cursor = builder_->CreateLoad(builder_->getPtrTy(), cursorGlobal, "cursor");
+    llvm::Value* limit = builder_->CreateLoad(builder_->getPtrTy(), limitGlobal, "limit");
+
+    // Check if cursor is non-null (nursery enabled) and has space
+    llvm::Value* cursorNotNull = builder_->CreateICmpNE(
+        cursor, llvm::ConstantPointerNull::get(builder_->getPtrTy()), "cursor_ok");
+    llvm::Value* newCursor = builder_->CreateGEP(
+        builder_->getInt8Ty(), cursor, total, "new_cursor");
+    llvm::Value* fits = builder_->CreateICmpULE(newCursor, limit, "fits");
+    llvm::Value* canAlloc = builder_->CreateAnd(cursorNotNull, fits, "can_alloc");
+    builder_->CreateCondBr(canAlloc, fastBB, slowBB);
+
+    // Fast path: bump pointer
+    builder_->SetInsertPoint(fastBB);
+    // Write size prefix at cursor
+    builder_->CreateStore(allocSize, cursor);
+    // Object is after the 8-byte prefix
+    llvm::Value* objFast = builder_->CreateGEP(
+        builder_->getInt8Ty(), cursor,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), 8), "obj");
+    // Bump cursor
+    builder_->CreateStore(newCursor, cursorGlobal);
+    // Zero the object memory
+    builder_->CreateMemSet(objFast,
+        llvm::ConstantInt::get(builder_->getInt8Ty(), 0),
+        allocSize, llvm::MaybeAlign(8));
+    builder_->CreateBr(doneBB);
+
+    // Slow path: call ts_gc_alloc
+    builder_->SetInsertPoint(slowBB);
+    auto gcAllocFn = getOrDeclareRuntimeFunction("ts_gc_alloc",
+        builder_->getPtrTy(), {builder_->getInt64Ty()});
+    llvm::Value* objSlow = builder_->CreateCall(gcAllocFn, {sizeArg});
+    builder_->CreateBr(doneBB);
+
+    // Done: phi merge
+    builder_->SetInsertPoint(doneBB);
+    llvm::PHINode* phi = builder_->CreatePHI(builder_->getPtrTy(), 2, "result");
+    phi->addIncoming(objFast, fastBB);
+    phi->addIncoming(objSlow, slowBB);
+    builder_->CreateRet(phi);
+
+    return llvm::FunctionCallee(ft, fn);
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsAlloc() {

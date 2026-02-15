@@ -23,21 +23,24 @@ extern "C" void* ts_flat_object_create(uint32_t shapeId) {
     ShapeDescriptor* desc = ts_shape_lookup(shapeId);
     if (!desc) return nullptr;
 
-    uint32_t totalSize = 8 + desc->numSlots * 8 + 8;  // header + slots + overflow ptr
+    uint32_t totalSize = 16 + desc->numSlots * 8 + 8;  // header(8) + vtable(8) + slots + overflow ptr
     void* mem = ts_gc_alloc(totalSize);
 
     // Write header
     *(uint32_t*)mem = FLAT_MAGIC;
     *((uint32_t*)mem + 1) = shapeId;
 
+    // Initialize vtable pointer to nullptr (object literals have no vtable)
+    *(void**)((char*)mem + 8) = nullptr;
+
     // Initialize all slots to NaN-boxed undefined
-    uint64_t* slots = (uint64_t*)((char*)mem + 8);
+    uint64_t* slots = (uint64_t*)((char*)mem + 16);
     for (uint32_t i = 0; i < desc->numSlots; i++) {
         slots[i] = NANBOX_UNDEFINED;
     }
 
     // Initialize overflow map to nullptr
-    uint64_t* overflowSlot = (uint64_t*)((char*)mem + 8 + desc->numSlots * 8);
+    uint64_t* overflowSlot = (uint64_t*)((char*)mem + 16 + desc->numSlots * 8);
     *overflowSlot = 0;
 
     return mem;
@@ -63,12 +66,12 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
     // Check inline slots
     int slot = flat_find_slot(desc, key);
     if (slot >= 0) {
-        uint64_t val = *(uint64_t*)((char*)obj + 8 + slot * 8);
+        uint64_t val = *(uint64_t*)((char*)obj + 16 + slot * 8);
         return (void*)(uintptr_t)val;
     }
 
     // Check overflow map
-    void* overflow = *(void**)((char*)obj + 8 + desc->numSlots * 8);
+    void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
     if (overflow) {
         TsMap* map = (TsMap*)overflow;
         TsString* keyStr = TsString::Create(key);
@@ -100,14 +103,14 @@ extern "C" void ts_flat_object_set_property(void* obj, const char* key, void* va
     // Check inline slots first
     int slot = flat_find_slot(desc, key);
     if (slot >= 0) {
-        uint64_t* slotPtr = (uint64_t*)((char*)obj + 8 + slot * 8);
+        uint64_t* slotPtr = (uint64_t*)((char*)obj + 16 + slot * 8);
         *slotPtr = (uint64_t)(uintptr_t)value;
         ts_gc_write_barrier(slotPtr, value);
         return;
     }
 
     // Property not in shape - use overflow map
-    void** overflowPtr = (void**)((char*)obj + 8 + desc->numSlots * 8);
+    void** overflowPtr = (void**)((char*)obj + 16 + desc->numSlots * 8);
     TsMap* overflow = (TsMap*)*overflowPtr;
     if (!overflow) {
         overflow = TsMap::Create();
@@ -132,7 +135,7 @@ extern "C" bool ts_flat_object_has_property(void* obj, const char* key) {
     if (flat_find_slot(desc, key) >= 0) return true;
 
     // Check overflow map
-    void* overflow = *(void**)((char*)obj + 8 + desc->numSlots * 8);
+    void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
     if (overflow) {
         TsMap* map = (TsMap*)overflow;
         TsString* keyStr = TsString::Create(key);
@@ -160,7 +163,7 @@ extern "C" void* ts_flat_object_keys(void* obj) {
     }
 
     // Add overflow keys
-    void* overflow = *(void**)((char*)obj + 8 + desc->numSlots * 8);
+    void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
     if (overflow) {
         TsArray* overflowKeys = (TsArray*)ts_map_keys(overflow);
         if (overflowKeys) {
@@ -183,7 +186,7 @@ extern "C" void* ts_flat_object_values(void* obj) {
     TsArray* values = TsArray::Create(desc->numSlots + 4);
 
     for (uint32_t i = 0; i < desc->numSlots; i++) {
-        uint64_t val = *(uint64_t*)((char*)obj + 8 + i * 8);
+        uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
         values->Push((int64_t)val);
     }
 
@@ -199,7 +202,7 @@ extern "C" void* ts_flat_object_to_map(void* obj) {
 
     TsMap* map = TsMap::Create();
     for (uint32_t i = 0; i < desc->numSlots; i++) {
-        uint64_t val = *(uint64_t*)((char*)obj + 8 + i * 8);
+        uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
         if (val != NANBOX_UNDEFINED) {
             TsValue tv = nanbox_to_tagged((TsValue*)(uintptr_t)val);
             map->Set(TsValue(TsString::Create(desc->propNames[i])), tv);
@@ -207,7 +210,7 @@ extern "C" void* ts_flat_object_to_map(void* obj) {
     }
 
     // Copy overflow entries too
-    void* overflow = *(void**)((char*)obj + 8 + desc->numSlots * 8);
+    void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
     if (overflow) {
         TsMap* overflowMap = (TsMap*)overflow;
         TsArray* keys = (TsArray*)ts_map_keys(overflowMap);
@@ -236,7 +239,7 @@ extern "C" void* ts_flat_object_entries(void* obj) {
         TsArray* pair = TsArray::Create(2);
         TsString* name = TsString::Create(desc->propNames[i]);
         pair->Push((int64_t)(uintptr_t)name);
-        uint64_t val = *(uint64_t*)((char*)obj + 8 + i * 8);
+        uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
         pair->Push((int64_t)val);
         entries->Push((int64_t)(uintptr_t)pair);
     }

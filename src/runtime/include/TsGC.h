@@ -73,4 +73,8 @@ extern uint64_t ts_gc_nursery_end;
 extern uint8_t* ts_gc_card_table_ptr;
 extern uint64_t ts_gc_card_table_base_addr;  // Unused with modular indexing, kept for ABI compat
 
+// Exported globals for compiler inline nursery bump-pointer allocation
+extern char* ts_nursery_cursor;        // Absolute pointer: region + cursor offset
+extern char* ts_nursery_cursor_limit;  // Absolute pointer: region + cursor_limit offset
+
 }
