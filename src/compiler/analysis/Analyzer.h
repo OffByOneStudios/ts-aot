@@ -9,6 +9,7 @@
 #include "SymbolTable.h"
 #include "Module.h"
 #include "ModuleResolver.h"
+#include "../parser/Parser.h"
 
 namespace ts {
 
@@ -221,7 +222,9 @@ private:
     ModuleResolver moduleResolver;
 
     void analyzeModule(std::shared_ptr<Module> module);
+    void analyzeDeclarationModule(std::shared_ptr<Module> module);
     std::shared_ptr<Module> loadModule(const std::string& specifier);
+    std::unique_ptr<ast::Program> parseSourceFile(const std::string& path);
 
     // Compile-time constant expression evaluation for enum members
     std::optional<int64_t> evaluateConstantExpression(ast::Expression* expr, const std::map<std::string, std::variant<int, std::string>>& enumMembers);

@@ -1,6 +1,7 @@
 #include "Analyzer.h"
 #include "../ast/AstLoader.h"
 #include <iostream>
+#include <fstream>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #include <spdlog/spdlog.h>
 #include <fmt/core.h>
@@ -160,6 +161,53 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     currentModuleType = oldModuleType;
     suppressErrors = oldSuppressErrors;
     skipUntypedSemantic = oldSkipUntyped;
+}
+
+void Analyzer::analyzeDeclarationModule(std::shared_ptr<Module> module) {
+    auto oldModule = currentModule;
+    auto oldPath = currentFilePath;
+    auto oldModuleType = currentModuleType;
+    bool oldSuppressErrors = suppressErrors;
+
+    currentModule = module;
+    currentFilePath = module->path;
+    currentModuleType = ModuleType::Declaration;
+    suppressErrors = true;  // Declarations may reference types we don't know
+
+    symbols.enterScope();
+
+    // Visit program — hoisting pass populates module->exports
+    visitProgram(module->ast.get());
+
+    // Save module-level symbols
+    for (const auto& [name, sym] : symbols.getCurrentScopeSymbols()) {
+        module->moduleSymbols->define(name, sym->type);
+    }
+    for (const auto& [name, type] : symbols.getCurrentScopeTypes()) {
+        module->moduleSymbols->defineType(name, type);
+    }
+
+    symbols.exitScope();
+    module->analyzed = true;
+    // NOTE: No moduleOrder.push_back() — .d.ts has no executable code
+
+    // Clear AST after analysis — prevents Monomorphizer from generating code
+    module->ast = nullptr;
+
+    currentModule = oldModule;
+    currentFilePath = oldPath;
+    currentModuleType = oldModuleType;
+    suppressErrors = oldSuppressErrors;
+}
+
+std::unique_ptr<ast::Program> Analyzer::parseSourceFile(const std::string& path) {
+    std::ifstream file(path);
+    if (!file) return nullptr;
+    std::string source((std::istreambuf_iterator<char>(file)),
+                        std::istreambuf_iterator<char>());
+
+    parser::Parser nativeParser;
+    return nativeParser.parse(source, path);
 }
 
 ResolvedModule Analyzer::resolveModule(const std::string& specifier) {

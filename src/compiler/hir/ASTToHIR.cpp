@@ -1358,6 +1358,11 @@ void ASTToHIR::visitProgram(ast::Program* node) {
 }
 
 void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
+    // Declaration-only function (from .d.ts or overload signature) — no code to generate
+    if (node->body.empty()) {
+        return;
+    }
+
     // Create HIR function - HIRFunction constructor requires a name
     auto func = std::make_unique<HIRFunction>(node->name);
     func->isAsync = node->isAsync;
