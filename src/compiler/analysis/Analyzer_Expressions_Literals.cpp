@@ -226,7 +226,8 @@ void Analyzer::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node
 
     if (auto id = dynamic_cast<ast::Identifier*>(node->tag.get())) {
         std::string modPath = currentModule ? currentModule->path : "";
-        functionUsages[id->name].push_back({argTypes, {}, modPath});
+        auto importRes = resolveImportSourcePath(id->name);
+        functionUsages[id->name].push_back({argTypes, {}, modPath, importRes.modulePath, importRes.originalName});
     }
 
     lastType = std::make_shared<Type>(TypeKind::String);

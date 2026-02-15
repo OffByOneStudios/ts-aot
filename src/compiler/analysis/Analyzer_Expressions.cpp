@@ -276,7 +276,8 @@ void Analyzer::visitCallExpression(CallExpression* node) {
         
         std::string modPath = currentModule ? currentModule->path : "";
         if (auto id = dynamic_cast<Identifier*>(node->callee.get())) {
-            functionUsages[id->name].push_back({argTypes, resolvedTypeArguments, modPath});
+            auto importRes = resolveImportSourcePath(id->name);
+            functionUsages[id->name].push_back({argTypes, resolvedTypeArguments, modPath, importRes.modulePath, importRes.originalName});
         } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
             if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Namespace) {
                 functionUsages[prop->name].push_back({argTypes, resolvedTypeArguments, modPath});
@@ -320,7 +321,8 @@ void Analyzer::visitCallExpression(CallExpression* node) {
 
     if (!calleeName.empty()) {
         std::string modPath = currentModule ? currentModule->path : "";
-        functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments, modPath});
+        auto importRes = resolveImportSourcePath(calleeName);
+        functionUsages[calleeName].push_back({argTypes, resolvedTypeArguments, modPath, importRes.modulePath, importRes.originalName});
     }
 
     // For now, assume calls return Any unless we know better

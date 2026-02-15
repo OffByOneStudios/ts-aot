@@ -664,4 +664,32 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
     return module;
 }
 
+ImportResolution Analyzer::resolveImportSourcePath(const std::string& calleeName) {
+    if (!currentModule || !currentModule->ast) return {"", ""};
+
+    for (auto& stmt : currentModule->ast->body) {
+        auto* imp = dynamic_cast<ast::ImportDeclaration*>(stmt.get());
+        if (!imp) continue;
+
+        // Check named imports only (not default imports).
+        // Default imports use alias names that differ from the declaration name,
+        // so findFunction's default-import fallback handles them using the calling
+        // module path (call.modulePath) to locate the import declaration.
+        for (auto& spec : imp->namedImports) {
+            if (spec.name == calleeName) {
+                auto resolved = resolveModule(imp->moduleSpecifier);
+                if (resolved.isValid()) {
+                    // spec.propertyName is the original name in the source module
+                    // e.g., import { foo as bar } => propertyName="foo", name="bar"
+                    std::string originalName = spec.propertyName.empty() ? spec.name : spec.propertyName;
+                    return {resolved.path, originalName};
+                }
+                return {"", ""};
+            }
+        }
+    }
+
+    return {"", ""};
+}
+
 } // namespace ts
