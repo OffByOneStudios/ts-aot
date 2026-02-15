@@ -321,6 +321,7 @@ struct HIRInstruction {
 
     // Escape analysis
     bool escapes = true;            // Conservative default: object escapes function scope
+    bool scalarReplaceable = false;  // True if all uses are GetPropStatic/SetPropStatic (SROA)
 
     // Flat object shape (for NewObjectDynamic with known property names)
     HIRShape* objectShape = nullptr;
@@ -432,7 +433,7 @@ struct HIRFunction {
 //==============================================================================
 
 struct HIRShape {
-    uint32_t id;
+    uint32_t id = UINT32_MAX;  // UINT32_MAX = unregistered (not in module_->shapes)
     std::string className;
 
     // Property name → offset mapping
@@ -480,8 +481,8 @@ struct HIRModule {
     // All classes in this module
     std::vector<std::unique_ptr<HIRClass>> classes;
 
-    // All shapes (shared across classes)
-    std::vector<std::unique_ptr<HIRShape>> shapes;
+    // All shapes (shared across classes and object literals)
+    std::vector<std::shared_ptr<HIRShape>> shapes;
 
     // Global variables
     std::map<std::string, std::shared_ptr<HIRType>> globals;

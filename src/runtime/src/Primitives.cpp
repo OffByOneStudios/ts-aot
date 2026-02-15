@@ -494,6 +494,26 @@ bool ts_instanceof(void* obj, void* targetVTable) {
     uint32_t magic0 = *(uint32_t*)obj;
     if (magic0 == 0x53545247) return false; // Strings are not instances of classes
 
+    // Check for flat object (FLAT_MAGIC = 0x464C4154)
+    if (magic0 == 0x464C4154) {
+        // vtable is at offset 8
+        void** vtablePtr = *(void***)((char*)obj + 8);
+        if (!vtablePtr) return false;  // Object literal, not a class instance
+        // Direct match
+        if (vtablePtr == targetVTable) return true;
+        // Traverse parent chain
+        void** current = vtablePtr;
+        int depth = 0;
+        while (current && depth < 100) {
+            if (current == targetVTable) return true;
+            void* parent = current[0];
+            if (!parent || parent == current) break;
+            current = (void**)parent;
+            depth++;
+        }
+        return false;
+    }
+
     // Check magic at offset 16 to detect TsObject-derived classes
     // TsObject layout: [C++ vtable (8), void* vtable (8), uint32_t magic (4), ...]
     uint32_t magic16 = *(uint32_t*)((char*)obj + 16);

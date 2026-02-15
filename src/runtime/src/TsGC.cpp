@@ -305,6 +305,25 @@ extern "C" {
     uint64_t ts_gc_nursery_end = 0;
     uint8_t* ts_gc_card_table_ptr = nullptr;
     uint64_t ts_gc_card_table_base_addr = 0;  // Unused with modular indexing, kept for ABI compat
+
+    // Exported globals for compiler inline nursery bump-pointer allocation
+    char* ts_nursery_cursor = nullptr;        // Absolute pointer: region + cursor offset
+    char* ts_nursery_cursor_limit = nullptr;  // Absolute pointer: region + cursor_limit offset
+}
+
+// Nursery sync helpers: keep exported globals in sync with g_nursery
+static inline void nursery_sync_from_exported() {
+    if (ts_nursery_cursor && g_nursery.region) {
+        g_nursery.cursor = (size_t)(ts_nursery_cursor - (char*)g_nursery.region);
+        if (g_nursery.cursor > g_nursery.high_water)
+            g_nursery.high_water = g_nursery.cursor;
+    }
+}
+static inline void nursery_sync_to_exported() {
+    if (g_nursery.region) {
+        ts_nursery_cursor = (char*)g_nursery.region + g_nursery.cursor;
+        ts_nursery_cursor_limit = (char*)g_nursery.region + g_nursery.cursor_limit;
+    }
 }
 
 // Forward declarations for nursery helpers
@@ -1314,6 +1333,10 @@ static void gc_init() {
             ts_gc_nursery_base = (uint64_t)(uintptr_t)g_nursery.region;
             ts_gc_nursery_end = ts_gc_nursery_base + g_nursery.region_size;
 
+            // Sync inline bump-pointer globals
+            ts_nursery_cursor = (char*)g_nursery.region + g_nursery.cursor;
+            ts_nursery_cursor_limit = (char*)g_nursery.region + g_nursery.cursor_limit;
+
             // Allocate card table for old-gen-to-nursery write barrier tracking.
             // Uses modular indexing (addr >> CARD_SHIFT) & (CARD_TABLE_SIZE - 1)
             // so no base address is needed.
@@ -1367,6 +1390,9 @@ void* ts_gc_alloc(size_t size) {
 
     // ---- Nursery fast path: no mutex, bump pointer in fragment ----
     if (g_nursery.enabled && size <= NURSERY_MAX_OBJ_SIZE) {
+        // Sync cursor from exported globals (compiler inline path may have bumped it)
+        nursery_sync_from_exported();
+
         size_t alloc_size = (size + 7) & ~(size_t)7;  // Align to 8 bytes
         size_t total = alloc_size + NURSERY_SIZE_PREFIX;
 
@@ -1380,6 +1406,7 @@ void* ts_gc_alloc(size_t size) {
                 g_nursery.high_water = g_nursery.cursor;
             g_nursery.total_allocated += alloc_size;
             g_nursery.alloc_count++;
+            nursery_sync_to_exported();
             return result;
         }
 
@@ -1398,6 +1425,7 @@ void* ts_gc_alloc(size_t size) {
                     g_nursery.high_water = g_nursery.cursor;
                 g_nursery.total_allocated += alloc_size;
                 g_nursery.alloc_count++;
+                nursery_sync_to_exported();
                 return result;
             }
         }
@@ -1407,6 +1435,7 @@ void* ts_gc_alloc(size_t size) {
             std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
             gc_minor_collect_internal();
         }
+        nursery_sync_to_exported();
 
         // Retry after GC
         if (g_nursery.cursor + total <= g_nursery.cursor_limit) {
@@ -1418,6 +1447,7 @@ void* ts_gc_alloc(size_t size) {
                 g_nursery.high_water = g_nursery.cursor;
             g_nursery.total_allocated += alloc_size;
             g_nursery.alloc_count++;
+            nursery_sync_to_exported();
             return result;
         }
         // Still can't fit - fall through to old-gen
@@ -2541,14 +2571,19 @@ static void gc_minor_collect_internal() {
                 g_nursery.fragments.size(), ms);
         fflush(stderr);
     }
+
+    // Sync exported globals so compiler inline path picks up new cursor/limit
+    nursery_sync_to_exported();
 }
 
 extern "C" { // Resume extern "C" for public API
 
 void ts_gc_minor_collect() {
     if (!g_heap || !g_nursery.enabled) return;
+    nursery_sync_from_exported();
     std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
     gc_minor_collect_internal();
+    // gc_minor_collect_internal already calls nursery_sync_to_exported()
 }
 
 void ts_gc_write_barrier(void* slot_addr, void* stored_value) {
