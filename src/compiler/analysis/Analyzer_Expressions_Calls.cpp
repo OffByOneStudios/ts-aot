@@ -638,7 +638,9 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
             functionUsages[id->name].push_back({argTypes, resolvedTypeArguments, modPath});
         } else if (auto prop = dynamic_cast<PropertyAccessExpression*>(node->callee.get())) {
             if (prop->expression->inferredType && prop->expression->inferredType->kind == TypeKind::Namespace) {
-                functionUsages[prop->name].push_back({argTypes, resolvedTypeArguments, modPath});
+                auto nsType = std::static_pointer_cast<NamespaceType>(prop->expression->inferredType);
+                std::string targetModPath = nsType->module ? nsType->module->path : modPath;
+                functionUsages[prop->name].push_back({argTypes, resolvedTypeArguments, targetModPath});
             }
         }
         node->inferredType = lastType;  // CRITICAL: Set inferredType for function variable calls

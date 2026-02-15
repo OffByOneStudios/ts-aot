@@ -603,15 +603,18 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         auto sym = ns->module->exports->lookup(node->name);
         if (sym) {
             lastType = sym->type;
+            node->inferredType = lastType;
             return;
         }
         auto type = ns->module->exports->lookupType(node->name);
         if (type) {
             lastType = type;
+            node->inferredType = lastType;
             return;
         }
         reportError(fmt::format("Module does not export {}", node->name));
         lastType = std::make_shared<Type>(TypeKind::Any);
+        node->inferredType = lastType;
         return;
     }
 
