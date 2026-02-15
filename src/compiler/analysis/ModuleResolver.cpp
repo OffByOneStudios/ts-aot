@@ -114,7 +114,7 @@ ResolvedModule ModuleResolver::resolve(const std::string& specifier, const fs::p
 
 ResolvedModule ModuleResolver::resolveRelative(const std::string& specifier, const fs::path& fromDir) {
     fs::path resolved = fromDir / specifier;
-    
+
     // Try with extensions
     auto withExt = tryExtensions(resolved);
     if (withExt) {
@@ -125,18 +125,20 @@ ResolvedModule ModuleResolver::resolveRelative(const std::string& specifier, con
             .isExternal = false
         };
     }
-    
-    // Try as directory
+
+    // Try as directory (may set lastResolvedTypesPath_ via getPackageEntryPoint)
+    lastResolvedTypesPath_.clear();
     auto asDir = tryDirectory(resolved);
     if (asDir) {
         return ResolvedModule{
             .path = asDir->string(),
+            .typesPath = lastResolvedTypesPath_,
             .type = getModuleType(*asDir),
             .packageName = "",
             .isExternal = false
         };
     }
-    
+
     SPDLOG_WARN("Could not resolve relative import: {}", specifier);
     return ResolvedModule{};
 }
@@ -209,25 +211,80 @@ ResolvedModule ModuleResolver::resolveNodeModules(const std::string& specifier, 
                 if (pkg) {
                     auto entryPoint = getPackageEntryPoint(nodeModules, *pkg);
                     if (entryPoint) {
-                        return ResolvedModule{
+                        auto result = ResolvedModule{
                             .path = entryPoint->string(),
+                            .typesPath = lastResolvedTypesPath_,
                             .type = getModuleType(*entryPoint),
                             .packageName = packageName,
                             .isExternal = true
                         };
+
+                        // If no types found in the package itself, check @types/<package>
+                        if (result.typesPath.empty() && result.type != ModuleType::Declaration) {
+                            fs::path atTypesDir = searchDir / "node_modules" / "@types" / packageName;
+                            if (fs::exists(atTypesDir)) {
+                                fs::path atTypesPkgJson = atTypesDir / "package.json";
+                                if (fs::exists(atTypesPkgJson)) {
+                                    auto atTypesPkg = parsePackageJson(atTypesPkgJson);
+                                    if (atTypesPkg) {
+                                        auto typesEntry = getPackageEntryPoint(atTypesDir, *atTypesPkg);
+                                        if (typesEntry && typesEntry->string().ends_with(".d.ts")) {
+                                            result.typesPath = typesEntry->string();
+                                            SPDLOG_INFO("Found @types/{}: {}", packageName, result.typesPath);
+                                        }
+                                    }
+                                } else {
+                                    // No package.json — try index.d.ts directly
+                                    fs::path indexDts = atTypesDir / "index.d.ts";
+                                    if (fs::exists(indexDts)) {
+                                        result.typesPath = fs::absolute(indexDts).string();
+                                        SPDLOG_INFO("Found @types/{}: {}", packageName, result.typesPath);
+                                    }
+                                }
+                            }
+                        }
+
+                        return result;
                     }
                 }
             }
-            
-            // Fallback: try index files
+
+            // Fallback: try index files (package had no main/module/types/exports)
             auto indexFile = tryDirectory(nodeModules);
             if (indexFile) {
-                return ResolvedModule{
+                auto result = ResolvedModule{
                     .path = indexFile->string(),
                     .type = getModuleType(*indexFile),
                     .packageName = packageName,
                     .isExternal = true
                 };
+
+                // Check @types/<package> for types (same logic as the package.json path)
+                if (result.typesPath.empty() && result.type != ModuleType::Declaration) {
+                    fs::path atTypesDir = searchDir / "node_modules" / "@types" / packageName;
+                    if (fs::exists(atTypesDir)) {
+                        fs::path atTypesPkgJson = atTypesDir / "package.json";
+                        if (fs::exists(atTypesPkgJson)) {
+                            auto atTypesPkg = parsePackageJson(atTypesPkgJson);
+                            if (atTypesPkg) {
+                                auto typesEntry = getPackageEntryPoint(atTypesDir, *atTypesPkg);
+                                if (typesEntry && typesEntry->string().ends_with(".d.ts")) {
+                                    result.typesPath = typesEntry->string();
+                                    SPDLOG_INFO("Found @types/{}: {}", packageName, result.typesPath);
+                                }
+                            }
+                        } else {
+                            // No package.json — try index.d.ts directly
+                            fs::path indexDts = atTypesDir / "index.d.ts";
+                            if (fs::exists(indexDts)) {
+                                result.typesPath = fs::absolute(indexDts).string();
+                                SPDLOG_INFO("Found @types/{}: {}", packageName, result.typesPath);
+                            }
+                        }
+                    }
+                }
+
+                return result;
             }
         }
         
@@ -455,43 +512,64 @@ std::optional<PackageJson> ModuleResolver::parsePackageJson(const fs::path& pack
 std::optional<fs::path> ModuleResolver::getPackageEntryPoint(const fs::path& packageDir, const PackageJson& pkg) {
     // Priority order:
     // 1. exports["."] (modern packages)
-    // 2. types/typings (for TypeScript)
-    // 3. module (ESM)
-    // 4. main (CommonJS)
-    
+    // 2. types/typings → return .d.ts directly (types-only module)
+    // 3. module (ESM) or main (CommonJS) → implementation file
+    // Note: lastResolvedTypesPath is set as a side-effect for paired loading
+
+    lastResolvedTypesPath_.clear();
+
     if (pkg.exports.count(".")) {
         fs::path entryPath = packageDir / pkg.exports.at(".");
         auto resolved = tryExtensions(entryPath);
-        if (resolved) return resolved;
+        if (resolved) {
+            // If there's also a types field, remember it for paired loading
+            if (!pkg.types.empty()) {
+                fs::path typesPath = packageDir / pkg.types;
+                if (fs::exists(typesPath)) {
+                    lastResolvedTypesPath_ = fs::absolute(typesPath).string();
+                }
+            }
+            return resolved;
+        }
     }
-    
+
     // For TypeScript, prefer types field
     if (!pkg.types.empty()) {
         fs::path typesPath = packageDir / pkg.types;
         if (fs::exists(typesPath)) {
-            // But we need the actual implementation, not just types
-            // Try to find corresponding .ts or .js
-            fs::path tsPath = typesPath;
-            tsPath.replace_extension(".ts");
-            if (fs::exists(tsPath)) return fs::absolute(tsPath);
-            
-            tsPath.replace_extension(".js");
-            if (fs::exists(tsPath)) return fs::absolute(tsPath);
+            // Try to find corresponding implementation (.js)
+            // The .d.ts stem may differ from .js stem (e.g., index.d.ts → index.js)
+            fs::path jsPath = typesPath;
+            // Remove the .d.ts extension properly (not just .ts)
+            std::string pathStr = typesPath.string();
+            if (pathStr.ends_with(".d.ts")) {
+                pathStr = pathStr.substr(0, pathStr.size() - 5);  // Remove ".d.ts"
+            }
+
+            // Try .js implementation
+            fs::path implPath = pathStr + ".js";
+            if (fs::exists(implPath)) {
+                lastResolvedTypesPath_ = fs::absolute(typesPath).string();
+                return fs::absolute(implPath);
+            }
+
+            // No implementation found — return .d.ts directly (types-only)
+            return fs::absolute(typesPath);
         }
     }
-    
+
     if (!pkg.module.empty()) {
         fs::path modulePath = packageDir / pkg.module;
         auto resolved = tryExtensions(modulePath);
         if (resolved) return resolved;
     }
-    
+
     if (!pkg.main.empty()) {
         fs::path mainPath = packageDir / pkg.main;
         auto resolved = tryExtensions(mainPath);
         if (resolved) return resolved;
     }
-    
+
     return std::nullopt;
 }
 
@@ -570,13 +648,14 @@ bool ModuleResolver::loadTsConfig(const fs::path& tsconfigPath) {
 }
 
 ModuleType ModuleResolver::getModuleType(const fs::path& filePath) {
+    // Check .d.ts BEFORE .ts — std::filesystem::extension() returns ".ts" for ".d.ts"
+    if (filePath.string().ends_with(".d.ts")) {
+        return ModuleType::Declaration;
+    }
     std::string ext = filePath.extension().string();
-    
+
     if (ext == ".ts" || ext == ".tsx") {
         return ModuleType::TypeScript;
-    }
-    if (ext == ".d.ts" || filePath.string().ends_with(".d.ts")) {
-        return ModuleType::Declaration;
     }
     if (ext == ".js" || ext == ".jsx" || ext == ".mjs" || ext == ".cjs") {
         // TODO: Check for JSDoc annotations to distinguish typed/untyped

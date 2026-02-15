@@ -23,11 +23,12 @@ enum class ModuleType {
 
 // Result of module resolution
 struct ResolvedModule {
-    std::string path;           // Absolute file path
+    std::string path;           // Absolute file path (implementation: .ts or .js)
+    std::string typesPath;      // Optional .d.ts path for type info (when paired with .js)
     ModuleType type;            // Type of module
     std::string packageName;    // Package name if from node_modules (e.g., "lodash")
     bool isExternal = false;    // True if from node_modules
-    
+
     bool isValid() const { return !path.empty(); }
 };
 
@@ -109,7 +110,10 @@ private:
     
     // Cache for package.json files
     std::map<std::string, PackageJson> packageJsonCache;
-    
+
+    // Side-effect from getPackageEntryPoint: .d.ts path for paired loading
+    std::string lastResolvedTypesPath_;
+
     // Extension priority order
     static const std::vector<std::string> EXTENSIONS;
     static const std::vector<std::string> INDEX_FILES;

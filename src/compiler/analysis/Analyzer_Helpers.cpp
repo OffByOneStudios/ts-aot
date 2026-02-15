@@ -579,40 +579,78 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
         }
         
         if (resolved.type == ModuleType::Declaration) {
-            // .d.ts files - parse for types only
-            // TODO: Implement .d.ts parsing
-            SPDLOG_DEBUG("Declaration file: {}", resolved.path);
-            module->analyzed = true;
+            SPDLOG_INFO("Parsing declaration file: {}", resolved.path);
+
+            // Parse the .d.ts AST using the native C++ parser
+            auto ast = parseSourceFile(resolved.path);
+            if (!ast) {
+                reportError("Failed to parse declaration file: " + resolved.path);
+                module->analyzed = true;
+                return module;
+            }
+            module->ast = std::shared_ptr<ast::Program>(ast.release());
+
+            // Analyze with errors suppressed (declarations may reference unavailable types)
+            bool prevSuppress = suppressErrors;
+            suppressErrors = true;
+            analyzeDeclarationModule(module);
+            suppressErrors = prevSuppress;
+
             return module;
         }
         
         // TypeScript or JavaScript - parse the AST
         std::string jsonPath = resolved.path + ".ast.json";
-        
+
         // Use our Node.js parser to dump AST
         std::string command = "node scripts/dump_ast.js \"" + resolved.path + "\" \"" + jsonPath + "\"";
         if (system(command.c_str()) != 0) {
             reportError("Failed to parse " + resolved.path);
             return nullptr;
         }
-        
+
         module->ast = std::shared_ptr<ast::Program>(ast::loadAst(jsonPath).release());
-        
+
         if (resolved.type == ModuleType::UntypedJavaScript) {
             SPDLOG_WARN("Importing untyped JavaScript: {} (slow path)", resolved.path);
-            // TODO: Mark module for slow-path codegen
         }
-        
+
         if (resolved.isExternal) {
             SPDLOG_DEBUG("External package: {}", resolved.packageName);
         }
-        
+
         bool prevSuppress = suppressErrors;
         if (resolved.type != ModuleType::TypeScript) {
             suppressErrors = true;
         }
         analyzeModule(module);
         suppressErrors = prevSuppress;
+
+        // If we have a paired .d.ts, overlay typed exports AFTER JS analysis
+        // (so .d.ts types override the untyped `any` from the JS analysis)
+        if (!resolved.typesPath.empty()) {
+            SPDLOG_INFO("Loading paired types from: {}", resolved.typesPath);
+            auto typesAst = parseSourceFile(resolved.typesPath);
+            if (typesAst) {
+                auto typesModule = std::make_shared<Module>();
+                typesModule->path = resolved.typesPath;
+                typesModule->type = ModuleType::Declaration;
+                typesModule->ast = std::shared_ptr<ast::Program>(typesAst.release());
+
+                bool prevSup = suppressErrors;
+                suppressErrors = true;
+                analyzeDeclarationModule(typesModule);
+                suppressErrors = prevSup;
+
+                // Overlay .d.ts typed exports on top of JS untyped exports
+                for (const auto& [name, sym] : typesModule->exports->getCurrentScopeSymbols()) {
+                    module->exports->define(name, sym->type);
+                }
+                for (const auto& [name, type] : typesModule->exports->getCurrentScopeTypes()) {
+                    module->exports->defineType(name, type);
+                }
+            }
+        }
         
     } catch (const std::exception& e) {
         reportError("Failed to load module " + resolved.path + ": " + e.what());
