@@ -2651,6 +2651,9 @@ void ASTToHIR::visitThrowStatement(ast::ThrowStatement* node) {
 }
 
 void ASTToHIR::visitImportDeclaration(ast::ImportDeclaration* node) {
+    // Type-only imports are erased entirely - no runtime effect
+    if (node->isTypeOnly) return;
+
     // Track named imports from extension modules so we can route their calls
     // through the extension registry instead of treating them as user functions.
     // E.g., `import { join } from 'path'` -> extensionImports_["join"] = {"path", "join"}
@@ -2663,6 +2666,8 @@ void ASTToHIR::visitImportDeclaration(ast::ImportDeclaration* node) {
 
     if (registry.isRegisteredModule(modSpec) || registry.isRegisteredObject(modSpec)) {
         for (const auto& spec : node->namedImports) {
+            // Skip per-specifier type-only imports: import { type Foo, bar } from '...'
+            if (spec.isTypeOnly) continue;
             std::string exportedName = spec.propertyName.empty() ? spec.name : spec.propertyName;
             extensionImports_[spec.name] = { modSpec, exportedName };
         }
