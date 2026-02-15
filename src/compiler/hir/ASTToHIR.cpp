@@ -2668,6 +2668,14 @@ void ASTToHIR::visitExportAssignment(ast::ExportAssignment* node) {
     }
 }
 
+void ASTToHIR::visitNamespaceDeclaration(ast::NamespaceDeclaration* node) {
+    // Namespaces have no runtime code — type-only construct
+}
+
+void ASTToHIR::visitImportEqualsDeclaration(ast::ImportEqualsDeclaration* node) {
+    // Import equals has no runtime code — resolved at analysis time
+}
+
 //==============================================================================
 // Expression Lowering
 //==============================================================================

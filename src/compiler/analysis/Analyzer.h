@@ -165,6 +165,8 @@ private:
     void visitImportDeclaration(ast::ImportDeclaration* node) override;
     void visitExportDeclaration(ast::ExportDeclaration* node) override;
     void visitExportAssignment(ast::ExportAssignment* node) override;
+    void visitNamespaceDeclaration(ast::NamespaceDeclaration* node) override;
+    void visitImportEqualsDeclaration(ast::ImportEqualsDeclaration* node) override;
     void visitBreakStatement(ast::BreakStatement* node) override;
     void visitContinueStatement(ast::ContinueStatement* node) override;
     void visitLabeledStatement(ast::LabeledStatement* node) override;

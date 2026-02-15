@@ -206,8 +206,13 @@ std::unique_ptr<ast::Program> Analyzer::parseSourceFile(const std::string& path)
     std::string source((std::istreambuf_iterator<char>(file)),
                         std::istreambuf_iterator<char>());
 
-    parser::Parser nativeParser;
-    return nativeParser.parse(source, path);
+    try {
+        parser::Parser nativeParser;
+        return nativeParser.parse(source, path);
+    } catch (const std::exception& e) {
+        SPDLOG_WARN("Native parser failed for {}: {}", path, e.what());
+        return nullptr;
+    }
 }
 
 ResolvedModule Analyzer::resolveModule(const std::string& specifier) {

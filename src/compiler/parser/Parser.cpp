@@ -588,25 +588,40 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             return block;
         }
         if (current_.kind == TokenKind::KW_namespace || current_.kind == TokenKind::KW_module) {
-            // Skip namespace/module declarations
-            advance();
-            identifierName(); // name
+            advance(); // consume 'namespace'/'module'
+            auto ns = std::make_unique<ast::NamespaceDeclaration>();
+            ns->name = identifierName();
             if (check(TokenKind::OpenBrace)) {
-                // Skip block
-                int depth = 0;
                 advance(); // {
-                depth++;
-                while (depth > 0 && !isAtEnd()) {
-                    if (current_.kind == TokenKind::OpenBrace) depth++;
-                    else if (current_.kind == TokenKind::CloseBrace) depth--;
-                    advance();
+                while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
+                    // Inside declare namespace, skip 'export' keyword on members
+                    if (current_.kind == TokenKind::KW_export) {
+                        advance();
+                    }
+                    // Inside declare namespace, members are implicitly 'declare'
+                    // so handle them the same way as top-level 'declare' statements
+                    if (current_.kind == TokenKind::KW_function) {
+                        ns->body.push_back(parseFunctionDeclaration(false, false, false));
+                    } else if (current_.kind == TokenKind::KW_class) {
+                        ns->body.push_back(parseClassDeclaration(false, false, false));
+                    } else if (current_.kind == TokenKind::KW_interface) {
+                        ns->body.push_back(parseInterfaceDeclaration(false, false));
+                    } else if (current_.kind == TokenKind::KW_type) {
+                        ns->body.push_back(parseTypeAliasDeclaration(false));
+                    } else if (current_.kind == TokenKind::KW_enum) {
+                        ns->body.push_back(parseEnumDeclaration(false, true));
+                    } else if (current_.kind == TokenKind::KW_var || current_.kind == TokenKind::KW_let ||
+                               current_.kind == TokenKind::KW_const) {
+                        auto stmts = parseVariableDeclarationList(false);
+                        for (auto& s : stmts) ns->body.push_back(std::move(s));
+                    } else {
+                        // Skip unknown tokens to avoid infinite loop
+                        advance();
+                    }
                 }
+                expect(TokenKind::CloseBrace, "'}'");
             }
-            // Return empty expression statement as placeholder
-            auto es = std::make_unique<ast::ExpressionStatement>();
-            auto id = std::make_unique<ast::UndefinedLiteral>();
-            es->expression = std::move(id);
-            return es;
+            return ns;
         }
         // Fallthrough to normal parsing
     }
@@ -1631,6 +1646,31 @@ ast::StmtPtr Parser::parseDebuggerStatement() {
 ast::StmtPtr Parser::parseImportDeclaration() {
     auto startTok = current_;
     expect(TokenKind::KW_import, "'import'");
+
+    // import X = require('module') — TypeScript import equals
+    if (isIdentifierOrKeyword() && !check(TokenKind::StringLiteral)) {
+        auto saved = saveState();
+        std::string name = identifierName();
+        if (match(TokenKind::Equals)) {
+            // Check for require(...)
+            if (current_.text == "require") {
+                advance(); // consume 'require'
+                expect(TokenKind::OpenParen, "'('");
+                if (check(TokenKind::StringLiteral)) {
+                    std::string moduleSpec = Lexer::getStringValue(current_.text);
+                    advance();
+                    expect(TokenKind::CloseParen, "')'");
+                    expectSemicolon();
+                    auto ieq = std::make_unique<ast::ImportEqualsDeclaration>();
+                    setLocation(ieq.get(), startTok);
+                    ieq->name = name;
+                    ieq->moduleSpecifier = moduleSpec;
+                    return ieq;
+                }
+            }
+        }
+        restoreState(saved);
+    }
 
     auto node = std::make_unique<ast::ImportDeclaration>();
     setLocation(node.get(), startTok);
