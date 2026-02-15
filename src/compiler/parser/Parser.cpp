@@ -590,29 +590,48 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
         if (current_.kind == TokenKind::KW_namespace || current_.kind == TokenKind::KW_module) {
             advance(); // consume 'namespace'/'module'
             auto ns = std::make_unique<ast::NamespaceDeclaration>();
-            ns->name = identifierName();
+            if (check(TokenKind::StringLiteral)) {
+                // declare module 'string-literal' — ambient module declaration
+                ns->name = current_.value;
+                ns->isAmbientModule = true;
+                advance();
+            } else {
+                ns->name = identifierName();
+            }
             if (check(TokenKind::OpenBrace)) {
                 advance(); // {
                 while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
-                    // Inside declare namespace, skip 'export' keyword on members
+                    // Track whether member had 'export' keyword
+                    bool memberExported = false;
+                    bool memberDefaultExport = false;
                     if (current_.kind == TokenKind::KW_export) {
+                        // For ambient modules, preserve export status; for regular namespaces, just skip
+                        memberExported = ns->isAmbientModule;
+                        advance();
+                        if (current_.kind == TokenKind::KW_default) {
+                            memberDefaultExport = ns->isAmbientModule;
+                            advance();
+                        }
+                    }
+                    // Skip 'declare' keyword inside module body (common in .d.ts)
+                    if (current_.kind == TokenKind::KW_declare) {
                         advance();
                     }
                     // Inside declare namespace, members are implicitly 'declare'
                     // so handle them the same way as top-level 'declare' statements
                     if (current_.kind == TokenKind::KW_function) {
-                        ns->body.push_back(parseFunctionDeclaration(false, false, false));
+                        ns->body.push_back(parseFunctionDeclaration(memberExported, memberDefaultExport, false));
                     } else if (current_.kind == TokenKind::KW_class) {
-                        ns->body.push_back(parseClassDeclaration(false, false, false));
+                        ns->body.push_back(parseClassDeclaration(memberExported, memberDefaultExport, false));
                     } else if (current_.kind == TokenKind::KW_interface) {
-                        ns->body.push_back(parseInterfaceDeclaration(false, false));
+                        ns->body.push_back(parseInterfaceDeclaration(memberExported, memberDefaultExport));
                     } else if (current_.kind == TokenKind::KW_type) {
-                        ns->body.push_back(parseTypeAliasDeclaration(false));
+                        ns->body.push_back(parseTypeAliasDeclaration(memberExported));
                     } else if (current_.kind == TokenKind::KW_enum) {
-                        ns->body.push_back(parseEnumDeclaration(false, true));
+                        ns->body.push_back(parseEnumDeclaration(memberExported, true));
                     } else if (current_.kind == TokenKind::KW_var || current_.kind == TokenKind::KW_let ||
                                current_.kind == TokenKind::KW_const) {
-                        auto stmts = parseVariableDeclarationList(false);
+                        auto stmts = parseVariableDeclarationList(memberExported);
                         for (auto& s : stmts) ns->body.push_back(std::move(s));
                     } else {
                         // Skip unknown tokens to avoid infinite loop

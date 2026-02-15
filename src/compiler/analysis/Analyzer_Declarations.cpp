@@ -232,6 +232,40 @@ void Analyzer::visitExportAssignment(ast::ExportAssignment* node) {
 }
 
 void Analyzer::visitNamespaceDeclaration(ast::NamespaceDeclaration* node) {
+    if (node->isAmbientModule) {
+        // declare module 'string-literal' — ambient module declaration
+        // Create a synthetic module for the ambient module name
+        auto ambientModule = std::make_shared<Module>();
+        ambientModule->path = "ambient:" + node->name;
+        ambientModule->type = ModuleType::Declaration;
+        ambientModule->analyzed = true;
+
+        auto savedModule = currentModule;
+        currentModule = ambientModule;
+
+        // Visit body — members marked isExported will add to ambientModule->exports
+        for (auto& stmt : node->body) {
+            visit(stmt.get());
+        }
+
+        currentModule = savedModule;
+
+        // Register by bare name so loadModule('name') can find it
+        modules[node->name] = ambientModule;
+
+        // Also copy exports to the file-level module (common single-module case:
+        // @types/lodash/index.d.ts contains declare module 'lodash' { ... })
+        if (savedModule) {
+            for (const auto& [name, sym] : ambientModule->exports->getCurrentScopeSymbols()) {
+                savedModule->exports->define(name, sym->type);
+            }
+            for (const auto& [name, type] : ambientModule->exports->getCurrentScopeTypes()) {
+                savedModule->exports->defineType(name, type);
+            }
+        }
+        return;
+    }
+
     // For .d.ts files, namespace bodies contain type aliases, interfaces, etc.
     // Visit them to register types in the current scope.
     for (auto& stmt : node->body) {

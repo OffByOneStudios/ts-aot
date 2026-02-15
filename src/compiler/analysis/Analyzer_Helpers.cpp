@@ -503,6 +503,10 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
     ResolvedModule resolved = resolveModule(specifier);
     
     if (!resolved.isValid()) {
+        // Check if an ambient module declaration exists (declare module 'name')
+        if (modules.count(specifier)) {
+            return modules[specifier];
+        }
         reportError("Could not resolve module: " + specifier);
         return nullptr;
     }

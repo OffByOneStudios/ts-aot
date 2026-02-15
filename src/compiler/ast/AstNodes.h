@@ -537,6 +537,7 @@ struct NamespaceDeclaration : Statement {
     std::string name;
     std::vector<StmtPtr> body;
     bool isExported = false;
+    bool isAmbientModule = false;  // declare module 'string-literal' (ambient module declaration)
     std::string getKind() const override { return "NamespaceDeclaration"; }
     void accept(Visitor* visitor) override { visitor->visitNamespaceDeclaration(this); }
 };
