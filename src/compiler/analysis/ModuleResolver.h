@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <nlohmann/json_fwd.hpp>
 
 namespace ts {
 
@@ -100,9 +101,12 @@ private:
     
     // Parse package.json
     std::optional<PackageJson> parsePackageJson(const fs::path& packageJsonPath);
-    
+
     // Get the entry point from a package
     std::optional<fs::path> getPackageEntryPoint(const fs::path& packageDir, const PackageJson& pkg);
+
+    // Recursively resolve conditional exports (handles nested { "import": { "types": ..., "default": ... } })
+    static std::optional<std::string> resolveExportCondition(const nlohmann::json& val);
     
     fs::path currentDir;
     fs::path projectRoot;

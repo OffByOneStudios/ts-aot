@@ -11,13 +11,15 @@ namespace ts {
 
 using json = nlohmann::json;
 
-// Extension priority: TypeScript first, then JavaScript
+// Extension priority: TypeScript first, then JavaScript, then ESM/CJS variants
 const std::vector<std::string> ModuleResolver::EXTENSIONS = {
-    ".ts", ".tsx", ".d.ts", ".js", ".jsx", ".json"
+    ".ts", ".tsx", ".d.ts", ".mts", ".d.mts", ".cts", ".d.cts",
+    ".js", ".jsx", ".mjs", ".cjs", ".json"
 };
 
 const std::vector<std::string> ModuleResolver::INDEX_FILES = {
-    "index.ts", "index.tsx", "index.d.ts", "index.js", "index.jsx"
+    "index.ts", "index.tsx", "index.d.ts",
+    "index.js", "index.jsx", "index.mjs", "index.cjs"
 };
 
 // Fallback builtin modules that don't have extension contracts yet
@@ -181,8 +183,39 @@ ResolvedModule ModuleResolver::resolveNodeModules(const std::string& specifier, 
         if (fs::exists(nodeModules) && fs::is_directory(nodeModules)) {
             SPDLOG_DEBUG("Found package at: {}", nodeModules.string());
             
-            // If there's a subpath, resolve it directly
+            // If there's a subpath, check exports field first, then try filesystem
             if (!subpath.empty()) {
+                // Check package.json exports field for subpath mapping
+                fs::path pkgJsonPath = nodeModules / "package.json";
+                if (fs::exists(pkgJsonPath)) {
+                    auto pkg = parsePackageJson(pkgJsonPath);
+                    if (pkg && !pkg->exports.empty()) {
+                        std::string exportKey = "." + subpath; // e.g., "./utils"
+                        auto it = pkg->exports.find(exportKey);
+                        if (it != pkg->exports.end()) {
+                            fs::path resolved = nodeModules / it->second;
+                            if (fs::exists(resolved)) {
+                                return ResolvedModule{
+                                    .path = resolved.string(),
+                                    .type = getModuleType(resolved),
+                                    .packageName = packageName,
+                                    .isExternal = true
+                                };
+                            }
+                            auto withExt = tryExtensions(resolved);
+                            if (withExt) {
+                                return ResolvedModule{
+                                    .path = withExt->string(),
+                                    .type = getModuleType(*withExt),
+                                    .packageName = packageName,
+                                    .isExternal = true
+                                };
+                            }
+                        }
+                    }
+                }
+
+                // Fallback: resolve subpath directly on filesystem
                 fs::path subpathResolved = nodeModules / subpath.substr(1); // Remove leading /
                 auto withExt = tryExtensions(subpathResolved);
                 if (withExt) {
@@ -432,6 +465,25 @@ std::optional<fs::path> ModuleResolver::tryDirectory(const fs::path& dirPath) {
     return std::nullopt;
 }
 
+std::optional<std::string> ModuleResolver::resolveExportCondition(const nlohmann::json& val) {
+    if (val.is_string()) {
+        return val.get<std::string>();
+    }
+    if (!val.is_object()) {
+        return std::nullopt;
+    }
+    // Priority: types > import > require > node > default
+    // This handles arbitrarily nested conditionals like:
+    // { "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" } }
+    for (const char* key : {"types", "import", "require", "node", "default"}) {
+        if (val.contains(key)) {
+            auto result = resolveExportCondition(val[key]);
+            if (result) return result;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<PackageJson> ModuleResolver::parsePackageJson(const fs::path& packageJsonPath) {
     std::string pathStr = packageJsonPath.string();
     
@@ -474,27 +526,16 @@ std::optional<PackageJson> ModuleResolver::parsePackageJson(const fs::path& pack
             pkg.hasTypeModule = (j["type"].get<std::string>() == "module");
         }
         
-        // Parse exports field (simplified - only string values for now)
+        // Parse exports field with recursive conditional resolution
         if (j.contains("exports")) {
             auto& exports = j["exports"];
             if (exports.is_string()) {
                 pkg.exports["."] = exports.get<std::string>();
             } else if (exports.is_object()) {
                 for (auto& [key, val] : exports.items()) {
-                    if (val.is_string()) {
-                        pkg.exports[key] = val.get<std::string>();
-                    } else if (val.is_object()) {
-                        // Handle conditional exports like { "import": "./esm.js", "require": "./cjs.js" }
-                        // Prefer TypeScript types, then import, then require, then default
-                        if (val.contains("types") && val["types"].is_string()) {
-                            pkg.exports[key] = val["types"].get<std::string>();
-                        } else if (val.contains("import") && val["import"].is_string()) {
-                            pkg.exports[key] = val["import"].get<std::string>();
-                        } else if (val.contains("require") && val["require"].is_string()) {
-                            pkg.exports[key] = val["require"].get<std::string>();
-                        } else if (val.contains("default") && val["default"].is_string()) {
-                            pkg.exports[key] = val["default"].get<std::string>();
-                        }
+                    auto resolved = resolveExportCondition(val);
+                    if (resolved) {
+                        pkg.exports[key] = *resolved;
                     }
                 }
             }
