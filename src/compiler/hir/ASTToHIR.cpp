@@ -3326,6 +3326,96 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     // Handle method call
     auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
     if (propAccess) {
+        // Case 0: Namespace method call - import * as ns from './mod'; ns.func()
+        // Check specializations (always complete) to determine if this is a user-defined
+        // function. module_->functions may not have the function yet if the specialization
+        // hasn't been processed, but specializations_ is set at the start.
+        // Extension modules (timers/promises, fs, etc.) don't have specializations,
+        // so they fall through to the normal dispatch path.
+        if (propAccess->expression->inferredType &&
+            propAccess->expression->inferredType->kind == ts::TypeKind::Namespace) {
+            std::string funcName = propAccess->name;
+
+            // Compute mangled name based on argument types
+            std::vector<std::shared_ptr<ts::Type>> argTypes;
+            for (auto& arg : node->arguments) {
+                argTypes.push_back(arg->inferredType ? arg->inferredType
+                                   : std::make_shared<ts::Type>(ts::TypeKind::Any));
+            }
+            std::string mangledName = Monomorphizer::generateMangledName(
+                funcName, argTypes, node->resolvedTypeArguments);
+
+            // Check specializations to determine if this is a user-defined function
+            bool foundSpec = false;
+            std::string callName = mangledName;
+            std::shared_ptr<ts::Type> specReturnType;
+
+            if (specializations_) {
+                // Try mangled name first
+                for (const auto& spec : *specializations_) {
+                    if (spec.specializedName == mangledName) {
+                        foundSpec = true;
+                        specReturnType = spec.returnType;
+                        break;
+                    }
+                }
+                // Try original name as fallback
+                if (!foundSpec) {
+                    for (const auto& spec : *specializations_) {
+                        if (spec.originalName == funcName && spec.specializedName != funcName) {
+                            foundSpec = true;
+                            callName = spec.specializedName;
+                            specReturnType = spec.returnType;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (foundSpec) {
+                // Look up HIR function for parameter info (may not be available yet
+                // if this function's specialization hasn't been processed)
+                HIRFunction* targetFunc = nullptr;
+                for (auto& f : module_->functions) {
+                    if (f->name == callName) {
+                        targetFunc = f.get();
+                        break;
+                    }
+                }
+
+                // Pad args with undefined for missing params
+                if (targetFunc && args.size() < targetFunc->params.size()) {
+                    for (size_t i = args.size(); i < targetFunc->params.size(); ++i) {
+                        args.push_back(builder_.createConstUndefined());
+                    }
+                }
+
+                // Box arguments when target parameter is Any type
+                if (targetFunc) {
+                    for (size_t i = 0; i < args.size() && i < targetFunc->params.size(); ++i) {
+                        const auto& [paramName, paramType] = targetFunc->params[i];
+                        if (paramType && paramType->kind == HIRTypeKind::Any) {
+                            args[i] = boxValueIfNeeded(args[i]);
+                        }
+                    }
+                }
+
+                // Determine return type from HIR function or specialization
+                std::shared_ptr<HIRType> returnType;
+                if (targetFunc && targetFunc->returnType) {
+                    returnType = targetFunc->returnType;
+                } else if (specReturnType) {
+                    returnType = convertType(specReturnType);
+                } else {
+                    returnType = HIRType::makeAny();
+                }
+
+                lastValue_ = builder_.createCall(callName, args, returnType);
+                return;
+            }
+            // If not found in specializations, fall through to normal dispatch
+        }
+
         // Check if we can use a direct call for method invocation
 
         // Case 1: Method call on 'this' - we know the class statically
@@ -4012,6 +4102,12 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         } else {
             className = ident->name;
         }
+    } else if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())) {
+        // Handle new ns.ClassName() where ns is a namespace import
+        if (propAccess->expression->inferredType &&
+            propAccess->expression->inferredType->kind == ts::TypeKind::Namespace) {
+            className = propAccess->name;
+        }
     }
 
     // Handle built-in Array class
@@ -4378,6 +4474,62 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 }
                 break;
             }
+        }
+
+        // Check for namespace property access: ns.prop where ns is a namespace import
+        // Only intercept for user-defined modules; extension modules fall through
+        // to normal dispatch via lowerExpression + extension registry.
+        if (classNameIdent->inferredType &&
+            classNameIdent->inferredType->kind == ts::TypeKind::Namespace) {
+
+            // Check specializations first (always complete, not affected by processing order)
+            if (specializations_) {
+                for (const auto& spec : *specializations_) {
+                    if (spec.originalName == node->name || spec.specializedName == node->name) {
+                        auto funcType = HIRType::makeFunction();
+                        lastValue_ = builder_.createLoadFunction(spec.specializedName, funcType);
+                        return;
+                    }
+                }
+            }
+
+            // Check already-processed HIR functions
+            for (const auto& func : module_->functions) {
+                if (func->name == node->name) {
+                    auto funcType = HIRType::makeFunction();
+                    funcType->returnType = func->returnType;
+                    for (const auto& param : func->params) {
+                        funcType->paramTypes.push_back(param.second);
+                    }
+                    lastValue_ = builder_.createLoadFunction(node->name, funcType);
+                    return;
+                }
+            }
+
+            // Check for module-level globals (exported variables)
+            std::string globalName = "__modvar_" + node->name;
+            auto globalVar = lookupVariable(globalName);
+            if (globalVar) {
+                lastValue_ = globalVar;
+                return;
+            }
+
+            // Check for enum member access through namespace
+            for (const auto& enumPair : enumValues_) {
+                auto memberIt = enumPair.second.find(node->name);
+                if (memberIt != enumPair.second.end()) {
+                    const EnumValue& ev = memberIt->second;
+                    if (ev.isString) {
+                        lastValue_ = builder_.createConstString(ev.strValue);
+                    } else {
+                        lastValue_ = builder_.createConstFloat(static_cast<double>(ev.numValue));
+                    }
+                    return;
+                }
+            }
+
+            // If nothing found, fall through to normal dispatch
+            // (extension modules are handled via lowerExpression + extension registry)
         }
     }
 
@@ -4814,6 +4966,18 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     lastValue_ = lookupVariable(node->name);
     if (lastValue_) {
         return;
+    }
+
+    // Handle namespace identifiers standalone - these are compile-time constructs
+    // with no runtime representation (used only as prefixes for ns.member access).
+    // Skip if the name is a registered extension module (path, fs, etc.) - those
+    // are handled by the extension registry below via createLoadGlobal.
+    if (node->inferredType && node->inferredType->kind == ts::TypeKind::Namespace) {
+        auto& extReg = ext::ExtensionRegistry::instance();
+        if (!extReg.isRegisteredGlobalOrModule(node->name)) {
+            lastValue_ = builder_.createConstUndefined();
+            return;
+        }
     }
 
     // Handle special constants first (these are always hardcoded)
