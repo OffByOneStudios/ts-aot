@@ -44,6 +44,8 @@ struct ThrowStatement;
 struct ImportDeclaration;
 struct ExportDeclaration;
 struct ExportAssignment;
+struct NamespaceDeclaration;
+struct ImportEqualsDeclaration;
 struct BinaryExpression;
 struct AssignmentExpression;
 struct CallExpression;
@@ -122,6 +124,8 @@ struct Visitor {
     virtual void visitImportDeclaration(ImportDeclaration* node) = 0;
     virtual void visitExportDeclaration(ExportDeclaration* node) = 0;
     virtual void visitExportAssignment(ExportAssignment* node) = 0;
+    virtual void visitNamespaceDeclaration(NamespaceDeclaration* node) = 0;
+    virtual void visitImportEqualsDeclaration(ImportEqualsDeclaration* node) = 0;
     virtual void visitBinaryExpression(BinaryExpression* node) = 0;
     virtual void visitConditionalExpression(ConditionalExpression* node) = 0;
     virtual void visitAssignmentExpression(AssignmentExpression* node) = 0;
@@ -525,6 +529,22 @@ struct ExportAssignment : Statement {
     bool isExportEquals = false;
     std::string getKind() const override { return "ExportAssignment"; }
     void accept(Visitor* visitor) override { visitor->visitExportAssignment(this); }
+};
+
+struct NamespaceDeclaration : Statement {
+    std::string name;
+    std::vector<StmtPtr> body;
+    bool isExported = false;
+    std::string getKind() const override { return "NamespaceDeclaration"; }
+    void accept(Visitor* visitor) override { visitor->visitNamespaceDeclaration(this); }
+};
+
+struct ImportEqualsDeclaration : Statement {
+    std::string name;
+    std::string moduleSpecifier;
+    bool isExported = false;
+    std::string getKind() const override { return "ImportEqualsDeclaration"; }
+    void accept(Visitor* visitor) override { visitor->visitImportEqualsDeclaration(this); }
 };
 
 struct TypeAliasDeclaration : Statement {

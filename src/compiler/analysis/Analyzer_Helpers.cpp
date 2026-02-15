@@ -599,17 +599,21 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
             return module;
         }
         
-        // TypeScript or JavaScript - parse the AST
-        std::string jsonPath = resolved.path + ".ast.json";
-
-        // Use our Node.js parser to dump AST
-        std::string command = "node scripts/dump_ast.js \"" + resolved.path + "\" \"" + jsonPath + "\"";
-        if (system(command.c_str()) != 0) {
-            reportError("Failed to parse " + resolved.path);
-            return nullptr;
+        // TypeScript or JavaScript - parse the AST using native parser
+        auto nativeAst = parseSourceFile(resolved.path);
+        if (!nativeAst) {
+            // Fallback to Node.js parser
+            SPDLOG_WARN("Native parser failed for {}, falling back to Node.js", resolved.path);
+            std::string jsonPath = resolved.path + ".ast.json";
+            std::string command = "node scripts/dump_ast.js \"" + resolved.path + "\" \"" + jsonPath + "\"";
+            if (system(command.c_str()) != 0) {
+                reportError("Failed to parse " + resolved.path);
+                return nullptr;
+            }
+            module->ast = std::shared_ptr<ast::Program>(ast::loadAst(jsonPath).release());
+        } else {
+            module->ast = std::shared_ptr<ast::Program>(nativeAst.release());
         }
-
-        module->ast = std::shared_ptr<ast::Program>(ast::loadAst(jsonPath).release());
 
         if (resolved.type == ModuleType::UntypedJavaScript) {
             SPDLOG_WARN("Importing untyped JavaScript: {} (slow path)", resolved.path);

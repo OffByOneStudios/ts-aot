@@ -229,6 +229,29 @@ void Analyzer::visitExportAssignment(ast::ExportAssignment* node) {
     }
 }
 
+void Analyzer::visitNamespaceDeclaration(ast::NamespaceDeclaration* node) {
+    // For .d.ts files, namespace bodies contain type aliases, interfaces, etc.
+    // Visit them to register types in the current scope.
+    for (auto& stmt : node->body) {
+        visit(stmt.get());
+    }
+}
+
+void Analyzer::visitImportEqualsDeclaration(ast::ImportEqualsDeclaration* node) {
+    // import X = require('module') — CommonJS-style import
+    auto mod = loadModule(node->moduleSpecifier);
+    if (!mod) return;
+    // Try default export first (for `export = X` or `export default X`)
+    auto defaultExport = mod->exports->lookup("default");
+    if (defaultExport) {
+        symbols.define(node->name, defaultExport->type);
+    } else {
+        // Treat as namespace import (like import * as X from 'module')
+        auto nsType = std::make_shared<NamespaceType>(mod);
+        symbols.define(node->name, nsType);
+    }
+}
+
 void Analyzer::visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) {
     auto type = parseType(node->type, symbols);
     symbols.defineType(node->name, type);

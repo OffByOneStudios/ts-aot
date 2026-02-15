@@ -116,9 +116,11 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             if (kind == "ClassDeclaration" ||
                 kind == "InterfaceDeclaration" ||
                 kind == "ImportDeclaration" ||
+                kind == "ImportEqualsDeclaration" ||
                 kind == "ExportDeclaration" ||
                 kind == "EnumDeclaration" ||
-                kind == "TypeAliasDeclaration") {
+                kind == "TypeAliasDeclaration" ||
+                kind == "NamespaceDeclaration") {
                 keepInNewBody = true;
             } else if (kind == "FunctionDeclaration") {
                 // TypeScript: keep for monomorphization

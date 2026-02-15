@@ -190,6 +190,8 @@ private:
     void visitImportDeclaration(ast::ImportDeclaration* node) override;
     void visitExportDeclaration(ast::ExportDeclaration* node) override;
     void visitExportAssignment(ast::ExportAssignment* node) override;
+    void visitNamespaceDeclaration(ast::NamespaceDeclaration* node) override;
+    void visitImportEqualsDeclaration(ast::ImportEqualsDeclaration* node) override;
 
     //==========================================================================
     // Visitor Implementation - Expressions
