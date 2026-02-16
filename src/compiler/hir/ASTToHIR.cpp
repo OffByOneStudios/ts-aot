@@ -3837,6 +3837,15 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             lastValue_ = builder_.createCallIndirect(funcPtr, args, resultType);
             return;
         }
+        // Check if this is a CJS module binding (stored in __modvar_ global).
+        // CJS named imports that are function expressions (not FunctionDeclarations)
+        // are stored in moduleGlobalVars_ and must be called indirectly.
+        if (moduleGlobalVars_.count(ident->name)) {
+            std::string globalName = "__modvar_" + ident->name;
+            auto funcPtr = builder_.createLoadGlobalTyped(globalName, HIRType::makeAny());
+            lastValue_ = builder_.createCallIndirect(funcPtr, args, HIRType::makeAny());
+            return;
+        }
         // Handle builtin globals that are called as functions
         if (ident->name == "Symbol") {
             // Symbol(description?) creates a unique symbol
