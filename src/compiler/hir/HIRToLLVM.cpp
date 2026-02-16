@@ -11,6 +11,7 @@
 
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace ts::hir {
 
@@ -5201,6 +5202,87 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             }
             return;
         }
+
+        // Try extension type method from LoweringRegistry (e.g., ts_Cipher_update)
+        // Skip types that use property dispatch (no standalone C functions):
+        // fs extension's Dir, Dirent, Stats, FSWatcher, FsPromises types
+        // implement methods as TsMap properties, not extern "C" functions.
+        {
+            static const std::unordered_set<std::string> propertyDispatchTypes = {
+                "Stats", "Dirent", "Dir", "FSWatcher", "FsPromises"
+            };
+            std::string hirName = "ts_" + className + "_" + methodName;
+            auto& registry = ::hir::LoweringRegistry::instance();
+            const auto* spec = (!propertyDispatchTypes.count(className))
+                ? registry.lookup(hirName)
+                : nullptr;
+            if (spec) {
+                // Build LLVM function type from spec
+                llvm::Type* retTy = spec->returnType
+                    ? spec->returnType(context_)
+                    : builder_->getVoidTy();
+
+                std::vector<llvm::Type*> argTys;
+                for (const auto& argType : spec->argTypes) {
+                    argTys.push_back(argType(context_));
+                }
+
+                auto* ft = llvm::FunctionType::get(retTy, argTys, spec->isVariadic);
+                auto fn = module_->getOrInsertFunction(spec->runtimeFuncName, ft);
+
+                // Build arguments: spec includes ptrArg for self + remaining args
+                std::vector<llvm::Value*> llvmArgs;
+                size_t specArgIdx = 0;
+
+                // First arg in spec is self (ptrArg for instance methods)
+                if (specArgIdx < spec->argConversions.size()) {
+                    llvm::Value* selfArg = convertArg(obj, spec->argConversions[specArgIdx]);
+                    if (specArgIdx < argTys.size() && selfArg->getType() != argTys[specArgIdx]) {
+                        selfArg = coerceArgToType(selfArg, argTys[specArgIdx], inst->operands[0]);
+                    }
+                    llvmArgs.push_back(selfArg);
+                    specArgIdx++;
+                }
+
+                // Remaining args from operands[2..]
+                for (size_t i = 2; i < inst->operands.size() && specArgIdx < spec->argConversions.size(); ++i, ++specArgIdx) {
+                    llvm::Value* arg = getOperandValue(inst->operands[i]);
+                    arg = convertArg(arg, spec->argConversions[specArgIdx]);
+                    if (specArgIdx < argTys.size() && arg->getType() != argTys[specArgIdx]) {
+                        arg = coerceArgToType(arg, argTys[specArgIdx], inst->operands[i]);
+                    }
+                    llvmArgs.push_back(arg);
+                }
+
+                // Pad missing optional arguments
+                while (llvmArgs.size() < argTys.size()) {
+                    llvm::Type* expectedType = argTys[llvmArgs.size()];
+                    if (expectedType->isPointerTy())
+                        llvmArgs.push_back(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(expectedType)));
+                    else if (expectedType->isIntegerTy())
+                        llvmArgs.push_back(llvm::ConstantInt::get(expectedType, 0));
+                    else if (expectedType->isDoubleTy())
+                        llvmArgs.push_back(llvm::ConstantFP::get(expectedType, 0.0));
+                    else
+                        llvmArgs.push_back(llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+                }
+
+                llvm::Value* result;
+                if (retTy->isVoidTy()) {
+                    builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+                    result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+                } else {
+                    result = builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+                }
+
+                result = handleReturn(result, spec->returnHandling);
+
+                if (inst->result) {
+                    setValue(inst->result, result);
+                }
+                return;
+            }
+        }
     }
 
     // Handle common array methods on Any-typed values
@@ -6332,6 +6414,14 @@ void HIRToLLVM::lowerLoadCapture(HIRInstruction* inst) {
     // Get the boxed value from the cell: boxedValue = ts_cell_get(cell)
     llvm::Value* boxedValue = builder_->CreateCall(cellGetFt, cellGet.getCallee(), { cell });
 
+    // Declare ts_value_get_bool(TsValue*) -> i1
+    auto getBoolFt = llvm::FunctionType::get(
+        builder_->getInt1Ty(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto getBool = module_->getOrInsertFunction("ts_value_get_bool", getBoolFt);
+
     // Unbox based on the expected type
     llvm::Value* result = nullptr;
     if (inst->result && inst->result->type) {
@@ -6340,6 +6430,9 @@ void HIRToLLVM::lowerLoadCapture(HIRInstruction* inst) {
             result = builder_->CreateCall(getIntFt, getInt.getCallee(), { boxedValue });
         } else if (kind == HIRTypeKind::Float64) {
             result = builder_->CreateCall(getDoubleFt, getDouble.getCallee(), { boxedValue });
+        } else if (kind == HIRTypeKind::Bool) {
+            // Boolean: unbox to i1 via ts_value_get_bool
+            result = builder_->CreateCall(getBoolFt, getBool.getCallee(), { boxedValue });
         } else if (kind == HIRTypeKind::Any) {
             // For Any type, return the boxed TsValue* as-is.
             // The consumer decides how to unbox. Using ts_value_get_object here
@@ -6531,6 +6624,14 @@ void HIRToLLVM::lowerLoadCaptureFromClosure(HIRInstruction* inst) {
     // Get the boxed value from the cell: boxedValue = ts_cell_get(cell)
     llvm::Value* boxedValue = builder_->CreateCall(cellGetFt, cellGet.getCallee(), { cell });
 
+    // Declare ts_value_get_bool(TsValue*) -> i1
+    auto getBoolFt = llvm::FunctionType::get(
+        builder_->getInt1Ty(),
+        { builder_->getPtrTy() },
+        false
+    );
+    auto getBool = module_->getOrInsertFunction("ts_value_get_bool", getBoolFt);
+
     // Unbox based on the expected type
     llvm::Value* result = nullptr;
     if (inst->result && inst->result->type) {
@@ -6539,6 +6640,9 @@ void HIRToLLVM::lowerLoadCaptureFromClosure(HIRInstruction* inst) {
             result = builder_->CreateCall(getIntFt, getInt.getCallee(), { boxedValue });
         } else if (kind == HIRTypeKind::Float64) {
             result = builder_->CreateCall(getDoubleFt, getDouble.getCallee(), { boxedValue });
+        } else if (kind == HIRTypeKind::Bool) {
+            // Boolean: unbox to i1 via ts_value_get_bool
+            result = builder_->CreateCall(getBoolFt, getBool.getCallee(), { boxedValue });
         } else if (kind == HIRTypeKind::Any) {
             // For Any type, return the boxed TsValue* as-is.
             result = boxedValue;

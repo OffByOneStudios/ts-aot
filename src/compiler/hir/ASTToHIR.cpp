@@ -487,8 +487,11 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     // Register the alloca as the variable
                     defineVariableAlloca(paramName, allocaVal, paramType);
                 } else {
-                    // No default value - just register the parameter directly
-                    defineVariable(paramName, paramValue);
+                    // No default value - store into an alloca so reassignment works
+                    // (LLVM's mem2reg will eliminate the alloca for params that are never reassigned)
+                    auto allocaVal = builder_.createAlloca(paramType);
+                    builder_.createStore(paramValue, allocaVal);
+                    defineVariableAlloca(paramName, allocaVal, paramType);
                 }
             }
 
@@ -660,7 +663,9 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             for (size_t i = 0; i < methPtr->params.size(); ++i) {
                 const auto& [paramName, paramType] = methPtr->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-                defineVariable(paramName, paramValue);
+                auto allocaVal = builder_.createAlloca(paramType);
+                builder_.createStore(paramValue, allocaVal);
+                defineVariableAlloca(paramName, allocaVal, paramType);
             }
             methPtr->nextValueId = static_cast<uint32_t>(methPtr->params.size());
 
@@ -1502,8 +1507,10 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             // Register the alloca as the variable (loads will get the correct value)
             defineVariableAlloca(paramName, allocaVal, paramType);
         } else {
-            // No default value - just register the parameter directly
-            defineVariable(paramName, paramValue);
+            // No default value - store into an alloca so reassignment works
+            auto allocaVal = builder_.createAlloca(paramType);
+            builder_.createStore(paramValue, allocaVal);
+            defineVariableAlloca(paramName, allocaVal, paramType);
         }
     }
 
