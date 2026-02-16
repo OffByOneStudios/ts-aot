@@ -1417,6 +1417,22 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()          // referrerPath
             .build());
 
+    reg.registerLowering("ts_module_get_cached",
+        lowering("ts_module_get_cached")
+            .returnsPtr()      // Returns module.exports
+            .ptrArg()          // path (boxed string)
+            .build());
+
+    // Override ext.json matching: ts_module_register must NOT be redirected
+    // to ts_module_register_loader (which is a no-op stub for the 'module' API).
+    // ts_module_register is an internal function that populates g_module_cache.
+    reg.registerLowering("ts_module_register",
+        lowering("ts_module_register")
+            .returnsVoid()
+            .ptrArg()          // path (boxed string)
+            .ptrArg()          // module object
+            .build());
+
     // =========================================================================
     // Function.prototype.call/apply this binding
     // =========================================================================
