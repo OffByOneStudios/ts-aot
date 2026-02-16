@@ -4151,6 +4151,9 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
                 builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
             auto unboxFn = module_->getOrInsertFunction("ts_value_get_int", unboxFt);
             arg = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { arg }, "unbox_int");
+        } else if (arg->getType()->isDoubleTy()) {
+            // Math.floor/ceil/etc. return double; convert to i64
+            arg = builder_->CreateFPToSI(arg, builder_->getInt64Ty());
         }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
@@ -4365,6 +4368,22 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         }
         if (inst->operands.size() > 3) {
             space = getOperandValue(inst->operands[3]);
+            // Box space argument if it's a primitive (e.g., JSON.stringify(obj, null, 2))
+            if (space->getType()->isIntegerTy(64)) {
+                llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                    builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFt);
+                space = builder_->CreateCall(boxFt, boxFn.getCallee(), { space });
+            } else if (space->getType()->isDoubleTy()) {
+                // Convert double to int first, then box
+                llvm::Value* intSpace = builder_->CreateFPToSI(space, builder_->getInt64Ty());
+                llvm::FunctionType* boxFt = llvm::FunctionType::get(
+                    builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFt);
+                space = builder_->CreateCall(boxFt, boxFn.getCallee(), { intSpace });
+            } else if (space->getType()->isIntegerTy(1)) {
+                space = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            }
         }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getPtrTy(),
@@ -4392,6 +4411,42 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
         auto fn = module_->getOrInsertFunction("ts_parseInt", ft);
         llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle global isNaN/isFinite -> redirect to Number.isNaN/isFinite handlers
+    if (funcName == "isNaN" || funcName == "isFinite") {
+        llvm::Value* arg = getOperandValue(inst->operands[1]);
+        // Global isNaN/isFinite coerce to number first, but for our purposes
+        // we can use the Number.* versions which work on doubles
+        if (arg->getType()->isPointerTy()) {
+            // Boxed value - unbox to double
+            llvm::FunctionType* unboxFt = llvm::FunctionType::get(
+                builder_->getDoubleTy(), { builder_->getPtrTy() }, false);
+            auto unboxFn = module_->getOrInsertFunction("ts_value_get_double", unboxFt);
+            arg = builder_->CreateCall(unboxFt, unboxFn.getCallee(), { arg });
+        } else if (arg->getType()->isIntegerTy(64)) {
+            arg = builder_->CreateSIToFP(arg, builder_->getDoubleTy());
+        } else if (arg->getType()->isIntegerTy(1)) {
+            arg = builder_->CreateUIToFP(arg, builder_->getDoubleTy());
+        }
+        // Now arg is double - use LLVM intrinsics directly
+        llvm::Value* result;
+        if (funcName == "isNaN") {
+            // isNaN(x) = x != x (IEEE 754)
+            result = builder_->CreateFCmpUNO(arg, arg);
+        } else {
+            // isFinite(x) = !isNaN(x) && x != +inf && x != -inf
+            llvm::Value* isNotNaN = builder_->CreateFCmpORD(arg, arg);
+            llvm::Value* posInf = llvm::ConstantFP::getInfinity(builder_->getDoubleTy(), false);
+            llvm::Value* negInf = llvm::ConstantFP::getInfinity(builder_->getDoubleTy(), true);
+            llvm::Value* notPosInf = builder_->CreateFCmpONE(arg, posInf);
+            llvm::Value* notNegInf = builder_->CreateFCmpONE(arg, negInf);
+            result = builder_->CreateAnd(isNotNaN, builder_->CreateAnd(notPosInf, notNegInf));
+        }
         if (inst->result) {
             setValue(inst->result, result);
         }
