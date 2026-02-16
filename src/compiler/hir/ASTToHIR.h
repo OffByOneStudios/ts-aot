@@ -338,6 +338,9 @@ private:
     // Counter for generating unique arrow function names
     int arrowFuncCounter_ = 0;
 
+    // Pending display name for closures (set from variable assignment context)
+    std::string pendingClosureDisplayName_;
+
     // Counter for generating unique function expression names
     int funcExprCounter_ = 0;
 

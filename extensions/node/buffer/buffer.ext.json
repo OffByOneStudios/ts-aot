@@ -707,11 +707,41 @@
     },
     "ArrayBuffer": {
       "kind": "class",
+      "constructor": {
+        "call": "ts_arraybuffer_create_with_options",
+        "hirName": "ts_ArrayBuffer_create",
+        "params": [
+          {"name": "byteLength", "type": "number"},
+          {"name": "options", "type": "any", "optional": true}
+        ],
+        "lowering": { "args": ["i64", "ptr"], "returns": "ptr" }
+      },
       "properties": {
         "byteLength": {
           "type": "int",
           "getter": "ts_buffer_byte_length",
           "lowering": { "args": [], "returns": "i64" }
+        },
+        "resizable": {
+          "type": "boolean",
+          "getter": "ts_arraybuffer_get_resizable",
+          "lowering": { "args": [], "returns": "i1" }
+        },
+        "maxByteLength": {
+          "type": "int",
+          "getter": "ts_arraybuffer_get_max_byte_length",
+          "lowering": { "args": [], "returns": "i64" }
+        }
+      },
+      "methods": {
+        "resize": {
+          "call": "ts_arraybuffer_resize",
+          "hirName": "ts_ArrayBuffer_resize",
+          "params": [
+            {"name": "newByteLength", "type": "number"}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["f64"], "returns": "void" }
         }
       }
     }

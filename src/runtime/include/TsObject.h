@@ -155,6 +155,7 @@ public:
     FunctionType type;
     int arity = -1;  // Number of parameters (excluding context). -1 = unknown/vararg
     TsMap* properties = nullptr;  // For storing properties like _.chunk
+    TsString* name = nullptr;  // Function name for .name and .toString()
     TsFunction(void* fp, void* ctx = nullptr, FunctionType t = FunctionType::COMPILED, int a = -1)
         : funcPtr(fp), context(ctx), type(t), arity(a) {
         magic = MAGIC;
@@ -176,6 +177,7 @@ extern "C" {
     TsValue* ts_value_box_any(void* ptr);  // Box any pointer by runtime type detection
     TsValue* ts_value_make_function(void* funcPtr, void* context);
     TsValue* ts_value_make_function_with_arity(void* funcPtr, void* context, int arity);
+    TsValue* ts_value_make_function_named(void* funcPtr, void* context, void* name);
     TsValue* ts_value_make_native_function(void* funcPtr, void* context);
     bool ts_value_is_undefined(TsValue* v);
     bool ts_value_is_null(TsValue* v);

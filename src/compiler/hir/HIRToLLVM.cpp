@@ -5733,7 +5733,49 @@ void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
     llvm::Function* fn = module_->getFunction(funcName);
     if (fn) {
         if (inst->result) {
-            setValue(inst->result, fn);
+            // Wrap in a TsClosure so .name and .toString() work (ES2019)
+            auto closureCreateFt = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy(), builder_->getInt64Ty() },
+                false);
+            auto closureCreate = module_->getOrInsertFunction("ts_closure_create", closureCreateFt);
+            llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
+            llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { fn, numCapturesVal });
+
+            // Set the function's display name
+            std::string displayName;
+            if (hirModule_) {
+                for (const auto& hirFn : hirModule_->functions) {
+                    if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                        displayName = !hirFn->displayName.empty() ? hirFn->displayName : hirFn->name;
+                        break;
+                    }
+                }
+            }
+            if (displayName.empty()) {
+                displayName = funcName;
+                auto pos = displayName.rfind("_M");
+                if (pos != std::string::npos) displayName = displayName.substr(0, pos);
+            }
+            if (!displayName.empty() && displayName.find("__arrow_fn_") != 0 &&
+                displayName.find("__fn_expr_") != 0 && displayName.find("module_init") == std::string::npos) {
+                auto setNameFt = llvm::FunctionType::get(
+                    builder_->getVoidTy(),
+                    { builder_->getPtrTy(), builder_->getPtrTy() },
+                    false);
+                auto setNameFn = module_->getOrInsertFunction("ts_closure_set_name", setNameFt);
+                // Create a TsString from the C string constant
+                auto strCreateFt = llvm::FunctionType::get(
+                    builder_->getPtrTy(),
+                    { builder_->getPtrTy() },
+                    false);
+                auto strCreateFn = module_->getOrInsertFunction("ts_string_create", strCreateFt);
+                llvm::Value* cStr = createGlobalString(displayName);
+                llvm::Value* tsStr = builder_->CreateCall(strCreateFt, strCreateFn.getCallee(), { cStr });
+                builder_->CreateCall(setNameFt, setNameFn.getCallee(), { closure, tsStr });
+            }
+
+            setValue(inst->result, closure);
         }
     } else {
         // Function not found - create a null pointer
@@ -6062,6 +6104,50 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
 
     llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), numCaptures);
     llvm::Value* closure = rawToGCPtr(builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal }));
+
+    // Set the function's display name on the closure for .name and .toString()
+    {
+        std::string displayName;
+        if (hirModule_) {
+            for (const auto& hirFn : hirModule_->functions) {
+                if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                    // Prefer displayName (from assignment context) over internal name
+                    if (!hirFn->displayName.empty()) {
+                        displayName = hirFn->displayName;
+                    } else {
+                        displayName = hirFn->name;
+                    }
+                    break;
+                }
+            }
+        }
+        if (displayName.empty()) {
+            // Fall back to funcName, strip _M0 suffix if present
+            displayName = funcName;
+            auto pos = displayName.rfind("_M");
+            if (pos != std::string::npos) displayName = displayName.substr(0, pos);
+        }
+        // Skip internal names (__arrow_fn_, __fn_expr_)
+        if (displayName.find("__arrow_fn_") == 0 || displayName.find("__fn_expr_") == 0) {
+            displayName.clear();
+        }
+        if (!displayName.empty() && displayName != "anonymous" && displayName.find("module_init") == std::string::npos) {
+            auto setNameFt = llvm::FunctionType::get(
+                builder_->getVoidTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            auto setNameFn = module_->getOrInsertFunction("ts_closure_set_name", setNameFt);
+            // Create a TsString from the C string constant
+            auto strCreateFt = llvm::FunctionType::get(
+                builder_->getPtrTy(),
+                { builder_->getPtrTy() },
+                false);
+            auto strCreateFn = module_->getOrInsertFunction("ts_string_create", strCreateFt);
+            llvm::Value* cStr = createGlobalString(displayName);
+            llvm::Value* tsStr = builder_->CreateCall(strCreateFt, strCreateFn.getCallee(), { cStr });
+            builder_->CreateCall(setNameFt, setNameFn.getCallee(), { gcPtrToRaw(closure), tsStr });
+        }
+    }
 
     // Look up the inner function's captures list to get variable names
     // This allows sharing TsCells between closures that capture the same variable

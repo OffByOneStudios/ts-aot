@@ -23,6 +23,7 @@ public:
     void* func_ptr;          // Function pointer (callable)
     int64_t num_captures;    // Number of captured variables
     TsCell** cells;          // Array of capture cells
+    TsString* name = nullptr; // Function name for .name and .toString()
 
     TsClosure() : func_ptr(nullptr), num_captures(0), cells(nullptr) {
         magic = 0x434C5352; // 'CLSR'
@@ -64,6 +65,9 @@ extern "C" {
 
     // Check if a pointer is a TsClosure (by checking magic number)
     bool ts_is_closure(void* ptr);
+
+    // Set the name on a TsClosure
+    void ts_closure_set_name(TsClosure* closure, void* name);
 
     // Invoke a closure with one double argument, returns double
     // Used for map/filter callbacks with number arrays

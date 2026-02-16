@@ -70,9 +70,9 @@ static void rewriteRequireInExpr(ast::Expression* expr,
             }
         }
         // Recurse into callee and arguments regardless (for nested requires)
-        rewriteRequireInExpr(call->callee.get(), resolver, fromPath);
+        rewriteRequireInExprOwned(call->callee, resolver, fromPath);
         for (auto& arg : call->arguments) {
-            rewriteRequireInExpr(arg.get(), resolver, fromPath);
+            rewriteRequireInExprOwned(arg, resolver, fromPath);
         }
         return;
     }
@@ -102,7 +102,7 @@ static void rewriteRequireInExpr(ast::Expression* expr,
     }
 
     if (auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(expr)) {
-        rewriteRequireInExpr(prop->expression.get(), resolver, fromPath);
+        rewriteRequireInExprOwned(prop->expression, resolver, fromPath);
         return;
     }
 
@@ -165,7 +165,7 @@ static void rewriteRequireInExpr(ast::Expression* expr,
     }
 
     if (auto* prefix = dynamic_cast<ast::PrefixUnaryExpression*>(expr)) {
-        rewriteRequireInExpr(prefix->operand.get(), resolver, fromPath);
+        rewriteRequireInExprOwned(prefix->operand, resolver, fromPath);
         return;
     }
 
@@ -269,6 +269,23 @@ static void rewriteRequireInExprOwned(std::unique_ptr<ast::Expression>& expr,
 
     if (auto* parenExpr = dynamic_cast<ast::ParenthesizedExpression*>(expr.get())) {
         rewriteRequireInExprOwned(parenExpr->expression, resolver, fromPath);
+        return;
+    }
+
+    // Match: import.meta → Identifier("__import_meta")
+    // Also recurse into PropertyAccessExpression.expression for import.meta.url etc.
+    if (auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(expr.get())) {
+        if (auto* id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+            if (id->name == "import" && prop->name == "meta") {
+                auto replacement = std::make_unique<ast::Identifier>();
+                replacement->name = "__import_meta";
+                replacement->inferredType = std::make_shared<Type>(TypeKind::Any);
+                expr = std::move(replacement);
+                return;
+            }
+        }
+        // Recurse into the owned expression so nested import.meta can be replaced
+        rewriteRequireInExprOwned(prop->expression, resolver, fromPath);
         return;
     }
 
@@ -475,6 +492,47 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             moduleInit->body.push_back(std::move(dirnameDecl));
         }
 
+        // Inject import.meta object for all modules
+        // import.meta = { url: "file:///...", dirname: "...", filename: "..." }
+        {
+            auto metaDecl = std::make_unique<ast::VariableDeclaration>();
+            auto metaName = std::make_unique<ast::Identifier>();
+            metaName->name = "__import_meta";
+            metaDecl->name = std::move(metaName);
+            metaDecl->type = "any";
+
+            auto objLit = std::make_unique<ast::ObjectLiteralExpression>();
+
+            // url property: "file:///" + path with forward slashes
+            auto urlProp = std::make_unique<ast::PropertyAssignment>();
+            urlProp->name = "url";
+            auto urlLit = std::make_unique<ast::StringLiteral>();
+            std::string normalizedPath = path;
+            std::replace(normalizedPath.begin(), normalizedPath.end(), '\\', '/');
+            urlLit->value = "file:///" + normalizedPath;
+            urlProp->initializer = std::move(urlLit);
+            objLit->properties.push_back(std::move(urlProp));
+
+            // dirname property
+            auto dirProp = std::make_unique<ast::PropertyAssignment>();
+            dirProp->name = "dirname";
+            auto dirLit = std::make_unique<ast::StringLiteral>();
+            dirLit->value = fs::path(path).parent_path().string();
+            dirProp->initializer = std::move(dirLit);
+            objLit->properties.push_back(std::move(dirProp));
+
+            // filename property
+            auto fileProp = std::make_unique<ast::PropertyAssignment>();
+            fileProp->name = "filename";
+            auto fileLit = std::make_unique<ast::StringLiteral>();
+            fileLit->value = path;
+            fileProp->initializer = std::move(fileLit);
+            objLit->properties.push_back(std::move(fileProp));
+
+            metaDecl->initializer = std::move(objLit);
+            moduleInit->body.push_back(std::move(metaDecl));
+        }
+
         const bool isLodashModule =
             (path.find("node_modules\\lodash\\lodash.js") != std::string::npos) ||
             (path.size() >= 9 && path.substr(path.size() - 9) == "lodash.js");
@@ -568,11 +626,11 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         // import('literal') → ts_dynamic_import('resolvedPath')
         {
             auto& resolver = analyzer.getModuleResolver();
-            if (isJavaScriptModule) {
-                // Full rewrite pass for JS modules (require + require.resolve + import)
-                for (auto& bodyStmt : moduleInit->body) {
-                    rewriteRequireInStmt(bodyStmt.get(), resolver, path);
-                }
+            // Rewrite require/require.resolve/import()/import.meta in moduleInit body
+            // For JS modules: rewrites require(), require.resolve(), import(), import.meta
+            // For TS modules: rewrites import() and import.meta (no require() calls present)
+            for (auto& bodyStmt : moduleInit->body) {
+                rewriteRequireInStmt(bodyStmt.get(), resolver, path);
             }
             // For all modules (including TS), rewrite dynamic imports in newBody
             // (TS functions stay in newBody and may contain import() expressions)

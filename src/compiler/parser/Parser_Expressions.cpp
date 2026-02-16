@@ -178,6 +178,7 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
 
             bool prevAsync = inAsync_;
             inAsync_ = false;
+            functionDepth_++;
 
             if (check(TokenKind::OpenBrace)) {
                 arrow->body = parseBlockStatement();
@@ -185,6 +186,7 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
                 arrow->body = parseAssignmentExpression();
             }
 
+            functionDepth_--;
             inAsync_ = prevAsync;
             return arrow;
         }
@@ -343,7 +345,7 @@ ast::ExprPtr Parser::parseUnaryExpression() {
             return node;
         }
         case TokenKind::KW_await: {
-            if (inAsync_) {
+            if (inAsync_ || functionDepth_ == 0) {
                 auto tok = current_;
                 advance();
                 auto node = std::make_unique<ast::AwaitExpression>();
@@ -830,6 +832,7 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
 
             bool prevAsync = inAsync_;
             inAsync_ = isAsync;
+            functionDepth_++;
 
             if (check(TokenKind::OpenBrace)) {
                 arrow->body = parseBlockStatement();
@@ -837,6 +840,7 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
                 arrow->body = parseAssignmentExpression();
             }
 
+            functionDepth_--;
             inAsync_ = prevAsync;
             return arrow;
         }
@@ -863,6 +867,7 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
 
             bool prevAsync = inAsync_;
             inAsync_ = isAsync;
+            functionDepth_++;
 
             if (check(TokenKind::OpenBrace)) {
                 arrow->body = parseBlockStatement();
@@ -870,6 +875,7 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
                 arrow->body = parseAssignmentExpression();
             }
 
+            functionDepth_--;
             inAsync_ = prevAsync;
             return arrow;
         }
@@ -1161,6 +1167,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     bool prevGen = inGenerator_;
     inAsync_ = node->isAsync;
     inGenerator_ = node->isGenerator;
+    functionDepth_++;
 
     expect(TokenKind::OpenBrace, "'{'");
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
@@ -1169,6 +1176,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     }
     expect(TokenKind::CloseBrace, "'}'");
 
+    functionDepth_--;
     inAsync_ = prevAsync;
     inGenerator_ = prevGen;
 

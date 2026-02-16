@@ -9,6 +9,7 @@ class TsBuffer : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x42554646; // "BUFF"
     static TsBuffer* Create(size_t length);
+    static TsBuffer* CreateResizable(size_t length, size_t maxByteLength);
     static TsBuffer* FromString(TsString* str, TsString* encoding = nullptr);
     static TsBuffer* FromBuffer(TsBuffer* source);  // Copy buffer
     static TsBuffer* FromArray(void* arr);  // From array of numbers
@@ -107,10 +108,17 @@ public:
     static int Compare(TsBuffer* buf1, TsBuffer* buf2);
     static bool IsEncoding(const char* encoding);
 
+    // Resizable ArrayBuffer (ES2024) support
+    size_t GetMaxByteLength() { return maxByteLength; }
+    bool IsResizable() { return maxByteLength > 0; }
+    void Resize(size_t newByteLength);
+
 private:
     TsBuffer(size_t length);
+    TsBuffer(size_t length, size_t maxByteLength);
     uint8_t* data;
     size_t length;
+    size_t maxByteLength = 0;  // 0 = not resizable
 };
 
 // TypedArray element type enum
@@ -167,6 +175,13 @@ private:
 };
 
 extern "C" {
+    // ArrayBuffer constructors and methods
+    void* ts_arraybuffer_create(int64_t length);
+    void* ts_arraybuffer_create_with_options(int64_t length, void* options);
+    void ts_arraybuffer_resize(void* buf, double newByteLength);
+    bool ts_arraybuffer_get_resizable(void* buf);
+    int64_t ts_arraybuffer_get_max_byte_length(void* buf);
+
     void* ts_buffer_alloc(int64_t length);
     void* ts_buffer_alloc_unsafe(int64_t length);
     void* ts_buffer_alloc_unsafe_slow(int64_t length);

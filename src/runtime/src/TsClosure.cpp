@@ -104,6 +104,12 @@ bool ts_is_closure(void* ptr) {
     return obj->magic == 0x434C5352; // 'CLSR'
 }
 
+void ts_closure_set_name(TsClosure* closure, void* name) {
+    if (closure) {
+        closure->name = (TsString*)name;
+    }
+}
+
 // Invoke a closure with one double argument, returns double
 // Used for map/filter callbacks with number arrays
 // HIR generates functions that expect boxed TsValue* params, so we box the double

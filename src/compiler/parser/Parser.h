@@ -148,6 +148,7 @@ private:
     bool inAsync_ = false;      // Inside async function?
     bool inGenerator_ = false;  // Inside generator function?
     bool noIn_ = false;         // Suppress 'in' as binary operator (for-loop initializers)
+    int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
 };
 
 } // namespace ts::parser

@@ -379,6 +379,12 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)func;
     }
 
+    TsValue* ts_value_make_function_named(void* funcPtr, void* context, void* name) {
+        TsFunction* func = new (ts_alloc(sizeof(TsFunction))) TsFunction(funcPtr, context, FunctionType::COMPILED, -1);
+        func->name = (TsString*)name;
+        return (TsValue*)func;
+    }
+
     TsValue* ts_value_make_native_function(void* funcPtr, void* context) {
         void* mem = ts_alloc(sizeof(TsFunction));
         TsFunction* func = new (mem) TsFunction(funcPtr, context, FunctionType::NATIVE);
@@ -832,7 +838,21 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check for flat inline-slot object (magic at offset 0)
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
-            return (TsValue*)ts_flat_object_get_property(obj, keyStr);
+            TsValue* result = (TsValue*)ts_flat_object_get_property(obj, keyStr);
+            // If property not found in flat object, check Object.prototype methods
+            uint64_t resultNb = nanbox_from_tsvalue_ptr(result);
+            if (resultNb == NANBOX_UNDEFINED) {
+                if (strcmp(keyStr, "hasOwnProperty") == 0) {
+                    return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                }
+                if (strcmp(keyStr, "toString") == 0) {
+                    return ts_value_make_native_function((void*)ts_object_toString_native, nullptr);
+                }
+                if (strcmp(keyStr, "valueOf") == 0) {
+                    return ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr);
+                }
+            }
+            return result;
         }
 
         // Check for TsRegExp (magic at offset 0) - handle BEFORE dynamic_cast!
@@ -1063,11 +1083,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_int(0);
             }
             
-            // Handle .name specially - return empty string if not set
+            // Handle .name specially - return function name if set
             if (strcmp(keyStr, "name") == 0) {
+                if (func->name) return ts_value_make_string(func->name);
                 return ts_value_make_string(TsString::Create(""));
             }
-            
+
             // Handle Function.prototype methods directly on the function
             if (strcmp(keyStr, "toString") == 0) {
                 return ts_value_make_native_function((void*)ts_function_toString_native, (void*)func);
@@ -1091,6 +1112,34 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
             }
             
+            return ts_value_make_undefined();
+        }
+
+        // Check for TsClosure (magic at offset 16) - closures need .name, .toString(), .bind, .call, .apply
+        if (magic16 == 0x434C5352) { // TsClosure::MAGIC ("CLSR")
+            TsClosure* closure = (TsClosure*)obj;
+            if (strcmp(keyStr, "name") == 0) {
+                if (closure->name) return ts_value_make_string(closure->name);
+                return ts_value_make_string(TsString::Create(""));
+            }
+            if (strcmp(keyStr, "toString") == 0) {
+                return ts_value_make_native_function((void*)ts_function_toString_native, (void*)closure);
+            }
+            if (strcmp(keyStr, "length") == 0) {
+                return ts_value_make_int(0);
+            }
+            if (strcmp(keyStr, "call") == 0) {
+                TsValue* target = (TsValue*)closure;
+                return ts_value_make_native_function((void*)ts_function_call_native, (void*)target);
+            }
+            if (strcmp(keyStr, "apply") == 0) {
+                TsValue* target = (TsValue*)closure;
+                return ts_value_make_native_function((void*)ts_function_apply_native, (void*)target);
+            }
+            if (strcmp(keyStr, "bind") == 0) {
+                TsValue* target = (TsValue*)closure;
+                return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
+            }
             return ts_value_make_undefined();
         }
 
@@ -1800,9 +1849,66 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv) {
+        // Handle closures - pass thisArg as first argument (for getter/setter/method dispatch)
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            // For closures, thisArg replaces the closure as the first argument
+            // This handles getter/setter/method calls where 'this' binding is needed
+            switch (argc) {
+                case 0: {
+                    typedef TsValue* (*Fn)(void*);
+                    return ((Fn)closure->func_ptr)(thisArg);
+                }
+                case 1: {
+                    typedef TsValue* (*Fn)(void*, TsValue*);
+                    return ((Fn)closure->func_ptr)(thisArg, argv[0]);
+                }
+                case 2: {
+                    typedef TsValue* (*Fn)(void*, TsValue*, TsValue*);
+                    return ((Fn)closure->func_ptr)(thisArg, argv[0], argv[1]);
+                }
+                case 3: {
+                    typedef TsValue* (*Fn)(void*, TsValue*, TsValue*, TsValue*);
+                    return ((Fn)closure->func_ptr)(thisArg, argv[0], argv[1], argv[2]);
+                }
+                default: {
+                    typedef TsValue* (*Fn)(void*);
+                    return ((Fn)closure->func_ptr)(thisArg);
+                }
+            }
+        }
+
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) {
             return ts_value_make_undefined();
+        }
+
+        // Check if funcPtr wraps a closure (via ts_value_make_function wrapping a TsClosure*)
+        // In this case, call the inner closure's function with thisArg directly
+        TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+        if (innerClosure) {
+            switch (argc) {
+                case 0: {
+                    typedef TsValue* (*Fn)(void*);
+                    return ((Fn)innerClosure->func_ptr)(thisArg);
+                }
+                case 1: {
+                    typedef TsValue* (*Fn)(void*, TsValue*);
+                    return ((Fn)innerClosure->func_ptr)(thisArg, argv[0]);
+                }
+                case 2: {
+                    typedef TsValue* (*Fn)(void*, TsValue*, TsValue*);
+                    return ((Fn)innerClosure->func_ptr)(thisArg, argv[0], argv[1]);
+                }
+                case 3: {
+                    typedef TsValue* (*Fn)(void*, TsValue*, TsValue*, TsValue*);
+                    return ((Fn)innerClosure->func_ptr)(thisArg, argv[0], argv[1], argv[2]);
+                }
+                default: {
+                    typedef TsValue* (*Fn)(void*);
+                    return ((Fn)innerClosure->func_ptr)(thisArg);
+                }
+            }
         }
 
         // Preserve the captured context and only override when the function has none.
@@ -3073,6 +3179,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         return ts_value_make_int(0);
                     }
                     if (strcmp(k, "name") == 0) {
+                        if (func->name) return ts_value_make_string(func->name);
                         return ts_value_make_string(TsString::Create(""));
                     }
                 }
@@ -3088,6 +3195,36 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_undefined();
             }
             return nanbox_from_tagged(result);
+        }
+
+        // Check if this is a TsClosure and get its properties
+        if (magic16 == 0x434C5352) { // TsClosure::MAGIC ("CLSR")
+            TsClosure* closure = (TsClosure*)rawObj;
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k) {
+                    if (strcmp(k, "name") == 0) {
+                        if (closure->name) return ts_value_make_string(closure->name);
+                        return ts_value_make_string(TsString::Create(""));
+                    }
+                    if (strcmp(k, "bind") == 0) {
+                        return ts_value_make_native_function((void*)ts_function_bind_native, (void*)closure);
+                    }
+                    if (strcmp(k, "call") == 0) {
+                        return ts_value_make_native_function((void*)ts_function_call_native, (void*)closure);
+                    }
+                    if (strcmp(k, "apply") == 0) {
+                        return ts_value_make_native_function((void*)ts_function_apply_native, (void*)closure);
+                    }
+                    if (strcmp(k, "toString") == 0) {
+                        return ts_value_make_native_function((void*)ts_function_toString_native, (void*)closure);
+                    }
+                    if (strcmp(k, "length") == 0) {
+                        return ts_value_make_int(0);
+                    }
+                }
+            }
+            return ts_value_make_undefined();
         }
 
         // Check for TsTypedArray (magic at offset 16)
@@ -3170,9 +3307,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 while (currentMap != nullptr) {
                     TsValue getterVal = currentMap->Get(gk);
                     if (getterVal.type != ValueType::UNDEFINED) {
-                        TsValue* boxedObj = (TsValue*)rawObj;
                         TsValue* getterFunc = nanbox_from_tagged(getterVal);
-                        return ts_function_call_with_this(getterFunc, boxedObj, 0, nullptr);
+                        return ts_function_call_with_this(getterFunc, obj, 0, nullptr);
                     }
                     currentMap = currentMap->GetPrototype();
                 }
@@ -3401,7 +3537,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue setterVal = map->Get(sk);
                 if (setterVal.type != ValueType::UNDEFINED) {
                     // Found a setter - invoke it with 'this' as the object and value as argument
-                    TsValue* boxedObj = (TsValue*)rawObj;
+                    TsValue* boxedObj = nanbox_from_tagged(obj);
                     TsValue* setterFunc = nanbox_from_tagged(setterVal);
                     TsValue* boxedVal = nanbox_from_tagged(value);
                     TsValue* args[] = { boxedVal };
@@ -3523,7 +3659,38 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check for flat object first
         uint32_t magic0 = *(uint32_t*)rawMap;
-        if (magic0 == 0x464C4154) return 0; // FLAT_MAGIC - can't delete inline slots
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            // Decode key string
+            TsString* keyStr = (TsString*)ts_value_get_string((TsValue*)keyArg);
+            if (!keyStr) return 0;
+            const char* keyCStr = keyStr->ToUtf8();
+            if (!keyCStr) return 0;
+
+            // Find the slot and set to undefined
+            uint32_t shapeId = flat_object_shape_id(rawMap);
+            ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+            if (desc) {
+                for (uint32_t i = 0; i < desc->numSlots; i++) {
+                    if (strcmp(desc->propNames[i], keyCStr) == 0) {
+                        uint64_t* slotPtr = (uint64_t*)((char*)rawMap + 16 + i * 8);
+                        *slotPtr = NANBOX_UNDEFINED;
+                        return 1;
+                    }
+                }
+            }
+            // Also check overflow map
+            if (desc) {
+                void* overflow = *(void**)((char*)rawMap + 16 + desc->numSlots * 8);
+                if (overflow) {
+                    TsMap* overflowMap = (TsMap*)overflow;
+                    TsValue kv;
+                    kv.type = ValueType::STRING_PTR;
+                    kv.ptr_val = keyStr;
+                    return overflowMap->Delete(kv) ? 1 : 0;
+                }
+            }
+            return 1; // delete on non-existent property returns true
+        }
 
         // Check magic to confirm it's a TsMap
         uint32_t magic = *(uint32_t*)((char*)rawMap + 16);
@@ -3738,8 +3905,25 @@ TsValue* ts_value_make_int(int64_t i) {
     
     // Prototype method implementations
     
-    // Function.prototype.toString - returns "[native code]" for compiled functions
+    // Function.prototype.toString - returns "function name() { [native code] }" for compiled functions
     static TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv) {
+        if (ctx) {
+            // ctx may be TsFunction* or TsClosure* - check magic to determine type
+            TsObject* obj = (TsObject*)ctx;
+            if (obj->magic == TsFunction::MAGIC) {
+                TsFunction* func = (TsFunction*)ctx;
+                if (func->name) {
+                    std::string result = "function " + std::string(func->name->ToUtf8()) + "() { [native code] }";
+                    return ts_value_make_string(TsString::Create(result.c_str()));
+                }
+            } else if (obj->magic == 0x434C5352) { // TsClosure CLSR
+                TsClosure* closure = (TsClosure*)ctx;
+                if (closure->name) {
+                    std::string result = "function " + std::string(closure->name->ToUtf8()) + "() { [native code] }";
+                    return ts_value_make_string(TsString::Create(result.c_str()));
+                }
+            }
+        }
         return ts_value_make_string(TsString::Create("function() { [native code] }"));
     }
     
