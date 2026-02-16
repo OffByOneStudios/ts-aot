@@ -291,12 +291,14 @@ ResolvedModule ModuleResolver::resolveNodeModules(const std::string& specifier, 
                 if (pkg) {
                     auto entryPoint = getPackageEntryPoint(nodeModules, *pkg);
                     if (entryPoint) {
+                        bool pkgIsESM = pkg->hasTypeModule || entryPoint->extension().string() == ".mjs";
                         auto result = ResolvedModule{
                             .path = entryPoint->string(),
                             .typesPath = lastResolvedTypesPath_,
                             .type = getModuleType(*entryPoint),
                             .packageName = packageName,
-                            .isExternal = true
+                            .isExternal = true,
+                            .isESM = pkgIsESM
                         };
 
                         // If no types found in the package itself, check @types/<package>
