@@ -39,6 +39,8 @@ static std::unique_ptr<ast::Statement> makeConsoleLogStatement(const std::string
 // Forward declarations for require() rewriting
 static void rewriteRequireInExpr(ast::Expression* expr,
     ModuleResolver& resolver, const std::string& fromPath);
+static void rewriteRequireInExprOwned(std::unique_ptr<ast::Expression>& expr,
+    ModuleResolver& resolver, const std::string& fromPath);
 static void rewriteRequireInStmt(ast::Statement* stmt,
     ModuleResolver& resolver, const std::string& fromPath);
 
@@ -208,23 +210,89 @@ static void rewriteRequireInExpr(ast::Expression* expr,
     }
 }
 
+// Owned-pointer variant: can replace the expression entirely (e.g., require.resolve → StringLiteral)
+static void rewriteRequireInExprOwned(std::unique_ptr<ast::Expression>& expr,
+    ModuleResolver& resolver, const std::string& fromPath) {
+    if (!expr) return;
+
+    // Match: require.resolve('literal') → StringLiteral(resolvedPath)
+    if (auto* call = dynamic_cast<ast::CallExpression*>(expr.get())) {
+        if (auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(call->callee.get())) {
+            if (auto* id = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                if (id->name == "require" && prop->name == "resolve"
+                    && call->arguments.size() >= 1) {
+                    if (auto* lit = dynamic_cast<ast::StringLiteral*>(call->arguments[0].get())) {
+                        auto resolved = resolver.resolve(lit->value, fs::path(fromPath));
+                        if (resolved.isValid()) {
+                            auto replacement = std::make_unique<ast::StringLiteral>();
+                            replacement->value = resolved.path;
+                            replacement->inferredType = std::make_shared<Type>(TypeKind::String);
+                            SPDLOG_DEBUG("Rewrote require.resolve('{}') -> '{}' in {}",
+                                lit->value, resolved.path, fromPath);
+                            expr = std::move(replacement);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Match: import('literal') → ts_dynamic_import(resolvedPath) for string literal specifiers
+    if (auto* dynImport = dynamic_cast<ast::DynamicImport*>(expr.get())) {
+        if (auto* lit = dynamic_cast<ast::StringLiteral*>(dynImport->moduleSpecifier.get())) {
+            auto resolved = resolver.resolve(lit->value, fs::path(fromPath));
+            if (resolved.isValid() && resolved.type != ModuleType::Builtin) {
+                // Rewrite to: ts_dynamic_import(resolvedAbsPath)
+                auto replacement = std::make_unique<ast::CallExpression>();
+                auto calleeId = std::make_unique<ast::Identifier>();
+                calleeId->name = "ts_dynamic_import";
+                replacement->callee = std::move(calleeId);
+                auto pathLit = std::make_unique<ast::StringLiteral>();
+                pathLit->value = resolved.path;
+                replacement->arguments.push_back(std::move(pathLit));
+                replacement->inferredType = dynImport->inferredType;
+                SPDLOG_DEBUG("Rewrote import('{}') -> ts_dynamic_import('{}') in {}",
+                    lit->value, resolved.path, fromPath);
+                expr = std::move(replacement);
+                return;
+            }
+        }
+    }
+
+    // Recurse into wrapper expressions that hold unique_ptrs,
+    // so nested DynamicImport/require.resolve can be replaced
+    if (auto* awaitExpr = dynamic_cast<ast::AwaitExpression*>(expr.get())) {
+        rewriteRequireInExprOwned(awaitExpr->expression, resolver, fromPath);
+        return;
+    }
+
+    if (auto* parenExpr = dynamic_cast<ast::ParenthesizedExpression*>(expr.get())) {
+        rewriteRequireInExprOwned(parenExpr->expression, resolver, fromPath);
+        return;
+    }
+
+    // Fall through to raw-pointer walker for everything else
+    rewriteRequireInExpr(expr.get(), resolver, fromPath);
+}
+
 // Walk a single statement, recursing into contained expressions and sub-statements
 static void rewriteRequireInStmt(ast::Statement* stmt,
     ModuleResolver& resolver, const std::string& fromPath) {
     if (!stmt) return;
 
     if (auto* exprStmt = dynamic_cast<ast::ExpressionStatement*>(stmt)) {
-        rewriteRequireInExpr(exprStmt->expression.get(), resolver, fromPath);
+        rewriteRequireInExprOwned(exprStmt->expression, resolver, fromPath);
         return;
     }
 
     if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt)) {
-        rewriteRequireInExpr(varDecl->initializer.get(), resolver, fromPath);
+        rewriteRequireInExprOwned(varDecl->initializer, resolver, fromPath);
         return;
     }
 
     if (auto* retStmt = dynamic_cast<ast::ReturnStatement*>(stmt)) {
-        rewriteRequireInExpr(retStmt->expression.get(), resolver, fromPath);
+        rewriteRequireInExprOwned(retStmt->expression, resolver, fromPath);
         return;
     }
 
@@ -362,9 +430,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         moduleParam->type = "any";
         moduleInit->parameters.push_back(std::move(moduleParam));
 
-        // Prepend exports declaration for CommonJS support (skip for ESM modules)
+        // Prepend exports declaration for all modules
         // const exports = module.exports;
-        if (!module->isESM) {
+        // (Needed for CJS directly, and for ESM export population via dynamic import)
+        {
             auto exportsDecl = std::make_unique<ast::VariableDeclaration>();
             auto exportsName = std::make_unique<ast::Identifier>();
             exportsName->name = "exports";
@@ -378,6 +447,32 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             moduleAccess->name = "exports";
             exportsDecl->initializer = std::move(moduleAccess);
             moduleInit->body.push_back(std::move(exportsDecl));
+        }
+
+        // Inject __filename and __dirname for JavaScript modules
+        // These are CJS globals that many JS modules rely on
+        if (module->type == ModuleType::UntypedJavaScript || module->type == ModuleType::TypedJavaScript) {
+            // __filename = "<absolute path to this file>"
+            auto filenameDecl = std::make_unique<ast::VariableDeclaration>();
+            auto filenameName = std::make_unique<ast::Identifier>();
+            filenameName->name = "__filename";
+            filenameDecl->name = std::move(filenameName);
+            filenameDecl->type = "any";
+            auto filenameLit = std::make_unique<ast::StringLiteral>();
+            filenameLit->value = path;
+            filenameDecl->initializer = std::move(filenameLit);
+            moduleInit->body.push_back(std::move(filenameDecl));
+
+            // __dirname = "<parent directory>"
+            auto dirnameDecl = std::make_unique<ast::VariableDeclaration>();
+            auto dirnameName = std::make_unique<ast::Identifier>();
+            dirnameName->name = "__dirname";
+            dirnameDecl->name = std::move(dirnameName);
+            dirnameDecl->type = "any";
+            auto dirnameLit = std::make_unique<ast::StringLiteral>();
+            dirnameLit->value = fs::path(path).parent_path().string();
+            dirnameDecl->initializer = std::move(dirnameLit);
+            moduleInit->body.push_back(std::move(dirnameDecl));
         }
 
         const bool isLodashModule =
@@ -467,11 +562,21 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
         }
 
-        // Rewrite internal require() calls in JS module init bodies.
+        // Rewrite internal require() calls and dynamic imports in module init bodies.
         // require('literal') → ts_module_get_cached('absolutePath')
-        if (isJavaScriptModule) {
+        // require.resolve('literal') → 'resolvedPath'
+        // import('literal') → ts_dynamic_import('resolvedPath')
+        {
             auto& resolver = analyzer.getModuleResolver();
-            for (auto& bodyStmt : moduleInit->body) {
+            if (isJavaScriptModule) {
+                // Full rewrite pass for JS modules (require + require.resolve + import)
+                for (auto& bodyStmt : moduleInit->body) {
+                    rewriteRequireInStmt(bodyStmt.get(), resolver, path);
+                }
+            }
+            // For all modules (including TS), rewrite dynamic imports in newBody
+            // (TS functions stay in newBody and may contain import() expressions)
+            for (auto& bodyStmt : newBody) {
                 rewriteRequireInStmt(bodyStmt.get(), resolver, path);
             }
         }
@@ -779,16 +884,83 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     cjsBindings.size() - (cjsCounter > 0 ? cjsCounter : 0), modSpec, path);
             }
 
-            // Insert CJS bindings at the beginning of module init (after 'const exports = module.exports;')
+            // Insert CJS bindings at the beginning of module init (after preamble declarations)
+            // Preamble: [exports?] [__filename?] [__dirname?]
             if (!cjsBindings.empty()) {
-                moduleInit->body.insert(moduleInit->body.begin() + 1,
+                size_t preambleCount = 1;  // exports = module.exports (always present)
+                if (isJavaScriptModule) preambleCount += 2;  // __filename + __dirname
+                moduleInit->body.insert(moduleInit->body.begin() + preambleCount,
                     std::make_move_iterator(cjsBindings.begin()),
                     std::make_move_iterator(cjsBindings.end()));
             }
         }
 
-        // Return module.exports at the end of module init for CommonJS support (skip for ESM)
-        if (!module->isESM) {
+        // For ESM modules, populate module.exports with named exports
+        // so that dynamic import() can retrieve them via ts_module_get_cached()
+        if (module->isESM) {
+            // Collect exported names from the module body
+            auto collectExportedNames = [](const std::vector<std::unique_ptr<ast::Statement>>& stmts,
+                                           std::vector<std::string>& names) {
+                for (const auto& stmt : stmts) {
+                    if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                        if (varDecl->isExported) {
+                            if (auto* id = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                                names.push_back(id->name);
+                            }
+                        }
+                    } else if (auto* funcDecl = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                        if (funcDecl->isExported && !funcDecl->name.empty()) {
+                            names.push_back(funcDecl->name);
+                        }
+                    } else if (auto* classDecl = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
+                        if (classDecl->isExported && !classDecl->name.empty()) {
+                            names.push_back(classDecl->name);
+                        }
+                    }
+                }
+            };
+
+            std::vector<std::string> exportedNames;
+            collectExportedNames(moduleInit->body, exportedNames);
+            collectExportedNames(newBody, exportedNames);
+
+            // Also check module->exports symbol table for re-exports
+            if (module->exports) {
+                for (const auto& [name, sym] : module->exports->getGlobalSymbols()) {
+                    if (std::find(exportedNames.begin(), exportedNames.end(), name) == exportedNames.end()) {
+                        exportedNames.push_back(name);
+                    }
+                }
+            }
+
+            // Inject: exports.<name> = <name>; for each exported name
+            // (uses the 'exports' local = module.exports, created in the preamble)
+            for (const auto& name : exportedNames) {
+                auto assignExpr = std::make_unique<ast::AssignmentExpression>();
+
+                // LHS: exports.<name>
+                auto exportsAccess = std::make_unique<ast::PropertyAccessExpression>();
+                auto exportsRef = std::make_unique<ast::Identifier>();
+                exportsRef->name = "exports";
+                exportsRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+                exportsAccess->expression = std::move(exportsRef);
+                exportsAccess->name = name;
+                exportsAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+                assignExpr->left = std::move(exportsAccess);
+
+                // RHS: <name>
+                auto nameRef = std::make_unique<ast::Identifier>();
+                nameRef->name = name;
+                assignExpr->right = std::move(nameRef);
+
+                auto exprStmt = std::make_unique<ast::ExpressionStatement>();
+                exprStmt->expression = std::move(assignExpr);
+                moduleInit->body.push_back(std::move(exprStmt));
+            }
+        }
+
+        // Return module.exports at the end of module init
+        {
             auto finalRet = std::make_unique<ast::ReturnStatement>();
             auto finalModuleAccess = std::make_unique<ast::PropertyAccessExpression>();
             auto finalModuleRef = std::make_unique<ast::Identifier>();

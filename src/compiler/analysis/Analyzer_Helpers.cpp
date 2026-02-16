@@ -550,7 +550,9 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
     auto module = std::make_shared<Module>();
     module->path = resolved.path;
     module->type = resolved.type;
-    module->isESM = resolved.isESM || resolved.path.ends_with(".mjs");
+    module->isESM = resolved.isESM || resolved.path.ends_with(".mjs")
+        || resolved.path.ends_with(".ts") || resolved.path.ends_with(".tsx");
+    if (resolved.path.ends_with(".cjs")) module->isESM = false;  // .cjs is always CommonJS
     modules[resolved.path] = module;  // Cache early to handle circular deps
     
     try {

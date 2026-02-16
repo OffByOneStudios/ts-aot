@@ -1423,6 +1423,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()          // path (boxed string)
             .build());
 
+    reg.registerLowering("ts_dynamic_import",
+        lowering("ts_dynamic_import")
+            .returnsPtr()      // Returns boxed Promise
+            .ptrArg()          // moduleSpecifier (boxed string)
+            .build());
+
     reg.registerLowering("ts_module_get_default",
         lowering("ts_module_get_default")
             .returnsPtr()      // Returns module.exports.default if __esModule, else module.exports
