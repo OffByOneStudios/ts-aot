@@ -40,8 +40,16 @@ void Analyzer::visitDynamicImport(ast::DynamicImport* node) {
         visit(node->moduleSpecifier.get());
     }
 
+    // For string literal specifiers, resolve and load the module at analysis time
+    // so it gets included in the compilation and its init runs before dynamic import
+    if (auto* lit = dynamic_cast<ast::StringLiteral*>(node->moduleSpecifier.get())) {
+        auto resolved = resolveModule(lit->value);
+        if (resolved.isValid() && resolved.type != ModuleType::Builtin) {
+            loadModule(lit->value);
+        }
+    }
+
     // Dynamic import returns Promise<any> since we don't know the module's type at compile time
-    // In a real implementation, we might try to resolve the module and get its export types
     auto promiseType = std::make_shared<ClassType>("Promise");
     promiseType->typeArguments.push_back(std::make_shared<Type>(TypeKind::Any));
     lastType = promiseType;

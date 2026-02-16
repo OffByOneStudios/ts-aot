@@ -120,11 +120,13 @@ ResolvedModule ModuleResolver::resolveRelative(const std::string& specifier, con
     // Try with extensions
     auto withExt = tryExtensions(resolved);
     if (withExt) {
+        std::string ext = withExt->extension().string();
         return ResolvedModule{
             .path = withExt->string(),
             .type = getModuleType(*withExt),
             .packageName = "",
-            .isExternal = false
+            .isExternal = false,
+            .isESM = (ext == ".mjs")
         };
     }
 
@@ -132,12 +134,14 @@ ResolvedModule ModuleResolver::resolveRelative(const std::string& specifier, con
     lastResolvedTypesPath_.clear();
     auto asDir = tryDirectory(resolved);
     if (asDir) {
+        std::string ext = asDir->extension().string();
         return ResolvedModule{
             .path = asDir->string(),
             .typesPath = lastResolvedTypesPath_,
             .type = getModuleType(*asDir),
             .packageName = "",
-            .isExternal = false
+            .isExternal = false,
+            .isESM = (ext == ".mjs")
         };
     }
 
@@ -291,7 +295,8 @@ ResolvedModule ModuleResolver::resolveNodeModules(const std::string& specifier, 
                 if (pkg) {
                     auto entryPoint = getPackageEntryPoint(nodeModules, *pkg);
                     if (entryPoint) {
-                        bool pkgIsESM = pkg->hasTypeModule || entryPoint->extension().string() == ".mjs";
+                        std::string entryExt = entryPoint->extension().string();
+                        bool pkgIsESM = (pkg->hasTypeModule && entryExt != ".cjs") || entryExt == ".mjs";
                         auto result = ResolvedModule{
                             .path = entryPoint->string(),
                             .typesPath = lastResolvedTypesPath_,

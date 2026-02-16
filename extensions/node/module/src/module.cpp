@@ -178,9 +178,10 @@ void* ts_module_sourcemap_find_entry(void* sourceMap, void* line, void* col) {
 }
 
 // Dynamic import() - returns Promise<module>
-// In an AOT compiler, dynamic imports must be resolved at compile time.
-// This runtime function is a fallback for cases that couldn't be resolved at compile time.
-// It returns a rejected promise with an error explaining the limitation.
+// For string-literal specifiers resolved at compile time, the Monomorphizer rewrites
+// import('literal') to ts_dynamic_import('absolutePath'). The module init has already
+// run by the time this is called, so we check the module cache first.
+// For unresolved specifiers, returns a rejected promise.
 void* ts_dynamic_import(void* moduleSpecifier) {
     using namespace ts;
 
@@ -205,24 +206,32 @@ void* ts_dynamic_import(void* moduleSpecifier) {
 
     const char* moduleName = name ? name->ToUtf8() : "unknown";
 
-    // Create a promise
+    // Try the module cache first — the module may have been compiled statically
+    if (name) {
+        TsValue* boxedPath = ts_value_make_string(name);
+        TsValue* exports = ts_module_get_cached(boxedPath);
+        if (exports && !ts_value_is_undefined(exports)) {
+            // Module found in cache — resolve the promise with its exports
+            TsPromise* promise = ts_promise_create();
+            ts_promise_resolve_internal(promise, exports);
+            return ts_value_make_object(promise);
+        }
+    }
+
+    // Module not in cache — return a rejected promise
     TsPromise* promise = ts_promise_create();
 
-    // Create error message
     char errorMsg[256];
     snprintf(errorMsg, sizeof(errorMsg),
         "Dynamic import() is not supported at runtime in AOT compilation. "
         "Module '%s' must be imported statically at compile time.",
         moduleName);
 
-    // Create the error - ts_error_create expects a TsString*
     TsString* errorStr = TsString::Create(errorMsg);
     void* error = ts_error_create(errorStr);
 
-    // Reject the promise with the error (ts_error_create returns already-boxed TsValue*)
     ts_promise_reject_internal(promise, (TsValue*)error);
 
-    // Return boxed promise
     return ts_value_make_object(promise);
 }
 
