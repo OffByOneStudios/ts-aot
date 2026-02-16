@@ -4133,6 +4133,20 @@ TsValue* ts_value_make_int(int64_t i) {
         return nullptr;
     }
 
+    TsValue* ts_module_get_cached(TsValue* path) {
+        TsString* s = (TsString*)ts_value_get_string(path);
+        if (!s) return ts_value_make_undefined();
+        std::string pathStr = s->ToUtf8();
+        TsValue* moduleObj = ts_module_get(pathStr.c_str());
+        if (!moduleObj) return ts_value_make_undefined();
+
+        // Extract module.exports using ts_object_get_dynamic
+        // which handles both flat objects and TsMaps
+        TsString* exportsKey = TsString::Create("exports");
+        TsValue* boxedKey = ts_value_make_string(exportsKey);
+        return ts_object_get_dynamic(moduleObj, boxedKey);
+    }
+
     TsValue* ts_require(TsValue* specifier, const char* referrerPath) {
         TsString* s = (TsString*)ts_value_get_string(specifier);
         if (!s) {

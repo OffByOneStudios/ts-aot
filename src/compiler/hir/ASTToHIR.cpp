@@ -3435,7 +3435,25 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 lastValue_ = builder_.createCall(callName, args, returnType);
                 return;
             }
-            // If not found in specializations, fall through to normal dispatch
+            // If not found in specializations, check if this is a CJS namespace import.
+            // CJS namespace imports (e.g., import * as ns from './cjs-module') store the
+            // module.exports object in moduleGlobalVars_. We must use explicit
+            // GetPropDynamic + CallIndirect instead of createCallMethod, because
+            // createCallMethod's built-in method matching (e.g., "add" -> Set.add) can
+            // incorrectly intercept common method names.
+            auto* nsIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+            if (nsIdent && moduleGlobalVars_.count(nsIdent->name)) {
+                auto obj = lowerExpression(propAccess->expression.get());
+                auto func = builder_.createGetPropStatic(obj, funcName, HIRType::makeAny());
+                // Box all arguments for dynamic call
+                std::vector<std::shared_ptr<HIRValue>> boxedArgs;
+                for (auto& arg : args) {
+                    boxedArgs.push_back(boxValueIfNeeded(arg));
+                }
+                lastValue_ = builder_.createCallIndirect(func, boxedArgs, HIRType::makeAny());
+                return;
+            }
+            // Otherwise fall through to normal dispatch
         }
 
         // Check if we can use a direct call for method invocation
@@ -5039,9 +5057,10 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // with no runtime representation (used only as prefixes for ns.member access).
     // Skip if the name is a registered extension module (path, fs, etc.) - those
     // are handled by the extension registry below via createLoadGlobal.
+    // Also skip if this is a CJS module namespace import (stored in moduleGlobalVars_).
     if (node->inferredType && node->inferredType->kind == ts::TypeKind::Namespace) {
         auto& extReg = ext::ExtensionRegistry::instance();
-        if (!extReg.isRegisteredGlobalOrModule(node->name)) {
+        if (!extReg.isRegisteredGlobalOrModule(node->name) && !moduleGlobalVars_.count(node->name)) {
             lastValue_ = builder_.createConstUndefined();
             return;
         }

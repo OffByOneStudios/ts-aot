@@ -5763,6 +5763,7 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
     // Check if the function already matches the closure convention:
     // (ptr context, TsValue* args...) -> ptr
     // A function matches if: first param is ptr (context), all other params are ptr (TsValue*), returns ptr
+    // AND the first param is actually a closure context (not just a user param that happens to be ptr)
     bool alreadyMatches = origFT->getReturnType()->isPointerTy();
     if (alreadyMatches && numOrigParams >= 1) {
         // First param must be context pointer
@@ -5773,8 +5774,28 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
         }
     }
     if (alreadyMatches && numOrigParams >= 1) {
-        // No trampoline needed, function already has closure convention
-        return originalFunc;
+        // Types match, but verify the first param is actually a closure context.
+        // Functions like JS module functions (e.g., @add(ptr %a, ptr %b)) have all-ptr
+        // params but the first param is a user param, not a closure context. Without this
+        // check, ts_call_N would pass the closure as the first arg, shifting all user args.
+        std::string funcName0 = originalFunc->getName().str();
+        bool isKnownClosure = (funcName0.find("__arrow_fn_") == 0) ||
+                               (funcName0.find("__closure_") == 0) ||
+                               (funcName0.find("__anon_fn_") == 0) ||
+                               (funcName0.find("__fn_expr_") == 0) ||
+                               (funcName0.find("__lambda_") == 0) ||
+                               (funcName0.find("__getter_") == 0) ||
+                               (funcName0.find("__setter_") == 0);
+        if (!isKnownClosure) {
+            auto firstArg = originalFunc->arg_begin();
+            std::string firstParamName = firstArg->getName().str();
+            isKnownClosure = (firstParamName == "__closure__" || firstParamName == "__closure");
+        }
+        if (isKnownClosure) {
+            // No trampoline needed, function already has closure convention
+            return originalFunc;
+        }
+        // Fall through to create a trampoline that strips the closure context
     }
 
     // Determine how many user-visible parameters the original function has
