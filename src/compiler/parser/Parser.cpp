@@ -808,6 +808,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         bool prevGen = inGenerator_;
         inAsync_ = node->isAsync;
         inGenerator_ = node->isGenerator;
+        functionDepth_++;
 
         expect(TokenKind::OpenBrace, "'{'");
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
@@ -816,6 +817,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         }
         expect(TokenKind::CloseBrace, "'}'");
 
+        functionDepth_--;
         inAsync_ = prevAsync;
         inGenerator_ = prevGen;
     } else {
@@ -1150,6 +1152,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         bool prevGen = inGenerator_;
         inAsync_ = method->isAsync;
         inGenerator_ = method->isGenerator;
+        functionDepth_++;
 
         expect(TokenKind::OpenBrace, "'{'");
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
@@ -1158,6 +1161,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         }
         expect(TokenKind::CloseBrace, "'}'");
 
+        functionDepth_--;
         inAsync_ = prevAsync;
         inGenerator_ = prevGen;
     } else {

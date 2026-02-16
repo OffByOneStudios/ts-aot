@@ -1739,7 +1739,16 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
     // Lower the initializer first (if any)
     std::shared_ptr<HIRValue> initValue;
     if (node->initializer) {
+        // Set pending display name for arrow functions / function expressions
+        // so they can use the variable name for .name property (ES2019)
+        if (auto* ident = dynamic_cast<ast::Identifier*>(node->name.get())) {
+            if (dynamic_cast<ast::ArrowFunction*>(node->initializer.get()) ||
+                dynamic_cast<ast::FunctionExpression*>(node->initializer.get())) {
+                pendingClosureDisplayName_ = ident->name;
+            }
+        }
         initValue = lowerExpression(node->initializer.get());
+        pendingClosureDisplayName_.clear();
 
         // Track class expression assignments: const MyClass = class { ... }
         if (dynamic_cast<ast::ClassExpression*>(node->initializer.get())) {
@@ -5288,6 +5297,11 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     func->isAsync = node->isAsync;
     func->isGenerator = false;  // Arrow functions can't be generators
 
+    // Set display name from assignment context (e.g., const myArrow = () => ...)
+    if (!pendingClosureDisplayName_.empty()) {
+        func->displayName = pendingClosureDisplayName_;
+    }
+
     // Get function type info from inferred type if available
     std::shared_ptr<ts::FunctionType> tsFuncType = nullptr;
     if (node->inferredType && node->inferredType->kind == ts::TypeKind::Function) {
@@ -5540,6 +5554,13 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     func->isAsync = node->isAsync;
     func->isGenerator = node->isGenerator;
 
+    // Set display name: prefer node name, then assignment context
+    if (!node->name.empty()) {
+        func->displayName = node->name;
+    } else if (!pendingClosureDisplayName_.empty()) {
+        func->displayName = pendingClosureDisplayName_;
+    }
+
     // Add hidden __closure__ parameter as first parameter (for call_indirect compatibility)
     // call_indirect always passes the closure as the first argument
     func->params.push_back({"__closure__", HIRType::makePtr()});
@@ -5761,17 +5782,9 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         func->params.push_back({paramName, paramType});
     }
 
-    // Determine return type
-    std::shared_ptr<HIRType> returnType = HIRType::makeAny();
-    if (!node->returnType.empty()) {
-        returnType = convertTypeFromString(node->returnType);
-    } else if (node->inferredType && node->inferredType->kind == ts::TypeKind::Function) {
-        auto funcType = std::static_pointer_cast<ts::FunctionType>(node->inferredType);
-        if (funcType->returnType) {
-            returnType = convertType(funcType->returnType);
-        }
-    }
-    func->returnType = returnType;
+    // Determine return type - always Any for method definitions since they are called
+    // through dynamic dispatch (ts_call_N) which expects ptr (NaN-boxed TsValue*) returns
+    func->returnType = HIRType::makeAny();
 
     // Save current context
     HIRFunction* savedFunc = currentFunction_;

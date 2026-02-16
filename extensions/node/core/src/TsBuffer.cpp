@@ -11,10 +11,22 @@
 #include <cstdio>
 
 TsValue TsBuffer::GetPropertyVirtual(const char* key) {
-    if (strcmp(key, "length") == 0) {
+    if (strcmp(key, "length") == 0 || strcmp(key, "byteLength") == 0) {
         TsValue v;
         v.type = ValueType::NUMBER_INT;
         v.i_val = (int64_t)GetLength();
+        return v;
+    }
+    if (strcmp(key, "resizable") == 0) {
+        TsValue v;
+        v.type = ValueType::BOOLEAN;
+        v.i_val = IsResizable() ? 1 : 0;
+        return v;
+    }
+    if (strcmp(key, "maxByteLength") == 0) {
+        TsValue v;
+        v.type = ValueType::NUMBER_INT;
+        v.i_val = IsResizable() ? (int64_t)GetMaxByteLength() : (int64_t)GetLength();
         return v;
     }
     return TsObject::GetPropertyVirtual(key);
@@ -36,6 +48,12 @@ TsValue TsBuffer::GetElementVirtual(int64_t index) {
 TsBuffer* TsBuffer::Create(size_t length) {
     void* mem = ts_alloc(sizeof(TsBuffer));
     TsBuffer* buf = new(mem) TsBuffer(length);
+    return buf;
+}
+
+TsBuffer* TsBuffer::CreateResizable(size_t length, size_t maxByteLength) {
+    void* mem = ts_alloc(sizeof(TsBuffer));
+    TsBuffer* buf = new(mem) TsBuffer(length, maxByteLength);
     return buf;
 }
 
@@ -131,8 +149,35 @@ TsBuffer* TsBuffer::FromArrayBuffer(void* arrayBuffer, int64_t byteOffset, int64
 TsBuffer::TsBuffer(size_t length) {
     this->magic = MAGIC;
     this->length = length;
+    this->maxByteLength = 0;
     this->data = (uint8_t*)ts_alloc(length);
     std::memset(this->data, 0, length);
+}
+
+TsBuffer::TsBuffer(size_t length, size_t maxByteLength) {
+    this->magic = MAGIC;
+    this->length = length;
+    this->maxByteLength = maxByteLength;
+    // Allocate maxByteLength upfront so resize() doesn't need realloc
+    size_t allocSize = maxByteLength > length ? maxByteLength : length;
+    this->data = (uint8_t*)ts_alloc(allocSize);
+    std::memset(this->data, 0, allocSize);
+}
+
+void TsBuffer::Resize(size_t newByteLength) {
+    if (maxByteLength == 0) {
+        ts_throw((TsValue*)ts_error_create(TsString::Create("TypeError: Cannot resize a non-resizable ArrayBuffer")));
+        return;
+    }
+    if (newByteLength > maxByteLength) {
+        ts_throw((TsValue*)ts_error_create(TsString::Create("RangeError: Invalid array buffer length")));
+        return;
+    }
+    // Zero-fill newly exposed bytes
+    if (newByteLength > length) {
+        std::memset(data + length, 0, newByteLength - length);
+    }
+    length = newByteLength;
 }
 
 uint8_t TsBuffer::Get(size_t index) {
@@ -867,6 +912,44 @@ void* TsBuffer::ToJSON() {
 }
 
 extern "C" {
+    void* ts_arraybuffer_create(int64_t length) {
+        return TsBuffer::Create((size_t)length);
+    }
+
+    void* ts_arraybuffer_create_with_options(int64_t length, void* options) {
+        if (!options) return TsBuffer::Create((size_t)length);
+        // Extract maxByteLength from options object
+        // options is a TsMap or flat object with maxByteLength property
+        TsValue* maxByteLengthVal = ts_object_get_dynamic((TsValue*)options, (TsValue*)TsString::Create("maxByteLength"));
+        if (maxByteLengthVal && !ts_value_is_undefined(maxByteLengthVal)) {
+            int64_t maxByteLength = ts_value_get_int(maxByteLengthVal);
+            if (maxByteLength < (int64_t)length) {
+                ts_throw((TsValue*)ts_error_create(TsString::Create("RangeError: maxByteLength must be >= byteLength")));
+                return nullptr;
+            }
+            return TsBuffer::CreateResizable((size_t)length, (size_t)maxByteLength);
+        }
+        return TsBuffer::Create((size_t)length);
+    }
+
+    void ts_arraybuffer_resize(void* buf, double newByteLength) {
+        if (!buf || (uint64_t)(uintptr_t)buf < 0x10000) return;
+        ((TsBuffer*)buf)->Resize((size_t)(int64_t)newByteLength);
+    }
+
+    bool ts_arraybuffer_get_resizable(void* buf) {
+        if (!buf || (uint64_t)(uintptr_t)buf < 0x10000) return false;
+        return ((TsBuffer*)buf)->IsResizable();
+    }
+
+    int64_t ts_arraybuffer_get_max_byte_length(void* buf) {
+        if (!buf || (uint64_t)(uintptr_t)buf < 0x10000) return 0;
+        TsBuffer* buffer = (TsBuffer*)buf;
+        // If not resizable, maxByteLength === byteLength per spec
+        if (!buffer->IsResizable()) return (int64_t)buffer->GetLength();
+        return (int64_t)buffer->GetMaxByteLength();
+    }
+
     void* ts_buffer_alloc(int64_t length) {
         return TsBuffer::Create((size_t)length);
     }

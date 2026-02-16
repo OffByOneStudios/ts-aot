@@ -397,6 +397,9 @@ struct HIRFunction {
     // Each capture has a name and type
     std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> captures;
 
+    // Display name for .name property (e.g., variable name for arrow functions)
+    std::string displayName;
+
     // Metadata
     bool isAsync = false;
     bool isGenerator = false;

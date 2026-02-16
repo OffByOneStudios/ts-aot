@@ -372,7 +372,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Optional catch binding | ✅ | `catch { }` without parameter |
 | `Symbol.prototype.description` | ✅ | ES2019 getter |
 | Well-formed `JSON.stringify` | ✅ | |
-| Revised `Function.prototype.toString` | ❌ | |
+| Revised `Function.prototype.toString` | ✅ | Returns "function name() { [native code] }" with correct .name |
 
 ---
 
@@ -387,7 +387,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Promise.allSettled()` | ✅ | |
 | `String.prototype.matchAll()` | ✅ | Returns array of match results |
 | `globalThis` | ✅ | Alias for global |
-| `import.meta` | ❌ | |
+| `import.meta` | ✅ | url, dirname, filename properties |
 | Export namespace (`export * as ns`) | ✅ | Functions and types work |
 
 ---
@@ -409,7 +409,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Top-level `await` | ❌ | |
+| Top-level `await` | ✅ | Parser recognizes await outside async functions |
 | Class fields (public) | ✅ | |
 | Class fields (private `#`) | ✅ | Increment, compound assignment, direct assignment |
 | Private methods | ✅ | |
@@ -445,7 +445,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | `Map.groupBy()` | ✅ | Groups array elements, returns Map with key type preserved |
 | `Promise.withResolvers()` | ✅ | Returns { promise, resolve, reject } |
 | RegExp `/v` flag | ❌ | |
-| Resizable `ArrayBuffer` | ❌ | |
+| Resizable `ArrayBuffer` | ✅ | Constructor options, resize(), resizable, maxByteLength |
 | Growable `SharedArrayBuffer` | ❌ | |
 | `String.prototype.isWellFormed()` | ✅ | Checks for lone surrogates |
 | `String.prototype.toWellFormed()` | ✅ | Replaces lone surrogates with U+FFFD |
@@ -462,15 +462,15 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2016 | 2 | 0 | 0 | 2 | 100% |
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
 | ES2018 | 8 | 0 | 0 | 8 | 100% |
-| ES2019 | 8 | 0 | 1 | 9 | 89% |
-| ES2020 | 8 | 0 | 2 | 10 | 80% |
+| ES2019 | 9 | 0 | 0 | 9 | 100% |
+| ES2020 | 9 | 0 | 1 | 10 | 90% |
 | ES2021 | 6 | 0 | 0 | 6 | 100% |
-| ES2022 | 9 | 0 | 1 | 10 | 90% |
+| ES2022 | 10 | 0 | 0 | 10 | 100% |
 | ES2023 | 8 | 0 | 0 | 8 | 100% |
-| ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **217** | **2** | **11** | **230** | **94%** |
+| ES2024 | 6 | 0 | 3 | 9 | 67% |
+| **TOTAL** | **221** | **2** | **7** | **230** | **96%** |
 
-**Overall ECMAScript Conformance: 217/230 features (94%)**
+**Overall ECMAScript Conformance: 221/230 features (96%)**
 
 ---
 
@@ -496,5 +496,5 @@ These features should be prioritized for implementation:
 11. ✅ Private class fields (`#`) - Implemented
 12. ✅ Dynamic `import()` - Implemented
 13. ✅ `BigInt` - Implemented
-14. ❌ Top-level `await`
+14. ✅ Top-level `await`
 15. ✅ `for await...of` - Implemented
