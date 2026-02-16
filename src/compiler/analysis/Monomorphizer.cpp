@@ -36,6 +36,288 @@ static std::unique_ptr<ast::Statement> makeConsoleLogStatement(const std::string
     return logStmt;
 }
 
+// Forward declarations for require() rewriting
+static void rewriteRequireInExpr(ast::Expression* expr,
+    ModuleResolver& resolver, const std::string& fromPath);
+static void rewriteRequireInStmt(ast::Statement* stmt,
+    ModuleResolver& resolver, const std::string& fromPath);
+
+// Walk a single expression, rewriting require('literal') → ts_module_get_cached('absolutePath')
+static void rewriteRequireInExpr(ast::Expression* expr,
+    ModuleResolver& resolver, const std::string& fromPath) {
+    if (!expr) return;
+
+    // Match: require('literal')
+    if (auto* call = dynamic_cast<ast::CallExpression*>(expr)) {
+        auto* id = dynamic_cast<ast::Identifier*>(call->callee.get());
+        if (id && id->name == "require" && call->arguments.size() >= 1) {
+            auto* lit = dynamic_cast<ast::StringLiteral*>(call->arguments[0].get());
+            if (lit) {
+                auto resolved = resolver.resolve(lit->value, fs::path(fromPath));
+                if (resolved.isValid() && resolved.type != ModuleType::Builtin) {
+                    id->name = "ts_module_get_cached";
+                    lit->value = resolved.path;
+                    // Trim to exactly 1 argument
+                    if (call->arguments.size() > 1) {
+                        call->arguments.resize(1);
+                    }
+                    call->inferredType = std::make_shared<Type>(TypeKind::Any);
+                    SPDLOG_DEBUG("Rewrote require('{}') -> ts_module_get_cached('{}') in {}",
+                        lit->value, resolved.path, fromPath);
+                }
+            }
+        }
+        // Recurse into callee and arguments regardless (for nested requires)
+        rewriteRequireInExpr(call->callee.get(), resolver, fromPath);
+        for (auto& arg : call->arguments) {
+            rewriteRequireInExpr(arg.get(), resolver, fromPath);
+        }
+        return;
+    }
+
+    if (auto* paren = dynamic_cast<ast::ParenthesizedExpression*>(expr)) {
+        rewriteRequireInExpr(paren->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* bin = dynamic_cast<ast::BinaryExpression*>(expr)) {
+        rewriteRequireInExpr(bin->left.get(), resolver, fromPath);
+        rewriteRequireInExpr(bin->right.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* assign = dynamic_cast<ast::AssignmentExpression*>(expr)) {
+        rewriteRequireInExpr(assign->left.get(), resolver, fromPath);
+        rewriteRequireInExpr(assign->right.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* cond = dynamic_cast<ast::ConditionalExpression*>(expr)) {
+        rewriteRequireInExpr(cond->condition.get(), resolver, fromPath);
+        rewriteRequireInExpr(cond->whenTrue.get(), resolver, fromPath);
+        rewriteRequireInExpr(cond->whenFalse.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(expr)) {
+        rewriteRequireInExpr(prop->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* elem = dynamic_cast<ast::ElementAccessExpression*>(expr)) {
+        rewriteRequireInExpr(elem->expression.get(), resolver, fromPath);
+        rewriteRequireInExpr(elem->argumentExpression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* newExpr = dynamic_cast<ast::NewExpression*>(expr)) {
+        rewriteRequireInExpr(newExpr->expression.get(), resolver, fromPath);
+        for (auto& arg : newExpr->arguments) {
+            rewriteRequireInExpr(arg.get(), resolver, fromPath);
+        }
+        return;
+    }
+
+    if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(expr)) {
+        for (auto& el : arr->elements) {
+            rewriteRequireInExpr(el.get(), resolver, fromPath);
+        }
+        return;
+    }
+
+    if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(expr)) {
+        for (auto& propNode : obj->properties) {
+            if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(propNode.get())) {
+                rewriteRequireInExpr(pa->initializer.get(), resolver, fromPath);
+            }
+        }
+        return;
+    }
+
+    if (auto* tmpl = dynamic_cast<ast::TemplateExpression*>(expr)) {
+        for (auto& span : tmpl->spans) {
+            rewriteRequireInExpr(span.expression.get(), resolver, fromPath);
+        }
+        return;
+    }
+
+    if (auto* tagged = dynamic_cast<ast::TaggedTemplateExpression*>(expr)) {
+        rewriteRequireInExpr(tagged->tag.get(), resolver, fromPath);
+        rewriteRequireInExpr(tagged->templateExpr.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* spread = dynamic_cast<ast::SpreadElement*>(expr)) {
+        rewriteRequireInExpr(spread->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* awaitExpr = dynamic_cast<ast::AwaitExpression*>(expr)) {
+        rewriteRequireInExpr(awaitExpr->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* yieldExpr = dynamic_cast<ast::YieldExpression*>(expr)) {
+        rewriteRequireInExpr(yieldExpr->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* prefix = dynamic_cast<ast::PrefixUnaryExpression*>(expr)) {
+        rewriteRequireInExpr(prefix->operand.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* postfix = dynamic_cast<ast::PostfixUnaryExpression*>(expr)) {
+        rewriteRequireInExpr(postfix->operand.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* asExpr = dynamic_cast<ast::AsExpression*>(expr)) {
+        rewriteRequireInExpr(asExpr->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* nonNull = dynamic_cast<ast::NonNullExpression*>(expr)) {
+        rewriteRequireInExpr(nonNull->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* delExpr = dynamic_cast<ast::DeleteExpression*>(expr)) {
+        rewriteRequireInExpr(delExpr->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    // Recurse into function bodies (for IIFEs and factory functions)
+    if (auto* funcExpr = dynamic_cast<ast::FunctionExpression*>(expr)) {
+        for (auto& bodyStmt : funcExpr->body) {
+            rewriteRequireInStmt(bodyStmt.get(), resolver, fromPath);
+        }
+        return;
+    }
+
+    if (auto* arrow = dynamic_cast<ast::ArrowFunction*>(expr)) {
+        // Body can be BlockStatement or an expression
+        if (auto* block = dynamic_cast<ast::BlockStatement*>(arrow->body.get())) {
+            for (auto& bodyStmt : block->statements) {
+                rewriteRequireInStmt(bodyStmt.get(), resolver, fromPath);
+            }
+        } else if (auto* bodyExpr = dynamic_cast<ast::Expression*>(arrow->body.get())) {
+            rewriteRequireInExpr(bodyExpr, resolver, fromPath);
+        }
+        return;
+    }
+}
+
+// Walk a single statement, recursing into contained expressions and sub-statements
+static void rewriteRequireInStmt(ast::Statement* stmt,
+    ModuleResolver& resolver, const std::string& fromPath) {
+    if (!stmt) return;
+
+    if (auto* exprStmt = dynamic_cast<ast::ExpressionStatement*>(stmt)) {
+        rewriteRequireInExpr(exprStmt->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt)) {
+        rewriteRequireInExpr(varDecl->initializer.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* retStmt = dynamic_cast<ast::ReturnStatement*>(stmt)) {
+        rewriteRequireInExpr(retStmt->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* ifStmt = dynamic_cast<ast::IfStatement*>(stmt)) {
+        rewriteRequireInExpr(ifStmt->condition.get(), resolver, fromPath);
+        rewriteRequireInStmt(ifStmt->thenStatement.get(), resolver, fromPath);
+        rewriteRequireInStmt(ifStmt->elseStatement.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* block = dynamic_cast<ast::BlockStatement*>(stmt)) {
+        for (auto& s : block->statements) {
+            rewriteRequireInStmt(s.get(), resolver, fromPath);
+        }
+        return;
+    }
+
+    if (auto* whileStmt = dynamic_cast<ast::WhileStatement*>(stmt)) {
+        rewriteRequireInExpr(whileStmt->condition.get(), resolver, fromPath);
+        rewriteRequireInStmt(whileStmt->body.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* forStmt = dynamic_cast<ast::ForStatement*>(stmt)) {
+        rewriteRequireInStmt(forStmt->initializer.get(), resolver, fromPath);
+        rewriteRequireInExpr(forStmt->condition.get(), resolver, fromPath);
+        rewriteRequireInExpr(forStmt->incrementor.get(), resolver, fromPath);
+        rewriteRequireInStmt(forStmt->body.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* forOf = dynamic_cast<ast::ForOfStatement*>(stmt)) {
+        rewriteRequireInExpr(forOf->expression.get(), resolver, fromPath);
+        rewriteRequireInStmt(forOf->body.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* forIn = dynamic_cast<ast::ForInStatement*>(stmt)) {
+        rewriteRequireInExpr(forIn->expression.get(), resolver, fromPath);
+        rewriteRequireInStmt(forIn->body.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* tryStmt = dynamic_cast<ast::TryStatement*>(stmt)) {
+        for (auto& s : tryStmt->tryBlock) {
+            rewriteRequireInStmt(s.get(), resolver, fromPath);
+        }
+        if (tryStmt->catchClause) {
+            for (auto& s : tryStmt->catchClause->block) {
+                rewriteRequireInStmt(s.get(), resolver, fromPath);
+            }
+        }
+        for (auto& s : tryStmt->finallyBlock) {
+            rewriteRequireInStmt(s.get(), resolver, fromPath);
+        }
+        return;
+    }
+
+    if (auto* throwStmt = dynamic_cast<ast::ThrowStatement*>(stmt)) {
+        rewriteRequireInExpr(throwStmt->expression.get(), resolver, fromPath);
+        return;
+    }
+
+    if (auto* switchStmt = dynamic_cast<ast::SwitchStatement*>(stmt)) {
+        rewriteRequireInExpr(switchStmt->expression.get(), resolver, fromPath);
+        for (auto& clause : switchStmt->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(clause.get())) {
+                rewriteRequireInExpr(cc->expression.get(), resolver, fromPath);
+                for (auto& s : cc->statements) {
+                    rewriteRequireInStmt(s.get(), resolver, fromPath);
+                }
+            } else if (auto* dc = dynamic_cast<ast::DefaultClause*>(clause.get())) {
+                for (auto& s : dc->statements) {
+                    rewriteRequireInStmt(s.get(), resolver, fromPath);
+                }
+            }
+        }
+        return;
+    }
+
+    if (auto* funcDecl = dynamic_cast<ast::FunctionDeclaration*>(stmt)) {
+        for (auto& s : funcDecl->body) {
+            rewriteRequireInStmt(s.get(), resolver, fromPath);
+        }
+        return;
+    }
+
+    if (auto* labeled = dynamic_cast<ast::LabeledStatement*>(stmt)) {
+        rewriteRequireInStmt(labeled->statement.get(), resolver, fromPath);
+        return;
+    }
+}
+
 Monomorphizer::Monomorphizer() {}
 
 void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
@@ -80,15 +362,15 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         moduleParam->type = "any";
         moduleInit->parameters.push_back(std::move(moduleParam));
 
-        // Prepend exports declaration for CommonJS support
+        // Prepend exports declaration for CommonJS support (skip for ESM modules)
         // const exports = module.exports;
-        {
+        if (!module->isESM) {
             auto exportsDecl = std::make_unique<ast::VariableDeclaration>();
             auto exportsName = std::make_unique<ast::Identifier>();
             exportsName->name = "exports";
             exportsDecl->name = std::move(exportsName);
             exportsDecl->type = "any";
-            
+
             auto moduleAccess = std::make_unique<ast::PropertyAccessExpression>();
             auto moduleRef = std::make_unique<ast::Identifier>();
             moduleRef->name = "module";
@@ -185,6 +467,15 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
         }
 
+        // Rewrite internal require() calls in JS module init bodies.
+        // require('literal') → ts_module_get_cached('absolutePath')
+        if (isJavaScriptModule) {
+            auto& resolver = analyzer.getModuleResolver();
+            for (auto& bodyStmt : moduleInit->body) {
+                rewriteRequireInStmt(bodyStmt.get(), resolver, path);
+            }
+        }
+
         // Inject CJS import binding extraction for JavaScript module imports.
         // For each ImportDeclaration in newBody that imports from a JS/CJS module,
         // inject VariableDeclarations that call ts_module_get_cached() to extract
@@ -213,6 +504,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 auto modIt = analyzer.modules.find(resolved.path);
                 if (modIt == analyzer.modules.end()) continue;
                 auto& targetModule = modIt->second;
+
+                // Skip CJS binding injection for ESM modules
+                if (targetModule->isESM) continue;
 
                 // If target is a TypeScript barrel that re-exports from CJS modules,
                 // "see through" the barrel and inject CJS binding extraction for the
@@ -493,8 +787,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
         }
 
-        // Always return module.exports at the end of module init for CommonJS support
-        {
+        // Return module.exports at the end of module init for CommonJS support (skip for ESM)
+        if (!module->isESM) {
             auto finalRet = std::make_unique<ast::ReturnStatement>();
             auto finalModuleAccess = std::make_unique<ast::PropertyAccessExpression>();
             auto finalModuleRef = std::make_unique<ast::Identifier>();

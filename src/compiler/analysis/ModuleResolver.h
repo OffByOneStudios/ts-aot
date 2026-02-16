@@ -29,6 +29,7 @@ struct ResolvedModule {
     ModuleType type;            // Type of module
     std::string packageName;    // Package name if from node_modules (e.g., "lodash")
     bool isExternal = false;    // True if from node_modules
+    bool isESM = false;         // True if package.json "type": "module" or .mjs
 
     bool isValid() const { return !path.empty(); }
 };

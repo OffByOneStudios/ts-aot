@@ -20,6 +20,7 @@ struct Module {
     bool analyzed = false;
     bool isAsync = false;
     bool isJsonModule = false;
+    bool isESM = false;
 
     // For JSON modules: the parsed JSON content
     std::optional<nlohmann::json> jsonContent;
