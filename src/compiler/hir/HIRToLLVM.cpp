@@ -890,6 +890,25 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         }
     }
 
+    // Pre-scan: lower all Alloca instructions from ALL blocks first.
+    // This ensures their valueMap_ entries exist before any block references them.
+    // Alloca instructions are always moved to the LLVM entry block anyway, so
+    // processing them early is correct. Without this, a block that references an
+    // alloca defined in a later block (e.g., forof.end referencing a closure alloca
+    // inside the loop body) would fail because the alloca's value ID is not yet in
+    // valueMap_ when the referencing block is lowered.
+    if (!fn->blocks.empty()) {
+        // Set builder to first block so InsertPointGuard in lowerAlloca can save/restore
+        builder_->SetInsertPoint(blockMap_[fn->blocks[0].get()]);
+        for (auto& block : fn->blocks) {
+            for (auto& inst : block->instructions) {
+                if (inst->opcode == HIROpcode::Alloca) {
+                    lowerAlloca(inst.get());
+                }
+            }
+        }
+    }
+
     // Lower each block
     for (size_t bi = 0; bi < fn->blocks.size(); ++bi) {
         lowerBlock(fn->blocks[bi].get());
@@ -2733,6 +2752,11 @@ void HIRToLLVM::lowerSafepointPoll(HIRInstruction* inst) {
 //==============================================================================
 
 void HIRToLLVM::lowerAlloca(HIRInstruction* inst) {
+    // Skip if already pre-lowered (alloca pre-scan processes all allocas before block lowering)
+    if (inst->result && valueMap_.count(inst->result->id)) {
+        return;
+    }
+
     auto type = getOperandType(inst->operands[0]);
     llvm::Type* llvmType = getLLVMType(type);
     // Void type cannot be used for alloca - use ptr instead (stores undefined/null)

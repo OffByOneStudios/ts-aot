@@ -1,6 +1,7 @@
 #include "TsMap.h"
 #include "TsHashTable.h"
 #include "TsWeakMap.h"
+#include "TsSet.h"
 #include "TsArray.h"
 #include "TsObject.h"
 #include "TsRuntime.h"
@@ -351,19 +352,44 @@ TsValue* ts_map_has_fast(void* map, TsValue* key) {
 }
 
 TsValue* ts_map_has_wrapper(void* context, TsValue* key) {
+    if (context) {
+        uint32_t obj_magic = ((TsObject*)context)->magic;
+        if (obj_magic == TsSet::MAGIC) {
+            return ts_value_make_bool(ts_set_has(context, key));
+        }
+    }
     return ts_value_make_bool(ts_map_has(context, key));
 }
 
 TsValue* ts_map_delete_wrapper(void* context, TsValue* key) {
+    if (context) {
+        uint32_t obj_magic = ((TsObject*)context)->magic;
+        if (obj_magic == TsSet::MAGIC) {
+            return ts_value_make_bool(ts_set_delete(context, key));
+        }
+    }
     return ts_value_make_bool(ts_map_delete(context, key));
 }
 
 TsValue* ts_map_clear_wrapper(void* context) {
+    if (context) {
+        uint32_t obj_magic = ((TsObject*)context)->magic;
+        if (obj_magic == TsSet::MAGIC) {
+            ts_set_clear(context);
+            return ts_value_make_undefined();
+        }
+    }
     ts_map_clear(context);
     return ts_value_make_undefined();
 }
 
 TsValue* ts_map_size_wrapper(void* context) {
+    if (context) {
+        uint32_t obj_magic = ((TsObject*)context)->magic;
+        if (obj_magic == TsSet::MAGIC) {
+            return ts_value_make_int(ts_set_size(context));
+        }
+    }
     return ts_value_make_int(ts_map_size(context));
 }
 
