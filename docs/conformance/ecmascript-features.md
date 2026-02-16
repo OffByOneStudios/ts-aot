@@ -381,7 +381,7 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `BigInt` | ✅ | Arithmetic, comparison, bitwise ops |
-| Dynamic `import()` | ❌ | |
+| Dynamic `import()` | ✅ | String literal specifiers resolved at compile time |
 | Nullish coalescing (`??`) | ✅ | |
 | Optional chaining (`?.`) | ✅ | Property access only |
 | `Promise.allSettled()` | ✅ | |
@@ -463,14 +463,14 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 | ES2017 | 8 | 0 | 1 | 9 | 89% |
 | ES2018 | 8 | 0 | 0 | 8 | 100% |
 | ES2019 | 8 | 0 | 1 | 9 | 89% |
-| ES2020 | 7 | 0 | 3 | 10 | 70% |
+| ES2020 | 8 | 0 | 2 | 10 | 80% |
 | ES2021 | 6 | 0 | 0 | 6 | 100% |
 | ES2022 | 9 | 0 | 1 | 10 | 90% |
 | ES2023 | 8 | 0 | 0 | 8 | 100% |
 | ES2024 | 5 | 0 | 4 | 9 | 56% |
-| **TOTAL** | **216** | **2** | **12** | **230** | **94%** |
+| **TOTAL** | **217** | **2** | **11** | **230** | **94%** |
 
-**Overall ECMAScript Conformance: 216/230 features (94%)**
+**Overall ECMAScript Conformance: 217/230 features (94%)**
 
 ---
 
@@ -494,7 +494,7 @@ These features should be prioritized for implementation:
 
 ### Medium Priority
 11. ✅ Private class fields (`#`) - Implemented
-12. ❌ Dynamic `import()`
+12. ✅ Dynamic `import()` - Implemented
 13. ✅ `BigInt` - Implemented
 14. ❌ Top-level `await`
 15. ✅ `for await...of` - Implemented
