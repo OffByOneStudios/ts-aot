@@ -4147,6 +4147,24 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_object_get_dynamic(moduleObj, boxedKey);
     }
 
+    TsValue* ts_module_get_default(TsValue* path) {
+        TsValue* exports = ts_module_get_cached(path);
+        if (ts_value_is_undefined(exports)) return exports;
+
+        // Check __esModule flag (Babel/TypeScript CJS interop convention)
+        // If exports.__esModule is truthy, return exports.default instead of exports
+        TsString* esKey = TsString::Create("__esModule");
+        TsValue* flag = ts_object_get_dynamic(exports, ts_value_make_string(esKey));
+        if (!ts_value_is_undefined(flag) && !ts_value_is_null(flag)) {
+            bool boolVal = ts_value_get_bool(flag);
+            if (boolVal) {
+                TsString* defKey = TsString::Create("default");
+                return ts_object_get_dynamic(exports, ts_value_make_string(defKey));
+            }
+        }
+        return exports;
+    }
+
     TsValue* ts_require(TsValue* specifier, const char* referrerPath) {
         TsString* s = (TsString*)ts_value_get_string(specifier);
         if (!s) {

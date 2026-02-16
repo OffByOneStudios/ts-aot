@@ -213,8 +213,189 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 auto modIt = analyzer.modules.find(resolved.path);
                 if (modIt == analyzer.modules.end()) continue;
                 auto& targetModule = modIt->second;
+
+                // If target is a TypeScript barrel that re-exports from CJS modules,
+                // "see through" the barrel and inject CJS binding extraction for the
+                // underlying CJS module directly in the consumer's module init.
                 if (targetModule->type != ModuleType::UntypedJavaScript &&
-                    targetModule->type != ModuleType::TypedJavaScript) continue;
+                    targetModule->type != ModuleType::TypedJavaScript) {
+                    // Scan barrel's AST for ExportDeclaration nodes pointing to CJS modules
+                    if (!targetModule->ast) continue;
+
+                    // Collect CJS re-export sources from the barrel
+                    // Map: CJS resolved path -> list of export names available from that CJS module
+                    struct CjsReExport {
+                        std::string resolvedPath;
+                        bool isStar;
+                        std::vector<ast::ExportSpecifier> specifiers;
+                    };
+                    std::vector<CjsReExport> cjsReExports;
+
+                    for (const auto& barrelStmt : targetModule->ast->body) {
+                        if (barrelStmt->getKind() != "ExportDeclaration") continue;
+                        auto* exportDecl = dynamic_cast<ast::ExportDeclaration*>(barrelStmt.get());
+                        if (!exportDecl || exportDecl->moduleSpecifier.empty()) continue;
+
+                        auto cjsResolved = analyzer.getModuleResolver().resolve(
+                            exportDecl->moduleSpecifier, resolved.path);
+                        if (!cjsResolved.isValid()) continue;
+
+                        auto cjsModIt = analyzer.modules.find(cjsResolved.path);
+                        if (cjsModIt == analyzer.modules.end()) continue;
+                        auto& cjsMod = cjsModIt->second;
+                        if (cjsMod->type != ModuleType::UntypedJavaScript &&
+                            cjsMod->type != ModuleType::TypedJavaScript) continue;
+
+                        CjsReExport reExport;
+                        reExport.resolvedPath = cjsResolved.path;
+                        reExport.isStar = exportDecl->isStarExport;
+                        reExport.specifiers = exportDecl->namedExports;
+                        cjsReExports.push_back(std::move(reExport));
+                    }
+
+                    if (cjsReExports.empty()) continue;
+
+                    // For each named import, find which CJS module provides it
+                    for (const auto& spec : importDecl->namedImports) {
+                        if (spec.isTypeOnly) continue;
+                        std::string importedName = spec.propertyName.empty() ? spec.name : spec.propertyName;
+                        std::string localName = spec.name;
+                        std::string cjsPath;
+                        std::string exportedName;
+
+                        for (const auto& reExport : cjsReExports) {
+                            if (reExport.isStar) {
+                                // For star re-exports, check the CJS module's export table
+                                auto cjsModIt2 = analyzer.modules.find(reExport.resolvedPath);
+                                if (cjsModIt2 != analyzer.modules.end() && cjsModIt2->second->exports) {
+                                    auto& syms = cjsModIt2->second->exports->getGlobalSymbols();
+                                    if (syms.count(importedName)) {
+                                        cjsPath = reExport.resolvedPath;
+                                        exportedName = importedName;
+                                        break;
+                                    }
+                                }
+                            } else {
+                                // For named re-exports, check specifiers
+                                for (const auto& expSpec : reExport.specifiers) {
+                                    std::string srcName = expSpec.propertyName.empty() ? expSpec.name : expSpec.propertyName;
+                                    std::string dstName = expSpec.name;
+                                    if (dstName == importedName) {
+                                        cjsPath = reExport.resolvedPath;
+                                        exportedName = srcName;
+                                        break;
+                                    }
+                                }
+                                if (!cjsPath.empty()) break;
+                            }
+                        }
+
+                        if (cjsPath.empty()) continue;
+
+                        // Inject: const __cjs_thru_N = ts_module_get_cached(cjsPath);
+                        std::string thruVarName = "__cjs_thru_" + std::to_string(cjsCounter++);
+                        {
+                            auto varDecl = std::make_unique<ast::VariableDeclaration>();
+                            auto varName = std::make_unique<ast::Identifier>();
+                            varName->name = thruVarName;
+                            varDecl->name = std::move(varName);
+                            varDecl->type = "any";
+
+                            auto call = std::make_unique<ast::CallExpression>();
+                            auto calleeId = std::make_unique<ast::Identifier>();
+                            calleeId->name = "ts_module_get_cached";
+                            call->callee = std::move(calleeId);
+                            auto pathLit = std::make_unique<ast::StringLiteral>();
+                            pathLit->value = cjsPath;
+                            call->arguments.push_back(std::move(pathLit));
+                            call->inferredType = std::make_shared<Type>(TypeKind::Any);
+
+                            varDecl->initializer = std::move(call);
+                            cjsBindings.push_back(std::move(varDecl));
+                        }
+
+                        // Inject: const localName = __cjs_thru_N.exportedName;
+                        {
+                            auto varDecl = std::make_unique<ast::VariableDeclaration>();
+                            auto varNameId = std::make_unique<ast::Identifier>();
+                            varNameId->name = localName;
+                            varDecl->name = std::move(varNameId);
+                            varDecl->type = "any";
+
+                            auto propAccess = std::make_unique<ast::PropertyAccessExpression>();
+                            auto objRef = std::make_unique<ast::Identifier>();
+                            objRef->name = thruVarName;
+                            objRef->inferredType = std::make_shared<Type>(TypeKind::Any);
+                            propAccess->expression = std::move(objRef);
+                            propAccess->name = exportedName;
+                            propAccess->inferredType = std::make_shared<Type>(TypeKind::Any);
+
+                            varDecl->initializer = std::move(propAccess);
+                            cjsBindings.push_back(std::move(varDecl));
+                        }
+                    }
+
+                    // Default import through barrel: const X = ts_module_get_default(cjsPath);
+                    if (!importDecl->defaultImport.empty()) {
+                        // Find a CJS source that might provide a default export
+                        for (const auto& reExport : cjsReExports) {
+                            if (!reExport.isStar) {
+                                // Check for explicit "default" re-export
+                                bool hasDefault = false;
+                                for (const auto& expSpec : reExport.specifiers) {
+                                    if (expSpec.name == "default") {
+                                        hasDefault = true;
+                                        break;
+                                    }
+                                }
+                                if (!hasDefault) continue;
+                            }
+
+                            auto varDecl = std::make_unique<ast::VariableDeclaration>();
+                            auto varName = std::make_unique<ast::Identifier>();
+                            varName->name = importDecl->defaultImport;
+                            varDecl->name = std::move(varName);
+                            varDecl->type = "any";
+
+                            auto call = std::make_unique<ast::CallExpression>();
+                            auto calleeId = std::make_unique<ast::Identifier>();
+                            calleeId->name = "ts_module_get_default";
+                            call->callee = std::move(calleeId);
+                            auto pathLit = std::make_unique<ast::StringLiteral>();
+                            pathLit->value = reExport.resolvedPath;
+                            call->arguments.push_back(std::move(pathLit));
+                            call->inferredType = std::make_shared<Type>(TypeKind::Any);
+
+                            varDecl->initializer = std::move(call);
+                            cjsBindings.push_back(std::move(varDecl));
+                            break;
+                        }
+                    }
+
+                    // Namespace import through barrel: const X = ts_module_get_cached(cjsPath);
+                    if (!importDecl->namespaceImport.empty() && !cjsReExports.empty()) {
+                        // Use the first CJS source as the namespace target
+                        auto varDecl = std::make_unique<ast::VariableDeclaration>();
+                        auto varName = std::make_unique<ast::Identifier>();
+                        varName->name = importDecl->namespaceImport;
+                        varDecl->name = std::move(varName);
+                        varDecl->type = "any";
+
+                        auto call = std::make_unique<ast::CallExpression>();
+                        auto calleeId = std::make_unique<ast::Identifier>();
+                        calleeId->name = "ts_module_get_cached";
+                        call->callee = std::move(calleeId);
+                        auto pathLit = std::make_unique<ast::StringLiteral>();
+                        pathLit->value = cjsReExports[0].resolvedPath;
+                        call->arguments.push_back(std::move(pathLit));
+                        call->inferredType = std::make_shared<Type>(TypeKind::Any);
+
+                        varDecl->initializer = std::move(call);
+                        cjsBindings.push_back(std::move(varDecl));
+                    }
+
+                    continue;
+                }
 
                 std::string exportsVarName = "__cjs_exports_" + std::to_string(cjsCounter++);
 
@@ -239,8 +420,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     cjsBindings.push_back(std::move(varDecl));
                 }
 
-                // Default import: const X = __cjs_exports_N;
-                // For CJS, module.exports IS the default export
+                // Default import: const X = ts_module_get_default(resolvedPath);
+                // Uses __esModule interop: if exports.__esModule, returns exports.default
+                // Otherwise returns the whole exports object (raw CJS default)
                 if (!importDecl->defaultImport.empty()) {
                     auto varDecl = std::make_unique<ast::VariableDeclaration>();
                     auto varName = std::make_unique<ast::Identifier>();
@@ -248,10 +430,16 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     varDecl->name = std::move(varName);
                     varDecl->type = "any";
 
-                    auto ref = std::make_unique<ast::Identifier>();
-                    ref->name = exportsVarName;
-                    ref->inferredType = std::make_shared<Type>(TypeKind::Any);
-                    varDecl->initializer = std::move(ref);
+                    auto call = std::make_unique<ast::CallExpression>();
+                    auto calleeId = std::make_unique<ast::Identifier>();
+                    calleeId->name = "ts_module_get_default";
+                    call->callee = std::move(calleeId);
+                    auto pathLit = std::make_unique<ast::StringLiteral>();
+                    pathLit->value = resolved.path;
+                    call->arguments.push_back(std::move(pathLit));
+                    call->inferredType = std::make_shared<Type>(TypeKind::Any);
+
+                    varDecl->initializer = std::move(call);
                     cjsBindings.push_back(std::move(varDecl));
                 }
 

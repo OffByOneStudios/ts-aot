@@ -365,6 +365,7 @@ TsValue* ts_call_0(TsValue* func);
 void ts_module_register(TsValue* path, TsValue* exports);
 TsValue* ts_module_get(const char* path);
 TsValue* ts_module_get_cached(TsValue* path);
+TsValue* ts_module_get_default(TsValue* path);
 TsValue* ts_require(TsValue* specifier, const char* referrerPath);
 
 // --- TLS Module ---
