@@ -627,6 +627,23 @@ bool TsString::StartsWith(TsString* prefix) {
     return s.startsWith(p);
 }
 
+bool TsString::EndsWith(TsString* suffix) {
+    if (isSmall && suffix->isSmall) {
+        if (suffix->length > length) return false;
+        return std::memcmp(data.inlineBuffer + length - suffix->length, suffix->data.inlineBuffer, suffix->length) == 0;
+    }
+
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+
+    icu::UnicodeString p;
+    if (suffix->isSmall) p = icu::UnicodeString::fromUTF8(suffix->data.inlineBuffer);
+    else p = *static_cast<icu::UnicodeString*>(suffix->data.heap.impl);
+
+    return s.endsWith(p);
+}
+
 bool TsString::Includes(TsString* searchString) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
@@ -1233,6 +1250,10 @@ extern "C" {
 
     bool ts_string_startsWith(void* str, void* prefix) {
         return ((TsString*)str)->StartsWith((TsString*)prefix);
+    }
+
+    bool ts_string_endsWith(void* str, void* suffix) {
+        return ((TsString*)str)->EndsWith((TsString*)suffix);
     }
 
     bool ts_string_includes(void* str, void* searchString) {

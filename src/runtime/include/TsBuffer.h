@@ -256,6 +256,7 @@ extern "C" {
     int64_t ts_buffer_write_intbe(void* buf, int64_t value, int64_t offset, int64_t byteLength);
     int64_t ts_buffer_write_uintle(void* buf, int64_t value, int64_t offset, int64_t byteLength);
     int64_t ts_buffer_write_uintbe(void* buf, int64_t value, int64_t offset, int64_t byteLength);
+    int64_t ts_buffer_write_string(void* buf, void* str, int64_t offset, int64_t length, void* encoding);
 
     // Buffer swap methods
     void* ts_buffer_swap16(void* buf);

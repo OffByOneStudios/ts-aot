@@ -660,6 +660,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
 
             pushFunctionScope(methPtr);
+            methPtr->nextValueId = static_cast<uint32_t>(methPtr->params.size());
             for (size_t i = 0; i < methPtr->params.size(); ++i) {
                 const auto& [paramName, paramType] = methPtr->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
@@ -667,7 +668,6 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 builder_.createStore(paramValue, allocaVal);
                 defineVariableAlloca(paramName, allocaVal, paramType);
             }
-            methPtr->nextValueId = static_cast<uint32_t>(methPtr->params.size());
 
             // For constructors of imported classes, emit field initializers
             // before the constructor body (mirrors visitClassDeclaration behavior)

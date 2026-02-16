@@ -1465,6 +1465,30 @@ extern "C" {
     }
 
     // ============================================================================
+    // Buffer String Write Method
+    // ============================================================================
+
+    int64_t ts_buffer_write_string(void* buf, void* str, int64_t offset, int64_t length, void* encoding) {
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer || !str) return 0;
+        TsString* tsStr = (TsString*)str;
+        const char* utf8 = tsStr->ToUtf8();
+        size_t strLen = std::strlen(utf8);
+        size_t bufLen = buffer->GetLength();
+
+        if (offset < 0) offset = 0;
+        if ((size_t)offset >= bufLen) return 0;
+
+        size_t available = bufLen - (size_t)offset;
+        size_t writeLen = strLen;
+        if (length >= 0 && (size_t)length < writeLen) writeLen = (size_t)length;
+        if (writeLen > available) writeLen = available;
+
+        std::memcpy(buffer->GetData() + offset, utf8, writeLen);
+        return (int64_t)writeLen;
+    }
+
+    // ============================================================================
     // Buffer Swap Methods
     // ============================================================================
 

@@ -42,6 +42,7 @@ public:
     TsString* PadStart(int64_t targetLength, TsString* padString);
     TsString* PadEnd(int64_t targetLength, TsString* padString);
     bool StartsWith(TsString* prefix);
+    bool EndsWith(TsString* suffix);
     bool Includes(TsString* searchString);
     int64_t IndexOf(TsString* searchString);
     int64_t LastIndexOf(TsString* searchString);
@@ -109,6 +110,7 @@ extern "C" {
     void* ts_string_padStart(void* str, int64_t targetLength, void* padString);
     void* ts_string_padEnd(void* str, int64_t targetLength, void* padString);
     bool ts_string_startsWith(void* str, void* prefix);
+    bool ts_string_endsWith(void* str, void* suffix);
     bool ts_string_includes(void* str, void* searchString);
     int64_t ts_string_indexOf(void* str, void* searchString);
     int64_t ts_string_lastIndexOf(void* str, void* searchString);
