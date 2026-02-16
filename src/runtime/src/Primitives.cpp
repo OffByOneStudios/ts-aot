@@ -12,6 +12,7 @@
 #include <map>
 #include <string>
 #include <cstdlib>
+#include <cinttypes>
 #include <windows.h>
 
 static std::map<std::string, std::chrono::steady_clock::time_point> consoleTimers;
@@ -440,6 +441,232 @@ extern "C" void ts_console_log_value(TsValue* val) {
     std::fflush(stdout);
 }
 
+// Helper: convert a NaN-boxed value to its string representation for console formatting
+static void appendValueToBuffer(TsValue* val, std::string& out) {
+    if (!val) { out += "undefined"; return; }
+    uint64_t nb = nanbox_from_tsvalue_ptr(val);
+    if (nanbox_is_undefined(nb)) { out += "undefined"; return; }
+    if (nanbox_is_null(nb))      { out += "null"; return; }
+    if (nanbox_is_true(nb))      { out += "true"; return; }
+    if (nanbox_is_false(nb))     { out += "false"; return; }
+    if (nanbox_is_int32(nb)) {
+        out += std::to_string(nanbox_to_int32(nb));
+        return;
+    }
+    if (nanbox_is_double(nb)) {
+        double d = nanbox_to_double(nb);
+        if (std::isnan(d)) { out += "NaN"; return; }
+        if (std::isinf(d)) { out += d > 0 ? "Infinity" : "-Infinity"; return; }
+        // Use JS-style number formatting
+        char buf[64];
+        if (d == (double)(int64_t)d && std::abs(d) < 1e15) {
+            std::snprintf(buf, sizeof(buf), "%" PRId64, (int64_t)d);
+        } else {
+            std::snprintf(buf, sizeof(buf), "%.17g", d);
+            // Trim trailing zeros after decimal point
+            char* dot = strchr(buf, '.');
+            if (dot) {
+                char* end = buf + strlen(buf) - 1;
+                while (end > dot && *end == '0') *end-- = '\0';
+                if (end == dot) *end = '\0';
+            }
+        }
+        out += buf;
+        return;
+    }
+    if (!nanbox_is_ptr(nb)) { out += "undefined"; return; }
+    void* ptr = nanbox_to_ptr(nb);
+    if (!ptr) { out += "null"; return; }
+    uint32_t magic = *(uint32_t*)ptr;
+    if (magic == 0x53545247) { out += ((TsString*)ptr)->ToUtf8(); return; }
+    if (magic == 0x42494749) { out += ((TsBigInt*)ptr)->ToString(); out += "n"; return; }
+    if (magic == 0x41525259 || magic == 0x4D415053 || magic == 0x464C4154) {
+        // For arrays/objects, print via stream helper to a temp buffer
+        // Simple approach: use the existing stream printer
+        out += "[object Object]";
+        if (magic == 0x41525259) {
+            out.resize(out.size() - strlen("[object Object]"));
+            TsArray* arr = (TsArray*)ptr;
+            int64_t len = arr->Length();
+            for (int64_t i = 0; i < len; i++) {
+                if (i > 0) out += ",";
+                int64_t rawElem = arr->Get(i);
+                appendValueToBuffer((TsValue*)(uintptr_t)rawElem, out);
+            }
+        }
+        return;
+    }
+    out += "[object Object]";
+}
+
+// console.log with multiple args: handles util.format-style %s/%d/%f substitution
+extern "C" void ts_console_log_args(void** args, int32_t argc) {
+    if (argc <= 0) {
+        printConsoleIndent();
+        std::printf("\n");
+        std::fflush(stdout);
+        return;
+    }
+    if (argc == 1) {
+        printConsoleIndent();
+        ts_console_print_value_to_stream((TsValue*)args[0], stdout);
+        std::printf("\n");
+        std::fflush(stdout);
+        return;
+    }
+
+    // Check if first arg is a string (potential format string)
+    TsValue* firstArg = (TsValue*)args[0];
+    uint64_t nb0 = nanbox_from_tsvalue_ptr(firstArg);
+    bool firstIsString = false;
+    const char* fmtStr = nullptr;
+    if (nanbox_is_ptr(nb0)) {
+        void* ptr = nanbox_to_ptr(nb0);
+        if (ptr && *(uint32_t*)ptr == 0x53545247) { // TsString magic
+            firstIsString = true;
+            fmtStr = ((TsString*)ptr)->ToUtf8();
+        }
+    }
+
+    std::string result;
+    int argIndex = 1; // start from second arg
+
+    if (firstIsString && fmtStr) {
+        size_t len = strlen(fmtStr);
+        for (size_t i = 0; i < len; i++) {
+            if (fmtStr[i] == '%' && i + 1 < len) {
+                char spec = fmtStr[i + 1];
+                if (spec == 's' && argIndex < argc) {
+                    appendValueToBuffer((TsValue*)args[argIndex++], result);
+                    i++;
+                } else if ((spec == 'd' || spec == 'i') && argIndex < argc) {
+                    TsValue* val = (TsValue*)args[argIndex++];
+                    uint64_t vnb = nanbox_from_tsvalue_ptr(val);
+                    if (nanbox_is_int32(vnb)) result += std::to_string(nanbox_to_int32(vnb));
+                    else if (nanbox_is_double(vnb)) result += std::to_string((int64_t)nanbox_to_double(vnb));
+                    else result += "NaN";
+                    i++;
+                } else if (spec == 'f' && argIndex < argc) {
+                    TsValue* val = (TsValue*)args[argIndex++];
+                    uint64_t vnb = nanbox_from_tsvalue_ptr(val);
+                    double d = 0;
+                    if (nanbox_is_double(vnb)) d = nanbox_to_double(vnb);
+                    else if (nanbox_is_int32(vnb)) d = (double)nanbox_to_int32(vnb);
+                    char buf[64];
+                    std::snprintf(buf, sizeof(buf), "%g", d);
+                    result += buf;
+                    i++;
+                } else if ((spec == 'o' || spec == 'O' || spec == 'j') && argIndex < argc) {
+                    appendValueToBuffer((TsValue*)args[argIndex++], result);
+                    i++;
+                } else if (spec == '%') {
+                    result += '%';
+                    i++;
+                } else {
+                    result += fmtStr[i];
+                }
+            } else {
+                result += fmtStr[i];
+            }
+        }
+    } else {
+        // First arg is not a string, just print all args space-separated
+        appendValueToBuffer(firstArg, result);
+    }
+
+    // Append remaining args separated by spaces
+    while (argIndex < argc) {
+        result += ' ';
+        appendValueToBuffer((TsValue*)args[argIndex++], result);
+    }
+
+    printConsoleIndent();
+    std::printf("%s\n", result.c_str());
+    std::fflush(stdout);
+}
+
+// console.error with multiple args (same format logic, outputs to stderr)
+extern "C" void ts_console_error_args(void** args, int32_t argc) {
+    if (argc <= 0) {
+        std::fprintf(stderr, "\n");
+        std::fflush(stderr);
+        return;
+    }
+    if (argc == 1) {
+        printConsoleIndent();
+        ts_console_print_value_to_stream((TsValue*)args[0], stderr);
+        std::fprintf(stderr, "\n");
+        std::fflush(stderr);
+        return;
+    }
+
+    // Check if first arg is a string (potential format string)
+    TsValue* firstArg = (TsValue*)args[0];
+    uint64_t nb0 = nanbox_from_tsvalue_ptr(firstArg);
+    bool firstIsString = false;
+    const char* fmtStr = nullptr;
+    if (nanbox_is_ptr(nb0)) {
+        void* ptr = nanbox_to_ptr(nb0);
+        if (ptr && *(uint32_t*)ptr == 0x53545247) {
+            firstIsString = true;
+            fmtStr = ((TsString*)ptr)->ToUtf8();
+        }
+    }
+
+    std::string result;
+    int argIndex = 1;
+
+    if (firstIsString && fmtStr) {
+        size_t len = strlen(fmtStr);
+        for (size_t i = 0; i < len; i++) {
+            if (fmtStr[i] == '%' && i + 1 < len) {
+                char spec = fmtStr[i + 1];
+                if (spec == 's' && argIndex < argc) {
+                    appendValueToBuffer((TsValue*)args[argIndex++], result);
+                    i++;
+                } else if ((spec == 'd' || spec == 'i') && argIndex < argc) {
+                    TsValue* val = (TsValue*)args[argIndex++];
+                    uint64_t vnb = nanbox_from_tsvalue_ptr(val);
+                    if (nanbox_is_int32(vnb)) result += std::to_string(nanbox_to_int32(vnb));
+                    else if (nanbox_is_double(vnb)) result += std::to_string((int64_t)nanbox_to_double(vnb));
+                    else result += "NaN";
+                    i++;
+                } else if (spec == 'f' && argIndex < argc) {
+                    TsValue* val = (TsValue*)args[argIndex++];
+                    uint64_t vnb = nanbox_from_tsvalue_ptr(val);
+                    double d = 0;
+                    if (nanbox_is_double(vnb)) d = nanbox_to_double(vnb);
+                    else if (nanbox_is_int32(vnb)) d = (double)nanbox_to_int32(vnb);
+                    char buf[64];
+                    std::snprintf(buf, sizeof(buf), "%g", d);
+                    result += buf;
+                    i++;
+                } else if ((spec == 'o' || spec == 'O' || spec == 'j') && argIndex < argc) {
+                    appendValueToBuffer((TsValue*)args[argIndex++], result);
+                    i++;
+                } else if (spec == '%') {
+                    result += '%';
+                    i++;
+                } else {
+                    result += fmtStr[i];
+                }
+            } else {
+                result += fmtStr[i];
+            }
+        }
+    } else {
+        appendValueToBuffer(firstArg, result);
+    }
+
+    while (argIndex < argc) {
+        result += ' ';
+        appendValueToBuffer((TsValue*)args[argIndex++], result);
+    }
+
+    printConsoleIndent();
+    std::fprintf(stderr, "%s\n", result.c_str());
+    std::fflush(stderr);
+}
 
 TsString* ts_typeof(void* val) {
     if (!val) return TsString::Create("undefined");
