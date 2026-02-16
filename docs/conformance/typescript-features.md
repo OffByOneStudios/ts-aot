@@ -167,7 +167,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | `export * as ns from` | ✅ | Functions and types work |
 | `import type` | 🔬 | Type-only |
 | `export type` | 🔬 | Type-only |
-| Dynamic `import()` | N/A | Deferred - AOT compiles all modules statically |
+| Dynamic `import()` | ✅ | String literal specifiers resolved at compile time |
 | `require()` (CommonJS) | ✅ | |
 | `module.exports` | ✅ | Property setting and reassignment |
 | JSON imports | ✅ | Compile-time embedding |
@@ -310,7 +310,7 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Generics | 5 | 0 | 0 | 2 | 0 |
 | Type Manipulation | 3 | 0 | 0 | 4 | 0 |
 | Utility Types | 0 | 0 | 0 | 17 | 0 |
-| Modules | 8 | 0 | 0 | 3 | 0 |
+| Modules | 9 | 0 | 0 | 2 | 0 |
 | Namespaces | 0 | 0 | 0 | 0 | 3 |
 | Enums | 7 | 0 | 0 | 0 | 0 |
 | Type Narrowing | 9 | 1 | 0 | 0 | 0 |
@@ -323,8 +323,8 @@ This document tracks ts-aot's conformance with TypeScript language features.
 | Mixins | 0 | 0 | 0 | 0 | 2 |
 | Triple-Slash | 3 | 0 | 0 | 0 | 1 |
 | Type Assertions | 4 | 0 | 0 | 0 | 0 |
-| **TOTAL** | **117** | **1** | **0** | **43** | **12** |
+| **TOTAL** | **118** | **1** | **0** | **42** | **12** |
 
-**Conformance: 117/118 runtime features (99%)**
+**Conformance: 118/119 runtime features (99%)**
 
-Note: 43 features are type-only (erased at compile time) and 12 features are N/A (legacy patterns or incompatible with AOT).
+Note: 42 features are type-only (erased at compile time) and 12 features are N/A (legacy patterns or incompatible with AOT).
