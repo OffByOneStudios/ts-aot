@@ -1323,6 +1323,26 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     // ========================================
+    // Date functions
+    // ========================================
+    reg.registerLowering("ts_date_create",
+        lowering("ts_date_create")
+            .returnsPtr()
+            .build());
+
+    reg.registerLowering("ts_date_create_ms",
+        lowering("ts_date_create_ms")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)  // milliseconds - convert from double
+            .build());
+
+    reg.registerLowering("ts_date_create_str",
+        lowering("ts_date_create_str")
+            .returnsPtr()
+            .ptrArg()        // date string
+            .build());
+
+    // ========================================
     // Crypto functions
     // ========================================
     reg.registerLowering("ts_crypto_randomBytes",
