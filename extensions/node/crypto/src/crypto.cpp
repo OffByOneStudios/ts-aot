@@ -1137,6 +1137,28 @@ public:
 // C API - Cipher functions
 // ============================================================================
 
+// Helper: extract raw bytes from a NaN-boxed pointer (TsString or TsBuffer)
+static bool extract_bytes(void* ptr, const void** outData, size_t* outLen) {
+    if (!ptr || (uintptr_t)ptr <= 6) return false;
+    // TsString: magic at offset 0
+    uint32_t magic0 = *(uint32_t*)ptr;
+    if (magic0 == 0x53545247) {
+        TsString* str = (TsString*)ptr;
+        *outData = str->ToUtf8();
+        *outLen = strlen((const char*)*outData);
+        return true;
+    }
+    // TsBuffer (TsObject subclass): magic at offset 16
+    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+    if (magic16 == TsBuffer::MAGIC) {
+        TsBuffer* buf = (TsBuffer*)ptr;
+        *outData = buf->GetData();
+        *outLen = buf->GetLength();
+        return true;
+    }
+    return false;
+}
+
 // crypto.createCipheriv(algorithm, key, iv) -> Cipher
 void* ts_crypto_createCipheriv(void* algorithm, void* key, void* iv) {
     TsString* alg = (TsString*)algorithm;
@@ -1144,71 +1166,13 @@ void* ts_crypto_createCipheriv(void* algorithm, void* key, void* iv) {
 
     const char* algStr = alg->ToUtf8();
 
-    // Extract key data
     const void* keyData = nullptr;
     size_t keyLen = 0;
+    if (!extract_bytes(key, &keyData, &keyLen)) return nullptr;
 
-    TsValue kvd = nanbox_to_tagged((TsValue*)key);
-    if (kvd.type == ValueType::STRING_PTR) {
-        TsString* keyStr = (TsString*)kvd.ptr_val;
-        keyData = keyStr->ToUtf8();
-        keyLen = strlen((const char*)keyData);
-    } else if (kvd.type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)kvd.ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            keyData = buf->GetData();
-            keyLen = buf->GetLength();
-        }
-    } else {
-        void* raw = ts_value_get_object((TsValue*)key);
-        if (raw) {
-            TsObject* obj = (TsObject*)raw;
-            if (obj->magic == TsBuffer::MAGIC) {
-                TsBuffer* buf = (TsBuffer*)obj;
-                keyData = buf->GetData();
-                keyLen = buf->GetLength();
-            } else {
-                TsString* keyStr = (TsString*)raw;
-                keyData = keyStr->ToUtf8();
-                keyLen = strlen((const char*)keyData);
-            }
-        }
-    }
-
-    // Extract IV data
     const void* ivData = nullptr;
     size_t ivLen = 0;
-
-    TsValue ivd = nanbox_to_tagged((TsValue*)iv);
-    if (ivd.type == ValueType::STRING_PTR) {
-        TsString* ivStr = (TsString*)ivd.ptr_val;
-        ivData = ivStr->ToUtf8();
-        ivLen = strlen((const char*)ivData);
-    } else if (ivd.type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)ivd.ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            ivData = buf->GetData();
-            ivLen = buf->GetLength();
-        }
-    } else {
-        void* raw = ts_value_get_object((TsValue*)iv);
-        if (raw) {
-            TsObject* obj = (TsObject*)raw;
-            if (obj->magic == TsBuffer::MAGIC) {
-                TsBuffer* buf = (TsBuffer*)obj;
-                ivData = buf->GetData();
-                ivLen = buf->GetLength();
-            } else {
-                TsString* ivStr = (TsString*)raw;
-                ivData = ivStr->ToUtf8();
-                ivLen = strlen((const char*)ivData);
-            }
-        }
-    }
-
-    if (!keyData) return nullptr;
+    extract_bytes(iv, &ivData, &ivLen);
 
     return TsCryptoCipher::Create(algStr, keyData, keyLen, ivData, ivLen);
 }
@@ -1218,34 +1182,10 @@ void* ts_crypto_cipher_update(void* cipherObj, void* data) {
     TsCryptoCipher* cipher = (TsCryptoCipher*)cipherObj;
     if (!cipher || cipher->magic != TsCryptoCipher::MAGIC) return nullptr;
 
-    // Handle string or buffer
-    if (!data) return nullptr;
-    TsValue vd = nanbox_to_tagged((TsValue*)data);
-
-    if (vd.type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)vd.ptr_val;
-        return cipher->Update(str->ToUtf8(), strlen(str->ToUtf8()));
-    } else if (vd.type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)vd.ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            return cipher->Update(buf->GetData(), buf->GetLength());
-        }
-    } else {
-        void* raw = ts_value_get_object((TsValue*)data);
-        if (raw) {
-            TsObject* obj = (TsObject*)raw;
-            if (obj->magic == TsBuffer::MAGIC) {
-                TsBuffer* buf = (TsBuffer*)obj;
-                return cipher->Update(buf->GetData(), buf->GetLength());
-            } else {
-                TsString* str = (TsString*)raw;
-                return cipher->Update(str->ToUtf8(), strlen(str->ToUtf8()));
-            }
-        }
-    }
-
-    return nullptr;
+    const void* bytes = nullptr;
+    size_t len = 0;
+    if (!extract_bytes(data, &bytes, &len)) return nullptr;
+    return cipher->Update(bytes, len);
 }
 
 // cipher.final() -> Buffer
@@ -1267,17 +1207,11 @@ void* ts_crypto_cipher_setAAD(void* cipherObj, void* data) {
     TsCryptoCipher* cipher = (TsCryptoCipher*)cipherObj;
     if (!cipher || cipher->magic != TsCryptoCipher::MAGIC) return cipherObj;
 
-    if (!data) return cipherObj;
-    TsValue vd = nanbox_to_tagged((TsValue*)data);
-
-    if (vd.type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)vd.ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            cipher->SetAAD(buf->GetData(), buf->GetLength());
-        }
+    const void* bytes = nullptr;
+    size_t len = 0;
+    if (extract_bytes(data, &bytes, &len)) {
+        cipher->SetAAD(bytes, len);
     }
-
     return cipherObj;
 }
 
@@ -1288,71 +1222,13 @@ void* ts_crypto_createDecipheriv(void* algorithm, void* key, void* iv) {
 
     const char* algStr = alg->ToUtf8();
 
-    // Extract key data (same logic as cipher)
     const void* keyData = nullptr;
     size_t keyLen = 0;
+    if (!extract_bytes(key, &keyData, &keyLen)) return nullptr;
 
-    TsValue kvd = nanbox_to_tagged((TsValue*)key);
-    if (kvd.type == ValueType::STRING_PTR) {
-        TsString* keyStr = (TsString*)kvd.ptr_val;
-        keyData = keyStr->ToUtf8();
-        keyLen = strlen((const char*)keyData);
-    } else if (kvd.type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)kvd.ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            keyData = buf->GetData();
-            keyLen = buf->GetLength();
-        }
-    } else {
-        void* raw = ts_value_get_object((TsValue*)key);
-        if (raw) {
-            TsObject* obj = (TsObject*)raw;
-            if (obj->magic == TsBuffer::MAGIC) {
-                TsBuffer* buf = (TsBuffer*)obj;
-                keyData = buf->GetData();
-                keyLen = buf->GetLength();
-            } else {
-                TsString* keyStr = (TsString*)raw;
-                keyData = keyStr->ToUtf8();
-                keyLen = strlen((const char*)keyData);
-            }
-        }
-    }
-
-    // Extract IV data
     const void* ivData = nullptr;
     size_t ivLen = 0;
-
-    TsValue ivd = nanbox_to_tagged((TsValue*)iv);
-    if (ivd.type == ValueType::STRING_PTR) {
-        TsString* ivStr = (TsString*)ivd.ptr_val;
-        ivData = ivStr->ToUtf8();
-        ivLen = strlen((const char*)ivData);
-    } else if (ivd.type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)ivd.ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            ivData = buf->GetData();
-            ivLen = buf->GetLength();
-        }
-    } else {
-        void* raw = ts_value_get_object((TsValue*)iv);
-        if (raw) {
-            TsObject* obj = (TsObject*)raw;
-            if (obj->magic == TsBuffer::MAGIC) {
-                TsBuffer* buf = (TsBuffer*)obj;
-                ivData = buf->GetData();
-                ivLen = buf->GetLength();
-            } else {
-                TsString* ivStr = (TsString*)raw;
-                ivData = ivStr->ToUtf8();
-                ivLen = strlen((const char*)ivData);
-            }
-        }
-    }
-
-    if (!keyData) return nullptr;
+    extract_bytes(iv, &ivData, &ivLen);
 
     return TsCryptoDecipher::Create(algStr, keyData, keyLen, ivData, ivLen);
 }
@@ -1362,33 +1238,10 @@ void* ts_crypto_decipher_update(void* decipherObj, void* data) {
     TsCryptoDecipher* decipher = (TsCryptoDecipher*)decipherObj;
     if (!decipher || decipher->magic != TsCryptoDecipher::MAGIC) return nullptr;
 
-    if (!data) return nullptr;
-    TsValue vd = nanbox_to_tagged((TsValue*)data);
-
-    if (vd.type == ValueType::STRING_PTR) {
-        TsString* str = (TsString*)vd.ptr_val;
-        return decipher->Update(str->ToUtf8(), strlen(str->ToUtf8()));
-    } else if (vd.type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)vd.ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            return decipher->Update(buf->GetData(), buf->GetLength());
-        }
-    } else {
-        void* raw = ts_value_get_object((TsValue*)data);
-        if (raw) {
-            TsObject* obj = (TsObject*)raw;
-            if (obj->magic == TsBuffer::MAGIC) {
-                TsBuffer* buf = (TsBuffer*)obj;
-                return decipher->Update(buf->GetData(), buf->GetLength());
-            } else {
-                TsString* str = (TsString*)raw;
-                return decipher->Update(str->ToUtf8(), strlen(str->ToUtf8()));
-            }
-        }
-    }
-
-    return nullptr;
+    const void* bytes = nullptr;
+    size_t len = 0;
+    if (!extract_bytes(data, &bytes, &len)) return nullptr;
+    return decipher->Update(bytes, len);
 }
 
 // decipher.final() -> Buffer
@@ -1403,26 +1256,11 @@ void* ts_crypto_decipher_setAuthTag(void* decipherObj, void* tag) {
     TsCryptoDecipher* decipher = (TsCryptoDecipher*)decipherObj;
     if (!decipher || decipher->magic != TsCryptoDecipher::MAGIC) return decipherObj;
 
-    if (!tag) return decipherObj;
-    TsValue vd = nanbox_to_tagged((TsValue*)tag);
-
-    if (vd.type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)vd.ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            decipher->SetAuthTag(buf->GetData(), buf->GetLength());
-        }
-    } else {
-        void* raw = ts_value_get_object((TsValue*)tag);
-        if (raw) {
-            TsObject* obj = (TsObject*)raw;
-            if (obj->magic == TsBuffer::MAGIC) {
-                TsBuffer* buf = (TsBuffer*)obj;
-                decipher->SetAuthTag(buf->GetData(), buf->GetLength());
-            }
-        }
+    const void* bytes = nullptr;
+    size_t len = 0;
+    if (extract_bytes(tag, &bytes, &len)) {
+        decipher->SetAuthTag(bytes, len);
     }
-
     return decipherObj;
 }
 
@@ -1431,17 +1269,11 @@ void* ts_crypto_decipher_setAAD(void* decipherObj, void* data) {
     TsCryptoDecipher* decipher = (TsCryptoDecipher*)decipherObj;
     if (!decipher || decipher->magic != TsCryptoDecipher::MAGIC) return decipherObj;
 
-    if (!data) return decipherObj;
-    TsValue vd = nanbox_to_tagged((TsValue*)data);
-
-    if (vd.type == ValueType::OBJECT_PTR) {
-        TsObject* obj = (TsObject*)vd.ptr_val;
-        if (obj && obj->magic == TsBuffer::MAGIC) {
-            TsBuffer* buf = (TsBuffer*)obj;
-            decipher->SetAAD(buf->GetData(), buf->GetLength());
-        }
+    const void* bytes = nullptr;
+    size_t len = 0;
+    if (extract_bytes(data, &bytes, &len)) {
+        decipher->SetAAD(bytes, len);
     }
-
     return decipherObj;
 }
 

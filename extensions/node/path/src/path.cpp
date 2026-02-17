@@ -34,12 +34,13 @@ static char GetSeparator(PathPlatform platform) {
 
 static TsString* UnboxString(void* ptr) {
     if (!ptr) return nullptr;
-    // Use nanbox_to_tagged which safely handles NaN-boxed special values
-    // (undefined=0x0A, null=0x02) without dereferencing invalid addresses
-    TsValue vd = nanbox_to_tagged((TsValue*)ptr);
-    if (vd.type == ValueType::STRING_PTR) {
-        return (TsString*)vd.ptr_val;
-    }
+    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ptr);
+    if (nanbox_is_special(nb) || !nanbox_is_ptr(nb)) return nullptr;
+    void* raw = nanbox_to_ptr(nb);
+    if (!raw) return nullptr;
+    // Verify TsString magic (0x53545247)
+    uint32_t magic = *(uint32_t*)raw;
+    if (magic == 0x53545247) return (TsString*)raw;
     return nullptr;
 }
 
@@ -72,7 +73,8 @@ void* ts_path_join_variadic_ex(void* paths_ptr, int platform_int) {
     bool first = true;
 
     for (int64_t i = 0; i < paths->Length(); ++i) {
-        TsString* s = UnboxString((void*)paths->Get(i));
+        void* elem = (void*)paths->Get(i);
+        TsString* s = UnboxString(elem);
         if (s) {
             std::string part = s->ToUtf8();
             if (part.empty()) continue;
