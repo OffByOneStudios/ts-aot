@@ -1667,6 +1667,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->is_method) {
+                // Method trampolines expect (ctx, this) - pass thisArg
+                typedef TsValue* (*FnM)(void*, TsValue*);
+                return ((FnM)closure->func_ptr)(closure, thisArg);
+            }
             typedef TsValue* (*Fn0)(void*);
             return ((Fn0)closure->func_ptr)(closure);
         }
@@ -1691,6 +1696,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->is_method) {
+                // Method trampolines expect (ctx, this, arg1) - pass thisArg
+                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*);
+                return ((FnM)closure->func_ptr)(closure, thisArg, arg1);
+            }
             typedef TsValue* (*Fn1)(void*, TsValue*);
             return ((Fn1)closure->func_ptr)(closure, arg1);
         }
@@ -1715,6 +1725,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->is_method) {
+                // Method trampolines expect (ctx, this, arg1, arg2) - pass thisArg
+                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*, TsValue*);
+                return ((FnM)closure->func_ptr)(closure, thisArg, arg1, arg2);
+            }
             typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
             return ((Fn2)closure->func_ptr)(closure, arg1, arg2);
         }
@@ -1739,6 +1754,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->is_method) {
+                // Method trampolines expect (ctx, this, arg1, arg2, arg3) - pass thisArg
+                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnM)closure->func_ptr)(closure, thisArg, arg1, arg2, arg3);
+            }
             typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
             return ((Fn3)closure->func_ptr)(closure, arg1, arg2, arg3);
         }
@@ -1763,6 +1783,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->is_method) {
+                // Method trampolines expect (ctx, this, arg1, arg2, arg3, arg4) - pass thisArg
+                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnM)closure->func_ptr)(closure, thisArg, arg1, arg2, arg3, arg4);
+            }
             typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn4)closure->func_ptr)(closure, arg1, arg2, arg3, arg4);
         }
