@@ -79,35 +79,35 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_console_log")
             .returnsVoid()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
-            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
+            .typeDispatchSuffixes({"_int", "_double", "_value", "_bool", "_value"})
             .build());
 
     reg.registerLowering("ts_console_error",
         lowering("ts_console_error")
             .returnsVoid()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
-            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
+            .typeDispatchSuffixes({"_int", "_double", "_value", "_bool", "_value"})
             .build());
 
     reg.registerLowering("ts_console_warn",
         lowering("ts_console_warn")
             .returnsVoid()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
-            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
+            .typeDispatchSuffixes({"_int", "_double", "_value", "_bool", "_value"})
             .build());
 
     reg.registerLowering("ts_console_info",
         lowering("ts_console_info")
             .returnsVoid()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
-            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
+            .typeDispatchSuffixes({"_int", "_double", "_value", "_bool", "_value"})
             .build());
 
     reg.registerLowering("ts_console_debug",
         lowering("ts_console_debug")
             .returnsVoid()
             .variadicHandling(VariadicHandling::TypeDispatch, 0)
-            .typeDispatchSuffixes({"_int", "_double", "_string", "_bool", "_object"})
+            .typeDispatchSuffixes({"_int", "_double", "_value", "_bool", "_value"})
             .build());
 
     reg.registerLowering("ts_console_dir",

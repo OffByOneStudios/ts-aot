@@ -5029,16 +5029,16 @@ std::string HIRToLLVM::getTypeSuffix(llvm::Value* arg, const ::hir::LoweringSpec
             if (suffix == "_bool") return "_bool";
         }
     } else if (argType->isPointerTy()) {
-        // Could be string or object - try _string first, then _object
+        // For pointers, prefer _value (handles both strings and objects)
+        for (const auto& suffix : suffixes) {
+            if (suffix == "_value") return "_value";
+        }
+        // Fall back to _string, then _object
         for (const auto& suffix : suffixes) {
             if (suffix == "_string") return "_string";
         }
         for (const auto& suffix : suffixes) {
             if (suffix == "_object") return "_object";
-        }
-        // For pointers without specific suffix, use _value if available
-        for (const auto& suffix : suffixes) {
-            if (suffix == "_value") return "_value";
         }
     }
 
