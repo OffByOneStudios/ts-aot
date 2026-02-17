@@ -18,8 +18,8 @@ export function filterTransform(records: any[], field: string, value: string): a
  * Get a nested value using dot notation
  * e.g., "user.name" gets record.user.name
  */
-function getNestedValue(record: any, path: string): any {
-    const parts = path.split('.');
+function getNestedValue(record: any, fieldPath: string): any {
+    const parts = fieldPath.split('.');
     let current = record;
 
     for (const part of parts) {

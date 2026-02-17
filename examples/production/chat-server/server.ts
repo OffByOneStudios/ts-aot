@@ -6,7 +6,7 @@
  * reliable message framing.
  *
  * Usage:
- *   chat-server                        Start on default port 4000
+ *   chat-server                        Start on default port 4567
  *   chat-server --port 8080            Start on custom port
  *
  * Client protocol (length-prefixed JSON over TCP):
@@ -57,7 +57,7 @@ function parsePort(argv: string[]): number {
         const port = parseInt(envPort, 10);
         if (port > 0 && port < 65536) return port;
     }
-    return 4000;
+    return 4567;
 }
 
 function user_main(): number {

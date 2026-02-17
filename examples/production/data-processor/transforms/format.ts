@@ -120,7 +120,9 @@ export function sortRecords(records: any[], field: string, ascending: boolean = 
         if (typeof valueA === 'number' && typeof valueB === 'number') {
             result = valueA - valueB;
         } else {
-            result = String(valueA).localeCompare(String(valueB));
+            const sa = String(valueA);
+            const sb = String(valueB);
+            result = sa < sb ? -1 : sa > sb ? 1 : 0;
         }
 
         return ascending ? result : -result;

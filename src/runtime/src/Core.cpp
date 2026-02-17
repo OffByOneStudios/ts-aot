@@ -67,6 +67,10 @@ static std::vector<TsValue*> exit_handlers;
 static std::vector<TsValue*> before_exit_handlers;
 static std::vector<TsValue*> uncaught_exception_handlers;
 static std::vector<TsValue*> warning_handlers;
+static std::vector<TsValue*> sigint_handlers;
+static std::vector<TsValue*> sigterm_handlers;
+static uv_signal_t* sigint_watcher = nullptr;
+static uv_signal_t* sigterm_watcher = nullptr;
 static TsValue* uncaught_exception_capture_callback = nullptr;
 
 // Event loop handles (Milestone 102.9)
@@ -658,6 +662,30 @@ void ts_process_on(void* event, void* callback) {
         uncaught_exception_handlers.push_back(cb);
     } else if (strcmp(name, "warning") == 0) {
         warning_handlers.push_back(cb);
+    } else if (strcmp(name, "SIGINT") == 0) {
+        sigint_handlers.push_back(cb);
+        if (!sigint_watcher) {
+            sigint_watcher = (uv_signal_t*)malloc(sizeof(uv_signal_t));
+            uv_signal_init(uv_default_loop(), sigint_watcher);
+            uv_signal_start(sigint_watcher, [](uv_signal_t*, int) {
+                for (auto* handler : sigint_handlers) {
+                    ts_call_1(handler, ts_value_make_string(TsString::Create("SIGINT")));
+                }
+            }, SIGINT);
+            uv_unref((uv_handle_t*)sigint_watcher);
+        }
+    } else if (strcmp(name, "SIGTERM") == 0) {
+        sigterm_handlers.push_back(cb);
+        if (!sigterm_watcher) {
+            sigterm_watcher = (uv_signal_t*)malloc(sizeof(uv_signal_t));
+            uv_signal_init(uv_default_loop(), sigterm_watcher);
+            uv_signal_start(sigterm_watcher, [](uv_signal_t*, int) {
+                for (auto* handler : sigterm_handlers) {
+                    ts_call_1(handler, ts_value_make_string(TsString::Create("SIGTERM")));
+                }
+            }, SIGTERM);
+            uv_unref((uv_handle_t*)sigterm_watcher);
+        }
     }
 }
 
@@ -683,8 +711,12 @@ void ts_process_remove_listener(void* event, void* callback) {
         handlers = &uncaught_exception_handlers;
     } else if (strcmp(name, "warning") == 0) {
         handlers = &warning_handlers;
+    } else if (strcmp(name, "SIGINT") == 0) {
+        handlers = &sigint_handlers;
+    } else if (strcmp(name, "SIGTERM") == 0) {
+        handlers = &sigterm_handlers;
     }
-    
+
     if (handlers) {
         handlers->erase(std::remove(handlers->begin(), handlers->end(), cb), handlers->end());
     }
@@ -696,6 +728,8 @@ void ts_process_remove_all_listeners(void* event) {
         before_exit_handlers.clear();
         uncaught_exception_handlers.clear();
         warning_handlers.clear();
+        sigint_handlers.clear();
+        sigterm_handlers.clear();
         return;
     }
     
@@ -713,6 +747,10 @@ void ts_process_remove_all_listeners(void* event) {
         uncaught_exception_handlers.clear();
     } else if (strcmp(name, "warning") == 0) {
         warning_handlers.clear();
+    } else if (strcmp(name, "SIGINT") == 0) {
+        sigint_handlers.clear();
+    } else if (strcmp(name, "SIGTERM") == 0) {
+        sigterm_handlers.clear();
     }
 }
 
@@ -1450,6 +1488,8 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
         for (auto* v : before_exit_handlers) ts_gc_mark_object(v);
         for (auto* v : uncaught_exception_handlers) ts_gc_mark_object(v);
         for (auto* v : warning_handlers) ts_gc_mark_object(v);
+        for (auto* v : sigint_handlers) ts_gc_mark_object(v);
+        for (auto* v : sigterm_handlers) ts_gc_mark_object(v);
         for (auto* v : message_handlers) ts_gc_mark_object(v);
         for (auto* v : disconnect_handlers) ts_gc_mark_object(v);
     }, nullptr);

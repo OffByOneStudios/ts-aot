@@ -3,8 +3,10 @@
 #include "TsRuntime.h"
 #include "TsMap.h"
 #include "TsString.h"
+#include "TsError.h"
 #include "GC.h"
 #include <new>
+#include <cstdio>
 #include <uv.h>
 
 TsServer::TsServer() : listening(false), closed(false), maxConnections(-1) {
@@ -38,10 +40,21 @@ static void on_deferred_listening(uv_timer_t* timer) {
 void TsServer::Listen(int port, const char* host, void* callback) {
     if (closed) return;
 
+    const char* hostStr = host ? host : "0.0.0.0";
     struct sockaddr_in addr;
-    uv_ip4_addr(host ? host : "0.0.0.0", port, &addr);
+    uv_ip4_addr(hostStr, port, &addr);
 
     int r = uv_tcp_bind(handle, (const struct sockaddr*)&addr, 0);
+    if (r != 0) {
+        // Build error message like Node.js: "listen EADDRINUSE: address already in use 0.0.0.0:4000"
+        char msg[256];
+        snprintf(msg, sizeof(msg), "listen %s: %s %s:%d",
+                 uv_err_name(r), uv_strerror(r), hostStr, port);
+        TsValue* err = (TsValue*)ts_error_create(TsString::Create(msg));
+        void* args[] = { err };
+        Emit("error", 1, args);
+        return;
+    }
 
     r = uv_listen((uv_stream_t*)handle, 128, OnConnection);
 
@@ -60,7 +73,12 @@ void TsServer::Listen(int port, const char* host, void* callback) {
         data->timer.data = data;
         uv_timer_start(&data->timer, on_deferred_listening, 0, 0);
     } else {
-        Emit("error", 0, nullptr);
+        char msg[256];
+        snprintf(msg, sizeof(msg), "listen %s: %s %s:%d",
+                 uv_err_name(r), uv_strerror(r), hostStr, port);
+        TsValue* err = (TsValue*)ts_error_create(TsString::Create(msg));
+        void* args[] = { err };
+        Emit("error", 1, args);
     }
 }
 
