@@ -110,6 +110,12 @@ void ts_closure_set_name(TsClosure* closure, void* name) {
     }
 }
 
+void ts_closure_set_method(TsClosure* closure) {
+    if (closure) {
+        closure->is_method = true;
+    }
+}
+
 // Invoke a closure with one double argument, returns double
 // Used for map/filter callbacks with number arrays
 // HIR generates functions that expect boxed TsValue* params, so we box the double

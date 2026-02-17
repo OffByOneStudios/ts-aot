@@ -5197,8 +5197,19 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
     std::string methodName = getOperandString(inst->operands[1]);
 
     // Handle console.log / console.error / console.warn / console.info / console.debug via registry
-    if (methodName == "log" || methodName == "error" || methodName == "warn" ||
-        methodName == "info" || methodName == "debug") {
+    // NOTE: The BuiltinResolutionPass already resolves direct console.X() calls to ts_console_X.
+    // This path handles edge cases (e.g., const c = console; c.log(...)).
+    // Guard: skip if the receiver is a known Object type (user-defined object literal, not console).
+    bool receiverIsObject = false;
+    if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*valPtr && (*valPtr)->type &&
+            (*valPtr)->type->kind == HIRTypeKind::Object) {
+            receiverIsObject = true;
+        }
+    }
+    if (!receiverIsObject &&
+        (methodName == "log" || methodName == "error" || methodName == "warn" ||
+         methodName == "info" || methodName == "debug")) {
 
         // Determine the base runtime function name
         std::string baseFuncName = (methodName == "error" || methodName == "warn")
@@ -6030,7 +6041,8 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
                                (funcName0.find("__fn_expr_") == 0) ||
                                (funcName0.find("__lambda_") == 0) ||
                                (funcName0.find("__getter_") == 0) ||
-                               (funcName0.find("__setter_") == 0);
+                               (funcName0.find("__setter_") == 0) ||
+                               (funcName0.find("__method_") == 0);
         if (!isKnownClosure) {
             auto firstArg = originalFunc->arg_begin();
             std::string firstParamName = firstArg->getName().str();
@@ -6063,6 +6075,7 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
                              (funcName.find("__lambda_") == 0);
     bool isSetterFunction = (funcName.find("__setter_") == 0);
     bool isGetterFunction = (funcName.find("__getter_") == 0);
+    bool isMethodFunction = (funcName.find("__method_") == 0);
 
     unsigned numContextParams = 0;
     if (isClosureFunction && numOrigParams >= 1) {
@@ -6076,6 +6089,11 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
         // For getters: first param is 'this' (context), no user params
         numContextParams = 1;
         SPDLOG_DEBUG("getOrCreateTrampoline: detected getter function {}, using 1 context param", funcName);
+    } else if (isMethodFunction && numOrigParams >= 1) {
+        // For methods: first param is 'this' (context), rest are user params
+        // The TsFunction calling convention passes thisArg as func->context
+        numContextParams = 1;
+        SPDLOG_DEBUG("getOrCreateTrampoline: detected method function {}, using 1 context param", funcName);
     } else {
         // For other functions, check if the first parameter is a closure context parameter
         // Function expressions like __fn_expr_0 have a __closure__ param but don't match
@@ -6445,6 +6463,16 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
                 capturedVarCells_[cellKey] = { cell, currentBB };
             }
         }
+    }
+
+    // Mark method closures so ts_call_with_this_N passes thisArg correctly
+    if (funcName.find("__method_") == 0) {
+        auto setMethodFt = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { builder_->getPtrTy() },
+            false);
+        auto setMethodFn = module_->getOrInsertFunction("ts_closure_set_method", setMethodFt);
+        builder_->CreateCall(setMethodFt, setMethodFn.getCallee(), { gcPtrToRaw(closure) });
     }
 
     if (inst->result) {

@@ -24,6 +24,7 @@ public:
     int64_t num_captures;    // Number of captured variables
     TsCell** cells;          // Array of capture cells
     TsString* name = nullptr; // Function name for .name and .toString()
+    bool is_method = false;  // True for method trampolines (expect 'this' as arg 2)
 
     TsClosure() : func_ptr(nullptr), num_captures(0), cells(nullptr) {
         magic = 0x434C5352; // 'CLSR'
@@ -65,6 +66,9 @@ extern "C" {
 
     // Check if a pointer is a TsClosure (by checking magic number)
     bool ts_is_closure(void* ptr);
+
+    // Mark a closure as a method trampoline (expects 'this' as second arg)
+    void ts_closure_set_method(TsClosure* closure);
 
     // Set the name on a TsClosure
     void ts_closure_set_name(TsClosure* closure, void* name);

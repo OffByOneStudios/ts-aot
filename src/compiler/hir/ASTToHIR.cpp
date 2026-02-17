@@ -199,7 +199,19 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             if (ident->name.find("__") == 0 || ident->name == "exports") continue;
             moduleVarDecls_[ident->name] = varDecl;
             moduleGlobalVars_.insert(ident->name);
-            module_->globals["__modvar_" + ident->name] = HIRType::makeAny();
+            // Infer type from initializer to preserve Object vs Any distinction.
+            // This is critical for method dispatch: without it, object literal methods
+            // like "add" or "info" collide with Set.add() or console.info().
+            auto globalType = HIRType::makeAny();
+            if (varDecl->initializer) {
+                auto kind = varDecl->initializer->getKind();
+                if (kind == "ObjectLiteralExpression") {
+                    globalType = HIRType::makeObject();
+                } else if (kind == "ArrayLiteralExpression") {
+                    globalType = HIRType::makeArray(HIRType::makeAny());
+                }
+            }
+            module_->globals["__modvar_" + ident->name] = globalType;
         }
     }
 
