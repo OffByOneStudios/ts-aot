@@ -3734,6 +3734,14 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         lastValue_ = builder_.createCall(method->name, args, method->returnType);
                         return;
                     }
+                    // Fallback: For imported classes, staticMethods may not be populated
+                    // because the class body is compiled later (via module init specialization).
+                    // Emit a forward-reference call using the conventional name.
+                    {
+                        std::string staticFuncName = cls->name + "_static_" + propAccess->name;
+                        lastValue_ = builder_.createCall(staticFuncName, args, HIRType::makeAny());
+                        return;
+                    }
                     break;
                 }
             }
@@ -4425,6 +4433,36 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         } else {
             lastValue_ = builder_.createCall("ts_finalization_registry_create",
                 {builder_.createConstNull()}, HIRType::makeClass("FinalizationRegistry", 0));
+        }
+        return;
+    }
+
+    // Handle built-in Date class
+    if (className == "Date") {
+        if (node->arguments.empty()) {
+            // new Date() - current time
+            lastValue_ = builder_.createCall("ts_date_create", {}, HIRType::makeClass("Date", 0));
+        } else if (node->arguments.size() == 1) {
+            auto arg = lowerExpression(node->arguments[0].get());
+            auto& argNode = node->arguments[0];
+            bool isNumericArg = false;
+            if (argNode->inferredType &&
+                (argNode->inferredType->kind == ts::TypeKind::Double ||
+                 argNode->inferredType->kind == ts::TypeKind::Int)) {
+                isNumericArg = true;
+            } else if (dynamic_cast<ast::NumericLiteral*>(argNode.get())) {
+                isNumericArg = true;
+            }
+            if (isNumericArg) {
+                // new Date(milliseconds)
+                lastValue_ = builder_.createCall("ts_date_create_ms", {arg}, HIRType::makeClass("Date", 0));
+            } else {
+                // new Date(dateString)
+                lastValue_ = builder_.createCall("ts_date_create_str", {arg}, HIRType::makeClass("Date", 0));
+            }
+        } else {
+            // new Date() with multiple args - just use current time for now
+            lastValue_ = builder_.createCall("ts_date_create", {}, HIRType::makeClass("Date", 0));
         }
         return;
     }

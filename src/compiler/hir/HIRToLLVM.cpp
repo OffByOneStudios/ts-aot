@@ -1878,6 +1878,23 @@ void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
         return;
     }
 
+    // When both sides are pointers (boxed values), use the runtime's
+    // ts_value_strict_eq_bool which handles string comparison by content,
+    // number comparison, and identity comparison correctly.
+    // ts_value_get_int returns 0 for non-numeric NaN-boxed values (strings,
+    // objects), so unboxing both as int64 and comparing would incorrectly
+    // return true for any two non-numeric values.
+    if (lhsIsPointer && rhsIsPointer) {
+        auto ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        auto fn = module_->getOrInsertFunction("ts_value_strict_eq_bool", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), {lhs, rhs}, "strict_eq");
+        setValue(inst->result, result);
+        return;
+    }
+
     // Handle boxed values (pointers) by unboxing
     // When comparing with a boolean (i1), use ts_value_get_bool instead of ts_value_get_int
     // because ts_value_get_int returns 0 for BOOLEAN TsValues
@@ -1959,6 +1976,19 @@ void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
     if (lhsIsPointer && rhsIsPointer && isObjectComparison) {
         // Direct pointer comparison for object !== object checks
         llvm::Value* result = builder_->CreateICmpNE(lhs, rhs, "ptrne");
+        setValue(inst->result, result);
+        return;
+    }
+
+    // When both sides are pointers, use ts_value_strict_eq_bool and negate
+    if (lhsIsPointer && rhsIsPointer) {
+        auto ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        auto fn = module_->getOrInsertFunction("ts_value_strict_eq_bool", ft);
+        llvm::Value* eq = builder_->CreateCall(ft, fn.getCallee(), {lhs, rhs}, "strict_eq");
+        llvm::Value* result = builder_->CreateNot(eq, "strict_ne");
         setValue(inst->result, result);
         return;
     }
@@ -4511,14 +4541,35 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     // Generic function call
     llvm::Function* fn = module_->getFunction(funcName);
     if (!fn) {
-        // Declare as external if not found
-        // Use generic signature for now: ptr(ptr, ptr, ...)
-        std::vector<llvm::Type*> paramTypes;
-        for (size_t i = 1; i < inst->operands.size(); ++i) {
-            paramTypes.push_back(builder_->getPtrTy());
+        // Function not yet in LLVM module. Try to find it in the HIR module
+        // to create a forward declaration with the correct signature.
+        // This handles cross-module static method calls where the callee
+        // is compiled after the caller (e.g., imported class static methods).
+        bool foundInHIR = false;
+        if (hirModule_) {
+            for (const auto& hirFn : hirModule_->functions) {
+                if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                    std::vector<llvm::Type*> paramTypes;
+                    for (const auto& param : hirFn->params) {
+                        paramTypes.push_back(getLLVMType(param.second));
+                    }
+                    llvm::Type* retTy = hirFn->returnType ? getLLVMType(hirFn->returnType) : builder_->getPtrTy();
+                    llvm::FunctionType* ft = llvm::FunctionType::get(retTy, paramTypes, false);
+                    fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
+                    foundInHIR = true;
+                    break;
+                }
+            }
         }
-        llvm::FunctionType* ft = llvm::FunctionType::get(builder_->getPtrTy(), paramTypes, false);
-        fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
+        if (!foundInHIR) {
+            // Declare as external with generic signature: ptr(ptr, ptr, ...)
+            std::vector<llvm::Type*> paramTypes;
+            for (size_t i = 1; i < inst->operands.size(); ++i) {
+                paramTypes.push_back(builder_->getPtrTy());
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(builder_->getPtrTy(), paramTypes, false);
+            fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
+        }
     }
 
     // Gather arguments, converting types to match function signature
@@ -4541,6 +4592,19 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             arg = coerceArgToType(arg, expectedType, inst->operands[i], calleeParamType);
         }
         args.push_back(arg);
+    }
+
+    // Pad missing optional arguments with defaults (for default parameters)
+    while (args.size() < fnType->getNumParams()) {
+        llvm::Type* expectedType = fnType->getParamType(args.size());
+        if (expectedType->isPointerTy())
+            args.push_back(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(expectedType)));
+        else if (expectedType->isIntegerTy())
+            args.push_back(llvm::ConstantInt::get(expectedType, 0));
+        else if (expectedType->isDoubleTy())
+            args.push_back(llvm::ConstantFP::get(expectedType, 0.0));
+        else
+            args.push_back(llvm::ConstantPointerNull::get(builder_->getPtrTy()));
     }
 
     llvm::Value* result = builder_->CreateCall(fn, args);

@@ -22,6 +22,7 @@
 #include "TsGC.h"  // For ts_gc_base()
 #include "TsFlatObject.h"
 #include "TsNanBox.h"
+#include "TsDate.h"
 #include "TsRuntime.h"
 #include "MemoryTracker.h"
 #include <new>
@@ -732,6 +733,72 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_string((TsString*)ts_number_to_fixed(value, digits));
     }
 
+    // Native wrappers for Date instance methods
+    static TsValue* ts_date_getTime_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetTime());
+    }
+    static TsValue* ts_date_getFullYear_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetFullYear());
+    }
+    static TsValue* ts_date_getMonth_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetMonth());
+    }
+    static TsValue* ts_date_getDate_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetDate());
+    }
+    static TsValue* ts_date_getHours_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetHours());
+    }
+    static TsValue* ts_date_getMinutes_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetMinutes());
+    }
+    static TsValue* ts_date_getSeconds_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetSeconds());
+    }
+    static TsValue* ts_date_getMilliseconds_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetMilliseconds());
+    }
+    static TsValue* ts_date_getUTCFullYear_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetUTCFullYear());
+    }
+    static TsValue* ts_date_getUTCMonth_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetUTCMonth());
+    }
+    static TsValue* ts_date_getUTCDate_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetUTCDate());
+    }
+    static TsValue* ts_date_getUTCHours_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetUTCHours());
+    }
+    static TsValue* ts_date_getUTCMinutes_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetUTCMinutes());
+    }
+    static TsValue* ts_date_getUTCSeconds_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetUTCSeconds());
+    }
+    static TsValue* ts_date_getUTCMilliseconds_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetUTCMilliseconds());
+    }
+    static TsValue* ts_date_toISOString_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string(((TsDate*)ctx)->ToISOString());
+    }
+    static TsValue* ts_date_toJSON_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string(((TsDate*)ctx)->ToJSON());
+    }
+    static TsValue* ts_date_toString_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string(((TsDate*)ctx)->ToString());
+    }
+    static TsValue* ts_date_toDateString_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string(((TsDate*)ctx)->ToDateString());
+    }
+    static TsValue* ts_date_valueOf_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(((TsDate*)ctx)->GetTime());
+    }
+    // Date.now() static method
+    static TsValue* ts_date_now_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_int(TsDate::Now());
+    }
+
     // Helper: try implicit conversion through virtual base chain to find TsObject
     // For stream classes (TsReadable/TsWritable), TsObject is a virtual base NOT at offset 0.
     // We use the C++ implicit conversion which follows the vbtable to find the virtual base.
@@ -920,6 +987,32 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
+        // Check for TsDate (magic at offset 0)
+        if (magic0 == 0x44415445) { // TsDate::MAGIC ("DATE")
+            TsDate* date = (TsDate*)obj;
+            if (strcmp(keyStr, "getTime") == 0) return ts_value_make_native_function((void*)ts_date_getTime_native, date);
+            if (strcmp(keyStr, "getFullYear") == 0) return ts_value_make_native_function((void*)ts_date_getFullYear_native, date);
+            if (strcmp(keyStr, "getMonth") == 0) return ts_value_make_native_function((void*)ts_date_getMonth_native, date);
+            if (strcmp(keyStr, "getDate") == 0) return ts_value_make_native_function((void*)ts_date_getDate_native, date);
+            if (strcmp(keyStr, "getHours") == 0) return ts_value_make_native_function((void*)ts_date_getHours_native, date);
+            if (strcmp(keyStr, "getMinutes") == 0) return ts_value_make_native_function((void*)ts_date_getMinutes_native, date);
+            if (strcmp(keyStr, "getSeconds") == 0) return ts_value_make_native_function((void*)ts_date_getSeconds_native, date);
+            if (strcmp(keyStr, "getMilliseconds") == 0) return ts_value_make_native_function((void*)ts_date_getMilliseconds_native, date);
+            if (strcmp(keyStr, "getUTCFullYear") == 0) return ts_value_make_native_function((void*)ts_date_getUTCFullYear_native, date);
+            if (strcmp(keyStr, "getUTCMonth") == 0) return ts_value_make_native_function((void*)ts_date_getUTCMonth_native, date);
+            if (strcmp(keyStr, "getUTCDate") == 0) return ts_value_make_native_function((void*)ts_date_getUTCDate_native, date);
+            if (strcmp(keyStr, "getUTCHours") == 0) return ts_value_make_native_function((void*)ts_date_getUTCHours_native, date);
+            if (strcmp(keyStr, "getUTCMinutes") == 0) return ts_value_make_native_function((void*)ts_date_getUTCMinutes_native, date);
+            if (strcmp(keyStr, "getUTCSeconds") == 0) return ts_value_make_native_function((void*)ts_date_getUTCSeconds_native, date);
+            if (strcmp(keyStr, "getUTCMilliseconds") == 0) return ts_value_make_native_function((void*)ts_date_getUTCMilliseconds_native, date);
+            if (strcmp(keyStr, "toISOString") == 0) return ts_value_make_native_function((void*)ts_date_toISOString_native, date);
+            if (strcmp(keyStr, "toJSON") == 0) return ts_value_make_native_function((void*)ts_date_toJSON_native, date);
+            if (strcmp(keyStr, "toString") == 0) return ts_value_make_native_function((void*)ts_date_toString_native, date);
+            if (strcmp(keyStr, "toDateString") == 0) return ts_value_make_native_function((void*)ts_date_toDateString_native, date);
+            if (strcmp(keyStr, "valueOf") == 0) return ts_value_make_native_function((void*)ts_date_valueOf_native, date);
+            return ts_value_make_undefined();
+        }
+
         // Check for TsTypedArray (magic at offset 16 - after C++ vtable (8) + TsObject::vtable (8))
         if (magic16 == 0x54415252) { // TsTypedArray::MAGIC ("TARR")
             TsTypedArray* ta = (TsTypedArray*)obj;
@@ -944,6 +1037,13 @@ TsValue* ts_value_make_int(int64_t i) {
             if (*endptr == '\0' && index >= 0) {
                 return ts_value_make_double(ta->Get((size_t)index));
             }
+            return ts_value_make_undefined();
+        }
+
+        // Check for global constructor sentinels (e.g., Date.now(), Date.parse())
+        // Global constructors from ts_get_global_Date() etc. are static strings like "Date"
+        if (magic0 == 0x65746144 && *((char*)obj + 4) == '\0') { // "Date" (little-endian)
+            if (strcmp(keyStr, "now") == 0) return ts_value_make_native_function((void*)ts_date_now_native, nullptr);
             return ts_value_make_undefined();
         }
 
