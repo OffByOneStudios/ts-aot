@@ -110,9 +110,14 @@ private:
         // Box callback if needed
         callback = boxCallback(callback, lowerer);
 
-        // Convert delay from double to i64 if needed
+        // Convert delay to i64 if needed
         if (delay->getType()->isDoubleTy()) {
             delay = builder.CreateFPToSI(delay, builder.getInt64Ty(), "delay_to_i64");
+        } else if (delay->getType()->isPointerTy()) {
+            // Unbox ptr (NaN-boxed TsValue*) to i64
+            auto unboxFt = llvm::FunctionType::get(builder.getInt64Ty(), { builder.getPtrTy() }, false);
+            auto unboxFn = module.getOrInsertFunction("ts_value_get_int", unboxFt);
+            delay = builder.CreateCall(unboxFt, unboxFn.getCallee(), { delay }, "unbox_delay");
         }
 
         llvm::FunctionType* ft = llvm::FunctionType::get(

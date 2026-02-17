@@ -158,7 +158,7 @@ function schedulePeriodicJobs(queue: JobQueue): void {
 /**
  * Graceful shutdown handler
  */
-function shutdown(): void {
+function gracefulShutdown(): void {
     logger.info('Shutdown requested...');
     isRunning = false;
 
@@ -185,8 +185,8 @@ function user_main(): number {
     const queue = new JobQueue();
 
     // Register shutdown handlers
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', gracefulShutdown);
+    process.on('SIGTERM', gracefulShutdown);
 
     logger.info('Worker starting...');
 

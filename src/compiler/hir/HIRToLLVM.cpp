@@ -5,6 +5,7 @@
 #include "HIRToLLVM.h"
 #include "handlers/HandlerRegistry.h"
 
+#include <llvm/IR/CFG.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Intrinsics.h>
@@ -4018,10 +4019,31 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     // Handle ts_value_to_bool - returns bool (i1), not ptr
     if (funcName == "ts_value_to_bool") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
-        llvm::FunctionType* ft = llvm::FunctionType::get(
-            builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
-        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_to_bool", ft);
-        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        llvm::Value* result;
+        if (arg->getType()->isIntegerTy(1)) {
+            // Already a boolean - use directly
+            result = arg;
+        } else if (arg->getType()->isPointerTy()) {
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_to_bool", ft);
+            result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+        } else if (arg->getType()->isDoubleTy()) {
+            // Double: truthiness = not zero and not NaN
+            result = builder_->CreateFCmpONE(arg,
+                llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0), "tobool");
+        } else if (arg->getType()->isIntegerTy(64)) {
+            // i64: truthiness = not zero
+            result = builder_->CreateICmpNE(arg,
+                llvm::ConstantInt::get(builder_->getInt64Ty(), 0), "tobool");
+        } else {
+            // Fallback: cast to ptr and call ts_value_to_bool
+            llvm::FunctionType* ft = llvm::FunctionType::get(
+                builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_to_bool", ft);
+            llvm::Value* ptrArg = builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+            result = builder_->CreateCall(ft, fn.getCallee(), { ptrArg });
+        }
         if (inst->result) {
             setValue(inst->result, result);
         }
@@ -4964,6 +4986,17 @@ llvm::Value* HIRToLLVM::coerceArgToType(llvm::Value* arg, llvm::Type* expectedTy
             auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
             auto fn = module_->getOrInsertFunction("ts_value_get_int", ft);
             return builder_->CreateCall(ft, fn.getCallee(), { arg });
+        }
+    } else if (expectedType->isIntegerTy(1)) {
+        // Expected i1 (bool) but got something else
+        if (argType->isPointerTy()) {
+            auto ft = llvm::FunctionType::get(builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+            auto fn = module_->getOrInsertFunction("ts_value_get_bool", ft);
+            return builder_->CreateCall(ft, fn.getCallee(), { arg });
+        } else if (argType->isIntegerTy(64)) {
+            return builder_->CreateICmpNE(arg, llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
+        } else if (argType->isDoubleTy()) {
+            return builder_->CreateFCmpONE(arg, llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0));
         }
     }
     return arg;
@@ -6846,6 +6879,12 @@ void HIRToLLVM::lowerCondBranch(HIRInstruction* inst) {
     llvm::BasicBlock* thenBB = getBlock(thenBlock);
     llvm::BasicBlock* elseBB = getBlock(elseBlock);
 
+    if (!thenBB || !elseBB) {
+        SPDLOG_ERROR("lowerCondBranch: null LLVM block for CondBranch in {}",
+            currentHIRFunction_ ? currentHIRFunction_->mangledName : "??");
+        return;
+    }
+
     // Convert condition to i1 (boolean) if it's not already
     if (!cond->getType()->isIntegerTy(1)) {
         if (cond->getType()->isIntegerTy(64)) {
@@ -7202,11 +7241,56 @@ void HIRToLLVM::lowerUnreachable(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerPhi(HIRInstruction* inst) {
     llvm::Type* type = getLLVMType(inst->result->type);
+    llvm::BasicBlock* phiBlock = builder_->GetInsertBlock();
     llvm::PHINode* phi = builder_->CreatePHI(type, inst->phiIncoming.size(), "phi");
 
     for (auto& [val, block] : inst->phiIncoming) {
         llvm::BasicBlock* llvmBlock = getBlock(block);
         if (!llvmBlock) continue;
+
+        // Check if llvmBlock is an actual predecessor of phiBlock.
+        // Short-circuit operators (&&, ||) may create phi nodes where one
+        // incoming edge becomes dead after constant branch folding.
+        bool isPredecessor = false;
+        for (auto* pred : llvm::predecessors(phiBlock)) {
+            if (pred == llvmBlock) {
+                isPredecessor = true;
+                break;
+            }
+        }
+        if (!isPredecessor) {
+            // Walk forward from llvmBlock to handle block splitting (write
+            // barriers, GC safepoints create new blocks within the same HIR block).
+            auto* candidate = llvmBlock;
+            for (int depth = 0; depth < 32 && candidate; ++depth) {
+                auto* term = candidate->getTerminator();
+                if (!term) break;
+                unsigned numSucc = term->getNumSuccessors();
+                if (numSucc == 1) {
+                    auto* next = term->getSuccessor(0);
+                    if (next == phiBlock) {
+                        llvmBlock = candidate;
+                        isPredecessor = true;
+                        break;
+                    }
+                    candidate = next;
+                } else {
+                    // Multi-successor: check if phiBlock is a direct target
+                    for (unsigned i = 0; i < numSucc; ++i) {
+                        if (term->getSuccessor(i) == phiBlock) {
+                            llvmBlock = candidate;
+                            isPredecessor = true;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        if (!isPredecessor) {
+            // Edge was folded away (e.g., constant branch). Skip this entry.
+            continue;
+        }
 
         llvm::Value* llvmVal = nullptr;
 
@@ -7224,7 +7308,36 @@ void HIRToLLVM::lowerPhi(HIRInstruction* inst) {
             llvmVal = getValue(val);
         }
 
-        if (llvmVal && llvmBlock) {
+        if (llvmVal) {
+            // Coerce incoming value type to match phi type if needed
+            if (llvmVal->getType() != type) {
+                llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+                builder_->SetInsertPoint(llvmBlock->getTerminator());
+
+                if (type->isPointerTy()) {
+                    if (llvmVal->getType()->isIntegerTy(1)) {
+                        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
+                        auto fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+                        llvmVal = builder_->CreateCall(ft, fn.getCallee(), {llvmVal});
+                    } else if (llvmVal->getType()->isIntegerTy(64)) {
+                        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+                        auto fn = module_->getOrInsertFunction("ts_value_make_int", ft);
+                        llvmVal = builder_->CreateCall(ft, fn.getCallee(), {llvmVal});
+                    } else if (llvmVal->getType()->isDoubleTy()) {
+                        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getDoubleTy()}, false);
+                        auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
+                        llvmVal = builder_->CreateCall(ft, fn.getCallee(), {llvmVal});
+                    } else if (llvmVal->getType()->isIntegerTy()) {
+                        llvmVal = builder_->CreateIntToPtr(llvmVal, type);
+                    }
+                } else if (type->isIntegerTy(1) && llvmVal->getType()->isPointerTy()) {
+                    llvmVal = builder_->CreateICmpNE(llvmVal, llvm::ConstantPointerNull::get(builder_->getPtrTy()), "phi_tobool");
+                } else if (type->isDoubleTy() && llvmVal->getType()->isIntegerTy(64)) {
+                    llvmVal = builder_->CreateSIToFP(llvmVal, type);
+                } else if (type->isIntegerTy(64) && llvmVal->getType()->isDoubleTy()) {
+                    llvmVal = builder_->CreateFPToSI(llvmVal, type);
+                }
+            }
             phi->addIncoming(llvmVal, llvmBlock);
         }
     }

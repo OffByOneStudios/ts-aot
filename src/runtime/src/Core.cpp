@@ -1509,9 +1509,15 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     // 2.6 Initialize Node.js modules via hook (cluster, etc.)
     if (ts_node_init_hook) ts_node_init_hook();
 
-    // 3. Initialize process.argv
-    TsArray* argvArray = TsArray::Create(argc);
-    for (int i = 0; i < argc; ++i) {
+    // 3. Initialize process.argv (Node.js layout: [exePath, scriptPath, ...userArgs])
+    TsArray* argvArray = TsArray::Create(argc + 1);
+    // argv[0] = exe path (equivalent to "node" in Node.js)
+    void* exeStr = ts_value_make_string(ts_string_create(argv[0]));
+    argvArray->Push((int64_t)exeStr);
+    // argv[1] = exe path again (equivalent to "script.js" in Node.js)
+    argvArray->Push((int64_t)exeStr);
+    // argv[2..n] = user arguments
+    for (int i = 1; i < argc; ++i) {
         void* s = ts_string_create(argv[i]);
         argvArray->Push((int64_t)ts_value_make_string(s));
     }

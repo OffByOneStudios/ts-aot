@@ -1,5 +1,6 @@
 #include "ASTToHIR.h"
 #include "../extensions/ExtensionLoader.h"
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <set>
@@ -2789,6 +2790,106 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         auto lhs = lowerExpression(node->left.get());  // property key
         auto rhs = lowerExpression(node->right.get()); // object
         lastValue_ = builder_.createCall("ts_object_has_property", {rhs, lhs}, HIRType::makeBool());
+        return;
+    }
+
+    // Handle logical AND with short-circuit semantics
+    // Must be before general lhs/rhs evaluation to avoid eagerly evaluating RHS
+    if (op == "&&") {
+        auto lhs = lowerExpression(node->left.get());
+        auto boxedLhs = boxValueIfNeeded(lhs);
+
+        // Convert LHS to boolean for branching
+        std::shared_ptr<HIRValue> lhsCond;
+        if (lhs->type && lhs->type->kind == HIRTypeKind::Bool) {
+            lhsCond = lhs;
+        } else {
+            lhsCond = builder_.createCall("ts_value_to_bool", {boxedLhs}, HIRType::makeBool());
+        }
+
+        int blockId = blockCounter_++;
+        auto* rhsBlock = builder_.createBlock("land_rhs_" + std::to_string(blockId));
+        auto* mergeBlock = builder_.createBlock("land_merge_" + std::to_string(blockId));
+        auto* lhsBlock = builder_.getInsertBlock();
+
+        // && short-circuit: if truthy → eval RHS, if falsy → skip to merge with LHS
+        builder_.createCondBranch(lhsCond, rhsBlock, mergeBlock);
+
+        // RHS block
+        builder_.setInsertPoint(rhsBlock);
+        auto rhs = lowerExpression(node->right.get());
+        auto boxedRhs = boxValueIfNeeded(rhs);
+        auto* finalRhsBlock = builder_.getInsertBlock();
+        builder_.createBranch(mergeBlock);
+
+        // Move mergeBlock to end of block list so it's lowered AFTER any blocks
+        // created during RHS evaluation (e.g., nested || creates lor_rhs/lor_merge
+        // blocks that must be lowered before the merge block's phi can see them
+        // as predecessors).
+        {
+            auto& blocks = currentFunction_->blocks;
+            auto it = std::find_if(blocks.begin(), blocks.end(),
+                [mergeBlock](const auto& b) { return b.get() == mergeBlock; });
+            if (it != blocks.end() && std::next(it) != blocks.end()) {
+                std::rotate(it, std::next(it), blocks.end());
+            }
+        }
+
+        // Merge with phi
+        builder_.setInsertPoint(mergeBlock);
+        currentBlock_ = mergeBlock;  // Keep ASTToHIR's currentBlock_ in sync
+        std::vector<std::pair<std::shared_ptr<HIRValue>, HIRBlock*>> phiIncoming;
+        phiIncoming.push_back(std::make_pair(boxedLhs, lhsBlock));
+        phiIncoming.push_back(std::make_pair(boxedRhs, finalRhsBlock));
+        lastValue_ = builder_.createPhi(HIRType::makeAny(), phiIncoming);
+        return;
+    }
+
+    // Handle logical OR with short-circuit semantics
+    if (op == "||") {
+        auto lhs = lowerExpression(node->left.get());
+        auto boxedLhs = boxValueIfNeeded(lhs);
+
+        // Convert LHS to boolean for branching
+        std::shared_ptr<HIRValue> lhsCond;
+        if (lhs->type && lhs->type->kind == HIRTypeKind::Bool) {
+            lhsCond = lhs;
+        } else {
+            lhsCond = builder_.createCall("ts_value_to_bool", {boxedLhs}, HIRType::makeBool());
+        }
+
+        int blockId = blockCounter_++;
+        auto* rhsBlock = builder_.createBlock("lor_rhs_" + std::to_string(blockId));
+        auto* mergeBlock = builder_.createBlock("lor_merge_" + std::to_string(blockId));
+        auto* lhsBlock = builder_.getInsertBlock();
+
+        // || short-circuit: if truthy → skip to merge with LHS, if falsy → eval RHS
+        builder_.createCondBranch(lhsCond, mergeBlock, rhsBlock);
+
+        // RHS block
+        builder_.setInsertPoint(rhsBlock);
+        auto rhs = lowerExpression(node->right.get());
+        auto boxedRhs = boxValueIfNeeded(rhs);
+        auto* finalRhsBlock = builder_.getInsertBlock();
+        builder_.createBranch(mergeBlock);
+
+        // Move mergeBlock to end of block list (same reason as && above)
+        {
+            auto& blocks = currentFunction_->blocks;
+            auto it = std::find_if(blocks.begin(), blocks.end(),
+                [mergeBlock](const auto& b) { return b.get() == mergeBlock; });
+            if (it != blocks.end() && std::next(it) != blocks.end()) {
+                std::rotate(it, std::next(it), blocks.end());
+            }
+        }
+
+        // Merge with phi
+        builder_.setInsertPoint(mergeBlock);
+        currentBlock_ = mergeBlock;  // Keep ASTToHIR's currentBlock_ in sync
+        std::vector<std::pair<std::shared_ptr<HIRValue>, HIRBlock*>> phiIncoming;
+        phiIncoming.push_back(std::make_pair(boxedLhs, lhsBlock));
+        phiIncoming.push_back(std::make_pair(boxedRhs, finalRhsBlock));
+        lastValue_ = builder_.createPhi(HIRType::makeAny(), phiIncoming);
         return;
     }
 
