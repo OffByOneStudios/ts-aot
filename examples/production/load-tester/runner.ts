@@ -58,8 +58,8 @@ function printUsage(): void {
 }
 
 function parseOptions(argv: string[]): CliOptions {
-    // AOT: argv[0] = executable, argv[1+] = user args
-    const args = argv.slice(1);
+    // Node.js convention: argv[0] = node, argv[1] = script, argv[2+] = user args
+    const args = argv.slice(2);
     const opts: CliOptions = {
         targetUrl: '',
         totalRequests: 100,

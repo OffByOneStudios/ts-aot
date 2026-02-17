@@ -123,6 +123,12 @@ private:
         if (val->getType()->isIntegerTy()) {
             return builder.CreateSIToFP(val, builder.getDoubleTy(), "i64_to_f64");
         }
+        if (val->getType()->isPointerTy()) {
+            // Unbox ptr (NaN-boxed TsValue*) to double
+            auto ft = llvm::FunctionType::get(builder.getDoubleTy(), { builder.getPtrTy() }, false);
+            auto fn = lowerer.module().getOrInsertFunction("ts_value_get_double", ft);
+            return builder.CreateCall(ft, fn.getCallee(), { val }, "unbox_f64");
+        }
         return val;
     }
 
@@ -131,6 +137,12 @@ private:
         auto& builder = lowerer.builder();
         if (val->getType()->isDoubleTy()) {
             return builder.CreateFPToSI(val, builder.getInt64Ty(), "f64_to_i64");
+        }
+        if (val->getType()->isPointerTy()) {
+            // Unbox ptr (NaN-boxed TsValue*) to i64
+            auto ft = llvm::FunctionType::get(builder.getInt64Ty(), { builder.getPtrTy() }, false);
+            auto fn = lowerer.module().getOrInsertFunction("ts_value_get_int", ft);
+            return builder.CreateCall(ft, fn.getCallee(), { val }, "unbox_i64");
         }
         return val;
     }

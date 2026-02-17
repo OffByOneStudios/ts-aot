@@ -35,8 +35,8 @@ function printUsage(): void {
 }
 
 function parseCliArgs(argv: string[]): { command: string; target: string; password: string; outputDir: string } {
-    // AOT: argv[0] = executable, argv[1+] = user args
-    const args = argv.slice(1);
+    // Node.js convention: argv[0] = node, argv[1] = script, argv[2+] = user args
+    const args = argv.slice(2);
 
     let command = '';
     let target = '';
@@ -152,21 +152,16 @@ function cmdList(target: string): number {
     }
 
     // Table header
-    console.log('  %-30s  %-30s  %-12s  %-12s', 'Vault File', 'Original Name', 'Orig Size', 'Vault Size');
-    console.log('  %s  %s  %s  %s', '------------------------------', '------------------------------', '------------', '------------');
+    console.log('  ' + 'Vault File'.padEnd(30) + '  ' + 'Original Name'.padEnd(30) + '  ' + 'Orig Size'.padEnd(12) + '  ' + 'Vault Size'.padEnd(12));
+    console.log('  ' + '-'.repeat(30) + '  ' + '-'.repeat(30) + '  ' + '-'.repeat(12) + '  ' + '-'.repeat(12));
 
     for (let i = 0; i < files.length; i++) {
         const f = files[i];
-        console.log('  %-30s  %-30s  %-12s  %-12s',
-            path.basename(f.path),
-            f.originalName,
-            formatBytes(f.originalSize),
-            formatBytes(f.vaultSize)
-        );
+        console.log('  ' + path.basename(f.path).padEnd(30) + '  ' + f.originalName.padEnd(30) + '  ' + formatBytes(f.originalSize).padEnd(12) + '  ' + formatBytes(f.vaultSize).padEnd(12));
     }
 
     console.log('');
-    console.log('  Total: %s vault file(s)', files.length);
+    console.log('  Total: ' + files.length + ' vault file(s)');
     return 0;
 }
 

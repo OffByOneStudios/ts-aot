@@ -11,6 +11,9 @@ void Analyzer::visitAwaitExpression(ast::AwaitExpression* node) {
     }
     visit(node->expression.get());
     auto type = lastType;
+    if (!type) {
+        type = std::make_shared<Type>(TypeKind::Any);
+    }
     if (type->kind == TypeKind::Class) {
         auto cls = std::static_pointer_cast<ClassType>(type);
         if (cls->name.find("Promise") == 0 && !cls->typeArguments.empty()) {
