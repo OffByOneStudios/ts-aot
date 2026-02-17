@@ -109,25 +109,22 @@ private:
     }
 
     //==========================================================================
-    // ts_path_join(path1, path2?) -> TsString*
-    // path2 is optional
+    // ts_path_join(...paths) -> TsString*
+    // ASTToHIR packs rest args into a TsArray at operands[1]
     //==========================================================================
     llvm::Value* lowerJoin(HIRInstruction* inst, HIRToLLVM& lowerer) {
         auto& builder = lowerer.builder();
         auto& module = lowerer.module();
 
-        llvm::Value* path1 = lowerer.getOperandValue(inst->operands[1]);
-        llvm::Value* path2 = llvm::ConstantPointerNull::get(builder.getPtrTy());
-        if (inst->operands.size() > 2) {
-            path2 = lowerer.getOperandValue(inst->operands[2]);
-        }
+        // operands[1] is a TsArray* containing all path segments (rest-packed)
+        llvm::Value* pathsArray = lowerer.getOperandValue(inst->operands[1]);
 
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder.getPtrTy(),
-            { builder.getPtrTy(), builder.getPtrTy() },
+            { builder.getPtrTy() },
             false);
-        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_path_join", ft);
-        return builder.CreateCall(ft, fn.getCallee(), { path1, path2 });
+        llvm::FunctionCallee fn = module.getOrInsertFunction("ts_path_join_variadic", ft);
+        return builder.CreateCall(ft, fn.getCallee(), { pathsArray });
     }
 
     //==========================================================================

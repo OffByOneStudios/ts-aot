@@ -543,14 +543,33 @@ static TsString* unboxString(void* ptr) {
     if (!ptr) return nullptr;
 
     // Decode NaN-boxed value
-    TsValue decoded = nanbox_to_tagged((TsValue*)ptr);
-    if (decoded.type == ValueType::STRING_PTR && decoded.ptr_val) {
-        return (TsString*)decoded.ptr_val;
-    }
+    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ptr);
+    if (nanbox_is_special(nb) || !nanbox_is_ptr(nb)) return nullptr;
+    void* raw = nanbox_to_ptr(nb);
+    if (!raw) return nullptr;
+
+    // Check TsString magic at offset 0
+    uint32_t magic = *(uint32_t*)raw;
+    if (magic == 0x53545247) return (TsString*)raw;
 
     // Fallback: try to convert to string
     TsString* res = (TsString*)ts_string_from_value((TsValue*)ptr);
     return res;
+}
+
+static TsBuffer* unboxBuffer(void* ptr) {
+    if (!ptr) return nullptr;
+
+    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ptr);
+    if (nanbox_is_special(nb) || !nanbox_is_ptr(nb)) return nullptr;
+    void* raw = nanbox_to_ptr(nb);
+    if (!raw) return nullptr;
+
+    // TsBuffer extends TsObject: [vtable_ptr(8)][vtable(8)][magic(4)]
+    // Check magic field of TsObject at appropriate offset
+    TsBuffer* buf = (TsBuffer*)raw;
+    if (buf->magic == TsBuffer::MAGIC) return buf;
+    return nullptr;
 }
 
 void* ts_fs_readFileSync(void* path) {
@@ -731,18 +750,32 @@ void ts_fs_truncateSync(void* path, int64_t len) {
 
 void ts_fs_appendFileSync(void* path, void* content) {
     TsString* pathStr = unboxString(path);
-    TsString* contentStr = unboxString(content);
-    if (!pathStr || !contentStr) return;
+    if (!pathStr) return;
     const char* pathCStr = pathStr->ToUtf8();
+
+    // Determine content data and length
+    const char* data = nullptr;
+    size_t dataLen = 0;
+    TsBuffer* contentBuf = unboxBuffer(content);
+    TsString* contentStr = nullptr;
+    if (contentBuf) {
+        data = (const char*)contentBuf->GetData();
+        dataLen = contentBuf->GetLength();
+    } else {
+        contentStr = unboxString(content);
+        if (!contentStr) return;
+        data = contentStr->ToUtf8();
+        dataLen = contentStr->Length();
+    }
 
     uv_fs_t open_req;
     int fd = uv_fs_open(NULL, &open_req, pathCStr, O_WRONLY | O_CREAT | O_APPEND, 0666, NULL);
     if (fd >= 0) {
         uv_fs_t write_req;
-        uv_buf_t buf = uv_buf_init((char*)contentStr->ToUtf8(), contentStr->Length());
+        uv_buf_t buf = uv_buf_init((char*)data, (unsigned int)dataLen);
         uv_fs_write(NULL, &write_req, fd, &buf, 1, -1, NULL);
         uv_fs_req_cleanup(&write_req);
-        
+
         uv_fs_t close_req;
         uv_fs_close(NULL, &close_req, fd, NULL);
         uv_fs_req_cleanup(&close_req);
@@ -767,16 +800,26 @@ void* ts_fs_mkdtempSync(void* prefix) {
 
 void ts_fs_writeFileSync(void* path, void* content) {
     TsString* pathStr = unboxString(path);
-    TsString* contentStr = unboxString(content);
-    if (!pathStr || !contentStr) return;
+    if (!pathStr) return;
     const char* pathCStr = pathStr->ToUtf8();
-    const char* contentCStr = contentStr->ToUtf8();
 
-    std::ofstream t(pathCStr);
-    if (!t.is_open()) {
+    // Check if content is a Buffer first
+    TsBuffer* buf = unboxBuffer(content);
+    if (buf) {
+        std::ofstream t(pathCStr, std::ios::binary);
+        if (!t.is_open()) return;
+        t.write((const char*)buf->GetData(), buf->GetLength());
+        t.close();
         return;
     }
 
+    // Fall back to string content
+    TsString* contentStr = unboxString(content);
+    if (!contentStr) return;
+    const char* contentCStr = contentStr->ToUtf8();
+
+    std::ofstream t(pathCStr);
+    if (!t.is_open()) return;
     t << contentCStr;
     t.close();
 }

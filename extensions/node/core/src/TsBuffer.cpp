@@ -376,6 +376,7 @@ TsBuffer* TsBuffer::AllocUnsafeSlow(size_t length) {
 TsBuffer* TsBuffer::Slice(int64_t start, int64_t end) {
     // Normalize negative indices
     int64_t len = (int64_t)length;
+    if (end <= 0 && start >= 0) end = len;  // default: use buffer length
     if (start < 0) start = len + start;
     if (end < 0) end = len + end;
     if (start < 0) start = 0;
@@ -399,8 +400,8 @@ TsBuffer* TsBuffer::Subarray(int64_t start, int64_t end) {
 
 void TsBuffer::Fill(uint8_t value, int64_t start, int64_t end) {
     int64_t len = (int64_t)length;
+    if (end <= 0) end = len;  // default: use buffer length
     if (start < 0) start = len + start;
-    if (end < 0) end = len;
     if (start < 0) start = 0;
     if (end > len) end = len;
     if (start >= end) return;
@@ -414,7 +415,7 @@ int64_t TsBuffer::Copy(TsBuffer* target, int64_t targetStart, int64_t sourceStar
     int64_t srcLen = (int64_t)length;
     int64_t tgtLen = (int64_t)target->length;
     
-    if (sourceEnd < 0) sourceEnd = srcLen;
+    if (sourceEnd <= 0) sourceEnd = srcLen;
     if (sourceStart < 0) sourceStart = 0;
     if (targetStart < 0) targetStart = 0;
     
@@ -439,19 +440,19 @@ int64_t TsBuffer::Copy(TsBuffer* target, int64_t targetStart, int64_t sourceStar
 
 TsBuffer* TsBuffer::Concat(void* list, int64_t totalLength) {
     if (!list) return Create(0);
-    
+
     TsArray* arr = (TsArray*)list;
     size_t count = (size_t)arr->Length();
-    
-    // Calculate total length if not provided
+
+    // Calculate total length if not provided (compiler passes 0 for omitted args)
     size_t calcLen = 0;
-    if (totalLength < 0) {
+    if (totalLength <= 0) {
         for (size_t i = 0; i < count; i++) {
-            int64_t elem = arr->Get(i);
-            void* elemPtr = (void*)(uintptr_t)elem;
-            TsBuffer* buf = (TsBuffer*)ts_value_get_object((TsValue*)elemPtr);
-            if (!buf && (uint64_t)(uintptr_t)elemPtr >= 0x10000) buf = (TsBuffer*)elemPtr;
-            if (buf && buf->magic == MAGIC) {
+            uint64_t elem = (uint64_t)arr->Get(i);
+            // NaN boxing: pointers have top 16 bits = 0 and value > 6
+            if ((elem & 0xFFFF000000000000ULL) != 0 || elem <= 6) continue;
+            TsBuffer* buf = (TsBuffer*)(uintptr_t)elem;
+            if (buf->magic == MAGIC) {
                 calcLen += buf->length;
             }
         }
@@ -463,11 +464,10 @@ TsBuffer* TsBuffer::Concat(void* list, int64_t totalLength) {
     size_t offset = 0;
 
     for (size_t i = 0; i < count && offset < calcLen; i++) {
-        int64_t elem = arr->Get(i);
-        void* elemPtr = (void*)(uintptr_t)elem;
-        TsBuffer* buf = (TsBuffer*)ts_value_get_object((TsValue*)elemPtr);
-        if (!buf && (uint64_t)(uintptr_t)elemPtr >= 0x10000) buf = (TsBuffer*)elemPtr;
-        if (buf && buf->magic == MAGIC) {
+        uint64_t elem = (uint64_t)arr->Get(i);
+        if ((elem & 0xFFFF000000000000ULL) != 0 || elem <= 6) continue;
+        TsBuffer* buf = (TsBuffer*)(uintptr_t)elem;
+        if (buf->magic == MAGIC) {
             size_t toCopy = buf->length;
             if (offset + toCopy > calcLen) {
                 toCopy = calcLen - offset;
@@ -1056,26 +1056,39 @@ extern "C" {
         return buffer->ToString((TsString*)encoding);
     }
 
+    static TsBuffer* getBuffer(void* buf) {
+        if (!buf) return nullptr;
+        void* raw = ts_value_get_object((TsValue*)buf);
+        if (raw) buf = raw;
+        TsBuffer* buffer = (TsBuffer*)buf;
+        if (buffer->magic != TsBuffer::MAGIC) return nullptr;
+        return buffer;
+    }
+
     void* ts_buffer_slice(void* buf, int64_t start, int64_t end) {
-        if (!buf) return TsBuffer::Create(0);
-        return ((TsBuffer*)buf)->Slice(start, end);
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return TsBuffer::Create(0);
+        return buffer->Slice(start, end);
     }
 
     void* ts_buffer_subarray(void* buf, int64_t start, int64_t end) {
-        if (!buf) return TsBuffer::Create(0);
-        return ((TsBuffer*)buf)->Subarray(start, end);
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return TsBuffer::Create(0);
+        return buffer->Subarray(start, end);
     }
 
     void* ts_buffer_fill(void* buf, int64_t value, int64_t start, int64_t end) {
-        if (!buf) return nullptr;
-        TsBuffer* buffer = (TsBuffer*)buf;
+        TsBuffer* buffer = getBuffer(buf);
+        if (!buffer) return nullptr;
         buffer->Fill((uint8_t)value, start, end);
         return buffer;  // Return this for chaining
     }
 
     int64_t ts_buffer_copy(void* source, void* target, int64_t targetStart, int64_t sourceStart, int64_t sourceEnd) {
-        if (!source || !target) return 0;
-        return ((TsBuffer*)source)->Copy((TsBuffer*)target, targetStart, sourceStart, sourceEnd);
+        TsBuffer* src = getBuffer(source);
+        TsBuffer* tgt = getBuffer(target);
+        if (!src || !tgt) return 0;
+        return src->Copy(tgt, targetStart, sourceStart, sourceEnd);
     }
 
     bool ts_buffer_is_buffer(void* obj) {
@@ -1097,19 +1110,6 @@ extern "C" {
         TsString* enc = (TsString*)encoding;
         const char* encStr = enc->ToUtf8();
         return TsBuffer::IsEncoding(encStr);
-    }
-
-    // ============================================================================
-    // Buffer Read Methods
-    // ============================================================================
-
-    static TsBuffer* getBuffer(void* buf) {
-        if (!buf) return nullptr;
-        void* raw = ts_value_get_object((TsValue*)buf);
-        if (raw) buf = raw;
-        TsBuffer* buffer = (TsBuffer*)buf;
-        if (buffer->magic != TsBuffer::MAGIC) return nullptr;
-        return buffer;
     }
 
     int64_t ts_buffer_read_int8(void* buf, int64_t offset) {
@@ -1471,7 +1471,10 @@ extern "C" {
     int64_t ts_buffer_write_string(void* buf, void* str, int64_t offset, int64_t length, void* encoding) {
         TsBuffer* buffer = getBuffer(buf);
         if (!buffer || !str) return 0;
-        TsString* tsStr = (TsString*)str;
+        // Unbox NaN-boxed string pointer
+        void* rawStr = ts_value_get_object((TsValue*)str);
+        if (!rawStr) rawStr = str;
+        TsString* tsStr = (TsString*)rawStr;
         const char* utf8 = tsStr->ToUtf8();
         size_t strLen = std::strlen(utf8);
         size_t bufLen = buffer->GetLength();
@@ -1481,7 +1484,7 @@ extern "C" {
 
         size_t available = bufLen - (size_t)offset;
         size_t writeLen = strLen;
-        if (length >= 0 && (size_t)length < writeLen) writeLen = (size_t)length;
+        if (length > 0 && (size_t)length < writeLen) writeLen = (size_t)length;
         if (writeLen > available) writeLen = available;
 
         std::memcpy(buffer->GetData() + offset, utf8, writeLen);

@@ -34,6 +34,7 @@
   "buffer/buffer_typed_array.ts": "pass",
   "buffer/buffer_utilities.ts": "pass",
   "buffer/buffer_variable_length.ts": "pass",
+  "buffer/buffer_write_copy_subarray.ts": "pass",
   "buffer/test_dataview.ts": "pass",
   "buffer/test_typed_arrays.ts": "pass",
   "buffer/test_typed_arrays_debug.ts": "pass",

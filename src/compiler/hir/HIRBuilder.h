@@ -474,10 +474,20 @@ public:
     //==========================================================================
 
     std::shared_ptr<HIRValue> createLogicalAnd(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
-        return createBinaryOp(HIROpcode::LogicalAnd, lhs, rhs, HIRType::makeBool());
+        // JavaScript && returns actual operand values (value-preserving), not boolean.
+        // Only use Bool when both operands are boolean; otherwise Any (ptr at LLVM level).
+        bool bothBool = lhs->type && lhs->type->kind == HIRTypeKind::Bool &&
+                        rhs->type && rhs->type->kind == HIRTypeKind::Bool;
+        return createBinaryOp(HIROpcode::LogicalAnd, lhs, rhs,
+                              bothBool ? HIRType::makeBool() : HIRType::makeAny());
     }
     std::shared_ptr<HIRValue> createLogicalOr(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
-        return createBinaryOp(HIROpcode::LogicalOr, lhs, rhs, HIRType::makeBool());
+        // JavaScript || returns actual operand values (value-preserving), not boolean.
+        // Only use Bool when both operands are boolean; otherwise Any (ptr at LLVM level).
+        bool bothBool = lhs->type && lhs->type->kind == HIRTypeKind::Bool &&
+                        rhs->type && rhs->type->kind == HIRTypeKind::Bool;
+        return createBinaryOp(HIROpcode::LogicalOr, lhs, rhs,
+                              bothBool ? HIRType::makeBool() : HIRType::makeAny());
     }
     std::shared_ptr<HIRValue> createLogicalNot(std::shared_ptr<HIRValue> val) {
         return createUnaryOp(HIROpcode::LogicalNot, val, HIRType::makeBool());
