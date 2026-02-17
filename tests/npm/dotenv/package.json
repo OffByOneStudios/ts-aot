@@ -1,0 +1,7 @@
+{
+  "name": "ts-aot-test-dotenv",
+  "private": true,
+  "dependencies": {
+    "dotenv": "16.4.7"
+  }
+}
