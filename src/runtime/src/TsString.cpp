@@ -1229,10 +1229,18 @@ extern "C" {
     }
 
     void* ts_string_substring(void* str, int64_t start, int64_t end) {
+        // INT64_MIN sentinel means "end not provided" - default to string length
+        if (end == INT64_MIN) {
+            end = ((TsString*)str)->Length();
+        }
         return ((TsString*)str)->Substring(start, end);
     }
 
     void* ts_string_slice(void* str, int64_t start, int64_t end) {
+        // INT64_MIN sentinel means "end not provided" - default to string length
+        if (end == INT64_MIN) {
+            end = ((TsString*)str)->Length();
+        }
         return ((TsString*)str)->Slice(start, end);
     }
 

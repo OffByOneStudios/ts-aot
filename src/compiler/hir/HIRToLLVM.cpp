@@ -4794,8 +4794,11 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
         llvmArgs.push_back(arg);
     }
 
-    // Pad missing optional arguments with null for pointers, zero for primitives.
-    // Extension/C functions use null-pointer checks for "not provided".
+    // Pad missing optional arguments with sentinel values.
+    // Pointers: nullptr (extension/C functions check for null).
+    // Integers: INT64_MIN sentinel (runtime functions check for this to mean "not provided").
+    // Using INT64_MIN instead of 0 because 0 is a valid argument for many methods
+    // (e.g., string.substring(2, 0) is valid JS that swaps to substring(0, 2)).
     size_t numProvidedArgs = inst->operands.size() - 1;  // -1 for function name
     while (llvmArgs.size() < argTys.size()) {
         size_t idx = llvmArgs.size();
@@ -4803,7 +4806,7 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
         if (expectedType->isPointerTy()) {
             llvmArgs.push_back(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(expectedType)));
         } else if (expectedType->isIntegerTy()) {
-            llvmArgs.push_back(llvm::ConstantInt::get(expectedType, 0));
+            llvmArgs.push_back(llvm::ConstantInt::get(expectedType, INT64_MIN, /*isSigned=*/true));
         } else if (expectedType->isDoubleTy()) {
             llvmArgs.push_back(llvm::ConstantFP::get(expectedType, 0.0));
         } else {
@@ -5928,13 +5931,19 @@ void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
     if (fn) {
         if (inst->result) {
             // Wrap in a TsClosure so .name and .toString() work (ES2019)
+            // Use a trampoline to ensure proper calling convention:
+            // ts_call_N passes (closure, arg1, ...) but the original function
+            // may not expect a closure context as its first parameter.
+            llvm::Function* trampolineFunc = getOrCreateTrampoline(fn);
+            llvm::Value* funcPtrToUse = trampolineFunc ? (llvm::Value*)trampolineFunc : (llvm::Value*)fn;
+
             auto closureCreateFt = llvm::FunctionType::get(
                 builder_->getPtrTy(),
                 { builder_->getPtrTy(), builder_->getInt64Ty() },
                 false);
             auto closureCreate = module_->getOrInsertFunction("ts_closure_create", closureCreateFt);
             llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
-            llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { fn, numCapturesVal });
+            llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal });
 
             // Set the function's display name
             std::string displayName;
