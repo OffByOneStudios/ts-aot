@@ -695,6 +695,7 @@ TsString* ts_typeof(void* val) {
         // Check offset 16 for TsObject-derived types
         uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
         if (magic16 == 0x46554E43) return TsString::Create("function"); // TsFunction at offset 16
+        if (magic16 == 0x434C5352) return TsString::Create("function"); // TsClosure at offset 16
         if (magic16 == 0x4D415053) return TsString::Create("object");   // TsMap at offset 16
 
         return TsString::Create("object");

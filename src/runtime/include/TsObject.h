@@ -73,6 +73,7 @@ inline TsValue nanbox_to_tagged(TsValue* v) {
         if (magic16 == 0x42494749) { tv.type = ValueType::BIGINT_PTR; tv.ptr_val = ptr; return tv; }
         if (magic16 == 0x53594D42) { tv.type = ValueType::SYMBOL_PTR; tv.ptr_val = ptr; return tv; }
         if (magic16 == 0x46554E43) { tv.type = ValueType::FUNCTION_PTR; tv.ptr_val = ptr; return tv; }
+        if (magic16 == 0x434C5352) { tv.type = ValueType::FUNCTION_PTR; tv.ptr_val = ptr; return tv; } // TsClosure
         tv.type = ValueType::OBJECT_PTR; tv.ptr_val = ptr; return tv;
     }
     tv.type = ValueType::UNDEFINED; return tv;
@@ -306,6 +307,12 @@ extern "C" {
     extern TsValue* Buffer;
     extern TsValue* global;
     extern TsValue* globalThis;  // ES2020: alias for global
-    extern TsValue* parseInt;
-    extern TsValue* parseFloat;
+    TsValue* parseInt(TsValue* arg, ...);
+    TsValue* parseFloat(TsValue* arg);
+    TsValue* isNaN(TsValue* arg);
+    TsValue* isFinite(TsValue* arg);
+    double ts_number_parseFloat(TsValue* arg);
+    int64_t ts_number_parseInt(TsValue* arg);
+    double ts_number_isNaN(TsValue* arg);
+    double ts_number_isFinite(TsValue* arg);
 }

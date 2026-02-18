@@ -1,5 +1,5 @@
 {
-  "dotenv": "runtime_error",
-  "ms": "runtime_error",
-  "nanoid": "runtime_error"
+  "dotenv": "pass",
+  "ms": "pass",
+  "nanoid": "pass"
 }

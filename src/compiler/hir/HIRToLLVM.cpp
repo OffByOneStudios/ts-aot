@@ -509,6 +509,18 @@ void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
     if (enableGCStatepoints_) {
         func->setGC("ts-aot-gc");
     }
+
+    // Set param names immediately so getOrCreateTrampoline can detect closure
+    // params before function bodies are emitted (e.g., during module init lowering).
+    auto argIt = func->arg_begin();
+    if (!fn->captures.empty() && !hasHiddenClosureParam) {
+        argIt->setName("__closure");
+        ++argIt;
+    }
+    for (size_t i = 0; i < fn->params.size(); ++i, ++argIt) {
+        if (argIt == func->arg_end()) break;
+        argIt->setName(fn->params[i].first);
+    }
 }
 
 void HIRToLLVM::lowerFunction(HIRFunction* fn) {
@@ -5789,12 +5801,28 @@ void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
             { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() }, false);
         auto fn = module_->getOrInsertFunction("ts_call_3", ft);
         result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr, regularArgs[0], regularArgs[1], regularArgs[2] });
+    } else if (argCount == 4) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_call_4", ft);
+        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr, regularArgs[0], regularArgs[1], regularArgs[2], regularArgs[3] });
     } else {
-        // For more arguments, fall back to ts_call_N with array
-        // TODO: Implement ts_call_n(callable, argc, argv) for >3 args
-        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getPtrTy() }, false);
-        auto fn = module_->getOrInsertFunction("ts_call_0", ft);
-        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr });
+        // For >4 arguments, use ts_call_n with argc/argv array
+        auto arrayType = llvm::ArrayType::get(builder_->getPtrTy(), argCount);
+        auto alloca = builder_->CreateAlloca(arrayType);
+        for (size_t i = 0; i < argCount; ++i) {
+            auto gep = builder_->CreateConstGEP2_32(arrayType, alloca, 0, (unsigned)i);
+            builder_->CreateStore(regularArgs[i], gep);
+        }
+        auto argvPtr = builder_->CreateConstGEP2_32(arrayType, alloca, 0, 0);
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getInt64Ty(), builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_call_n", ft);
+        result = builder_->CreateCall(ft, fn.getCallee(), {
+            callablePtr,
+            llvm::ConstantInt::get(builder_->getInt64Ty(), argCount),
+            argvPtr
+        });
     }
 
     // ts_call_N returns a boxed TsValue* - we may need to unbox based on expected HIR type
@@ -7454,8 +7482,12 @@ void HIRToLLVM::lowerSelect(HIRInstruction* inst) {
     // Ensure condition is i1 (boolean) - LLVM select requires i1 for first operand
     if (!cond->getType()->isIntegerTy(1)) {
         if (cond->getType()->isPointerTy()) {
-            // Convert pointer to boolean (non-null check)
-            cond = builder_->CreateICmpNE(cond, llvm::ConstantPointerNull::get(builder_->getPtrTy()), "cond_bool");
+            // For NaN-boxed values (any type), use ts_value_to_bool for proper JS truthiness.
+            // A simple null-check is wrong because NaN-boxed undefined/false/0/null/""
+            // are non-null pointers but falsy in JavaScript.
+            auto ft = llvm::FunctionType::get(builder_->getInt1Ty(), {builder_->getPtrTy()}, false);
+            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_value_to_bool", ft);
+            cond = builder_->CreateCall(ft, fn.getCallee(), {cond}, "cond_bool");
         } else if (cond->getType()->isIntegerTy()) {
             // Convert integer to boolean (non-zero check)
             cond = builder_->CreateICmpNE(cond, llvm::ConstantInt::get(cond->getType(), 0), "cond_bool");
