@@ -189,14 +189,12 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         if (!funcNode) continue;
         // Note: We include all module init functions (including the main file)
         // because file-level variables need to be shared across functions.
-        for (auto& stmt : funcNode->body) {
-            if (stmt->getKind() != "VariableDeclaration") continue;
-            auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
-            if (!varDecl) continue;
+        // Helper lambda to register a VariableDeclaration as a module global
+        auto registerModuleVar = [&](ast::VariableDeclaration* varDecl) {
             auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
-            if (!ident) continue;
+            if (!ident) return;
             // Skip synthetic variables like __module_obj_0, exports, etc.
-            if (ident->name.find("__") == 0 || ident->name == "exports") continue;
+            if (ident->name.find("__") == 0 || ident->name == "exports") return;
             moduleVarDecls_[ident->name] = varDecl;
             moduleGlobalVars_.insert(ident->name);
             // Infer type from initializer to preserve Object vs Any distinction.
@@ -212,6 +210,32 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
             module_->globals["__modvar_" + ident->name] = globalType;
+        };
+
+        for (auto& stmt : funcNode->body) {
+            if (stmt->getKind() == "VariableDeclaration") {
+                auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+                if (varDecl) registerModuleVar(varDecl);
+            } else if (stmt->getKind() == "BlockStatement") {
+                // Multi-variable declarations (e.g., "let a, b") get wrapped in a
+                // BlockStatement by the parser. Unwrap and check each child.
+                auto* block = dynamic_cast<ast::BlockStatement*>(stmt.get());
+                if (block) {
+                    for (auto& inner : block->statements) {
+                        auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(inner.get());
+                        if (varDecl) registerModuleVar(varDecl);
+                    }
+                }
+            } else if (auto* funcDecl = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                // Function declarations must also be registered as module globals.
+                // Without this, functions captured by closures in the same module
+                // use closure cells, which fail when the captured function is declared
+                // after the capturing function (capture gets null due to source ordering).
+                if (!funcDecl->name.empty() && funcDecl->name.find("__") != 0) {
+                    moduleGlobalVars_.insert(funcDecl->name);
+                    module_->globals["__modvar_" + funcDecl->name] = HIRType::makeAny();
+                }
+            }
         }
     }
 
@@ -1729,6 +1753,14 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             // No pre-created alloca, define the function name as a closure variable
             defineVariable(node->name, closureVal);
         }
+
+        // Also store to module global if this is a module-level function declaration.
+        // This allows other functions in the module to access it via __modvar_ globals
+        // instead of closure cells, fixing ordering issues where a capturing function
+        // is declared before the captured function.
+        if (moduleGlobalVars_.count(node->name)) {
+            builder_.createStoreGlobal("__modvar_" + node->name, closureVal);
+        }
     } else if (savedFunc) {
         // Nested function without captures - still store it so it can be called
         // Build function type
@@ -1748,6 +1780,11 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             builder_.createStore(closureVal, existingInfo->value);
         } else {
             defineVariable(node->name, closureVal);
+        }
+
+        // Also store to module global for module-level function declarations
+        if (moduleGlobalVars_.count(node->name)) {
+            builder_.createStoreGlobal("__modvar_" + node->name, closureVal);
         }
     }
 }
@@ -3262,6 +3299,16 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Handle identifier LHS
         auto* ident = dynamic_cast<ast::Identifier*>(node->left.get());
         if (ident) {
+            // For module-scoped variables from inner functions, use __modvar_ globals
+            if (currentFunction_ && moduleGlobalVars_.count(ident->name)) {
+                size_t scopeIdx = 0;
+                if (isCapturedVariable(ident->name, &scopeIdx)) {
+                    builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                    lastValue_ = result;
+                    return;
+                }
+            }
+
             auto* info = lookupVariableInfo(ident->name);
             if (info && info->isAlloca) {
                 builder_.createStore(result, info->value, info->elemType);
@@ -3273,6 +3320,12 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                 info->elemType = result->type;
                 info->isAlloca = true;
             }
+
+            // If this variable is a module-scoped global, also update __modvar_ global
+            if (moduleGlobalVars_.count(ident->name)) {
+                builder_.createStoreGlobal("__modvar_" + ident->name, result);
+            }
+
             lastValue_ = result;
             return;
         }
@@ -3320,6 +3373,18 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // Handle simple identifier assignment
     auto* ident = dynamic_cast<ast::Identifier*>(node->left.get());
     if (ident) {
+        // For module-scoped variables accessed from inner functions, use __modvar_ globals
+        // instead of closure cells. Closure cells are per-closure snapshots, but module
+        // variables must be shared across all functions in the module.
+        if (currentFunction_ && moduleGlobalVars_.count(ident->name)) {
+            size_t scopeIndex = 0;
+            if (isCapturedVariable(ident->name, &scopeIndex)) {
+                builder_.createStoreGlobal("__modvar_" + ident->name, rhs);
+                lastValue_ = rhs;
+                return;
+            }
+        }
+
         // Check if this is a captured variable from an outer function
         size_t scopeIndex = 0;
         if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
@@ -3357,6 +3422,14 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             // New variable - should not happen in assignment, but handle gracefully
             defineVariable(ident->name, rhs);
         }
+
+        // If this variable is a module-scoped global, also update the __modvar_ global
+        // so other functions (arrow functions, function expressions) from the same module
+        // can read the updated value via LoadGlobalTyped.
+        if (moduleGlobalVars_.count(ident->name)) {
+            builder_.createStoreGlobal("__modvar_" + ident->name, rhs);
+        }
+
         lastValue_ = rhs;
         return;
     }
@@ -3933,6 +4006,16 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         // First check if this is a captured variable from an outer function
         size_t scopeIndex = 0;
         if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
+            // For module-level variables that have __modvar_ globals, prefer
+            // the global over closure cells. Closure cells may be null due to
+            // capture ordering (e.g., fmtLong captures plural, but plural's
+            // closure isn't created yet when fmtLong's closure is created).
+            if (moduleGlobalVars_.count(ident->name)) {
+                std::string globalName = "__modvar_" + ident->name;
+                auto funcPtr = builder_.createLoadGlobalTyped(globalName, HIRType::makeAny());
+                lastValue_ = builder_.createCallIndirect(funcPtr, args, HIRType::makeAny());
+                return;
+            }
             // Look up the variable info to get its type
             auto* info = lookupVariableInfo(ident->name);
             if (info) {
@@ -5206,6 +5289,18 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
+    // For module-scoped variables accessed from inner functions, use __modvar_ globals
+    // instead of closure cells. Module variables must be shared across all functions.
+    if (currentFunction_ && moduleGlobalVars_.count(node->name)) {
+        size_t scopeIndex = 0;
+        if (isCapturedVariable(node->name, &scopeIndex)) {
+            std::string globalName = "__modvar_" + node->name;
+            auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
+            lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
+            return;
+        }
+    }
+
     // Check if this is a captured variable from an outer function
     size_t scopeIndex = 0;
     if (currentFunction_ && isCapturedVariable(node->name, &scopeIndex)) {
@@ -5496,6 +5591,11 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
             paramType = HIRType::makeAny();
         }
 
+        // If parameter has a default value, force Any type to receive undefined
+        if (param->initializer) {
+            paramType = HIRType::makeAny();
+        }
+
         std::string paramName;
         if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
             paramName = ident->name;
@@ -5536,13 +5636,62 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     // Enter function scope (marks function boundary for capture detection)
     pushFunctionScope(func.get());
 
-    // Register parameters in the scope
+    // Update function's value counter to start after parameters BEFORE the loop
+    // This ensures values created during parameter processing (allocas, etc.)
+    // don't conflict with parameter IDs 0, 1, 2, ...
+    func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+    // Register parameters in the scope (with default value handling)
     for (size_t i = 0; i < func->params.size(); ++i) {
         const auto& [paramName, paramType] = func->params[i];
         auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-        defineVariable(paramName, paramValue);
+
+        // Check if this parameter has a default value (skip __closure__ at index 0)
+        size_t astParamIdx = (i >= 1) ? (i - 1) : SIZE_MAX;
+        ast::Parameter* astParam = (astParamIdx < node->parameters.size())
+            ? node->parameters[astParamIdx].get() : nullptr;
+        if (astParam && astParam->initializer) {
+            // Parameter has a default value - need to check if undefined and use default
+            auto allocaVal = builder_.createAlloca(paramType);
+
+            auto isUndefined = builder_.createCall("ts_value_is_undefined",
+                {paramValue}, HIRType::makeBool());
+
+            auto defaultBB = func->createBlock("default_param");
+            auto usedBB = func->createBlock("use_param");
+            auto mergeBB = func->createBlock("param_merge");
+
+            builder_.createCondBranch(isUndefined, defaultBB, usedBB);
+
+            // Default block - evaluate default expression and store
+            builder_.setInsertPoint(defaultBB);
+            currentBlock_ = defaultBB;
+            auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
+            auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
+            if (paramType->kind == HIRTypeKind::Any) {
+                defaultVal = forceBoxValue(defaultVal);
+            }
+            builder_.createStore(defaultVal, allocaVal);
+            builder_.createBranch(mergeBB);
+
+            // Use param block - store the passed parameter value
+            builder_.setInsertPoint(usedBB);
+            currentBlock_ = usedBB;
+            builder_.createStore(paramValue, allocaVal);
+            builder_.createBranch(mergeBB);
+
+            // Merge block - continue execution
+            builder_.setInsertPoint(mergeBB);
+            currentBlock_ = mergeBB;
+
+            defineVariableAlloca(paramName, allocaVal, paramType);
+        } else {
+            // No default value - store into an alloca so reassignment works
+            auto allocaVal = builder_.createAlloca(paramType);
+            builder_.createStore(paramValue, allocaVal);
+            defineVariableAlloca(paramName, allocaVal, paramType);
+        }
     }
-    func->nextValueId = static_cast<uint32_t>(func->params.size());
 
     // Emit destructuring extraction for parameters with binding patterns
     for (auto& dp : arrowDestructuredParams) {
@@ -5729,6 +5878,11 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
             ? HIRType::makeAny()
             : convertTypeFromString(param->type);
 
+        // If parameter has a default value, force Any type to receive undefined
+        if (param->initializer) {
+            paramType = HIRType::makeAny();
+        }
+
         std::string paramName;
         if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
             paramName = ident->name;
@@ -5766,13 +5920,60 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // Enter function scope (marks function boundary for capture detection)
     pushFunctionScope(func.get());
 
-    // Register parameters in the scope
+    // Update function's value counter to start after parameters BEFORE the loop
+    func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+    // Register parameters in the scope (with default value handling)
     for (size_t i = 0; i < func->params.size(); ++i) {
         const auto& [paramName, paramType] = func->params[i];
         auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-        defineVariable(paramName, paramValue);
+
+        // Check if this parameter has a default value (skip __closure__ at index 0)
+        size_t astParamIdx = (i >= 1) ? (i - 1) : SIZE_MAX;
+        ast::Parameter* astParam = (astParamIdx < node->parameters.size())
+            ? node->parameters[astParamIdx].get() : nullptr;
+        if (astParam && astParam->initializer) {
+            // Parameter has a default value - need to check if undefined and use default
+            auto allocaVal = builder_.createAlloca(paramType);
+
+            auto isUndefined = builder_.createCall("ts_value_is_undefined",
+                {paramValue}, HIRType::makeBool());
+
+            auto defaultBB = func->createBlock("default_param");
+            auto usedBB = func->createBlock("use_param");
+            auto mergeBB = func->createBlock("param_merge");
+
+            builder_.createCondBranch(isUndefined, defaultBB, usedBB);
+
+            // Default block - evaluate default expression and store
+            builder_.setInsertPoint(defaultBB);
+            currentBlock_ = defaultBB;
+            auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
+            auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
+            if (paramType->kind == HIRTypeKind::Any) {
+                defaultVal = forceBoxValue(defaultVal);
+            }
+            builder_.createStore(defaultVal, allocaVal);
+            builder_.createBranch(mergeBB);
+
+            // Use param block - store the passed parameter value
+            builder_.setInsertPoint(usedBB);
+            currentBlock_ = usedBB;
+            builder_.createStore(paramValue, allocaVal);
+            builder_.createBranch(mergeBB);
+
+            // Merge block - continue execution
+            builder_.setInsertPoint(mergeBB);
+            currentBlock_ = mergeBB;
+
+            defineVariableAlloca(paramName, allocaVal, paramType);
+        } else {
+            // No default value - store into an alloca so reassignment works
+            auto allocaVal = builder_.createAlloca(paramType);
+            builder_.createStore(paramValue, allocaVal);
+            defineVariableAlloca(paramName, allocaVal, paramType);
+        }
     }
-    func->nextValueId = static_cast<uint32_t>(func->params.size());
 
     // If the function is named, make it available in its own scope (for recursion)
     if (!node->name.empty()) {
@@ -6222,26 +6423,37 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         // Update variable if operand is an identifier
         auto* ident = dynamic_cast<ast::Identifier*>(node->operand.get());
         if (ident) {
-            // Check if this is a captured variable from an outer function
-            size_t scopeIndex = 0;
-            if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
-                // Store to captured variable
-                auto* info = lookupVariableInfo(ident->name);
-                auto type = info && info->elemType ? info->elemType : result->type;
-                registerCapture(ident->name, type, scopeIndex);
-                currentFunction_->hasClosure = true;
-                builder_.createStoreCapture(ident->name, result);
-            } else {
-                auto* info = lookupVariableInfo(ident->name);
-                if (info && info->isAlloca) {
-                    builder_.createStore(result, info->value, info->elemType);
-                    // If captured by nested closure, also update the cell
-                    if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
-                        auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
-                        builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
-                    }
+            // For module-scoped variables from inner functions, use __modvar_ globals
+            bool handledAsModGlobal = false;
+            if (currentFunction_ && moduleGlobalVars_.count(ident->name)) {
+                size_t scopeIdx = 0;
+                if (isCapturedVariable(ident->name, &scopeIdx)) {
+                    builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                    handledAsModGlobal = true;
+                }
+            }
+            if (!handledAsModGlobal) {
+                // Check if this is a captured variable from an outer function
+                size_t scopeIndex = 0;
+                if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
+                    // Store to captured variable
+                    auto* info = lookupVariableInfo(ident->name);
+                    auto type = info && info->elemType ? info->elemType : result->type;
+                    registerCapture(ident->name, type, scopeIndex);
+                    currentFunction_->hasClosure = true;
+                    builder_.createStoreCapture(ident->name, result);
                 } else {
-                    defineVariable(ident->name, result);
+                    auto* info = lookupVariableInfo(ident->name);
+                    if (info && info->isAlloca) {
+                        builder_.createStore(result, info->value, info->elemType);
+                        // If captured by nested closure, also update the cell
+                        if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
+                            auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+                            builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
+                        }
+                    } else {
+                        defineVariable(ident->name, result);
+                    }
                 }
             }
         }
@@ -6309,26 +6521,37 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
         // Update variable if operand is an identifier
         auto* ident = dynamic_cast<ast::Identifier*>(node->operand.get());
         if (ident) {
-            // Check if this is a captured variable from an outer function
-            size_t scopeIndex = 0;
-            if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
-                // Store to captured variable
-                auto* info = lookupVariableInfo(ident->name);
-                auto type = info && info->elemType ? info->elemType : result->type;
-                registerCapture(ident->name, type, scopeIndex);
-                currentFunction_->hasClosure = true;
-                builder_.createStoreCapture(ident->name, result);
-            } else {
-                auto* info = lookupVariableInfo(ident->name);
-                if (info && info->isAlloca) {
-                    builder_.createStore(result, info->value, info->elemType);
-                    // If captured by nested closure, also update the cell
-                    if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
-                        auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
-                        builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
-                    }
+            // For module-scoped variables from inner functions, use __modvar_ globals
+            bool handledAsModGlobal = false;
+            if (currentFunction_ && moduleGlobalVars_.count(ident->name)) {
+                size_t scopeIdx = 0;
+                if (isCapturedVariable(ident->name, &scopeIdx)) {
+                    builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                    handledAsModGlobal = true;
+                }
+            }
+            if (!handledAsModGlobal) {
+                // Check if this is a captured variable from an outer function
+                size_t scopeIndex = 0;
+                if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
+                    // Store to captured variable
+                    auto* info = lookupVariableInfo(ident->name);
+                    auto type = info && info->elemType ? info->elemType : result->type;
+                    registerCapture(ident->name, type, scopeIndex);
+                    currentFunction_->hasClosure = true;
+                    builder_.createStoreCapture(ident->name, result);
                 } else {
-                    defineVariable(ident->name, result);
+                    auto* info = lookupVariableInfo(ident->name);
+                    if (info && info->isAlloca) {
+                        builder_.createStore(result, info->value, info->elemType);
+                        // If captured by nested closure, also update the cell
+                        if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
+                            auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+                            builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
+                        }
+                    } else {
+                        defineVariable(ident->name, result);
+                    }
                 }
             }
         }

@@ -121,12 +121,13 @@ ResolvedModule ModuleResolver::resolveRelative(const std::string& specifier, con
     auto withExt = tryExtensions(resolved);
     if (withExt) {
         std::string ext = withExt->extension().string();
+        bool esm = (ext == ".mjs") || (ext != ".cjs" && isNearestPackageESM(*withExt));
         return ResolvedModule{
             .path = withExt->string(),
             .type = getModuleType(*withExt),
             .packageName = "",
             .isExternal = false,
-            .isESM = (ext == ".mjs")
+            .isESM = esm
         };
     }
 
@@ -135,13 +136,14 @@ ResolvedModule ModuleResolver::resolveRelative(const std::string& specifier, con
     auto asDir = tryDirectory(resolved);
     if (asDir) {
         std::string ext = asDir->extension().string();
+        bool esm = (ext == ".mjs") || (ext != ".cjs" && isNearestPackageESM(*asDir));
         return ResolvedModule{
             .path = asDir->string(),
             .typesPath = lastResolvedTypesPath_,
             .type = getModuleType(*asDir),
             .packageName = "",
             .isExternal = false,
-            .isESM = (ext == ".mjs")
+            .isESM = esm
         };
     }
 
@@ -539,19 +541,40 @@ std::optional<std::string> ModuleResolver::resolveExportCondition(const nlohmann
     if (!val.is_object()) {
         return std::nullopt;
     }
-    // Priority: types > default > require > import > node
+    // Priority: default > require > import > node > types
     // AOT compilers aren't strictly ESM or CJS, so prefer "default" first.
     // Prefer "require" over "import" because CJS entry points are usually .js
     // while ESM entries are .mjs which may not exist in all packages.
+    // "types" must be LAST because it resolves to .d.ts (declaration-only, no
+    // executable code). Packages like dotenv have "types" pointing to .d.ts
+    // and "require"/"default" pointing to .js — we must prefer the .js.
     // This handles arbitrarily nested conditionals like:
     // { "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" } }
-    for (const char* key : {"types", "default", "require", "import", "node"}) {
+    for (const char* key : {"default", "require", "import", "node", "types"}) {
         if (val.contains(key)) {
             auto result = resolveExportCondition(val[key]);
             if (result) return result;
         }
     }
     return std::nullopt;
+}
+
+bool ModuleResolver::isNearestPackageESM(const fs::path& filePath) {
+    // Walk up from the file's directory looking for the nearest package.json
+    fs::path dir = filePath.parent_path();
+    for (int depth = 0; depth < 20; ++depth) {
+        fs::path pkgJson = dir / "package.json";
+        if (fs::exists(pkgJson)) {
+            auto pkg = parsePackageJson(pkgJson);
+            if (pkg) {
+                return pkg->hasTypeModule;
+            }
+        }
+        auto parent = dir.parent_path();
+        if (parent == dir) break;  // filesystem root
+        dir = parent;
+    }
+    return false;
 }
 
 std::optional<PackageJson> ModuleResolver::parsePackageJson(const fs::path& packageJsonPath) {

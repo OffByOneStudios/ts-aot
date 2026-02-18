@@ -1067,6 +1067,25 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     
     // Check if user defined their own user_main function
     ast::FunctionDeclaration* userDefinedMain = findFunction(analyzer, "user_main");
+    bool userMainInModuleInit = false;
+    if (!userDefinedMain) {
+        // For JavaScript modules, user_main may have been moved from the module body
+        // to a __module_init body (line ~564: keepInNewBody = !isJavaScriptModule).
+        // After the body replacement (line ~1033), findFunction can't find it.
+        // Search the synthetic moduleInit bodies to locate it.
+        for (const auto& synthFunc : syntheticFunctions) {
+            for (auto& stmt : synthFunc->body) {
+                if (auto* func = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                    if (func->name == "user_main") {
+                        userDefinedMain = func;
+                        userMainInModuleInit = true;
+                        break;
+                    }
+                }
+            }
+            if (userDefinedMain) break;
+        }
+    }
     if (userDefinedMain) {
         // Rename our synthetic function to avoid conflict
         userMain->name = "__synthetic_user_main";
@@ -1212,18 +1231,25 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         userMain->body.push_back(std::move(stmt));
         
         // Also create a specialization for the user-defined user_main
-        Specialization userMainSpec;
-        userMainSpec.originalName = "user_main";
-        userMainSpec.specializedName = "user_main";
-        userMainSpec.argTypes = {};
-        // Use the actual return type from the user-defined function
-        if (userDefinedMain->returnType.empty()) {
-            userMainSpec.returnType = std::make_shared<Type>(TypeKind::Void);
-        } else {
-            userMainSpec.returnType = analyzer.parseType(userDefinedMain->returnType, analyzer.getSymbolTable());
+        // BUT: if user_main was found inside a __module_init body (JS modules),
+        // then visitFunctionDeclaration in ASTToHIR already creates the user_main
+        // LLVM function when processing the module init specialization.
+        // Creating a duplicate specialization here would cause a naming collision
+        // where the user code ends up in a dead block.
+        if (!userMainInModuleInit) {
+            Specialization userMainSpec;
+            userMainSpec.originalName = "user_main";
+            userMainSpec.specializedName = "user_main";
+            userMainSpec.argTypes = {};
+            // Use the actual return type from the user-defined function
+            if (userDefinedMain->returnType.empty()) {
+                userMainSpec.returnType = std::make_shared<Type>(TypeKind::Void);
+            } else {
+                userMainSpec.returnType = analyzer.parseType(userDefinedMain->returnType, analyzer.getSymbolTable());
+            }
+            userMainSpec.node = userDefinedMain;
+            specializations.push_back(userMainSpec);
         }
-        userMainSpec.node = userDefinedMain;
-        specializations.push_back(userMainSpec);
     }
 
     Specialization mainSpec;

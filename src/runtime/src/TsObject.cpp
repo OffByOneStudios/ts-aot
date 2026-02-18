@@ -625,6 +625,9 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv);
     static TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv);
 
+    // Forward declaration for ts_string_search_regexp (defined in TsString.cpp)
+    int64_t ts_string_search_regexp(void* str, void* regexp);
+
     // Native wrappers for string methods (ctx = TsString*)
     static TsValue* ts_string_startsWith_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
@@ -718,6 +721,71 @@ TsValue* ts_value_make_int(int64_t i) {
         int64_t targetLength = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
         void* padString = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
         return ts_value_make_string((TsString*)ts_string_padEnd(str, targetLength, padString));
+    }
+
+    // Native wrapper for string.toString() / string.valueOf() - just returns the string itself
+    static TsValue* ts_string_toString_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string((TsString*)ctx);
+    }
+
+    // Native wrappers for missing string methods in dynamic dispatch
+    static TsValue* ts_string_lastIndexOf_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* searchString = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        if (!searchString) searchString = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return ts_value_make_int(ts_string_lastIndexOf(str, searchString));
+    }
+    static TsValue* ts_string_trimStart_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string((TsString*)ts_string_trimStart((TsString*)ctx));
+    }
+    static TsValue* ts_string_trimEnd_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string((TsString*)ts_string_trimEnd((TsString*)ctx));
+    }
+    static TsValue* ts_string_replaceAll_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* pattern = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        if (!pattern) pattern = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        void* replacement = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
+        if (!replacement) replacement = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+        return ts_value_make_string((TsString*)ts_string_replaceAll(str, pattern, replacement));
+    }
+    static TsValue* ts_string_at_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        return ts_value_make_string((TsString*)ts_string_at(str, index));
+    }
+    static TsValue* ts_string_concat_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* other = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        if (!other) return ts_value_make_string(str);
+        return ts_value_make_string((TsString*)ts_string_concat(str, other));
+    }
+    static TsValue* ts_string_match_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* regexp = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        void* result = ts_string_match_regexp(str, regexp);
+        return result ? ts_value_make_object(result) : (TsValue*)ts_value_make_null();
+    }
+    static TsValue* ts_string_search_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* regexp = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return ts_value_make_int(ts_string_search_regexp(str, regexp));
+    }
+    static TsValue* ts_string_matchAll_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* regexp = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        void* result = ts_string_matchAll_regexp(str, regexp);
+        return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
+    }
+    static TsValue* ts_string_codePointAt_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        return ts_value_make_int(ts_string_codePointAt(str, index));
+    }
+    static TsValue* ts_string_normalize_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        void* form = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+        return ts_value_make_string((TsString*)ts_string_normalize(str, form));
     }
 
     // Native wrapper for number.toString() - ctx is a NaN-boxed number value
@@ -1123,8 +1191,21 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "charCodeAt") == 0) return ts_value_make_native_function((void*)ts_string_charCodeAt_native, strObj);
             if (strcmp(keyStr, "padStart") == 0) return ts_value_make_native_function((void*)ts_string_padStart_native, strObj);
             if (strcmp(keyStr, "padEnd") == 0) return ts_value_make_native_function((void*)ts_string_padEnd_native, strObj);
-            if (strcmp(keyStr, "toString") == 0) return ts_value_make_string(strObj);
-            if (strcmp(keyStr, "valueOf") == 0) return ts_value_make_string(strObj);
+            if (strcmp(keyStr, "toString") == 0) return ts_value_make_native_function((void*)ts_string_toString_native, strObj);
+            if (strcmp(keyStr, "valueOf") == 0) return ts_value_make_native_function((void*)ts_string_toString_native, strObj);
+            if (strcmp(keyStr, "lastIndexOf") == 0) return ts_value_make_native_function((void*)ts_string_lastIndexOf_native, strObj);
+            if (strcmp(keyStr, "trimStart") == 0) return ts_value_make_native_function((void*)ts_string_trimStart_native, strObj);
+            if (strcmp(keyStr, "trimEnd") == 0) return ts_value_make_native_function((void*)ts_string_trimEnd_native, strObj);
+            if (strcmp(keyStr, "trimLeft") == 0) return ts_value_make_native_function((void*)ts_string_trimStart_native, strObj);
+            if (strcmp(keyStr, "trimRight") == 0) return ts_value_make_native_function((void*)ts_string_trimEnd_native, strObj);
+            if (strcmp(keyStr, "replaceAll") == 0) return ts_value_make_native_function((void*)ts_string_replaceAll_native, strObj);
+            if (strcmp(keyStr, "at") == 0) return ts_value_make_native_function((void*)ts_string_at_native, strObj);
+            if (strcmp(keyStr, "concat") == 0) return ts_value_make_native_function((void*)ts_string_concat_native, strObj);
+            if (strcmp(keyStr, "match") == 0) return ts_value_make_native_function((void*)ts_string_match_native, strObj);
+            if (strcmp(keyStr, "search") == 0) return ts_value_make_native_function((void*)ts_string_search_native, strObj);
+            if (strcmp(keyStr, "matchAll") == 0) return ts_value_make_native_function((void*)ts_string_matchAll_native, strObj);
+            if (strcmp(keyStr, "codePointAt") == 0) return ts_value_make_native_function((void*)ts_string_codePointAt_native, strObj);
+            if (strcmp(keyStr, "normalize") == 0) return ts_value_make_native_function((void*)ts_string_normalize_native, strObj);
             return ts_value_make_undefined();
         }
         if (magic8 == 0x48454144 || magic16 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
@@ -1419,8 +1500,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
-            typedef TsValue* (*Fn0)(void*);
-            return ((Fn0)closure->func_ptr)(closure);
+            // Pad with undefined args - callee may expect more params than caller provides
+            // (JS semantics: missing args are undefined)
+            TsValue* u = ts_value_make_undefined();
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)closure->func_ptr)(closure, u, u, u, u);
         }
 
         // Check for Proxy
@@ -1441,13 +1525,13 @@ TsValue* ts_value_make_int(int64_t i) {
         } else {
             // Check if funcPtr is actually a TsClosure (wrapped via ts_value_make_function)
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*Fn0)(void*);
-                return ((Fn0)innerClosure->func_ptr)(innerClosure);
+                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnPad)innerClosure->func_ptr)(innerClosure, u, u, u, u);
             }
-            typedef TsValue* (*Fn0)(void*);
-            auto result = ((Fn0)func->funcPtr)(func->context);
-            return result;
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)func->funcPtr)(func->context, u, u, u, u);
         }
     }
 
@@ -1455,9 +1539,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
-            // Call the closure's function with the closure as context
-            typedef TsValue* (*Fn1)(void*, TsValue*);
-            return ((Fn1)closure->func_ptr)(closure, arg1);
+            // Pad with undefined args - callee may expect more params than caller provides
+            TsValue* u = ts_value_make_undefined();
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)closure->func_ptr)(closure, arg1, u, u, u);
         }
 
         // Check for Proxy
@@ -1477,12 +1562,13 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 1, argv);
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*Fn1)(void*, TsValue*);
-                return ((Fn1)innerClosure->func_ptr)(innerClosure, arg1);
+                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnPad)innerClosure->func_ptr)(innerClosure, arg1, u, u, u);
             }
-            typedef TsValue* (*Fn1)(void*, TsValue*);
-            return ((Fn1)func->funcPtr)(func->context, arg1);
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)func->funcPtr)(func->context, arg1, u, u, u);
         }
     }
 
@@ -1490,8 +1576,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
-            typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
-            return ((Fn2)closure->func_ptr)(closure, arg1, arg2);
+            // Pad with undefined args - callee may expect more params than caller provides
+            TsValue* u = ts_value_make_undefined();
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)closure->func_ptr)(closure, arg1, arg2, u, u);
         }
 
         // Check for Proxy
@@ -1511,12 +1599,13 @@ TsValue* ts_value_make_int(int64_t i) {
             return result;
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
-                return ((Fn2)innerClosure->func_ptr)(innerClosure, arg1, arg2);
+                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnPad)innerClosure->func_ptr)(innerClosure, arg1, arg2, u, u);
             }
-            typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
-            TsValue* result = ((Fn2)func->funcPtr)(func->context, arg1, arg2);
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            TsValue* result = ((FnPad)func->funcPtr)(func->context, arg1, arg2, u, u);
             return result;
         }
     }
@@ -1525,8 +1614,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
-            typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
-            return ((Fn3)closure->func_ptr)(closure, arg1, arg2, arg3);
+            // Pad with undefined args - callee may expect more params than caller provides
+            TsValue* u = ts_value_make_undefined();
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)closure->func_ptr)(closure, arg1, arg2, arg3, u);
         }
 
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
@@ -1542,12 +1633,13 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 3, argv);
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
-                return ((Fn3)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3);
+                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnPad)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, u);
             }
-            typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
-            return ((Fn3)func->funcPtr)(func->context, arg1, arg2, arg3);
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)func->funcPtr)(func->context, arg1, arg2, arg3, u);
         }
     }
 
@@ -1767,13 +1859,14 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            TsValue* u = ts_value_make_undefined();
             if (closure->is_method) {
-                // Method trampolines expect (ctx, this) - pass thisArg
-                typedef TsValue* (*FnM)(void*, TsValue*);
-                return ((FnM)closure->func_ptr)(closure, thisArg);
+                // Method trampolines expect (ctx, this) - pass thisArg, pad extra
+                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnPad)closure->func_ptr)(closure, thisArg, u, u, u);
             }
-            typedef TsValue* (*Fn0)(void*);
-            return ((Fn0)closure->func_ptr)(closure);
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)closure->func_ptr)(closure, u, u, u, u);
         }
 
         TsFunction* func = ts_extract_function(boxedFunc);
@@ -1796,13 +1889,14 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            TsValue* u = ts_value_make_undefined();
             if (closure->is_method) {
-                // Method trampolines expect (ctx, this, arg1) - pass thisArg
-                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*);
-                return ((FnM)closure->func_ptr)(closure, thisArg, arg1);
+                // Method trampolines expect (ctx, this, arg1) - pass thisArg, pad extra
+                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnPad)closure->func_ptr)(closure, thisArg, arg1, u, u);
             }
-            typedef TsValue* (*Fn1)(void*, TsValue*);
-            return ((Fn1)closure->func_ptr)(closure, arg1);
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)closure->func_ptr)(closure, arg1, u, u, u);
         }
 
         TsFunction* func = ts_extract_function(boxedFunc);
@@ -1825,13 +1919,14 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            TsValue* u = ts_value_make_undefined();
             if (closure->is_method) {
-                // Method trampolines expect (ctx, this, arg1, arg2) - pass thisArg
-                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*, TsValue*);
-                return ((FnM)closure->func_ptr)(closure, thisArg, arg1, arg2);
+                // Method trampolines expect (ctx, this, arg1, arg2) - pass thisArg, pad extra
+                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnPad)closure->func_ptr)(closure, thisArg, arg1, arg2, u);
             }
-            typedef TsValue* (*Fn2)(void*, TsValue*, TsValue*);
-            return ((Fn2)closure->func_ptr)(closure, arg1, arg2);
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)closure->func_ptr)(closure, arg1, arg2, u, u);
         }
 
         TsFunction* func = ts_extract_function(boxedFunc);
@@ -1854,13 +1949,14 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            TsValue* u = ts_value_make_undefined();
             if (closure->is_method) {
-                // Method trampolines expect (ctx, this, arg1, arg2, arg3) - pass thisArg
-                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((FnM)closure->func_ptr)(closure, thisArg, arg1, arg2, arg3);
+                // Method trampolines expect (ctx, this, arg1, arg2, arg3) - pass thisArg, pad extra
+                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                return ((FnPad)closure->func_ptr)(closure, thisArg, arg1, arg2, arg3, u);
             }
-            typedef TsValue* (*Fn3)(void*, TsValue*, TsValue*, TsValue*);
-            return ((Fn3)closure->func_ptr)(closure, arg1, arg2, arg3);
+            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            return ((FnPad)closure->func_ptr)(closure, arg1, arg2, arg3, u, u);
         }
 
         TsFunction* func = ts_extract_function(boxedFunc);
@@ -3252,8 +3348,30 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
+        // Handle TsRegExpMatchArray (integer index access for match[0], match[1], etc.)
+        if (magic0 == 0x524D4154) { // TsRegExpMatchArray::MAGIC ("RMAT")
+            TsRegExpMatchArray* match = (TsRegExpMatchArray*)rawObj;
+            if (keyIsInt && keyIdx >= 0 && keyIdx < match->Length()) {
+                return (TsValue*)match->Get((size_t)keyIdx);
+            }
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k) return ts_object_get_property(rawObj, k);
+            }
+            return ts_value_make_undefined();
+        }
+
         // Handle TsString
         if (magic0 == 0x53545247) {
+            // Handle integer index: str[0], str[1], etc.
+            if (keyIsInt) {
+                TsString* str = (TsString*)rawObj;
+                if (keyIdx >= 0 && keyIdx < str->Length()) {
+                    TsString* ch = str->CharAt(keyIdx);
+                    return ts_value_make_string(ch);
+                }
+                return ts_value_make_undefined();
+            }
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) return ts_object_get_property(rawObj, k);
@@ -3272,8 +3390,45 @@ TsValue* ts_value_make_int(int64_t i) {
 
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
 
+        // Handle TsBuffer (TsObject::magic at offset 16)
+        if (magic16 == 0x42554646) { // TsBuffer::MAGIC "BUFF"
+            TsBuffer* buf = (TsBuffer*)rawObj;
+            if (keyIsInt) {
+                if (keyIdx >= 0 && (size_t)keyIdx < buf->GetLength()) {
+                    return ts_value_make_int(buf->GetData()[keyIdx]);
+                }
+                return ts_value_make_undefined();
+            }
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k) return ts_object_get_property(rawObj, k);
+            }
+            return ts_value_make_undefined();
+        }
+
+        // Handle TsTypedArray (TsObject::magic at offset 16)
+        if (magic16 == 0x54415252) { // TsTypedArray::MAGIC "TARR"
+            // Check for Proxy first
+            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+            if (proxy) {
+                return proxy->get(key, nullptr);
+            }
+            TsTypedArray* ta = (TsTypedArray*)rawObj;
+            if (keyIsInt) {
+                if (keyIdx >= 0 && (size_t)keyIdx < ta->GetLength()) {
+                    return ts_value_make_double(ta->Get((size_t)keyIdx));
+                }
+                return ts_value_make_undefined();
+            }
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k) return ts_object_get_property(rawObj, k);
+            }
+            return ts_value_make_undefined();
+        }
+
         // Only do dynamic_cast for Proxy check if we know this is a TsObject-derived class
-        if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC || magic16 == 0x54415252) {
+        if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC) {
             TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
             if (proxy) {
                 return proxy->get(key, nullptr);
@@ -4025,8 +4180,148 @@ TsValue* ts_value_make_int(int64_t i) {
     extern "C" TsValue* Buffer = nullptr;
     extern "C" TsValue* global = nullptr;
     extern "C" TsValue* globalThis = nullptr;  // ES2020: alias for global
-    extern "C" TsValue* parseInt = nullptr;
-    extern "C" TsValue* parseFloat = nullptr;
+    // parseFloat(value) - global JS function
+    // Called from untyped JS as: call ptr @parseFloat(ptr)
+    extern "C" TsValue* parseFloat(TsValue* arg) {
+        if (!arg) return ts_value_make_double(NAN);
+
+        uint64_t nb = nanbox_from_tsvalue_ptr(arg);
+
+        // If already a number, return as double
+        if (nanbox_is_int32(nb)) {
+            return ts_value_make_double((double)nanbox_to_int32(nb));
+        }
+        if (nanbox_is_double(nb)) {
+            return (TsValue*)arg;  // Already a double
+        }
+
+        // Convert to string first
+        TsString* str = nullptr;
+        if (nanbox_is_ptr(nb)) {
+            void* ptr = nanbox_to_ptr(nb);
+            if (ptr) {
+                uint32_t magic0 = *(uint32_t*)ptr;
+                if (magic0 == 0x53545247) { // TsString::MAGIC
+                    str = (TsString*)ptr;
+                }
+            }
+        }
+        if (!str) return ts_value_make_double(NAN);
+
+        const char* cstr = str->ToUtf8();
+        if (!cstr || *cstr == '\0') return ts_value_make_double(NAN);
+
+        // Skip leading whitespace
+        while (*cstr == ' ' || *cstr == '\t' || *cstr == '\n' || *cstr == '\r' ||
+               *cstr == '\f' || *cstr == '\v') cstr++;
+
+        char* endptr;
+        double result = strtod(cstr, &endptr);
+        if (endptr == cstr) return ts_value_make_double(NAN);  // No valid conversion
+        return ts_value_make_double(result);
+    }
+
+    // parseInt(value, radix?) - global JS function
+    // Called from untyped JS as: call ptr @parseInt(ptr) or call ptr @parseInt(ptr, ptr)
+    extern "C" TsValue* parseInt(TsValue* arg, ...) {
+        if (!arg) return ts_value_make_double(NAN);
+
+        uint64_t nb = nanbox_from_tsvalue_ptr(arg);
+
+        // If already a number, truncate to integer
+        if (nanbox_is_int32(nb)) {
+            return ts_value_make_int(nanbox_to_int32(nb));
+        }
+        if (nanbox_is_double(nb)) {
+            double d = nanbox_to_double(nb);
+            if (std::isnan(d) || std::isinf(d)) return ts_value_make_double(NAN);
+            return ts_value_make_int((int64_t)d);
+        }
+
+        // Convert to string
+        TsString* str = nullptr;
+        if (nanbox_is_ptr(nb)) {
+            void* ptr = nanbox_to_ptr(nb);
+            if (ptr) {
+                uint32_t magic0 = *(uint32_t*)ptr;
+                if (magic0 == 0x53545247) { // TsString::MAGIC
+                    str = (TsString*)ptr;
+                }
+            }
+        }
+        if (!str) return ts_value_make_double(NAN);
+
+        const char* cstr = str->ToUtf8();
+        if (!cstr || *cstr == '\0') return ts_value_make_double(NAN);
+
+        // Skip leading whitespace
+        while (*cstr == ' ' || *cstr == '\t' || *cstr == '\n' || *cstr == '\r' ||
+               *cstr == '\f' || *cstr == '\v') cstr++;
+
+        // Default radix is 10, but handle 0x prefix for hex
+        int radix = 10;
+        if (cstr[0] == '0' && (cstr[1] == 'x' || cstr[1] == 'X')) {
+            radix = 16;
+            cstr += 2;
+        } else if (cstr[0] == '0' && (cstr[1] == 'o' || cstr[1] == 'O')) {
+            radix = 8;
+            cstr += 2;
+        } else if (cstr[0] == '0' && (cstr[1] == 'b' || cstr[1] == 'B')) {
+            radix = 2;
+            cstr += 2;
+        }
+
+        char* endptr;
+        long long result = strtoll(cstr, &endptr, radix);
+        if (endptr == cstr) return ts_value_make_double(NAN);
+        return ts_value_make_int((int64_t)result);
+    }
+
+    // Typed versions for BuiltinRegistry
+    extern "C" double ts_number_parseFloat(TsValue* arg) {
+        TsValue* result = parseFloat(arg);
+        return ts_value_get_double(result);
+    }
+
+    extern "C" int64_t ts_number_parseInt(TsValue* arg) {
+        TsValue* result = parseInt(arg);
+        uint64_t nb = nanbox_from_tsvalue_ptr(result);
+        if (nanbox_is_int32(nb)) return nanbox_to_int32(nb);
+        if (nanbox_is_double(nb)) {
+            double d = nanbox_to_double(nb);
+            if (std::isnan(d)) return 0;
+            return (int64_t)d;
+        }
+        return 0;
+    }
+
+    // isNaN(value) - global JS function for untyped code
+    extern "C" TsValue* isNaN(TsValue* arg) {
+        if (!arg) return ts_value_make_bool(true);
+        uint64_t nb = nanbox_from_tsvalue_ptr(arg);
+        if (nanbox_is_int32(nb)) return ts_value_make_bool(false);
+        if (nanbox_is_double(nb)) return ts_value_make_bool(std::isnan(nanbox_to_double(nb)));
+        return ts_value_make_bool(true);  // Non-numeric → NaN
+    }
+
+    extern "C" double ts_number_isNaN(TsValue* arg) {
+        TsValue* result = isNaN(arg);
+        return ts_value_get_bool(result) ? 1.0 : 0.0;
+    }
+
+    // isFinite(value) - global JS function for untyped code
+    extern "C" TsValue* isFinite(TsValue* arg) {
+        if (!arg) return ts_value_make_bool(false);
+        uint64_t nb = nanbox_from_tsvalue_ptr(arg);
+        if (nanbox_is_int32(nb)) return ts_value_make_bool(true);
+        if (nanbox_is_double(nb)) return ts_value_make_bool(std::isfinite(nanbox_to_double(nb)));
+        return ts_value_make_bool(false);
+    }
+
+    extern "C" double ts_number_isFinite(TsValue* arg) {
+        TsValue* result = isFinite(arg);
+        return ts_value_get_bool(result) ? 1.0 : 0.0;
+    }
     
     // Prototype method implementations
     
@@ -4308,13 +4603,14 @@ TsValue* ts_value_make_int(int64_t i) {
         process = ts_value_make_object(TsMap::Create());
         Buffer = ts_value_make_object(TsMap::Create());
 
-        // Global functions
-        parseInt = ts_value_make_native_function((void*)ts_parseInt_native, nullptr);
-        parseFloat = ts_value_make_native_function((void*)ts_parseFloat_native, nullptr);
+        // Global functions - parseInt/parseFloat are now actual C functions,
+        // create native function wrappers for the global object
+        TsValue* parseIntWrapper = ts_value_make_native_function((void*)ts_parseInt_native, nullptr);
+        TsValue* parseFloatWrapper = ts_value_make_native_function((void*)ts_parseFloat_native, nullptr);
 
         // Node-like global object (minimal) - lodash needs many constructors
         TsMap* globalMap = TsMap::Create();
-        
+
         // Helper to create a key
         auto makeKey = [](const char* name) {
             TsValue k;
@@ -4322,13 +4618,13 @@ TsValue* ts_value_make_int(int64_t i) {
             k.ptr_val = TsString::Create(name);
             return k;
         };
-        
+
         // Add all built-in constructors that lodash expects
         if (Object) globalMap->Set(makeKey("Object"), *Object);
         if (Array) globalMap->Set(makeKey("Array"), *Array);
         if (Math) globalMap->Set(makeKey("Math"), *Math);
-        if (parseInt) globalMap->Set(makeKey("parseInt"), *parseInt);
-        if (parseFloat) globalMap->Set(makeKey("parseFloat"), *parseFloat);
+        globalMap->Set(makeKey("parseInt"), nanbox_to_tagged(parseIntWrapper));
+        globalMap->Set(makeKey("parseFloat"), nanbox_to_tagged(parseFloatWrapper));
         if (process) globalMap->Set(makeKey("process"), *process);
         if (Buffer) globalMap->Set(makeKey("Buffer"), *Buffer);
         if (JSON) globalMap->Set(makeKey("JSON"), *JSON);
@@ -4474,12 +4770,168 @@ TsValue* ts_value_make_int(int64_t i) {
         return exports;
     }
 
+    // ============================================================
+    // Built-in module require support for untyped JS modules.
+    // When untyped JS does require('fs'), require('path'), etc.,
+    // we create TsMap namespace objects with wrapped extension functions.
+    // ============================================================
+
+    // Generic thunk: forwards args to the real extension function.
+    // The real function pointer is stored in closure->cells (repurposed, num_captures=0).
+    static TsValue* builtin_fn_thunk(void* ctx, TsValue* a1, TsValue* a2, TsValue* a3) {
+        TsClosure* cl = (TsClosure*)ctx;
+        typedef void* (*ExtFn)(void*, void*, void*);
+        void* result = ((ExtFn)(void*)cl->cells)((void*)a1, (void*)a2, (void*)a3);
+        if (!result) return ts_value_make_undefined();
+        return (TsValue*)result;
+    }
+
+    // Thunk for functions returning bool (e.g., fs.existsSync)
+    static TsValue* builtin_bool_thunk(void* ctx, TsValue* a1, TsValue* a2, TsValue* a3) {
+        TsClosure* cl = (TsClosure*)ctx;
+        typedef bool (*ExtFn)(void*);
+        bool result = ((ExtFn)(void*)cl->cells)((void*)a1);
+        return ts_value_make_bool(result);
+    }
+
+    // Thunk for functions returning void (e.g., fs.unlinkSync)
+    static TsValue* builtin_void_thunk(void* ctx, TsValue* a1, TsValue* a2, TsValue* a3) {
+        TsClosure* cl = (TsClosure*)ctx;
+        typedef void (*ExtFn)(void*, void*, void*);
+        ((ExtFn)(void*)cl->cells)((void*)a1, (void*)a2, (void*)a3);
+        return ts_value_make_undefined();
+    }
+
+    // Thunk for variadic functions (path.resolve, path.join).
+    // Collects args into a TsArray, then calls the extension function.
+    static TsValue* builtin_variadic_thunk(void* ctx, TsValue* a1, TsValue* a2, TsValue* a3) {
+        TsClosure* cl = (TsClosure*)ctx;
+        typedef void* (*ExtFn)(void*);
+        TsArray* arr = TsArray::Create();
+        if (a1 && !ts_value_is_undefined(a1)) arr->Push((int64_t)(uintptr_t)a1);
+        if (a2 && !ts_value_is_undefined(a2)) arr->Push((int64_t)(uintptr_t)a2);
+        if (a3 && !ts_value_is_undefined(a3)) arr->Push((int64_t)(uintptr_t)a3);
+        void* result = ((ExtFn)(void*)cl->cells)((void*)arr);
+        if (!result) return ts_value_make_undefined();
+        return (TsValue*)result;
+    }
+
+    // Add a wrapped extension function to a module TsMap.
+    static void add_builtin_fn(TsMap* mod, const char* name, void* real_fn, void* thunk_fn) {
+        TsClosure* cl = TsClosure::Create(thunk_fn, 0);
+        cl->cells = (TsCell**)real_fn;  // Repurpose cells to store real fn ptr
+        cl->name = TsString::Create(name);
+        TsString* key = TsString::Create(name);
+        mod->Set(nanbox_to_tagged(ts_value_make_string(key)),
+                 nanbox_to_tagged(ts_value_make_object(cl)));
+    }
+
+    // Add a string property to a module TsMap.
+    static void add_builtin_str_prop(TsMap* mod, const char* name, const char* value) {
+        TsString* key = TsString::Create(name);
+        TsString* val = TsString::Create(value);
+        mod->Set(nanbox_to_tagged(ts_value_make_string(key)),
+                 nanbox_to_tagged(ts_value_make_string(val)));
+    }
+
+    // Forward declarations for extension functions not in TsRuntime.h
+    void* ts_os_homedir();
+    void* ts_os_tmpdir();
+    void* ts_os_platform();
+    void* ts_os_type();
+    void* ts_os_hostname();
+    void* ts_crypto_createHash(void* algorithm);
+
+    static TsValue* create_builtin_module(const std::string& name) {
+        // Check g_module_cache for a previously created built-in module
+        std::string cacheKey = "__builtin:" + name;
+        TsValue* cached = ts_module_get(cacheKey.c_str());
+        if (cached) return cached;
+
+        TsMap* mod = TsMap::Create();
+
+        if (name == "fs") {
+            add_builtin_fn(mod, "readFileSync", (void*)&ts_fs_readFileSync, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "existsSync", (void*)&ts_fs_existsSync, (void*)&builtin_bool_thunk);
+            add_builtin_fn(mod, "writeFileSync", (void*)&ts_fs_writeFileSync, (void*)&builtin_void_thunk);
+            add_builtin_fn(mod, "unlinkSync", (void*)&ts_fs_unlinkSync, (void*)&builtin_void_thunk);
+            add_builtin_fn(mod, "mkdirSync", (void*)&ts_fs_mkdirSync, (void*)&builtin_void_thunk);
+            add_builtin_fn(mod, "statSync", (void*)&ts_fs_statSync, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "readdirSync", (void*)&ts_fs_readdirSync, (void*)&builtin_fn_thunk);
+        } else if (name == "path") {
+            add_builtin_fn(mod, "resolve", (void*)&ts_path_resolve, (void*)&builtin_variadic_thunk);
+            add_builtin_fn(mod, "join", (void*)&ts_path_join_variadic, (void*)&builtin_variadic_thunk);
+            add_builtin_fn(mod, "dirname", (void*)&ts_path_dirname, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "basename", (void*)&ts_path_basename, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "extname", (void*)&ts_path_extname, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "normalize", (void*)&ts_path_normalize, (void*)&builtin_fn_thunk);
+#ifdef _WIN32
+            add_builtin_str_prop(mod, "sep", "\\");
+            add_builtin_str_prop(mod, "delimiter", ";");
+#else
+            add_builtin_str_prop(mod, "sep", "/");
+            add_builtin_str_prop(mod, "delimiter", ":");
+#endif
+        } else if (name == "os") {
+            add_builtin_fn(mod, "homedir", (void*)&ts_os_homedir, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "tmpdir", (void*)&ts_os_tmpdir, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "platform", (void*)&ts_os_platform, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "type", (void*)&ts_os_type, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "hostname", (void*)&ts_os_hostname, (void*)&builtin_fn_thunk);
+#ifdef _WIN32
+            add_builtin_str_prop(mod, "EOL", "\r\n");
+#else
+            add_builtin_str_prop(mod, "EOL", "\n");
+#endif
+        } else if (name == "crypto") {
+            add_builtin_fn(mod, "createHash", (void*)&ts_crypto_createHash, (void*)&builtin_fn_thunk);
+        }
+        // Other built-in modules: return empty TsMap (functions not available but won't crash)
+
+        TsValue* result = (TsValue*)mod;
+        // Cache in g_module_cache so the GC scanner keeps it alive
+        TsValue* pathVal = ts_value_make_string(TsString::Create(cacheKey.c_str()));
+        ts_module_register(pathVal, result);
+        return result;
+    }
+
+    static bool is_builtin_module_name(const std::string& spec) {
+        static const char* builtins[] = {
+            "assert", "async_hooks", "buffer", "child_process", "cluster",
+            "console", "crypto", "dgram", "dns", "events", "fs", "http",
+            "http2", "https", "inspector", "module", "net", "os", "path",
+            "perf_hooks", "process", "querystring", "readline", "stream",
+            "string_decoder", "timers", "timers/promises", "tls", "tty",
+            "url", "util", "zlib"
+        };
+        std::string s = spec;
+        if (s.rfind("node:", 0) == 0) s = s.substr(5);
+        for (const char* b : builtins) {
+            if (s == b) return true;
+        }
+        return false;
+    }
+
     TsValue* ts_require(TsValue* specifier, const char* referrerPath) {
         TsString* s = (TsString*)ts_value_get_string(specifier);
         if (!s) {
             return ts_value_make_undefined();
         }
         std::string spec = s->ToUtf8();
+
+        // Strip "node:" prefix for built-in module lookup
+        std::string lookupSpec = spec;
+        if (lookupSpec.rfind("node:", 0) == 0) lookupSpec = lookupSpec.substr(5);
+
+        // Check for built-in modules first (prevents crash on null referrerPath)
+        if (is_builtin_module_name(lookupSpec)) {
+            return create_builtin_module(lookupSpec);
+        }
+
+        // Guard against null referrerPath for non-builtin modules
+        if (!referrerPath) {
+            return ts_value_make_undefined();
+        }
 
         try {
             fs::path resolved;

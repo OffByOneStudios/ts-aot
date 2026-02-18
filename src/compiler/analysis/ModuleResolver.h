@@ -106,6 +106,9 @@ private:
     // Parse package.json
     std::optional<PackageJson> parsePackageJson(const fs::path& packageJsonPath);
 
+    // Check if the nearest package.json has "type": "module"
+    bool isNearestPackageESM(const fs::path& filePath);
+
     // Get the entry point from a package
     std::optional<fs::path> getPackageEntryPoint(const fs::path& packageDir, const PackageJson& pkg);
 
