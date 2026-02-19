@@ -3081,48 +3081,64 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
     } else if (op == "-") {
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_sub", {lhs, rhs}, HIRType::makeObject());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            lastValue_ = builder_.createCall("ts_value_sub", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createSubF64(lhs, rhs) : builder_.createSubI64(lhs, rhs);
         }
     } else if (op == "*") {
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_mul", {lhs, rhs}, HIRType::makeObject());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            lastValue_ = builder_.createCall("ts_value_mul", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createMulF64(lhs, rhs) : builder_.createMulI64(lhs, rhs);
         }
     } else if (op == "/") {
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_div", {lhs, rhs}, HIRType::makeObject());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            lastValue_ = builder_.createCall("ts_value_div", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createDivF64(lhs, rhs) : builder_.createDivI64(lhs, rhs);
         }
     } else if (op == "%") {
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_mod", {lhs, rhs}, HIRType::makeObject());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            lastValue_ = builder_.createCall("ts_value_mod", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createModF64(lhs, rhs) : builder_.createModI64(lhs, rhs);
         }
     } else if (op == "<") {
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_lt", {lhs, rhs}, HIRType::makeBool());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            lastValue_ = builder_.createCall("ts_value_lt", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createCmpLtF64(lhs, rhs) : builder_.createCmpLtI64(lhs, rhs);
         }
     } else if (op == "<=") {
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_le", {lhs, rhs}, HIRType::makeBool());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            lastValue_ = builder_.createCall("ts_value_lte", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createCmpLeF64(lhs, rhs) : builder_.createCmpLeI64(lhs, rhs);
         }
     } else if (op == ">") {
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_gt", {lhs, rhs}, HIRType::makeBool());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            lastValue_ = builder_.createCall("ts_value_gt", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createCmpGtF64(lhs, rhs) : builder_.createCmpGtI64(lhs, rhs);
         }
     } else if (op == ">=") {
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_ge", {lhs, rhs}, HIRType::makeBool());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            lastValue_ = builder_.createCall("ts_value_gte", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createCmpGeF64(lhs, rhs) : builder_.createCmpGeI64(lhs, rhs);
         }
@@ -3130,6 +3146,8 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Loose equality - use coercing comparison
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_eq", {lhs, rhs}, HIRType::makeBool());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            lastValue_ = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createCmpEqF64(lhs, rhs) : builder_.createCmpEqI64(lhs, rhs);
         }
@@ -3168,6 +3186,10 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Loose inequality - use coercing comparison
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_ne", {lhs, rhs}, HIRType::makeBool());
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            // Use ts_value_eq and negate for != with any operands
+            auto eq = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());
+            lastValue_ = builder_.createLogicalNot(eq);
         } else {
             lastValue_ = useFloat ? builder_.createCmpNeF64(lhs, rhs) : builder_.createCmpNeI64(lhs, rhs);
         }
@@ -3239,11 +3261,14 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         std::shared_ptr<HIRValue> result;
 
         // Compute the operation
+        bool eitherAny = isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get());
         if (op == "+=") {
             if (isString(lhs, node->left.get()) || isString(rhs, node->right.get())) {
                 result = builder_.createStringConcat(lhs, rhs);
             } else if (useBigInt) {
                 result = builder_.createCall("ts_bigint_add", {lhs, rhs}, HIRType::makeObject());
+            } else if (eitherAny) {
+                result = builder_.createCall("ts_value_add", {lhs, rhs}, HIRType::makeAny());
             } else if (useFloat) {
                 result = builder_.createAddF64(lhs, rhs);
             } else {
@@ -3252,6 +3277,8 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         } else if (op == "-=") {
             if (useBigInt) {
                 result = builder_.createCall("ts_bigint_sub", {lhs, rhs}, HIRType::makeObject());
+            } else if (eitherAny) {
+                result = builder_.createCall("ts_value_sub", {lhs, rhs}, HIRType::makeAny());
             } else if (useFloat) {
                 result = builder_.createSubF64(lhs, rhs);
             } else {
@@ -3260,6 +3287,8 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         } else if (op == "*=") {
             if (useBigInt) {
                 result = builder_.createCall("ts_bigint_mul", {lhs, rhs}, HIRType::makeObject());
+            } else if (eitherAny) {
+                result = builder_.createCall("ts_value_mul", {lhs, rhs}, HIRType::makeAny());
             } else if (useFloat) {
                 result = builder_.createMulF64(lhs, rhs);
             } else {
@@ -3268,6 +3297,8 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         } else if (op == "/=") {
             if (useBigInt) {
                 result = builder_.createCall("ts_bigint_div", {lhs, rhs}, HIRType::makeObject());
+            } else if (eitherAny) {
+                result = builder_.createCall("ts_value_div", {lhs, rhs}, HIRType::makeAny());
             } else if (useFloat) {
                 result = builder_.createDivF64(lhs, rhs);
             } else {
@@ -3276,6 +3307,8 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         } else if (op == "%=") {
             if (useBigInt) {
                 result = builder_.createCall("ts_bigint_mod", {lhs, rhs}, HIRType::makeObject());
+            } else if (eitherAny) {
+                result = builder_.createCall("ts_value_mod", {lhs, rhs}, HIRType::makeAny());
             } else if (useFloat) {
                 result = builder_.createModF64(lhs, rhs);
             } else {
