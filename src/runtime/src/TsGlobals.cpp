@@ -30,6 +30,10 @@ void* ts_get_global_JSON() {
 
 // Object constructor/global
 void* ts_get_global_Object() {
+    // Return the real Object constructor TsValue (set up in ts_runtime_init)
+    // so that untyped JS can access Object.prototype, Object.keys(), etc.
+    extern TsValue* Object;
+    if (Object) return (void*)Object;
     static const char sentinel[] = "Object";
     return (void*)sentinel;
 }
@@ -131,8 +135,13 @@ void* ts_get_global_util() {
 }
 
 void* ts_get_global_crypto() {
-    static const char sentinel[] = "crypto";
-    return (void*)sentinel;
+    // Return a real module TsMap instead of a sentinel so that
+    // untyped JS can access methods via dynamic property lookup
+    // (e.g., crypto.randomFillSync used by uuid package's rng.js).
+    extern void* ts_get_builtin_module(const char*);
+    static void* cached = nullptr;
+    if (!cached) cached = ts_get_builtin_module("crypto");
+    return cached;
 }
 
 void* ts_get_global_http() {

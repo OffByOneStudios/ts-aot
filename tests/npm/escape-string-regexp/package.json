@@ -1,0 +1,7 @@
+{
+  "name": "ts-aot-test-escape-string-regexp",
+  "private": true,
+  "dependencies": {
+    "escape-string-regexp": "4.0.0"
+  }
+}

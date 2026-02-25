@@ -6,6 +6,7 @@
 #include "TsRuntime.h"
 #include "TsClosure.h"
 #include "TsFlatObject.h"
+#include "TsBuffer.h"
 #include "GC.h"
 #include "TsGC.h"
 #include <cstring>
@@ -1180,6 +1181,22 @@ void TsArray::TransitionTo(ElementKind newKind) {
     elementKind_ = newKind;
 }
 
+// Helper to detect TsTypedArray: magic at offset 16 (TsObject::magic)
+static inline TsTypedArray* asTypedArray(void* ptr) {
+    if (!ptr) return nullptr;
+    // TsTypedArray extends TsObject, magic is at offset 16
+    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+    if (magic16 == TsTypedArray::MAGIC) return (TsTypedArray*)ptr;
+    return nullptr;
+}
+
+// Unbox a potentially NaN-boxed pointer and return raw pointer
+static inline void* unboxRaw(void* arr) {
+    if (!arr) return nullptr;
+    void* raw = ts_value_get_object((TsValue*)arr);
+    return raw ? raw : arr;
+}
+
 extern "C" {
     void* ts_array_create() {
         return TsArray::Create();
@@ -1344,6 +1361,12 @@ extern "C" {
         if (!arr) {
             return ts_value_make_undefined();
         }
+        // Check for TsTypedArray (magic at offset 16)
+        TsTypedArray* ta = asTypedArray(arr);
+        if (ta) {
+            if (index < 0 || (size_t)index >= ta->GetLength()) return ts_value_make_undefined();
+            return ts_value_make_double(ta->Get((size_t)index));
+        }
         // Check magic to handle TsRegExpMatchArray
         uint32_t magic = *(uint32_t*)arr;
         if (magic == 0x524D4154) { // TsRegExpMatchArray::MAGIC ("RMAT")
@@ -1391,6 +1414,15 @@ extern "C" {
 
         if (!arr) return result;
 
+        // Check for TsTypedArray (magic at offset 16)
+        TsTypedArray* ta = asTypedArray(arr);
+        if (ta) {
+            if (index < 0 || (size_t)index >= ta->GetLength()) return result;
+            result.type = ValueType::NUMBER_DBL;
+            result.d_val = ta->Get((size_t)index);
+            return result;
+        }
+
         TsArray* array = (TsArray*)arr;
         if (index < 0 || index >= array->Length()) {
             return result;
@@ -1435,6 +1467,18 @@ extern "C" {
     // Value-based set - takes TsValue by value
     void ts_array_set_v(void* arr, int64_t index, TsValue value) {
         if (!arr) return;
+
+        // Check for TsTypedArray (magic at offset 16)
+        TsTypedArray* ta = asTypedArray(arr);
+        if (ta) {
+            if (index < 0 || (size_t)index >= ta->GetLength()) return;
+            double dval = 0;
+            if (value.type == ValueType::NUMBER_DBL) dval = value.d_val;
+            else if (value.type == ValueType::NUMBER_INT) dval = (double)value.i_val;
+            ta->Set((size_t)index, dval);
+            return;
+        }
+
         TsArray* array = (TsArray*)arr;
         ElementKind kind = array->GetElementKind();
 
@@ -1527,15 +1571,41 @@ extern "C" {
     }
 
     void* ts_array_get_unchecked(void* arr, int64_t index) {
-        TsArray* array = unboxArrayIfNeeded(arr);
-        if (!array) return nullptr;
+        void* raw = unboxRaw(arr);
+        if (!raw) return nullptr;
+
+        // Check for TsTypedArray
+        TsTypedArray* ta = asTypedArray(raw);
+        if (ta) {
+            if (index < 0 || (size_t)index >= ta->GetLength()) return nullptr;
+            double val = ta->Get((size_t)index);
+            // Return as NaN-boxed double
+            return (void*)ts_value_make_double(val);
+        }
+
+        TsArray* array = (TsArray*)raw;
         if (index < 0 || (size_t)index >= (size_t)array->Length()) return nullptr;
         return (void*)array->GetUnchecked(index);
     }
 
     void ts_array_set_unchecked(void* arr, int64_t index, void* value) {
-        TsArray* array = unboxArrayIfNeeded(arr);
-        if (!array) return;
+        void* raw = unboxRaw(arr);
+        if (!raw) return;
+
+        // Check for TsTypedArray
+        TsTypedArray* ta = asTypedArray(raw);
+        if (ta) {
+            if (index < 0 || (size_t)index >= ta->GetLength()) return;
+            // Decode value to double
+            TsValue decoded = nanbox_to_tagged((TsValue*)value);
+            double dval = 0;
+            if (decoded.type == ValueType::NUMBER_DBL) dval = decoded.d_val;
+            else if (decoded.type == ValueType::NUMBER_INT) dval = (double)decoded.i_val;
+            ta->Set((size_t)index, dval);
+            return;
+        }
+
+        TsArray* array = (TsArray*)raw;
         array->SetUnchecked(index, (int64_t)value);
     }
 
@@ -1547,6 +1617,10 @@ extern "C" {
         void* raw = ts_value_get_object((TsValue*)arr);
         if (raw) arr = raw;
         else if ((uint64_t)(uintptr_t)arr < 0x10000) return 0;  // NaN-boxed special (undefined=0x0A, null=0x02, etc.)
+
+        // Check for TsTypedArray (magic at offset 16)
+        TsTypedArray* ta = asTypedArray(arr);
+        if (ta) return (int64_t)ta->GetLength();
 
         // Check magic to handle TsRegExpMatchArray
         uint32_t magic = *(uint32_t*)arr;
@@ -1658,6 +1732,23 @@ extern "C" {
     }
 
     void* ts_array_slice(void* arr, int64_t start, int64_t end) {
+        if (!arr) return ts_array_create();
+        TsTypedArray* ta = asTypedArray(arr);
+        if (ta) {
+            int64_t len = (int64_t)ta->GetLength();
+            if (start < 0) start = std::max<int64_t>(len + start, 0);
+            if (end < 0) end = std::max<int64_t>(len + end, 0);
+            if (start > len) start = len;
+            if (end > len) end = len;
+            if (end <= start) {
+                return TsTypedArray::Create(0, ta->GetElementSize(), false, ta->GetType());
+            }
+            size_t count = (size_t)(end - start);
+            TsTypedArray* result = TsTypedArray::Create(count, ta->GetElementSize(), false, ta->GetType());
+            uint8_t* srcData = ta->GetData() + (size_t)start * ta->GetElementSize();
+            memcpy(result->GetData(), srcData, count * ta->GetElementSize());
+            return result;
+        }
         return ((TsArray*)arr)->Slice(start, end);
     }
 

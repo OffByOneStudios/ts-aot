@@ -2235,15 +2235,28 @@ TsTypedArray::TsTypedArray(size_t length, size_t elementSize, bool clamped, Type
 double TsTypedArray::Get(size_t index) {
     if (index >= length) return 0;
     uint8_t* data = buffer->GetData();
-    // For clamped arrays (Uint8ClampedArray), read as unsigned
-    if (clamped && elementSize == 1) {
-        return (double)data[index];
-    }
-    switch (elementSize) {
-        case 1: return (double)(int8_t)data[index];
-        case 2: return (double)((int16_t*)data)[index];
-        case 4: return (double)((int32_t*)data)[index];
-        case 8: return ((double*)data)[index];
+    switch (arrayType) {
+        case TypedArrayType::Uint8:
+        case TypedArrayType::Uint8Clamped:
+            return (double)data[index];
+        case TypedArrayType::Int8:
+            return (double)(int8_t)data[index];
+        case TypedArrayType::Uint16:
+            return (double)((uint16_t*)data)[index];
+        case TypedArrayType::Int16:
+            return (double)((int16_t*)data)[index];
+        case TypedArrayType::Uint32:
+            return (double)((uint32_t*)data)[index];
+        case TypedArrayType::Int32:
+            return (double)((int32_t*)data)[index];
+        case TypedArrayType::Float32:
+            return (double)((float*)data)[index];
+        case TypedArrayType::Float64:
+            return ((double*)data)[index];
+        case TypedArrayType::BigInt64:
+            return (double)((int64_t*)data)[index];
+        case TypedArrayType::BigUint64:
+            return (double)((uint64_t*)data)[index];
         default: return 0;
     }
 }
@@ -2251,18 +2264,42 @@ double TsTypedArray::Get(size_t index) {
 void TsTypedArray::Set(size_t index, double value) {
     if (index >= length) return;
     uint8_t* data = buffer->GetData();
-    // For clamped arrays (Uint8ClampedArray), clamp values to 0-255
-    if (clamped && elementSize == 1) {
-        if (value < 0) value = 0;
-        else if (value > 255) value = 255;
-        data[index] = (uint8_t)value;
-        return;
-    }
-    switch (elementSize) {
-        case 1: data[index] = (uint8_t)(int8_t)value; break;
-        case 2: ((int16_t*)data)[index] = (int16_t)value; break;
-        case 4: ((int32_t*)data)[index] = (int32_t)value; break;
-        case 8: ((double*)data)[index] = value; break;
+    switch (arrayType) {
+        case TypedArrayType::Uint8Clamped:
+            if (value < 0) value = 0;
+            else if (value > 255) value = 255;
+            data[index] = (uint8_t)value;
+            break;
+        case TypedArrayType::Uint8:
+            data[index] = (uint8_t)(int32_t)value;
+            break;
+        case TypedArrayType::Int8:
+            data[index] = (uint8_t)(int8_t)(int32_t)value;
+            break;
+        case TypedArrayType::Uint16:
+            ((uint16_t*)data)[index] = (uint16_t)(int32_t)value;
+            break;
+        case TypedArrayType::Int16:
+            ((int16_t*)data)[index] = (int16_t)(int32_t)value;
+            break;
+        case TypedArrayType::Uint32:
+            ((uint32_t*)data)[index] = (uint32_t)value;
+            break;
+        case TypedArrayType::Int32:
+            ((int32_t*)data)[index] = (int32_t)value;
+            break;
+        case TypedArrayType::Float32:
+            ((float*)data)[index] = (float)value;
+            break;
+        case TypedArrayType::Float64:
+            ((double*)data)[index] = value;
+            break;
+        case TypedArrayType::BigInt64:
+            ((int64_t*)data)[index] = (int64_t)value;
+            break;
+        case TypedArrayType::BigUint64:
+            ((uint64_t*)data)[index] = (uint64_t)value;
+            break;
     }
 }
 

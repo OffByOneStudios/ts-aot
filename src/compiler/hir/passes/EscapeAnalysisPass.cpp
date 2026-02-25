@@ -311,9 +311,22 @@ bool EscapeAnalysisPass::useEscapes(HIRInstruction* use, HIRValue* allocValue) c
         case HIROpcode::LogicalNot:
         case HIROpcode::LogicalAnd:
         case HIROpcode::LogicalOr:
-        case HIROpcode::Select:
-        case HIROpcode::Copy:
             return false;
+
+        // Select/Copy propagate the value — check if the result escapes
+        case HIROpcode::Select:
+        case HIROpcode::Copy: {
+            if (!use->result) return false;
+            auto resultUseIt = useMap_.find(use->result.get());
+            if (resultUseIt != useMap_.end()) {
+                for (HIRInstruction* resultUse : resultUseIt->second) {
+                    if (useEscapes(resultUse, use->result.get())) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
 
         // Boxing/unboxing don't cause escape
         case HIROpcode::BoxInt:
