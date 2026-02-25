@@ -18,13 +18,14 @@ function user_main(): number {
     // Test 2: v4() matches UUID v4 format (simplified check)
     // Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx where y is [89ab]
     const parts = id1.split("-");
+    const p2 = parts[2];
     const formatOk = parts.length === 5 &&
         parts[0].length === 8 &&
         parts[1].length === 4 &&
-        parts[2].length === 4 &&
+        p2.length === 4 &&
         parts[3].length === 4 &&
         parts[4].length === 12 &&
-        parts[2][0] === "4";
+        p2.charAt(0) === "4";
     if (formatOk) {
         console.log("PASS: v4() matches UUID v4 format");
     } else {

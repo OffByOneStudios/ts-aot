@@ -4791,6 +4791,49 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // Handle TypedArray constructors
+    if (className == "Uint8Array" || className == "Int8Array" ||
+        className == "Uint8ClampedArray" || className == "Int16Array" ||
+        className == "Uint16Array" || className == "Int32Array" ||
+        className == "Uint32Array" || className == "Float32Array" ||
+        className == "Float64Array" || className == "BigInt64Array" ||
+        className == "BigUint64Array") {
+        std::shared_ptr<HIRValue> lenVal;
+        if (!node->arguments.empty()) {
+            lenVal = lowerExpression(node->arguments[0].get());
+            // Ensure length is i64 (may be f64 from numeric literal)
+            if (lenVal && lenVal->type && lenVal->type->kind == HIRTypeKind::Float64) {
+                lenVal = builder_.createCastF64ToI64(lenVal);
+            }
+        } else {
+            lenVal = builder_.createConstInt(0);
+        }
+        auto arrType = HIRType::makeArray(HIRType::makeInt64(), true); // typed array
+        // Route to appropriate runtime create function
+        if (className == "Uint8Array") {
+            lastValue_ = builder_.createCall("ts_typed_array_create_u8", {lenVal}, arrType);
+        } else if (className == "Uint32Array") {
+            lastValue_ = builder_.createCall("ts_typed_array_create_u32", {lenVal}, arrType);
+        } else if (className == "Float64Array") {
+            lastValue_ = builder_.createCall("ts_typed_array_create_f64", {lenVal}, arrType);
+        } else if (className == "Uint8ClampedArray") {
+            lastValue_ = builder_.createCall("ts_typed_array_create_clamped", {lenVal}, arrType);
+        } else {
+            // Generic path for less common types: Int8, Int16, Uint16, Int32, Float32, BigInt64, BigUint64
+            int typeVal = 0;
+            if (className == "Int8Array") typeVal = 0;
+            else if (className == "Int16Array") typeVal = 3;
+            else if (className == "Uint16Array") typeVal = 4;
+            else if (className == "Int32Array") typeVal = 5;
+            else if (className == "Float32Array") typeVal = 7;
+            else if (className == "BigInt64Array") typeVal = 9;
+            else if (className == "BigUint64Array") typeVal = 10;
+            auto typeArg = builder_.createConstInt(typeVal);
+            lastValue_ = builder_.createCall("ts_typed_array_create_typed", {lenVal, typeArg}, arrType);
+        }
+        return;
+    }
+
     // Handle built-in Map class
     if (className == "Map") {
         lastValue_ = builder_.createCall("ts_map_create_explicit", {}, HIRType::makeMap());

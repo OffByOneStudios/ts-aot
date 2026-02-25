@@ -1,10 +1,13 @@
 {
   "dotenv": "pass",
+  "escape-string-regexp": "compile_error",
   "eventemitter3": "pass",
   "fast-deep-equal": "pass",
+  "is-number": "pass",
+  "is-plain-object": "pass",
   "ms": "pass",
   "nanoid": "pass",
   "picomatch": "compile_error",
   "semver": "compile_error",
-  "uuid": "runtime_error"
+  "uuid": "pass"
 }

@@ -1,0 +1,7 @@
+{
+  "name": "ts-aot-test-is-plain-object",
+  "private": true,
+  "dependencies": {
+    "is-plain-object": "5.0.0"
+  }
+}

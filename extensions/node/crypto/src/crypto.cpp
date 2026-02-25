@@ -375,12 +375,34 @@ void* ts_crypto_randomBytes(int64_t size) {
 
 // crypto.randomFillSync(buffer, offset?, size?) -> Buffer
 void* ts_crypto_randomFillSync(void* bufferObj, int64_t offset, int64_t size) {
+    if (!bufferObj) return bufferObj;
+
+    // Unbox if the argument is a NaN-boxed TsValue* (happens in dynamic dispatch)
+    void* raw = ts_value_get_object((TsValue*)bufferObj);
+    if (raw) bufferObj = raw;
+
+    // Check for TsTypedArray (magic at offset 16 via TsObject)
+    uint32_t magic16 = *(uint32_t*)((char*)bufferObj + 16);
+    if (magic16 == TsTypedArray::MAGIC) {
+        TsTypedArray* ta = (TsTypedArray*)bufferObj;
+        size_t bufLen = ta->GetByteLength();
+        size_t start = (offset > 0) ? (size_t)offset : 0;
+        // size <= 0 means "fill from start to end" (default when arg not provided)
+        size_t len = (size > 0) ? (size_t)size : (bufLen - start);
+        if (start + len > bufLen) len = bufLen - start;
+        if (len > 0) {
+            RAND_bytes(ta->GetData() + start, (int)len);
+        }
+        return bufferObj;
+    }
+
     TsBuffer* buf = (TsBuffer*)bufferObj;
-    if (!buf || buf->magic != TsBuffer::MAGIC) return bufferObj;
+    if (buf->magic != TsBuffer::MAGIC) return bufferObj;
 
     size_t bufLen = buf->GetLength();
-    size_t start = (offset >= 0) ? (size_t)offset : 0;
-    size_t len = (size >= 0) ? (size_t)size : (bufLen - start);
+    size_t start = (offset > 0) ? (size_t)offset : 0;
+    // size <= 0 means "fill from start to end" (default when arg not provided)
+    size_t len = (size > 0) ? (size_t)size : (bufLen - start);
 
     if (start + len > bufLen) {
         len = bufLen - start;

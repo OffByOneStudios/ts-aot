@@ -442,6 +442,63 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .i64Arg()      // size (auto-converts f64 → i64)
             .build());
 
+    // TypedArray constructors - take raw i64 length argument
+    reg.registerLowering("ts_typed_array_create_u8",
+        lowering("ts_typed_array_create_u8")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_i8",
+        lowering("ts_typed_array_create_i8")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_u8c",
+        lowering("ts_typed_array_create_u8c")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_i16",
+        lowering("ts_typed_array_create_i16")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_u16",
+        lowering("ts_typed_array_create_u16")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_i32",
+        lowering("ts_typed_array_create_i32")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_u32",
+        lowering("ts_typed_array_create_u32")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_f32",
+        lowering("ts_typed_array_create_f32")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_f64",
+        lowering("ts_typed_array_create_f64")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_i64",
+        lowering("ts_typed_array_create_i64")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    reg.registerLowering("ts_typed_array_create_u64",
+        lowering("ts_typed_array_create_u64")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+
     reg.registerLowering("ts_array_init_inplace",
         lowering("ts_array_init_inplace")
             .returnsVoid()

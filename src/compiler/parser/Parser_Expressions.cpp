@@ -6,6 +6,39 @@
 
 namespace ts::parser {
 
+// Helper: check if a token kind is a contextual keyword that can be used as an identifier
+// in arrow function parameter position (e.g., `type => { ... }`).
+// This matches the same set treated as identifiers in parsePrimaryExpression.
+static bool isContextualKeywordAsIdentifier(TokenKind kind) {
+    switch (kind) {
+        case TokenKind::KW_module:
+        case TokenKind::KW_namespace:
+        case TokenKind::KW_type:
+        case TokenKind::KW_declare:
+        case TokenKind::KW_abstract:
+        case TokenKind::KW_interface:
+        case TokenKind::KW_readonly:
+        case TokenKind::KW_override:
+        case TokenKind::KW_implements:
+        case TokenKind::KW_from:
+        case TokenKind::KW_of:
+        case TokenKind::KW_as:
+        case TokenKind::KW_is:
+        case TokenKind::KW_get:
+        case TokenKind::KW_set:
+        case TokenKind::KW_require:
+        case TokenKind::KW_asserts:
+        case TokenKind::KW_satisfies:
+        case TokenKind::KW_out:
+        case TokenKind::KW_keyof:
+        case TokenKind::KW_infer:
+        case TokenKind::KW_constructor:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // ============================================================================
 // Precedence table for binary/ternary operators
 // ============================================================================
@@ -136,7 +169,7 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
         auto saved = saveState();
         advance();
         // async identifier =>
-        if (current_.kind == TokenKind::Identifier && !current_.hadNewlineBefore) {
+        if ((current_.kind == TokenKind::Identifier || isContextualKeywordAsIdentifier(current_.kind)) && !current_.hadNewlineBefore) {
             auto saved2 = saveState();
             advance();
             if (check(TokenKind::Arrow)) {
@@ -160,7 +193,8 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
     }
 
     // Simple arrow: ident => body
-    if (current_.kind == TokenKind::Identifier) {
+    // Also handle contextual keywords used as identifiers (e.g., `type => { ... }`)
+    if (current_.kind == TokenKind::Identifier || isContextualKeywordAsIdentifier(current_.kind)) {
         auto saved = saveState();
         std::string name(current_.text);
         int line = current_.line, col = current_.column;
@@ -812,9 +846,13 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
     }
 
     // Try to parse as arrow function parameters
+    // The try-catch only wraps parameter parsing + arrow detection.
+    // Once '=>' is confirmed, body parsing errors propagate (they're real errors).
     auto saved = saveState();
+    bool isArrow = false;
+    std::vector<std::unique_ptr<ast::Parameter>> params;
     try {
-        auto params = parseParameterList();
+        params = parseParameterList();
 
         // Optional return type annotation
         std::string returnType;
@@ -824,28 +862,32 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
 
         if (check(TokenKind::Arrow) && !current_.hadNewlineBefore) {
             advance(); // =>
-
-            auto arrow = std::make_unique<ast::ArrowFunction>();
-            setLocation(arrow.get(), startTok);
-            arrow->isAsync = isAsync;
-            arrow->parameters = std::move(params);
-
-            bool prevAsync = inAsync_;
-            inAsync_ = isAsync;
-            functionDepth_++;
-
-            if (check(TokenKind::OpenBrace)) {
-                arrow->body = parseBlockStatement();
-            } else {
-                arrow->body = parseAssignmentExpression();
-            }
-
-            functionDepth_--;
-            inAsync_ = prevAsync;
-            return arrow;
+            isArrow = true;
         }
     } catch (...) {
-        // Not an arrow function
+        // Not an arrow function - parameter parsing failed
+    }
+
+    if (isArrow) {
+        // Arrow confirmed - body errors are real parse errors (don't catch)
+        auto arrow = std::make_unique<ast::ArrowFunction>();
+        setLocation(arrow.get(), startTok);
+        arrow->isAsync = isAsync;
+        arrow->parameters = std::move(params);
+
+        bool prevAsync = inAsync_;
+        inAsync_ = isAsync;
+        functionDepth_++;
+
+        if (check(TokenKind::OpenBrace)) {
+            arrow->body = parseBlockStatement();
+        } else {
+            arrow->body = parseAssignmentExpression();
+        }
+
+        functionDepth_--;
+        inAsync_ = prevAsync;
+        return arrow;
     }
 
     restoreState(saved);

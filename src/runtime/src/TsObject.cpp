@@ -893,6 +893,76 @@ TsValue* ts_value_make_int(int64_t i) {
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
 
+    // TypedArray native methods
+    static TsValue* ts_typed_array_slice_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        int64_t len = (int64_t)ta->GetLength();
+        int64_t start = 0, end = len;
+        if (argc >= 1 && argv && argv[0]) {
+            start = ts_value_get_int(argv[0]);
+            if (start < 0) start = std::max((int64_t)0, len + start);
+        }
+        if (argc >= 2 && argv && argv[1]) {
+            end = ts_value_get_int(argv[1]);
+            if (end < 0) end = std::max((int64_t)0, len + end);
+        }
+        if (start > len) start = len;
+        if (end > len) end = len;
+        if (end < start) end = start;
+        size_t newLen = (size_t)(end - start);
+        TsTypedArray* result = TsTypedArray::Create(newLen, ta->GetElementSize(), ta->IsClamped(), ta->GetType());
+        for (size_t i = 0; i < newLen; i++) {
+            result->Set(i, ta->Get((size_t)start + i));
+        }
+        return ts_value_make_object(result);
+    }
+    static TsValue* ts_typed_array_set_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        // set(source, offset?) - copy elements from source array
+        if (argc < 1 || !argv || !argv[0]) return ts_value_make_undefined();
+        void* src = ts_value_get_object(argv[0]);
+        if (!src) src = (void*)argv[0];
+        int64_t offset = 0;
+        if (argc >= 2 && argv[1]) offset = ts_value_get_int(argv[1]);
+        // Check if source is a TypedArray
+        uint32_t srcMagic16 = *(uint32_t*)((char*)src + 16);
+        if (srcMagic16 == TsTypedArray::MAGIC) {
+            TsTypedArray* srcTa = (TsTypedArray*)src;
+            for (size_t i = 0; i < srcTa->GetLength() && (size_t)(offset + i) < ta->GetLength(); i++) {
+                ta->Set((size_t)(offset + i), srcTa->Get(i));
+            }
+        } else {
+            // Assume it's a regular array
+            TsArray* srcArr = (TsArray*)src;
+            for (int64_t i = 0; i < srcArr->Length() && (offset + i) < (int64_t)ta->GetLength(); i++) {
+                double val = srcArr->GetElementDouble(i);
+                ta->Set((size_t)(offset + i), val);
+            }
+        }
+        return ts_value_make_undefined();
+    }
+    static TsValue* ts_typed_array_subarray_native(void* ctx, int argc, TsValue** argv) {
+        // subarray creates a new view (we just copy for now)
+        return ts_typed_array_slice_native(ctx, argc, argv);
+    }
+    static TsValue* ts_typed_array_fill_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        double fillVal = 0;
+        if (argc >= 1 && argv && argv[0]) fillVal = ts_value_get_double(argv[0]);
+        int64_t len = (int64_t)ta->GetLength();
+        int64_t start = 0, end = len;
+        if (argc >= 2 && argv && argv[1]) start = ts_value_get_int(argv[1]);
+        if (argc >= 3 && argv && argv[2]) end = ts_value_get_int(argv[2]);
+        if (start < 0) start = std::max((int64_t)0, len + start);
+        if (end < 0) end = std::max((int64_t)0, len + end);
+        if (start > len) start = len;
+        if (end > len) end = len;
+        for (int64_t i = start; i < end; i++) {
+            ta->Set((size_t)i, fillVal);
+        }
+        return ts_value_make_object(ta);
+    }
+
     // P1: Common methods
     static TsValue* ts_array_some_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
@@ -1272,6 +1342,10 @@ TsValue* ts_value_make_int(int64_t i) {
         return undefined;
     }
 
+    // Forward declarations for Object.prototype methods (defined later in this file)
+    static TsValue* ts_object_isPrototypeOf_native(void* ctx, int argc, TsValue** argv);
+    static TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv);
+
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
         if (!obj) {
             return ts_value_make_undefined();
@@ -1337,6 +1411,16 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
                 if (strcmp(keyStr, "valueOf") == 0) {
                     return ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr);
+                }
+                if (strcmp(keyStr, "constructor") == 0) {
+                    extern TsValue* Object;
+                    if (Object) return Object;
+                }
+                if (strcmp(keyStr, "isPrototypeOf") == 0) {
+                    return ts_value_make_native_function((void*)ts_object_isPrototypeOf_native, nullptr);
+                }
+                if (strcmp(keyStr, "propertyIsEnumerable") == 0) {
+                    return ts_value_make_native_function((void*)ts_object_propertyIsEnumerable_native, nullptr);
                 }
             }
             return result;
@@ -1451,6 +1535,19 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "buffer") == 0) {
                 return ts_value_make_object(ta->GetBuffer());
             }
+            // Methods
+            if (strcmp(keyStr, "slice") == 0) {
+                return ts_value_make_native_function((void*)ts_typed_array_slice_native, ta);
+            }
+            if (strcmp(keyStr, "set") == 0) {
+                return ts_value_make_native_function((void*)ts_typed_array_set_native, ta);
+            }
+            if (strcmp(keyStr, "subarray") == 0) {
+                return ts_value_make_native_function((void*)ts_typed_array_subarray_native, ta);
+            }
+            if (strcmp(keyStr, "fill") == 0) {
+                return ts_value_make_native_function((void*)ts_typed_array_fill_native, ta);
+            }
             // Check for numeric index
             char* endptr;
             long index = strtol(keyStr, &endptr, 10);
@@ -1510,6 +1607,16 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "valueOf") == 0) {
                 return ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr);
+            }
+            if (strcmp(keyStr, "constructor") == 0) {
+                extern TsValue* Object;
+                if (Object) return Object;
+            }
+            if (strcmp(keyStr, "isPrototypeOf") == 0) {
+                return ts_value_make_native_function((void*)ts_object_isPrototypeOf_native, nullptr);
+            }
+            if (strcmp(keyStr, "propertyIsEnumerable") == 0) {
+                return ts_value_make_native_function((void*)ts_object_propertyIsEnumerable_native, nullptr);
             }
 
             return ts_value_make_undefined();
@@ -1671,18 +1778,18 @@ TsValue* ts_value_make_int(int64_t i) {
             // Function.prototype.call / apply
             // Needed for patterns like: (function(){ ... }.call(this));
             if (strcmp(keyStr, "call") == 0) {
-                // NaN-boxed pointer to the function IS the target
-                TsValue* target = (TsValue*)func;
+                // Box the function properly for ts_function_call_with_this
+                TsValue* target = ts_value_make_object(func);
                 return ts_value_make_native_function((void*)ts_function_call_native, (void*)target);
             }
             if (strcmp(keyStr, "apply") == 0) {
-                TsValue* target = (TsValue*)func;
+                TsValue* target = ts_value_make_object(func);
                 return ts_value_make_native_function((void*)ts_function_apply_native, (void*)target);
             }
 
             // Function.prototype.bind: create a bound function wrapper
             if (strcmp(keyStr, "bind") == 0) {
-                TsValue* target = (TsValue*)func;
+                TsValue* target = ts_value_make_object(func);
                 return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
             }
             
@@ -1732,15 +1839,15 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_int(0);
             }
             if (strcmp(keyStr, "call") == 0) {
-                TsValue* target = (TsValue*)closure;
+                TsValue* target = ts_value_make_object(closure);
                 return ts_value_make_native_function((void*)ts_function_call_native, (void*)target);
             }
             if (strcmp(keyStr, "apply") == 0) {
-                TsValue* target = (TsValue*)closure;
+                TsValue* target = ts_value_make_object(closure);
                 return ts_value_make_native_function((void*)ts_function_apply_native, (void*)target);
             }
             if (strcmp(keyStr, "bind") == 0) {
-                TsValue* target = (TsValue*)closure;
+                TsValue* target = ts_value_make_object(closure);
                 return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
             }
             return ts_value_make_undefined();
@@ -4135,6 +4242,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) {
+                    // Properties
                     if (strcmp(k, "length") == 0) {
                         return ts_value_make_int((int64_t)ta->GetLength());
                     }
@@ -4150,6 +4258,20 @@ TsValue* ts_value_make_int(int64_t i) {
                     if (strcmp(k, "buffer") == 0) {
                         return ts_value_make_object(ta->GetBuffer());
                     }
+                    // Methods
+                    if (strcmp(k, "slice") == 0) {
+                        return ts_value_make_native_function((void*)ts_typed_array_slice_native, ta);
+                    }
+                    if (strcmp(k, "set") == 0) {
+                        return ts_value_make_native_function((void*)ts_typed_array_set_native, ta);
+                    }
+                    if (strcmp(k, "subarray") == 0) {
+                        return ts_value_make_native_function((void*)ts_typed_array_subarray_native, ta);
+                    }
+                    if (strcmp(k, "fill") == 0) {
+                        return ts_value_make_native_function((void*)ts_typed_array_fill_native, ta);
+                    }
+                    // indexOf/includes/find/findIndex etc. could be added later
                 }
             } else if (keyIsInt) {
                 return ts_value_make_double(ta->Get((size_t)keyIdx));
@@ -4343,6 +4465,20 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (magic == 0x41525259) { // TsArray::MAGIC
                     return ts_array_get_v(rawObj, idx);
                 }
+                // Check for TsTypedArray (magic at offset 16)
+                uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+                if (magic16 == 0x54415252) { // TsTypedArray::MAGIC
+                    TsTypedArray* ta = (TsTypedArray*)rawObj;
+                    TsValue result;
+                    if (idx < 0 || (size_t)idx >= ta->GetLength()) {
+                        result.type = ValueType::UNDEFINED;
+                        result.i_val = 0;
+                    } else {
+                        result.type = ValueType::NUMBER_DBL;
+                        result.d_val = ta->Get((size_t)idx);
+                    }
+                    return result;
+                }
             }
         }
 
@@ -4379,6 +4515,18 @@ TsValue* ts_value_make_int(int64_t i) {
             uint32_t magic = *(uint32_t*)rawObj;
             if (magic == 0x41525259) { // TsArray::MAGIC
                 ts_array_set_v(rawObj, idx, value);
+                return value;
+            }
+            // Check for TsTypedArray (magic at offset 16)
+            uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+            if (magic16 == 0x54415252) { // TsTypedArray::MAGIC
+                TsTypedArray* ta = (TsTypedArray*)rawObj;
+                if (idx >= 0 && (size_t)idx < ta->GetLength()) {
+                    double dval = 0;
+                    if (value.type == ValueType::NUMBER_DBL) dval = value.d_val;
+                    else if (value.type == ValueType::NUMBER_INT) dval = (double)value.i_val;
+                    ta->Set((size_t)idx, dval);
+                }
                 return value;
             }
         }
@@ -4985,7 +5133,9 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_bool(false);
         }
 
-        // 'this' is passed as context for method calls
+        // 'this' is passed as context for method calls.
+        // When called via .call(thisArg), check ts_get_call_this() as fallback.
+        if (!ctx) ctx = ts_get_call_this();
         if (!ctx) {
             return ts_value_make_bool(false);
         }
@@ -5018,8 +5168,51 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_bool(result);
     }
     
-    // Object.prototype.toString() - returns "[object Object]"
+    // Object.prototype.toString() - returns "[object Type]" based on this value
     static TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv) {
+        // When called via .call(thisArg), the compiler sets ts_call_this_value
+        // but passes ctx=nullptr (the function's original context).
+        // Check ts_get_call_this() as fallback.
+        if (!ctx) ctx = ts_get_call_this();
+        if (!ctx) return ts_value_make_string(TsString::Create("[object Undefined]"));
+
+        uint64_t nb = (uint64_t)(uintptr_t)ctx;
+
+        // Check NaN-boxed special values
+        if (nb == NANBOX_UNDEFINED) return ts_value_make_string(TsString::Create("[object Undefined]"));
+        if (nb == NANBOX_NULL) return ts_value_make_string(TsString::Create("[object Null]"));
+        if (nb == NANBOX_TRUE || nb == NANBOX_FALSE) return ts_value_make_string(TsString::Create("[object Boolean]"));
+        if (nanbox_is_int32(nb)) return ts_value_make_string(TsString::Create("[object Number]"));
+        if (nanbox_is_double(nb)) return ts_value_make_string(TsString::Create("[object Number]"));
+
+        // Pointer types
+        if (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) {
+            void* ptr = nanbox_to_ptr(nb);
+            if (!ptr) return ts_value_make_string(TsString::Create("[object Null]"));
+
+            uint32_t magic0 = *(uint32_t*)ptr;
+            // TsString (magic at offset 0)
+            if (magic0 == 0x53545247) return ts_value_make_string(TsString::Create("[object String]"));
+            // TsArray (magic at offset 0)
+            if (magic0 == 0x41525259) return ts_value_make_string(TsString::Create("[object Array]"));
+            // TsRegExp (magic at offset 0)
+            if (magic0 == 0x52454758) return ts_value_make_string(TsString::Create("[object RegExp]"));
+            // Flat object (FLAT_MAGIC at offset 0)
+            if (magic0 == 0x464C4154) return ts_value_make_string(TsString::Create("[object Object]"));
+
+            // Check magic at offset 16 for closures/functions
+            uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+            if (magic16 == 0x434C5352) return ts_value_make_string(TsString::Create("[object Function]"));
+
+            // TsFunction check
+            TsFunction* func = dynamic_cast<TsFunction*>((TsObject*)ptr);
+            if (func) return ts_value_make_string(TsString::Create("[object Function]"));
+
+            // TsMap (general object)
+            TsMap* map = dynamic_cast<TsMap*>((TsObject*)ptr);
+            if (map) return ts_value_make_string(TsString::Create("[object Object]"));
+        }
+
         return ts_value_make_string(TsString::Create("[object Object]"));
     }
     
@@ -5030,6 +5223,44 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_object(ctx);
         }
         return ts_value_make_undefined();
+    }
+
+    // Object.prototype.isPrototypeOf(obj) - checks if this is in obj's prototype chain
+    static TsValue* ts_object_isPrototypeOf_native(void* ctx, int argc, TsValue** argv) {
+        // Basic implementation: check if ctx is in the prototype chain of argv[0]
+        if (!ctx || argc == 0 || !argv[0]) return ts_value_make_bool(false);
+
+        uint64_t targetNb = nanbox_from_tsvalue_ptr(argv[0]);
+        if (!nanbox_is_ptr(targetNb)) return ts_value_make_bool(false);
+
+        void* target = nanbox_to_ptr(targetNb);
+        TsMap* targetMap = dynamic_cast<TsMap*>((TsObject*)target);
+        if (!targetMap) return ts_value_make_bool(false);
+
+        // Walk prototype chain of target looking for ctx
+        void* ctxObj = ts_nanbox_safe_unbox(ctx);
+        TsMap* current = targetMap->GetPrototype();
+        while (current) {
+            if ((void*)current == ctxObj) return ts_value_make_bool(true);
+            current = current->GetPrototype();
+        }
+        return ts_value_make_bool(false);
+    }
+
+    // Object.prototype.propertyIsEnumerable(propName) - checks if property is enumerable
+    static TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv) {
+        // For TsMap objects, all own properties are enumerable
+        if (!ctx || argc == 0) return ts_value_make_bool(false);
+        void* obj = ts_nanbox_safe_unbox(ctx);
+        if (!obj) return ts_value_make_bool(false);
+
+        TsMap* map = dynamic_cast<TsMap*>((TsObject*)obj);
+        if (!map) return ts_value_make_bool(false);
+
+        TsValue* keyVal = argv[0];
+        if (!keyVal) return ts_value_make_bool(false);
+        TsValue keyTV = nanbox_to_tagged(keyVal);
+        return ts_value_make_bool(map->Has(keyTV));
     }
 
     // Object constructor function - converts value to object
@@ -5331,6 +5562,9 @@ TsValue* ts_value_make_int(int64_t i) {
         objectProtoMap->Set(makeKey("toString"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_toString_native, nullptr)));
         objectProtoMap->Set(makeKey("valueOf"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr)));
         objectProtoMap->Set(makeKey("hasOwnProperty"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr)));
+        objectProtoMap->Set(makeKey("isPrototypeOf"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_isPrototypeOf_native, nullptr)));
+        objectProtoMap->Set(makeKey("propertyIsEnumerable"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_propertyIsEnumerable_native, nullptr)));
+        objectProtoMap->Set(makeKey("constructor"), nanbox_to_tagged(Object));
         objectFunc->properties->Set(protoKey, nanbox_to_tagged(ts_value_make_object(objectProtoMap)));
         
         // Create Array.prototype with methods
@@ -5473,6 +5707,9 @@ TsValue* ts_value_make_int(int64_t i) {
     void* ts_os_type();
     void* ts_os_hostname();
     void* ts_crypto_createHash(void* algorithm);
+    void* ts_crypto_randomFillSync(void* bufferObj, int64_t offset, int64_t size);
+    void* ts_crypto_randomBytes(void* sizeArg);
+    void* ts_crypto_createHmac(void* algorithm, void* key);
 
     static TsValue* create_builtin_module(const std::string& name) {
         // Check g_module_cache for a previously created built-in module
@@ -5517,8 +5754,20 @@ TsValue* ts_value_make_int(int64_t i) {
 #endif
         } else if (name == "crypto") {
             add_builtin_fn(mod, "createHash", (void*)&ts_crypto_createHash, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "randomFillSync", (void*)&ts_crypto_randomFillSync, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "randomBytes", (void*)&ts_crypto_randomBytes, (void*)&builtin_fn_thunk);
+            add_builtin_fn(mod, "createHmac", (void*)&ts_crypto_createHmac, (void*)&builtin_fn_thunk);
         }
         // Other built-in modules: return empty TsMap (functions not available but won't crash)
+
+        // Set "default" and "exports" to point back to the module itself.
+        // ESM `import crypto from 'crypto'` does a "default" lookup on the module.
+        TsString* defaultKey = TsString::Create("default");
+        mod->Set(nanbox_to_tagged(ts_value_make_string(defaultKey)),
+                 nanbox_to_tagged(ts_value_make_object(mod)));
+        TsString* exportsKey = TsString::Create("exports");
+        mod->Set(nanbox_to_tagged(ts_value_make_string(exportsKey)),
+                 nanbox_to_tagged(ts_value_make_object(mod)));
 
         TsValue* result = (TsValue*)mod;
         // Cache in g_module_cache so the GC scanner keeps it alive
@@ -5526,6 +5775,11 @@ TsValue* ts_value_make_int(int64_t i) {
         ts_module_register(pathVal, result);
         return result;
     }
+
+// Expose create_builtin_module for TsGlobals.cpp module accessors
+TsValue* ts_get_builtin_module(const char* name) {
+    return create_builtin_module(std::string(name));
+}
 
     static bool is_builtin_module_name(const std::string& spec) {
         static const char* builtins[] = {

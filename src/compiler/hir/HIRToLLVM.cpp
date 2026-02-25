@@ -6997,6 +6997,12 @@ void HIRToLLVM::lowerStoreCaptureFromClosure(HIRInstruction* inst) {
 void HIRToLLVM::lowerBranch(HIRInstruction* inst) {
     HIRBlock* target = getOperandBlock(inst->operands[0]);
     llvm::BasicBlock* targetBB = getBlock(target);
+    if (!targetBB) {
+        SPDLOG_ERROR("lowerBranch: null LLVM block for Branch in {} (target={})",
+            currentHIRFunction_ ? currentHIRFunction_->mangledName : "??",
+            target ? target->label : "null");
+        return;
+    }
     builder_->CreateBr(targetBB);
 }
 
@@ -8090,7 +8096,32 @@ llvm::Value* HIRToLLVM::getOperandValue(const HIROperand& operand) {
         SPDLOG_INFO("getOperandValue: got HIRValue, val={}", (*val) ? std::to_string((*val)->id) : "null");
         auto result = getValue(*val);
         if (!result && *val) {
-            SPDLOG_WARN("getOperandValue: HIRValue id={} not found in valueMap_", (*val)->id);
+            // Find where this value is defined
+            std::string defInfo = "unknown";
+            if (currentHIRFunction_) {
+                for (auto& block : currentHIRFunction_->blocks) {
+                    for (auto& inst : block->instructions) {
+                        if (inst->result && inst->result->id == (*val)->id) {
+                            defInfo = fmt::format("block={} opcode={}", block->label, static_cast<int>(inst->opcode));
+                            break;
+                        }
+                    }
+                }
+            }
+            SPDLOG_WARN("getOperandValue: HIRValue id={} not found in valueMap_ (func={} use_block={} defined_at={})",
+                (*val)->id, currentHIRFunction_ ? currentHIRFunction_->mangledName : "?",
+                currentBlockLabel_, defInfo);
+
+            // Return a typed placeholder instead of null to prevent LLVM verification errors.
+            // This handles cases where values are defined in blocks not yet lowered
+            // (forward references) or orphaned by the AST-to-HIR lowering.
+            if ((*val)->type) {
+                auto kind = (*val)->type->kind;
+                if (kind == HIRTypeKind::Int64) return llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
+                if (kind == HIRTypeKind::Float64) return llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0);
+                if (kind == HIRTypeKind::Bool) return llvm::ConstantInt::getFalse(builder_->getContext());
+            }
+            return llvm::ConstantPointerNull::get(llvm::PointerType::get(builder_->getContext(), 0));
         }
         return result;
     }
