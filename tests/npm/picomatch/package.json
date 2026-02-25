@@ -1,0 +1,7 @@
+{
+  "name": "ts-aot-test-picomatch",
+  "private": true,
+  "dependencies": {
+    "picomatch": "2.3.1"
+  }
+}

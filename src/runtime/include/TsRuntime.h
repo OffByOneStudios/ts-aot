@@ -83,6 +83,14 @@ bool ts_array_isArray(void* value);
 // --- Value Length ---
 int64_t ts_value_length(TsValue* val);
 
+// --- URI encoding/decoding ---
+void* ts_encode_uri_component(void* str);
+void* ts_decode_uri_component(void* str);
+void* ts_encode_uri(void* str);
+void* ts_decode_uri(void* str);
+void* ts_escape(void* str);
+void* ts_unescape(void* str);
+
 // --- Exceptions ---
 void* ts_push_exception_handler();
 void ts_pop_exception_handler();
@@ -360,6 +368,12 @@ TsValue* ts_promise_allSettled(TsValue* iterable);
 TsValue* ts_promise_any(TsValue* iterable);
 TsValue* ts_promise_then(TsValue* promise, TsValue* onFulfilled, TsValue* onRejected);
 TsValue* ts_call_0(TsValue* func);
+
+// --- Constructor function new operator (slow path) ---
+TsValue* ts_new_from_constructor_0(TsValue* constructorFn);
+TsValue* ts_new_from_constructor_1(TsValue* constructorFn, TsValue* arg1);
+TsValue* ts_new_from_constructor_2(TsValue* constructorFn, TsValue* arg1, TsValue* arg2);
+TsValue* ts_new_from_constructor_3(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3);
 
 // --- Modules ---
 void ts_module_register(TsValue* path, TsValue* exports);

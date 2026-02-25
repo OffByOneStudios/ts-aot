@@ -2,6 +2,8 @@
 #include "TsObject.h"
 #include "TsCell.h"
 
+class TsMap;  // Forward declaration for properties field
+
 /**
  * TsClosure - Runtime representation of a closure
  *
@@ -25,6 +27,7 @@ public:
     TsCell** cells;          // Array of capture cells
     TsString* name = nullptr; // Function name for .name and .toString()
     bool is_method = false;  // True for method trampolines (expect 'this' as arg 2)
+    TsMap* properties = nullptr;  // For storing properties like .prototype
 
     TsClosure() : func_ptr(nullptr), num_captures(0), cells(nullptr) {
         magic = 0x434C5352; // 'CLSR'

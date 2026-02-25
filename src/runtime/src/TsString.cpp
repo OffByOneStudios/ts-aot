@@ -1368,4 +1368,185 @@ extern "C" {
 
         return TsString::GetInterned("unknown");
     }
+
+    // --- URI encoding/decoding functions ---
+
+    static bool isURIUnescaped(unsigned char c) {
+        // Unreserved characters per RFC 3986
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+               (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '!' ||
+               c == '~' || c == '*' || c == '\'' || c == '(' || c == ')';
+    }
+
+    static bool isURIReserved(unsigned char c) {
+        return c == ';' || c == '/' || c == '?' || c == ':' || c == '@' ||
+               c == '&' || c == '=' || c == '+' || c == '$' || c == ',' || c == '#';
+    }
+
+    static int hexDigit(char c) {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        return -1;
+    }
+
+    void* ts_encode_uri_component(void* str) {
+        if (!str) return TsString::GetInterned("undefined");
+        TsString* s = (TsString*)str;
+        const char* utf8 = s->ToUtf8();
+        if (!utf8) return TsString::GetInterned("");
+
+        std::string result;
+        for (const unsigned char* p = (const unsigned char*)utf8; *p; ++p) {
+            if (isURIUnescaped(*p)) {
+                result += (char)*p;
+            } else {
+                char hex[4];
+                snprintf(hex, sizeof(hex), "%%%02X", *p);
+                result += hex;
+            }
+        }
+        return TsString::Create(result.c_str());
+    }
+
+    void* ts_decode_uri_component(void* str) {
+        if (!str) return TsString::GetInterned("undefined");
+        TsString* s = (TsString*)str;
+        const char* utf8 = s->ToUtf8();
+        if (!utf8) return TsString::GetInterned("");
+
+        std::string result;
+        for (const char* p = utf8; *p; ++p) {
+            if (*p == '%' && p[1] && p[2]) {
+                int hi = hexDigit(p[1]);
+                int lo = hexDigit(p[2]);
+                if (hi >= 0 && lo >= 0) {
+                    result += (char)((hi << 4) | lo);
+                    p += 2;
+                } else {
+                    result += *p;
+                }
+            } else {
+                result += *p;
+            }
+        }
+        return TsString::Create(result.c_str());
+    }
+
+    void* ts_encode_uri(void* str) {
+        if (!str) return TsString::GetInterned("undefined");
+        TsString* s = (TsString*)str;
+        const char* utf8 = s->ToUtf8();
+        if (!utf8) return TsString::GetInterned("");
+
+        std::string result;
+        for (const unsigned char* p = (const unsigned char*)utf8; *p; ++p) {
+            if (isURIUnescaped(*p) || isURIReserved(*p)) {
+                result += (char)*p;
+            } else {
+                char hex[4];
+                snprintf(hex, sizeof(hex), "%%%02X", *p);
+                result += hex;
+            }
+        }
+        return TsString::Create(result.c_str());
+    }
+
+    void* ts_decode_uri(void* str) {
+        if (!str) return TsString::GetInterned("undefined");
+        TsString* s = (TsString*)str;
+        const char* utf8 = s->ToUtf8();
+        if (!utf8) return TsString::GetInterned("");
+
+        std::string result;
+        for (const char* p = utf8; *p; ++p) {
+            if (*p == '%' && p[1] && p[2]) {
+                int hi = hexDigit(p[1]);
+                int lo = hexDigit(p[2]);
+                if (hi >= 0 && lo >= 0) {
+                    unsigned char decoded = (unsigned char)((hi << 4) | lo);
+                    // Don't decode reserved characters
+                    if (isURIReserved(decoded)) {
+                        result += *p;
+                    } else {
+                        result += (char)decoded;
+                        p += 2;
+                    }
+                } else {
+                    result += *p;
+                }
+            } else {
+                result += *p;
+            }
+        }
+        return TsString::Create(result.c_str());
+    }
+
+    void* ts_escape(void* str) {
+        if (!str) return TsString::GetInterned("undefined");
+        TsString* s = (TsString*)str;
+        const char* utf8 = s->ToUtf8();
+        if (!utf8) return TsString::GetInterned("");
+
+        std::string result;
+        for (const unsigned char* p = (const unsigned char*)utf8; *p; ++p) {
+            if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+                (*p >= '0' && *p <= '9') || *p == '@' || *p == '*' ||
+                *p == '_' || *p == '+' || *p == '-' || *p == '.' || *p == '/') {
+                result += (char)*p;
+            } else if (*p < 256) {
+                char hex[4];
+                snprintf(hex, sizeof(hex), "%%%02X", *p);
+                result += hex;
+            }
+        }
+        return TsString::Create(result.c_str());
+    }
+
+    void* ts_unescape(void* str) {
+        if (!str) return TsString::GetInterned("undefined");
+        TsString* s = (TsString*)str;
+        const char* utf8 = s->ToUtf8();
+        if (!utf8) return TsString::GetInterned("");
+
+        std::string result;
+        for (const char* p = utf8; *p; ++p) {
+            if (*p == '%' && p[1] && p[2]) {
+                // Check for %uXXXX (unicode escape)
+                if (p[1] == 'u' && p[2] && p[3] && p[4] && p[5]) {
+                    int d1 = hexDigit(p[2]);
+                    int d2 = hexDigit(p[3]);
+                    int d3 = hexDigit(p[4]);
+                    int d4 = hexDigit(p[5]);
+                    if (d1 >= 0 && d2 >= 0 && d3 >= 0 && d4 >= 0) {
+                        uint32_t codepoint = (d1 << 12) | (d2 << 8) | (d3 << 4) | d4;
+                        // Encode as UTF-8
+                        if (codepoint < 0x80) {
+                            result += (char)codepoint;
+                        } else if (codepoint < 0x800) {
+                            result += (char)(0xC0 | (codepoint >> 6));
+                            result += (char)(0x80 | (codepoint & 0x3F));
+                        } else {
+                            result += (char)(0xE0 | (codepoint >> 12));
+                            result += (char)(0x80 | ((codepoint >> 6) & 0x3F));
+                            result += (char)(0x80 | (codepoint & 0x3F));
+                        }
+                        p += 5;
+                        continue;
+                    }
+                }
+                int hi = hexDigit(p[1]);
+                int lo = hexDigit(p[2]);
+                if (hi >= 0 && lo >= 0) {
+                    result += (char)((hi << 4) | lo);
+                    p += 2;
+                } else {
+                    result += *p;
+                }
+            } else {
+                result += *p;
+            }
+        }
+        return TsString::Create(result.c_str());
+    }
 }

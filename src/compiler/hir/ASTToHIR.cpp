@@ -36,6 +36,163 @@ static std::shared_ptr<HIRType> extTypeRefToHIR(const ext::TypeReference& typeRe
 // Helper: Check if an AST expression contains a function/arrow (for var hoisting)
 //==============================================================================
 
+// Helper: Check if a function body uses the 'arguments' identifier.
+// Does NOT recurse into nested FunctionDeclaration/FunctionExpression (they have own arguments).
+// DOES recurse into ArrowFunction (arrow functions inherit outer arguments).
+static bool containsArgumentsIdentifier(ast::Node* node) {
+    if (!node) return false;
+    // Check if this is an Identifier named "arguments"
+    if (auto* ident = dynamic_cast<ast::Identifier*>(node)) {
+        return ident->name == "arguments";
+    }
+    // Do NOT recurse into FunctionExpression or FunctionDeclaration - they have their own arguments
+    if (dynamic_cast<ast::FunctionExpression*>(node)) return false;
+    if (dynamic_cast<ast::FunctionDeclaration*>(node)) return false;
+    // DO recurse into ArrowFunction (arrow functions don't have own arguments)
+    if (auto* arrow = dynamic_cast<ast::ArrowFunction*>(node)) {
+        return containsArgumentsIdentifier(arrow->body.get());
+    }
+    // Statements
+    if (auto* block = dynamic_cast<ast::BlockStatement*>(node)) {
+        for (auto& s : block->statements) if (containsArgumentsIdentifier(s.get())) return true;
+        return false;
+    }
+    if (auto* expr = dynamic_cast<ast::ExpressionStatement*>(node)) {
+        return containsArgumentsIdentifier(expr->expression.get());
+    }
+    if (auto* ret = dynamic_cast<ast::ReturnStatement*>(node)) {
+        return containsArgumentsIdentifier(ret->expression.get());
+    }
+    if (auto* ifStmt = dynamic_cast<ast::IfStatement*>(node)) {
+        return containsArgumentsIdentifier(ifStmt->condition.get()) ||
+               containsArgumentsIdentifier(ifStmt->thenStatement.get()) ||
+               containsArgumentsIdentifier(ifStmt->elseStatement.get());
+    }
+    if (auto* whileStmt = dynamic_cast<ast::WhileStatement*>(node)) {
+        return containsArgumentsIdentifier(whileStmt->condition.get()) ||
+               containsArgumentsIdentifier(whileStmt->body.get());
+    }
+    if (auto* forStmt = dynamic_cast<ast::ForStatement*>(node)) {
+        return containsArgumentsIdentifier(forStmt->initializer.get()) ||
+               containsArgumentsIdentifier(forStmt->condition.get()) ||
+               containsArgumentsIdentifier(forStmt->incrementor.get()) ||
+               containsArgumentsIdentifier(forStmt->body.get());
+    }
+    if (auto* forOf = dynamic_cast<ast::ForOfStatement*>(node)) {
+        return containsArgumentsIdentifier(forOf->expression.get()) ||
+               containsArgumentsIdentifier(forOf->body.get());
+    }
+    if (auto* forIn = dynamic_cast<ast::ForInStatement*>(node)) {
+        return containsArgumentsIdentifier(forIn->expression.get()) ||
+               containsArgumentsIdentifier(forIn->body.get());
+    }
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(node)) {
+        if (containsArgumentsIdentifier(sw->expression.get())) return true;
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) {
+                if (containsArgumentsIdentifier(cc->expression.get())) return true;
+                for (auto& s : cc->statements) if (containsArgumentsIdentifier(s.get())) return true;
+            }
+            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get())) {
+                for (auto& s : dc->statements) if (containsArgumentsIdentifier(s.get())) return true;
+            }
+        }
+        return false;
+    }
+    if (auto* tryStmt = dynamic_cast<ast::TryStatement*>(node)) {
+        for (auto& s : tryStmt->tryBlock) if (containsArgumentsIdentifier(s.get())) return true;
+        if (tryStmt->catchClause) {
+            for (auto& s : tryStmt->catchClause->block) if (containsArgumentsIdentifier(s.get())) return true;
+        }
+        for (auto& s : tryStmt->finallyBlock) if (containsArgumentsIdentifier(s.get())) return true;
+        return false;
+    }
+    if (auto* throwStmt = dynamic_cast<ast::ThrowStatement*>(node)) {
+        return containsArgumentsIdentifier(throwStmt->expression.get());
+    }
+    if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(node)) {
+        return containsArgumentsIdentifier(varDecl->initializer.get());
+    }
+    if (auto* labeled = dynamic_cast<ast::LabeledStatement*>(node)) {
+        return containsArgumentsIdentifier(labeled->statement.get());
+    }
+    // Expressions
+    if (auto* call = dynamic_cast<ast::CallExpression*>(node)) {
+        if (containsArgumentsIdentifier(call->callee.get())) return true;
+        for (auto& arg : call->arguments) if (containsArgumentsIdentifier(arg.get())) return true;
+        return false;
+    }
+    if (auto* newExpr = dynamic_cast<ast::NewExpression*>(node)) {
+        if (containsArgumentsIdentifier(newExpr->expression.get())) return true;
+        for (auto& arg : newExpr->arguments) if (containsArgumentsIdentifier(arg.get())) return true;
+        return false;
+    }
+    if (auto* bin = dynamic_cast<ast::BinaryExpression*>(node)) {
+        return containsArgumentsIdentifier(bin->left.get()) ||
+               containsArgumentsIdentifier(bin->right.get());
+    }
+    if (auto* assign = dynamic_cast<ast::AssignmentExpression*>(node)) {
+        return containsArgumentsIdentifier(assign->left.get()) ||
+               containsArgumentsIdentifier(assign->right.get());
+    }
+    if (auto* cond = dynamic_cast<ast::ConditionalExpression*>(node)) {
+        return containsArgumentsIdentifier(cond->condition.get()) ||
+               containsArgumentsIdentifier(cond->whenTrue.get()) ||
+               containsArgumentsIdentifier(cond->whenFalse.get());
+    }
+    if (auto* prefix = dynamic_cast<ast::PrefixUnaryExpression*>(node)) {
+        return containsArgumentsIdentifier(prefix->operand.get());
+    }
+    if (auto* postfix = dynamic_cast<ast::PostfixUnaryExpression*>(node)) {
+        return containsArgumentsIdentifier(postfix->operand.get());
+    }
+    if (auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(node)) {
+        return containsArgumentsIdentifier(prop->expression.get());
+    }
+    if (auto* elem = dynamic_cast<ast::ElementAccessExpression*>(node)) {
+        return containsArgumentsIdentifier(elem->expression.get()) ||
+               containsArgumentsIdentifier(elem->argumentExpression.get());
+    }
+    if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) {
+        for (auto& e : arr->elements) if (containsArgumentsIdentifier(e.get())) return true;
+        return false;
+    }
+    if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) {
+        for (auto& p : obj->properties) {
+            if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(p.get())) {
+                if (containsArgumentsIdentifier(pa->initializer.get())) return true;
+            }
+        }
+        return false;
+    }
+    if (auto* tmpl = dynamic_cast<ast::TemplateExpression*>(node)) {
+        for (auto& span : tmpl->spans) if (containsArgumentsIdentifier(span.expression.get())) return true;
+        return false;
+    }
+    if (auto* paren = dynamic_cast<ast::ParenthesizedExpression*>(node)) {
+        return containsArgumentsIdentifier(paren->expression.get());
+    }
+    if (auto* spread = dynamic_cast<ast::SpreadElement*>(node)) {
+        return containsArgumentsIdentifier(spread->expression.get());
+    }
+    if (auto* del = dynamic_cast<ast::DeleteExpression*>(node)) {
+        return containsArgumentsIdentifier(del->expression.get());
+    }
+    if (auto* await_ = dynamic_cast<ast::AwaitExpression*>(node)) {
+        return containsArgumentsIdentifier(await_->expression.get());
+    }
+    if (auto* yield_ = dynamic_cast<ast::YieldExpression*>(node)) {
+        return containsArgumentsIdentifier(yield_->expression.get());
+    }
+    if (auto* asExpr = dynamic_cast<ast::AsExpression*>(node)) {
+        return containsArgumentsIdentifier(asExpr->expression.get());
+    }
+    if (auto* nonNull = dynamic_cast<ast::NonNullExpression*>(node)) {
+        return containsArgumentsIdentifier(nonNull->expression.get());
+    }
+    return false;
+}
+
 static bool containsClosureExpression(ast::Node* node) {
     if (!node) return false;
     std::string kind = node->getKind();
@@ -99,7 +256,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program, const std::str
     bool needsModuleInit = false;
     for (auto& stmt : program->body) {
         std::string kind = stmt->getKind();
-        if (kind == "VariableDeclaration" || kind == "ExpressionStatement") {
+        if (kind == "VariableDeclaration" || kind == "ExpressionStatement" || kind == "BlockStatement") {
             needsModuleInit = true;
             break;
         }
@@ -1099,6 +1256,22 @@ std::shared_ptr<HIRType> ASTToHIR::convertType(const std::shared_ptr<ts::Type>& 
         case ts::TypeKind::Class: {
             // Preserve class type information including the class name
             if (auto classType = std::dynamic_pointer_cast<ts::ClassType>(type)) {
+                // If the class name comes from a user-imported module (not a real HIR class),
+                // use Any instead of Class to prevent extension dispatch from intercepting
+                // user-defined classes that happen to share names with built-in types
+                // (e.g., eventemitter3's EventEmitter vs the built-in events EventEmitter).
+                if (moduleGlobalVars_.count(classType->name)) {
+                    bool isRealHIRClass = false;
+                    for (auto& cls : module_->classes) {
+                        if (cls->name == classType->name) {
+                            isRealHIRClass = true;
+                            break;
+                        }
+                    }
+                    if (!isRealHIRClass) {
+                        return HIRType::makeAny();
+                    }
+                }
                 return HIRType::makeClass(classType->name, 0);
             }
             return HIRType::makeObject();  // Fallback to generic object
@@ -1565,6 +1738,51 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         }
     }
 
+    // Create 'arguments' array-like object if the function body references 'arguments'.
+    // Must be done at function entry (before any other code) because inner calls
+    // will overwrite ts_last_call_argc, making lazy creation incorrect.
+    // Arrow functions don't have their own 'arguments' (they inherit from enclosing).
+    {
+        bool usesArguments = false;
+        for (auto& stmt : node->body) {
+            if (containsArgumentsIdentifier(stmt.get())) {
+                usesArguments = true;
+                break;
+            }
+        }
+        if (usesArguments) {
+            // Build args for ts_create_arguments_from_params(p0..p9)
+            // The runtime uses ts_last_call_argc to know how many were actually passed
+            std::vector<std::shared_ptr<HIRValue>> callArgs;
+
+            // Pass each user parameter (up to 10), padding with undefined
+            size_t userIdx = 0;
+            for (size_t i = 0; i < func->params.size() && userIdx < 10; ++i) {
+                if (func->params[i].first == "__closure__") continue;
+                auto paramVal = lookupVariable(func->params[i].first);
+                if (!paramVal) {
+                    paramVal = builder_.createConstUndefined();
+                }
+                callArgs.push_back(paramVal);
+                userIdx++;
+            }
+            // Pad remaining slots with undefined (up to 10 total params)
+            while (userIdx < 10) {
+                callArgs.push_back(builder_.createConstUndefined());
+                userIdx++;
+            }
+
+            // Call runtime to create arguments array
+            auto argsArray = builder_.createCall("ts_create_arguments_from_params",
+                callArgs, HIRType::makeAny());
+
+            // Store as local variable "arguments"
+            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
+            builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
+            defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
+        }
+    }
+
     // If this is user_main, emit deferred static property initializations
     if (node->name == "user_main") {
         emitDeferredStaticInits();
@@ -2017,7 +2235,12 @@ void ASTToHIR::visitExpressionStatement(ast::ExpressionStatement* node) {
 }
 
 void ASTToHIR::visitBlockStatement(ast::BlockStatement* node) {
-    pushScope();
+    // Synthetic blocks (from multi-var declarations like "var a = 1, b = 2;")
+    // should NOT create a new scope - variables need to be visible in the
+    // enclosing scope, just like individual var declarations would be.
+    if (!node->isSynthetic) {
+        pushScope();
+    }
     for (auto& stmt : node->statements) {
         lowerStatement(stmt.get());
         // Stop processing statements after a terminator (return, throw, etc.)
@@ -2026,7 +2249,9 @@ void ASTToHIR::visitBlockStatement(ast::BlockStatement* node) {
             break;
         }
     }
-    popScope();
+    if (!node->isSynthetic) {
+        popScope();
+    }
 }
 
 void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
@@ -3771,7 +3996,10 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // Case 2b: Extension class instance method call.
             // Only for types with kind == "class" (have real standalone C functions).
             // Types with kind == "interface" (Stats, Dirent) use closure-based dispatch.
-            if (!foundInUserClass) {
+            // Skip if className comes from a user-imported module (moduleGlobalVars_).
+            // This prevents user-defined classes (e.g., eventemitter3's EventEmitter)
+            // from being dispatched to the runtime's built-in extension methods.
+            if (!foundInUserClass && !moduleGlobalVars_.count(className)) {
                 auto& extReg = ext::ExtensionRegistry::instance();
                 if (extReg.isClassKind(className)) {
                     const ext::MethodDefinition* extMethod = extReg.findMethod(className, propAccess->name);
@@ -3879,16 +4107,11 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 // (e.g. `const path = url.fileURLToPath(...)`) from being treated as module calls.
                 bool isLocalVarShadow = false;
                 if (!methodDef) {
-                    auto* varInfo = lookupVariableInfo(classNameIdent->name);
-                    if (varInfo && varInfo->elemType) {
-                        auto kind = varInfo->elemType->kind;
-                        // If the variable has a primitive type, it can't be a module reference
-                        if (kind == HIRTypeKind::String || kind == HIRTypeKind::Int64 ||
-                            kind == HIRTypeKind::Float64 || kind == HIRTypeKind::Bool ||
-                            kind == HIRTypeKind::Array) {
-                            isLocalVarShadow = true;
-                        }
-                    }
+                    // Method not found on the module/object. Could be a local variable
+                    // shadowing a module name (e.g., `var events = []` vs `events` module).
+                    // Don't generate a bogus ts_{module}_{method} symbol - fall through
+                    // to generic method handlers (push, join, etc.) instead.
+                    isLocalVarShadow = true;
                 }
 
                 if (!isLocalVarShadow) {
@@ -4184,6 +4407,70 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 lastValue_ = builder_.createCall("ts_to_string", {args[0]}, HIRType::makeString());
             } else {
                 lastValue_ = builder_.createCall("ts_string_create", {builder_.createConstNull()}, HIRType::makeString());
+            }
+            return;
+        }
+
+        // Error constructors called as functions (without new) - same as new Error()
+        if (ident->name == "Error" || ident->name == "TypeError" || ident->name == "RangeError" ||
+            ident->name == "ReferenceError" || ident->name == "SyntaxError" || ident->name == "URIError" ||
+            ident->name == "EvalError") {
+            std::shared_ptr<HIRValue> message;
+            if (!args.empty()) {
+                message = args[0];
+            } else {
+                message = builder_.createConstString("");
+            }
+            lastValue_ = builder_.createCall("ts_error_create", {message}, HIRType::makeAny());
+            return;
+        }
+
+        // Global URI encoding/decoding functions
+        if (ident->name == "encodeURIComponent") {
+            if (!args.empty()) {
+                lastValue_ = builder_.createCall("ts_encode_uri_component", {args[0]}, HIRType::makeString());
+            } else {
+                lastValue_ = builder_.createConstString("undefined");
+            }
+            return;
+        }
+        if (ident->name == "decodeURIComponent") {
+            if (!args.empty()) {
+                lastValue_ = builder_.createCall("ts_decode_uri_component", {args[0]}, HIRType::makeString());
+            } else {
+                lastValue_ = builder_.createConstString("undefined");
+            }
+            return;
+        }
+        if (ident->name == "encodeURI") {
+            if (!args.empty()) {
+                lastValue_ = builder_.createCall("ts_encode_uri", {args[0]}, HIRType::makeString());
+            } else {
+                lastValue_ = builder_.createConstString("undefined");
+            }
+            return;
+        }
+        if (ident->name == "decodeURI") {
+            if (!args.empty()) {
+                lastValue_ = builder_.createCall("ts_decode_uri", {args[0]}, HIRType::makeString());
+            } else {
+                lastValue_ = builder_.createConstString("undefined");
+            }
+            return;
+        }
+        if (ident->name == "escape") {
+            if (!args.empty()) {
+                lastValue_ = builder_.createCall("ts_escape", {args[0]}, HIRType::makeString());
+            } else {
+                lastValue_ = builder_.createConstString("undefined");
+            }
+            return;
+        }
+        if (ident->name == "unescape") {
+            if (!args.empty()) {
+                lastValue_ = builder_.createCall("ts_unescape", {args[0]}, HIRType::makeString());
+            } else {
+                lastValue_ = builder_.createConstString("undefined");
             }
             return;
         }
@@ -4650,6 +4937,39 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     } else if (hirClass && hirClass->shape) {
         // Class with shape but no properties (no flat object)
         newObj = builder_.createNewObject(hirClass->shape.get());
+    } else if (!hirClass && ident) {
+        // Unknown class - treat as a constructor function call
+        // (e.g., function EventEmitter() {...} from an imported JS module)
+        // Use lowerExpression on the identifier to get the function value
+        auto constructorVal = lowerExpression(node->expression.get());
+        if (constructorVal) {
+            // Use ts_new_from_constructor to properly set up prototype chain
+            // and call the constructor function with this = new object
+            std::string funcName;
+            std::vector<std::shared_ptr<HIRValue>> callArgs;
+            callArgs.push_back(constructorVal);
+
+            if (args.empty()) {
+                funcName = "ts_new_from_constructor_0";
+            } else if (args.size() == 1) {
+                funcName = "ts_new_from_constructor_1";
+                callArgs.push_back(args[0]);
+            } else if (args.size() == 2) {
+                funcName = "ts_new_from_constructor_2";
+                callArgs.push_back(args[0]);
+                callArgs.push_back(args[1]);
+            } else {
+                funcName = "ts_new_from_constructor_3";
+                callArgs.push_back(args[0]);
+                callArgs.push_back(args[1]);
+                callArgs.push_back(args[2]);
+            }
+
+            lastValue_ = builder_.createCall(funcName, callArgs, HIRType::makeAny());
+            return;
+        }
+        // Expression couldn't be lowered, fall back to plain dynamic object
+        newObj = builder_.createNewObjectDynamic();
     } else {
         // Fallback to dynamic object (for built-in or unknown classes)
         newObj = builder_.createNewObjectDynamic();
@@ -5407,6 +5727,17 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
+    // Check if this is a module-scoped variable from an imported module
+    // This must be checked BEFORE module_->functions because imported JS modules
+    // compile their functions into module_->functions, but we need to use the
+    // imported closure (which has prototype/properties set up) not a fresh one.
+    if (moduleGlobalVars_.count(node->name)) {
+        std::string globalName = "__modvar_" + node->name;
+        auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
+        lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
+        return;
+    }
+
     // Check if this is a function name in the module
     // Functions are declared at module level and can be referenced as values
     for (const auto& func : module_->functions) {
@@ -5443,14 +5774,6 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                 return;
             }
         }
-    }
-
-    // Check if this is a module-scoped variable from an imported module
-    if (moduleGlobalVars_.count(node->name)) {
-        std::string globalName = "__modvar_" + node->name;
-        auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
-        lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
-        return;
     }
 
     // Unknown variable - create undefined
@@ -6009,9 +6332,54 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     }
 
     // If the function is named, make it available in its own scope (for recursion)
+    // Alias the name to the __closure__ parameter (index 0) which represents
+    // the function/closure pointer itself - ts_call_N handles dispatch correctly
     if (!node->name.empty()) {
-        auto fnPtr = std::make_shared<HIRValue>(func->nextValueId++, HIRType::makePtr(), node->name);
-        defineVariable(node->name, fnPtr);
+        auto* closureInfo = lookupVariableInfo("__closure__");
+        if (closureInfo && closureInfo->isAlloca) {
+            defineVariableAlloca(node->name, closureInfo->value, closureInfo->elemType ? closureInfo->elemType : HIRType::makePtr());
+        } else {
+            // Fallback: reference parameter 0 directly
+            auto closureParam = std::make_shared<HIRValue>(0, HIRType::makePtr(), node->name);
+            defineVariable(node->name, closureParam);
+        }
+    }
+
+    // Create 'arguments' array if the function body references 'arguments'.
+    // Must be done at function entry before body lowering.
+    {
+        bool usesArguments = false;
+        for (auto& stmt : node->body) {
+            if (containsArgumentsIdentifier(stmt.get())) {
+                usesArguments = true;
+                break;
+            }
+        }
+        if (usesArguments) {
+            std::vector<std::shared_ptr<HIRValue>> callArgs;
+
+            size_t userIdx = 0;
+            for (size_t i = 0; i < func->params.size() && userIdx < 10; ++i) {
+                if (func->params[i].first == "__closure__") continue;
+                auto paramVal = lookupVariable(func->params[i].first);
+                if (!paramVal) {
+                    paramVal = builder_.createConstUndefined();
+                }
+                callArgs.push_back(paramVal);
+                userIdx++;
+            }
+            while (userIdx < 10) {
+                callArgs.push_back(builder_.createConstUndefined());
+                userIdx++;
+            }
+
+            auto argsArray = builder_.createCall("ts_create_arguments_from_params",
+                callArgs, HIRType::makeAny());
+
+            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
+            builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
+            defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
+        }
     }
 
     // Lower function body (vector of statements)

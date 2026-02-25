@@ -1,0 +1,7 @@
+{
+  "name": "ts-aot-test-uuid",
+  "private": true,
+  "dependencies": {
+    "uuid": "9.0.1"
+  }
+}

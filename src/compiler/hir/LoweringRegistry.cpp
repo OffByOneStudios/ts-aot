@@ -1323,6 +1323,78 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     // ========================================
+    // URI encoding/decoding
+    // ========================================
+    reg.registerLowering("ts_encode_uri_component",
+        lowering("ts_encode_uri_component")
+            .returnsPtr()
+            .ptrArg()      // string
+            .build());
+
+    reg.registerLowering("ts_decode_uri_component",
+        lowering("ts_decode_uri_component")
+            .returnsPtr()
+            .ptrArg()      // string
+            .build());
+
+    reg.registerLowering("ts_encode_uri",
+        lowering("ts_encode_uri")
+            .returnsPtr()
+            .ptrArg()      // string
+            .build());
+
+    reg.registerLowering("ts_decode_uri",
+        lowering("ts_decode_uri")
+            .returnsPtr()
+            .ptrArg()      // string
+            .build());
+
+    reg.registerLowering("ts_escape",
+        lowering("ts_escape")
+            .returnsPtr()
+            .ptrArg()      // string
+            .build());
+
+    reg.registerLowering("ts_unescape",
+        lowering("ts_unescape")
+            .returnsPtr()
+            .ptrArg()      // string
+            .build());
+
+    // ========================================
+    // Constructor function new operator (slow path)
+    // ========================================
+    reg.registerLowering("ts_new_from_constructor_0",
+        lowering("ts_new_from_constructor_0")
+            .returnsPtr()
+            .ptrArg()      // constructorFn
+            .build());
+
+    reg.registerLowering("ts_new_from_constructor_1",
+        lowering("ts_new_from_constructor_1")
+            .returnsPtr()
+            .ptrArg()      // constructorFn
+            .ptrArg()      // arg1
+            .build());
+
+    reg.registerLowering("ts_new_from_constructor_2",
+        lowering("ts_new_from_constructor_2")
+            .returnsPtr()
+            .ptrArg()      // constructorFn
+            .ptrArg()      // arg1
+            .ptrArg()      // arg2
+            .build());
+
+    reg.registerLowering("ts_new_from_constructor_3",
+        lowering("ts_new_from_constructor_3")
+            .returnsPtr()
+            .ptrArg()      // constructorFn
+            .ptrArg()      // arg1
+            .ptrArg()      // arg2
+            .ptrArg()      // arg3
+            .build());
+
+    // ========================================
     // Date functions
     // ========================================
     reg.registerLowering("ts_date_create",

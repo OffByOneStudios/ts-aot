@@ -1,0 +1,7 @@
+{
+  "name": "ts-aot-test-fast-deep-equal",
+  "private": true,
+  "dependencies": {
+    "fast-deep-equal": "3.1.3"
+  }
+}

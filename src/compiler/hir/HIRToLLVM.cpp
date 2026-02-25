@@ -7045,6 +7045,11 @@ void HIRToLLVM::lowerSwitch(HIRInstruction* inst) {
     // If the switch value is a double (TypeScript number), convert it to i64.
     if (val->getType()->isDoubleTy()) {
         val = builder_->CreateFPToSI(val, builder_->getInt64Ty(), "switch.val.i64");
+    } else if (val->getType()->isPointerTy()) {
+        // Boxed any-type value (e.g. arguments.length in untyped JS) - unbox to i64
+        auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), {builder_->getPtrTy()}, false);
+        auto fn = module_->getOrInsertFunction("ts_value_get_int", ft);
+        val = builder_->CreateCall(ft, fn.getCallee(), {val}, "switch.val.unbox");
     }
 
     llvm::BasicBlock* defaultBB = getBlock(inst->switchDefault);

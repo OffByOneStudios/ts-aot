@@ -297,6 +297,7 @@ struct ExpressionStatement : Statement {
 
 struct BlockStatement : Statement {
     std::vector<StmtPtr> statements;
+    bool isSynthetic = false;  // True when wrapping multiple var declarations (no new scope)
     std::string getKind() const override { return "BlockStatement"; }
     void accept(Visitor* visitor) override { visitor->visitBlockStatement(this); }
 };

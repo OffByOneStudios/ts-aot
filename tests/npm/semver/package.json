@@ -1,0 +1,7 @@
+{
+  "name": "ts-aot-test-semver",
+  "private": true,
+  "dependencies": {
+    "semver": "7.6.3"
+  }
+}

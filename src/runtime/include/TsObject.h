@@ -203,8 +203,16 @@ extern "C" {
     TsValue* ts_call_with_this_5(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5);
     TsValue* ts_call_with_this_6(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6);
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv);
+    TsValue* ts_call_n(TsValue* boxedFunc, int64_t argc, TsValue** argv);
     TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv);
     TsValue* ts_function_apply(TsValue* boxedFunc, TsValue* thisArg, TsValue* argsArray);
+
+    // Arguments object support
+    int64_t ts_get_last_call_argc();
+    void* ts_create_arguments_from_params(
+        void* p0, void* p1, void* p2, void* p3, void* p4,
+        void* p5, void* p6, void* p7, void* p8, void* p9);
+
     TsValue* ts_object_get_property(void* obj, const char* key);
     
     // Unboxing helpers - safely extract raw pointers from boxed values
