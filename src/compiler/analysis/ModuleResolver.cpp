@@ -541,8 +541,11 @@ std::optional<std::string> ModuleResolver::resolveExportCondition(const nlohmann
     if (!val.is_object()) {
         return std::nullopt;
     }
-    // Priority: default > require > import > node > types
-    // AOT compilers aren't strictly ESM or CJS, so prefer "default" first.
+    // Priority: node > require > default > import > types
+    // Prefer "node" first because it targets the Node.js runtime which is closest
+    // to our AOT compiler's semantics (CJS, crypto.randomBytes, etc.).
+    // Packages like uuid have "node" -> "require" -> "./dist/index.js" (CJS)
+    // but "default" -> "./dist/esm-browser/index.js" (browser ESM without Node APIs).
     // Prefer "require" over "import" because CJS entry points are usually .js
     // while ESM entries are .mjs which may not exist in all packages.
     // "types" must be LAST because it resolves to .d.ts (declaration-only, no
@@ -550,7 +553,7 @@ std::optional<std::string> ModuleResolver::resolveExportCondition(const nlohmann
     // and "require"/"default" pointing to .js — we must prefer the .js.
     // This handles arbitrarily nested conditionals like:
     // { "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" } }
-    for (const char* key : {"default", "require", "import", "node", "types"}) {
+    for (const char* key : {"node", "require", "default", "import", "types"}) {
         if (val.contains(key)) {
             auto result = resolveExportCondition(val[key]);
             if (result) return result;

@@ -582,8 +582,9 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             current_.kind == TokenKind::KW_const) {
             auto stmts = parseVariableDeclarationList(false);
             if (stmts.size() == 1) return std::move(stmts[0]);
-            // Wrap in block
+            // Wrap in block (synthetic - no new scope for var declarations)
             auto block = std::make_unique<ast::BlockStatement>();
+            block->isSynthetic = true;
             for (auto& s : stmts) block->statements.push_back(std::move(s));
             return block;
         }
@@ -704,6 +705,7 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
                 result = std::move(stmts[0]);
             } else {
                 auto block = std::make_unique<ast::BlockStatement>();
+                block->isSynthetic = true;
                 setLocation(block.get(), stmts[0]->line, stmts[0]->column);
                 for (auto& s : stmts) block->statements.push_back(std::move(s));
                 result = std::move(block);
@@ -1919,6 +1921,7 @@ ast::StmtPtr Parser::parseExportDeclaration() {
         auto stmts = parseVariableDeclarationList(true);
         if (stmts.size() == 1) return std::move(stmts[0]);
         auto block = std::make_unique<ast::BlockStatement>();
+        block->isSynthetic = true;
         for (auto& s : stmts) block->statements.push_back(std::move(s));
         return block;
     }

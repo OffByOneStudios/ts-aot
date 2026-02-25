@@ -89,33 +89,24 @@ public:
     bool canHandleMethod(const std::string& methodName,
                          const std::string& className,
                          HIRInstruction* inst) const override {
-        // When className is empty, check the actual HIR type kind.
-        // Only handle methods on truly unknown (Any) types or Map/Set types.
-        // Do NOT intercept methods on Object-typed values (e.g., {get, set, ...} literals)
-        // since those are user-defined methods, not Map/Set operations.
-        // Note: Class types ARE allowed through - extension classes (HTTP Server, etc.)
-        // are backed by TsMap at runtime and need Map dispatch for property access.
-        if (className.empty() && inst) {
-            if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
-                if (*valPtr && (*valPtr)->type) {
-                    auto kind = (*valPtr)->type->kind;
-                    if (kind == HIRTypeKind::Object) {
-                        return false;  // Object literal - not a Map/Set
-                    }
-                }
-            }
-        }
+        // Only intercept methods when we KNOW the receiver is a Map or Set.
+        // When className is empty (Any type), do NOT intercept - let the
+        // dynamic dispatch path handle it. This is critical for JS slow path
+        // where user objects may have methods named "set", "get", etc. that
+        // should call prototype methods, NOT Map operations.
+        // The runtime's ts_object_get_property will return native Map method
+        // wrappers for actual Map objects, so dynamic dispatch still works.
 
-        // Map methods
-        if (className == "Map" || className == "WeakMap" || className.empty()) {
+        // Map methods - only when className confirms it's a Map
+        if (className == "Map" || className == "WeakMap") {
             if (methodName == "set" || methodName == "get" ||
                 methodName == "has" || methodName == "delete" ||
                 methodName == "clear") {
                 return true;
             }
         }
-        // Set methods
-        if (className == "Set" || className == "WeakSet" || className.empty()) {
+        // Set methods - only when className confirms it's a Set
+        if (className == "Set" || className == "WeakSet") {
             if (methodName == "add" || methodName == "has" ||
                 methodName == "delete" || methodName == "clear") {
                 return true;

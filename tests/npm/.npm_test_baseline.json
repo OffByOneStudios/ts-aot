@@ -1,5 +1,10 @@
 {
   "dotenv": "pass",
+  "eventemitter3": "pass",
+  "fast-deep-equal": "pass",
   "ms": "pass",
-  "nanoid": "pass"
+  "nanoid": "pass",
+  "picomatch": "compile_error",
+  "semver": "compile_error",
+  "uuid": "runtime_error"
 }

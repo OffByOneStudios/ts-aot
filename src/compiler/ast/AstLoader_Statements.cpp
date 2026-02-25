@@ -119,6 +119,7 @@ StmtPtr parseStatement(const json& j) {
         // Special case: multiple declarators in a single var statement
         // Expand into separate VariableDeclaration statements
         auto block = std::make_unique<BlockStatement>();
+        block->isSynthetic = true;  // Don't create new scope for multi-var declarations
         setLocation(block.get(), j);
         size_t declCount = j["declarations"].size();
         for (const auto& declJson : j["declarations"]) {

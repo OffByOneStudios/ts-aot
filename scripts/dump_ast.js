@@ -919,6 +919,14 @@ function visitInternal(node) {
                 text: text,
                 containsOnlyTriviaWhiteSpaces: node.containsOnlyTriviaWhiteSpaces
             };
+        case ts.SyntaxKind.VoidExpression:
+            // void expr always evaluates to undefined; evaluate expression for side effects
+            // but return undefined (used as `void 0` in minified code)
+            visit(node.expression); // side effects
+            return {
+                kind: "Identifier",
+                name: "undefined"
+            };
         default:
             console.error("Unhandled node kind:", node.kind);
             return null;
