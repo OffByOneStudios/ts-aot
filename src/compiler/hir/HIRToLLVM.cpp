@@ -7616,30 +7616,26 @@ void HIRToLLVM::lowerPhi(HIRInstruction* inst) {
         }
         if (!isPredecessor) {
             // Walk forward from llvmBlock to handle block splitting (write
-            // barriers, GC safepoints create new blocks within the same HIR block).
-            auto* candidate = llvmBlock;
-            for (int depth = 0; depth < 32 && candidate; ++depth) {
+            // barriers, GC safepoints, NaN-box unboxing create new blocks
+            // within the same HIR block). Use DFS to traverse through
+            // multi-successor blocks (e.g., NaN unboxing: br i1 → int/flt → merge).
+            llvm::SmallVector<llvm::BasicBlock*, 8> stack = {llvmBlock};
+            llvm::SmallPtrSet<llvm::BasicBlock*, 16> visited;
+            while (!stack.empty() && !isPredecessor) {
+                auto* candidate = stack.pop_back_val();
+                if (!candidate || visited.count(candidate)) continue;
+                visited.insert(candidate);
+                if (visited.size() > 32) break;  // depth limit
                 auto* term = candidate->getTerminator();
-                if (!term) break;
-                unsigned numSucc = term->getNumSuccessors();
-                if (numSucc == 1) {
-                    auto* next = term->getSuccessor(0);
-                    if (next == phiBlock) {
+                if (!term) continue;
+                for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
+                    auto* succ = term->getSuccessor(i);
+                    if (succ == phiBlock) {
                         llvmBlock = candidate;
                         isPredecessor = true;
                         break;
                     }
-                    candidate = next;
-                } else {
-                    // Multi-successor: check if phiBlock is a direct target
-                    for (unsigned i = 0; i < numSucc; ++i) {
-                        if (term->getSuccessor(i) == phiBlock) {
-                            llvmBlock = candidate;
-                            isPredecessor = true;
-                            break;
-                        }
-                    }
-                    break;
+                    stack.push_back(succ);
                 }
             }
         }
