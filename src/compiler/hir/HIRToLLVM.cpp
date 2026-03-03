@@ -8482,10 +8482,10 @@ llvm::Value* HIRToLLVM::emitDynamicMethodCall(llvm::Value* funcVal, llvm::Value*
 
     // Get the appropriate ts_call_with_this_N function
     std::string fnName;
-    if (argCount <= 6) {
+    if (argCount <= 8) {
         fnName = "ts_call_with_this_" + std::to_string(argCount);
     } else {
-        // For more than 6 arguments, fall back to null (need array-based version)
+        // For more than 8 arguments, fall back to null (need array-based version)
         SPDLOG_WARN("Dynamic method call with {} args not fully implemented", argCount);
         return llvm::ConstantPointerNull::get(builder_->getPtrTy());
     }

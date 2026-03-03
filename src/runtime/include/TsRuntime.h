@@ -374,6 +374,11 @@ TsValue* ts_new_from_constructor_0(TsValue* constructorFn);
 TsValue* ts_new_from_constructor_1(TsValue* constructorFn, TsValue* arg1);
 TsValue* ts_new_from_constructor_2(TsValue* constructorFn, TsValue* arg1, TsValue* arg2);
 TsValue* ts_new_from_constructor_3(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3);
+TsValue* ts_new_from_constructor_4(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4);
+TsValue* ts_new_from_constructor_5(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5);
+TsValue* ts_new_from_constructor_6(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6);
+TsValue* ts_new_from_constructor_7(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7);
+TsValue* ts_new_from_constructor_8(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8);
 
 // --- Modules ---
 void ts_module_register(TsValue* path, TsValue* exports);

@@ -2879,6 +2879,68 @@ TsValue* ts_value_make_int(int64_t i) {
         return result;
     }
 
+    TsValue* ts_call_with_this_7(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
+        ts_last_call_argc = 7;
+        void* savedThis = ts_call_this_value;
+        ts_call_this_value = thisArg;
+
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            TsValue* result;
+            typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            result = ((Fn7)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            ts_call_this_value = savedThis;
+            return result;
+        }
+
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
+
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_call_7(boxedFunc, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+
+        if (patchedCtx) func->context = savedCtx;
+        ts_call_this_value = savedThis;
+        return result;
+    }
+
+    TsValue* ts_call_with_this_8(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
+        ts_last_call_argc = 8;
+        void* savedThis = ts_call_this_value;
+        ts_call_this_value = thisArg;
+
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            TsValue* result;
+            typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+            result = ((Fn8)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+            ts_call_this_value = savedThis;
+            return result;
+        }
+
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
+
+        void* savedCtx = func->context;
+        bool patchedCtx = false;
+        if (!func->context) {
+            func->context = thisArg;
+            patchedCtx = true;
+        }
+
+        TsValue* result = ts_call_8(boxedFunc, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+
+        if (patchedCtx) func->context = savedCtx;
+        ts_call_this_value = savedThis;
+        return result;
+    }
+
     TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv) {
         if (argc == 0) return ts_call_0(boxedFunc);
         if (argc == 1) return ts_call_1(boxedFunc, argv[0]);
@@ -2968,6 +3030,31 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_new_from_constructor_3(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
         TsValue* argv[] = { arg1, arg2, arg3 };
         return ts_new_from_constructor_impl(constructorFn, 3, argv);
+    }
+
+    TsValue* ts_new_from_constructor_4(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
+        TsValue* argv[] = { arg1, arg2, arg3, arg4 };
+        return ts_new_from_constructor_impl(constructorFn, 4, argv);
+    }
+
+    TsValue* ts_new_from_constructor_5(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
+        TsValue* argv[] = { arg1, arg2, arg3, arg4, arg5 };
+        return ts_new_from_constructor_impl(constructorFn, 5, argv);
+    }
+
+    TsValue* ts_new_from_constructor_6(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
+        TsValue* argv[] = { arg1, arg2, arg3, arg4, arg5, arg6 };
+        return ts_new_from_constructor_impl(constructorFn, 6, argv);
+    }
+
+    TsValue* ts_new_from_constructor_7(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
+        TsValue* argv[] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+        return ts_new_from_constructor_impl(constructorFn, 7, argv);
+    }
+
+    TsValue* ts_new_from_constructor_8(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
+        TsValue* argv[] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
+        return ts_new_from_constructor_impl(constructorFn, 8, argv);
     }
 
     TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv) {
@@ -4583,6 +4670,16 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
+        // Intercept __proto__ accessor
+        if (keyStr) {
+            const char* k = keyStr->ToUtf8();
+            if (k && strcmp(k, "__proto__") == 0) {
+                TsMap* proto = map->GetPrototype();
+                if (proto) return ts_value_make_object(proto);
+                return ts_value_make_null();
+            }
+        }
+
         // Walk prototype chain for property lookup
         TsValue result;
         result.type = ValueType::UNDEFINED;
@@ -4848,6 +4945,27 @@ TsValue* ts_value_make_int(int64_t i) {
                     ts_function_call_with_this(setterFunc, boxedObj, 1, args);
                     return value;
                 }
+            }
+
+            // Intercept __proto__ assignment
+            if (keyCStr && strcmp(keyCStr, "__proto__") == 0) {
+                void* protoPtr = value.ptr_val;
+                if (value.type == ValueType::OBJECT_PTR && protoPtr) {
+                    // Check if value is a TsMap
+                    uint32_t pm16 = *(uint32_t*)((char*)protoPtr + 16);
+                    uint32_t pm20 = *(uint32_t*)((char*)protoPtr + 20);
+                    uint32_t pm24 = *(uint32_t*)((char*)protoPtr + 24);
+                    if (pm16 == 0x4D415053 || pm20 == 0x4D415053 || pm24 == 0x4D415053) {
+                        map->SetPrototype((TsMap*)protoPtr);
+                        return value;
+                    }
+                }
+                // Setting __proto__ to null/undefined clears prototype
+                if (value.type == ValueType::UNDEFINED || protoPtr == nullptr) {
+                    map->SetPrototype(nullptr);
+                    return value;
+                }
+                return value;
             }
 
             // No setter - set property directly
