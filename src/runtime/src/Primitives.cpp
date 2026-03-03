@@ -906,4 +906,40 @@ TsValue* ts_value_strict_eq_wrapper(TsValue* lhs, TsValue* rhs) {
     return ts_value_strict_eq(lhs, rhs);
 }
 
+// JavaScript Number() coercion: converts any value to a double.
+// Implements the ToNumber abstract operation (ECMA-262 7.1.4).
+double ts_to_number(TsValue* v) {
+    if (!v) return 0.0;
+    uint64_t nb = nanbox_from_tsvalue_ptr(v);
+    if (nanbox_is_undefined(nb)) return std::numeric_limits<double>::quiet_NaN();
+    if (nanbox_is_null(nb)) return 0.0;
+    if (nanbox_is_true(nb)) return 1.0;
+    if (nanbox_is_false(nb)) return 0.0;
+    if (nanbox_is_int32(nb)) return (double)nanbox_to_int32(nb);
+    if (nanbox_is_double(nb)) return nanbox_to_double(nb);
+    if (nanbox_is_ptr(nb)) {
+        void* ptr = nanbox_to_ptr(nb);
+        if (!ptr) return 0.0;
+        uint32_t magic = *(uint32_t*)ptr;
+        if (magic == 0x53545247) { // TsString
+            TsString* str = (TsString*)ptr;
+            const char* utf8 = str->ToUtf8();
+            if (!utf8 || *utf8 == '\0') return 0.0;
+            // Trim whitespace
+            const char* s = utf8;
+            while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+            if (*s == '\0') return 0.0;
+            char* end = nullptr;
+            double d = std::strtod(s, &end);
+            // Check remaining chars are whitespace
+            while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
+            if (*end != '\0') return std::numeric_limits<double>::quiet_NaN();
+            return d;
+        }
+        // Objects: NaN
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    return std::numeric_limits<double>::quiet_NaN();
+}
+
 }

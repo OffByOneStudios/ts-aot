@@ -22,6 +22,8 @@ struct ShapeDescriptor {
     uint32_t magic;         // 0x464C4154 for validation
     uint32_t numSlots;      // Number of inline property slots
     const char** propNames; // Static array of C string property names (ordered by slot index)
+    uint32_t numMethods;    // Number of vtable methods (0 for object literals)
+    const char** methodNames; // Method names in vtable order (vtable[i+1] = method i)
 };
 
 #define MAX_SHAPES 4096

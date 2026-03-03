@@ -5,8 +5,35 @@
 #include "TsArray.h"
 #include "TsString.h"
 #include "TsMap.h"
+#include "TsClosure.h"
 
 #include <cstring>
+
+// Bound method context for vtable method dispatch via native function wrappers.
+// When a flat object's vtable method is looked up dynamically (e.g., comp.test(v)
+// where comp is any-typed), we create a native function that binds 'this' to the
+// object. The trampoline receives (ctx, argc, argv) and calls methodPtr(this, args...).
+struct BoundMethodCtx {
+    void* obj;       // 'this' pointer (the flat object)
+    void* methodPtr; // compiled method function pointer
+};
+
+static TsValue* flat_bound_method_trampoline(void* ctx, int argc, TsValue** argv) {
+    BoundMethodCtx* bm = (BoundMethodCtx*)ctx;
+    void* thisObj = bm->obj;
+    void* methodPtr = bm->methodPtr;
+    TsValue* u = (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+
+    // Call methodPtr(this, arg0, arg1, ...) with padding to 4 args
+    typedef TsValue* (*Fn)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+    switch (argc) {
+        case 0:  return ((Fn)methodPtr)(thisObj, u, u, u, u);
+        case 1:  return ((Fn)methodPtr)(thisObj, argv[0], u, u, u);
+        case 2:  return ((Fn)methodPtr)(thisObj, argv[0], argv[1], u, u);
+        case 3:  return ((Fn)methodPtr)(thisObj, argv[0], argv[1], argv[2], u);
+        default: return ((Fn)methodPtr)(thisObj, argv[0], argv[1], argv[2], argv[3]);
+    }
+}
 
 // Global shape table
 ShapeDescriptor* g_shape_table[MAX_SHAPES] = {};
@@ -86,6 +113,25 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
                 return (void*)(uintptr_t)nanbox_bool(result.i_val != 0);
             } else if (result.ptr_val) {
                 return (void*)(uintptr_t)nanbox_ptr(result.ptr_val);
+            }
+        }
+    }
+
+    // Check vtable methods (class instances have methods in their vtable)
+    if (desc->numMethods > 0 && desc->methodNames) {
+        void** vtable = *(void***)((char*)obj + 8); // vtable pointer at offset 8
+        if (vtable) {
+            for (uint32_t i = 0; i < desc->numMethods; i++) {
+                if (strcmp(desc->methodNames[i], key) == 0) {
+                    void* methodPtr = vtable[i + 1]; // +1 to skip parent vtable pointer
+                    if (methodPtr) {
+                        // Create a bound method: native function that calls methodPtr(this, args...)
+                        void* mem = ts_gc_alloc(sizeof(BoundMethodCtx));
+                        BoundMethodCtx* ctx = new (mem) BoundMethodCtx{obj, methodPtr};
+                        return ts_value_make_native_function(
+                            (void*)flat_bound_method_trampoline, ctx);
+                    }
+                }
             }
         }
     }

@@ -231,6 +231,8 @@ extern "C" {
     // Slow path arithmetic
     TsValue* ts_value_add(TsValue* a, TsValue* b);
     TsValue* ts_value_sub(TsValue* a, TsValue* b);
+    TsValue* ts_value_inc(TsValue* a);  // ++: coerce to number, add 1
+    TsValue* ts_value_dec(TsValue* a);  // --: coerce to number, subtract 1
     TsValue* ts_value_mul(TsValue* a, TsValue* b);
     TsValue* ts_value_div(TsValue* a, TsValue* b);
     TsValue* ts_value_mod(TsValue* a, TsValue* b);

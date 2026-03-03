@@ -222,7 +222,7 @@ ResolvedModule Analyzer::resolveModule(const std::string& specifier) {
 void Analyzer::visit(Node* node) {
     if (!node) return;
     if (skipUntypedSemantic && currentModuleType == ModuleType::UntypedJavaScript) {
-        // Minimal traversal for raw JS: detect require() to pull deps, otherwise treat as any.
+        // Minimal traversal for raw JS: detect require() and ESM imports to pull deps, otherwise treat as any.
         if (auto call = dynamic_cast<ast::CallExpression*>(node)) {
             if (auto id = dynamic_cast<ast::Identifier*>(call->callee.get())) {
                 if (id->name == "require" && !call->arguments.empty()) {
@@ -230,6 +230,12 @@ void Analyzer::visit(Node* node) {
                         loadModule(lit->value);
                     }
                 }
+            }
+        }
+        // ESM imports: import ... from 'module'
+        if (auto importDecl = dynamic_cast<ast::ImportDeclaration*>(node)) {
+            if (!importDecl->moduleSpecifier.empty() && !importDecl->isTypeOnly) {
+                loadModule(importDecl->moduleSpecifier);
             }
         }
         lastType = std::make_shared<Type>(TypeKind::Any);

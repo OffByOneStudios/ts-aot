@@ -7,11 +7,59 @@
 #include "TsNanBox.h"
 #include <cmath>
 #include <unicode/unistr.h>
+#include <unicode/regex.h>
 #include <unicode/normlzr.h>
 #include <new>
 #include <string>
 #include <cstring>
+#include <vector>
 #include <unordered_map>
+
+// Forward declarations for calling functions (defined in TsObject.cpp)
+extern "C" {
+    TsValue* ts_call_1(TsValue* func, TsValue* a1);
+    TsValue* ts_call_2(TsValue* func, TsValue* a1, TsValue* a2);
+    TsValue* ts_call_3(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3);
+    TsValue* ts_call_4(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4);
+    TsValue* ts_call_5(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5);
+    TsValue* ts_call_6(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6);
+    TsValue* ts_call_7(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6, TsValue* a7);
+    TsValue* ts_call_8(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8);
+    TsValue* ts_call_9(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9);
+    TsValue* ts_call_10(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9, TsValue* a10);
+    void* ts_string_from_value(TsValue* val);
+}
+
+// Check if a NaN-boxed TsValue is a callable function (closure or TsFunction)
+static bool ts_nanbox_is_callable(void* val) {
+    if (!val) return false;
+    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)val);
+    if (!nanbox_is_ptr(nb)) return false;
+    void* ptr = nanbox_to_ptr(nb);
+    if (!ptr) return false;
+    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+    if (magic16 == 0x434C5352) return true; // TsClosure::MAGIC "CLSR"
+    if (magic16 == 0x46554E43) return true; // TsFunction::MAGIC "FUNC"
+    return false;
+}
+
+// Call a function with a variable number of TsValue* args
+static TsValue* ts_call_variadic_impl(TsValue* fn, TsValue** args, int count) {
+    TsValue* u = ts_value_make_undefined();
+    switch (count) {
+        case 0: return ts_call_1(fn, u);
+        case 1: return ts_call_1(fn, args[0]);
+        case 2: return ts_call_2(fn, args[0], args[1]);
+        case 3: return ts_call_3(fn, args[0], args[1], args[2]);
+        case 4: return ts_call_4(fn, args[0], args[1], args[2], args[3]);
+        case 5: return ts_call_5(fn, args[0], args[1], args[2], args[3], args[4]);
+        case 6: return ts_call_6(fn, args[0], args[1], args[2], args[3], args[4], args[5]);
+        case 7: return ts_call_7(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+        case 8: return ts_call_8(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+        case 9: return ts_call_9(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
+        default: return ts_call_10(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
+    }
+}
 
 // CRITICAL FIX: Cache for common numeric strings (0-999)
 // Lodash does thousands of numeric property accesses which were allocating new strings each time
@@ -912,7 +960,7 @@ int64_t TsString::Search(TsRegExp* regexp) {
 
 TsString* TsString::Replace(TsRegExp* regexp, TsString* replacement) {
     if (!regexp || !replacement) return this;
-    
+
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
     else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
@@ -920,18 +968,56 @@ TsString* TsString::Replace(TsRegExp* regexp, TsString* replacement) {
     icu::UnicodeString r;
     if (replacement->isSmall) r = icu::UnicodeString::fromUTF8(replacement->data.inlineBuffer);
     else r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl);
-    
+
+    // Translate JavaScript replacement patterns to ICU equivalents.
+    // JS: \ is literal, $& = whole match, $$ = literal $, $1-$9 = groups
+    // ICU: \ is escape char, $0 = whole match, \$ = literal $, $1-$9 = groups
+    {
+        icu::UnicodeString translated;
+        for (int32_t i = 0; i < r.length(); ++i) {
+            UChar ch = r[i];
+            if (ch == 0x5C /* \ */) {
+                // In JS, backslash is literal. In ICU, \ is escape char.
+                // Emit \\ so ICU treats it as a literal backslash.
+                translated.append((UChar)0x5C);
+                translated.append((UChar)0x5C);
+            } else if (ch == 0x24 /* $ */ && i + 1 < r.length()) {
+                UChar next = r[i + 1];
+                if (next == 0x26 /* & */) {
+                    // JS $& (whole match) -> ICU $0
+                    translated.append(icu::UnicodeString("$0"));
+                    ++i;
+                } else if (next == 0x24 /* $ */) {
+                    // JS $$ (literal $) -> ICU \$
+                    translated.append((UChar)0x5C);
+                    translated.append((UChar)0x24);
+                    ++i;
+                } else {
+                    // $1-$9 etc. pass through (same in JS and ICU)
+                    translated.append(ch);
+                }
+            } else {
+                translated.append(ch);
+            }
+        }
+        r = translated;
+    }
+
     UErrorCode status = U_ZERO_ERROR;
     icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
+    if (!matcher) return this;
     matcher->reset(s);
-    
+
     icu::UnicodeString result;
-    if (regexp->GetFlags()->Includes(TsString::Create("g"))) {
+    TsString* flags = regexp->GetFlags();
+    if (flags && flags->Includes(TsString::Create("g"))) {
         result = matcher->replaceAll(r, status);
     } else {
         result = matcher->replaceFirst(r, status);
     }
-    
+
+    if (U_FAILURE(status)) return this;
+
     std::string utf8;
     result.toUTF8String(utf8);
     return Create(utf8.c_str());
@@ -1289,27 +1375,229 @@ extern "C" {
         return ((TsString*)str)->Normalize(formStr);
     }
 
+    // Helper: unbox a potential TsValue* to get the raw TsRegExp* pointer.
+    // In the JS slow path, arguments may be NaN-boxed TsValue* instead of raw pointers.
+    static TsRegExp* unboxRegExp(void* arg) {
+        if (!arg) return nullptr;
+        // Check if it's already a raw TsRegExp* (magic 0x52454758 = "REGX")
+        uint32_t magic = *(uint32_t*)arg;
+        if (magic == 0x52454758) return (TsRegExp*)arg;
+        // Try to unbox as TsValue*
+        void* raw = ts_value_get_object((TsValue*)arg);
+        if (raw) {
+            magic = *(uint32_t*)raw;
+            if (magic == 0x52454758) return (TsRegExp*)raw;
+        }
+        return (TsRegExp*)arg; // Fallback: assume raw pointer
+    }
+
     void* ts_string_match_regexp(void* str, void* regexp) {
-        return ((TsString*)str)->Match((TsRegExp*)regexp);
+        return ((TsString*)str)->Match(unboxRegExp(regexp));
     }
 
     void* ts_string_matchAll_regexp(void* str, void* regexp) {
-        return ((TsString*)str)->MatchAll((TsRegExp*)regexp);
+        return ((TsString*)str)->MatchAll(unboxRegExp(regexp));
     }
 
     int64_t ts_string_search_regexp(void* str, void* regexp) {
-        return ((TsString*)str)->Search((TsRegExp*)regexp);
+        return ((TsString*)str)->Search(unboxRegExp(regexp));
+    }
+
+    // Callback-based regex replacement: call function for each match
+    static void* ts_string_replace_callback_regex(TsString* str, TsRegExp* regexp, TsValue* callback) {
+        icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
+        if (!matcher) return str;
+
+        icu::UnicodeString input = str->ToUnicodeString();
+        matcher->reset(input);
+
+        bool isGlobal = regexp->IsGlobal();
+        UErrorCode status = U_ZERO_ERROR;
+        icu::UnicodeString result;
+        int32_t lastEnd = 0;
+
+        while (matcher->find()) {
+            int32_t matchStart = matcher->start(status);
+            int32_t matchEnd = matcher->end(status);
+
+            // Append text before this match
+            result.append(input, lastEnd, matchStart - lastEnd);
+
+            // Build callback args: (match, g1, g2, ..., offset, originalString)
+            int32_t groupCount = matcher->groupCount();
+            std::vector<TsValue*> args;
+            args.reserve(1 + groupCount + 2);
+
+            // Full match (group 0)
+            {
+                icu::UnicodeString matchStr = matcher->group(0, status);
+                std::string utf8;
+                matchStr.toUTF8String(utf8);
+                args.push_back(ts_value_make_string(TsString::Create(utf8.c_str())));
+            }
+
+            // Capture groups (1..groupCount)
+            for (int32_t i = 1; i <= groupCount; i++) {
+                int32_t gs = matcher->start(i, status);
+                if (gs == -1) {
+                    args.push_back(ts_value_make_undefined());
+                } else {
+                    icu::UnicodeString group = matcher->group(i, status);
+                    std::string gUtf8;
+                    group.toUTF8String(gUtf8);
+                    args.push_back(ts_value_make_string(TsString::Create(gUtf8.c_str())));
+                }
+            }
+
+            // Offset (index of match)
+            args.push_back(ts_value_make_int(matchStart));
+            // Original string
+            args.push_back(ts_value_make_string(str));
+
+            // Call the callback
+            TsValue* callResult = ts_call_variadic_impl(callback, args.data(), (int)args.size());
+
+            // Convert result to string and append
+            if (callResult) {
+                // Try to extract as string first (most common case)
+                void* strPtr = ts_value_get_string(callResult);
+                if (strPtr) {
+                    icu::UnicodeString replU = ((TsString*)strPtr)->ToUnicodeString();
+                    result.append(replU);
+                } else {
+                    // Fall back to ts_string_from_value for other types (number, bool, etc.)
+                    void* converted = ts_string_from_value(callResult);
+                    if (converted) {
+                        icu::UnicodeString replU = ((TsString*)converted)->ToUnicodeString();
+                        result.append(replU);
+                    }
+                }
+            }
+
+            lastEnd = matchEnd;
+
+            // For zero-length matches, advance by 1 to avoid infinite loop
+            if (matchStart == matchEnd) {
+                if (matchEnd < input.length()) {
+                    result.append(input[matchEnd]);
+                    lastEnd = matchEnd + 1;
+                } else {
+                    break;
+                }
+            }
+
+            if (!isGlobal) break;
+        }
+
+        // Append remaining text
+        if (lastEnd < input.length()) {
+            result.append(input, lastEnd, input.length() - lastEnd);
+        }
+
+        std::string utf8Result;
+        result.toUTF8String(utf8Result);
+        return TsString::Create(utf8Result.c_str());
+    }
+
+    // Callback-based string replacement: call function for first match
+    static void* ts_string_replace_callback_string(TsString* str, TsString* pattern, TsValue* callback) {
+        const char* haystack = str->ToUtf8();
+        const char* needle = pattern->ToUtf8();
+        if (!haystack || !needle) return str;
+
+        const char* found = strstr(haystack, needle);
+        if (!found) return str;
+
+        int64_t offset = found - haystack;
+        size_t needleLen = strlen(needle);
+
+        // Call callback with (match, offset, originalString)
+        TsValue* callResult = ts_call_3(callback,
+            ts_value_make_string(pattern),
+            ts_value_make_int(offset),
+            ts_value_make_string(str));
+
+        TsString* replStr = callResult ? (TsString*)ts_string_from_value(callResult) : TsString::Create("undefined");
+        const char* replUtf8 = replStr->ToUtf8();
+
+        std::string result;
+        result.append(haystack, offset);
+        result.append(replUtf8);
+        result.append(haystack + offset + needleLen);
+
+        return TsString::Create(result.c_str());
     }
 
     void* ts_string_replace(void* str, void* pattern, void* replacement) {
+        // Check if replacement is a callback function
+        bool replIsCallback = ts_nanbox_is_callable(replacement);
+
+        // Pattern may be a NaN-boxed TsValue* - try to extract raw object pointer
+        if (pattern) {
+            void* rawObj = ts_value_get_object((TsValue*)pattern);
+            if (rawObj) {
+                uint32_t magic = *(uint32_t*)rawObj;
+                if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
+                    if (replIsCallback) {
+                        return ts_string_replace_callback_regex((TsString*)str, (TsRegExp*)rawObj, (TsValue*)replacement);
+                    }
+                    // String replacement
+                    void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
+                    if (!rawRepl) rawRepl = replacement;
+                    return ((TsString*)str)->Replace((TsRegExp*)rawObj, (TsString*)rawRepl);
+                }
+                // Check if it's a TsString (magic 0x53545247 "STRG")
+                if (magic == 0x53545247) {
+                    if (replIsCallback) {
+                        return ts_string_replace_callback_string((TsString*)str, (TsString*)rawObj, (TsValue*)replacement);
+                    }
+                    void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
+                    if (!rawRepl) rawRepl = replacement;
+                    return ((TsString*)str)->Replace((TsString*)rawObj, (TsString*)rawRepl);
+                }
+            }
+            // Try extracting as string directly
+            void* strPattern = ts_value_get_string((TsValue*)pattern);
+            if (strPattern) {
+                if (replIsCallback) {
+                    return ts_string_replace_callback_string((TsString*)str, (TsString*)strPattern, (TsValue*)replacement);
+                }
+                void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
+                if (!rawRepl) rawRepl = replacement;
+                return ((TsString*)str)->Replace((TsString*)strPattern, (TsString*)rawRepl);
+            }
+        }
         return ((TsString*)str)->Replace((TsString*)pattern, (TsString*)replacement);
     }
 
     void* ts_string_replace_regexp(void* str, void* regexp, void* replacement) {
-        return ((TsString*)str)->Replace((TsRegExp*)regexp, (TsString*)replacement);
+        return ((TsString*)str)->Replace(unboxRegExp(regexp), (TsString*)replacement);
     }
 
     void* ts_string_replaceAll(void* str, void* pattern, void* replacement) {
+        // Pattern may be a NaN-boxed TsValue* - try to extract raw object pointer
+        if (pattern) {
+            void* rawObj = ts_value_get_object((TsValue*)pattern);
+            if (rawObj) {
+                uint32_t magic = *(uint32_t*)rawObj;
+                if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
+                    void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
+                    if (!rawRepl) rawRepl = replacement;
+                    return ((TsString*)str)->Replace((TsRegExp*)rawObj, (TsString*)rawRepl);
+                }
+                if (magic == 0x53545247) { // TsString::MAGIC ("STRG")
+                    void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
+                    if (!rawRepl) rawRepl = replacement;
+                    return ((TsString*)str)->ReplaceAll((TsString*)rawObj, (TsString*)rawRepl);
+                }
+            }
+            void* strPattern = ts_value_get_string((TsValue*)pattern);
+            if (strPattern) {
+                void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
+                if (!rawRepl) rawRepl = replacement;
+                return ((TsString*)str)->ReplaceAll((TsString*)strPattern, (TsString*)rawRepl);
+            }
+        }
         return ((TsString*)str)->ReplaceAll((TsString*)pattern, (TsString*)replacement);
     }
 
@@ -1322,7 +1610,7 @@ extern "C" {
     }
 
     void* ts_string_split_regexp(void* str, void* regexp) {
-        return ((TsString*)str)->Split((TsRegExp*)regexp);
+        return ((TsString*)str)->Split(unboxRegExp(regexp));
     }
 
     void* ts_string_from_int(int64_t value) {

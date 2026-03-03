@@ -175,6 +175,9 @@ public:
     /// Get the string value from a string literal token (with escape processing)
     static std::string getStringValue(std::string_view rawToken);
 
+    /// Process escape sequences in template literal text (no quotes to strip)
+    static std::string processTemplateEscapes(std::string_view text);
+
     /// Check if a token kind is a keyword
     static bool isKeyword(TokenKind kind);
 

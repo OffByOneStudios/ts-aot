@@ -469,10 +469,20 @@ void TsArray::ForEach(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback)) {
         TsClosure* closure = (TsClosure*)callback;
-        for (size_t i = 0; i < length; ++i) {
-            // Get element as double (unboxed) for HIR closures
-            double elem = GetElementDouble(i);
-            ts_closure_invoke_1d_void(closure, elem);
+        if (IsDoubleArray() || IsSmiArray()) {
+            // Fast path: numeric arrays with typed closures (double calling convention)
+            for (size_t i = 0; i < length; ++i) {
+                double elem = GetElementDouble(i);
+                ts_closure_invoke_1d_void(closure, elem);
+            }
+        } else {
+            // Generic path: string/mixed arrays with untyped closures (ptr calling convention)
+            for (size_t i = 0; i < length; ++i) {
+                TsValue* v = GetElementBoxed(i);
+                TsValue* idx = ts_value_make_int(i);
+                TsValue* arr = ts_value_make_object(this);
+                ts_call_3((TsValue*)callback, v, idx, arr);
+            }
         }
         return;
     }
@@ -494,12 +504,22 @@ void* TsArray::Map(void* callback, void* thisArg) {
     if (ts_is_closure(callback)) {
         TsClosure* closure = (TsClosure*)callback;
         TsArray* result = TsArray::Create(length);
-        for (size_t i = 0; i < length; ++i) {
-            // Get element as double (unboxed) for HIR closures
-            double elem = GetElementDouble(i);
-            double mapped = ts_closure_invoke_1d(closure, elem);
-            // Store as double directly (using bit pattern)
-            result->PushDouble(mapped);
+        if (IsDoubleArray() || IsSmiArray()) {
+            // Fast path: numeric arrays with typed closures (double calling convention)
+            for (size_t i = 0; i < length; ++i) {
+                double elem = GetElementDouble(i);
+                double mapped = ts_closure_invoke_1d(closure, elem);
+                result->PushDouble(mapped);
+            }
+        } else {
+            // Generic path: string/mixed arrays with untyped closures (ptr calling convention)
+            for (size_t i = 0; i < length; ++i) {
+                TsValue* v = GetElementBoxed(i);
+                TsValue* idx = ts_value_make_int(i);
+                TsValue* arr = ts_value_make_object(this);
+                TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
+                result->Push((int64_t)res);
+            }
         }
         return result;
     }
@@ -526,10 +546,24 @@ void* TsArray::Filter(void* callback, void* thisArg) {
     if (ts_is_closure(callback)) {
         TsClosure* closure = (TsClosure*)callback;
         TsArray* result = TsArray::Create();
-        for (size_t i = 0; i < length; ++i) {
-            double elem = GetElementDouble(i);
-            if (ts_closure_invoke_1d_bool(closure, elem)) {
-                result->PushDouble(elem);
+        if (IsDoubleArray() || IsSmiArray()) {
+            // Fast path: numeric arrays with typed closures
+            for (size_t i = 0; i < length; ++i) {
+                double elem = GetElementDouble(i);
+                if (ts_closure_invoke_1d_bool(closure, elem)) {
+                    result->PushDouble(elem);
+                }
+            }
+        } else {
+            // Generic path: string/mixed arrays with untyped closures
+            for (size_t i = 0; i < length; ++i) {
+                TsValue* v = GetElementBoxed(i);
+                TsValue* idx = ts_value_make_int(i);
+                TsValue* arr = ts_value_make_object(this);
+                TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
+                if (ts_value_to_bool(res)) {
+                    result->Push(((int64_t*)elements)[i]);
+                }
             }
         }
         return result;
@@ -647,9 +681,19 @@ bool TsArray::Some(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback)) {
         TsClosure* closure = (TsClosure*)callback;
-        for (size_t i = 0; i < length; ++i) {
-            double elem = GetElementDouble(i);
-            if (ts_closure_invoke_1d_bool(closure, elem)) return true;
+        if (IsDoubleArray() || IsSmiArray()) {
+            for (size_t i = 0; i < length; ++i) {
+                double elem = GetElementDouble(i);
+                if (ts_closure_invoke_1d_bool(closure, elem)) return true;
+            }
+        } else {
+            for (size_t i = 0; i < length; ++i) {
+                TsValue* v = GetElementBoxed(i);
+                TsValue* idx = ts_value_make_int(i);
+                TsValue* arr = ts_value_make_object(this);
+                TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
+                if (ts_value_to_bool(res)) return true;
+            }
         }
         return false;
     }
@@ -672,9 +716,19 @@ bool TsArray::Every(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback)) {
         TsClosure* closure = (TsClosure*)callback;
-        for (size_t i = 0; i < length; ++i) {
-            double elem = GetElementDouble(i);
-            if (!ts_closure_invoke_1d_bool(closure, elem)) return false;
+        if (IsDoubleArray() || IsSmiArray()) {
+            for (size_t i = 0; i < length; ++i) {
+                double elem = GetElementDouble(i);
+                if (!ts_closure_invoke_1d_bool(closure, elem)) return false;
+            }
+        } else {
+            for (size_t i = 0; i < length; ++i) {
+                TsValue* v = GetElementBoxed(i);
+                TsValue* idx = ts_value_make_int(i);
+                TsValue* arr = ts_value_make_object(this);
+                TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
+                if (!ts_value_to_bool(res)) return false;
+            }
         }
         return true;
     }
@@ -697,11 +751,20 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback)) {
         TsClosure* closure = (TsClosure*)callback;
-        for (size_t i = 0; i < length; ++i) {
-            double elem = GetElementDouble(i);
-            if (ts_closure_invoke_1d_bool(closure, elem)) {
-                // Return the element as a boxed double
-                return ts_value_make_double(elem);
+        if (IsDoubleArray() || IsSmiArray()) {
+            for (size_t i = 0; i < length; ++i) {
+                double elem = GetElementDouble(i);
+                if (ts_closure_invoke_1d_bool(closure, elem)) {
+                    return ts_value_make_double(elem);
+                }
+            }
+        } else {
+            for (size_t i = 0; i < length; ++i) {
+                TsValue* v = GetElementBoxed(i);
+                TsValue* idx = ts_value_make_int(i);
+                TsValue* arr = ts_value_make_object(this);
+                TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
+                if (ts_value_to_bool(res)) return GetElementBoxed(i);
             }
         }
         return ts_value_make_undefined();
@@ -727,9 +790,19 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback)) {
         TsClosure* closure = (TsClosure*)callback;
-        for (size_t i = 0; i < length; ++i) {
-            double elem = GetElementDouble(i);
-            if (ts_closure_invoke_1d_bool(closure, elem)) return (int64_t)i;
+        if (IsDoubleArray() || IsSmiArray()) {
+            for (size_t i = 0; i < length; ++i) {
+                double elem = GetElementDouble(i);
+                if (ts_closure_invoke_1d_bool(closure, elem)) return (int64_t)i;
+            }
+        } else {
+            for (size_t i = 0; i < length; ++i) {
+                TsValue* v = GetElementBoxed(i);
+                TsValue* idx = ts_value_make_int(i);
+                TsValue* arr = ts_value_make_object(this);
+                TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
+                if (ts_value_to_bool(res)) return (int64_t)i;
+            }
         }
         return -1;
     }
@@ -752,12 +825,21 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback)) {
         TsClosure* closure = (TsClosure*)callback;
-        for (size_t i = length; i > 0; --i) {
-            size_t idx = i - 1;
-            double elem = GetElementDouble(idx);
-            if (ts_closure_invoke_1d_bool(closure, elem)) {
-                // Return the element as a boxed double
-                return ts_value_make_double(elem);
+        if (IsDoubleArray() || IsSmiArray()) {
+            for (size_t i = length; i > 0; --i) {
+                size_t idx = i - 1;
+                double elem = GetElementDouble(idx);
+                if (ts_closure_invoke_1d_bool(closure, elem)) {
+                    return ts_value_make_double(elem);
+                }
+            }
+        } else {
+            for (size_t i = length; i > 0; --i) {
+                TsValue* v = GetElementBoxed(i - 1);
+                TsValue* idx_v = ts_value_make_int(i - 1);
+                TsValue* arr = ts_value_make_object(this);
+                TsValue* res = ts_call_3((TsValue*)callback, v, idx_v, arr);
+                if (ts_value_to_bool(res)) return GetElementBoxed(i - 1);
             }
         }
         return ts_value_make_undefined();
@@ -784,10 +866,20 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
     if (ts_is_closure(callback)) {
         TsClosure* closure = (TsClosure*)callback;
-        for (size_t i = length; i > 0; --i) {
-            size_t idx = i - 1;
-            double elem = GetElementDouble(idx);
-            if (ts_closure_invoke_1d_bool(closure, elem)) return (int64_t)idx;
+        if (IsDoubleArray() || IsSmiArray()) {
+            for (size_t i = length; i > 0; --i) {
+                size_t idx = i - 1;
+                double elem = GetElementDouble(idx);
+                if (ts_closure_invoke_1d_bool(closure, elem)) return (int64_t)idx;
+            }
+        } else {
+            for (size_t i = length; i > 0; --i) {
+                TsValue* v = GetElementBoxed(i - 1);
+                TsValue* idx_v = ts_value_make_int(i - 1);
+                TsValue* arr = ts_value_make_object(this);
+                TsValue* res = ts_call_3((TsValue*)callback, v, idx_v, arr);
+                if (ts_value_to_bool(res)) return (int64_t)(i - 1);
+            }
         }
         return -1;
     }
@@ -1606,7 +1698,22 @@ extern "C" {
         }
 
         TsArray* array = (TsArray*)raw;
-        array->SetUnchecked(index, (int64_t)value);
+        if (index < 0) return;
+
+        size_t idx = (size_t)index;
+        size_t len = (size_t)array->Length();
+
+        if (idx < len) {
+            // Within bounds - direct write (Set handles write barrier)
+            array->Set(idx, (int64_t)value);
+        } else {
+            // JS semantics: grow array, fill gaps with undefined
+            int64_t undef = 0x0A; // NaN-boxed undefined
+            while ((size_t)array->Length() < idx) {
+                array->Push(undef);
+            }
+            array->Push((int64_t)value);
+        }
     }
 
     int64_t ts_array_length(void* arr) {
@@ -1787,6 +1894,7 @@ extern "C" {
     void* ts_array_join(void* arr, void* separator) {
         // Unbox if arr is a TsValue* (boxed array)
         void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!rawArr) return TsString::Create("");
         return ((TsArray*)rawArr)->Join(separator);
     }
 

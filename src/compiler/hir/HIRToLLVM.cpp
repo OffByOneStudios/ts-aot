@@ -120,13 +120,19 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
 
     // Pre-create all global variables before lowering functions
     // This ensures each global is created exactly once with the correct name
+    fprintf(stderr, "=== Phase 1: Creating %zu globals ===\n", hirModule->globals.size()); fflush(stderr);
     for (const auto& [name, type] : hirModule->globals) {
         getOrCreateGlobal(name, type);
     }
+    fprintf(stderr, "=== Phase 1 done ===\n"); fflush(stderr);
 
     // Forward-declare all functions first
     // This is necessary because functions may call each other before they are defined
-    for (auto& fn : hirModule->functions) {
+    fprintf(stderr, "=== Phase 2: Forward-declaring %zu functions ===\n", hirModule->functions.size()); fflush(stderr);
+    for (size_t i = 0; i < hirModule->functions.size(); ++i) {
+        auto& fn = hirModule->functions[i];
+        fprintf(stderr, "  fwd-decl %zu/%zu: %s (blocks=%zu)\n", i, hirModule->functions.size(),
+            fn->mangledName.c_str(), fn->blocks.size()); fflush(stderr);
         forwardDeclareFunction(fn.get());
         // Store HIR parameter types for each user function
         std::vector<std::shared_ptr<HIRType>> paramTypes;
@@ -135,10 +141,12 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         }
         userFunctionParams_[fn->mangledName] = std::move(paramTypes);
     }
+    fprintf(stderr, "=== Phase 2 done ===\n"); fflush(stderr);
 
     // Create VTable globals for all classes (even empty ones for instanceof)
     // VTable structure: { ParentVTable*, FunctionPtr1, FunctionPtr2, ... }
     // This must happen AFTER forward-declaring functions so we can get the correct function types
+    fprintf(stderr, "=== Phase 3: Creating %zu VTable globals ===\n", hirModule->classes.size()); fflush(stderr);
     for (auto& hirClass : hirModule->classes) {
         std::string vtableGlobalName = hirClass->name + "_VTable_Global";
 
@@ -187,9 +195,16 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         SPDLOG_DEBUG("Created VTable global: {} with {} entries (+ parent ptr)", vtableGlobalName, hirClass->vtable.size());
     }
 
+    fprintf(stderr, "=== Phase 3 done ===\n"); fflush(stderr);
+
     // Lower all functions
-    for (auto& fn : hirModule->functions) {
+    fprintf(stderr, "=== Phase 4: Lowering %zu functions ===\n", hirModule->functions.size()); fflush(stderr);
+    for (size_t fi = 0; fi < hirModule->functions.size(); ++fi) {
+        auto& fn = hirModule->functions[fi];
+        fprintf(stderr, ">>> Lowering function %zu/%zu: %s (blocks=%zu)\n", fi, hirModule->functions.size(),
+            fn->mangledName.c_str(), fn->blocks.size()); fflush(stderr);
         lowerFunction(fn.get());
+        fprintf(stderr, "<<< Done lowering function %zu: %s\n", fi, fn->mangledName.c_str()); fflush(stderr);
     }
 
     // Create main entry point
@@ -269,11 +284,13 @@ void HIRToLLVM::createMainFunction() {
         );
         llvm::FunctionCallee registerFn = module_->getOrInsertFunction("ts_shape_register", registerFT);
 
-        // ShapeDescriptor struct type: { i32 magic, i32 numSlots, ptr propNames }
+        // ShapeDescriptor struct type: { i32 magic, i32 numSlots, ptr propNames, i32 numMethods, ptr methodNames }
         llvm::StructType* shapeDescTy = llvm::StructType::get(context_, {
             builder_->getInt32Ty(),  // magic
             builder_->getInt32Ty(),  // numSlots
-            builder_->getPtrTy()     // propNames
+            builder_->getPtrTy(),    // propNames
+            builder_->getInt32Ty(),  // numMethods
+            builder_->getPtrTy()     // methodNames
         });
 
         for (auto& shape : hirModule_->shapes) {
@@ -305,11 +322,45 @@ void HIRToLLVM::createMainFunction() {
                 llvm::GlobalValue::PrivateLinkage, ptrArray,
                 "flat.names." + std::to_string(shape->id));
 
+            // Find the HIRClass for this shape to get vtable method names
+            uint32_t numMethods = 0;
+            llvm::Constant* methodNameArrayGlobal = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+
+            if (!shape->className.empty()) {
+                for (auto& hirClass : hirModule_->classes) {
+                    if (hirClass->name == shape->className && !hirClass->vtable.empty()) {
+                        numMethods = (uint32_t)hirClass->vtable.size();
+
+                        // Emit method name string constants
+                        std::vector<llvm::Constant*> methodNamePtrs;
+                        for (auto& [methodName, methodFunc] : hirClass->vtable) {
+                            auto* mStrConst = llvm::ConstantDataArray::getString(context_, methodName, true);
+                            auto* mStrGlobal = new llvm::GlobalVariable(
+                                *module_, mStrConst->getType(), true,
+                                llvm::GlobalValue::PrivateLinkage, mStrConst,
+                                "flat.method." + std::to_string(shape->id) + "." + methodName);
+                            methodNamePtrs.push_back(mStrGlobal);
+                        }
+
+                        // Emit global array of method name pointers
+                        auto* mPtrArrayTy = llvm::ArrayType::get(builder_->getPtrTy(), numMethods);
+                        auto* mPtrArray = llvm::ConstantArray::get(mPtrArrayTy, methodNamePtrs);
+                        methodNameArrayGlobal = new llvm::GlobalVariable(
+                            *module_, mPtrArrayTy, true,
+                            llvm::GlobalValue::PrivateLinkage, mPtrArray,
+                            "flat.methodnames." + std::to_string(shape->id));
+                        break;
+                    }
+                }
+            }
+
             // Emit ShapeDescriptor struct constant
             auto* descConst = llvm::ConstantStruct::get(shapeDescTy, {
                 llvm::ConstantInt::get(builder_->getInt32Ty(), 0x464C4154),  // magic
                 llvm::ConstantInt::get(builder_->getInt32Ty(), numSlots),     // numSlots
-                nameArrayGlobal                                                // propNames
+                nameArrayGlobal,                                              // propNames
+                llvm::ConstantInt::get(builder_->getInt32Ty(), numMethods),   // numMethods
+                methodNameArrayGlobal                                         // methodNames
             });
             auto* descGlobal = new llvm::GlobalVariable(
                 *module_, shapeDescTy, true,
@@ -490,6 +541,22 @@ void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
     // Arrow functions and function expressions add __closure__ as first param for call_indirect
     bool hasHiddenClosureParam = (!fn->params.empty() && fn->params[0].first == "__closure__");
 
+    // If the HIR return type resolved to void, check if the function actually has
+    // Return (non-void) instructions. This happens for untyped JavaScript functions
+    // where the analyzer doesn't infer return types. Upgrade to ptr to avoid LLVM
+    // verifier errors ("Found return instr that returns non-void in void function").
+    if (returnType->isVoidTy()) {
+        for (auto& block : fn->blocks) {
+            for (auto& inst : block->instructions) {
+                if (inst->opcode == HIROpcode::Return) {
+                    returnType = builder_->getPtrTy();
+                    goto returnTypeFixed;
+                }
+            }
+        }
+        returnTypeFixed:;
+    }
+
     // If this function has captures AND doesn't already have a closure param, add one
     if (!fn->captures.empty() && !hasHiddenClosureParam) {
         paramTypes.push_back(builder_->getPtrTy());  // TsClosure* __closure
@@ -536,6 +603,20 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         // Function wasn't forward-declared, create it now
         // For async and generator functions, the return type is always ptr (Promise*/Generator*)
         llvm::Type* returnType = (fn->isAsync || fn->isGenerator) ? builder_->getPtrTy() : getLLVMType(fn->returnType);
+
+        // Check for void return type with non-void Return instructions
+        if (returnType->isVoidTy()) {
+            for (auto& block : fn->blocks) {
+                for (auto& inst : block->instructions) {
+                    if (inst->opcode == HIROpcode::Return) {
+                        returnType = builder_->getPtrTy();
+                        goto lowerReturnTypeFixed;
+                    }
+                }
+            }
+            lowerReturnTypeFixed:;
+        }
+
         std::vector<llvm::Type*> paramTypes;
 
         // Only add implicit closure param if function has captures AND doesn't already have one
@@ -922,26 +1003,93 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         }
     }
 
-    // Lower each block
-    for (size_t bi = 0; bi < fn->blocks.size(); ++bi) {
-        lowerBlock(fn->blocks[bi].get());
-
-        // Cross-block validation: after lowering each block, check ALL remaining blocks
-        for (size_t bj = bi + 1; bj < fn->blocks.size(); ++bj) {
-            auto& futureBlock = fn->blocks[bj];
-            for (size_t ii = 0; ii < futureBlock->instructions.size(); ++ii) {
-                auto& futureInst = futureBlock->instructions[ii];
-                for (size_t oj = 0; oj < futureInst->operands.size(); ++oj) {
-                    auto idx = futureInst->operands[oj].index();
-                    if (idx > 6) {
-                        SPDLOG_ERROR("CROSS-BLOCK CORRUPT: func={} lowered_block={} corrupted_block={} corrupted_instr={} opcode={} operand[{}].index()={}",
-                            fn->mangledName, fn->blocks[bi]->label, futureBlock->label,
-                            ii, static_cast<int>(futureInst->opcode), oj, idx);
-                        abort();
+    // Compute Reverse Post-Order (RPO) for block lowering.
+    // RPO ensures predecessors are lowered before successors (except loop back-edges),
+    // which guarantees that value definitions are in valueMap_ before their uses.
+    // This fixes cases where default parameter handling creates value-producing
+    // blocks that appear after merge blocks in the sequential fn->blocks order.
+    std::vector<HIRBlock*> rpoOrder;
+    {
+        // Build a fresh successor map from terminators.  The cached
+        // block->successors vector can become stale after DCE or other
+        // optimisation passes modify control flow, so derive edges from
+        // the actual Branch / CondBranch / Switch operands.
+        std::unordered_map<HIRBlock*, std::vector<HIRBlock*>> succMap;
+        for (auto& block : fn->blocks) {
+            auto& succs = succMap[block.get()];
+            if (block->instructions.empty()) continue;
+            HIRInstruction* term = block->instructions.back().get();
+            switch (term->opcode) {
+                case HIROpcode::Branch:
+                    if (!term->operands.empty()) {
+                        if (auto* blk = std::get_if<HIRBlock*>(&term->operands[0]))
+                            succs.push_back(*blk);
                     }
-                }
+                    break;
+                case HIROpcode::CondBranch:
+                    if (term->operands.size() >= 3) {
+                        if (auto* thenBlk = std::get_if<HIRBlock*>(&term->operands[1]))
+                            succs.push_back(*thenBlk);
+                        if (auto* elseBlk = std::get_if<HIRBlock*>(&term->operands[2]))
+                            succs.push_back(*elseBlk);
+                    }
+                    break;
+                case HIROpcode::Switch:
+                    if (term->switchDefault)
+                        succs.push_back(term->switchDefault);
+                    for (auto& [val, target] : term->switchCases)
+                        succs.push_back(target);
+                    break;
+                default:
+                    break;
             }
         }
+
+        std::unordered_set<HIRBlock*> visited;
+        std::vector<HIRBlock*> postOrder;
+
+        // Iterative DFS post-order traversal using explicit stack
+        // Stack entries: (block, index into successors to visit next)
+        std::vector<std::pair<HIRBlock*, size_t>> stack;
+        if (!fn->blocks.empty()) {
+            HIRBlock* entry = fn->blocks[0].get();
+            visited.insert(entry);
+            stack.push_back({entry, 0});
+        }
+        while (!stack.empty()) {
+            auto& [block, idx] = stack.back();
+            auto& succs = succMap[block];
+            if (idx < succs.size()) {
+                HIRBlock* succ = succs[idx++];
+                if (succ && !visited.count(succ)) {
+                    visited.insert(succ);
+                    stack.push_back({succ, 0});
+                }
+            } else {
+                postOrder.push_back(block);
+                stack.pop_back();
+            }
+        }
+
+        // Append any blocks not reachable from entry (shouldn't happen after DCE,
+        // but ensures we don't silently drop blocks)
+        for (auto& block : fn->blocks) {
+            if (!visited.count(block.get())) {
+                postOrder.push_back(block.get());
+            }
+        }
+
+        // Reverse post-order = predecessors before successors
+        rpoOrder.assign(postOrder.rbegin(), postOrder.rend());
+    }
+
+    // Lower each block in RPO order
+    for (size_t bi = 0; bi < rpoOrder.size(); ++bi) {
+        if (!rpoOrder[bi]) {
+            SPDLOG_WARN("RPO: null block at index {} in func {}", bi, fn->mangledName);
+            continue;
+        }
+        lowerBlock(rpoOrder[bi]);
     }
 
     currentFunction_ = nullptr;
@@ -984,6 +1132,9 @@ void HIRToLLVM::lowerBlock(HIRBlock* block) {
         auto& inst = block->instructions[i];
         currentInstrIndex_ = i;
         lowerInstruction(inst.get());
+        // Stop if the current block already has a terminator (e.g., from a fallback
+        // branch). Emitting more instructions would cause "terminator in middle" errors.
+        if (builder_->GetInsertBlock()->getTerminator()) break;
     }
 }
 
@@ -2940,6 +3091,48 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
         }
     }
 
+    // Fallback NaN-boxing: when no type hint was provided but we're storing a
+    // non-ptr value (double/i64/i1) to a ptr-typed alloca, apply NaN-boxing.
+    // This happens in JS slow-path code where all locals are ptr-typed (Any)
+    // but literals produce typed LLVM values (e.g., ConstFloat → double).
+    // Guard: only when expectedType is null (no type hint at all), which indicates
+    // JS slow-path code. Typed code always has type hints on Store instructions.
+    // Use branchless inline boxing to avoid creating new basic blocks mid-store.
+    if (!expectedType && !val->getType()->isPointerTy() && builder_->GetInsertBlock()) {
+        if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(ptr)) {
+            if (alloca->getAllocatedType()->isPointerTy()) {
+                if (val->getType()->isDoubleTy()) {
+                    // Branchless double NaN-boxing: bias by 2^49
+                    llvm::Value* bits = builder_->CreateBitCast(val, builder_->getInt64Ty(), "nb.bits");
+                    llvm::Value* biased = builder_->CreateAdd(bits,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "nb.biased");
+                    val = builder_->CreateIntToPtr(biased, builder_->getPtrTy(), "nb.boxed_float");
+                } else if (val->getType()->isIntegerTy(64)) {
+                    // Branchless int NaN-boxing: select between int32 and double paths
+                    llvm::Value* trunc = builder_->CreateTrunc(val, builder_->getInt32Ty(), "nb.trunc");
+                    llvm::Value* sext = builder_->CreateSExt(trunc, builder_->getInt64Ty(), "nb.sext");
+                    llvm::Value* fits = builder_->CreateICmpEQ(val, sext, "nb.fits_i32");
+                    llvm::Value* masked = builder_->CreateAnd(val,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x00000000FFFFFFFFULL), "nb.masked");
+                    llvm::Value* tagged = builder_->CreateOr(masked,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0xFFFE000000000000ULL), "nb.tagged");
+                    llvm::Value* dbl = builder_->CreateSIToFP(val, builder_->getDoubleTy(), "nb.dbl");
+                    llvm::Value* dbits = builder_->CreateBitCast(dbl, builder_->getInt64Ty(), "nb.dbits");
+                    llvm::Value* dbiased = builder_->CreateAdd(dbits,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0002000000000000ULL), "nb.dbiased");
+                    llvm::Value* selected = builder_->CreateSelect(fits, tagged, dbiased, "nb.sel");
+                    val = builder_->CreateIntToPtr(selected, builder_->getPtrTy(), "nb.boxed_int");
+                } else if (val->getType()->isIntegerTy(1)) {
+                    // Branchless bool NaN-boxing: false=6, true=7
+                    llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt64Ty(), "nb.ext");
+                    llvm::Value* result = builder_->CreateAdd(ext,
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 6), "nb.bool");
+                    val = builder_->CreateIntToPtr(result, builder_->getPtrTy(), "nb.boxed_bool");
+                }
+            }
+        }
+    }
+
     builder_->CreateStore(val, ptr);
 
     // Emit write barrier for pointer stores to non-stack destinations.
@@ -4046,6 +4239,11 @@ void HIRToLLVM::lowerArrayPush(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     std::string funcName = getOperandString(inst->operands[0]);
+
+    if (funcName.find("_constructor") != std::string::npos) {
+        SPDLOG_WARN("lowerCall: constructor call '{}' in func '{}'",
+            funcName, currentFunction_ ? currentFunction_->getName().str() : "null");
+    }
 
     // Try handler registry first - this is the new modular approach
     if (auto* result = HandlerRegistry::instance().tryLower(funcName, inst, *this)) {
@@ -6998,9 +7196,17 @@ void HIRToLLVM::lowerBranch(HIRInstruction* inst) {
     HIRBlock* target = getOperandBlock(inst->operands[0]);
     llvm::BasicBlock* targetBB = getBlock(target);
     if (!targetBB) {
-        SPDLOG_ERROR("lowerBranch: null LLVM block for Branch in {} (target={})",
+        SPDLOG_WARN("lowerBranch: null LLVM block for Branch in {} (target={}), creating unreachable fallback",
             currentHIRFunction_ ? currentHIRFunction_->mangledName : "??",
             target ? target->label : "null");
+        // Create a fallback unreachable block for dangling branch targets
+        // (e.g., cross-function block references from ASTToHIR)
+        auto* fallback = llvm::BasicBlock::Create(context_, "branch.fallback", currentFunction_);
+        auto savedIP = builder_->saveIP();
+        builder_->SetInsertPoint(fallback);
+        builder_->CreateUnreachable();
+        builder_->restoreIP(savedIP);
+        builder_->CreateBr(fallback);
         return;
     }
     builder_->CreateBr(targetBB);
@@ -7014,10 +7220,20 @@ void HIRToLLVM::lowerCondBranch(HIRInstruction* inst) {
     llvm::BasicBlock* thenBB = getBlock(thenBlock);
     llvm::BasicBlock* elseBB = getBlock(elseBlock);
 
+    // Create fallback unreachable blocks for dangling branch targets
     if (!thenBB || !elseBB) {
-        SPDLOG_ERROR("lowerCondBranch: null LLVM block for CondBranch in {}",
+        SPDLOG_WARN("lowerCondBranch: null LLVM block for CondBranch in {}, creating unreachable fallback(s)",
             currentHIRFunction_ ? currentHIRFunction_->mangledName : "??");
-        return;
+        auto createFallback = [&]() {
+            auto* fb = llvm::BasicBlock::Create(context_, "condbr.fallback", currentFunction_);
+            auto savedIP = builder_->saveIP();
+            builder_->SetInsertPoint(fb);
+            builder_->CreateUnreachable();
+            builder_->restoreIP(savedIP);
+            return fb;
+        };
+        if (!thenBB) thenBB = createFallback();
+        if (!elseBB) elseBB = createFallback();
     }
 
     // Convert condition to i1 (boolean) if it's not already

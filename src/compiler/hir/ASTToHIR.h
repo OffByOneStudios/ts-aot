@@ -128,6 +128,9 @@ private:
     std::map<std::string, ast::VariableDeclaration*> moduleVarDecls_;
     // Set of module-scoped variable names that have been promoted to globals
     std::set<std::string> moduleGlobalVars_;
+    // Module globals accessed by inner (nested) functions -- the defining function
+    // must read/write these from __modvar_ globals, not local allocas
+    std::set<std::string> moduleGlobalsUsedByInner_;
     // Source file of the main program (to distinguish imported modules)
     std::string mainSourceFile_;
 

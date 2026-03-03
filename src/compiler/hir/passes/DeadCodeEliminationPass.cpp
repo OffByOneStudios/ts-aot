@@ -381,6 +381,47 @@ bool DeadCodeEliminationPass::removeUnreachableBlocks(HIRFunction& func) {
         }
     }
 
+    // Fix dangling block references in remaining blocks' terminators.
+    // A reachable block may branch to a block that was removed (e.g., a branch
+    // target inside an unreachable region that shared a block with reachable code).
+    // Redirect such references to the entry block to prevent null blockMap_ lookups.
+    if (!unreachableBlocks.empty() && !func.blocks.empty()) {
+        HIRBlock* entryBlock = func.blocks[0].get();
+        for (auto& block : func.blocks) {
+            if (block->instructions.empty()) continue;
+            auto* term = block->instructions.back().get();
+            if (!term->isTerminator()) continue;
+
+            // Fix operand-embedded block references
+            for (auto& op : term->operands) {
+                if (auto* blk = std::get_if<HIRBlock*>(&op)) {
+                    if (*blk && unreachableBlocks.count(*blk)) {
+                        SPDLOG_WARN("DCE: fixing dangling branch to removed block {} in {}",
+                            (*blk)->label, block->label);
+                        *blk = entryBlock;
+                    }
+                }
+            }
+            // Fix switch-specific fields
+            if (term->switchDefault && unreachableBlocks.count(term->switchDefault)) {
+                SPDLOG_WARN("DCE: fixing dangling switchDefault in {}", block->label);
+                term->switchDefault = entryBlock;
+            }
+            for (auto& [val, target] : term->switchCases) {
+                if (unreachableBlocks.count(target)) {
+                    SPDLOG_WARN("DCE: fixing dangling switchCase in {}", block->label);
+                    target = entryBlock;
+                }
+            }
+            // Fix successor list
+            for (auto& succ : block->successors) {
+                if (unreachableBlocks.count(succ)) {
+                    succ = entryBlock;
+                }
+            }
+        }
+    }
+
     return changed;
 }
 

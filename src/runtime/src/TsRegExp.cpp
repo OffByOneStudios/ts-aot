@@ -7,10 +7,12 @@
 #include <regex>
 
 extern "C" void* ts_alloc(size_t size);
+#include "TsObject.h"
+#include "TsGC.h"
 
 // TsRegExpMatchArray implementation
 TsRegExpMatchArray* TsRegExpMatchArray::Create(TsArray* source, int64_t matchIndex, TsString* input) {
-    void* mem = ts_alloc(sizeof(TsRegExpMatchArray));
+    void* mem = ts_gc_alloc_old_gen(sizeof(TsRegExpMatchArray));
     return new(mem) TsRegExpMatchArray(source, matchIndex, input);
 }
 
@@ -31,7 +33,11 @@ void* TsRegExpMatchArray::Get(size_t idx) const {
 }
 
 TsRegExp* TsRegExp::Create(const char* pattern, const char* flags) {
-    void* mem = ts_alloc(sizeof(TsRegExp));
+    // Allocate in old-gen: TsRegExp objects are often stored in long-lived
+    // module-level arrays (e.g. semver's re[] array) and contain complex
+    // C++ objects (ICU RegexMatcher, std::vector). Nursery promotion would
+    // require forwarding pointer updates in all referencing arrays.
+    void* mem = ts_gc_alloc_old_gen(sizeof(TsRegExp));
     return new(mem) TsRegExp(pattern, flags);
 }
 
@@ -101,11 +107,60 @@ void TsRegExp::parseNamedGroups() {
     }
 }
 
+// Transform a JavaScript regex pattern into an ICU-compatible pattern.
+// JS allows literal '[' inside character classes; ICU treats '[' inside a class
+// as a nested set operation. Escape unescaped '[' inside character classes.
+static std::string transformJsPatternForIcu(const std::string& pat) {
+    std::string result;
+    result.reserve(pat.size() + 8);
+    bool inClass = false;
+    for (size_t i = 0; i < pat.size(); i++) {
+        // Escaped character - pass through as-is
+        if (pat[i] == '\\' && i + 1 < pat.size()) {
+            result += pat[i];
+            result += pat[i + 1];
+            i++;
+            continue;
+        }
+        if (!inClass && pat[i] == '[') {
+            inClass = true;
+            result += pat[i];
+            // Handle negation [^
+            if (i + 1 < pat.size() && pat[i + 1] == '^') {
+                result += pat[++i];
+            }
+            // Handle ] as first char in class (literal ])
+            if (i + 1 < pat.size() && pat[i + 1] == ']') {
+                result += pat[++i];
+            }
+            continue;
+        }
+        if (inClass && pat[i] == ']') {
+            inClass = false;
+            result += pat[i];
+            continue;
+        }
+        if (inClass && pat[i] == '[') {
+            // Escape [ inside character class for ICU compatibility
+            result += "\\[";
+            continue;
+        }
+        result += pat[i];
+    }
+    return result;
+}
+
 TsRegExp::TsRegExp(const char* pattern, const char* flags) {
     UErrorCode status = U_ZERO_ERROR;
+
+    // Store original pattern for GetSource() and parseNamedGroups()
     patternStr = icu::UnicodeString::fromUTF8(pattern);
     flagsStr = flags ? flags : "";
-    
+
+    // Transform JS regex pattern for ICU compatibility (escape [ inside char classes)
+    std::string transformed = transformJsPatternForIcu(pattern);
+    icu::UnicodeString icuPatternStr = icu::UnicodeString::fromUTF8(transformed);
+
     uint32_t icuFlags = 0;
     if (flags) {
         std::string f(flags);
@@ -120,13 +175,17 @@ TsRegExp::TsRegExp(const char* pattern, const char* flags) {
         if (f.find('s') != std::string::npos) icuFlags |= UREGEX_DOTALL;
         if (f.find('u') != std::string::npos) icuFlags |= UREGEX_UWORD;
         if (f.find('x') != std::string::npos) icuFlags |= UREGEX_COMMENTS;
-        
+
         if (f.find('g') != std::string::npos) global = true;
         if (f.find('y') != std::string::npos) sticky = true;
         if (f.find('d') != std::string::npos) hasIndices = true;
     }
 
-    matcher = new icu::RegexMatcher(patternStr, icuFlags, status);
+    matcher = new icu::RegexMatcher(icuPatternStr, icuFlags, status);
+    if (U_FAILURE(status)) {
+        delete matcher;
+        matcher = nullptr;
+    }
 
     // Parse pattern to extract named capture groups
     parseNamedGroups();
@@ -280,9 +339,29 @@ void* TsRegExp::Exec(TsString* str) {
 
 extern "C" {
     void* ts_regexp_create(void* pattern, void* flags) {
-        TsString* p = (TsString*)pattern;
-        TsString* f = (TsString*)flags;
-        return TsRegExp::Create(p->ToUtf8(), f ? f->ToUtf8() : "");
+        // pattern/flags may be NaN-boxed TsValue* from slow path
+        TsString* p = nullptr;
+        if (pattern) {
+            void* rawP = ts_value_get_string((TsValue*)pattern);
+            p = rawP ? (TsString*)rawP : (TsString*)pattern;
+            // Validate it's actually a TsString
+            if (p && *(uint32_t*)p != TsString::MAGIC) {
+                void* rawObj = ts_value_get_object((TsValue*)pattern);
+                p = (rawObj && *(uint32_t*)rawObj == TsString::MAGIC) ? (TsString*)rawObj : (TsString*)pattern;
+            }
+        }
+        if (!p) return nullptr;
+
+        // flags could be undefined (NaN-boxed) from `new RegExp(pat, undefined)`
+        const char* flagsStr = "";
+        if (flags && !ts_value_is_undefined((TsValue*)flags) && !ts_value_is_null((TsValue*)flags)) {
+            void* rawF = ts_value_get_string((TsValue*)flags);
+            TsString* f = rawF ? (TsString*)rawF : (TsString*)flags;
+            if (f && *(uint32_t*)f == TsString::MAGIC) {
+                flagsStr = f->ToUtf8();
+            }
+        }
+        return TsRegExp::Create(p->ToUtf8(), flagsStr);
     }
 
     void* ts_regexp_from_literal(void* literal) {
@@ -300,17 +379,49 @@ extern "C" {
     }
 
     int32_t RegExp_test(void* re, void* str) {
+        if (!re) return 0;
         TsRegExp* r = (TsRegExp*)re;
-        TsString* s = (TsString*)str;
+        // Per JS spec, RegExp.test() converts its argument to string.
+        // In the slow path, str may be any NaN-boxed value, not just a TsString*.
+        uint64_t nb = (uint64_t)(uintptr_t)str;
+        TsString* s;
+        if (!str || nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+            s = (TsString*)ts_string_from_value((TsValue*)str);
+        } else if (nanbox_is_ptr(nb)) {
+            // Check if it's a TsString (magic 0x53545247) or needs conversion
+            void* base = ts_gc_base(str);
+            if (base && *(uint32_t*)base == 0x53545247) {
+                s = (TsString*)base;
+            } else {
+                s = (TsString*)ts_string_from_value((TsValue*)str);
+            }
+        } else {
+            // Number, bool, or other NaN-boxed value -- convert to string
+            s = (TsString*)ts_string_from_value((TsValue*)str);
+        }
+        if (!s) s = TsString::Create("undefined");
         return r->Test(s) ? 1 : 0;
     }
 
     void* RegExp_exec(void* re, void* str) {
-        if (!re || !str) {
-            return nullptr;
-        }
+        if (!re) return nullptr;
         TsRegExp* r = (TsRegExp*)re;
-        TsString* s = (TsString*)str;
+        // Per JS spec, convert argument to string (may be NaN-boxed non-string)
+        uint64_t nb = (uint64_t)(uintptr_t)str;
+        TsString* s;
+        if (!str || nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+            s = (TsString*)ts_string_from_value((TsValue*)str);
+        } else if (nanbox_is_ptr(nb)) {
+            void* base = ts_gc_base(str);
+            if (base && *(uint32_t*)base == 0x53545247) {
+                s = (TsString*)base;
+            } else {
+                s = (TsString*)ts_string_from_value((TsValue*)str);
+            }
+        } else {
+            s = (TsString*)ts_string_from_value((TsValue*)str);
+        }
+        if (!s) return nullptr;
         return r->Exec(s);  // Return raw result array or null
     }
 
