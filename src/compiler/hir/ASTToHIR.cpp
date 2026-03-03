@@ -2538,9 +2538,44 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     auto* iterExpr = dynamic_cast<ast::Expression*>(node->expression.get());
     auto iterable = iterExpr ? lowerExpression(iterExpr) : createValue(HIRType::makeAny());
 
-    // Check if this is a Generator/AsyncGenerator - use iterator protocol instead of array indexing
+    // Check if this is a Generator/AsyncGenerator/Iterator - use iterator protocol instead of array indexing
     bool isGenerator = iterable->type && iterable->type->kind == HIRTypeKind::Class &&
         (iterable->type->className == "Generator" || iterable->type->className == "AsyncGenerator");
+    // Object-typed iterables (e.g., Map.keys() returns an iterator object) also use .next()
+    bool isIteratorObject = !isGenerator && iterable->type &&
+        iterable->type->kind == HIRTypeKind::Object;
+
+    // Detect iterator-returning method calls: map.keys(), map.values(), map.entries(),
+    // arr.entries(), arr.keys(), arr.values() - these return iterator objects with .next()
+    // even though the TypeScript type analyzer may report them as Any before MethodResolutionPass
+    if (!isGenerator && !isIteratorObject) {
+        if (auto* callExpr = dynamic_cast<ast::CallExpression*>(iterExpr)) {
+            if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(callExpr->callee.get())) {
+                const auto& methodName = propAccess->name;
+                if (methodName == "keys" || methodName == "values" || methodName == "entries") {
+                    // Check if the object is a Map, Set, or Array by looking up its variable type
+                    if (auto* objIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get())) {
+                        auto* varInfo = lookupVariableInfo(objIdent->name);
+                        if (varInfo) {
+                            // For alloca variables, elemType holds the actual type;
+                            // for direct variables, value->type holds the type
+                            auto varTypePtr = varInfo->isAlloca ? varInfo->elemType :
+                                (varInfo->value ? varInfo->value->type : nullptr);
+                            if (varTypePtr) {
+                                auto kind = varTypePtr->kind;
+                                if (kind == HIRTypeKind::Map || kind == HIRTypeKind::Set ||
+                                    kind == HIRTypeKind::Array) {
+                                    isIteratorObject = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    isGenerator = isGenerator || isIteratorObject;
 
     if (isGenerator) {
         // Generator iteration: call .next() in a loop, check .done, get .value

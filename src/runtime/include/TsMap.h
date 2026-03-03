@@ -92,4 +92,8 @@ extern "C" {
     void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int64_t* out_value);
     void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key_val,
                          uint8_t val_type, int64_t val_val);
+
+    // Iterator protocol: create an iterator from an array of items
+    // Returns a TsMap-based iterator with .next() method returning {value, done}
+    void* ts_create_array_iterator(void* items);
 }

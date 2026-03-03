@@ -1971,20 +1971,50 @@ extern "C" {
         void* rawOther = ts_nanbox_safe_unbox(other);
 
         TsArray* first = (TsArray*)rawArr;
-        TsArray* second = (TsArray*)rawOther;
 
-        // Create a new array with combined size
-        size_t totalLen = first->Length() + second->Length();
-        TsArray* result = TsArray::Create(totalLen);
+        // Check if 'other' is a TsArray (magic 0x41525259 at offset 0)
+        bool otherIsArray = rawOther && *(uint32_t*)rawOther == TsArray::MAGIC;
 
-        // Copy elements from first array
+        if (otherIsArray) {
+            // Fast path: array-to-array concat
+            TsArray* second = (TsArray*)rawOther;
+            size_t totalLen = first->Length() + second->Length();
+            TsArray* result = TsArray::Create(totalLen);
+            for (size_t i = 0; i < first->Length(); ++i) {
+                result->Push(first->Get(i));
+            }
+            for (size_t i = 0; i < second->Length(); ++i) {
+                result->Push(second->Get(i));
+            }
+            return result;
+        }
+
+        // Slow path: 'other' might be an iterator (has .next() method)
+        TsArray* result = TsArray::Create(first->Length());
         for (size_t i = 0; i < first->Length(); ++i) {
             result->Push(first->Get(i));
         }
 
-        // Copy elements from second array
-        for (size_t i = 0; i < second->Length(); ++i) {
-            result->Push(second->Get(i));
+        if (!rawOther) return result;
+
+        // Try to get 'next' from the object (iterator protocol)
+        TsValue* nextFn = ts_object_get_property(rawOther, "next");
+        if (!nextFn || ts_value_is_nullish(nextFn)) {
+            return result;
+        }
+
+        // Consume iterator: call next() repeatedly until done
+        for (int safety = 0; safety < 100000; safety++) {
+            TsValue* iterResult = ts_call_0(nextFn);
+            if (!iterResult) break;
+
+            // Get 'done' from result
+            TsValue* doneVal = ts_object_get_property(iterResult, "done");
+            if (doneVal && ts_value_to_bool(doneVal)) break;
+
+            // Get 'value' from result
+            TsValue* valueVal = ts_object_get_property(iterResult, "value");
+            result->Push((int64_t)(uintptr_t)valueVal);
         }
 
         return result;
@@ -2498,6 +2528,28 @@ extern "C" {
         }
 
         return values;
+    }
+
+    // ============================================================
+    // Iterator-returning versions (return TsMap-based iterator with .next())
+    // ============================================================
+
+    void* ts_array_entries_iter(void* arr) {
+        void* items = ts_array_entries(arr);
+        if (!items) return ts_create_array_iterator(ts_array_create());
+        return ts_create_array_iterator(items);
+    }
+
+    void* ts_array_keys_iter(void* arr) {
+        void* items = ts_array_keys(arr);
+        if (!items) return ts_create_array_iterator(ts_array_create());
+        return ts_create_array_iterator(items);
+    }
+
+    void* ts_array_values_iter(void* arr) {
+        void* items = ts_array_values(arr);
+        if (!items) return ts_create_array_iterator(ts_array_create());
+        return ts_create_array_iterator(items);
     }
 
     // ============================================================

@@ -279,6 +279,28 @@ void* ts_map_entries(void* map) {
     return ((TsMap*)map)->GetEntries();
 }
 
+// Forward declaration for iterator creation (defined later)
+static TsValue* ts_create_iterator(TsArray* items);
+
+// Iterator-returning versions (return TsMap with .next() method)
+void* ts_map_keys_iter(void* map) {
+    if (!map) return nullptr;
+    TsArray* keys = (TsArray*)((TsMap*)map)->GetKeys();
+    return (void*)ts_create_iterator(keys);
+}
+
+void* ts_map_values_iter(void* map) {
+    if (!map) return nullptr;
+    TsArray* values = (TsArray*)((TsMap*)map)->GetValues();
+    return (void*)ts_create_iterator(values);
+}
+
+void* ts_map_entries_iter(void* map) {
+    if (!map) return nullptr;
+    TsArray* entries = (TsArray*)((TsMap*)map)->GetEntries();
+    return (void*)ts_create_iterator(entries);
+}
+
 void ts_map_forEach(void* map, void* callback, void* thisArg) {
     if (!map) return;
     ((TsMap*)map)->ForEach(callback, thisArg);
@@ -393,6 +415,118 @@ TsValue* ts_map_size_wrapper(void* context) {
     return ts_value_make_int(ts_map_size(context));
 }
 
+// ============================================================
+// Iterator Protocol - Map/Set/Array .keys()/.values()/.entries()
+// ============================================================
+// An iterator is a TsMap with:
+//   _items: TsArray* of items
+//   _index: int (current position)
+//   next: native function returning {value, done}
+
+struct IteratorState {
+    TsArray* items;
+    int64_t index;
+};
+
+static TsValue* ts_iterator_next(void* context, int argc, TsValue** argv) {
+    IteratorState* state = (IteratorState*)context;
+    if (!state || !state->items) {
+        // Return {value: undefined, done: true}
+        TsMap* result = TsMap::Create();
+        TsValue keyDone; keyDone.type = ValueType::STRING_PTR;
+        keyDone.ptr_val = TsString::Create("done");
+        TsValue valTrue; valTrue.type = ValueType::BOOLEAN;
+        valTrue.i_val = 1;
+        result->Set(keyDone, valTrue);
+        TsValue keyValue; keyValue.type = ValueType::STRING_PTR;
+        keyValue.ptr_val = TsString::Create("value");
+        TsValue valUndef; valUndef.type = ValueType::UNDEFINED;
+        valUndef.i_val = 0;
+        result->Set(keyValue, valUndef);
+        return ts_value_make_object(result);
+    }
+
+    int64_t len = state->items->Length();
+    TsMap* result = TsMap::Create();
+
+    TsValue keyDone; keyDone.type = ValueType::STRING_PTR;
+    keyDone.ptr_val = TsString::Create("done");
+    TsValue keyValue; keyValue.type = ValueType::STRING_PTR;
+    keyValue.ptr_val = TsString::Create("value");
+
+    if (state->index >= len) {
+        // Done
+        TsValue valTrue; valTrue.type = ValueType::BOOLEAN;
+        valTrue.i_val = 1;
+        result->Set(keyDone, valTrue);
+        TsValue valUndef; valUndef.type = ValueType::UNDEFINED;
+        valUndef.i_val = 0;
+        result->Set(keyValue, valUndef);
+    } else {
+        // Return current item, advance index
+        TsValue valFalse; valFalse.type = ValueType::BOOLEAN;
+        valFalse.i_val = 0;
+        result->Set(keyDone, valFalse);
+
+        int64_t raw = state->items->Get(state->index);
+        TsValue valItem;
+        valItem.type = ValueType::OBJECT_PTR;
+        valItem.i_val = raw;
+        result->Set(keyValue, valItem);
+
+        state->index++;
+    }
+
+    return ts_value_make_object(result);
+}
+
+static TsValue* ts_create_iterator(TsArray* items) {
+    void* mem = ts_alloc(sizeof(IteratorState));
+    IteratorState* state = new(mem) IteratorState();
+    state->items = items;
+    state->index = 0;
+
+    // Create iterator object as a TsMap with 'next' as a native function
+    TsMap* iter = TsMap::Create();
+    TsValue keyNext; keyNext.type = ValueType::STRING_PTR;
+    keyNext.ptr_val = TsString::Create("next");
+    TsValue valNext; valNext.type = ValueType::OBJECT_PTR;
+    valNext.i_val = (int64_t)(uintptr_t)ts_value_make_native_function(
+        (void*)ts_iterator_next, (void*)state);
+    iter->Set(keyNext, valNext);
+
+    return ts_value_make_object(iter);
+}
+
+// Extern C wrapper for creating iterators (used by TsObject.cpp for Array)
+void* ts_create_array_iterator(void* items) {
+    return (void*)ts_create_iterator((TsArray*)items);
+}
+
+// Map method wrappers that return iterators
+static TsValue* ts_map_keys_iter_wrapper(void* context, int argc, TsValue** argv) {
+    TsArray* keys = (TsArray*)ts_map_keys(context);
+    return ts_create_iterator(keys);
+}
+
+static TsValue* ts_map_values_iter_wrapper(void* context, int argc, TsValue** argv) {
+    TsArray* values = (TsArray*)ts_map_values(context);
+    return ts_create_iterator(values);
+}
+
+static TsValue* ts_map_entries_iter_wrapper(void* context, int argc, TsValue** argv) {
+    TsArray* entries = (TsArray*)ts_map_entries(context);
+    return ts_create_iterator(entries);
+}
+
+// Map forEach wrapper
+static TsValue* ts_map_forEach_iter_wrapper(void* context, int argc, TsValue** argv) {
+    if (argc < 1 || !argv[0]) return ts_value_make_undefined();
+    void* thisArg = (argc >= 2) ? argv[1] : nullptr;
+    ts_map_forEach(context, argv[0], thisArg);
+    return ts_value_make_undefined();
+}
+
 TsValue* ts_map_get_property(void* obj, void* propName) {
     TsMap* map = (TsMap*)obj;
     TsString* prop = (TsString*)propName;
@@ -420,6 +554,14 @@ TsValue* ts_map_get_property(void* obj, void* propName) {
         return ts_value_make_function((void*)ts_map_clear_wrapper, obj);
     } else if (strcmp(name, "size") == 0) {
         return ts_value_make_int(ts_map_size(obj));
+    } else if (strcmp(name, "keys") == 0) {
+        return ts_value_make_native_function((void*)ts_map_keys_iter_wrapper, obj);
+    } else if (strcmp(name, "values") == 0) {
+        return ts_value_make_native_function((void*)ts_map_values_iter_wrapper, obj);
+    } else if (strcmp(name, "entries") == 0) {
+        return ts_value_make_native_function((void*)ts_map_entries_iter_wrapper, obj);
+    } else if (strcmp(name, "forEach") == 0) {
+        return ts_value_make_native_function((void*)ts_map_forEach_iter_wrapper, obj);
     }
 
     return ts_value_make_undefined();

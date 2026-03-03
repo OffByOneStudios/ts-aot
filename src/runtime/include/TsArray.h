@@ -160,6 +160,11 @@ extern "C" {
     void* ts_array_keys(void* arr);
     void* ts_array_values(void* arr);
 
+    // Iterator-returning versions (return TsMap-based iterator with .next())
+    void* ts_array_entries_iter(void* arr);
+    void* ts_array_keys_iter(void* arr);
+    void* ts_array_values_iter(void* arr);
+
     // ES2023 "change array by copy" methods
     void* ts_array_toReversed(void* arr);
     void* ts_array_toSorted(void* arr);
