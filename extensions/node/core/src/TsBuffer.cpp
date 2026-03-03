@@ -1642,12 +1642,40 @@ extern "C" {
         return TsTypedArray::Create((size_t)length, 1, false, TypedArrayType::Uint8);
     }
 
+    void* ts_typed_array_create_i8(int64_t length) {
+        return TsTypedArray::Create((size_t)length, 1, false, TypedArrayType::Int8);
+    }
+
+    void* ts_typed_array_create_i16(int64_t length) {
+        return TsTypedArray::Create((size_t)length, 2, false, TypedArrayType::Int16);
+    }
+
+    void* ts_typed_array_create_u16(int64_t length) {
+        return TsTypedArray::Create((size_t)length, 2, false, TypedArrayType::Uint16);
+    }
+
+    void* ts_typed_array_create_i32(int64_t length) {
+        return TsTypedArray::Create((size_t)length, 4, false, TypedArrayType::Int32);
+    }
+
     void* ts_typed_array_create_u32(int64_t length) {
         return TsTypedArray::Create((size_t)length, 4, false, TypedArrayType::Uint32);
     }
 
+    void* ts_typed_array_create_f32(int64_t length) {
+        return TsTypedArray::Create((size_t)length, 4, false, TypedArrayType::Float32);
+    }
+
     void* ts_typed_array_create_f64(int64_t length) {
         return TsTypedArray::Create((size_t)length, 8, false, TypedArrayType::Float64);
+    }
+
+    void* ts_typed_array_create_i64(int64_t length) {
+        return TsTypedArray::Create((size_t)length, 8, false, TypedArrayType::BigInt64);
+    }
+
+    void* ts_typed_array_create_u64(int64_t length) {
+        return TsTypedArray::Create((size_t)length, 8, false, TypedArrayType::BigUint64);
     }
 
     void* ts_typed_array_from_array_u8(void* array) {
@@ -1734,6 +1762,10 @@ extern "C" {
 
     // Uint8ClampedArray create
     void* ts_typed_array_create_clamped(int64_t length) {
+        return TsTypedArray::Create((size_t)length, 1, true, TypedArrayType::Uint8Clamped);
+    }
+
+    void* ts_typed_array_create_u8c(int64_t length) {
         return TsTypedArray::Create((size_t)length, 1, true, TypedArrayType::Uint8Clamped);
     }
 
