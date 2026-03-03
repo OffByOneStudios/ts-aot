@@ -1302,6 +1302,31 @@ void ts_throw(TsValue* exception) {
         fprintf(stderr, "FATAL: Uncaught exception: ");
         ts_console_log_value(exception);
         fprintf(stderr, "\n"); fflush(stderr);
+        // Debug: try to extract error message
+        if (exception) {
+            void* raw = ts_value_get_object(exception);
+            if (raw) {
+                void* msgVal = ts_object_get_property(raw, "message");
+                if (msgVal) {
+                    fprintf(stderr, "  .message = ");
+                    ts_console_log_value((TsValue*)msgVal);
+                    fprintf(stderr, "\n");
+                }
+                void* nameVal = ts_object_get_property(raw, "name");
+                if (nameVal) {
+                    fprintf(stderr, "  .name = ");
+                    ts_console_log_value((TsValue*)nameVal);
+                    fprintf(stderr, "\n");
+                }
+                void* stackVal = ts_object_get_property(raw, "stack");
+                if (stackVal) {
+                    fprintf(stderr, "  .stack = ");
+                    ts_console_log_value((TsValue*)stackVal);
+                    fprintf(stderr, "\n");
+                }
+            }
+        }
+        fflush(stderr);
         exit(1);
     }
     ExceptionContext* ctx = exceptionStack.back();

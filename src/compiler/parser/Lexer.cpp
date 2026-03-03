@@ -727,6 +727,96 @@ std::string Lexer::getStringValue(std::string_view rawToken) {
     return result;
 }
 
+std::string Lexer::processTemplateEscapes(std::string_view text) {
+    std::string result;
+    result.reserve(text.size());
+
+    for (size_t i = 0; i < text.size(); i++) {
+        if (text[i] == '\\' && i + 1 < text.size()) {
+            i++;
+            switch (text[i]) {
+            case 'n': result += '\n'; break;
+            case 'r': result += '\r'; break;
+            case 't': result += '\t'; break;
+            case '\\': result += '\\'; break;
+            case '\'': result += '\''; break;
+            case '"': result += '"'; break;
+            case '`': result += '`'; break;
+            case '0': result += '\0'; break;
+            case '$': result += '$'; break; // \$ in template literals
+            case 'x':
+                if (i + 2 < text.size()) {
+                    auto hexVal = [](char c) -> int {
+                        if (c >= '0' && c <= '9') return c - '0';
+                        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                        return 0;
+                    };
+                    result += (char)(hexVal(text[i + 1]) * 16 + hexVal(text[i + 2]));
+                    i += 2;
+                }
+                break;
+            case 'u':
+                if (i + 1 < text.size() && text[i + 1] == '{') {
+                    i += 2;
+                    int codePoint = 0;
+                    while (i < text.size() && text[i] != '}') {
+                        codePoint = codePoint * 16;
+                        char h = text[i];
+                        if (h >= '0' && h <= '9') codePoint += h - '0';
+                        else if (h >= 'a' && h <= 'f') codePoint += h - 'a' + 10;
+                        else if (h >= 'A' && h <= 'F') codePoint += h - 'A' + 10;
+                        i++;
+                    }
+                    if (codePoint < 0x80) {
+                        result += (char)codePoint;
+                    } else if (codePoint < 0x800) {
+                        result += (char)(0xC0 | (codePoint >> 6));
+                        result += (char)(0x80 | (codePoint & 0x3F));
+                    } else if (codePoint < 0x10000) {
+                        result += (char)(0xE0 | (codePoint >> 12));
+                        result += (char)(0x80 | ((codePoint >> 6) & 0x3F));
+                        result += (char)(0x80 | (codePoint & 0x3F));
+                    } else {
+                        result += (char)(0xF0 | (codePoint >> 18));
+                        result += (char)(0x80 | ((codePoint >> 12) & 0x3F));
+                        result += (char)(0x80 | ((codePoint >> 6) & 0x3F));
+                        result += (char)(0x80 | (codePoint & 0x3F));
+                    }
+                } else if (i + 4 < text.size()) {
+                    int cp = 0;
+                    for (int j = 0; j < 4; j++) {
+                        cp *= 16;
+                        char h = text[i + 1 + j];
+                        if (h >= '0' && h <= '9') cp += h - '0';
+                        else if (h >= 'a' && h <= 'f') cp += h - 'a' + 10;
+                        else if (h >= 'A' && h <= 'F') cp += h - 'A' + 10;
+                    }
+                    i += 4;
+                    if (cp < 0x80) {
+                        result += (char)cp;
+                    } else if (cp < 0x800) {
+                        result += (char)(0xC0 | (cp >> 6));
+                        result += (char)(0x80 | (cp & 0x3F));
+                    } else {
+                        result += (char)(0xE0 | (cp >> 12));
+                        result += (char)(0x80 | ((cp >> 6) & 0x3F));
+                        result += (char)(0x80 | (cp & 0x3F));
+                    }
+                }
+                break;
+            default:
+                result += text[i];
+                break;
+            }
+        } else {
+            result += text[i];
+        }
+    }
+
+    return result;
+}
+
 bool Lexer::isKeyword(TokenKind kind) {
     return kind >= TokenKind::KW_break && kind <= TokenKind::KW_require;
 }

@@ -476,8 +476,19 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         shape->size = propertyOffset;
         hirClass->shape = shape;
 
-        // Register class shape for flat object codegen if it has properties
-        if (!shape->propertyOffsets.empty()) {
+        // Register class shape for flat object codegen if it has properties or instance methods.
+        // Classes with methods but no PropertyDefinition fields (e.g., JS classes where properties
+        // are assigned in the constructor body) still need flat objects for vtable method dispatch.
+        bool hasInstanceMethods_prepass = false;
+        for (auto& memberPtr2 : classDecl->members) {
+            if (auto* md = dynamic_cast<ast::MethodDefinition*>(memberPtr2.get())) {
+                if (md->name != "constructor" && !md->isStatic && !md->isAbstract && md->hasBody) {
+                    hasInstanceMethods_prepass = true;
+                    break;
+                }
+            }
+        }
+        if (!shape->propertyOffsets.empty() || hasInstanceMethods_prepass) {
             shape->id = nextShapeId_++;
             module_->shapes.push_back(shape);
         }
@@ -542,6 +553,39 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
         SPDLOG_DEBUG("Created HIRClass for imported class: {} with {} properties",
             className, propertyOffset);
+    }
+
+    // Pre-register methods for imported JS slow-path classes on their HIRClass objects.
+    // When a module init function compiles new ClassName(...).method(...), it needs to
+    // know the method exists on the class. For typed TS classes, visitClassDeclaration
+    // handles this in the first pass. For JS classes, the ClassDeclaration is inside
+    // the module init body, so methods aren't registered until the init is processed.
+    // We pre-register placeholder entries from the AST to enable direct VTable dispatch.
+    for (auto& cls : module_->classes) {
+        if (!cls->methods.empty() || cls->constructor) continue;  // Already has methods
+        // Find the ClassDeclaration AST node for this class
+        ast::ClassDeclaration* classDecl = nullptr;
+        for (const auto& spec : specializations) {
+            if (!spec.classType) continue;
+            auto ct = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
+            if (ct && ct->name == cls->name && ct->node) {
+                classDecl = ct->node;
+                break;
+            }
+        }
+        if (!classDecl) continue;
+        // Only pre-register for JS files (slow-path). TS classes are handled by
+        // visitClassDeclaration in the first pass with real method registrations.
+        if (classDecl->sourceFile.size() < 3 ||
+            classDecl->sourceFile.substr(classDecl->sourceFile.size() - 3) != ".js") continue;
+        for (auto& memberPtr : classDecl->members) {
+            auto* md = dynamic_cast<ast::MethodDefinition*>(memberPtr.get());
+            if (!md || md->name == "constructor" || md->isAbstract || !md->hasBody) continue;
+            std::string methodKey = md->name;
+            if (md->isGetter) methodKey = "__getter_" + md->name;
+            else if (md->isSetter) methodKey = "__setter_" + md->name;
+            cls->methods[methodKey] = nullptr;  // Placeholder, real ptr set later
+        }
     }
 
     // Second pass: generate functions from specializations
@@ -1644,6 +1688,13 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     HIRFunction* savedFunc = currentFunction_;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
+    // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
+    auto savedLoopStack = loopStack_;
+    auto savedSwitchStack = switchStack_;
+    auto savedLabeledLoops = labeledLoops_;
+    loopStack_ = {};
+    switchStack_ = {};
+    labeledLoops_ = {};
 
     currentFunction_ = func.get();
     clearPendingCaptures();  // Start fresh for this function
@@ -1879,6 +1930,9 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     currentFunction_ = savedFunc;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
+    loopStack_ = savedLoopStack;
+    switchStack_ = savedSwitchStack;
+    labeledLoops_ = savedLabeledLoops;
     if (savedBlock) {
         builder_.setInsertPoint(savedBlock);
     }
@@ -2022,6 +2076,24 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
                 pendingClosureDisplayName_ = ident->name;
             }
         }
+
+        // Pre-register variable for self-referencing function expressions
+        // (e.g., `const create = str => { create(match[1]); }` - recursive self-call).
+        // The arrow function body is processed inline below, but the variable isn't
+        // registered until after lowerExpression returns. Pre-register an alloca so
+        // that isCapturedVariable/lookupVariableInfo can find it during body lowering.
+        std::shared_ptr<HIRValue> preAllocaPtr;
+        if (auto* ident = dynamic_cast<ast::Identifier*>(node->name.get())) {
+            if (dynamic_cast<ast::ArrowFunction*>(node->initializer.get()) ||
+                dynamic_cast<ast::FunctionExpression*>(node->initializer.get())) {
+                // Only pre-register if not already in scope (avoid duplicates)
+                if (!lookupVariableInfo(ident->name)) {
+                    preAllocaPtr = builder_.createAlloca(HIRType::makeAny(), ident->name);
+                    defineVariableAlloca(ident->name, preAllocaPtr, HIRType::makeAny());
+                }
+            }
+        }
+
         initValue = lowerExpression(node->initializer.get());
         pendingClosureDisplayName_.clear();
 
@@ -2446,13 +2518,16 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         auto resultVal = builder_.createLoad(HIRType::makeObject(), resultAlloca);
         auto elemVal = builder_.createGetPropStatic(resultVal, "value", HIRType::makeAny());
 
-        // Bind to loop variable
+        // Bind to loop variable (supports simple, array destructuring, object destructuring)
         if (node->initializer) {
             auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get());
             if (varDecl) {
-                auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
-                if (ident) {
+                if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
                     defineVariable(ident->name, elemVal);
+                } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(varDecl->name.get())) {
+                    lowerArrayBindingPattern(arrPat, elemVal);
+                } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(varDecl->name.get())) {
+                    lowerObjectBindingPattern(objPat, elemVal);
                 }
             }
         }
@@ -2492,13 +2567,16 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         auto currentIndex = builder_.createLoad(HIRType::makeInt64(), indexAlloca);
         auto elemVal = builder_.createGetElem(iterable, currentIndex);
 
-        // Bind to loop variable
+        // Bind to loop variable (supports simple, array destructuring, object destructuring)
         if (node->initializer) {
             auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(node->initializer.get());
             if (varDecl) {
-                auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
-                if (ident) {
+                if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
                     defineVariable(ident->name, elemVal);
+                } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(varDecl->name.get())) {
+                    lowerArrayBindingPattern(arrPat, elemVal);
+                } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(varDecl->name.get())) {
+                    lowerObjectBindingPattern(objPat, elemVal);
                 }
             }
         }
@@ -3019,6 +3097,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
         // Evaluate rhs
         builder_.setInsertPoint(rhsBlock);
+        currentBlock_ = rhsBlock;  // Keep ASTToHIR's currentBlock_ in sync
         auto rhs = lowerExpression(node->right.get());
         // Box rhs to Any if needed (for consistent phi node type)
         auto boxedRhs = boxValueIfNeeded(rhs);
@@ -3027,6 +3106,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
         // Merge with phi node - both values should now be Any/ptr type
         builder_.setInsertPoint(mergeBlock);
+        currentBlock_ = mergeBlock;  // Keep ASTToHIR's currentBlock_ in sync
         std::vector<std::pair<std::shared_ptr<HIRValue>, HIRBlock*>> phiIncoming;
         phiIncoming.push_back(std::make_pair(boxedLhs, lhsBlock));
         phiIncoming.push_back(std::make_pair(boxedRhs, finalRhsBlock));
@@ -3091,6 +3171,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
         // RHS block
         builder_.setInsertPoint(rhsBlock);
+        currentBlock_ = rhsBlock;  // Keep ASTToHIR's currentBlock_ in sync
         auto rhs = lowerExpression(node->right.get());
         auto boxedRhs = boxValueIfNeeded(rhs);
         auto* finalRhsBlock = builder_.getInsertBlock();
@@ -3142,6 +3223,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
         // RHS block
         builder_.setInsertPoint(rhsBlock);
+        currentBlock_ = rhsBlock;  // Keep ASTToHIR's currentBlock_ in sync
         auto rhs = lowerExpression(node->right.get());
         auto boxedRhs = boxValueIfNeeded(rhs);
         auto* finalRhsBlock = builder_.getInsertBlock();
@@ -3777,6 +3859,24 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
 }
 
 void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
+    if (!node) { fprintf(stderr, "CRASH: visitCallExpression called with null node\n"); fflush(stderr); return; }
+    if (!node->callee) { fprintf(stderr, "CRASH: visitCallExpression callee is null\n"); fflush(stderr); return; }
+    {
+        const char* funcName = currentFunction_ ? currentFunction_->name.c_str() : "null";
+        auto nargs = node->arguments.size();
+        auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
+        auto* id = dynamic_cast<ast::Identifier*>(node->callee.get());
+        if (pa) {
+            fprintf(stderr, "visitCallExpression: func=%s args=%zu callee=PropAccess(.%s) expr=%p\n",
+                funcName, nargs, pa->name.c_str(), (void*)pa->expression.get());
+        } else if (id) {
+            fprintf(stderr, "visitCallExpression: func=%s args=%zu callee=Id(%s)\n",
+                funcName, nargs, id->name.c_str());
+        } else {
+            fprintf(stderr, "visitCallExpression: func=%s args=%zu callee=other\n", funcName, nargs);
+        }
+        fflush(stderr);
+    }
     std::vector<std::shared_ptr<HIRValue>> args;
     for (auto& arg : node->arguments) {
         args.push_back(lowerExpression(arg.get()));
@@ -3841,10 +3941,14 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         break;
                     }
                 }
-                // Try original name as fallback
+                // Try original name as fallback, but skip class methods.
+                // Class methods (spec.classType != null) have originalName matching
+                // their method name (e.g., "inc" for SemVer.inc), which can collide
+                // with standalone module functions of the same name.
                 if (!foundSpec) {
                     for (const auto& spec : *specializations_) {
-                        if (spec.originalName == funcName && spec.specializedName != funcName) {
+                        if (spec.originalName == funcName && spec.specializedName != funcName
+                            && !spec.classType) {
                             foundSpec = true;
                             callName = spec.specializedName;
                             specReturnType = spec.returnType;
@@ -3925,6 +4029,20 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             auto it = currentClass_->methods.find(propAccess->name);
             if (it != currentClass_->methods.end()) {
                 HIRFunction* method = it->second;
+                fprintf(stderr, "  Case1: this.%s -> method=%p name=%s\n",
+                    propAccess->name.c_str(), (void*)method,
+                    method ? method->name.c_str() : "null");
+                fflush(stderr);
+                if (!method) {
+                    // Placeholder method - construct name
+                    std::string methodFuncName = currentClass_->name + "_" + propAccess->name;
+                    auto obj = lowerExpression(propAccess->expression.get());
+                    std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                    methodArgs.push_back(obj);
+                    for (auto& arg : args) methodArgs.push_back(arg);
+                    lastValue_ = builder_.createCall(methodFuncName, methodArgs, HIRType::makeAny());
+                    return;
+                }
                 // Build args: [this, ...args]
                 std::vector<std::shared_ptr<HIRValue>> methodArgs;
                 auto thisVal = lookupVariable("this");
@@ -3944,6 +4062,16 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 }
                 lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
                 return;
+            } else {
+                // Method not yet registered (e.g., constructor calling a method
+                // defined later in the class body). Use naming convention.
+                std::string methodFuncName = currentClass_->name + "_" + propAccess->name;
+                auto obj = lowerExpression(propAccess->expression.get());
+                std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                methodArgs.push_back(obj);
+                for (auto& arg : args) methodArgs.push_back(arg);
+                lastValue_ = builder_.createCall(methodFuncName, methodArgs, HIRType::makeAny());
+                return;
             }
         }
 
@@ -3955,6 +4083,24 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 auto classType = std::dynamic_pointer_cast<ts::ClassType>(type);
                 if (classType) {
                     className = classType->name;
+                }
+            }
+        }
+        // Also check: if the expression is a NewExpression for a known class,
+        // use direct VTable dispatch. This handles patterns like:
+        //   new SemVer(a).compare(new SemVer(b))
+        // where the type analyzer hasn't set inferredType on the NewExpression.
+        if (className.empty()) {
+            auto* newExpr = dynamic_cast<ast::NewExpression*>(propAccess->expression.get());
+            if (newExpr) {
+                auto* newIdent = dynamic_cast<ast::Identifier*>(newExpr->expression.get());
+                if (newIdent) {
+                    for (auto& cls : module_->classes) {
+                        if (cls->name == newIdent->name) {
+                            className = newIdent->name;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -3970,6 +4116,23 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         auto it = searchClass->methods.find(propAccess->name);
                         if (it != searchClass->methods.end()) {
                             HIRFunction* method = it->second;
+                            fprintf(stderr, "  Case2: %s.%s -> method=%p\n",
+                                className.c_str(), propAccess->name.c_str(), (void*)method);
+                            fflush(stderr);
+                            // Determine function name and return type.
+                            // method may be nullptr (pre-registered placeholder from spec pre-pass)
+                            std::string methodFuncName;
+                            auto resultType = HIRType::makeAny();
+                            if (method) {
+                                methodFuncName = method->name;
+                                resultType = method->returnType;
+                                if (method->isGenerator) {
+                                    resultType = HIRType::makeClass("Generator", 0);
+                                }
+                            } else {
+                                // Placeholder - construct name from convention
+                                methodFuncName = searchClass->name + "_" + propAccess->name;
+                            }
                             // Build args: [obj, ...args]
                             auto obj = lowerExpression(propAccess->expression.get());
                             std::vector<std::shared_ptr<HIRValue>> methodArgs;
@@ -3977,12 +4140,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                             for (auto& arg : args) {
                                 methodArgs.push_back(arg);
                             }
-                            // Generator methods return Generator, not the method's declared return type
-                            auto resultType = method->returnType;
-                            if (method->isGenerator) {
-                                resultType = HIRType::makeClass("Generator", 0);
-                            }
-                            lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
+                            lastValue_ = builder_.createCall(methodFuncName, methodArgs, resultType);
                             return;
                         }
                         // Move to base class
@@ -4704,6 +4862,18 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
         }
 
+        // For require() calls, inject the referrer path as the second argument
+        // so the runtime can resolve relative paths correctly.
+        // ts_require(TsValue* specifier, const char* referrerPath)
+        if (callName == "require") {
+            std::string referrerPath = node->sourceFile;
+            if (referrerPath.empty()) {
+                referrerPath = mainSourceFile_;
+            }
+            auto referrerVal = builder_.createConstCString(referrerPath);
+            args.push_back(referrerVal);
+        }
+
         // Determine return type from target function if available
         auto returnType = (targetFunc && targetFunc->returnType) ? targetFunc->returnType : HIRType::makeAny();
         lastValue_ = builder_.createCall(callName, args, returnType);
@@ -4883,6 +5053,24 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // Handle built-in RegExp class
+    if (className == "RegExp") {
+        std::shared_ptr<HIRValue> patternArg;
+        std::shared_ptr<HIRValue> flagsArg;
+        if (!node->arguments.empty()) {
+            patternArg = lowerExpression(node->arguments[0].get());
+        } else {
+            patternArg = builder_.createConstString("");
+        }
+        if (node->arguments.size() >= 2) {
+            flagsArg = lowerExpression(node->arguments[1].get());
+        } else {
+            flagsArg = builder_.createConstNull();
+        }
+        lastValue_ = builder_.createCall("ts_regexp_create", {patternArg, flagsArg}, HIRType::makeObject());
+        return;
+    }
+
     // Handle built-in Date class
     if (className == "Date") {
         if (node->arguments.empty()) {
@@ -4943,12 +5131,24 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         args.push_back(lowerExpression(arg.get()));
     }
 
-    // Look up the class
+    // Look up the class - prefer one with constructor set (handles duplicate
+    // HIRClass from spec pre-pass vs visitClassDeclaration)
     HIRClass* hirClass = nullptr;
     for (auto& cls : module_->classes) {
         if (cls->name == className) {
             hirClass = cls.get();
-            break;
+            if (hirClass->constructor) break;  // Found one with constructor
+        }
+    }
+    {
+        int count = 0;
+        for (auto& cls : module_->classes) {
+            if (cls->name == className) {
+                SPDLOG_WARN("visitNewExpression: class[{}]={} ctor={} methods={} shape={}",
+                    count++, className,
+                    cls->constructor ? cls->constructor->name : "null",
+                    cls->methods.size(), cls->shape ? "yes" : "no");
+            }
         }
     }
 
@@ -5043,7 +5243,22 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                 auto ct = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
                 if (ct && ct->name == className) {
                     ctorName = spec.specializedName;
+                    SPDLOG_WARN("visitNewExpression: found ctor spec '{}' for class '{}'",
+                        ctorName, className);
                     break;
+                }
+            }
+        }
+        if (ctorName.empty()) {
+            SPDLOG_WARN("visitNewExpression: NO ctor spec found for '{}' in {} specializations",
+                className, specializations_->size());
+            for (const auto& spec : *specializations_) {
+                if (spec.classType) {
+                    auto ct = std::dynamic_pointer_cast<ts::ClassType>(spec.classType);
+                    if (ct && ct->name == className) {
+                        SPDLOG_WARN("  spec: original='{}' specialized='{}' class='{}'",
+                            spec.originalName, spec.specializedName, ct->name);
+                    }
                 }
             }
         }
@@ -5053,7 +5268,13 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
             for (auto& arg : args) {
                 ctorArgs.push_back(arg);
             }
-            builder_.createCall(ctorName, ctorArgs, HIRType::makeVoid());
+            SPDLOG_WARN("visitNewExpression: CALLING ctor '{}' with {} args, currentFunc={}, builderBlock={}, currentBlock={}",
+                ctorName, ctorArgs.size(),
+                currentFunction_ ? currentFunction_->name : "null",
+                builder_.getInsertBlock() ? builder_.getInsertBlock()->label : "null",
+                currentBlock_ ? currentBlock_->label : "null");
+            auto ctorResult = builder_.createCall(ctorName, ctorArgs, HIRType::makeVoid());
+            SPDLOG_WARN("  ctor call result={}", ctorResult ? "non-null" : "null");
         }
     }
 
@@ -5588,7 +5809,30 @@ void ASTToHIR::visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment
     // Save the object before any potential modification to lastValue_
     auto obj = lastValue_;
 
-    auto val = lookupVariable(node->name);
+    // Check if this is a captured variable from an outer function first
+    // (same logic as visitIdentifier - lookupVariable alone doesn't detect captures)
+    std::shared_ptr<HIRValue> val;
+    size_t scopeIndex = 0;
+    if (currentFunction_ && isCapturedVariable(node->name, &scopeIndex)) {
+        auto* info = lookupVariableInfo(node->name);
+        if (info) {
+            auto type = info->elemType ? info->elemType : (info->value ? info->value->type : HIRType::makeAny());
+            registerCapture(node->name, type, scopeIndex);
+            currentFunction_->hasClosure = true;
+            val = builder_.createLoadCapture(node->name, type);
+        }
+    }
+    // Also check module globals (same as visitIdentifier)
+    if (!val && currentFunction_ && moduleGlobalVars_.count(node->name)) {
+        size_t si = 0;
+        if (isCapturedVariable(node->name, &si)) {
+            std::string globalName = "__modvar_" + node->name;
+            auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
+            val = builder_.createLoadGlobalTyped(globalName, type);
+        }
+    }
+    if (!val)
+        val = lookupVariable(node->name);
     if (!val) {
         // Variable not found - check if it's a function name in the module
         for (const auto& func : module_->functions) {
@@ -5685,11 +5929,24 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
-    // For module-scoped variables accessed from inner functions, use __modvar_ globals
-    // instead of closure cells. Module variables must be shared across all functions.
+    // For module-scoped variables, use __modvar_ globals when accessed from inner
+    // functions or from the defining function when an inner function also uses it.
+    // This ensures the module init function sees updates from closures that modify
+    // the variable (e.g., let R = 0; const f = () => { R++; }; f(); exports.R = R).
     if (currentFunction_ && moduleGlobalVars_.count(node->name)) {
         size_t scopeIndex = 0;
         if (isCapturedVariable(node->name, &scopeIndex)) {
+            // Inner function accessing a module global -- record it so the
+            // defining function knows to use __modvar_ too
+            moduleGlobalsUsedByInner_.insert(node->name);
+
+            std::string globalName = "__modvar_" + node->name;
+            auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
+            lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
+            return;
+        }
+        // In the defining function, use global if any inner function accesses it
+        if (moduleGlobalsUsedByInner_.count(node->name)) {
             std::string globalName = "__modvar_" + node->name;
             auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
             lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
@@ -6023,6 +6280,13 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     HIRFunction* savedFunc = currentFunction_;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
+    // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
+    auto savedLoopStack = loopStack_;
+    auto savedSwitchStack = switchStack_;
+    auto savedLabeledLoops = labeledLoops_;
+    loopStack_ = {};
+    switchStack_ = {};
+    labeledLoops_ = {};
 
     currentFunction_ = func.get();
     clearPendingCaptures();  // Start fresh for this function
@@ -6145,6 +6409,9 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     currentFunction_ = savedFunc;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
+    loopStack_ = savedLoopStack;
+    switchStack_ = savedSwitchStack;
+    labeledLoops_ = savedLabeledLoops;
     if (savedBlock) {
         builder_.setInsertPoint(savedBlock);
     }
@@ -6307,6 +6574,13 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     HIRFunction* savedFunc = currentFunction_;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
+    // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
+    auto savedLoopStack = loopStack_;
+    auto savedSwitchStack = switchStack_;
+    auto savedLabeledLoops = labeledLoops_;
+    loopStack_ = {};
+    switchStack_ = {};
+    labeledLoops_ = {};
 
     currentFunction_ = func.get();
     clearPendingCaptures();  // Start fresh for this function
@@ -6450,6 +6724,9 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     currentFunction_ = savedFunc;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
+    loopStack_ = savedLoopStack;
+    switchStack_ = savedSwitchStack;
+    labeledLoops_ = savedLabeledLoops;
     if (savedBlock) {
         builder_.setInsertPoint(savedBlock);
     }
@@ -6593,6 +6870,13 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     HIRFunction* savedFunc = currentFunction_;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;
+    // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
+    auto savedLoopStack = loopStack_;
+    auto savedSwitchStack = switchStack_;
+    auto savedLabeledLoops = labeledLoops_;
+    loopStack_ = {};
+    switchStack_ = {};
+    labeledLoops_ = {};
 
     currentFunction_ = func.get();
     clearPendingCaptures();
@@ -6638,6 +6922,9 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     currentFunction_ = savedFunc;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;
+    loopStack_ = savedLoopStack;
+    switchStack_ = savedSwitchStack;
+    labeledLoops_ = savedLabeledLoops;
     if (savedBlock) {
         builder_.setInsertPoint(savedBlock);
     }
@@ -6841,7 +7128,19 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     } else if (op == "~") {
         lastValue_ = builder_.createNotI64(operand);
     } else if (op == "+") {
-        lastValue_ = operand;  // Unary plus is a no-op
+        // Unary plus: no-op for numeric types, ToNumber for others (Any/String)
+        bool isNumeric = false;
+        if (operand && operand->type) {
+            auto k = operand->type->kind;
+            isNumeric = (k == HIRTypeKind::Int64 || k == HIRTypeKind::Float64 ||
+                         k == HIRTypeKind::Bool);
+        }
+        if (isNumeric) {
+            lastValue_ = operand;
+        } else {
+            // Double negation forces ToNumber conversion (NegF64 handles ptr→double)
+            lastValue_ = builder_.createNegF64(builder_.createNegF64(operand));
+        }
     } else if (op == "typeof") {
         lastValue_ = builder_.createTypeOf(operand);
     } else if (op == "++" || op == "--") {
@@ -6852,9 +7151,19 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
             isFloat = true;
         }
+        // Check if operand is Any type (NaN-boxed) - need runtime dispatch
+        bool isAny = false;
+        if (!isFloat && operand && operand->type && operand->type->kind == HIRTypeKind::Any) {
+            isAny = true;
+        }
 
         std::shared_ptr<HIRValue> result;
-        if (isFloat) {
+        if (isAny) {
+            // For NaN-boxed values, use ts_value_inc/dec which coerce to number
+            // (unlike ts_value_add which does string concatenation for strings)
+            result = (op == "++") ? builder_.createCall("ts_value_inc", {operand}, HIRType::makeAny())
+                                  : builder_.createCall("ts_value_dec", {operand}, HIRType::makeAny());
+        } else if (isFloat) {
             auto one = builder_.createConstFloat(1.0);
             result = (op == "++") ? builder_.createAddF64(operand, one)
                                   : builder_.createSubF64(operand, one);
@@ -6894,6 +7203,10 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                         if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
                             auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
                             builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
+                        }
+                        // If used by inner function AND module global, also update __modvar_
+                        if (moduleGlobalsUsedByInner_.count(ident->name)) {
+                            builder_.createStoreGlobal("__modvar_" + ident->name, result);
                         }
                     } else {
                         defineVariable(ident->name, result);
@@ -6950,9 +7263,19 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
         } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
             isFloat = true;
         }
+        // Check if operand is Any type (NaN-boxed) - need runtime dispatch
+        bool isAny = false;
+        if (!isFloat && operand && operand->type && operand->type->kind == HIRTypeKind::Any) {
+            isAny = true;
+        }
 
         std::shared_ptr<HIRValue> result;
-        if (isFloat) {
+        if (isAny) {
+            // For NaN-boxed values, use ts_value_inc/dec which coerce to number
+            // (unlike ts_value_add which does string concatenation for strings)
+            result = (op == "++") ? builder_.createCall("ts_value_inc", {operand}, HIRType::makeAny())
+                                  : builder_.createCall("ts_value_dec", {operand}, HIRType::makeAny());
+        } else if (isFloat) {
             auto one = builder_.createConstFloat(1.0);
             result = (op == "++") ? builder_.createAddF64(operand, one)
                                   : builder_.createSubF64(operand, one);
@@ -6993,6 +7316,10 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                             auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
                             builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
                         }
+                        // If used by inner function AND module global, also update __modvar_
+                        if (moduleGlobalsUsedByInner_.count(ident->name)) {
+                            builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                        }
                     } else {
                         defineVariable(ident->name, result);
                     }
@@ -7014,6 +7341,9 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
 }
 
 void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
+    SPDLOG_WARN("visitClassDeclaration: name={} currentFunc={}",
+        node->name, currentFunction_ ? currentFunction_->name : "null");
+
     // Create HIR class
     auto* hirClass = builder_.createClass(node->name);
     if (!hirClass) return;
@@ -7069,10 +7399,23 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     shape->size = propertyOffset;
     hirClass->shape = shape;
 
-    // Register class shape for flat object codegen if it has properties
-    if (!shape->propertyOffsets.empty()) {
-        shape->id = nextShapeId_++;
-        module_->shapes.push_back(shape);
+    // Register class shape for flat object codegen if it has properties or instance methods.
+    // Classes with methods but no PropertyDefinition fields (e.g., JS classes where properties
+    // are assigned in the constructor body) still need flat objects for vtable method dispatch.
+    {
+        bool hasInstanceMethods = false;
+        for (auto& memberPtr : node->members) {
+            if (auto* md = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+                if (md->name != "constructor" && !md->isStatic && !md->isAbstract && md->hasBody) {
+                    hasInstanceMethods = true;
+                    break;
+                }
+            }
+        }
+        if (!shape->propertyOffsets.empty() || hasInstanceMethods) {
+            shape->id = nextShapeId_++;
+            module_->shapes.push_back(shape);
+        }
     }
 
     // Static property pass: create globals for static properties
@@ -7384,10 +7727,21 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     shape->size = propertyOffset;
     hirClass->shape = shape;
 
-    // Register class shape for flat object codegen if it has properties
-    if (!shape->propertyOffsets.empty()) {
-        shape->id = nextShapeId_++;
-        module_->shapes.push_back(shape);
+    // Register class shape for flat object codegen if it has properties or instance methods
+    {
+        bool hasInstanceMethods = false;
+        for (auto& memberPtr : node->members) {
+            if (auto* md = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+                if (md->name != "constructor" && !md->isStatic && !md->isAbstract && md->hasBody) {
+                    hasInstanceMethods = true;
+                    break;
+                }
+            }
+        }
+        if (!shape->propertyOffsets.empty() || hasInstanceMethods) {
+            shape->id = nextShapeId_++;
+            module_->shapes.push_back(shape);
+        }
     }
 
     // Static property pass: create globals for static properties

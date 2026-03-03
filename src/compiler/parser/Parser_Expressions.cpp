@@ -650,7 +650,7 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             if (text.size() >= 2) {
                 text = text.substr(1, text.size() - 2);
             }
-            node->head = text;
+            node->head = Lexer::processTemplateEscapes(text);
             return node;
         }
 
@@ -1094,7 +1094,7 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
     if (headText.size() >= 3) {
         headText = headText.substr(1, headText.size() - 3);
     }
-    node->head = headText;
+    node->head = Lexer::processTemplateEscapes(headText);
     advance();
 
     while (true) {
@@ -1112,7 +1112,7 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
             if (litText.size() >= 2) {
                 litText = litText.substr(1, litText.size() - 2);
             }
-            span.literal = litText;
+            span.literal = Lexer::processTemplateEscapes(litText);
             node->spans.push_back(std::move(span));
             advance();
             break;
@@ -1122,7 +1122,7 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
             if (litText.size() >= 3) {
                 litText = litText.substr(1, litText.size() - 3);
             }
-            span.literal = litText;
+            span.literal = Lexer::processTemplateEscapes(litText);
             node->spans.push_back(std::move(span));
             advance();
             continue;
@@ -1133,13 +1133,13 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
             std::string litText(manualTok.text);
             if (manualTok.kind == TokenKind::TemplateTail) {
                 if (litText.size() >= 2) litText = litText.substr(1, litText.size() - 2);
-                span.literal = litText;
+                span.literal = Lexer::processTemplateEscapes(litText);
                 node->spans.push_back(std::move(span));
                 advance();
                 break;
             } else if (manualTok.kind == TokenKind::TemplateMiddle) {
                 if (litText.size() >= 3) litText = litText.substr(1, litText.size() - 3);
-                span.literal = litText;
+                span.literal = Lexer::processTemplateEscapes(litText);
                 node->spans.push_back(std::move(span));
                 advance();
                 continue;
@@ -1166,7 +1166,7 @@ ast::ExprPtr Parser::parseTaggedTemplate(ast::ExprPtr tag) {
         setLocation(tmpl.get(), current_);
         std::string text(current_.text);
         if (text.size() >= 2) text = text.substr(1, text.size() - 2);
-        tmpl->head = text;
+        tmpl->head = Lexer::processTemplateEscapes(text);
         advance();
         node->templateExpr = std::move(tmpl);
     } else {

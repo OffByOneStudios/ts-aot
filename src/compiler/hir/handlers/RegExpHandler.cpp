@@ -41,12 +41,16 @@ public:
     bool canHandleMethod(const std::string& methodName,
                          const std::string& className,
                          HIRInstruction* inst) const override {
-        // RegExp methods - handle for both known RegExp class and unknown types
-        if (className == "RegExp" || className.empty()) {
+        // RegExp methods - handle for known RegExp class
+        if (className == "RegExp") {
             if (methodName == "test" || methodName == "exec") {
                 return true;
             }
         }
+        // For unknown types (untyped JS), do NOT assume .test()/.exec() are
+        // RegExp methods. User-defined classes (Range, Comparator, etc.) may
+        // also have .test()/.exec() methods with the same arity.
+        // Let runtime dynamic dispatch handle these via ts_object_get_property.
         return false;
     }
 

@@ -44,6 +44,8 @@
 #include <iterator>
 #include <vector>
 #include <spdlog/spdlog.h>
+#include <unicode/regex.h>
+#include <unicode/unistr.h>
 
 namespace fs = std::filesystem;
 
@@ -710,16 +712,210 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_string_split_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        void* sep = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
-        if (!sep) sep = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-        return ts_value_make_object(ts_string_split(str, sep));
+        if (argc >= 1 && argv && argv[0]) {
+            // Check if separator is a RegExp
+            void* rawSep = ts_value_get_object((TsValue*)argv[0]);
+            if (!rawSep) rawSep = (void*)argv[0];
+            uint32_t magic = *(uint32_t*)rawSep;
+            if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
+                return ts_value_make_object(ts_string_split_regexp(str, rawSep));
+            }
+            // String separator
+            void* sep = ts_value_get_string(argv[0]);
+            if (!sep) sep = (void*)argv[0];
+            return ts_value_make_object(ts_string_split(str, sep));
+        }
+        return ts_value_make_object(ts_string_split(str, nullptr));
     }
+    // Helper: check if a TsValue is callable (closure or function)
+    static bool ts_value_is_callable(TsValue* val) {
+        if (!val) return false;
+        uint64_t nb = nanbox_from_tsvalue_ptr(val);
+        if (!nanbox_is_ptr(nb)) return false;
+        void* ptr = nanbox_to_ptr(nb);
+        if (!ptr) return false;
+        // Check for TsClosure magic at offset 16
+        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+        if (magic16 == 0x434C5352) return true; // TsClosure::MAGIC "CLSR"
+        if (magic16 == 0x46554E43) return true; // TsFunction::MAGIC "FUNC"
+        return false;
+    }
+
+    // Helper: call callback with variable number of TsValue* args
+    static TsValue* ts_call_variadic(TsValue* fn, TsValue** args, int count) {
+        switch (count) {
+            case 0: return ts_call_0(fn);
+            case 1: return ts_call_1(fn, args[0]);
+            case 2: return ts_call_2(fn, args[0], args[1]);
+            case 3: return ts_call_3(fn, args[0], args[1], args[2]);
+            case 4: return ts_call_4(fn, args[0], args[1], args[2], args[3]);
+            case 5: return ts_call_5(fn, args[0], args[1], args[2], args[3], args[4]);
+            case 6: return ts_call_6(fn, args[0], args[1], args[2], args[3], args[4], args[5]);
+            case 7: return ts_call_7(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+            case 8: return ts_call_8(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+            case 9: return ts_call_9(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
+            case 10: return ts_call_10(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
+            default: return ts_call_10(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
+        }
+    }
+
+    // String.replace with regex and callback function
+    static TsValue* ts_string_replace_callback_regex(TsString* str, TsRegExp* regexp, TsValue* callback) {
+        icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
+        if (!matcher) return ts_value_make_string(str);
+
+        icu::UnicodeString input = str->ToUnicodeString();
+        matcher->reset(input);
+
+        bool isGlobal = regexp->IsGlobal();
+        UErrorCode status = U_ZERO_ERROR;
+        icu::UnicodeString result;
+        int32_t lastEnd = 0;
+
+        while (matcher->find()) {
+            int32_t matchStart = matcher->start(status);
+            int32_t matchEnd = matcher->end(status);
+
+            // Append text before this match
+            result.append(input, lastEnd, matchStart - lastEnd);
+
+            // Build callback args: (match, g1, g2, ..., offset, originalString)
+            int32_t groupCount = matcher->groupCount();
+            int totalArgs = 1 + groupCount + 2; // match + groups + offset + input
+            std::vector<TsValue*> args;
+            args.reserve(totalArgs);
+
+            // Full match (group 0)
+            {
+                icu::UnicodeString matchStr = matcher->group(0, status);
+                std::string utf8;
+                matchStr.toUTF8String(utf8);
+                args.push_back(ts_value_make_string(TsString::Create(utf8.c_str())));
+            }
+
+            // Capture groups (1..groupCount)
+            for (int32_t i = 1; i <= groupCount; i++) {
+                int32_t gs = matcher->start(i, status);
+                if (gs == -1) {
+                    args.push_back(ts_value_make_undefined());
+                } else {
+                    icu::UnicodeString group = matcher->group(i, status);
+                    std::string gUtf8;
+                    group.toUTF8String(gUtf8);
+                    args.push_back(ts_value_make_string(TsString::Create(gUtf8.c_str())));
+                }
+            }
+
+            // Offset (index of match in original string)
+            args.push_back(ts_value_make_int(matchStart));
+
+            // Original string
+            args.push_back(ts_value_make_string(str));
+
+            // Call the callback
+            TsValue* callResult = ts_call_variadic(callback, args.data(), (int)args.size());
+
+            // Convert result to string and append
+            if (callResult) {
+                TsString* replStr = (TsString*)ts_string_from_value(callResult);
+                if (replStr) {
+                    icu::UnicodeString replU = replStr->ToUnicodeString();
+                    result.append(replU);
+                }
+            }
+
+            lastEnd = matchEnd;
+
+            // For zero-length matches, advance by 1 to avoid infinite loop
+            if (matchStart == matchEnd) {
+                if (matchEnd < input.length()) {
+                    result.append(input[matchEnd]);
+                    lastEnd = matchEnd + 1;
+                } else {
+                    break;
+                }
+            }
+
+            if (!isGlobal) break;
+        }
+
+        // Append remaining text after last match
+        if (lastEnd < input.length()) {
+            result.append(input, lastEnd, input.length() - lastEnd);
+        }
+
+        std::string utf8Result;
+        result.toUTF8String(utf8Result);
+        return ts_value_make_string(TsString::Create(utf8Result.c_str()));
+    }
+
+    // String.replace with string pattern and callback function
+    static TsValue* ts_string_replace_callback_string(TsString* str, TsString* pattern, TsValue* callback) {
+        const char* haystack = str->ToUtf8();
+        const char* needle = pattern->ToUtf8();
+        if (!haystack || !needle) return ts_value_make_string(str);
+
+        const char* found = strstr(haystack, needle);
+        if (!found) return ts_value_make_string(str);
+
+        int64_t offset = found - haystack;
+        size_t needleLen = strlen(needle);
+
+        // Build callback args: (match, offset, originalString)
+        TsValue* args[3];
+        args[0] = ts_value_make_string(pattern);
+        args[1] = ts_value_make_int(offset);
+        args[2] = ts_value_make_string(str);
+
+        TsValue* callResult = ts_call_3(callback, args[0], args[1], args[2]);
+
+        TsString* replStr = callResult ? (TsString*)ts_string_from_value(callResult) : TsString::Create("undefined");
+        const char* replUtf8 = replStr->ToUtf8();
+
+        std::string result;
+        result.append(haystack, offset);
+        result.append(replUtf8);
+        result.append(haystack + offset + needleLen);
+
+        return ts_value_make_string(TsString::Create(result.c_str()));
+    }
+
     static TsValue* ts_string_replace_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        void* pattern = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
-        if (!pattern) pattern = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-        void* replacement = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
-        if (!replacement) replacement = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+        if (argc < 1 || !argv) return ts_value_make_string(str);
+
+        // Check if replacement (argv[1]) is a callback function
+        bool replIsCallback = (argc >= 2 && argv[1] && ts_value_is_callable(argv[1]));
+
+        // Extract and unbox pattern
+        void* rawPattern = argv[0] ? ts_value_get_object((TsValue*)argv[0]) : nullptr;
+        if (!rawPattern) rawPattern = (void*)argv[0];
+
+        if (rawPattern) {
+            uint32_t magic = *(uint32_t*)rawPattern;
+            if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
+                if (replIsCallback) {
+                    return ts_string_replace_callback_regex(str, (TsRegExp*)rawPattern, argv[1]);
+                }
+                // String replacement
+                void* replacement = (argc >= 2 && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
+                if (!replacement) replacement = (argc >= 2 && argv[1]) ? (void*)argv[1] : nullptr;
+                return ts_value_make_string((TsString*)ts_string_replace_regexp(str, rawPattern, replacement));
+            }
+        }
+
+        // Pattern is a string
+        void* pattern = argv[0] ? ts_value_get_string(argv[0]) : nullptr;
+        if (!pattern) pattern = (void*)argv[0];
+
+        if (replIsCallback) {
+            TsString* strPattern = (TsString*)pattern;
+            if (!strPattern) strPattern = TsString::Create("");
+            return ts_string_replace_callback_string(str, strPattern, argv[1]);
+        }
+
+        void* replacement = (argc >= 2 && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
+        if (!replacement) replacement = (argc >= 2 && argv[1]) ? (void*)argv[1] : nullptr;
         return ts_value_make_string((TsString*)ts_string_replace(str, pattern, replacement));
     }
     static TsValue* ts_string_repeat_native(void* ctx, int argc, TsValue** argv) {
@@ -770,10 +966,25 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_string_replaceAll_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        void* pattern = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
-        if (!pattern) pattern = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-        void* replacement = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
-        if (!replacement) replacement = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+        if (argc < 1 || !argv) return ts_value_make_string(str);
+
+        // Extract replacement string
+        void* replacement = (argc >= 2 && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
+        if (!replacement) replacement = (argc >= 2 && argv[1]) ? (void*)argv[1] : nullptr;
+
+        // Check if pattern is a RegExp
+        void* rawPattern = argv[0] ? ts_value_get_object((TsValue*)argv[0]) : nullptr;
+        if (!rawPattern) rawPattern = (void*)argv[0];
+        if (rawPattern) {
+            uint32_t magic = *(uint32_t*)rawPattern;
+            if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
+                return ts_value_make_string((TsString*)ts_string_replace_regexp(str, rawPattern, replacement));
+            }
+        }
+
+        // Pattern is a string
+        void* pattern = argv[0] ? ts_value_get_string(argv[0]) : nullptr;
+        if (!pattern) pattern = (void*)argv[0];
         return ts_value_make_string((TsString*)ts_string_replaceAll(str, pattern, replacement));
     }
     static TsValue* ts_string_at_native(void* ctx, int argc, TsValue** argv) {
@@ -1287,6 +1498,21 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_int(TsDate::Now());
     }
 
+    // Native wrappers for RegExp instance methods (.test() and .exec())
+    static TsValue* ts_regexp_test_native(void* ctx, int argc, TsValue** argv) {
+        TsRegExp* re = (TsRegExp*)ctx;
+        void* str = (argc >= 1 && argv && argv[0]) ? (void*)argv[0] : nullptr;
+        int32_t result = RegExp_test(re, str);
+        return (TsValue*)ts_value_make_bool(result != 0);
+    }
+    static TsValue* ts_regexp_exec_native(void* ctx, int argc, TsValue** argv) {
+        TsRegExp* re = (TsRegExp*)ctx;
+        void* str = (argc >= 1 && argv && argv[0]) ? (void*)argv[0] : nullptr;
+        void* result = RegExp_exec(re, str);
+        if (!result) return (TsValue*)ts_value_make_null();
+        return (TsValue*)ts_value_make_object(result);
+    }
+
     // Helper: try implicit conversion through virtual base chain to find TsObject
     // For stream classes (TsReadable/TsWritable), TsObject is a virtual base NOT at offset 0.
     // We use the C++ implicit conversion which follows the vbtable to find the virtual base.
@@ -1452,6 +1678,12 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "lastIndex") == 0) {
                 return ts_value_make_int(re->GetLastIndex());
+            }
+            if (strcmp(keyStr, "test") == 0) {
+                return ts_value_make_native_function((void*)ts_regexp_test_native, re);
+            }
+            if (strcmp(keyStr, "exec") == 0) {
+                return ts_value_make_native_function((void*)ts_regexp_exec_native, re);
             }
             return ts_value_make_undefined();
         }
@@ -3856,6 +4088,18 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_double(d1 + d2);
     }
 
+    TsValue* ts_value_inc(TsValue* a) {
+        if (!a) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        double d = nanbox_extract_double(a);
+        return ts_value_make_double(d + 1.0);
+    }
+
+    TsValue* ts_value_dec(TsValue* a) {
+        if (!a) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        double d = nanbox_extract_double(a);
+        return ts_value_make_double(d - 1.0);
+    }
+
     TsValue* ts_value_sub(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
@@ -5591,7 +5835,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsString* s = (TsString*)ts_value_get_string(path);
         if (!s) return;
         std::string pathStr = s->ToUtf8();
-
+        fprintf(stderr, "[ts_module_register] path='%s'\n", pathStr.c_str()); fflush(stderr);
         g_module_cache[pathStr] = exports;
     }
 
@@ -5801,9 +6045,11 @@ TsValue* ts_get_builtin_module(const char* name) {
     TsValue* ts_require(TsValue* specifier, const char* referrerPath) {
         TsString* s = (TsString*)ts_value_get_string(specifier);
         if (!s) {
+            fprintf(stderr, "[ts_require] specifier is not a string!\n");
             return ts_value_make_undefined();
         }
         std::string spec = s->ToUtf8();
+        fprintf(stderr, "[ts_require] spec='%s' referrer='%s'\n", spec.c_str(), referrerPath ? referrerPath : "(null)"); fflush(stderr);
 
         // Strip "node:" prefix for built-in module lookup
         std::string lookupSpec = spec;
@@ -5823,9 +6069,16 @@ TsValue* ts_get_builtin_module(const char* name) {
             fs::path resolved;
             std::string absPath;
 
-            if (spec.rfind("./", 0) == 0 || spec.rfind("../", 0) == 0 || spec.rfind("/", 0) == 0) {
+            // Check for relative or absolute paths
+            bool isRelative = spec.rfind("./", 0) == 0 || spec.rfind("../", 0) == 0 || spec.rfind("/", 0) == 0;
+            // Windows absolute paths like "E:\..." or "C:/..."
+            bool isAbsoluteWin = spec.size() >= 2 && std::isalpha((unsigned char)spec[0]) && (spec[1] == ':');
+            if (isRelative) {
                 resolved = fs::path(referrerPath).parent_path() / spec;
                 absPath = finalize_module_path(resolved);
+            } else if (isAbsoluteWin || (!spec.empty() && spec[0] == '/')) {
+                // Already an absolute path
+                absPath = finalize_module_path(spec);
             } else {
                 absPath = resolve_node_module(spec, referrerPath);
             }
@@ -5862,7 +6115,9 @@ TsValue* ts_get_builtin_module(const char* name) {
                 return ts_value_make_undefined();
             }
 
+            fprintf(stderr, "[ts_require] resolved absPath='%s'\n", absPath.c_str()); fflush(stderr);
             TsValue* moduleObj = ts_module_get(absPath.c_str());
+            fprintf(stderr, "[ts_require] moduleObj=%p\n", (void*)moduleObj); fflush(stderr);
             if (moduleObj) {
                 // CommonJS: return module.exports
                 uint64_t modNb = nanbox_from_tsvalue_ptr(moduleObj);
