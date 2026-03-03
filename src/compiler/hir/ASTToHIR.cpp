@@ -33,6 +33,41 @@ static std::shared_ptr<HIRType> extTypeRefToHIR(const ext::TypeReference& typeRe
 }
 
 //==============================================================================
+// Helper: Scan constructor body for this.propName = expr assignments
+//==============================================================================
+
+static void scanConstructorBodyForProperties(
+    const std::vector<ast::StmtPtr>& body,
+    std::shared_ptr<HIRShape>& shape,
+    uint32_t& propertyOffset)
+{
+    for (auto& stmtPtr : body) {
+        // Only scan top-level ExpressionStatements (conservative: skip if/else/loops)
+        auto* exprStmt = dynamic_cast<ast::ExpressionStatement*>(stmtPtr.get());
+        if (!exprStmt || !exprStmt->expression) continue;
+
+        auto* assign = dynamic_cast<ast::AssignmentExpression*>(exprStmt->expression.get());
+        if (!assign || !assign->left) continue;
+
+        auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(assign->left.get());
+        if (!propAccess || !propAccess->expression) continue;
+
+        auto* thisIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+        if (!thisIdent || thisIdent->name != "this") continue;
+
+        const std::string& propName = propAccess->name;
+        if (propName.empty()) continue;
+
+        // Skip if already in shape (from PropertyDefinition or base class)
+        if (shape->propertyOffsets.count(propName)) continue;
+
+        shape->propertyOffsets[propName] = propertyOffset;
+        shape->propertyTypes[propName] = HIRType::makeAny();
+        propertyOffset++;
+    }
+}
+
+//==============================================================================
 // Helper: Check if an AST expression contains a function/arrow (for var hoisting)
 //==============================================================================
 
@@ -473,6 +508,17 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
         }
+
+        // Scan constructor body for this.x = expr assignments
+        for (auto& memberPtr : classDecl->members) {
+            if (auto* method = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+                if (method->name == "constructor" && method->hasBody) {
+                    scanConstructorBodyForProperties(method->body, shape, propertyOffset);
+                    break;
+                }
+            }
+        }
+
         shape->size = propertyOffset;
         hirClass->shape = shape;
 
@@ -2941,8 +2987,11 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
             // The variable could be an Identifier or a binding pattern
             if (auto* id = dynamic_cast<ast::Identifier*>(node->catchClause->variable.get())) {
                 defineVariable(id->name, exception);
+            } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(node->catchClause->variable.get())) {
+                lowerObjectBindingPattern(objPat, exception);
+            } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(node->catchClause->variable.get())) {
+                lowerArrayBindingPattern(arrPat, exception);
             }
-            // TODO: Handle destructuring in catch clause
         }
 
         // Execute catch block statements
@@ -5192,20 +5241,19 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
             std::vector<std::shared_ptr<HIRValue>> callArgs;
             callArgs.push_back(constructorVal);
 
-            if (args.empty()) {
-                funcName = "ts_new_from_constructor_0";
-            } else if (args.size() == 1) {
-                funcName = "ts_new_from_constructor_1";
-                callArgs.push_back(args[0]);
-            } else if (args.size() == 2) {
-                funcName = "ts_new_from_constructor_2";
-                callArgs.push_back(args[0]);
-                callArgs.push_back(args[1]);
+            size_t numArgs = args.size();
+            if (numArgs <= 8) {
+                funcName = "ts_new_from_constructor_" + std::to_string(numArgs);
+                for (size_t i = 0; i < numArgs; i++) {
+                    callArgs.push_back(args[i]);
+                }
             } else {
-                funcName = "ts_new_from_constructor_3";
-                callArgs.push_back(args[0]);
-                callArgs.push_back(args[1]);
-                callArgs.push_back(args[2]);
+                // Cap at 8 args, drop extras
+                SPDLOG_WARN("Constructor call with {} args, capping at 8", numArgs);
+                funcName = "ts_new_from_constructor_8";
+                for (size_t i = 0; i < 8; i++) {
+                    callArgs.push_back(args[i]);
+                }
             }
 
             lastValue_ = builder_.createCall(funcName, callArgs, HIRType::makeAny());
@@ -7396,6 +7444,17 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             }
         }
     }
+
+    // Scan constructor body for this.x = expr assignments
+    for (auto& memberPtr : node->members) {
+        if (auto* method = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+            if (method->name == "constructor" && method->hasBody) {
+                scanConstructorBodyForProperties(method->body, shape, propertyOffset);
+                break;
+            }
+        }
+    }
+
     shape->size = propertyOffset;
     hirClass->shape = shape;
 
@@ -7724,6 +7783,17 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             }
         }
     }
+
+    // Scan constructor body for this.x = expr assignments
+    for (auto& memberPtr : node->members) {
+        if (auto* method = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+            if (method->name == "constructor" && method->hasBody) {
+                scanConstructorBodyForProperties(method->body, shape, propertyOffset);
+                break;
+            }
+        }
+    }
+
     shape->size = propertyOffset;
     hirClass->shape = shape;
 
