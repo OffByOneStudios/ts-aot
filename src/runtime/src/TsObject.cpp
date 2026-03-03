@@ -1321,16 +1321,16 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // P3: Less common methods
     static TsValue* ts_array_entries_native(void* ctx, int argc, TsValue** argv) {
-        void* result = ts_array_entries((TsArray*)ctx);
-        return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
+        void* items = ts_array_entries((TsArray*)ctx);
+        return items ? (TsValue*)ts_create_array_iterator(items) : ts_value_make_object(ts_array_create());
     }
     static TsValue* ts_array_keys_native(void* ctx, int argc, TsValue** argv) {
-        void* result = ts_array_keys((TsArray*)ctx);
-        return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
+        void* items = ts_array_keys((TsArray*)ctx);
+        return items ? (TsValue*)ts_create_array_iterator(items) : ts_value_make_object(ts_array_create());
     }
     static TsValue* ts_array_values_native(void* ctx, int argc, TsValue** argv) {
-        void* result = ts_array_values((TsArray*)ctx);
-        return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
+        void* items = ts_array_values((TsArray*)ctx);
+        return items ? (TsValue*)ts_create_array_iterator(items) : ts_value_make_object(ts_array_create());
     }
     static TsValue* ts_array_toReversed_native(void* ctx, int argc, TsValue** argv) {
         void* result = ts_array_toReversed((TsArray*)ctx);

@@ -101,15 +101,16 @@ void BuiltinRegistry::registerArrayMethods() {
     methodTable_[{HIRTypeKind::Array, "with"}] =
         MethodResolution::makeRuntimeCall("ts_array_with", 2, arrayType);
 
-    // Iterator methods (return arrays for now)
+    // Iterator methods (return iterator objects with .next())
+    auto objectType = HIRType::makeObject();
     methodTable_[{HIRTypeKind::Array, "entries"}] =
-        MethodResolution::makeRuntimeCall("ts_array_entries", 0, arrayType);
+        MethodResolution::makeRuntimeCall("ts_array_entries_iter", 0, objectType);
 
     methodTable_[{HIRTypeKind::Array, "keys"}] =
-        MethodResolution::makeRuntimeCall("ts_array_keys", 0, arrayType);
+        MethodResolution::makeRuntimeCall("ts_array_keys_iter", 0, objectType);
 
     methodTable_[{HIRTypeKind::Array, "values"}] =
-        MethodResolution::makeRuntimeCall("ts_array_values", 0, arrayType);
+        MethodResolution::makeRuntimeCall("ts_array_values_iter", 0, objectType);
 
     // Higher-order methods (callback-based)
     auto voidType = HIRType::makeVoid();
@@ -457,15 +458,16 @@ void BuiltinRegistry::registerMapMethods() {
     methodTable_[{HIRTypeKind::Map, "forEach"}] =
         MethodResolution::makeRuntimeCall("ts_map_forEach", -1, voidType);
 
-    // Iterator methods (return arrays for now)
+    // Iterator methods (return iterator objects with .next())
+    auto objectType = HIRType::makeObject();
     methodTable_[{HIRTypeKind::Map, "entries"}] =
-        MethodResolution::makeRuntimeCall("ts_map_entries", 0, arrayType);
+        MethodResolution::makeRuntimeCall("ts_map_entries_iter", 0, objectType);
 
     methodTable_[{HIRTypeKind::Map, "keys"}] =
-        MethodResolution::makeRuntimeCall("ts_map_keys", 0, arrayType);
+        MethodResolution::makeRuntimeCall("ts_map_keys_iter", 0, objectType);
 
     methodTable_[{HIRTypeKind::Map, "values"}] =
-        MethodResolution::makeRuntimeCall("ts_map_values", 0, arrayType);
+        MethodResolution::makeRuntimeCall("ts_map_values_iter", 0, objectType);
 
     // Map static methods
     builtinGlobals_.insert("Map");

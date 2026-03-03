@@ -12,6 +12,7 @@ namespace ts {
 extern "C" {
     TsValue* Generator_next_internal(void* context, TsValue* value);
     TsValue* AsyncGenerator_next_internal(void* context, TsValue* value);
+    TsValue* ts_map_get_property(void* obj, void* propName);
 }
 
 // Async iterator wrapper for arrays - used by for await...of
@@ -138,7 +139,23 @@ TsValue* Generator_next_internal(void* context, TsValue* value) {
 }
 
 TsValue* Generator_next(TsValue* genVal, TsValue* value) {
-    return Generator_next_internal(ts_value_get_object(genVal), value);
+    void* raw = ts_value_get_object(genVal);
+    if (!raw) return ts_value_make_undefined();
+
+    // Check if this is a TsMap-based iterator (has "next" property)
+    // rather than a real TsGenerator
+    uint32_t magic = *(uint32_t*)((char*)raw + 16);
+    if (magic == 0x4D415053) { // TsMap::MAGIC = "MAPS"
+        // It's a Map object acting as an iterator - look up "next" and call it
+        TsString* nextKey = TsString::Create("next");
+        TsValue* nextFn = ts_map_get_property(raw, nextKey);
+        if (nextFn && !ts_value_is_undefined(nextFn)) {
+            return ts_call_0(nextFn);
+        }
+        return ts_value_make_undefined();
+    }
+
+    return Generator_next_internal(raw, value);
 }
 
 void ts_generator_return(TsGenerator* gen, TsValue* value) {

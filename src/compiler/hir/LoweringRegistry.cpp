@@ -1092,6 +1092,44 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // map
             .build());
 
+    // Iterator-returning versions (for .keys()/.values()/.entries() user calls)
+    reg.registerLowering("ts_map_keys_iter",
+        lowering("ts_map_keys_iter")
+            .returnsPtr()
+            .ptrArg()      // map
+            .build());
+
+    reg.registerLowering("ts_map_values_iter",
+        lowering("ts_map_values_iter")
+            .returnsPtr()
+            .ptrArg()      // map
+            .build());
+
+    reg.registerLowering("ts_map_entries_iter",
+        lowering("ts_map_entries_iter")
+            .returnsPtr()
+            .ptrArg()      // map
+            .build());
+
+    // Array iterator-returning versions
+    reg.registerLowering("ts_array_entries_iter",
+        lowering("ts_array_entries_iter")
+            .returnsPtr()
+            .ptrArg()      // array
+            .build());
+
+    reg.registerLowering("ts_array_keys_iter",
+        lowering("ts_array_keys_iter")
+            .returnsPtr()
+            .ptrArg()      // array
+            .build());
+
+    reg.registerLowering("ts_array_values_iter",
+        lowering("ts_array_values_iter")
+            .returnsPtr()
+            .ptrArg()      // array
+            .build());
+
     reg.registerLowering("ts_map_forEach",
         lowering("ts_map_forEach")
             .returnsVoid()
