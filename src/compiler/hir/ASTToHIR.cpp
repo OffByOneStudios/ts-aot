@@ -1115,7 +1115,15 @@ std::shared_ptr<HIRValue> ASTToHIR::lookupVariable(const std::string& name) {
         auto type = info->elemType ? info->elemType : HIRType::makeAny();
         // closurePtr is an alloca - load the closure pointer first to ensure dominance
         auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
-        return builder_.createLoadCaptureFromClosure(closureVal, info->captureIndex, type);
+        // Pass the original variable value as fallback for paths where the closure
+        // was never created (e.g., closure only in one branch of if/else)
+        std::shared_ptr<HIRValue> fallback = nullptr;
+        if (info->isAlloca && info->value) {
+            fallback = builder_.createLoad(info->elemType ? info->elemType : type, info->value);
+        } else if (info->value) {
+            fallback = info->value;
+        }
+        return builder_.createLoadCaptureFromClosure(closureVal, info->captureIndex, type, fallback);
     }
 
     if (info->isAlloca && info->elemType) {
@@ -3570,6 +3578,12 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         } else if (isNullLiteral(node->left.get()) && isNullLiteral(node->right.get())) {
             // null === null is always true
             lastValue_ = builder_.createConstBool(true);
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            // When either operand is Any type, use runtime strict equality which
+            // checks types first (e.g., undefined === true must be false, not coerced)
+            // Return boxed TsValue* to preserve ptr typing for variables that may be
+            // reassigned later with non-boolean values (e.g., match = regex.exec(...))
+            lastValue_ = builder_.createCall("ts_value_strict_eq", {lhs, rhs}, HIRType::makeAny());
         } else {
             lastValue_ = useFloat ? builder_.createCmpEqF64(lhs, rhs) : builder_.createCmpEqI64(lhs, rhs);
         }
@@ -3616,6 +3630,11 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         } else if (isNullLiteral(node->left.get()) && isNullLiteral(node->right.get())) {
             // null !== null is always false
             lastValue_ = builder_.createConstBool(false);
+        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
+            // When either operand is Any type, use runtime strict equality and negate
+            // Return boxed TsValue* to preserve ptr typing
+            auto eq = builder_.createCall("ts_value_strict_eq", {lhs, rhs}, HIRType::makeAny());
+            lastValue_ = builder_.createLogicalNot(eq);
         } else {
             lastValue_ = useFloat ? builder_.createCmpNeF64(lhs, rhs) : builder_.createCmpNeI64(lhs, rhs);
         }
@@ -3786,9 +3805,35 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
 void ASTToHIR::visitConditionalExpression(ast::ConditionalExpression* node) {
     auto cond = lowerExpression(node->condition.get());
+
+    // Use branch-based evaluation for correct short-circuit semantics.
+    // JavaScript's ternary operator must NOT eagerly evaluate both branches
+    // because they may have side effects (function calls, property access, etc.)
+    int blockId = blockCounter_++;
+    auto* trueBB = builder_.createBlock("cond_true_" + std::to_string(blockId));
+    auto* falseBB = builder_.createBlock("cond_false_" + std::to_string(blockId));
+    auto* endBB = builder_.createBlock("cond_end_" + std::to_string(blockId));
+
+    builder_.createCondBranch(cond, trueBB, falseBB);
+
+    builder_.setInsertPoint(trueBB);
+    currentBlock_ = trueBB;  // Keep ASTToHIR's currentBlock_ in sync
     auto trueVal = lowerExpression(node->whenTrue.get());
+    auto boxedTrue = boxValueIfNeeded(trueVal);
+    auto* trueEndBB = builder_.getInsertBlock(); // may differ after calls
+    builder_.createBranch(endBB);
+
+    builder_.setInsertPoint(falseBB);
+    currentBlock_ = falseBB;  // Keep ASTToHIR's currentBlock_ in sync
     auto falseVal = lowerExpression(node->whenFalse.get());
-    lastValue_ = builder_.createSelect(cond, trueVal, falseVal);
+    auto boxedFalse = boxValueIfNeeded(falseVal);
+    auto* falseEndBB = builder_.getInsertBlock();
+    builder_.createBranch(endBB);
+
+    builder_.setInsertPoint(endBB);
+    currentBlock_ = endBB;  // Keep ASTToHIR's currentBlock_ in sync
+    lastValue_ = builder_.createPhi(HIRType::makeAny(),
+        {{boxedTrue, trueEndBB}, {boxedFalse, falseEndBB}});
 }
 
 void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {

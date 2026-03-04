@@ -8,6 +8,7 @@
 #include "TsMap.h"
 #include "TsBuffer.h"
 #include "TsFlatObject.h"
+#include "TsNanBox.h"
 #include "GC.h"
 
 #include <cstring>
@@ -51,6 +52,17 @@ void ts_http_server_listen(void* server, void* port_val, void* host, void* callb
             port = (int)pv.i_val;
         }
     }
+
+    // Handle listen(port, callback) — callback in host position
+    // When called as server.listen(port, callback), callback lands in host slot
+    if (host && !callback) {
+        TsValue tv = nanbox_to_tagged((TsValue*)host);
+        if (tv.type != ValueType::STRING_PTR) {
+            callback = host;
+            host = nullptr;
+        }
+    }
+
     const char* hostStr = nullptr;
     if (host && !ts_value_is_null((TsValue*)host) && !ts_value_is_undefined((TsValue*)host)) {
         void* raw = ts_value_get_string((TsValue*)host);

@@ -122,16 +122,18 @@ inline TsValue* nanbox_to_tsvalue_ptr(uint64_t v) {
     return (TsValue*)(uintptr_t)v;
 }
 
-// Extract a numeric value as double (handles both int32 and double encoding)
+// Extract a numeric value as double (handles int32, double, and boolean encoding)
 inline double nanbox_to_number(uint64_t v) {
     if (nanbox_is_int32(v)) return (double)nanbox_to_int32(v);
     if (nanbox_is_double(v)) return nanbox_to_double(v);
+    if (nanbox_is_bool(v)) return nanbox_to_bool(v) ? 1.0 : 0.0;
     return 0.0;
 }
 
-// Extract a numeric value as int64 (handles both int32 and double encoding)
+// Extract a numeric value as int64 (handles int32, double, and boolean encoding)
 inline int64_t nanbox_to_int64(uint64_t v) {
     if (nanbox_is_int32(v)) return (int64_t)nanbox_to_int32(v);
     if (nanbox_is_double(v)) return (int64_t)nanbox_to_double(v);
+    if (nanbox_is_bool(v)) return nanbox_to_bool(v) ? 1 : 0;
     return 0;
 }

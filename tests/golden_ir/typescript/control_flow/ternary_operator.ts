@@ -8,7 +8,7 @@ const min = x < y ? x : y;
 console.log(min);
 
 // CHECK: fcmp
-// CHECK: select
+// CHECK: phi
 
 // OUTPUT: 10
 // OUTPUT: 5

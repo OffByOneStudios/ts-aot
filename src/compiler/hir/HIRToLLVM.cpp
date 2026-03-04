@@ -2984,6 +2984,12 @@ void HIRToLLVM::lowerAlloca(HIRInstruction* inst) {
     builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
 
     llvm::AllocaInst* alloca = builder_->CreateAlloca(llvmType, nullptr, "local");
+    // Initialize pointer allocas to null to prevent reading uninitialized garbage
+    // on execution paths where the alloca is never stored (e.g., closure pointer
+    // allocas that are only assigned in one branch of an if/else).
+    if (llvmType->isPointerTy()) {
+        builder_->CreateStore(llvm::ConstantPointerNull::get(builder_->getPtrTy()), alloca);
+    }
     setValue(inst->result, alloca);
 }
 
@@ -4733,6 +4739,52 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             llvm::Value* notNegInf = builder_->CreateFCmpONE(arg, negInf);
             result = builder_->CreateAnd(isNotNaN, builder_->CreateAnd(notPosInf, notNegInf));
         }
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_value_strict_eq - returns ptr (boxed bool TsValue*), takes two ptr args
+    if (funcName == "ts_value_strict_eq") {
+        llvm::Value* lhs = getOperandValue(inst->operands[1]);
+        llvm::Value* rhs = getOperandValue(inst->operands[2]);
+        // Ensure both args are pointers (box if needed)
+        if (!lhs->getType()->isPointerTy()) {
+            lhs = boxArgumentForDynamicCall(lhs, inst->operands[1]);
+        }
+        if (!rhs->getType()->isPointerTy()) {
+            rhs = boxArgumentForDynamicCall(rhs, inst->operands[2]);
+        }
+        auto ft = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        auto fn = module_->getOrInsertFunction("ts_value_strict_eq", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { lhs, rhs }, "strict_eq");
+        if (inst->result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    // Handle ts_value_strict_eq_bool - returns bool (i1), takes two ptr args
+    if (funcName == "ts_value_strict_eq_bool") {
+        llvm::Value* lhs = getOperandValue(inst->operands[1]);
+        llvm::Value* rhs = getOperandValue(inst->operands[2]);
+        // Ensure both args are pointers (box if needed)
+        if (!lhs->getType()->isPointerTy()) {
+            lhs = boxArgumentForDynamicCall(lhs, inst->operands[1]);
+        }
+        if (!rhs->getType()->isPointerTy()) {
+            rhs = boxArgumentForDynamicCall(rhs, inst->operands[2]);
+        }
+        auto ft = llvm::FunctionType::get(
+            builder_->getInt1Ty(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        auto fn = module_->getOrInsertFunction("ts_value_strict_eq_bool", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { lhs, rhs }, "strict_eq");
         if (inst->result) {
             setValue(inst->result, result);
         }
@@ -7002,15 +7054,23 @@ void HIRToLLVM::lowerLoadCaptureFromClosure(HIRInstruction* inst) {
     // LoadCaptureFromClosure loads a captured variable from a specific closure
     // Operand 0: closure pointer (HIRValue)
     // Operand 1: capture index (int64_t)
+    // Operand 2 (optional): fallback value for when closure is null
     // Result: the loaded value
 
     llvm::Value* closurePtr = getOperandValue(inst->operands[0]);
     int64_t captureIndex = getOperandInt(inst->operands[1]);
 
+    // Check for fallback value (for paths where closure wasn't created)
+    llvm::Value* fallbackVal = nullptr;
+    if (inst->operands.size() > 2) {
+        fallbackVal = getOperandValue(inst->operands[2]);
+    }
+
     if (!closurePtr) {
         SPDLOG_ERROR("LoadCaptureFromClosure: closure pointer is null");
         if (inst->result) {
-            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+            setValue(inst->result, fallbackVal ? fallbackVal :
+                llvm::ConstantPointerNull::get(builder_->getPtrTy()));
         }
         return;
     }
@@ -7057,6 +7117,7 @@ void HIRToLLVM::lowerLoadCaptureFromClosure(HIRInstruction* inst) {
     auto getObject = module_->getOrInsertFunction("ts_value_get_object", getObjectFt);
 
     // Get the cell: cell = ts_closure_get_cell(closure, index)
+    // Runtime handles null closure safely (returns null cell -> null value)
     llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), captureIndex);
     llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { closurePtr, indexVal });
 
@@ -7092,6 +7153,16 @@ void HIRToLLVM::lowerLoadCaptureFromClosure(HIRInstruction* inst) {
     } else {
         // Default: return the boxed value as-is
         result = boxedValue;
+    }
+
+    // If a fallback value is available and types match, use select to handle
+    // paths where the closure was never created (closurePtr is null).
+    // The runtime null-checks prevent crashes, but the cell returns a default
+    // value (0/0.0/null) instead of the original variable value.
+    if (fallbackVal && result && fallbackVal->getType() == result->getType()) {
+        auto* isNull = builder_->CreateICmpEQ(closurePtr,
+            llvm::ConstantPointerNull::get(builder_->getPtrTy()), "closure_is_null");
+        result = builder_->CreateSelect(isNull, fallbackVal, result, "cap.select");
     }
 
     if (inst->result) {

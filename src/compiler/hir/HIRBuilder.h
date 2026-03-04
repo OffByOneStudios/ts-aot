@@ -987,15 +987,21 @@ public:
     }
 
     // Load a captured variable from a specific closure (for outer function accessing
-    // a variable that's been captured by a nested closure)
+    // a variable that's been captured by a nested closure).
+    // fallbackValue: original variable value to use when closure is null (not created
+    // on this execution path, e.g., closure only created in one branch of if/else).
     std::shared_ptr<HIRValue> createLoadCaptureFromClosure(std::shared_ptr<HIRValue> closurePtr,
                                                            int captureIndex,
-                                                           std::shared_ptr<HIRType> type) {
+                                                           std::shared_ptr<HIRType> type,
+                                                           std::shared_ptr<HIRValue> fallbackValue = nullptr) {
         auto result = createValue(type);
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::LoadCaptureFromClosure);
         inst->result = result;
         inst->operands.push_back(closurePtr);
         inst->operands.push_back(captureIndex);
+        if (fallbackValue) {
+            inst->operands.push_back(fallbackValue);
+        }
         emit(std::move(inst));
         return result;
     }

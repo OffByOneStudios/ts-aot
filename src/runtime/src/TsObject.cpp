@@ -2302,6 +2302,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            // Validate func_ptr is not a GC object (would indicate corruption)
+            void* fp = closure->func_ptr;
+            if (fp && ts_gc_base(fp)) {
+                return ts_value_make_undefined();
+            }
             // Pad with undefined args - callee may expect more params than caller provides
             TsValue* u = ts_value_make_undefined();
             typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
@@ -4459,12 +4464,21 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Only do dynamic_cast for Proxy check if we know this is a TsObject-derived class
         if (magic16 == 0x4D415053 || magic16 == TsFunction::MAGIC) {
-            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
-            if (proxy) {
-                return proxy->get(key, nullptr);
+            // Validate that rawObj actually has a C++ vtable before dynamic_cast.
+            // Read the first 8 bytes as a potential vtable pointer. On Windows x64,
+            // valid vtable pointers are in the executable image (0x00007FFx range).
+            // Objects without C++ vtables (e.g., stack locals, raw structs) will have
+            // garbage at offset 0, causing dynamic_cast to crash.
+            uint64_t vtableAddr = *(uint64_t*)rawObj;
+            bool hasValidVtable = (vtableAddr >> 32) >= 0x00007FF0 && (vtableAddr >> 32) <= 0x00007FFF;
+            if (hasValidVtable) {
+                TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+                if (proxy) {
+                    return proxy->get(key, nullptr);
+                }
             }
         }
-        
+
         // Check if this is a TsFunction and get its properties map
         if (magic16 == TsFunction::MAGIC) {
             TsFunction* func = (TsFunction*)rawObj;
@@ -5953,7 +5967,6 @@ TsValue* ts_value_make_int(int64_t i) {
         TsString* s = (TsString*)ts_value_get_string(path);
         if (!s) return;
         std::string pathStr = s->ToUtf8();
-        fprintf(stderr, "[ts_module_register] path='%s'\n", pathStr.c_str()); fflush(stderr);
         g_module_cache[pathStr] = exports;
     }
 
@@ -5977,7 +5990,8 @@ TsValue* ts_value_make_int(int64_t i) {
         // which handles both flat objects and TsMaps
         TsString* exportsKey = TsString::Create("exports");
         TsValue* boxedKey = ts_value_make_string(exportsKey);
-        return ts_object_get_dynamic(moduleObj, boxedKey);
+        TsValue* result = ts_object_get_dynamic(moduleObj, boxedKey);
+        return result;
     }
 
     TsValue* ts_module_get_default(TsValue* path) {
@@ -6163,11 +6177,9 @@ TsValue* ts_get_builtin_module(const char* name) {
     TsValue* ts_require(TsValue* specifier, const char* referrerPath) {
         TsString* s = (TsString*)ts_value_get_string(specifier);
         if (!s) {
-            fprintf(stderr, "[ts_require] specifier is not a string!\n");
             return ts_value_make_undefined();
         }
         std::string spec = s->ToUtf8();
-        fprintf(stderr, "[ts_require] spec='%s' referrer='%s'\n", spec.c_str(), referrerPath ? referrerPath : "(null)"); fflush(stderr);
 
         // Strip "node:" prefix for built-in module lookup
         std::string lookupSpec = spec;
@@ -6233,9 +6245,7 @@ TsValue* ts_get_builtin_module(const char* name) {
                 return ts_value_make_undefined();
             }
 
-            fprintf(stderr, "[ts_require] resolved absPath='%s'\n", absPath.c_str()); fflush(stderr);
             TsValue* moduleObj = ts_module_get(absPath.c_str());
-            fprintf(stderr, "[ts_require] moduleObj=%p\n", (void*)moduleObj); fflush(stderr);
             if (moduleObj) {
                 // CommonJS: return module.exports
                 uint64_t modNb = nanbox_from_tsvalue_ptr(moduleObj);
