@@ -5398,17 +5398,57 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
             for (auto& arg : args) {
                 ctorArgs.push_back(arg);
             }
-            SPDLOG_WARN("visitNewExpression: CALLING ctor '{}' with {} args, currentFunc={}, builderBlock={}, currentBlock={}",
-                ctorName, ctorArgs.size(),
-                currentFunction_ ? currentFunction_->name : "null",
-                builder_.getInsertBlock() ? builder_.getInsertBlock()->label : "null",
-                currentBlock_ ? currentBlock_->label : "null");
-            auto ctorResult = builder_.createCall(ctorName, ctorArgs, HIRType::makeVoid());
-            SPDLOG_WARN("  ctor call result={}", ctorResult ? "non-null" : "null");
+            // Check if this is a JS slow-path constructor (from .js file).
+            // Only JS constructors can return objects per [[Construct]] semantics.
+            // Typed TS constructors always return void.
+            bool isJsConstructor = false;
+            if (node->callee) {
+                // Check if the class declaration comes from a .js file
+                for (const auto& spec : *specializations_) {
+                    if (spec.specializedName == ctorName && spec.node) {
+                        auto sf = spec.node->sourceFile;
+                        if (sf.size() >= 3 && sf.substr(sf.size() - 3) == ".js") {
+                            isJsConstructor = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (isJsConstructor) {
+                // Call with ptr return type — per JS spec, if a constructor
+                // returns an object, 'new' uses that object instead of 'this'.
+                auto ctorResult = builder_.createCall(ctorName, ctorArgs, HIRType::makeAny());
+                if (ctorResult) {
+                    auto isUndef = builder_.createCall("ts_value_is_undefined",
+                        {ctorResult}, HIRType::makeBool());
+                    int blockId = blockCounter_++;
+                    auto* useCtor = builder_.createBlock("new_ctor_ret_" + std::to_string(blockId));
+                    auto* useThis = builder_.createBlock("new_use_this_" + std::to_string(blockId));
+                    auto* mergeNew = builder_.createBlock("new_merge_" + std::to_string(blockId));
+                    builder_.createCondBranch(isUndef, useThis, useCtor);
+
+                    builder_.setInsertPoint(useCtor);
+                    currentBlock_ = useCtor;
+                    builder_.createBranch(mergeNew);
+
+                    builder_.setInsertPoint(useThis);
+                    currentBlock_ = useThis;
+                    builder_.createBranch(mergeNew);
+
+                    builder_.setInsertPoint(mergeNew);
+                    currentBlock_ = mergeNew;
+                    newObj = builder_.createPhi(HIRType::makeAny(),
+                        {{ctorResult, useCtor}, {newObj, useThis}});
+                }
+            } else {
+                // Typed TS constructor — always void, always use 'this'
+                builder_.createCall(ctorName, ctorArgs, HIRType::makeVoid());
+            }
         }
     }
 
-    // The result is the new object
+    // The result is the new object (or the constructor's return value)
     lastValue_ = newObj;
 }
 

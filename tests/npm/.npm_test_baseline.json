@@ -8,6 +8,6 @@
   "ms": "pass",
   "nanoid": "pass",
   "picomatch": "pass",
-  "semver": "runtime_error",
+  "semver": "pass",
   "uuid": "pass"
 }
