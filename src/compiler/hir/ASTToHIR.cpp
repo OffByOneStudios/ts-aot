@@ -5402,7 +5402,7 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
             // Only JS constructors can return objects per [[Construct]] semantics.
             // Typed TS constructors always return void.
             bool isJsConstructor = false;
-            if (node->callee) {
+            if (node->expression) {
                 // Check if the class declaration comes from a .js file
                 for (const auto& spec : *specializations_) {
                     if (spec.specializedName == ctorName && spec.node) {
