@@ -7,7 +7,7 @@
   "is-plain-object": "pass",
   "ms": "pass",
   "nanoid": "pass",
-  "picomatch": "runtime_error",
-  "semver": "pass",
+  "picomatch": "pass",
+  "semver": "runtime_error",
   "uuid": "pass"
 }

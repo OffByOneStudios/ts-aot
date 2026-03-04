@@ -1,6 +1,7 @@
 #include "../include/TsClosure.h"
 #include "../include/TsObject.h"
 #include "../include/TsRuntime.h"
+#include "../include/TsString.h"
 #include "../include/GC.h"
 #include "../include/TsGC.h"
 #include "../include/TsNanBox.h"
@@ -42,7 +43,41 @@ void ts_closure_set_cell(TsClosure* closure, int64_t index, TsCell* cell) {
 
 TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
     if (!closure) return nullptr;
-    return closure->getCell(index);
+    // Validate closure pointer range (must be a real heap address, not a small int or NaN-boxed)
+    uintptr_t addr = (uintptr_t)closure;
+    if (addr < 0x10000 || (addr >> 48) != 0) {
+        fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p is NOT a valid pointer (likely corrupt), index=%lld\n",
+                (void*)closure, (long long)index);
+        fflush(stderr);
+        return nullptr;
+    }
+    // Validate closure magic
+    if (closure->magic != 0x434C5352) {
+        fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p has bad magic 0x%08X (expected CLSR), index=%lld\n",
+                (void*)closure, closure->magic, (long long)index);
+        fflush(stderr);
+        return nullptr;
+    }
+    TsCell* cell = closure->getCell(index);
+    if (cell) {
+        uintptr_t cellAddr = (uintptr_t)cell;
+        if (cellAddr < 0x10000 || (cellAddr >> 48) != 0) {
+            const char* nameStr = (closure->name && closure->name->magic == 0x53545247) ? closure->name->ToUtf8() : "<anon>";
+            fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p cell[%lld]=%p is NOT valid pointer, name='%s'\n",
+                    (void*)closure, (long long)index, (void*)cell, nameStr);
+            fflush(stderr);
+            return nullptr;
+        }
+        // Validate cell magic
+        if (cell->magic != 0x43454C4C) {
+            const char* nameStr = (closure->name && closure->name->magic == 0x53545247) ? closure->name->ToUtf8() : "<anon>";
+            fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p cell[%lld]=%p has bad magic 0x%08X (expected CELL), name='%s'\n",
+                    (void*)closure, (long long)index, (void*)cell, cell->magic, nameStr);
+            fflush(stderr);
+            return nullptr;
+        }
+    }
+    return cell;
 }
 
 void* ts_closure_get_func(TsClosure* closure) {
@@ -148,6 +183,13 @@ bool ts_closure_invoke_1d_bool(TsClosure* closure, double arg1) {
     typedef TsValue* (*Fn)(void*, TsValue*);
     TsValue* boxedArg = ts_value_make_double(arg1);
     TsValue* result = ((Fn)closure->func_ptr)(closure, boxedArg);
+    // Handle both i1 and ptr return conventions:
+    // Compiler may generate arrow functions like `x => x > 5` with LLVM return
+    // type i1 (boolean). The callee sets only the low byte of RAX, so the full
+    // 64-bit value will be 0 or 1. NaN-boxed booleans use values 6/7, and valid
+    // heap pointers are never 0x0 or 0x1, so this check is safe.
+    uintptr_t raw = (uintptr_t)result;
+    if (raw <= 1) return (bool)raw;
     return ts_value_get_bool(result);
 }
 

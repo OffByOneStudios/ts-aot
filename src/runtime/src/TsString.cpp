@@ -1157,7 +1157,15 @@ extern "C" {
     }
 
     int64_t ts_string_charCodeAt(void* str, int64_t index) {
-        return ((TsString*)str)->CharCodeAt(index);
+        if (!str) return 0;
+        TsString* s = (TsString*)str;
+        if (s->magic != TsString::MAGIC) {
+            fprintf(stderr, "[BUG] ts_string_charCodeAt: str=%p has bad magic 0x%08X, index=%lld\n",
+                    str, s->magic, (long long)index);
+            fflush(stderr);
+            return 0;
+        }
+        return s->CharCodeAt(index);
     }
 
     int64_t ts_string_codePointAt(void* str, int64_t index) {

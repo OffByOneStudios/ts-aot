@@ -53,6 +53,14 @@ PassResult EscapeAnalysisPass::runOnFunction(HIRFunction& func) {
                     inst->result->name, func.name);
             }
 
+            // If SSA analysis proves escape but AST-level said non-escaping, correct it
+            if (escapes && !inst->escapes) {
+                inst->escapes = true;
+                changed = true;
+                SPDLOG_DEBUG("EscapeAnalysis: {} escapes in {} (corrected from non-escaping)",
+                    inst->result->name, func.name);
+            }
+
             // Check SROA eligibility: flat object where ALL uses are
             // GetPropStatic/SetPropStatic (directly or through local alloca load).
             // This runs independently of escape analysis — if SROA is possible,
@@ -384,14 +392,40 @@ void EscapeAnalysisPass::propagateEscapeThroughPhis(HIRFunction& func) {
 
                 if (!phiEscapes) continue;
 
-                // The Phi result escapes — propagate back to all incoming allocations
+                // The Phi result escapes — propagate back to all incoming allocations.
+                // Follow through pass-through instructions (BoxObject, Copy, etc.)
+                // to find the original allocation.
                 for (auto& [inVal, inBlock] : inst->phiIncoming) {
                     if (!inVal) continue;
-                    auto defIt = definingInst_.find(inVal.get());
-                    if (defIt == definingInst_.end()) continue;
 
-                    HIRInstruction* defInst = defIt->second;
-                    if (isAllocationOpcode(defInst->opcode) && !defInst->escapes) {
+                    // Walk back through pass-through instructions to find the allocation
+                    HIRValue* curVal = inVal.get();
+                    HIRInstruction* defInst = nullptr;
+                    for (int depth = 0; depth < 8; ++depth) {
+                        auto defIt = definingInst_.find(curVal);
+                        if (defIt == definingInst_.end()) break;
+                        defInst = defIt->second;
+                        if (isAllocationOpcode(defInst->opcode)) break;
+                        // Follow through pass-through opcodes
+                        if (defInst->opcode == HIROpcode::BoxObject ||
+                            defInst->opcode == HIROpcode::BoxInt ||
+                            defInst->opcode == HIROpcode::BoxFloat ||
+                            defInst->opcode == HIROpcode::BoxBool ||
+                            defInst->opcode == HIROpcode::BoxString ||
+                            defInst->opcode == HIROpcode::UnboxObject ||
+                            defInst->opcode == HIROpcode::Copy) {
+                            // These take one input operand — follow it
+                            if (!defInst->operands.empty()) {
+                                if (auto* v = std::get_if<std::shared_ptr<HIRValue>>(&defInst->operands[0])) {
+                                    curVal = v->get();
+                                    continue;
+                                }
+                            }
+                        }
+                        break;  // Not a pass-through, stop
+                    }
+
+                    if (defInst && isAllocationOpcode(defInst->opcode) && !defInst->escapes) {
                         defInst->escapes = true;
                         changed = true;
                         SPDLOG_DEBUG("EscapeAnalysis: {} escapes via phi in {}",

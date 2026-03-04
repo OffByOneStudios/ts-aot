@@ -623,6 +623,36 @@ void TsUDPSocket::EmitError(int uvError) {
 extern "C" {
 
 void* ts_dgram_create_socket(void* type) {
+    // Handle options object overload: createSocket({type: 'udp4', reuseAddr: true})
+    void* raw = ts_nanbox_safe_unbox(type);
+    if (raw) {
+        uint32_t magic0 = *(uint32_t*)raw;
+        uint32_t magic16 = *(uint32_t*)((uint8_t*)raw + 16);
+        if (magic16 == TsMap::MAGIC || magic0 == 0x464C4154 /*FLAT_MAGIC*/) {
+            // Extract options from object
+            TsValue* typeVal = ts_object_get_property(raw, "type");
+            const char* optType = typeVal ? GetString(typeVal) : nullptr;
+
+            TsValue* reuseVal = ts_object_get_property(raw, "reuseAddr");
+            int64_t reuseAddr = (reuseVal && ts_value_get_bool(reuseVal)) ? 1 : 0;
+
+            TsValue* ipv6Val = ts_object_get_property(raw, "ipv6Only");
+            int64_t ipv6Only = (ipv6Val && ts_value_get_bool(ipv6Val)) ? 1 : 0;
+
+            TsValue* recvVal = ts_object_get_property(raw, "recvBufferSize");
+            int64_t recvSize = recvVal ? ts_value_get_int(recvVal) : 0;
+
+            TsValue* sendVal = ts_object_get_property(raw, "sendBufferSize");
+            int64_t sendSize = sendVal ? ts_value_get_int(sendVal) : 0;
+
+            void* typeArg = ts_value_make_string(
+                optType ? TsString::Create(optType) : TsString::Create("udp4"));
+            return ts_dgram_create_socket_options(
+                typeArg, reuseAddr, ipv6Only, recvSize, sendSize);
+        }
+    }
+
+    // Original string path
     const char* typeStr = GetString(type);
     TsUDPSocket* socket = TsUDPSocket::Create(typeStr ? typeStr : "udp4");
     return ts_value_make_object(socket);
