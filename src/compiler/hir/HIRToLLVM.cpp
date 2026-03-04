@@ -120,19 +120,14 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
 
     // Pre-create all global variables before lowering functions
     // This ensures each global is created exactly once with the correct name
-    fprintf(stderr, "=== Phase 1: Creating %zu globals ===\n", hirModule->globals.size()); fflush(stderr);
     for (const auto& [name, type] : hirModule->globals) {
         getOrCreateGlobal(name, type);
     }
-    fprintf(stderr, "=== Phase 1 done ===\n"); fflush(stderr);
 
     // Forward-declare all functions first
     // This is necessary because functions may call each other before they are defined
-    fprintf(stderr, "=== Phase 2: Forward-declaring %zu functions ===\n", hirModule->functions.size()); fflush(stderr);
     for (size_t i = 0; i < hirModule->functions.size(); ++i) {
         auto& fn = hirModule->functions[i];
-        fprintf(stderr, "  fwd-decl %zu/%zu: %s (blocks=%zu)\n", i, hirModule->functions.size(),
-            fn->mangledName.c_str(), fn->blocks.size()); fflush(stderr);
         forwardDeclareFunction(fn.get());
         // Store HIR parameter types for each user function
         std::vector<std::shared_ptr<HIRType>> paramTypes;
@@ -141,12 +136,10 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         }
         userFunctionParams_[fn->mangledName] = std::move(paramTypes);
     }
-    fprintf(stderr, "=== Phase 2 done ===\n"); fflush(stderr);
 
     // Create VTable globals for all classes (even empty ones for instanceof)
     // VTable structure: { ParentVTable*, FunctionPtr1, FunctionPtr2, ... }
     // This must happen AFTER forward-declaring functions so we can get the correct function types
-    fprintf(stderr, "=== Phase 3: Creating %zu VTable globals ===\n", hirModule->classes.size()); fflush(stderr);
     for (auto& hirClass : hirModule->classes) {
         std::string vtableGlobalName = hirClass->name + "_VTable_Global";
 
@@ -195,16 +188,11 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         SPDLOG_DEBUG("Created VTable global: {} with {} entries (+ parent ptr)", vtableGlobalName, hirClass->vtable.size());
     }
 
-    fprintf(stderr, "=== Phase 3 done ===\n"); fflush(stderr);
 
     // Lower all functions
-    fprintf(stderr, "=== Phase 4: Lowering %zu functions ===\n", hirModule->functions.size()); fflush(stderr);
     for (size_t fi = 0; fi < hirModule->functions.size(); ++fi) {
         auto& fn = hirModule->functions[fi];
-        fprintf(stderr, ">>> Lowering function %zu/%zu: %s (blocks=%zu)\n", fi, hirModule->functions.size(),
-            fn->mangledName.c_str(), fn->blocks.size()); fflush(stderr);
         lowerFunction(fn.get());
-        fprintf(stderr, "<<< Done lowering function %zu: %s\n", fi, fn->mangledName.c_str()); fflush(stderr);
     }
 
     // Create main entry point

@@ -191,21 +191,11 @@ int Driver::run() {
         passManager.addPass(std::make_unique<hir::MethodResolutionPass>());
         passManager.addPass(std::make_unique<hir::BuiltinResolutionPass>());
 
-        // Log each pass individually for crash diagnosis (unbuffered)
-        passManager.setAfterPassCallback([](const std::string& name, const hir::HIRModule& mod, const hir::PassResult&) {
-            fprintf(stderr, "=== HIR pass '%s' completed (funcs=%zu, classes=%zu) ===\n",
-                name.c_str(), mod.functions.size(), mod.classes.size());
-            fflush(stderr);
-        });
-
-        fprintf(stderr, "=== Running HIR passes ===\n"); fflush(stderr);
         auto passResult = passManager.run(*hirModule);
         if (!passResult.success()) {
             SPDLOG_ERROR("HIR pass failed: {}", passResult.error);
             return 1;
         }
-
-        fprintf(stderr, "=== All HIR passes completed ===\n"); fflush(stderr);
 
         // Dump final HIR (after all optimization passes)
         if (options.dumpHir) {
@@ -231,7 +221,6 @@ int Driver::run() {
             hirToLlvm.setIcuDataPath(datPath.string());
         }
 
-        fprintf(stderr, "=== Calling HIRToLLVM::lower() ===\n"); fflush(stderr);
         hirOwnedModule = hirToLlvm.lower(hirModule.get(), moduleName);
         modulePtr = hirOwnedModule.get();
 

@@ -3988,24 +3988,8 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
 }
 
 void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
-    if (!node) { fprintf(stderr, "CRASH: visitCallExpression called with null node\n"); fflush(stderr); return; }
-    if (!node->callee) { fprintf(stderr, "CRASH: visitCallExpression callee is null\n"); fflush(stderr); return; }
-    {
-        const char* funcName = currentFunction_ ? currentFunction_->name.c_str() : "null";
-        auto nargs = node->arguments.size();
-        auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(node->callee.get());
-        auto* id = dynamic_cast<ast::Identifier*>(node->callee.get());
-        if (pa) {
-            fprintf(stderr, "visitCallExpression: func=%s args=%zu callee=PropAccess(.%s) expr=%p\n",
-                funcName, nargs, pa->name.c_str(), (void*)pa->expression.get());
-        } else if (id) {
-            fprintf(stderr, "visitCallExpression: func=%s args=%zu callee=Id(%s)\n",
-                funcName, nargs, id->name.c_str());
-        } else {
-            fprintf(stderr, "visitCallExpression: func=%s args=%zu callee=other\n", funcName, nargs);
-        }
-        fflush(stderr);
-    }
+    if (!node) return;
+    if (!node->callee) return;
     std::vector<std::shared_ptr<HIRValue>> args;
     for (auto& arg : node->arguments) {
         args.push_back(lowerExpression(arg.get()));
