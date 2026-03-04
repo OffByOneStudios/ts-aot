@@ -244,20 +244,23 @@ static void annotateRuntimeFunctions(llvm::Module& M) {
     annotate("ts_instanceof",          false, true,  true, true);
     annotate("ts_value_box_any",        false, true,  true, true);
 
-    // --- Side-effecting but nounwind + willreturn ---
-    // These read/write heap objects but don't throw C++ exceptions (longjmp for JS)
-    annotate("ts_object_get_property",  false, false, true, true);
-    annotate("ts_object_get_dynamic",   false, false, true, true);
-    annotate("ts_object_set_property",  false, false, true, true);
-    annotate("ts_object_set_dynamic",   false, false, true, true);
-    annotate("ts_array_push",           false, false, true, true);
-    annotate("ts_array_get",            false, false, true, true);
-    annotate("ts_array_set",            false, false, true, true);
-    annotate("ts_array_get_as_value",   false, false, true, true);
-    annotate("ts_map_create",           false, false, true, true);
-    annotate("ts_string_concat",        false, false, true, true);
-    annotate("ts_string_from_value",    false, false, true, true);
-    annotate("ts_alloc",                false, false, true, true);
+    // --- Side-effecting, nounwind only (NO willreturn) ---
+    // These can allocate memory internally which may trigger GC collection.
+    // Conservative stack scanning requires GC roots to remain in stack slots;
+    // willreturn would let LLVM optimize them into registers only, causing
+    // the scanner to miss live objects (observed: map+filter loop at O2).
+    annotate("ts_object_get_property",  false, false, true, false);
+    annotate("ts_object_get_dynamic",   false, false, true, false);
+    annotate("ts_object_set_property",  false, false, true, false);
+    annotate("ts_object_set_dynamic",   false, false, true, false);
+    annotate("ts_array_push",           false, false, true, false);
+    annotate("ts_array_get",            false, false, true, false);
+    annotate("ts_array_set",            false, false, true, false);
+    annotate("ts_array_get_as_value",   false, false, true, false);
+    annotate("ts_map_create",           false, false, true, false);
+    annotate("ts_string_concat",        false, false, true, false);
+    annotate("ts_string_from_value",    false, false, true, false);
+    annotate("ts_alloc",                false, false, true, false);
 
     // --- Control flow: noreturn ---
     annotate("ts_throw",                false, false, true, false, /*noreturn=*/true);
