@@ -13,11 +13,17 @@
 #include <llvm/TargetParser/Host.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Transforms/IPO/ModuleInliner.h>
+#include <llvm/Transforms/IPO/GlobalDCE.h>
+#include <llvm/Transforms/IPO/DeadArgumentElimination.h>
+#include <llvm/Transforms/IPO/CalledValuePropagation.h>
 #include <llvm/Transforms/Scalar/SROA.h>
 #include <llvm/Transforms/Scalar/GVN.h>
-#include <llvm/Transforms/IPO/GlobalDCE.h>
+#include <llvm/Transforms/Scalar/EarlyCSE.h>
+#include <llvm/Transforms/Scalar/ConstraintElimination.h>
+#include <llvm/Transforms/InstCombine/InstCombine.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/IR/Attributes.h>
 #include <llvm/Transforms/Scalar/RewriteStatepointsForGC.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/InstrTypes.h>
@@ -186,13 +192,111 @@ bool CodeGenerator::setupTargetMachine(const std::string& optLevel) {
     return true;
 }
 
+// Annotate runtime function declarations with semantic attributes.
+// This enables LLVM passes (GVN, EarlyCSE, LICM, InstCombine) to optimize
+// around runtime calls by understanding their side-effect profiles.
+static void annotateRuntimeFunctions(llvm::Module& M) {
+    auto annotate = [&](const char* name, bool readnone, bool readonly,
+                        bool nounwind, bool willreturn, bool noreturn = false) {
+        if (auto* F = M.getFunction(name)) {
+            if (nounwind) F->addFnAttr(llvm::Attribute::NoUnwind);
+            if (willreturn) F->addFnAttr(llvm::Attribute::WillReturn);
+            if (noreturn) F->addFnAttr(llvm::Attribute::NoReturn);
+            if (readnone) F->setDoesNotAccessMemory();
+            else if (readonly) F->setOnlyReadsMemory();
+        }
+    };
+
+    // --- Pure functions (readnone): NaN-boxing arithmetic only, no memory access ---
+    annotate("ts_value_make_int",       true,  false, true, true);
+    annotate("ts_value_make_double",    true,  false, true, true);
+    annotate("ts_value_make_bool",      true,  false, true, true);
+    // make_string/make_object are effectively identity (pointer IS encoding)
+    annotate("ts_value_make_string",    true,  false, true, true);
+    annotate("ts_value_make_object",    true,  false, true, true);
+    annotate("ts_value_make_array",     true,  false, true, true);
+    annotate("ts_value_make_promise",   true,  false, true, true);
+    annotate("ts_value_make_function_object", true, false, true, true);
+    annotate("ts_value_make_bigint",    true,  false, true, true);
+    annotate("ts_value_make_symbol",    true,  false, true, true);
+    annotate("ts_value_make_undefined", true,  false, true, true);
+    annotate("ts_value_make_null",      true,  false, true, true);
+    annotate("ts_ensure_boxed",         true,  false, true, true);
+    // Decoding: pure tag extraction / arithmetic
+    annotate("ts_value_get_int",        true,  false, true, true);
+    annotate("ts_value_get_object",     true,  false, true, true);
+    // Tag checks: pure integer comparisons
+    annotate("ts_value_is_null",        true,  false, true, true);
+    annotate("ts_value_is_undefined",   true,  false, true, true);
+    annotate("ts_value_is_nullish",     true,  false, true, true);
+    annotate("ts_value_strict_eq_bool", true,  false, true, true);
+    annotate("ts_nanbox_safe_unbox",    true,  false, true, true);
+
+    // --- Read-only functions: read object metadata, no side effects ---
+    // These may dereference pointers (string magic, string length) but don't mutate
+    annotate("ts_value_get_double",     false, true,  true, true);
+    annotate("ts_value_get_bool",       false, true,  true, true);
+    annotate("ts_value_get_string",     false, true,  true, true);
+    annotate("ts_value_to_bool",        false, true,  true, true);
+    annotate("ts_string_length",        false, true,  true, true);
+    annotate("ts_array_length",         false, true,  true, true);
+    annotate("ts_typeof",              false, true,  true, true);
+    annotate("ts_instanceof",          false, true,  true, true);
+    annotate("ts_value_box_any",        false, true,  true, true);
+
+    // --- Side-effecting but nounwind + willreturn ---
+    // These read/write heap objects but don't throw C++ exceptions (longjmp for JS)
+    annotate("ts_object_get_property",  false, false, true, true);
+    annotate("ts_object_get_dynamic",   false, false, true, true);
+    annotate("ts_object_set_property",  false, false, true, true);
+    annotate("ts_object_set_dynamic",   false, false, true, true);
+    annotate("ts_array_push",           false, false, true, true);
+    annotate("ts_array_get",            false, false, true, true);
+    annotate("ts_array_set",            false, false, true, true);
+    annotate("ts_array_get_as_value",   false, false, true, true);
+    annotate("ts_map_create",           false, false, true, true);
+    annotate("ts_string_concat",        false, false, true, true);
+    annotate("ts_string_from_value",    false, false, true, true);
+    annotate("ts_alloc",                false, false, true, true);
+
+    // --- Control flow: noreturn ---
+    annotate("ts_throw",                false, false, true, false, /*noreturn=*/true);
+
+    // NEVER annotate: ts_gc_write_barrier, ts_gc_safepoint, ts_gc_mark_object
+}
+
 void CodeGenerator::runOptimizations(const std::string& optLevel) {
+    // Step 0: Annotate runtime function declarations with semantic attributes
+    annotateRuntimeFunctions(*module);
+
     llvm::LoopAnalysisManager LAM;
     llvm::FunctionAnalysisManager FAM;
     llvm::CGSCCAnalysisManager CGAM;
     llvm::ModuleAnalysisManager MAM;
 
     llvm::PassBuilder PB(targetMachine.get());
+
+    // Extension point: propagate known function pointers through closure dispatch
+    PB.registerPipelineStartEPCallback(
+        [](llvm::ModulePassManager& MPM, llvm::OptimizationLevel Level) {
+            if (Level == llvm::OptimizationLevel::O0) return;
+            MPM.addPass(llvm::CalledValuePropagationPass());
+        });
+
+    // Extension point: after each inlining round, catch box/unbox patterns
+    PB.registerPeepholeEPCallback(
+        [](llvm::FunctionPassManager& FPM, llvm::OptimizationLevel Level) {
+            if (Level == llvm::OptimizationLevel::O0) return;
+            FPM.addPass(llvm::InstCombinePass());
+            FPM.addPass(llvm::EarlyCSEPass(/*UseMemorySSA=*/true));
+        });
+
+    // Extension point: eliminate redundant type guards before vectorizer
+    PB.registerVectorizerStartEPCallback(
+        [](llvm::FunctionPassManager& FPM, llvm::OptimizationLevel Level) {
+            if (Level == llvm::OptimizationLevel::O0) return;
+            FPM.addPass(llvm::ConstraintEliminationPass());
+        });
 
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
@@ -209,23 +313,20 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
     else if (optLevel == "z") level = llvm::OptimizationLevel::Oz;
     else level = llvm::OptimizationLevel::O0;
 
-    // FORCE O0 for debugging
-    level = llvm::OptimizationLevel::O0;
-
     if (level != llvm::OptimizationLevel::O0) {
         SPDLOG_INFO("Running IR optimizations (Level O{})", optLevel);
-        llvm::ModulePassManager MPM;
-        
-        MPM.addPass(llvm::ModuleInlinerWrapperPass());
-        
-        llvm::FunctionPassManager FPM;
-        // FPM.addPass(llvm::SROAPass(llvm::SROAOptions::ModifyCFG));
-        FPM.addPass(llvm::GVNPass());
-        MPM.addPass(llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
-        
-        MPM.addPass(PB.buildPerModuleDefaultPipeline(level));
+
+        // Use buildPerModuleDefaultPipeline as the core. It includes:
+        // SROA, EarlyCSE, InstCombine, SimplifyCFG, GVN, LICM,
+        // LoopUnroll, CGSCC Inliner, GlobalOpt, IPSCCP, etc.
+        // Our extension point callbacks inject ts-aot-specific passes.
+        llvm::ModulePassManager MPM =
+            PB.buildPerModuleDefaultPipeline(level);
+
+        // Post-pipeline cleanup
+        MPM.addPass(llvm::DeadArgumentEliminationPass());
         MPM.addPass(llvm::GlobalDCEPass());
-        
+
         MPM.run(*module, MAM);
     }
 
