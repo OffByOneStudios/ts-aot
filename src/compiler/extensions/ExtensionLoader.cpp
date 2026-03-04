@@ -1,6 +1,9 @@
 #include "ExtensionLoader.h"
 #include <fstream>
 #include <spdlog/spdlog.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace ext {
 
@@ -338,12 +341,21 @@ ExtensionRegistry& ExtensionRegistry::instance() {
 }
 
 void ExtensionRegistry::loadDefaultExtensions() {
-    // Look for extensions directory relative to executable or working directory
-    std::vector<std::string> searchPaths = {
-        "extensions",
-        "../extensions",
-        "../../extensions"
-    };
+    // Search relative to compiler executable first, then CWD fallbacks
+    std::vector<std::string> searchPaths;
+
+#ifdef _WIN32
+    char exeBuf[MAX_PATH];
+    if (GetModuleFileNameA(NULL, exeBuf, MAX_PATH)) {
+        auto exeDir = std::filesystem::path(exeBuf).parent_path();
+        searchPaths.push_back((exeDir / "extensions").string());
+    }
+#endif
+
+    // CWD-relative fallbacks (development layout)
+    searchPaths.push_back("extensions");
+    searchPaths.push_back("../extensions");
+    searchPaths.push_back("../../extensions");
 
     for (const auto& path : searchPaths) {
         if (std::filesystem::exists(path) && std::filesystem::is_directory(path)) {
