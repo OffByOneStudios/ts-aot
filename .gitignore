@@ -61,6 +61,7 @@ icudt74l.dat
 # Temporary/Generated files
 tmp/
 *.txt
+!CMakeLists.txt
 *.tmp
 *.log
 *error.txt
