@@ -65,7 +65,7 @@ inline TsValue nanbox_to_tagged(TsValue* v) {
         void* ptr = nanbox_to_ptr(nb);
         // Read magic at offset 0 for TsString/TsArray, offset 16 for TsObject subclasses
         uint32_t magic0 = *(uint32_t*)ptr;
-        if (magic0 == 0x53545247) { tv.type = ValueType::STRING_PTR; tv.ptr_val = ptr; return tv; }
+        if (magic0 == 0x53545247 || magic0 == 0x434F4E53) { tv.type = ValueType::STRING_PTR; tv.ptr_val = ptr; return tv; } // TsString or TsConsString
         if (magic0 == 0x41525259) { tv.type = ValueType::ARRAY_PTR; tv.ptr_val = ptr; return tv; }
         if (magic0 == 0x464C4154) { tv.type = ValueType::OBJECT_PTR; tv.ptr_val = ptr; return tv; } // FLAT_MAGIC
         uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);

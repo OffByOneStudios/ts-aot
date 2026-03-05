@@ -1,4 +1,5 @@
 #include "TsArray.h"
+#include "TsConsString.h"
 #include "TsObject.h"
 #include "TsNanBox.h"
 #include "TsMap.h"
@@ -2296,7 +2297,7 @@ extern "C" {
             void* ptr = nanbox_to_ptr(nb);
             // Read magic to determine pointer sub-type
             uint32_t magic0 = *(uint32_t*)ptr;
-            if (magic0 == 0x53545247) { // TsString::MAGIC
+            if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) { // TsString/TsConsString
                 *out_type = (uint8_t)ValueType::STRING_PTR;
                 *out_value = (int64_t)(uintptr_t)ptr;
                 return;

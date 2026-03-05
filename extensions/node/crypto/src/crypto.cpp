@@ -7,6 +7,7 @@
 #include "TsNanBox.h"
 #include "GC.h"
 #include "TsGC.h"
+#include "TsConsString.h"
 #include "md5.h"
 
 #include <openssl/evp.h>
@@ -499,10 +500,10 @@ void* ts_crypto_randomUUID() {
 static bool extractCryptoInput(void* param, const unsigned char** outData, size_t* outLen) {
     if (!param) return false;
 
-    // Check if it's a raw TsString* (magic 'STRG' at offset 0)
+    // Check if it's a raw TsString* or TsConsString* (magic 'STRG' or 'CONS' at offset 0)
     uint32_t firstWord = *(uint32_t*)param;
-    if (firstWord == 0x53545247) {
-        TsString* str = (TsString*)param;
+    if (firstWord == 0x53545247 || firstWord == TsConsString::MAGIC) {
+        TsString* str = ts_ensure_flat(param);
         *outData = (const unsigned char*)str->ToUtf8();
         *outLen = strlen((const char*)*outData);
         return true;
@@ -533,8 +534,8 @@ static TsString* extractCryptoString(void* param) {
     if (!param) return nullptr;
 
     uint32_t firstWord = *(uint32_t*)param;
-    if (firstWord == 0x53545247) {
-        return (TsString*)param;
+    if (firstWord == 0x53545247 || firstWord == TsConsString::MAGIC) {
+        return ts_ensure_flat(param);
     }
 
     // Try as TsValue*
@@ -789,7 +790,7 @@ void ts_crypto_scrypt(void* password, void* salt, int64_t keylen,
         void* base = ts_gc_base(options_or_callback);
         if (base) {
             uint32_t magic = *(uint32_t*)options_or_callback;
-            isString = (magic == 0x53545247); // TsString::MAGIC
+            isString = (magic == 0x53545247 || magic == TsConsString::MAGIC); // TsString or TsConsString
         }
         if (!isString) {
             callback = options_or_callback;
@@ -1164,8 +1165,8 @@ static bool extract_bytes(void* ptr, const void** outData, size_t* outLen) {
     if (!ptr || (uintptr_t)ptr <= 6) return false;
     // TsString: magic at offset 0
     uint32_t magic0 = *(uint32_t*)ptr;
-    if (magic0 == 0x53545247) {
-        TsString* str = (TsString*)ptr;
+    if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) {
+        TsString* str = ts_ensure_flat(ptr);
         *outData = str->ToUtf8();
         *outLen = strlen((const char*)*outData);
         return true;

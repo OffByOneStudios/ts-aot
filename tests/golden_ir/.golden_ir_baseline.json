@@ -260,6 +260,7 @@
   "golden_ir/typescript/regression/simple_object_array_test.ts": "pass",
   "golden_ir/typescript/regression/slice_specialized_array.ts": "pass",
   "golden_ir/typescript/regression/sort_return_type.ts": "pass",
+  "golden_ir/typescript/strings/cons_string_unicode.ts": "pass",
   "golden_ir/typescript/types/indexed_access_types.ts": "pass",
   "golden_ir/typescript/types/intersection_types.ts": "pass",
   "golden_ir/typescript/types/number_tostring.ts": "pass"

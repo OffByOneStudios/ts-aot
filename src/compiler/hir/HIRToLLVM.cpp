@@ -1695,11 +1695,20 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
 
     // Helper lambda to convert value to string based on type
     auto convertToString = [&](llvm::Value* val, std::shared_ptr<HIRType> type) -> llvm::Value* {
-        // For pointer types (String, Any, Object, Class), always call ts_value_get_string
-        // which handles both TsValue* (boxed) and raw TsString* pointers
+        // For pointer types (String, Any, Object, Class), extract the string pointer.
+        // Use ts_string_extract_ptr for String type (avoids flattening CONS strings).
+        // Use ts_value_get_string for other types (may involve value-to-string conversion).
         if (val->getType()->isPointerTy()) {
-            if (!type || type->kind == HIRTypeKind::String ||
-                type->kind == HIRTypeKind::Any || type->kind == HIRTypeKind::Object ||
+            if (type && type->kind == HIRTypeKind::String) {
+                // Use extract_ptr which returns raw string pointer WITHOUT flattening CONS
+                auto fn = getOrDeclareRuntimeFunction(
+                    "ts_string_extract_ptr",
+                    builder_->getPtrTy(),
+                    { builder_->getPtrTy() }
+                );
+                return builder_->CreateCall(fn, { gcPtrToRaw(val) });
+            }
+            if (!type || type->kind == HIRTypeKind::Any || type->kind == HIRTypeKind::Object ||
                 type->kind == HIRTypeKind::Class) {
                 auto fn = getOrDeclareRuntimeFunction(
                     "ts_value_get_string",

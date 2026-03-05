@@ -4,6 +4,7 @@
 #include "TsMap.h"
 #include "TsFlatObject.h"
 #include "GC.h"
+#include "TsConsString.h"
 #include "TsRuntime.h"
 #include <new>
 #include <string>
@@ -629,10 +630,10 @@ extern "C" {
         TsString* urlStr = nullptr;
         TsURL* urlObj = nullptr;
 
-        // Check for raw TsString* first (magic 0x53545247 at offset 0)
+        // Check for raw TsString* or TsConsString* first
         uint32_t magic0 = *(uint32_t*)urlArg;
-        if (magic0 == 0x53545247) { // TsString::MAGIC "STRG"
-            urlStr = (TsString*)urlArg;
+        if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) {
+            urlStr = ts_ensure_flat(urlArg);
         } else {
             // Try to unbox as object (for URL object)
             void* objPtr = ts_value_get_object((TsValue*)urlArg);
@@ -764,11 +765,11 @@ extern "C" {
     void* ts_url_format(void* urlArg, void* optionsArg) {
         if (!urlArg) return TsString::Create("");
 
-        // Check for raw TsString* first (magic 0x53545247 at offset 0)
+        // Check for raw TsString* or TsConsString* first
         uint32_t fmtMagic0 = *(uint32_t*)urlArg;
-        if (fmtMagic0 == 0x53545247) { // TsString::MAGIC
+        if (fmtMagic0 == 0x53545247 || fmtMagic0 == TsConsString::MAGIC) {
             // String input - parse as URL and return href
-            TsURL* parsed = TsURL::Create((TsString*)urlArg);
+            TsURL* parsed = TsURL::Create(ts_ensure_flat(urlArg));
             if (parsed) return parsed->GetHref();
             return TsString::Create("");
         }
@@ -989,11 +990,11 @@ extern "C" {
     void* ts_url_to_http_options(void* urlArg) {
         if (!urlArg) return nullptr;
 
-        // Check for raw TsString* first (magic 0x53545247 at offset 0)
+        // Check for raw TsString* or TsConsString* first
         uint32_t httpOptMagic = *(uint32_t*)urlArg;
         TsURL* url = nullptr;
-        if (httpOptMagic == 0x53545247) { // TsString::MAGIC
-            url = TsURL::Create((TsString*)urlArg);
+        if (httpOptMagic == 0x53545247 || httpOptMagic == TsConsString::MAGIC) {
+            url = TsURL::Create(ts_ensure_flat(urlArg));
         } else {
             // Try to get as TsURL first
             void* objPtr = ts_value_get_object((TsValue*)urlArg);

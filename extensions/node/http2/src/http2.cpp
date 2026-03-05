@@ -12,6 +12,7 @@
 #include "TsFlatObject.h"
 #include "GC.h"
 #include "TsGC.h"
+#include "TsConsString.h"
 
 #include <cstring>
 #include <cstdio>
@@ -594,9 +595,9 @@ void* ts_http2_server_listen(void* server, int64_t port, void* host, void* callb
         bool isString = false;
         void* base = ts_gc_base(host);
         if (base) {
-            // GC-allocated object - check if it's a TsString (magic 0x53545247 at offset 0)
+            // GC-allocated object - check if it's a TsString or TsConsString
             uint32_t magic = *(uint32_t*)host;
-            isString = (magic == 0x53545247);
+            isString = (magic == 0x53545247 || magic == TsConsString::MAGIC);
         }
         if (!isString) {
             // Not a string - it's actually the callback

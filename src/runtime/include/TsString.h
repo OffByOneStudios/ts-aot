@@ -26,6 +26,10 @@ public:
     // Internal ICU access
     icu::UnicodeString ToUnicodeString() const;
 
+    // Get the ICU UnicodeString, lazily creating from utf8Buffer if needed.
+    // Use this instead of direct data.heap.impl access.
+    icu::UnicodeString getUStr();
+
     int64_t Length();
     int64_t CharCodeAt(int64_t index);
     int64_t CodePointAt(int64_t index);
@@ -74,10 +78,16 @@ public:
     // Create a TsString in old-gen (for caching - bypasses nursery)
     static TsString* CreateInOldGen(const char* utf8Str);
 
+    // Create a TsString from a pre-allocated ASCII buffer (skips ICU).
+    // Buffer must be GC-allocated, null-terminated, and contain only ASCII.
+    // Used by TsConsString::Flatten() to avoid ICU overhead for ASCII content.
+    static TsString* CreateFromAsciiBuffer(char* buf, uint32_t len);
+
 private:
     TsString() = default;  // For Concat fast path only
     TsString(const char* utf8Str);
     TsString(const char* utf8Str, uint32_t len);
+    void ensureImpl(); // Lazily create ICU UnicodeString from utf8Buffer
     uint32_t length = 0;
     bool isSmall = false;
     bool hashComputed = false;

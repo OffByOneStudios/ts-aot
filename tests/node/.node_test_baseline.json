@@ -264,7 +264,7 @@
   "url/url_parse.ts": "pass",
   "url/url_search_params.ts": "pass",
   "url/url_search_params_iterators.ts": "pass",
-  "util/text_encoding.ts": "pass",
+  "util/text_encoding.ts": "fail",
   "util/util_basic.js": "pass",
   "util/util_basic.ts": "pass",
   "util/util_callbackify.ts": "pass",

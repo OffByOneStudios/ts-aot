@@ -12,6 +12,7 @@
 #include "TsNanBox.h"
 #include "TsFlatObject.h"
 #include "TsGC.h"
+#include "TsConsString.h"
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -548,9 +549,8 @@ static TsString* unboxString(void* ptr) {
     void* raw = nanbox_to_ptr(nb);
     if (!raw) return nullptr;
 
-    // Check TsString magic at offset 0
-    uint32_t magic = *(uint32_t*)raw;
-    if (magic == 0x53545247) return (TsString*)raw;
+    // Check TsString or TsConsString magic at offset 0
+    if (ts_is_any_string(raw)) return ts_ensure_flat(raw);
 
     // Fallback: try to convert to string
     TsString* res = (TsString*)ts_string_from_value((TsValue*)ptr);

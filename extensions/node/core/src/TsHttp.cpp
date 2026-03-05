@@ -7,6 +7,7 @@
 #include "TsMap.h"
 #include "TsArray.h"
 #include "TsFlatObject.h"
+#include "TsConsString.h"
 #include <uv.h>
 #include <llhttp.h>
 #include <iostream>
@@ -981,8 +982,8 @@ void TsHttpsServer::HandleConnection(int status) {
                 TsObject* obj = (TsObject*)v_key.ptr_val;
                 if (obj->magic == 0x42554646) { // TsBuffer magic
                     keyBuf = (TsBuffer*)obj;
-                } else if (obj->magic == 0x53545247) { // TsString magic
-                    TsString* s = (TsString*)obj;
+                } else if (obj->magic == 0x53545247 || obj->magic == TsConsString::MAGIC) { // TsString/TsConsString magic
+                    TsString* s = ts_ensure_flat(obj);
                     keyBuf = TsBuffer::Create(s->Length());
                     memcpy(keyBuf->GetData(), s->ToUtf8(), s->Length());
                 } else {
@@ -1002,8 +1003,8 @@ void TsHttpsServer::HandleConnection(int status) {
                 TsObject* obj = (TsObject*)v_cert.ptr_val;
                 if (obj->magic == 0x42554646) { // TsBuffer magic
                     certBuf = (TsBuffer*)obj;
-                } else if (obj->magic == 0x53545247) { // TsString magic
-                    TsString* s = (TsString*)obj;
+                } else if (obj->magic == 0x53545247 || obj->magic == TsConsString::MAGIC) { // TsString/TsConsString magic
+                    TsString* s = ts_ensure_flat(obj);
                     certBuf = TsBuffer::Create(s->Length());
                     memcpy(certBuf->GetData(), s->ToUtf8(), s->Length());
                 } else {

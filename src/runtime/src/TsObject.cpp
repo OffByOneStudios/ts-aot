@@ -9,6 +9,7 @@
 #include "TsWeakSet.h"
 #include "TsJSON.h"
 #include "TsString.h"
+#include "TsConsString.h"
 #include "TsBuffer.h"  // For TsTypedArray and TsDataView (TsBuffer itself uses virtual dispatch)
 #include "TsEventEmitter.h"
 #include "TsReadable.h"
@@ -91,8 +92,7 @@ extern "C" void* g_debug_lodash_module_map = nullptr;
 static inline bool nanbox_is_string_ptr(uint64_t nb) {
     if (!nanbox_is_ptr(nb)) return false;
     void* ptr = nanbox_to_ptr(nb);
-    uint32_t magic = *(uint32_t*)ptr;
-    return magic == 0x53545247; // TsString::MAGIC "STRG"
+    return ts_is_any_string(ptr);
 }
 
 // Helper: extract a numeric value from NaN-boxed TsValue* as double
@@ -104,8 +104,9 @@ static inline double nanbox_extract_double(TsValue* v) {
     if (nanbox_is_ptr(nb)) {
         void* ptr = nanbox_to_ptr(nb);
         uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247) { // TsString
-            try { return std::stod(((TsString*)ptr)->ToUtf8()); }
+        if (magic == 0x53545247 || magic == TsConsString::MAGIC) { // TsString or TsConsString
+            TsString* s = ts_ensure_flat(ptr);
+            try { return std::stod(s->ToUtf8()); }
             catch (...) { return std::numeric_limits<double>::quiet_NaN(); }
         }
     }
@@ -369,8 +370,8 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == 0x41525259 || magic8 == 0x41525259 || magic16 == 0x41525259) { // TsArray::MAGIC "ARRY"
             return ts_value_make_array(ptr);
         }
-        if (magic == 0x53545247) { // TsString::MAGIC "STRG"
-            return ts_value_make_string((TsString*)ptr);
+        if (magic == 0x53545247 || magic == TsConsString::MAGIC) { // TsString or TsConsString
+            return ts_value_make_string(ts_ensure_flat(ptr));
         }
         if (magic == 0x4D415053 || magic8 == 0x4D415053 || magic16 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC "MAPS"  
             return ts_value_make_object(ptr);
@@ -467,14 +468,47 @@ TsValue* ts_value_make_int(int64_t i) {
         if (nanbox_is_number(nb) || nanbox_is_special(nb)) {
             return ts_string_from_value(v);
         }
-        // It's a pointer - check if it's a TsString
+        // It's a pointer - check if it's a TsString or TsConsString
         void* ptr = nanbox_to_ptr(nb);
         uint32_t magic = *(uint32_t*)ptr;
         if (magic == 0x53545247) { // TsString::MAGIC
             return ptr;
         }
+        if (magic == TsConsString::MAGIC) {
+            return ((TsConsString*)ptr)->Flatten();
+        }
         // Not a string - try to convert
         return ts_string_from_value(v);
+    }
+
+    // Extract raw string pointer WITHOUT flattening CONS strings.
+    // Like ts_value_get_string but preserves TsConsString* as-is.
+    // Used by string concat to avoid O(n) flatten on each += operation.
+    void* ts_string_extract_ptr(void* v) {
+        if (!v) return nullptr;
+        // Fast path: already a raw string pointer (TsString* or TsConsString*)
+        uint32_t magic = *(uint32_t*)v;
+        if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+            return v;
+        }
+        // Might be a boxed TsValue* - try to extract
+        uint8_t tag = *(uint8_t*)v;
+        if (tag <= 10) {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)v);
+            if (!nanbox_is_number(nb) && !nanbox_is_special(nb)) {
+                void* ptr = nanbox_to_ptr(nb);
+                if (ptr) {
+                    uint32_t m = *(uint32_t*)ptr;
+                    if (m == 0x53545247 || m == TsConsString::MAGIC) {
+                        return ptr;
+                    }
+                }
+            }
+            // Convert non-string values to string
+            void* result = ts_string_from_value((TsValue*)v);
+            if (result) return result;
+        }
+        return TsString::Create("");
     }
 
     void* ts_value_get_object(TsValue* v) {
@@ -539,8 +573,12 @@ TsValue* ts_value_make_int(int64_t i) {
             // Check for string comparison
             uint32_t lmagic = *(uint32_t*)lp;
             uint32_t rmagic = *(uint32_t*)rp;
-            if (lmagic == 0x53545247 && rmagic == 0x53545247) {
-                return std::strcmp(((TsString*)lp)->ToUtf8(), ((TsString*)rp)->ToUtf8()) == 0;
+            bool lIsStr = (lmagic == 0x53545247 || lmagic == TsConsString::MAGIC);
+            bool rIsStr = (rmagic == 0x53545247 || rmagic == TsConsString::MAGIC);
+            if (lIsStr && rIsStr) {
+                TsString* ls = ts_ensure_flat(lp);
+                TsString* rs = ts_ensure_flat(rp);
+                return std::strcmp(ls->ToUtf8(), rs->ToUtf8()) == 0;
             }
             if (lmagic == 0x42494749 && rmagic == 0x42494749) { // BigInt
                 return std::strcmp(((TsBigInt*)lp)->ToString(), ((TsBigInt*)rp)->ToString()) == 0;
@@ -577,7 +615,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
         uint32_t magic0 = *(uint32_t*)rawPtr;
         if (magic0 == 0x41525259) return ((TsArray*)rawPtr)->Length();
-        if (magic0 == 0x53545247) return ((TsString*)rawPtr)->Length();
+        if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) return ts_string_like_length(rawPtr);
 
         uint32_t magic8 = *(uint32_t*)((char*)rawPtr + 8);
         if (magic8 == 0x42554646) {
@@ -608,8 +646,8 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!rawPtr) return ts_value_make_undefined();
             // Check if it's a string
             uint32_t m = *(uint32_t*)rawPtr;
-            if (m == 0x53545247) { // TsString
-                TsString* s = (TsString*)rawPtr;
+            if (m == 0x53545247 || m == TsConsString::MAGIC) { // TsString or TsConsString
+                TsString* s = ts_ensure_flat(rawPtr);
                 return s->Substring(index, index + 1);
             }
         }
@@ -1901,8 +1939,8 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "toString") == 0) return ts_value_make_native_function((void*)ts_array_toString_native, arr);
             return ts_value_make_undefined();
         }
-        if (magic0 == 0x53545247 || magic8 == 0x53545247 || magic16 == 0x53545247) { // TsString::MAGIC ("STRG")
-            TsString* strObj = (TsString*)obj;
+        if (magic0 == 0x53545247 || magic8 == 0x53545247 || magic16 == 0x53545247 || magic0 == TsConsString::MAGIC) { // TsString or TsConsString
+            TsString* strObj = ts_ensure_flat(obj);
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int(strObj->Length());
             }
@@ -2090,7 +2128,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Only attempt this on objects that are NOT known non-TsObject types
         // (TsArray, TsString are NOT TsObject subclasses and would crash on virtual call)
         if (magic0 != 0x41525259 && magic8 != 0x41525259 && magic16 != 0x41525259 &&  // TsArray
-            magic0 != 0x53545247 && magic8 != 0x53545247 &&                              // TsString
+            magic0 != 0x53545247 && magic8 != 0x53545247 && magic0 != TsConsString::MAGIC && // TsString/TsConsString
             magic0 != 0x52454758 &&                                                       // TsRegExp
             magic8 != 0x48454144 && magic16 != 0x48454144) {                              // TsHeaders
             TsValue result = ts_try_virtual_property_dispatch(obj, keyStr);
@@ -2129,8 +2167,8 @@ TsValue* ts_value_make_int(int64_t i) {
         uint64_t pnb = (uint64_t)(uintptr_t)propName;
         if (nanbox_is_ptr(pnb) && pnb > NANBOX_UNDEFINED) {
             uint32_t magic = *(uint32_t*)propName;
-            if (magic == 0x53545247) { // TsString::MAGIC
-                keyCStr = ((TsString*)propName)->ToUtf8();
+            if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+                keyCStr = ts_ensure_flat(propName)->ToUtf8();
             }
         }
         if (!keyCStr) {
@@ -4320,7 +4358,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
             // Check magic at various offsets
             uint32_t magic0 = *(uint32_t*)ptr;
-            if (magic0 == 0x53545247) return TsString::Create("string");
+            if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) return TsString::Create("string");
             if (magic0 == 0x41525259) return TsString::Create("object");
             if (magic0 == 0x4D415053) return TsString::Create("object");
             if (magic0 == 0x53455453) return TsString::Create("object");
@@ -4396,11 +4434,11 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
-        // Handle TsString
-        if (magic0 == 0x53545247) {
+        // Handle TsString or TsConsString
+        if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) {
             // Handle integer index: str[0], str[1], etc.
             if (keyIsInt) {
-                TsString* str = (TsString*)rawObj;
+                TsString* str = ts_ensure_flat(rawObj);
                 if (keyIdx >= 0 && keyIdx < str->Length()) {
                     TsString* ch = str->CharAt(keyIdx);
                     return ts_value_make_string(ch);
@@ -4770,8 +4808,8 @@ TsValue* ts_value_make_int(int64_t i) {
             uint64_t keyNb = nanbox_from_tsvalue_ptr(key);
             if (nanbox_is_ptr(keyNb)) {
                 void* keyPtr = nanbox_to_ptr(keyNb);
-                if (keyPtr && *(uint32_t*)keyPtr == 0x53545247) { // TsString::MAGIC
-                    const char* keyCStr = ((TsString*)keyPtr)->ToUtf8();
+                if (keyPtr && ts_is_any_string(keyPtr)) {
+                    const char* keyCStr = ts_ensure_flat(keyPtr)->ToUtf8();
                     if (keyCStr) {
                         ts_flat_object_set_property(rawObj, keyCStr, value);
                         return;
@@ -5356,9 +5394,8 @@ TsValue* ts_value_make_int(int64_t i) {
         if (nanbox_is_ptr(nb)) {
             void* ptr = nanbox_to_ptr(nb);
             if (ptr) {
-                uint32_t magic0 = *(uint32_t*)ptr;
-                if (magic0 == 0x53545247) { // TsString::MAGIC
-                    str = (TsString*)ptr;
+                if (ts_is_any_string(ptr)) {
+                    str = ts_ensure_flat(ptr);
                 }
             }
         }
@@ -5399,9 +5436,8 @@ TsValue* ts_value_make_int(int64_t i) {
         if (nanbox_is_ptr(nb)) {
             void* ptr = nanbox_to_ptr(nb);
             if (ptr) {
-                uint32_t magic0 = *(uint32_t*)ptr;
-                if (magic0 == 0x53545247) { // TsString::MAGIC
-                    str = (TsString*)ptr;
+                if (ts_is_any_string(ptr)) {
+                    str = ts_ensure_flat(ptr);
                 }
             }
         }
@@ -5568,7 +5604,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
             uint32_t magic0 = *(uint32_t*)ptr;
             // TsString (magic at offset 0)
-            if (magic0 == 0x53545247) return ts_value_make_string(TsString::Create("[object String]"));
+            if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) return ts_value_make_string(TsString::Create("[object String]"));
             // TsArray (magic at offset 0)
             if (magic0 == 0x41525259) return ts_value_make_string(TsString::Create("[object Array]"));
             // TsRegExp (magic at offset 0)

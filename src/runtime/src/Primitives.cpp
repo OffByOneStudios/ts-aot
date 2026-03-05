@@ -1,5 +1,6 @@
 #include "TsRuntime.h"
 #include "TsString.h"
+#include "TsConsString.h"
 #include "TsBigInt.h"
 #include "TsSymbol.h"
 #include "TsArray.h"
@@ -228,8 +229,8 @@ void ts_console_table(TsValue* data, TsValue* properties) {
                 TsString* keyStr = nullptr;
                 if (nanbox_is_ptr(keyNb)) {
                     void* kp = nanbox_to_ptr(keyNb);
-                    if (kp && *(uint32_t*)kp == 0x53545247)
-                        keyStr = (TsString*)kp;
+                    if (kp && ts_is_any_string(kp))
+                        keyStr = ts_ensure_flat(kp);
                 }
                 if (keyStr) {
                     // Build TsValue key for map lookup
@@ -372,8 +373,8 @@ static void ts_console_print_value_to_stream(TsValue* val, FILE* stream) {
 
     uint32_t magic = *(uint32_t*)ptr;
 
-    if (magic == 0x53545247) { // TsString
-        std::fprintf(stream, "%s", ((TsString*)ptr)->ToUtf8());
+    if (magic == 0x53545247 || magic == TsConsString::MAGIC) { // TsString or TsConsString
+        std::fprintf(stream, "%s", ts_ensure_flat(ptr)->ToUtf8());
         return;
     }
     if (magic == 0x42494749) { // TsBigInt
@@ -478,7 +479,7 @@ static void appendValueToBuffer(TsValue* val, std::string& out) {
     void* ptr = nanbox_to_ptr(nb);
     if (!ptr) { out += "null"; return; }
     uint32_t magic = *(uint32_t*)ptr;
-    if (magic == 0x53545247) { out += ((TsString*)ptr)->ToUtf8(); return; }
+    if (magic == 0x53545247 || magic == TsConsString::MAGIC) { out += ts_ensure_flat(ptr)->ToUtf8(); return; }
     if (magic == 0x42494749) { out += ((TsBigInt*)ptr)->ToString(); out += "n"; return; }
     if (magic == 0x41525259 || magic == 0x4D415053 || magic == 0x464C4154) {
         // For arrays/objects, print via stream helper to a temp buffer
@@ -522,9 +523,9 @@ extern "C" void ts_console_log_args(void** args, int32_t argc) {
     const char* fmtStr = nullptr;
     if (nanbox_is_ptr(nb0)) {
         void* ptr = nanbox_to_ptr(nb0);
-        if (ptr && *(uint32_t*)ptr == 0x53545247) { // TsString magic
+        if (ptr && ts_is_any_string(ptr)) {
             firstIsString = true;
-            fmtStr = ((TsString*)ptr)->ToUtf8();
+            fmtStr = ts_ensure_flat(ptr)->ToUtf8();
         }
     }
 
@@ -607,9 +608,9 @@ extern "C" void ts_console_error_args(void** args, int32_t argc) {
     const char* fmtStr = nullptr;
     if (nanbox_is_ptr(nb0)) {
         void* ptr = nanbox_to_ptr(nb0);
-        if (ptr && *(uint32_t*)ptr == 0x53545247) {
+        if (ptr && ts_is_any_string(ptr)) {
             firstIsString = true;
-            fmtStr = ((TsString*)ptr)->ToUtf8();
+            fmtStr = ts_ensure_flat(ptr)->ToUtf8();
         }
     }
 
@@ -684,7 +685,7 @@ TsString* ts_typeof(void* val) {
         if (!ptr) return TsString::Create("object");
 
         uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247) return TsString::Create("string");   // TsString
+        if (magic == 0x53545247 || magic == TsConsString::MAGIC) return TsString::Create("string"); // TsString/TsConsString
         if (magic == 0x42494749) return TsString::Create("bigint");   // TsBigInt
         if (magic == 0x53594D42) return TsString::Create("symbol");   // TsSymbol
         if (magic == 0x41525259) return TsString::Create("object");   // TsArray
@@ -720,7 +721,7 @@ bool ts_instanceof(void* obj, void* targetVTable) {
 
     // Check for TsString magic number at offset 0
     uint32_t magic0 = *(uint32_t*)obj;
-    if (magic0 == 0x53545247) return false; // Strings are not instances of classes
+    if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) return false; // Strings are not instances of classes
 
     // Check for flat object (FLAT_MAGIC = 0x464C4154)
     if (magic0 == 0x464C4154) {
@@ -782,7 +783,7 @@ bool ts_instanceof(void* obj, void* targetVTable) {
         if (vptr8_val > 0x1000 && vptr8_val < 0x00007FFFFFFFFFFF) {
             // Check if vptr8 points to something that looks like a vtable (not a string)
             uint32_t vptr8Magic = *(uint32_t*)vptr8;
-            if (vptr8Magic != 0x53545247) { // Not a TsString
+            if (vptr8Magic != 0x53545247 && vptr8Magic != TsConsString::MAGIC) { // Not a TsString/TsConsString
                 // Direct match
                 if (vptr8 == targetVTable) return true;
 
@@ -847,8 +848,8 @@ double ts_value_get_double(TsValue* v) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return 0.0;
         uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247) { // TsString
-            try { return std::stod(((TsString*)ptr)->ToUtf8()); }
+        if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+            try { return std::stod(ts_ensure_flat(ptr)->ToUtf8()); }
             catch (...) { return std::numeric_limits<double>::quiet_NaN(); }
         }
     }
@@ -865,8 +866,8 @@ int64_t ts_parseInt(void* value) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return 0;
         uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247) { // TsString
-            const char* s = ((TsString*)ptr)->ToUtf8();
+        if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+            const char* s = ts_ensure_flat(ptr)->ToUtf8();
             if (!s) return 0;
             char* end = nullptr;
             long long v = std::strtoll(s, &end, 10);
@@ -892,8 +893,8 @@ bool ts_value_to_bool(TsValue* v) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return false;
         uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247) { // TsString
-            return ((TsString*)ptr)->Length() > 0; // Empty string is falsy
+        if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+            return ts_string_like_length(ptr) > 0; // Empty string is falsy
         }
         return true; // Non-null objects are truthy
     }
@@ -921,8 +922,8 @@ double ts_to_number(TsValue* v) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return 0.0;
         uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247) { // TsString
-            TsString* str = (TsString*)ptr;
+        if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+            TsString* str = ts_ensure_flat(ptr);
             const char* utf8 = str->ToUtf8();
             if (!utf8 || *utf8 == '\0') return 0.0;
             // Trim whitespace

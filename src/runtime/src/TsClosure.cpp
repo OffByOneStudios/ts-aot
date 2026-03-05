@@ -62,7 +62,7 @@ TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
     if (cell) {
         uintptr_t cellAddr = (uintptr_t)cell;
         if (cellAddr < 0x10000 || (cellAddr >> 48) != 0) {
-            const char* nameStr = (closure->name && closure->name->magic == 0x53545247) ? closure->name->ToUtf8() : "<anon>";
+            const char* nameStr = (closure->name && closure->name->magic == TsString::MAGIC) ? closure->name->ToUtf8() : "<anon>";
             fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p cell[%lld]=%p is NOT valid pointer, name='%s'\n",
                     (void*)closure, (long long)index, (void*)cell, nameStr);
             fflush(stderr);
@@ -70,7 +70,7 @@ TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
         }
         // Validate cell magic
         if (cell->magic != 0x43454C4C) {
-            const char* nameStr = (closure->name && closure->name->magic == 0x53545247) ? closure->name->ToUtf8() : "<anon>";
+            const char* nameStr = (closure->name && closure->name->magic == TsString::MAGIC) ? closure->name->ToUtf8() : "<anon>";
             fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p cell[%lld]=%p has bad magic 0x%08X (expected CELL), name='%s'\n",
                     (void*)closure, (long long)index, (void*)cell, cell->magic, nameStr);
             fflush(stderr);

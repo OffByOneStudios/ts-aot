@@ -1,4 +1,5 @@
 #include "TsString.h"
+#include "TsConsString.h"
 #include "TsArray.h"
 #include "TsRegExp.h"
 #include "TsRuntime.h"
@@ -157,6 +158,19 @@ TsString* TsString::CreateInOldGen(const char* utf8Str) {
     }
 }
 
+TsString* TsString::CreateFromAsciiBuffer(char* buf, uint32_t len) {
+    void* mem = ts_alloc(sizeof(TsString));
+    TsString* str = new(mem) TsString();
+    str->magic = MAGIC;
+    str->length = len;
+    str->isSmall = false;
+    str->hashComputed = false;
+    str->cachedHash = 0;
+    str->data.heap.impl = nullptr;
+    str->data.heap.utf8Buffer = buf;
+    return str;
+}
+
 TsString* TsString::GetInterned(const char* utf8Str) {
     if (!utf8Str) return Create(""); // Empty string fallback
 
@@ -270,25 +284,8 @@ TsString* TsString::Concat(TsString* a, TsString* b) {
         }
     }
 
-    icu::UnicodeString s1;
-    if (a->isSmall) {
-        s1 = icu::UnicodeString::fromUTF8(a->data.inlineBuffer);
-    } else {
-        s1 = *static_cast<icu::UnicodeString*>(a->data.heap.impl);
-    }
-
-    icu::UnicodeString s2;
-    if (b->isSmall) {
-        s2 = icu::UnicodeString::fromUTF8(b->data.inlineBuffer);
-    } else {
-        s2 = *static_cast<icu::UnicodeString*>(b->data.heap.impl);
-    }
-
-    icu::UnicodeString result = s1 + s2;
-
-    std::string str;
-    result.toUTF8String(str);
-    return Create(str.c_str());
+    // Large string concat: create a rope node instead of copying
+    return (TsString*)TsConsString::Create(a, b);
 }
 
 TsString* TsString::FromInt(int64_t value) {
@@ -359,7 +356,11 @@ int64_t TsString::Length() {
 int64_t TsString::CharCodeAt(int64_t index) {
     if (index < 0 || index >= length) return 0;
     if (isSmall) return (unsigned char)data.inlineBuffer[index];
-    
+
+    // For ASCII heap strings (from CreateFromAsciiBuffer), use buffer directly
+    if (!data.heap.impl && data.heap.utf8Buffer) {
+        return (unsigned char)data.heap.utf8Buffer[index];
+    }
     icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
     return s->charAt((int32_t)index);
 }
@@ -367,10 +368,11 @@ int64_t TsString::CharCodeAt(int64_t index) {
 int64_t TsString::CodePointAt(int64_t index) {
     if (index < 0 || index >= length) return -1;  // undefined for out of bounds
     if (isSmall) {
-        // Small strings are ASCII-only, so each byte is a code point
         return (unsigned char)data.inlineBuffer[index];
     }
-
+    if (!data.heap.impl && data.heap.utf8Buffer) {
+        return (unsigned char)data.heap.utf8Buffer[index];
+    }
     icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
     // char32At returns the full Unicode code point, handling surrogate pairs
     return s->char32At((int32_t)index);
@@ -399,6 +401,12 @@ TsString* TsString::CharAt(int64_t index) {
         return TsString::Create(buf);
     }
 
+    // ASCII heap string (from CreateFromAsciiBuffer) - use buffer directly
+    if (!data.heap.impl && data.heap.utf8Buffer) {
+        char buf[2] = { data.heap.utf8Buffer[index], 0 };
+        return TsString::Create(buf);
+    }
+
     icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
     icu::UnicodeString charStr = s->tempSubString((int32_t)index, 1);
     std::string utf8;
@@ -418,6 +426,12 @@ TsString* TsString::At(int64_t index) {
         return TsString::Create(buf);
     }
 
+    // ASCII heap string (from CreateFromAsciiBuffer) - use buffer directly
+    if (!data.heap.impl && data.heap.utf8Buffer) {
+        char buf[2] = { data.heap.utf8Buffer[index], 0 };
+        return TsString::Create(buf);
+    }
+
     icu::UnicodeString* s = static_cast<icu::UnicodeString*>(data.heap.impl);
     icu::UnicodeString charStr = s->tempSubString((int32_t)index, 1);
     std::string utf8;
@@ -425,9 +439,27 @@ TsString* TsString::At(int64_t index) {
     return TsString::Create(utf8.c_str());
 }
 
+// Lazily ensure the ICU UnicodeString is created for heap strings.
+// Called when data.heap.impl is nullptr (e.g., CreateFromAsciiBuffer).
+void TsString::ensureImpl() {
+    if (!isSmall && !data.heap.impl && data.heap.utf8Buffer) {
+        void* mem = ts_alloc(sizeof(icu::UnicodeString));
+        data.heap.impl = new(mem) icu::UnicodeString(icu::UnicodeString::fromUTF8(data.heap.utf8Buffer));
+    }
+}
+
+icu::UnicodeString TsString::getUStr() {
+    if (isSmall) return icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    ensureImpl();
+    return *static_cast<icu::UnicodeString*>(data.heap.impl);
+}
+
 icu::UnicodeString TsString::ToUnicodeString() const {
     if (isSmall) {
         return icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    }
+    if (!data.heap.impl) {
+        const_cast<TsString*>(this)->ensureImpl();
     }
     return *static_cast<icu::UnicodeString*>(data.heap.impl);
 }
@@ -435,11 +467,11 @@ icu::UnicodeString TsString::ToUnicodeString() const {
 void* TsString::Split(TsString* separator) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString sep;
     if (separator->isSmall) sep = icu::UnicodeString::fromUTF8(separator->data.inlineBuffer);
-    else sep = *static_cast<icu::UnicodeString*>(separator->data.heap.impl);
+    else { separator->ensureImpl(); sep = *static_cast<icu::UnicodeString*>(separator->data.heap.impl); }
     
     TsArray* arr = TsArray::Create();
     
@@ -477,7 +509,7 @@ void* TsString::Split(TsString* separator) {
 TsString* TsString::Trim() {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     s.trim();
 
@@ -489,7 +521,7 @@ TsString* TsString::Trim() {
 TsString* TsString::TrimStart() {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     // Find first non-whitespace character
     int32_t start = 0;
@@ -510,7 +542,7 @@ TsString* TsString::TrimStart() {
 TsString* TsString::TrimEnd() {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     // Find last non-whitespace character
     int32_t end = s.length();
@@ -530,7 +562,7 @@ TsString* TsString::TrimEnd() {
 TsString* TsString::Substring(int64_t start, int64_t end) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     int32_t len = s.length();
     
@@ -554,7 +586,7 @@ TsString* TsString::Substring(int64_t start, int64_t end) {
 TsString* TsString::Slice(int64_t start, int64_t end) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     int32_t len = s.length();
     
@@ -576,7 +608,7 @@ TsString* TsString::Repeat(int64_t count) {
     if (count <= 0) return Create("");
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString result;
     for (int64_t i = 0; i < count; ++i) {
@@ -590,7 +622,7 @@ TsString* TsString::Repeat(int64_t count) {
 TsString* TsString::PadStart(int64_t targetLength, TsString* padString) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     int32_t len = s.length();
     if (targetLength <= len) return this;
@@ -602,7 +634,7 @@ TsString* TsString::PadStart(int64_t targetLength, TsString* padString) {
     } else if (padString->isSmall) {
         pad = icu::UnicodeString::fromUTF8(padString->data.inlineBuffer);
     } else {
-        pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
+        padString->ensureImpl(); pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
     }
 
     if (pad.length() == 0) return this;
@@ -625,7 +657,7 @@ TsString* TsString::PadStart(int64_t targetLength, TsString* padString) {
 TsString* TsString::PadEnd(int64_t targetLength, TsString* padString) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     int32_t len = s.length();
     if (targetLength <= len) return this;
@@ -637,7 +669,7 @@ TsString* TsString::PadEnd(int64_t targetLength, TsString* padString) {
     } else if (padString->isSmall) {
         pad = icu::UnicodeString::fromUTF8(padString->data.inlineBuffer);
     } else {
-        pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
+        padString->ensureImpl(); pad = *static_cast<icu::UnicodeString*>(padString->data.heap.impl);
     }
 
     if (pad.length() == 0) return this;
@@ -666,11 +698,11 @@ bool TsString::StartsWith(TsString* prefix) {
 
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString p;
     if (prefix->isSmall) p = icu::UnicodeString::fromUTF8(prefix->data.inlineBuffer);
-    else p = *static_cast<icu::UnicodeString*>(prefix->data.heap.impl);
+    else { prefix->ensureImpl(); p = *static_cast<icu::UnicodeString*>(prefix->data.heap.impl); }
 
     return s.startsWith(p);
 }
@@ -683,11 +715,11 @@ bool TsString::EndsWith(TsString* suffix) {
 
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString p;
     if (suffix->isSmall) p = icu::UnicodeString::fromUTF8(suffix->data.inlineBuffer);
-    else p = *static_cast<icu::UnicodeString*>(suffix->data.heap.impl);
+    else { suffix->ensureImpl(); p = *static_cast<icu::UnicodeString*>(suffix->data.heap.impl); }
 
     return s.endsWith(p);
 }
@@ -695,11 +727,11 @@ bool TsString::EndsWith(TsString* suffix) {
 bool TsString::Includes(TsString* searchString) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString search;
     if (searchString->isSmall) search = icu::UnicodeString::fromUTF8(searchString->data.inlineBuffer);
-    else search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl);
+    else { searchString->ensureImpl(); search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl); }
 
     return s.indexOf(search) != -1;
 }
@@ -707,11 +739,11 @@ bool TsString::Includes(TsString* searchString) {
 int64_t TsString::IndexOf(TsString* searchString) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString search;
     if (searchString->isSmall) search = icu::UnicodeString::fromUTF8(searchString->data.inlineBuffer);
-    else search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl);
+    else { searchString->ensureImpl(); search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl); }
 
     return s.indexOf(search);
 }
@@ -719,11 +751,11 @@ int64_t TsString::IndexOf(TsString* searchString) {
 int64_t TsString::LastIndexOf(TsString* searchString) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString search;
     if (searchString->isSmall) search = icu::UnicodeString::fromUTF8(searchString->data.inlineBuffer);
-    else search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl);
+    else { searchString->ensureImpl(); search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl); }
 
     return s.lastIndexOf(search);
 }
@@ -731,7 +763,7 @@ int64_t TsString::LastIndexOf(TsString* searchString) {
 TsString* TsString::ToLowerCase() {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     s.toLower();
     std::string str;
@@ -742,7 +774,7 @@ TsString* TsString::ToLowerCase() {
 TsString* TsString::ToUpperCase() {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     s.toUpper();
     std::string str;
@@ -753,7 +785,7 @@ TsString* TsString::ToUpperCase() {
 TsString* TsString::Normalize(TsString* form) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     // Default to NFC if no form specified
     UNormalizationMode mode = UNORM_NFC;
@@ -788,7 +820,7 @@ TsString* TsString::Normalize(TsString* form) {
 bool TsString::IsWellFormed() {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     int32_t len = s.length();
     for (int32_t i = 0; i < len; i++) {
@@ -814,7 +846,7 @@ bool TsString::IsWellFormed() {
 TsString* TsString::ToWellFormed() {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString result;
     int32_t len = s.length();
@@ -854,15 +886,15 @@ TsString* TsString::ToWellFormed() {
 TsString* TsString::Replace(TsString* pattern, TsString* replacement) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString p;
     if (pattern->isSmall) p = icu::UnicodeString::fromUTF8(pattern->data.inlineBuffer);
-    else p = *static_cast<icu::UnicodeString*>(pattern->data.heap.impl);
+    else { pattern->ensureImpl(); p = *static_cast<icu::UnicodeString*>(pattern->data.heap.impl); }
 
     icu::UnicodeString r;
     if (replacement->isSmall) r = icu::UnicodeString::fromUTF8(replacement->data.inlineBuffer);
-    else r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl);
+    else { replacement->ensureImpl(); r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl); }
     
     int32_t pos = s.indexOf(p);
     if (pos != -1) {
@@ -877,15 +909,15 @@ TsString* TsString::Replace(TsString* pattern, TsString* replacement) {
 TsString* TsString::ReplaceAll(TsString* pattern, TsString* replacement) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString p;
     if (pattern->isSmall) p = icu::UnicodeString::fromUTF8(pattern->data.inlineBuffer);
-    else p = *static_cast<icu::UnicodeString*>(pattern->data.heap.impl);
+    else { pattern->ensureImpl(); p = *static_cast<icu::UnicodeString*>(pattern->data.heap.impl); }
 
     icu::UnicodeString r;
     if (replacement->isSmall) r = icu::UnicodeString::fromUTF8(replacement->data.inlineBuffer);
-    else r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl);
+    else { replacement->ensureImpl(); r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl); }
     
     s.findAndReplace(p, r);
     
@@ -947,7 +979,7 @@ int64_t TsString::Search(TsRegExp* regexp) {
     if (!regexp) return -1;
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
     matcher->reset(s);
@@ -963,11 +995,11 @@ TsString* TsString::Replace(TsRegExp* regexp, TsString* replacement) {
 
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString r;
     if (replacement->isSmall) r = icu::UnicodeString::fromUTF8(replacement->data.inlineBuffer);
-    else r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl);
+    else { replacement->ensureImpl(); r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl); }
 
     // Translate JavaScript replacement patterns to ICU equivalents.
     // JS: \ is literal, $& = whole match, $$ = literal $, $1-$9 = groups
@@ -1028,7 +1060,7 @@ void* TsString::Split(TsRegExp* regexp) {
     
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     UErrorCode status = U_ZERO_ERROR;
     icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
@@ -1081,11 +1113,11 @@ bool TsString::Equals(TsString* other) {
     
     icu::UnicodeString s1;
     if (isSmall) s1 = icu::UnicodeString::fromUTF8(data.inlineBuffer);
-    else s1 = *static_cast<icu::UnicodeString*>(data.heap.impl);
+    else { ensureImpl(); s1 = *static_cast<icu::UnicodeString*>(data.heap.impl); }
 
     icu::UnicodeString s2;
     if (other->isSmall) s2 = icu::UnicodeString::fromUTF8(other->data.inlineBuffer);
-    else s2 = *static_cast<icu::UnicodeString*>(other->data.heap.impl);
+    else { other->ensureImpl(); s2 = *static_cast<icu::UnicodeString*>(other->data.heap.impl); }
 
     return s1 == s2;
 }
@@ -1153,24 +1185,22 @@ extern "C" {
 
     int64_t ts_string_length(void* str) {
         if (!str) return 0;
-        return ((TsString*)str)->Length();
+        // Fast path: return length without flattening for cons strings
+        return ts_string_like_length(str);
     }
 
     int64_t ts_string_charCodeAt(void* str, int64_t index) {
         if (!str) return 0;
-        TsString* s = (TsString*)str;
-        if (s->magic != TsString::MAGIC) {
-            fprintf(stderr, "[BUG] ts_string_charCodeAt: str=%p has bad magic 0x%08X, index=%lld\n",
-                    str, s->magic, (long long)index);
-            fflush(stderr);
-            return 0;
-        }
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return 0;
         return s->CharCodeAt(index);
     }
 
     int64_t ts_string_codePointAt(void* str, int64_t index) {
         if (!str) return -1;
-        return ((TsString*)str)->CodePointAt(index);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return -1;
+        return s->CodePointAt(index);
     }
 
     void* ts_string_fromCodePoint(void* codePointsArray) {
@@ -1223,6 +1253,7 @@ extern "C" {
                 if (pp) {
                     uint32_t m = *(uint32_t*)pp;
                     if (m == 0x53545247) piece = (TsString*)pp; // TsString
+                    else if (m == TsConsString::MAGIC) piece = ((TsConsString*)pp)->Flatten();
                 }
             }
 
@@ -1255,6 +1286,8 @@ extern "C" {
                         uint32_t sm = *(uint32_t*)sp;
                         if (sm == 0x53545247) {
                             result += ((TsString*)sp)->ToUtf8();
+                        } else if (sm == TsConsString::MAGIC) {
+                            result += ((TsConsString*)sp)->Flatten()->ToUtf8();
                         } else {
                             result += "[object]";
                         }
@@ -1267,120 +1300,178 @@ extern "C" {
     }
 
     void* ts_string_charAt(void* str, int64_t index) {
-        return ((TsString*)str)->CharAt(index);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return TsString::Create("");
+        return s->CharAt(index);
     }
 
     void* ts_string_at(void* str, int64_t index) {
-        TsString* result = ((TsString*)str)->At(index);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return ts_value_make_undefined();
+        TsString* result = s->At(index);
         if (!result) return ts_value_make_undefined();
         return result;
     }
 
     void* ts_string_concat(void* a, void* b) {
-        // Safety: validate both arguments are valid TsString* pointers
-        // The compiler calls ts_value_get_string before this, but in rare cases
-        // (GC pressure, memory corruption) the result can be invalid.
-        auto ensureTsString = [](void* ptr) -> TsString* {
+        // Fast path: both args have valid string magic (common case)
+        if (a && b) {
+            uint32_t magicA = *(uint32_t*)a;
+            uint32_t magicB = *(uint32_t*)b;
+            if ((magicA == TsString::MAGIC || magicA == TsConsString::MAGIC) &&
+                (magicB == TsString::MAGIC || magicB == TsConsString::MAGIC)) {
+                // Both TsString? Use Concat (handles small-string fast path)
+                if (magicA == TsString::MAGIC && magicB == TsString::MAGIC) {
+                    return TsString::Concat((TsString*)a, (TsString*)b);
+                }
+                return TsConsString::Create(a, b);
+            }
+        }
+
+        // Slow path: validate/convert non-string arguments
+        auto ensureStringLike = [](void* ptr) -> void* {
             if (!ptr) return TsString::Create("");
             uintptr_t addr = (uintptr_t)ptr;
-            if (addr < 0x10000) {
-                // Small integer masquerading as pointer - likely a TsValue type enum
-                // or corrupted pointer. Convert via ts_string_from_value.
-                return TsString::Create("");
-            }
+            if (addr < 0x10000) return TsString::Create("");
             uint32_t magic = *(uint32_t*)ptr;
-            if (magic == TsString::MAGIC) {
-                return (TsString*)ptr;  // Valid TsString
-            }
-            // Not a TsString - try to interpret as TsValue and convert
+            if (magic == TsString::MAGIC || magic == TsConsString::MAGIC) return ptr;
             uint8_t firstByte = *(uint8_t*)ptr;
             if (firstByte <= 10) {
-                // Looks like a TsValue* - convert to string
                 TsString* result = (TsString*)ts_string_from_value((TsValue*)ptr);
                 if (result) return result;
             }
             return TsString::Create("");
         };
-        TsString* strA = ensureTsString(a);
-        TsString* strB = ensureTsString(b);
-        return TsString::Concat(strA, strB);
+        void* strA = ensureStringLike(a);
+        void* strB = ensureStringLike(b);
+        if (*(uint32_t*)strA == TsString::MAGIC && *(uint32_t*)strB == TsString::MAGIC) {
+            return TsString::Concat((TsString*)strA, (TsString*)strB);
+        }
+        return TsConsString::Create(strA, strB);
     }
 
     void* ts_string_split(void* str, void* separator) {
-        return ((TsString*)str)->Split((TsString*)separator);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return nullptr;
+        TsString* sep = ts_ensure_flat(separator);
+        return s->Split(sep);
     }
 
     void* ts_string_trim(void* str) {
-        return ((TsString*)str)->Trim();
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        return s->Trim();
     }
 
     void* ts_string_trimStart(void* str) {
-        return ((TsString*)str)->TrimStart();
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        return s->TrimStart();
     }
 
     void* ts_string_trimEnd(void* str) {
-        return ((TsString*)str)->TrimEnd();
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        return s->TrimEnd();
     }
 
     void* ts_string_substring(void* str, int64_t start, int64_t end) {
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
         // INT64_MIN sentinel means "end not provided" - default to string length
         if (end == INT64_MIN) {
-            end = ((TsString*)str)->Length();
+            end = s->Length();
         }
-        return ((TsString*)str)->Substring(start, end);
+        return s->Substring(start, end);
     }
 
     void* ts_string_slice(void* str, int64_t start, int64_t end) {
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
         // INT64_MIN sentinel means "end not provided" - default to string length
         if (end == INT64_MIN) {
-            end = ((TsString*)str)->Length();
+            end = s->Length();
         }
-        return ((TsString*)str)->Slice(start, end);
+        return s->Slice(start, end);
     }
 
     void* ts_string_repeat(void* str, int64_t count) {
-        return ((TsString*)str)->Repeat(count);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        return s->Repeat(count);
     }
 
     void* ts_string_padStart(void* str, int64_t targetLength, void* padString) {
-        return ((TsString*)str)->PadStart(targetLength, (TsString*)padString);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        TsString* pad = ts_ensure_flat(padString);
+        return s->PadStart(targetLength, pad);
     }
 
     void* ts_string_padEnd(void* str, int64_t targetLength, void* padString) {
-        return ((TsString*)str)->PadEnd(targetLength, (TsString*)padString);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        TsString* pad = ts_ensure_flat(padString);
+        return s->PadEnd(targetLength, pad);
     }
 
     bool ts_string_startsWith(void* str, void* prefix) {
-        return ((TsString*)str)->StartsWith((TsString*)prefix);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return false;
+        TsString* p = ts_ensure_flat(prefix);
+        if (!p) return false;
+        return s->StartsWith(p);
     }
 
     bool ts_string_endsWith(void* str, void* suffix) {
-        return ((TsString*)str)->EndsWith((TsString*)suffix);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return false;
+        TsString* suf = ts_ensure_flat(suffix);
+        if (!suf) return false;
+        return s->EndsWith(suf);
     }
 
     bool ts_string_includes(void* str, void* searchString) {
-        return ((TsString*)str)->Includes((TsString*)searchString);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return false;
+        TsString* search = ts_ensure_flat(searchString);
+        if (!search) return false;
+        return s->Includes(search);
     }
 
     int64_t ts_string_indexOf(void* str, void* searchString) {
-        return ((TsString*)str)->IndexOf((TsString*)searchString);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return -1;
+        TsString* search = ts_ensure_flat(searchString);
+        if (!search) return -1;
+        return s->IndexOf(search);
     }
 
     int64_t ts_string_lastIndexOf(void* str, void* searchString) {
-        return ((TsString*)str)->LastIndexOf((TsString*)searchString);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return -1;
+        TsString* search = ts_ensure_flat(searchString);
+        if (!search) return -1;
+        return s->LastIndexOf(search);
     }
 
     void* ts_string_toLowerCase(void* str) {
-        return ((TsString*)str)->ToLowerCase();
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        return s->ToLowerCase();
     }
 
     void* ts_string_toUpperCase(void* str) {
-        return ((TsString*)str)->ToUpperCase();
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        return s->ToUpperCase();
     }
 
     void* ts_string_normalize(void* str, void* form) {
-        TsString* formStr = form ? (TsString*)form : nullptr;
-        return ((TsString*)str)->Normalize(formStr);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        TsString* formStr = form ? ts_ensure_flat(form) : nullptr;
+        return s->Normalize(formStr);
     }
 
     // Helper: unbox a potential TsValue* to get the raw TsRegExp* pointer.
@@ -1400,15 +1491,21 @@ extern "C" {
     }
 
     void* ts_string_match_regexp(void* str, void* regexp) {
-        return ((TsString*)str)->Match(unboxRegExp(regexp));
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return nullptr;
+        return s->Match(unboxRegExp(regexp));
     }
 
     void* ts_string_matchAll_regexp(void* str, void* regexp) {
-        return ((TsString*)str)->MatchAll(unboxRegExp(regexp));
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return nullptr;
+        return s->MatchAll(unboxRegExp(regexp));
     }
 
     int64_t ts_string_search_regexp(void* str, void* regexp) {
-        return ((TsString*)str)->Search(unboxRegExp(regexp));
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return -1;
+        return s->Search(unboxRegExp(regexp));
     }
 
     // Callback-based regex replacement: call function for each match
@@ -1537,6 +1634,9 @@ extern "C" {
     }
 
     void* ts_string_replace(void* str, void* pattern, void* replacement) {
+        TsString* flatStr = ts_ensure_flat(str);
+        if (!flatStr) return str;
+
         // Check if replacement is a callback function
         bool replIsCallback = ts_nanbox_is_callable(replacement);
 
@@ -1547,42 +1647,54 @@ extern "C" {
                 uint32_t magic = *(uint32_t*)rawObj;
                 if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
                     if (replIsCallback) {
-                        return ts_string_replace_callback_regex((TsString*)str, (TsRegExp*)rawObj, (TsValue*)replacement);
+                        return ts_string_replace_callback_regex(flatStr, (TsRegExp*)rawObj, (TsValue*)replacement);
                     }
-                    // String replacement
                     void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                     if (!rawRepl) rawRepl = replacement;
-                    return ((TsString*)str)->Replace((TsRegExp*)rawObj, (TsString*)rawRepl);
+                    TsString* flatRepl = ts_ensure_flat(rawRepl);
+                    return flatStr->Replace((TsRegExp*)rawObj, flatRepl);
                 }
-                // Check if it's a TsString (magic 0x53545247 "STRG")
-                if (magic == 0x53545247) {
+                // Check if it's a TsString or TsConsString
+                if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+                    TsString* flatPattern = ts_ensure_flat(rawObj);
                     if (replIsCallback) {
-                        return ts_string_replace_callback_string((TsString*)str, (TsString*)rawObj, (TsValue*)replacement);
+                        return ts_string_replace_callback_string(flatStr, flatPattern, (TsValue*)replacement);
                     }
                     void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                     if (!rawRepl) rawRepl = replacement;
-                    return ((TsString*)str)->Replace((TsString*)rawObj, (TsString*)rawRepl);
+                    TsString* flatRepl = ts_ensure_flat(rawRepl);
+                    return flatStr->Replace(flatPattern, flatRepl);
                 }
             }
             // Try extracting as string directly
             void* strPattern = ts_value_get_string((TsValue*)pattern);
             if (strPattern) {
+                TsString* flatPattern = ts_ensure_flat(strPattern);
                 if (replIsCallback) {
-                    return ts_string_replace_callback_string((TsString*)str, (TsString*)strPattern, (TsValue*)replacement);
+                    return ts_string_replace_callback_string(flatStr, flatPattern, (TsValue*)replacement);
                 }
                 void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                 if (!rawRepl) rawRepl = replacement;
-                return ((TsString*)str)->Replace((TsString*)strPattern, (TsString*)rawRepl);
+                TsString* flatRepl = ts_ensure_flat(rawRepl);
+                return flatStr->Replace(flatPattern, flatRepl);
             }
         }
-        return ((TsString*)str)->Replace((TsString*)pattern, (TsString*)replacement);
+        TsString* flatPattern = ts_ensure_flat(pattern);
+        TsString* flatRepl = ts_ensure_flat(replacement);
+        return flatStr->Replace(flatPattern, flatRepl);
     }
 
     void* ts_string_replace_regexp(void* str, void* regexp, void* replacement) {
-        return ((TsString*)str)->Replace(unboxRegExp(regexp), (TsString*)replacement);
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        TsString* repl = ts_ensure_flat(replacement);
+        return s->Replace(unboxRegExp(regexp), repl);
     }
 
     void* ts_string_replaceAll(void* str, void* pattern, void* replacement) {
+        TsString* flatStr = ts_ensure_flat(str);
+        if (!flatStr) return str;
+
         // Pattern may be a NaN-boxed TsValue* - try to extract raw object pointer
         if (pattern) {
             void* rawObj = ts_value_get_object((TsValue*)pattern);
@@ -1591,34 +1703,47 @@ extern "C" {
                 if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
                     void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                     if (!rawRepl) rawRepl = replacement;
-                    return ((TsString*)str)->Replace((TsRegExp*)rawObj, (TsString*)rawRepl);
+                    TsString* flatRepl = ts_ensure_flat(rawRepl);
+                    return flatStr->Replace((TsRegExp*)rawObj, flatRepl);
                 }
-                if (magic == 0x53545247) { // TsString::MAGIC ("STRG")
+                if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+                    TsString* flatPattern = ts_ensure_flat(rawObj);
                     void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                     if (!rawRepl) rawRepl = replacement;
-                    return ((TsString*)str)->ReplaceAll((TsString*)rawObj, (TsString*)rawRepl);
+                    TsString* flatRepl = ts_ensure_flat(rawRepl);
+                    return flatStr->ReplaceAll(flatPattern, flatRepl);
                 }
             }
             void* strPattern = ts_value_get_string((TsValue*)pattern);
             if (strPattern) {
+                TsString* flatPattern = ts_ensure_flat(strPattern);
                 void* rawRepl = replacement ? ts_value_get_string((TsValue*)replacement) : nullptr;
                 if (!rawRepl) rawRepl = replacement;
-                return ((TsString*)str)->ReplaceAll((TsString*)strPattern, (TsString*)rawRepl);
+                TsString* flatRepl = ts_ensure_flat(rawRepl);
+                return flatStr->ReplaceAll(flatPattern, flatRepl);
             }
         }
-        return ((TsString*)str)->ReplaceAll((TsString*)pattern, (TsString*)replacement);
+        TsString* flatPattern = ts_ensure_flat(pattern);
+        TsString* flatRepl = ts_ensure_flat(replacement);
+        return flatStr->ReplaceAll(flatPattern, flatRepl);
     }
 
     bool ts_string_isWellFormed(void* str) {
-        return ((TsString*)str)->IsWellFormed();
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return true;
+        return s->IsWellFormed();
     }
 
     void* ts_string_toWellFormed(void* str) {
-        return ((TsString*)str)->ToWellFormed();
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        return s->ToWellFormed();
     }
 
     void* ts_string_split_regexp(void* str, void* regexp) {
-        return ((TsString*)str)->Split(unboxRegExp(regexp));
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return nullptr;
+        return s->Split(unboxRegExp(regexp));
     }
 
     void* ts_string_from_int(int64_t value) {
@@ -1634,7 +1759,10 @@ extern "C" {
     }
 
     bool ts_string_eq(void* a, void* b) {
-        return ((TsString*)a)->Equals((TsString*)b);
+        TsString* flatA = ts_ensure_flat(a);
+        TsString* flatB = ts_ensure_flat(b);
+        if (!flatA || !flatB) return flatA == flatB;
+        return flatA->Equals(flatB);
     }
 
     void* ts_string_from_value(TsValue* val) {
@@ -1654,6 +1782,7 @@ extern "C" {
             if (!ptr) return TsString::GetInterned("null");
             uint32_t magic = *(uint32_t*)ptr;
             if (magic == 0x53545247) return ptr; // TsString
+            if (magic == TsConsString::MAGIC) return ((TsConsString*)ptr)->Flatten(); // Flatten cons string
             if (magic == 0x41525259) return TsString::GetInterned("[object Array]");
             if (magic == 0x42494749) { // TsBigInt
                 // BigInt toString would need special handling
@@ -1688,7 +1817,8 @@ extern "C" {
 
     void* ts_encode_uri_component(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = (TsString*)str;
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return TsString::GetInterned("");
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
 
@@ -1707,7 +1837,8 @@ extern "C" {
 
     void* ts_decode_uri_component(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = (TsString*)str;
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return TsString::GetInterned("");
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
 
@@ -1731,7 +1862,8 @@ extern "C" {
 
     void* ts_encode_uri(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = (TsString*)str;
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return TsString::GetInterned("");
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
 
@@ -1750,7 +1882,8 @@ extern "C" {
 
     void* ts_decode_uri(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = (TsString*)str;
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return TsString::GetInterned("");
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
 

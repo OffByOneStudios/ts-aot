@@ -12,6 +12,7 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsObject.h"
+#include "TsConsString.h"
 
 #include <string>
 #include <iostream>
@@ -38,9 +39,8 @@ static TsString* UnboxString(void* ptr) {
     if (nanbox_is_special(nb) || !nanbox_is_ptr(nb)) return nullptr;
     void* raw = nanbox_to_ptr(nb);
     if (!raw) return nullptr;
-    // Verify TsString magic (0x53545247)
-    uint32_t magic = *(uint32_t*)raw;
-    if (magic == 0x53545247) return (TsString*)raw;
+    // Verify TsString or TsConsString magic
+    if (ts_is_any_string(raw)) return ts_ensure_flat(raw);
     return nullptr;
 }
 

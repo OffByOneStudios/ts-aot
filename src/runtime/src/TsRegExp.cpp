@@ -1,4 +1,5 @@
 #include "TsRegExp.h"
+#include "TsConsString.h"
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsRuntime.h"
@@ -390,8 +391,8 @@ extern "C" {
         } else if (nanbox_is_ptr(nb)) {
             // Check if it's a TsString (magic 0x53545247) or needs conversion
             void* base = ts_gc_base(str);
-            if (base && *(uint32_t*)base == 0x53545247) {
-                s = (TsString*)base;
+            if (base && ts_is_any_string(base)) {
+                s = ts_ensure_flat(base);
             } else {
                 s = (TsString*)ts_string_from_value((TsValue*)str);
             }
@@ -413,8 +414,8 @@ extern "C" {
             s = (TsString*)ts_string_from_value((TsValue*)str);
         } else if (nanbox_is_ptr(nb)) {
             void* base = ts_gc_base(str);
-            if (base && *(uint32_t*)base == 0x53545247) {
-                s = (TsString*)base;
+            if (base && ts_is_any_string(base)) {
+                s = ts_ensure_flat(base);
             } else {
                 s = (TsString*)ts_string_from_value((TsValue*)str);
             }
