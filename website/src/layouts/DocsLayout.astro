@@ -1,0 +1,51 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import DocsSidebar from '../components/DocsSidebar.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+const { frontmatter } = Astro.props as any;
+const pageTitle = frontmatter?.title || title;
+const pageDesc = frontmatter?.description || description;
+---
+<BaseLayout title={`${pageTitle} - ts-aot`} description={pageDesc}>
+  <div class="docs-wrapper container-wide">
+    <DocsSidebar />
+    <article class="docs-content">
+      <h1>{pageTitle}</h1>
+      <slot />
+    </article>
+  </div>
+</BaseLayout>
+
+<style>
+  .docs-wrapper {
+    display: flex;
+    gap: 2rem;
+    padding-top: 2rem;
+    padding-bottom: 4rem;
+    min-height: calc(100vh - var(--header-height) - 200px);
+  }
+
+  .docs-content {
+    flex: 1;
+    min-width: 0;
+    max-width: var(--max-width);
+  }
+
+  .docs-content h1 {
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  @media (max-width: 768px) {
+    .docs-wrapper {
+      flex-direction: column;
+    }
+  }
+</style>

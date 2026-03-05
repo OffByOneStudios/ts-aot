@@ -222,7 +222,7 @@ ts-aot/
 ### Build Steps
 
 ```bash
-git clone https://github.com/cgrinker/ts-aoc.git
+git clone https://github.com/OffByOneStudios/ts-aot.git
 cd ts-aoc
 
 # Install dependencies

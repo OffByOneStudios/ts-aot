@@ -85,6 +85,7 @@ ir_output.txt
 !tests/**/*.json
 !examples/**/*.json
 !extensions/**/*.json
+!website/**/*.json
 
 # Re-exclude .ast.json files (generated, should never be committed)
 **/*.ast.json

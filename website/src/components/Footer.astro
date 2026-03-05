@@ -1,0 +1,52 @@
+---
+const base = import.meta.env.BASE_URL;
+---
+<footer class="site-footer">
+  <div class="container-wide footer-inner">
+    <div class="footer-left">
+      <p>ts-aot &mdash; Built entirely by <a href="https://claude.ai" target="_blank" rel="noopener">Claude</a></p>
+    </div>
+    <div class="footer-links">
+      <a href={`${base}docs/`}>Docs</a>
+      <a href={`${base}blog/`}>Blog</a>
+      <a href="https://github.com/OffByOneStudios/ts-aot" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-top: auto;
+    border-top: 1px solid var(--border-light);
+    padding: 2rem 0;
+    color: var(--fg-muted);
+    font-size: 0.875rem;
+  }
+
+  .footer-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .footer-links {
+    display: flex;
+    gap: 1.5rem;
+  }
+
+  .footer-links a {
+    color: var(--fg-muted);
+  }
+
+  .footer-links a:hover {
+    color: var(--fg);
+  }
+
+  @media (max-width: 640px) {
+    .footer-inner {
+      flex-direction: column;
+      gap: 1rem;
+      text-align: center;
+    }
+  }
+</style>

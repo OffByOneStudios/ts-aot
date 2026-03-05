@@ -1,0 +1,60 @@
+---
+import BaseLayout from './BaseLayout.astro';
+
+interface Props {
+  title: string;
+  date: string;
+  description?: string;
+  author?: string;
+}
+
+const { frontmatter } = Astro.props as any;
+const title = frontmatter?.title || Astro.props.title;
+const date = frontmatter?.date || Astro.props.date;
+const author = frontmatter?.author || 'ts-aot team';
+const description = frontmatter?.description || Astro.props.description;
+
+const formattedDate = new Date(date).toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+---
+<BaseLayout title={`${title} - ts-aot blog`} description={description}>
+  <article class="blog-post container">
+    <header class="blog-header">
+      <p class="blog-meta">{formattedDate} &middot; {author}</p>
+      <h1>{title}</h1>
+    </header>
+    <div class="blog-body">
+      <slot />
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .blog-post {
+    padding-top: 2rem;
+    padding-bottom: 4rem;
+  }
+
+  .blog-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .blog-header h1 {
+    margin-top: 0.5rem;
+  }
+
+  .blog-meta {
+    color: var(--fg-muted);
+    font-size: 0.875rem;
+    margin: 0;
+  }
+
+  .blog-body {
+    line-height: 1.75;
+  }
+</style>

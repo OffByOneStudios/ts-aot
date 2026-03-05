@@ -1,0 +1,130 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+const base = import.meta.env.BASE_URL;
+---
+<header class="site-header">
+  <nav class="container-wide header-inner">
+    <a href={base} class="logo">
+      <span class="logo-mark">TS</span>
+      <span class="logo-text">ts-aot</span>
+    </a>
+    <div class="nav-links">
+      <a href={`${base}docs/`}>Docs</a>
+      <a href={`${base}blog/`}>Blog</a>
+      <a href="https://github.com/OffByOneStudios/ts-aot" class="github-link" target="_blank" rel="noopener">
+        GitHub
+      </a>
+      <ThemeToggle />
+    </div>
+    <button class="mobile-toggle" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+  </nav>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-light);
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+    backdrop-filter: blur(8px);
+  }
+
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: var(--fg);
+  }
+
+  .logo:hover { text-decoration: none; }
+
+  .logo-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 800;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .nav-links a {
+    color: var(--fg-muted);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-decoration: none;
+  }
+
+  .nav-links a:hover {
+    color: var(--fg);
+  }
+
+  .mobile-toggle {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+  }
+
+  .mobile-toggle span {
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: var(--fg);
+    border-radius: 1px;
+  }
+
+  @media (max-width: 640px) {
+    .nav-links {
+      display: none;
+      position: absolute;
+      top: var(--header-height);
+      left: 0;
+      right: 0;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      flex-direction: column;
+      padding: 1rem 1.5rem;
+      gap: 1rem;
+    }
+
+    .nav-links.open { display: flex; }
+
+    .mobile-toggle { display: flex; }
+  }
+</style>
+
+<script is:inline>
+  document.querySelector('.mobile-toggle')?.addEventListener('click', () => {
+    document.querySelector('.nav-links')?.classList.toggle('open');
+  });
+</script>

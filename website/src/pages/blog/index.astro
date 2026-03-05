@@ -1,0 +1,75 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+const base = import.meta.env.BASE_URL;
+
+const posts = [
+  {
+    title: 'Introducing ts-aot',
+    date: '2026-03-05',
+    description: 'An LLVM-based ahead-of-time compiler for TypeScript. Why we built it and what it can do.',
+    slug: 'introducing-ts-aot',
+  },
+];
+---
+<BaseLayout title="Blog - ts-aot">
+  <div class="container blog-index">
+    <h1>Blog</h1>
+    <div class="posts">
+      {posts.map(post => (
+        <a href={`${base}blog/${post.slug}/`} class="post-card">
+          <time>{new Date(post.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</time>
+          <h2>{post.title}</h2>
+          <p>{post.description}</p>
+        </a>
+      ))}
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .blog-index {
+    padding: 2rem 0 4rem;
+  }
+
+  .blog-index h1 {
+    margin-bottom: 2rem;
+  }
+
+  .posts {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .post-card {
+    display: block;
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s;
+  }
+
+  .post-card:hover {
+    border-color: var(--accent);
+    text-decoration: none;
+  }
+
+  .post-card time {
+    font-size: 0.8125rem;
+    color: var(--fg-muted);
+  }
+
+  .post-card h2 {
+    font-size: 1.25rem;
+    margin-top: 0.25rem;
+  }
+
+  .post-card p {
+    font-size: 0.9375rem;
+    color: var(--fg-muted);
+    margin-top: 0.5rem;
+  }
+</style>

@@ -1,0 +1,344 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/Hero.astro';
+import ConformanceBadge from '../components/ConformanceBadge.astro';
+import FeatureCard from '../components/FeatureCard.astro';
+import BenchmarkChart from '../components/BenchmarkChart.astro';
+
+const base = import.meta.env.BASE_URL;
+---
+<BaseLayout title="ts-aot - TypeScript Ahead-of-Time Compiler">
+
+  <Hero />
+
+  <!-- Conformance Badges -->
+  <section class="section">
+    <div class="container">
+      <div class="badges-grid">
+        <ConformanceBadge
+          label="TypeScript"
+          percentage={99}
+          detail="118/119 runtime features"
+          href={`${base}docs/conformance/`}
+        />
+        <ConformanceBadge
+          label="ECMAScript"
+          percentage={96}
+          detail="221/230 features"
+          href={`${base}docs/conformance/`}
+        />
+        <ConformanceBadge
+          label="Node.js APIs"
+          percentage={99}
+          detail="1031/1040 APIs"
+          href={`${base}docs/conformance/`}
+        />
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">What you get</h2>
+      <div class="features-grid">
+        <FeatureCard
+          icon=">"
+          title="Native Binaries"
+          description="Single executable output. No runtime dependencies. Compile .ts, .tsx, .js, .jsx to standalone binaries."
+        />
+        <FeatureCard
+          icon="N"
+          title="Node.js Compatible"
+          description="32 built-in modules: fs, http, net, crypto, streams, and more. 11 npm packages verified (semver, uuid, nanoid, etc.)."
+        />
+        <FeatureCard
+          icon="L"
+          title="LLVM Optimized"
+          description="Full O0-O3 pipeline with type-driven codegen, NaN-boxing, escape analysis, and flat inline-slot objects."
+        />
+        <FeatureCard
+          icon="T"
+          title="Real TypeScript"
+          description="Classes, generics, async/await, decorators, generators, iterators, destructuring, and more. Not a subset."
+        />
+      </div>
+    </div>
+  </section>
+
+  <!-- Benchmarks -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">Performance</h2>
+      <p class="section-desc">
+        AOT compilation eliminates JIT warmup. ts-aot shines in cold-start and recursive compute workloads.
+      </p>
+      <div class="bench-grid">
+        <BenchmarkChart
+          title="Cold Start"
+          bars={[
+            { label: 'ts-aot', value: 16, unit: 'ms', highlight: true },
+            { label: 'Node.js', value: 31, unit: 'ms' },
+          ]}
+          note="2x faster startup -- no JIT warmup needed"
+        />
+        <BenchmarkChart
+          title="Recursive fib(35)"
+          bars={[
+            { label: 'ts-aot', value: 36, unit: 'ms', highlight: true },
+            { label: 'Node.js', value: 60, unit: 'ms' },
+          ]}
+          note="1.7x faster -- AOT excels at recursive calls"
+        />
+      </div>
+      <p class="bench-honesty">
+        V8's JIT excels at long-running array and string operations.
+        See <a href={`${base}docs/limitations/`}>limitations</a> for a full comparison.
+      </p>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">How it works</h2>
+      <div class="pipeline">
+        <div class="pipeline-step">
+          <div class="step-label">TypeScript</div>
+        </div>
+        <div class="pipeline-arrow">&rarr;</div>
+        <div class="pipeline-step">
+          <div class="step-label">Parser</div>
+        </div>
+        <div class="pipeline-arrow">&rarr;</div>
+        <div class="pipeline-step">
+          <div class="step-label">Type Analyzer</div>
+        </div>
+        <div class="pipeline-arrow">&rarr;</div>
+        <div class="pipeline-step">
+          <div class="step-label">HIR</div>
+        </div>
+        <div class="pipeline-arrow">&rarr;</div>
+        <div class="pipeline-step">
+          <div class="step-label">LLVM IR</div>
+        </div>
+        <div class="pipeline-arrow">&rarr;</div>
+        <div class="pipeline-step highlight">
+          <div class="step-label">Native Binary</div>
+        </div>
+      </div>
+      <p class="pipeline-desc">
+        A hand-written C++ parser feeds into type-aware analysis, SSA-based HIR with 8 optimization
+        passes, then LLVM 18 for native code generation. The result links against a custom C++ runtime
+        with mark-sweep GC, ICU strings, and libuv async I/O.
+      </p>
+    </div>
+  </section>
+
+  <!-- Use Cases -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">Best for</h2>
+      <div class="usecases">
+        <div class="usecase">
+          <strong>CLI tools</strong>
+          <span>Fast startup, single binary distribution</span>
+        </div>
+        <div class="usecase">
+          <strong>Serverless functions</strong>
+          <span>Cold start performance matters</span>
+        </div>
+        <div class="usecase">
+          <strong>Microservices</strong>
+          <span>Predictable performance, no JIT variance</span>
+        </div>
+        <div class="usecase">
+          <strong>Build tools</strong>
+          <span>Short-lived processes with TypeScript ergonomics</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Built by Claude -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">Built by Claude</h2>
+      <div class="built-by-ai">
+        <p>
+          ts-aot is written entirely by <a href="https://claude.ai" target="_blank" rel="noopener">Claude</a>,
+          Anthropic's AI assistant. The compiler, runtime, extension system, test suites, and this website
+          were all generated through conversation with a human collaborator.
+        </p>
+        <p>
+          That means ~100,000 lines of C++20, a hand-written recursive descent parser,
+          a custom mark-sweep garbage collector with generational nursery,
+          8 SSA optimization passes, 32 Node.js API modules, and 560+ passing tests --
+          all produced by an AI pair-programming with <a href="https://claude.ai/code" target="_blank" rel="noopener">Claude Code</a>.
+        </p>
+        <p>
+          The project is an experiment in what AI-assisted software engineering can produce today.
+          Every line of code was written by Claude, with human direction on architecture and priorities.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA -->
+  <section class="section cta-section">
+    <div class="container" style="text-align: center;">
+      <h2>Ready to try it?</h2>
+      <p style="color: var(--fg-muted); margin-bottom: 1.5rem;">
+        Compile your first TypeScript program to a native executable.
+      </p>
+      <div class="hero-ctas" style="justify-content: center;">
+        <a href={`${base}docs/`} class="btn btn-primary">Get Started</a>
+        <a href="https://github.com/OffByOneStudios/ts-aot" class="btn btn-secondary" target="_blank" rel="noopener">
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+</BaseLayout>
+
+<style>
+  .section-title {
+    text-align: center;
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+  }
+
+  .section-desc {
+    text-align: center;
+    color: var(--fg-muted);
+    max-width: 560px;
+    margin: 0 auto 2rem;
+  }
+
+  /* Badges */
+  .badges-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+  }
+
+  /* Features */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+
+  /* Benchmarks */
+  .bench-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  .bench-honesty {
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--fg-muted);
+    margin-top: 1rem;
+  }
+
+  /* Pipeline */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 2rem 0;
+    flex-wrap: wrap;
+  }
+
+  .pipeline-step {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .pipeline-step.highlight {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  .pipeline-arrow {
+    color: var(--fg-muted);
+    font-size: 1.25rem;
+  }
+
+  .pipeline-desc {
+    text-align: center;
+    color: var(--fg-muted);
+    font-size: 0.9375rem;
+    max-width: 680px;
+    margin: 0 auto;
+  }
+
+  /* Use Cases */
+  .usecases {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+
+  .usecase {
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .usecase strong {
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  .usecase span {
+    font-size: 0.875rem;
+    color: var(--fg-muted);
+  }
+
+  /* Built by AI */
+  .built-by-ai {
+    max-width: 640px;
+    margin: 1rem auto 0;
+    text-align: center;
+  }
+
+  .built-by-ai p {
+    color: var(--fg-muted);
+    font-size: 0.9375rem;
+    line-height: 1.7;
+  }
+
+  /* CTA */
+  .cta-section {
+    background: var(--bg-secondary);
+  }
+
+  .hero-ctas {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .badges-grid { grid-template-columns: 1fr; }
+    .features-grid { grid-template-columns: 1fr; }
+    .bench-grid { grid-template-columns: 1fr; }
+    .usecases { grid-template-columns: 1fr; }
+    .pipeline { gap: 0.25rem; }
+    .pipeline-arrow { font-size: 1rem; }
+    .pipeline-step { padding: 0.375rem 0.625rem; font-size: 0.75rem; }
+    .hero-ctas { flex-direction: column; align-items: center; }
+  }
+</style>
