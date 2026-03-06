@@ -2708,6 +2708,11 @@ llvm::Value* HIRToLLVM::emitInlineUnboxFloat(llvm::Value* val) {
 // BoxBool: i1 → ptr (NaN-boxed)
 // TRUE = 0x07, FALSE = 0x06
 llvm::Value* HIRToLLVM::emitInlineBoxBool(llvm::Value* val) {
+    // Ensure val is i1 - extension functions may return i32 for booleans
+    if (val->getType() != builder_->getInt1Ty()) {
+        val = builder_->CreateICmpNE(val,
+            llvm::ConstantInt::get(val->getType(), 0), "nb.to_i1");
+    }
     llvm::Value* truePtr = builder_->CreateIntToPtr(
         llvm::ConstantInt::get(builder_->getInt64Ty(), 0x07), builder_->getPtrTy());
     llvm::Value* falsePtr = builder_->CreateIntToPtr(

@@ -25,6 +25,8 @@
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
+#include <set>
+#include <unordered_map>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -279,24 +281,161 @@ int Driver::run() {
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
             }
 
-            // Extension library paths
-            // Note: /OPT:REF already eliminates unreferenced symbols from static libs,
-            // so unconditionally linking all extensions has no binary size impact.
+            // Extension library paths - only add paths for extensions the program imports.
+            // This reduces binary size significantly (e.g., hello world: ~7MB -> ~3.5MB).
             std::filesystem::path extensionsPath = compilerPath / ".." / ".." / ".." / "extensions" / "node";
-            static const std::vector<std::string> extensionPathModules = {
-                "core", "path", "os", "util", "assert", "url", "dns", "dgram",
-                "zlib", "crypto", "events", "stream", "fs", "tty", "net", "vm",
-                "v8", "inspector", "module", "readline", "string_decoder",
-                "perf_hooks", "async_hooks", "http", "http2", "child_process",
-                "cluster", "fetch"
+
+            // Map from normalized module name to {libName, dirName}
+            struct ExtLibInfo { const char* libName; const char* dirName; };
+            static const std::unordered_map<std::string, ExtLibInfo> MODULE_TO_LIB = {
+                {"fs",              {"ts_fs.lib",              "fs"}},
+                {"path",            {"ts_path.lib",            "path"}},
+                {"os",              {"ts_os.lib",              "os"}},
+                {"http",            {"ts_http.lib",            "http"}},
+                {"https",           {"ts_http.lib",            "http"}},
+                {"http2",           {"ts_http2.lib",           "http2"}},
+                {"net",             {"ts_net.lib",             "net"}},
+                {"dns",             {"ts_dns.lib",             "dns"}},
+                {"dgram",           {"ts_dgram.lib",           "dgram"}},
+                {"crypto",          {"ts_crypto.lib",          "crypto"}},
+                {"zlib",            {"ts_zlib.lib",            "zlib"}},
+                {"url",             {"ts_url.lib",             "url"}},
+                {"util",            {"ts_util.lib",            "util"}},
+                {"events",          {"ts_events.lib",          "events"}},
+                {"stream",          {"ts_stream.lib",          "stream"}},
+                {"readline",        {"ts_readline.lib",        "readline"}},
+                {"child_process",   {"ts_child_process.lib",   "child_process"}},
+                {"cluster",         {"ts_cluster.lib",         "cluster"}},
+                {"assert",          {"ts_assert.lib",          "assert"}},
+                {"async_hooks",     {"ts_async_hooks.lib",     "async_hooks"}},
+                {"perf_hooks",      {"ts_perf_hooks.lib",      "perf_hooks"}},
+                {"string_decoder",  {"ts_string_decoder.lib",  "string_decoder"}},
+                {"tty",             {"ts_tty.lib",             "tty"}},
+                {"v8",              {"ts_v8.lib",              "v8"}},
+                {"vm",              {"ts_vm.lib",              "vm"}},
+                {"inspector",       {"ts_inspector.lib",       "inspector"}},
+                {"module",          {"ts_module.lib",          "module"}},
             };
-            for (const auto& mod : extensionPathModules) {
+
+            // Determine which extension libraries to link by scanning the LLVM IR
+            // for external symbol references with known extension prefixes.
+            // This is more reliable than import tracking because the codegen
+            // generates calls to extension functions transitively (e.g., fs
+            // operations that return streams generate ts_stream_* calls).
+            struct SymbolPrefix { const char* prefix; const char* libName; const char* dirName; };
+            static const SymbolPrefix SYMBOL_PREFIXES[] = {
+                {"ts_fs_",              "ts_fs.lib",              "fs"},
+                {"ts_path_",            "ts_path.lib",            "path"},
+                {"ts_os_",              "ts_os.lib",              "os"},
+                {"ts_http2_",           "ts_http2.lib",           "http2"},
+                {"ts_http_",            "ts_http.lib",            "http"},
+                {"ts_https_",           "ts_http.lib",            "http"},
+                {"ts_net_",             "ts_net.lib",             "net"},
+                {"ts_dns_",             "ts_dns.lib",             "dns"},
+                {"ts_dgram_",           "ts_dgram.lib",           "dgram"},
+                {"ts_crypto_",          "ts_crypto.lib",          "crypto"},
+                {"ts_zlib_",            "ts_zlib.lib",            "zlib"},
+                {"ts_url_",             "ts_url.lib",             "url"},
+                {"ts_querystring_",     "ts_url.lib",             "url"},
+                {"ts_util_",            "ts_util.lib",            "util"},
+                {"ts_event_emitter_",   "ts_events.lib",          "events"},
+                {"ts_events_",          "ts_events.lib",          "events"},
+                {"ts_stream_",          "ts_stream.lib",          "stream"},
+                {"ts_readable_",        "ts_stream.lib",          "stream"},
+                {"ts_writable_",        "ts_stream.lib",          "stream"},
+                {"ts_duplex_",          "ts_stream.lib",          "stream"},
+                {"ts_transform_",       "ts_stream.lib",          "stream"},
+                {"ts_readline_",        "ts_readline.lib",        "readline"},
+                {"ts_child_process_",   "ts_child_process.lib",   "child_process"},
+                {"ts_cluster_",         "ts_cluster.lib",         "cluster"},
+                {"ts_assert_",          "ts_assert.lib",          "assert"},
+                {"ts_async_hooks_",     "ts_async_hooks.lib",     "async_hooks"},
+                {"ts_perf_hooks_",      "ts_perf_hooks.lib",      "perf_hooks"},
+                {"ts_performance_",     "ts_perf_hooks.lib",      "perf_hooks"},
+                {"ts_string_decoder_",  "ts_string_decoder.lib",  "string_decoder"},
+                {"ts_tty_",             "ts_tty.lib",             "tty"},
+                {"ts_v8_",              "ts_v8.lib",              "v8"},
+                {"ts_vm_",              "ts_vm.lib",              "vm"},
+                {"ts_inspector_",       "ts_inspector.lib",       "inspector"},
+                {"ts_module_",          "ts_module.lib",          "module"},
+                {"ts_fetch",            "ts_fetch.lib",           "fetch"},
+                {"ts_socket_",          "ts_net.lib",             "net"},
+                {"ts_server_",          "ts_net.lib",             "net"},
+            };
+
+            std::set<std::string> requiredLibs;
+            std::set<std::string> requiredDirs;
+
+            // Always include core (console, buffer, process, querystring, tls, etc.)
+            requiredDirs.insert("core");
+
+            // Scan LLVM module for external function references
+            for (const auto& fn : modulePtr->functions()) {
+                if (fn.isDeclaration()) {
+                    std::string name = fn.getName().str();
+                    for (const auto& sp : SYMBOL_PREFIXES) {
+                        if (name.starts_with(sp.prefix)) {
+                            requiredLibs.insert(sp.libName);
+                            requiredDirs.insert(sp.dirName);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Also include extensions based on analyzer import tracking
+            // (catches cases where extension init functions are needed)
+            for (const auto& mod : analyzer.getUsedBuiltinModules()) {
+                std::string normalized = mod;
+                if (normalized.starts_with("node:")) normalized = normalized.substr(5);
+                auto it = MODULE_TO_LIB.find(normalized);
+                if (it != MODULE_TO_LIB.end()) {
+                    requiredLibs.insert(it->second.libName);
+                    requiredDirs.insert(it->second.dirName);
+                }
+            }
+
+            // Transitive dependencies: extensions that create EventEmitter
+            // objects need ts_events.lib for the runtime .on() property
+            // access to work (ts_builtin_lookup_special("event_emitter_on")).
+            static const std::unordered_map<std::string, std::vector<std::pair<const char*, const char*>>> EXT_DEPS = {
+                {"ts_net.lib",           {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}}},
+                {"ts_http.lib",          {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}, {"ts_net.lib", "net"}, {"ts_fetch.lib", "fetch"}}},
+                {"ts_http2.lib",         {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}, {"ts_net.lib", "net"}}},
+                {"ts_fetch.lib",         {{"ts_url.lib", "url"}}},
+                {"ts_fs.lib",            {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}}},
+                {"ts_child_process.lib", {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}}},
+                {"ts_cluster.lib",       {{"ts_events.lib", "events"}, {"ts_child_process.lib", "child_process"}, {"ts_net.lib", "net"}}},
+                {"ts_dgram.lib",         {{"ts_events.lib", "events"}}},
+                {"ts_readline.lib",      {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}}},
+                {"ts_stream.lib",        {{"ts_events.lib", "events"}}},
+                {"ts_tty.lib",           {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}, {"ts_net.lib", "net"}}},
+            };
+            // Resolve transitive deps (iterate until stable)
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                for (const auto& [lib, deps] : EXT_DEPS) {
+                    if (requiredLibs.count(lib)) {
+                        for (const auto& [depLib, depDir] : deps) {
+                            if (!requiredLibs.count(depLib)) {
+                                requiredLibs.insert(depLib);
+                                requiredDirs.insert(depDir);
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Add library paths only for required extension directories
+            for (const auto& dir : requiredDirs) {
                 if (options.debugRuntime) {
-                    linkOpts.libraryPaths.push_back((extensionsPath / mod / "Debug").string());
-                    linkOpts.libraryPaths.push_back((extensionsPath / mod / "Release").string());
+                    linkOpts.libraryPaths.push_back((extensionsPath / dir / "Debug").string());
+                    linkOpts.libraryPaths.push_back((extensionsPath / dir / "Release").string());
                 } else {
-                    linkOpts.libraryPaths.push_back((extensionsPath / mod / "Release").string());
-                    linkOpts.libraryPaths.push_back((extensionsPath / mod / "Debug").string());
+                    linkOpts.libraryPaths.push_back((extensionsPath / dir / "Release").string());
+                    linkOpts.libraryPaths.push_back((extensionsPath / dir / "Debug").string());
                 }
             }
             
@@ -320,34 +459,23 @@ int Driver::run() {
             linkOpts.libraries.push_back("tsruntime.lib");
             linkOpts.libraries.push_back("nodecore.lib");
 
-            // Extension libraries (all linked unconditionally - /OPT:REF strips unused)
-            linkOpts.libraries.push_back("ts_path.lib");
-            linkOpts.libraries.push_back("ts_os.lib");
-            linkOpts.libraries.push_back("ts_util.lib");
-            linkOpts.libraries.push_back("ts_assert.lib");
-            linkOpts.libraries.push_back("ts_url.lib");
-            linkOpts.libraries.push_back("ts_dns.lib");
-            linkOpts.libraries.push_back("ts_dgram.lib");
-            linkOpts.libraries.push_back("ts_zlib.lib");
-            linkOpts.libraries.push_back("ts_crypto.lib");
-            linkOpts.libraries.push_back("ts_events.lib");
-            linkOpts.libraries.push_back("ts_stream.lib");
-            linkOpts.libraries.push_back("ts_fs.lib");
-            linkOpts.libraries.push_back("ts_tty.lib");
-            linkOpts.libraries.push_back("ts_net.lib");
-            linkOpts.libraries.push_back("ts_vm.lib");
-            linkOpts.libraries.push_back("ts_v8.lib");
-            linkOpts.libraries.push_back("ts_inspector.lib");
-            linkOpts.libraries.push_back("ts_module.lib");
-            linkOpts.libraries.push_back("ts_readline.lib");
-            linkOpts.libraries.push_back("ts_string_decoder.lib");
-            linkOpts.libraries.push_back("ts_perf_hooks.lib");
-            linkOpts.libraries.push_back("ts_async_hooks.lib");
-            linkOpts.libraries.push_back("ts_http.lib");
-            linkOpts.libraries.push_back("ts_http2.lib");
-            linkOpts.libraries.push_back("ts_child_process.lib");
-            linkOpts.libraries.push_back("ts_cluster.lib");
-            linkOpts.libraries.push_back("ts_fetch.lib");
+            // Extensions with static registrars need /WHOLEARCHIVE to ensure
+            // their constructors run (linker won't pull them in otherwise
+            // since nothing directly references the registrar symbols).
+            // /OPT:REF still strips unused functions after loading.
+            static const std::set<std::string> REGISTRAR_LIBS = {
+                "ts_events.lib", "ts_fs.lib", "ts_path.lib",
+                "ts_os.lib", "ts_crypto.lib",
+            };
+
+            // Extension libraries - only link what the program imports
+            for (const auto& lib : requiredLibs) {
+                if (REGISTRAR_LIBS.count(lib)) {
+                    linkOpts.wholeArchiveLibs.push_back(lib);
+                } else {
+                    linkOpts.libraries.push_back(lib);
+                }
+            }
 
             linkOpts.libraries.push_back("tommath.lib");
 

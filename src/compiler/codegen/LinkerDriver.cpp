@@ -53,6 +53,16 @@ bool LinkerDriver::link(const Options& options) {
         args.push_back(lib.c_str());
     }
 
+    // Add whole-archive libraries (force all symbols to be included,
+    // needed for static registrars that don't have external references)
+    std::vector<std::string> wholeArchiveArgs;
+    for (const auto& lib : options.wholeArchiveLibs) {
+        wholeArchiveArgs.push_back("/wholearchive:" + lib);
+    }
+    for (const auto& arg : wholeArchiveArgs) {
+        args.push_back(arg.c_str());
+    }
+
     // Standard Windows libraries that we almost always need
     args.push_back("kernel32.lib");
     args.push_back("user32.lib");

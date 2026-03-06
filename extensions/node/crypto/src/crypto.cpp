@@ -2716,3 +2716,13 @@ void* ts_crypto_hkdfSync(void* digestArg, void* ikmArg, void* saltArg, void* inf
 }
 
 } // extern "C"
+
+// Register crypto functions for create_builtin_module("crypto")
+static struct CryptoRegistrar {
+    CryptoRegistrar() {
+        ts_builtin_register("crypto", "createHash", (void*)ts_crypto_createHash, TS_THUNK_FN);
+        ts_builtin_register("crypto", "randomFillSync", (void*)ts_crypto_randomFillSync, TS_THUNK_FN);
+        ts_builtin_register("crypto", "randomBytes", (void*)ts_crypto_randomBytes, TS_THUNK_FN);
+        ts_builtin_register("crypto", "createHmac", (void*)ts_crypto_createHmac, TS_THUNK_FN);
+    }
+} g_crypto_registrar;

@@ -3484,3 +3484,16 @@ double ts_fs_writevSync(double fd, void* buffers_val, double position) {
 }
 
 } // extern "C"
+
+// Register fs functions for create_builtin_module("fs")
+static struct FsRegistrar {
+    FsRegistrar() {
+        ts_builtin_register("fs", "readFileSync", (void*)ts_fs_readFileSync, TS_THUNK_FN);
+        ts_builtin_register("fs", "existsSync", (void*)ts_fs_existsSync, TS_THUNK_BOOL);
+        ts_builtin_register("fs", "writeFileSync", (void*)ts_fs_writeFileSync, TS_THUNK_VOID);
+        ts_builtin_register("fs", "unlinkSync", (void*)ts_fs_unlinkSync, TS_THUNK_VOID);
+        ts_builtin_register("fs", "mkdirSync", (void*)ts_fs_mkdirSync, TS_THUNK_VOID);
+        ts_builtin_register("fs", "statSync", (void*)ts_fs_statSync, TS_THUNK_FN);
+        ts_builtin_register("fs", "readdirSync", (void*)ts_fs_readdirSync, TS_THUNK_FN);
+    }
+} g_fs_registrar;

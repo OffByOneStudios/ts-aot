@@ -1595,7 +1595,12 @@ TsValue* ts_value_make_int(int64_t i) {
             uint32_t magic16 = *(uint32_t*)((uint8_t*)obj + 16);
             if (magic16 == 0x50524F4D ||  // TsPromise::MAGIC "PROM"
                 magic16 == 0x54584E43 ||  // TsTextEncoder::MAGIC "TXNC"
-                magic16 == 0x54584443) {  // TsTextDecoder::MAGIC "TXDC"
+                magic16 == 0x54584443 ||  // TsTextDecoder::MAGIC "TXDC"
+                magic16 == 0x43524551 ||  // TsClientRequest::MAGIC "CREQ"
+                magic16 == 0x53524553 ||  // TsServerResponse::MAGIC "SRES"
+                magic16 == 0x4F55544D ||  // TsOutgoingMessage::MAGIC "OUTM"
+                magic16 == 0x494E434D ||  // TsIncomingMessage::MAGIC "INCM"
+                magic16 == 0x48535256) {  // TsHttpServer::MAGIC "HSRV"
                 TsObject* tsObj = (TsObject*)obj;
                 TsValue result = tsObj->GetPropertyVirtual(keyStr);
                 if (result.type != ValueType::UNDEFINED) {
@@ -1987,7 +1992,8 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         if (magic8 == 0x45564E54 || magic16 == 0x45564E54) { // TsEventEmitter::MAGIC ("EVNT")
             if (strcmp(keyStr, "on") == 0) {
-                return ts_value_make_function((void*)ts_event_emitter_on, obj);
+                void* fn = ts_builtin_lookup_special("event_emitter_on");
+                if (fn) return ts_value_make_function(fn, obj);
             }
         }
 
@@ -6112,16 +6118,39 @@ TsValue* ts_value_make_int(int64_t i) {
                  nanbox_to_tagged(ts_value_make_string(val)));
     }
 
-    // Forward declarations for extension functions not in TsRuntime.h
-    void* ts_os_homedir();
-    void* ts_os_tmpdir();
-    void* ts_os_platform();
-    void* ts_os_type();
-    void* ts_os_hostname();
-    void* ts_crypto_createHash(void* algorithm);
-    void* ts_crypto_randomFillSync(void* bufferObj, int64_t offset, int64_t size);
-    void* ts_crypto_randomBytes(void* sizeArg);
-    void* ts_crypto_createHmac(void* algorithm, void* key);
+    // ---- Builtin function registry ----
+    // Extensions register their functions here at static init time.
+    // create_builtin_module looks them up instead of hard-referencing symbols,
+    // so extensions that aren't linked don't create unresolved symbol errors.
+    struct BuiltinFnEntry {
+        void* fn_ptr;
+        void* thunk_ptr;
+    };
+
+    // Key: "module\0function" (e.g., "fs\0readFileSync")
+    static std::unordered_map<std::string, BuiltinFnEntry>& getBuiltinRegistry() {
+        static std::unordered_map<std::string, BuiltinFnEntry> registry;
+        return registry;
+    }
+
+    // Key: "module\0property" -> string value (e.g., "path\0sep" -> "\\")
+    static std::unordered_map<std::string, std::string>& getBuiltinStrProps() {
+        static std::unordered_map<std::string, std::string> props;
+        return props;
+    }
+
+    // Key: "event_emitter.on" etc. for special runtime lookups
+    static std::unordered_map<std::string, void*>& getBuiltinSpecialFns() {
+        static std::unordered_map<std::string, void*> fns;
+        return fns;
+    }
+
+    static std::string makeRegistryKey(const char* module, const char* name) {
+        std::string key(module);
+        key += '\0';
+        key += name;
+        return key;
+    }
 
     static TsValue* create_builtin_module(const std::string& name) {
         // Check g_module_cache for a previously created built-in module
@@ -6131,46 +6160,28 @@ TsValue* ts_value_make_int(int64_t i) {
 
         TsMap* mod = TsMap::Create();
 
-        if (name == "fs") {
-            add_builtin_fn(mod, "readFileSync", (void*)&ts_fs_readFileSync, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "existsSync", (void*)&ts_fs_existsSync, (void*)&builtin_bool_thunk);
-            add_builtin_fn(mod, "writeFileSync", (void*)&ts_fs_writeFileSync, (void*)&builtin_void_thunk);
-            add_builtin_fn(mod, "unlinkSync", (void*)&ts_fs_unlinkSync, (void*)&builtin_void_thunk);
-            add_builtin_fn(mod, "mkdirSync", (void*)&ts_fs_mkdirSync, (void*)&builtin_void_thunk);
-            add_builtin_fn(mod, "statSync", (void*)&ts_fs_statSync, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "readdirSync", (void*)&ts_fs_readdirSync, (void*)&builtin_fn_thunk);
-        } else if (name == "path") {
-            add_builtin_fn(mod, "resolve", (void*)&ts_path_resolve, (void*)&builtin_variadic_thunk);
-            add_builtin_fn(mod, "join", (void*)&ts_path_join_variadic, (void*)&builtin_variadic_thunk);
-            add_builtin_fn(mod, "dirname", (void*)&ts_path_dirname, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "basename", (void*)&ts_path_basename, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "extname", (void*)&ts_path_extname, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "normalize", (void*)&ts_path_normalize, (void*)&builtin_fn_thunk);
-#ifdef _WIN32
-            add_builtin_str_prop(mod, "sep", "\\");
-            add_builtin_str_prop(mod, "delimiter", ";");
-#else
-            add_builtin_str_prop(mod, "sep", "/");
-            add_builtin_str_prop(mod, "delimiter", ":");
-#endif
-        } else if (name == "os") {
-            add_builtin_fn(mod, "homedir", (void*)&ts_os_homedir, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "tmpdir", (void*)&ts_os_tmpdir, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "platform", (void*)&ts_os_platform, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "type", (void*)&ts_os_type, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "hostname", (void*)&ts_os_hostname, (void*)&builtin_fn_thunk);
-#ifdef _WIN32
-            add_builtin_str_prop(mod, "EOL", "\r\n");
-#else
-            add_builtin_str_prop(mod, "EOL", "\n");
-#endif
-        } else if (name == "crypto") {
-            add_builtin_fn(mod, "createHash", (void*)&ts_crypto_createHash, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "randomFillSync", (void*)&ts_crypto_randomFillSync, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "randomBytes", (void*)&ts_crypto_randomBytes, (void*)&builtin_fn_thunk);
-            add_builtin_fn(mod, "createHmac", (void*)&ts_crypto_createHmac, (void*)&builtin_fn_thunk);
+        // Look up all registered functions for this module
+        auto& registry = getBuiltinRegistry();
+        std::string prefix = name + '\0';
+        for (auto& [key, entry] : registry) {
+            if (key.size() > prefix.size() &&
+                key.compare(0, prefix.size(), prefix) == 0) {
+                const char* fnName = key.c_str() + prefix.size();
+                add_builtin_fn(mod, fnName, entry.fn_ptr, entry.thunk_ptr);
+            }
         }
-        // Other built-in modules: return empty TsMap (functions not available but won't crash)
+
+        // Look up all registered string properties for this module
+        auto& strProps = getBuiltinStrProps();
+        for (auto& [key, value] : strProps) {
+            if (key.size() > prefix.size() &&
+                key.compare(0, prefix.size(), prefix) == 0) {
+                const char* propName = key.c_str() + prefix.size();
+                add_builtin_str_prop(mod, propName, value.c_str());
+            }
+        }
+
+        // Module not registered at all: return empty TsMap (won't crash)
 
         // Set "default" and "exports" to point back to the module itself.
         // ESM `import crypto from 'crypto'` does a "default" lookup on the module.
@@ -6191,6 +6202,34 @@ TsValue* ts_value_make_int(int64_t i) {
 // Expose create_builtin_module for TsGlobals.cpp module accessors
 TsValue* ts_get_builtin_module(const char* name) {
     return create_builtin_module(std::string(name));
+}
+
+// ---- Public registration API for extensions ----
+void ts_builtin_register(const char* module, const char* name, void* fn_ptr, int thunk_type) {
+    static void* thunks[] = {
+        (void*)builtin_fn_thunk,
+        (void*)builtin_bool_thunk,
+        (void*)builtin_void_thunk,
+        (void*)builtin_variadic_thunk,
+    };
+    void* thunk = (thunk_type >= 0 && thunk_type <= 3) ? thunks[thunk_type] : thunks[0];
+    auto key = makeRegistryKey(module, name);
+    getBuiltinRegistry()[key] = {fn_ptr, thunk};
+}
+
+void ts_builtin_register_str_prop(const char* module, const char* name, const char* value) {
+    auto key = makeRegistryKey(module, name);
+    getBuiltinStrProps()[key] = value;
+}
+
+void ts_builtin_register_special(const char* name, void* fn_ptr) {
+    getBuiltinSpecialFns()[name] = fn_ptr;
+}
+
+void* ts_builtin_lookup_special(const char* name) {
+    auto& fns = getBuiltinSpecialFns();
+    auto it = fns.find(name);
+    return (it != fns.end()) ? it->second : nullptr;
 }
 
     static bool is_builtin_module_name(const std::string& spec) {

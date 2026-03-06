@@ -47,8 +47,13 @@ void Analyzer::visitDynamicImport(ast::DynamicImport* node) {
     // so it gets included in the compilation and its init runs before dynamic import
     if (auto* lit = dynamic_cast<ast::StringLiteral*>(node->moduleSpecifier.get())) {
         auto resolved = resolveModule(lit->value);
-        if (resolved.isValid() && resolved.type != ModuleType::Builtin) {
-            loadModule(lit->value);
+        if (resolved.isValid()) {
+            if (resolved.type == ModuleType::Builtin) {
+                // Track builtin module usage for lazy extension linking
+                usedBuiltinModules.insert(resolved.packageName);
+            } else {
+                loadModule(lit->value);
+            }
         }
     }
 

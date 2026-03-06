@@ -380,6 +380,19 @@ TsValue* ts_new_from_constructor_6(TsValue* constructorFn, TsValue* arg1, TsValu
 TsValue* ts_new_from_constructor_7(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7);
 TsValue* ts_new_from_constructor_8(TsValue* constructorFn, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8);
 
+// --- Builtin extension registry ---
+// Extensions call these at static init time to register functions for
+// create_builtin_module(). This avoids hard symbol references from
+// tsruntime into extension libs, enabling lazy extension linking.
+#define TS_THUNK_FN       0  // Returns TsValue* (generic)
+#define TS_THUNK_BOOL     1  // Returns bool
+#define TS_THUNK_VOID     2  // Returns void
+#define TS_THUNK_VARIADIC 3  // Collects args into TsArray
+void ts_builtin_register(const char* module, const char* name, void* fn_ptr, int thunk_type);
+void ts_builtin_register_str_prop(const char* module, const char* name, const char* value);
+void ts_builtin_register_special(const char* name, void* fn_ptr);
+void* ts_builtin_lookup_special(const char* name);
+
 // --- Modules ---
 void ts_module_register(TsValue* path, TsValue* exports);
 TsValue* ts_module_get(const char* path);

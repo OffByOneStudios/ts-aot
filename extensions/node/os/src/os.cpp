@@ -8,6 +8,7 @@
 #include "TsObject.h"
 #include "TsMap.h"
 #include "TsNanBox.h"
+#include "TsRuntime.h"
 #include "GC.h"
 #include <uv.h>
 #include <cstdlib>
@@ -519,3 +520,19 @@ void* ts_os_get_constants() {
 }
 
 } // extern "C"
+
+// Register os functions for create_builtin_module("os")
+static struct OsRegistrar {
+    OsRegistrar() {
+        ts_builtin_register("os", "homedir", (void*)ts_os_homedir, TS_THUNK_FN);
+        ts_builtin_register("os", "tmpdir", (void*)ts_os_tmpdir, TS_THUNK_FN);
+        ts_builtin_register("os", "platform", (void*)ts_os_platform, TS_THUNK_FN);
+        ts_builtin_register("os", "type", (void*)ts_os_type, TS_THUNK_FN);
+        ts_builtin_register("os", "hostname", (void*)ts_os_hostname, TS_THUNK_FN);
+#ifdef _WIN32
+        ts_builtin_register_str_prop("os", "EOL", "\r\n");
+#else
+        ts_builtin_register_str_prop("os", "EOL", "\n");
+#endif
+    }
+} g_os_registrar;

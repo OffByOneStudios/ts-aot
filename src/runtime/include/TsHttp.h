@@ -88,10 +88,13 @@ public:
     TsArray* GetRawHeaderNames();
     void FlushHeaders();
     
+    // Property access
+    virtual TsValue GetPropertyVirtual(const char* key) override;
+
     // TsWritable implementation (to be overridden by subclasses)
     virtual bool Write(void* data, size_t length) override { return false; }
     virtual void End() override {}
-    
+
 protected:
     TsOutgoingMessage();
 };

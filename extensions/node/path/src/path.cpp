@@ -370,3 +370,22 @@ void* ts_path_to_namespaced_path(void* p_ptr) {
 }
 
 } // extern "C"
+
+// Register path functions for create_builtin_module("path")
+static struct PathRegistrar {
+    PathRegistrar() {
+        ts_builtin_register("path", "resolve", (void*)ts_path_resolve, TS_THUNK_VARIADIC);
+        ts_builtin_register("path", "join", (void*)ts_path_join_variadic, TS_THUNK_VARIADIC);
+        ts_builtin_register("path", "dirname", (void*)ts_path_dirname, TS_THUNK_FN);
+        ts_builtin_register("path", "basename", (void*)ts_path_basename, TS_THUNK_FN);
+        ts_builtin_register("path", "extname", (void*)ts_path_extname, TS_THUNK_FN);
+        ts_builtin_register("path", "normalize", (void*)ts_path_normalize, TS_THUNK_FN);
+#ifdef _WIN32
+        ts_builtin_register_str_prop("path", "sep", "\\");
+        ts_builtin_register_str_prop("path", "delimiter", ";");
+#else
+        ts_builtin_register_str_prop("path", "sep", "/");
+        ts_builtin_register_str_prop("path", "delimiter", ":");
+#endif
+    }
+} g_path_registrar;

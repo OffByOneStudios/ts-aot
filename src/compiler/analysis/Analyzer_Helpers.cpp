@@ -514,6 +514,7 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
     // Handle builtin modules
     if (resolved.type == ModuleType::Builtin) {
         std::string name = resolved.packageName;
+        usedBuiltinModules.insert(name);
         
         if (modules.count(resolved.path)) {
             return modules[resolved.path];

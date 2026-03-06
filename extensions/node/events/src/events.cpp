@@ -353,3 +353,10 @@ extern "C" {
         return (int64_t)e->ListenerCount(s->ToUtf8());
     }
 }
+
+// Register special functions used by tsruntime property access
+static struct EventsRegistrar {
+    EventsRegistrar() {
+        ts_builtin_register_special("event_emitter_on", (void*)ts_event_emitter_on);
+    }
+} g_events_registrar;

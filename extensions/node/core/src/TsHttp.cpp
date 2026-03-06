@@ -90,6 +90,16 @@ TsOutgoingMessage::TsOutgoingMessage() : TsEventEmitter(), TsWritable() {
     headers = (TsMap*)ts_map_create();
 }
 
+TsValue TsOutgoingMessage::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "headersSent") == 0) {
+        TsValue v;
+        v.type = ValueType::BOOLEAN;
+        v.i_val = headersSent ? 1 : 0;
+        return v;
+    }
+    return TsObject::GetPropertyVirtual(key);
+}
+
 void TsOutgoingMessage::SetHeader(TsString* name, TsValue* value) {
     if (!name || !headers) return;
     // Convert name to lowercase for case-insensitive matching
@@ -451,7 +461,7 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
     }
 
     // Listen for "connection" event from base TsServer
-    server->On("connection", ts_value_make_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+    server->On("connection", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
         TsHttpServer* self = (TsHttpServer*)ctx;
         TsValue a0 = nanbox_to_tagged(argv[0]);
         TsSocket* socket = (TsSocket*)a0.ptr_val;
@@ -907,7 +917,7 @@ TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
     }
 
     // Reuse the same "connection" logic as TsHttpServer
-    server->On("connection", ts_value_make_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+    server->On("connection", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
         TsHttpsServer* self = (TsHttpsServer*)ctx;
         TsValue a0 = nanbox_to_tagged(argv[0]);
         TsSocket* socket = (TsSocket*)a0.ptr_val;

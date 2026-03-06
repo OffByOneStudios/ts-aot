@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <map>
+#include <set>
 #include <vector>
 #include <optional>
 #include <variant>
@@ -78,6 +79,10 @@ public:
         }
         return name;
     }
+
+    // Track which builtin (extension-provided) modules are imported
+    std::set<std::string> usedBuiltinModules;
+    const std::set<std::string>& getUsedBuiltinModules() const { return usedBuiltinModules; }
 
     std::map<std::string, std::shared_ptr<Module>> modules;
     std::vector<std::string> moduleOrder;
