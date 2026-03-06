@@ -43,23 +43,16 @@ class InliningPass : public HIRPass {
 public:
     /// Configuration for inlining decisions
     struct Config {
-        /// Maximum instruction count for a function to be inlinable
-        size_t maxInlineSize = 20;
-
-        /// Bonus for functions called only once (added to threshold)
-        size_t singleCallSiteBonus = 10;
-
-        /// Whether to inline lambda/arrow function callbacks
-        bool inlineLambdas = true;
-
-        /// Whether to inline across basic blocks (more complex)
-        bool allowMultiBlock = false;
-
-        /// Maximum inline depth (prevent exponential growth)
-        size_t maxInlineDepth = 3;
+        size_t maxInlineSize;
+        size_t singleCallSiteBonus;
+        bool inlineLambdas;
+        bool allowMultiBlock;
+        size_t maxInlineDepth;
+        Config() : maxInlineSize(20), singleCallSiteBonus(10),
+                   inlineLambdas(true), allowMultiBlock(false), maxInlineDepth(3) {}
     };
 
-    explicit InliningPass(Config config = Config{});
+    explicit InliningPass(Config config = Config());
 
     const char* name() const override { return "Inlining"; }
 

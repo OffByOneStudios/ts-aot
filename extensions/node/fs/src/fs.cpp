@@ -1,3 +1,8 @@
+#ifdef _MSC_VER
+#define TS_NOINLINE __declspec(noinline)
+#else
+#define TS_NOINLINE __attribute__((noinline))
+#endif
 #include "TsObject.h"
 #include "TsEventEmitter.h"
 #include "TsRuntime.h"
@@ -2452,7 +2457,7 @@ static TsValue* watch_promise_wrapper(void* context, TsValue* path, TsValue* opt
     iteratorMap->Set(returnKey, *returnFunc);
 
     // Set up [Symbol.asyncIterator] to return itself
-    TsValue* iterFunc = ts_value_make_function((void*)[](void* ctx) -> TsValue* {
+    TsValue* iterFunc = ts_value_make_function((void*)+[](void* ctx) -> TsValue* {
         return ts_value_make_object(ctx);
     }, iteratorMap);
     TsValue iterKey;
@@ -3027,7 +3032,7 @@ extern "C" TsValue* ts_fs_filehandle_utimes_async(TsValue* handle, double atime,
     return ts_fs_filehandle_utimes(ts_value_get_object(handle), 2, args);
 }
 
-__declspec(noinline) TsValue* ts_fs_filehandle_read(void* context, int argc, TsValue** argv) {
+TS_NOINLINE TsValue* ts_fs_filehandle_read(void* context, int argc, TsValue** argv) {
     TsFileHandle* h = (TsFileHandle*)context;
     if (argc < 1) return ts_value_make_undefined();
     TsBuffer* buffer = (TsBuffer*)ts_value_get_object(argv[0]);
@@ -3050,7 +3055,7 @@ __declspec(noinline) TsValue* ts_fs_filehandle_read(void* context, int argc, TsV
     return ts_value_make_promise(promise);
 }
 
-extern "C" __declspec(noinline) TsValue* ts_fs_filehandle_read_async(TsValue* handle, TsValue* buffer, double offset, double length, double position) {
+extern "C" TS_NOINLINE TsValue* ts_fs_filehandle_read_async(TsValue* handle, TsValue* buffer, double offset, double length, double position) {
     TsValue v_offset(offset);
     TsValue v_length(length);
     TsValue v_position(position);
@@ -3058,7 +3063,7 @@ extern "C" __declspec(noinline) TsValue* ts_fs_filehandle_read_async(TsValue* ha
     return ts_fs_filehandle_read(ts_value_get_object(handle), 4, args);
 }
 
-__declspec(noinline) TsValue* ts_fs_filehandle_write(void* context, int argc, TsValue** argv) {
+TS_NOINLINE TsValue* ts_fs_filehandle_write(void* context, int argc, TsValue** argv) {
     TsFileHandle* h = (TsFileHandle*)context;
     if (argc < 1) return ts_value_make_undefined();
     TsBuffer* buffer = (TsBuffer*)ts_value_get_object(argv[0]);
@@ -3083,7 +3088,7 @@ __declspec(noinline) TsValue* ts_fs_filehandle_write(void* context, int argc, Ts
     return ts_value_make_promise(promise);
 }
 
-extern "C" __declspec(noinline) TsValue* ts_fs_filehandle_write_async(TsValue* handle, TsValue* buffer, double offset, double length, double position) {
+extern "C" TS_NOINLINE TsValue* ts_fs_filehandle_write_async(TsValue* handle, TsValue* buffer, double offset, double length, double position) {
     TsValue v_offset(offset);
     TsValue v_length(length);
     TsValue v_position(position);

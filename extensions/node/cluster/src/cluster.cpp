@@ -135,11 +135,11 @@ void ts_cluster_set_scheduling_policy(int64_t policy) {
 }
 
 int64_t ts_cluster_SCHED_NONE() {
-    return TsCluster::SCHED_NONE;
+    return TsCluster::CLUSTER_SCHED_NONE;
 }
 
 int64_t ts_cluster_SCHED_RR() {
-    return TsCluster::SCHED_RR;
+    return TsCluster::CLUSTER_SCHED_RR;
 }
 
 // Worker C API

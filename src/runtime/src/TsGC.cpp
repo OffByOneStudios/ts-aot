@@ -15,6 +15,7 @@
 #else
 #include <sys/mman.h>
 #include <unistd.h>
+#include <pthread.h>
 #endif
 
 // ============================================================================
@@ -921,17 +922,48 @@ static void __declspec(noinline) gc_push_conservative_stack_roots() {
     }
 }
 #else
-static void gc_push_conservative_stack_roots() {
-    // Get approximate RSP
-    void* rsp;
-    asm volatile("mov %%rsp, %0" : "=r"(rsp));
+// Helper to get stack bounds via pthread on Linux
+static void get_stack_bounds(uintptr_t* out_low, uintptr_t* out_high) {
+    pthread_attr_t attr;
+    void* stack_addr = nullptr;
+    size_t stack_size = 0;
 
-    // Get stack base from /proc/self/maps or pthread
-    // For now, scan 1MB below stack base (conservative estimate)
-    uintptr_t scan_start = ((uintptr_t)rsp + 7) & ~(uintptr_t)7;
-    uintptr_t scan_end = scan_start + 1024 * 1024;
+    if (pthread_getattr_np(pthread_self(), &attr) == 0) {
+        pthread_attr_getstack(&attr, &stack_addr, &stack_size);
+        pthread_attr_destroy(&attr);
+        *out_low = (uintptr_t)stack_addr;
+        *out_high = (uintptr_t)stack_addr + stack_size;
+    } else {
+        // Fallback: estimate from current stack pointer
+        volatile uintptr_t anchor = 0;
+        *out_low = (uintptr_t)&anchor;
+        *out_high = (uintptr_t)&anchor + 1024 * 1024;
+    }
+}
 
-    for (uintptr_t p = scan_start; p + sizeof(void*) <= scan_end; p += sizeof(void*)) {
+static void __attribute__((noinline)) gc_push_conservative_stack_roots() {
+    // Flush callee-saved registers to the stack via setjmp.
+    volatile jmp_buf regs;
+    setjmp((jmp_buf&)regs);
+
+    // Scan the jmp_buf contents as potential roots
+    for (size_t i = 0; i < sizeof(jmp_buf) / sizeof(uintptr_t); i++) {
+        uintptr_t val = ((volatile uintptr_t*)&regs)[i];
+        if (val >= 4096 && val <= 0x00007FFFFFFFFFFF) {
+            gc_mark_ptr((void*)val);
+        }
+    }
+
+    // Get stack bounds via pthread
+    uintptr_t stack_low, stack_high;
+    get_stack_bounds(&stack_low, &stack_high);
+
+    // Use address of our local variable as the lowest scan point.
+    volatile uintptr_t stack_anchor = 0;
+    uintptr_t scan_start = ((uintptr_t)&stack_anchor) & ~(uintptr_t)7;
+
+    // Scan from our stack frame up to stack top
+    for (uintptr_t p = scan_start; p + sizeof(void*) <= stack_high; p += sizeof(void*)) {
         void* candidate = *(void**)p;
         if ((uintptr_t)candidate < 4096) continue;
         if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
@@ -1959,11 +1991,8 @@ static void gc_pin_nursery_stack_roots() {
     NT_TIB* tib = (NT_TIB*)NtCurrentTeb();
     uintptr_t stack_high = (uintptr_t)tib->StackBase;
 #else
-    uintptr_t stack_high = 0;
-    {
-        volatile uintptr_t anchor = 0;
-        stack_high = (uintptr_t)&anchor + 1024 * 1024;
-    }
+    uintptr_t stack_low_unused, stack_high;
+    get_stack_bounds(&stack_low_unused, &stack_high);
 #endif
 
     volatile uintptr_t stack_anchor = 0;
@@ -2290,6 +2319,9 @@ static void gc_minor_collect_internal() {
                 non_gc_skipped++;
                 continue;
             }
+#else
+            // On Linux, skip memory validation for non-GC slots.
+            // gc_find_base() below will validate the pointer is in a live allocation.
 #endif
             // Also verify the slot is in a live GC allocation (not a freed block).
             // gc_find_base returns non-null only for addresses in live allocations.
@@ -2486,8 +2518,8 @@ static void gc_minor_collect_internal() {
         NT_TIB* fix_tib = (NT_TIB*)NtCurrentTeb();
         uintptr_t fix_stack_high = (uintptr_t)fix_tib->StackBase;
 #else
-        uintptr_t fix_stack_high = 0;
-        { volatile uintptr_t a = 0; fix_stack_high = (uintptr_t)&a + 1024*1024; }
+        uintptr_t fix_stack_low_unused, fix_stack_high;
+        get_stack_bounds(&fix_stack_low_unused, &fix_stack_high);
 #endif
         volatile uintptr_t fix_anchor = 0;
         uintptr_t fix_start = ((uintptr_t)&fix_anchor) & ~(uintptr_t)7;

@@ -36,6 +36,8 @@ extern "C" char** _environ;
 #else
 #include <unistd.h>
 #include <sys/resource.h>
+#include <signal.h>
+#include <grp.h>
 extern "C" char** environ;
 #endif
 
@@ -1371,8 +1373,11 @@ static void ts_icu_init(const char* argv0) {
         return;  // ICU data is embedded (--bundle-icu mode). Done.
     }
 
-    // ICU data not embedded - search for external icudt74l.dat
-    const char* datFile = "icudt74l.dat";
+    // ICU data not embedded - search for external icudtXXl.dat
+    // Build filename from ICU version: "icudt74l.dat", "icudt78l.dat", etc.
+    #define ICU_DAT_FILE_INNER(ver) "icudt" #ver "l.dat"
+    #define ICU_DAT_FILE(ver) ICU_DAT_FILE_INNER(ver)
+    const char* datFile = ICU_DAT_FILE(U_ICU_VERSION_MAJOR_NUM);
     std::filesystem::path exePath;
 
     if (argv0 && argv0[0]) {
@@ -1486,6 +1491,27 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
         fflush(stderr);
     }
     SetUnhandledExceptionFilter(ts_unhandled_exception_filter);
+#elif defined(__linux__)
+    // Install signal handlers for crash diagnostics on Linux
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = [](int sig) {
+        const char* signame = (sig == SIGSEGV) ? "SIGSEGV" :
+                              (sig == SIGABRT) ? "SIGABRT" :
+                              (sig == SIGFPE)  ? "SIGFPE"  :
+                              (sig == SIGBUS)  ? "SIGBUS"  : "UNKNOWN";
+        fprintf(stderr, "[ts-aot] Fatal signal: %s (%d)\n", signame, sig);
+        fflush(stderr);
+        // Re-raise to get the default handler (core dump)
+        signal(sig, SIG_DFL);
+        raise(sig);
+    };
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESETHAND;  // One-shot: reset to default after first delivery
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGABRT, &sa, nullptr);
+    sigaction(SIGFPE, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
 #endif
 
     // 0. Record process start time and argv0

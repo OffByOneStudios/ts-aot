@@ -5,7 +5,6 @@
 #include <uv.h>
 #include <iostream>
 #include <cstdio>
-#include <windows.h>
 
 namespace ts {
 
@@ -61,7 +60,7 @@ TsGenerator::TsGenerator(AsyncContext* ctx) : ctx(ctx) {
     TsValue nextFunc = nanbox_to_tagged(ts_value_make_function((void*)Generator_next_internal, this));
     this->Set(TsString::Create("next"), nextFunc);
     
-    TsValue iterFunc = nanbox_to_tagged(ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
+    TsValue iterFunc = nanbox_to_tagged(ts_value_make_function((void*)(TsValue*(*)(void*, TsValue*))[](void* ctx, TsValue* arg) -> TsValue* {
         return ts_value_make_object(ctx);
     }, this));
     this->Set(TsString::Create("[Symbol.iterator]"), iterFunc);
@@ -92,7 +91,7 @@ TsAsyncGenerator::TsAsyncGenerator(AsyncContext* ctx) : ctx(ctx) {
     TsValue nextFunc = nanbox_to_tagged(ts_value_make_function((void*)AsyncGenerator_next_internal, this));
     this->Set(TsString::Create("next"), nextFunc);
     
-    TsValue iterFunc = nanbox_to_tagged(ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
+    TsValue iterFunc = nanbox_to_tagged(ts_value_make_function((void*)(TsValue*(*)(void*, TsValue*))[](void* ctx, TsValue* arg) -> TsValue* {
         return ts_value_make_object(ctx);
     }, this));
     this->Set(TsString::Create("[Symbol.asyncIterator]"), iterFunc);
@@ -507,7 +506,7 @@ TsValue* ts_iterator_get(TsValue* iterable) {
             iterator->Set(idxKey, TsValue((int64_t)0));
 
             // Create the next function that iterates over the array
-            TsValue nextFunc = nanbox_to_tagged(ts_value_make_function((void*)[](void* ctx, TsValue* arg) -> TsValue* {
+            TsValue nextFunc = nanbox_to_tagged(ts_value_make_function((void*)(TsValue*(*)(void*, TsValue*))[](void* ctx, TsValue* arg) -> TsValue* {
                 TsMap* self = (TsMap*)ctx;
                 if (!self) return create_generator_result(TsValue(), true);
 

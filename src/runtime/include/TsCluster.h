@@ -25,9 +25,10 @@
 class TsWorker;
 
 // Scheduling policies
+// Note: SCHED_RR/SCHED_NONE are macros on Linux (<sched.h>), so we prefix with CLUSTER_
 enum class ClusterSchedulingPolicy {
-    SCHED_NONE = 0,  // Let the operating system handle scheduling
-    SCHED_RR = 1     // Round-robin scheduling (default on non-Windows)
+    CLUSTER_SCHED_NONE = 0,  // Let the operating system handle scheduling
+    CLUSTER_SCHED_RR = 1     // Round-robin scheduling (default on non-Windows)
 };
 
 class TsCluster : public TsEventEmitter {
@@ -35,8 +36,8 @@ public:
     static constexpr uint32_t MAGIC = 0x434C5354; // "CLST"
 
     // Scheduling policy constants
-    static constexpr int SCHED_NONE = 0;
-    static constexpr int SCHED_RR = 1;
+    static constexpr int CLUSTER_SCHED_NONE = 0;
+    static constexpr int CLUSTER_SCHED_RR = 1;
 
     // Get the singleton instance
     static TsCluster* GetInstance();

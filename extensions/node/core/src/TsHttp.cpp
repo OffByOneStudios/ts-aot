@@ -503,7 +503,7 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
     }
 
     // Listen for "connection" event from base TsServer
-    server->On("connection", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+    server->On("connection", ts_value_make_native_function((void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
         TsHttpServer* self = (TsHttpServer*)ctx;
         TsValue a0 = nanbox_to_tagged(argv[0]);
         TsSocket* socket = (TsSocket*)a0.ptr_val;
@@ -527,7 +527,7 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
         httpCtx->currentResponse = TsServerResponse::Create(socket);
 
         // Handle client disconnect (set aborted flag)
-        socket->On("close", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        socket->On("close", ts_value_make_native_function((void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             HttpContext* httpCtx = (HttpContext*)ctx;
             if (httpCtx->currentRequest && !httpCtx->currentRequest->complete) {
                 httpCtx->currentRequest->aborted = true;
@@ -535,7 +535,7 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
             return nullptr;
         }, httpCtx));
 
-        socket->On("data", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        socket->On("data", ts_value_make_native_function((void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             HttpContext* httpCtx = (HttpContext*)ctx;
             if (argc > 0) {
                 TsValue a0 = nanbox_to_tagged(argv[0]);
@@ -960,7 +960,7 @@ TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
     }
 
     // Reuse the same "connection" logic as TsHttpServer
-    server->On("connection", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+    server->On("connection", ts_value_make_native_function((void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
         TsHttpsServer* self = (TsHttpsServer*)ctx;
         TsValue a0 = nanbox_to_tagged(argv[0]);
         TsSocket* socket = (TsSocket*)a0.ptr_val;
@@ -984,7 +984,7 @@ TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
         httpCtx->currentResponse = TsServerResponse::Create(socket);
 
         // Handle client disconnect (set aborted flag)
-        socket->On("close", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        socket->On("close", ts_value_make_native_function((void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             HttpContext* httpCtx = (HttpContext*)ctx;
             if (httpCtx->currentRequest && !httpCtx->currentRequest->complete) {
                 httpCtx->currentRequest->aborted = true;
@@ -992,7 +992,7 @@ TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
             return nullptr;
         }, httpCtx));
 
-        socket->On("data", ts_value_make_native_function((void*)[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        socket->On("data", ts_value_make_native_function((void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             HttpContext* httpCtx = (HttpContext*)ctx;
             if (argc > 0) {
                 TsValue a0 = nanbox_to_tagged(argv[0]);
@@ -1346,13 +1346,13 @@ TsWebSocket* TsWebSocket::Create(TsString* url, TsValue* protocols) {
     WsConnectData* data = new WsConnectData{ws, host, path, port, isSecure};
     
     // Connect to server
-    ws->socket->On("connect", (void*)[](void* userData) {
+    ws->socket->On("connect", (void*)+[](void* userData) {
         WsConnectData* d = (WsConnectData*)userData;
         d->ws->PerformHandshake();
         delete d;
     });
     
-    ws->socket->On("data", (void*)[](void* wsPtr, void* dataPtr) {
+    ws->socket->On("data", (void*)+[](void* wsPtr, void* dataPtr) {
         TsWebSocket* self = (TsWebSocket*)wsPtr;
         TsBuffer* buf = (TsBuffer*)dataPtr;
         if (buf) {
@@ -1360,12 +1360,12 @@ TsWebSocket* TsWebSocket::Create(TsString* url, TsValue* protocols) {
         }
     });
     
-    ws->socket->On("close", (void*)[](void* wsPtr) {
+    ws->socket->On("close", (void*)+[](void* wsPtr) {
         TsWebSocket* self = (TsWebSocket*)wsPtr;
         self->HandleClose();
     });
     
-    ws->socket->On("error", (void*)[](void* wsPtr, void* errPtr) {
+    ws->socket->On("error", (void*)+[](void* wsPtr, void* errPtr) {
         TsWebSocket* self = (TsWebSocket*)wsPtr;
         TsString* errStr = (TsString*)errPtr;
         self->HandleError(errStr ? errStr : TsString::Create("Socket error"));

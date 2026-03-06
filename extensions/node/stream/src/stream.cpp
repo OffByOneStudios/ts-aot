@@ -1,3 +1,8 @@
+#ifdef _MSC_VER
+#define TS_NOINLINE __declspec(noinline)
+#else
+#define TS_NOINLINE __attribute__((noinline))
+#endif
 // Stream module extension for ts-aot
 // Contains all extern "C" wrapper functions for stream-related functionality
 // Class implementations remain in the runtime for inheritance support
@@ -434,7 +439,7 @@ bool ts_writable_write(void* writable, void* val) {
     return false;
 }
 
-__declspec(noinline) void ts_writable_end(void* writable, void* dataPtr) {
+TS_NOINLINE void ts_writable_end(void* writable, void* dataPtr) {
     if (!writable) {
         return;
     }

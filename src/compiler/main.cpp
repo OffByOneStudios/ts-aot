@@ -21,6 +21,7 @@ int main(int argc, char** argv) {
     _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
+    (void)argc; // suppress unused warnings on some compilers
 
     // Force-link the ts-aot-gc GC strategy registration
     ts::linkTsAotGC();

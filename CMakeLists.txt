@@ -1,8 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Use static libraries with dynamic CRT (/MD) - no DLLs needed at runtime
+# Use static libraries - set default triplet per platform
 if(NOT DEFINED VCPKG_TARGET_TRIPLET)
-    set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "")
+    if(WIN32)
+        set(VCPKG_TARGET_TRIPLET "x64-windows-static-md" CACHE STRING "")
+    else()
+        set(VCPKG_TARGET_TRIPLET "x64-linux" CACHE STRING "")
+    endif()
 endif()
 
 # Use vcpkg_installed in project root (not build directory)
@@ -26,6 +30,8 @@ if(MSVC)
     set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT ProgramDatabase)
     add_compile_options(/Zi)
     add_link_options(/DEBUG:FULL)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    add_compile_options(-g)
 endif()
 
 # Support static CRT for static builds
@@ -68,12 +74,17 @@ if(CLANG_EXECUTABLE AND LLVM_LINK_EXECUTABLE)
         set(bc_file "${CMAKE_BINARY_DIR}/runtime_bc/${name}.bc")
         list(APPEND RUNTIME_BC_FILES ${bc_file})
         
+        set(BC_COMPILE_DEFS -DTS_RUNTIME_EXPORT)
+        if(WIN32)
+            list(APPEND BC_COMPILE_DEFS -D_CRT_SECURE_NO_WARNINGS -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH)
+        endif()
+
         add_custom_command(
             OUTPUT ${bc_file}
             COMMAND ${CLANG_EXECUTABLE} -c -emit-llvm -O3 -std=c++20 -fstack-protector-strong
-                    -I${RUNTIME_INC_DIR} 
+                    -I${RUNTIME_INC_DIR}
                     -I${CMAKE_CURRENT_SOURCE_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include
-                    -DTS_RUNTIME_EXPORT -D_CRT_SECURE_NO_WARNINGS -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH
+                    ${BC_COMPILE_DEFS}
                     ${src} -o ${bc_file}
             DEPENDS ${src}
             COMMENT "Compiling ${name}.cpp to bitcode"

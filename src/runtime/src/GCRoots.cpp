@@ -201,8 +201,10 @@ void ts_gc_push_precise_stack_roots() {
 
 #ifdef _WIN32
     push_precise_roots_win64();
+#else
+    // Linux: no precise stack walking yet (conservative scanning in TsGC.cpp handles it).
+    // Future: implement using libunwind for frame-by-frame walking.
 #endif
-    // Non-Windows: no precise stack walking yet (conservative scanning handles it)
 }
 
 size_t ts_gc_roots_last_frames_walked() {

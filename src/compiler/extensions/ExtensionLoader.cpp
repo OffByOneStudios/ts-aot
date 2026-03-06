@@ -3,6 +3,9 @@
 #include <spdlog/spdlog.h>
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
+#include <climits>
 #endif
 
 namespace ext {
@@ -347,6 +350,14 @@ void ExtensionRegistry::loadDefaultExtensions() {
 #ifdef _WIN32
     char exeBuf[MAX_PATH];
     if (GetModuleFileNameA(NULL, exeBuf, MAX_PATH)) {
+        auto exeDir = std::filesystem::path(exeBuf).parent_path();
+        searchPaths.push_back((exeDir / "extensions").string());
+    }
+#elif defined(__linux__)
+    char exeBuf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exeBuf, sizeof(exeBuf) - 1);
+    if (len != -1) {
+        exeBuf[len] = '\0';
         auto exeDir = std::filesystem::path(exeBuf).parent_path();
         searchPaths.push_back((exeDir / "extensions").string());
     }

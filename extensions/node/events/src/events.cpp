@@ -334,7 +334,7 @@ extern "C" {
         iteratorMap->Set(returnKey, nanbox_to_tagged(returnFunc));
 
         // Set up [Symbol.asyncIterator] to return itself
-        TsValue* iterFunc = ts_value_make_function((void*)[](void* ctx) -> TsValue* {
+        TsValue* iterFunc = ts_value_make_function((void*)+[](void* ctx) -> TsValue* {
             return ts_value_make_object(ctx);
         }, iteratorMap);
         TsValue iterKey;

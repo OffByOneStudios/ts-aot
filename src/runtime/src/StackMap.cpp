@@ -115,9 +115,79 @@ static SectionInfo find_stackmap_section() {
     return result;
 }
 
+#elif defined(__linux__)
+
+#include <elf.h>
+#include <link.h>
+#include <cstring>
+#include <cstdio>
+#include <vector>
+
+struct SectionInfo {
+    const uint8_t* data;
+    size_t size;
+};
+
+// Read .llvm_stackmaps section from the ELF binary on disk.
+// Section headers are NOT mapped into memory, so we must read the file directly.
+static SectionInfo find_stackmap_section() {
+    static std::vector<uint8_t> stackmap_data;
+    SectionInfo result = { nullptr, 0 };
+
+    // Read the executable from /proc/self/exe
+    FILE* f = fopen("/proc/self/exe", "rb");
+    if (!f) return result;
+
+    // Read ELF header
+    Elf64_Ehdr ehdr;
+    if (fread(&ehdr, sizeof(ehdr), 1, f) != 1) { fclose(f); return result; }
+
+    // Verify ELF magic
+    if (ehdr.e_ident[0] != 0x7f || ehdr.e_ident[1] != 'E' ||
+        ehdr.e_ident[2] != 'L' || ehdr.e_ident[3] != 'F') {
+        fclose(f); return result;
+    }
+
+    if (ehdr.e_shstrndx == SHN_UNDEF || ehdr.e_shnum == 0) {
+        fclose(f); return result;
+    }
+
+    // Read section headers
+    std::vector<Elf64_Shdr> shdrs(ehdr.e_shnum);
+    fseek(f, ehdr.e_shoff, SEEK_SET);
+    if (fread(shdrs.data(), sizeof(Elf64_Shdr), ehdr.e_shnum, f) != ehdr.e_shnum) {
+        fclose(f); return result;
+    }
+
+    // Read section header string table
+    const Elf64_Shdr& strtab_shdr = shdrs[ehdr.e_shstrndx];
+    std::vector<char> strtab(strtab_shdr.sh_size);
+    fseek(f, strtab_shdr.sh_offset, SEEK_SET);
+    if (fread(strtab.data(), 1, strtab_shdr.sh_size, f) != strtab_shdr.sh_size) {
+        fclose(f); return result;
+    }
+
+    // Find .llvm_stackmaps section
+    for (uint16_t i = 0; i < ehdr.e_shnum; i++) {
+        const char* name = strtab.data() + shdrs[i].sh_name;
+        if (strcmp(name, ".llvm_stackmaps") == 0 || strncmp(name, ".llvm_st", 8) == 0) {
+            stackmap_data.resize(shdrs[i].sh_size);
+            fseek(f, shdrs[i].sh_offset, SEEK_SET);
+            if (fread(stackmap_data.data(), 1, shdrs[i].sh_size, f) == shdrs[i].sh_size) {
+                result.data = stackmap_data.data();
+                result.size = shdrs[i].sh_size;
+            }
+            break;
+        }
+    }
+
+    fclose(f);
+    return result;
+}
+
 #else
 
-// Non-Windows: stub (Linux/macOS would use ELF/Mach-O parsing)
+// Other platforms: stub
 static struct { const uint8_t* data; size_t size; } find_stackmap_section() {
     return { nullptr, 0 };
 }
@@ -309,6 +379,9 @@ void ts_stackmap_init() {
     uint64_t imageBase = 0;
 #ifdef _WIN32
     imageBase = (uint64_t)GetModuleHandle(NULL);
+#elif defined(__linux__)
+    extern char __executable_start;
+    imageBase = (uint64_t)&__executable_start;
 #endif
 
     parse_stackmap_section(section.data, section.size, imageBase);

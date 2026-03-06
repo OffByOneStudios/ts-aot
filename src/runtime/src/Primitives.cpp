@@ -14,7 +14,6 @@
 #include <string>
 #include <cstdlib>
 #include <cinttypes>
-#include <windows.h>
 
 static std::map<std::string, std::chrono::steady_clock::time_point> consoleTimers;
 static std::map<std::string, int64_t> consoleCounters;

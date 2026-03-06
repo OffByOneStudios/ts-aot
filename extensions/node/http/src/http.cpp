@@ -577,9 +577,11 @@ void ts_outgoing_message_flush_headers(void* msg) {
 
 // ===== Agent functions =====
 
+} // end extern "C" temporarily for C++ declarations
 // Global agents defined in runtime
 extern TsHttpAgent* globalHttpAgent;
 extern TsHttpsAgent* globalHttpsAgent;
+extern "C" {
 
 void* ts_http_agent_create(TsValue* options) {
     return TsHttpAgent::Create(options);

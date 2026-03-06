@@ -7,6 +7,8 @@
 #ifndef TS_OS_EXT_H
 #define TS_OS_EXT_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -29,9 +31,9 @@ void* ts_os_get_eol();
 void* ts_os_get_devnull();
 
 // Memory functions
-long long ts_os_totalmem();
-long long ts_os_freemem();
-long long ts_os_availableParallelism();
+int64_t ts_os_totalmem();
+int64_t ts_os_freemem();
+int64_t ts_os_availableParallelism();
 
 // Other info functions
 double ts_os_uptime();
@@ -42,8 +44,8 @@ void* ts_os_networkInterfaces();
 void* ts_os_userInfo();
 
 // Priority functions
-long long ts_os_getPriority(long long pid);
-void ts_os_setPriority(long long pid, long long priority);
+int64_t ts_os_getPriority(int64_t pid);
+void ts_os_setPriority(int64_t pid, int64_t priority);
 
 // Constants (objects)
 void* ts_os_get_constants();

@@ -1,4 +1,5 @@
 #include "Driver.h"
+#include <unicode/uvernum.h>
 #include "ast/AstLoader.h"
 #include "parser/Parser.h"
 #include "analysis/Analyzer.h"
@@ -31,9 +32,64 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <unistd.h>
+#include <climits>
 #endif
 
 namespace ts {
+
+// Get the path to the currently running executable
+static std::filesystem::path getExecutablePath() {
+#ifdef _WIN32
+    char buffer[MAX_PATH];
+    GetModuleFileNameA(NULL, buffer, MAX_PATH);
+    return std::filesystem::path(buffer);
+#else
+    char buffer[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    if (len != -1) {
+        buffer[len] = '\0';
+        return std::filesystem::path(buffer);
+    }
+    // Fallback: use argv[0] or empty
+    return std::filesystem::path();
+#endif
+}
+
+// Create a temporary file path
+static std::string createTempFile(const std::string& prefix, const std::string& suffix) {
+#ifdef _WIN32
+    char tempPath[MAX_PATH];
+    char tempFile[MAX_PATH];
+    if (GetTempPathA(MAX_PATH, tempPath)) {
+        if (GetTempFileNameA(tempPath, prefix.c_str(), 0, tempFile)) {
+            return tempFile;
+        }
+    }
+    return "";
+#else
+    std::string tmpl = "/tmp/" + prefix + "XXXXXX" + suffix;
+    // mkstemp modifies the template in place
+    std::vector<char> buf(tmpl.begin(), tmpl.end());
+    buf.push_back('\0');
+    int fd = mkstemps(buf.data(), (int)suffix.size());
+    if (fd >= 0) {
+        close(fd);
+        return std::string(buf.data());
+    }
+    // Fallback without suffix
+    tmpl = "/tmp/" + prefix + "XXXXXX";
+    buf.assign(tmpl.begin(), tmpl.end());
+    buf.push_back('\0');
+    fd = mkstemp(buf.data());
+    if (fd >= 0) {
+        close(fd);
+        return std::string(buf.data());
+    }
+    return "";
+#endif
+}
 
 Driver::Driver(const DriverOptions& opts) : options(opts) {}
 Driver::~Driver() {}
@@ -59,13 +115,10 @@ int Driver::run() {
         if (!useNativeParser) {
             // Legacy path: use Node.js dump_ast.js
             jsonFile = std::filesystem::path(tsFile).replace_extension(".json").string();
-            char tempPath[MAX_PATH];
-            char tempFile[MAX_PATH];
-            if (GetTempPathA(MAX_PATH, tempPath)) {
-                if (GetTempFileNameA(tempPath, "tsaot", 0, tempFile)) {
-                    jsonFile = tempFile;
-                    isTemporaryJson = true;
-                }
+            std::string tempFile = createTempFile("tsaot", ".json");
+            if (!tempFile.empty()) {
+                jsonFile = tempFile;
+                isTemporaryJson = true;
             }
 
             if (options.verbose) {
@@ -215,13 +268,16 @@ int Driver::run() {
         hirToLlvm.setEnableGCStatepoints(options.enableGCStatepoints);
         hirToLlvm.setEmitDebugInfo(options.debug);
 
-        // Embed ICU data path so compiled executables can find icudt74l.dat
+        // Embed ICU data path so compiled executables can find icudtXXl.dat
         // next to the compiler instead of needing a local copy
         if (!options.bundleIcu) {
-            char compBuf[MAX_PATH];
-            GetModuleFileNameA(NULL, compBuf, MAX_PATH);
-            auto datPath = std::filesystem::path(compBuf).parent_path() / "icudt74l.dat";
-            hirToLlvm.setIcuDataPath(datPath.string());
+            auto compilerExe = getExecutablePath();
+            if (!compilerExe.empty()) {
+                // Build version-specific ICU data filename
+                std::string datName = "icudt" + std::to_string(U_ICU_VERSION_MAJOR_NUM) + "l.dat";
+                auto datPath = compilerExe.parent_path() / datName;
+                hirToLlvm.setIcuDataPath(datPath.string());
+            }
         }
 
         hirOwnedModule = hirToLlvm.lower(hirModule.get(), moduleName);
@@ -231,13 +287,20 @@ int Driver::run() {
             modulePtr->print(llvm::outs(), nullptr);
         }
 
+        // Object file extension is platform-specific
+#ifdef _WIN32
+        std::string objExt = ".obj";
+#else
+        std::string objExt = ".o";
+#endif
+
         std::string objFile;
         if (options.compileOnly) {
             objFile = options.outputFile.empty() ?
-                std::filesystem::path(tsFile).replace_extension(".obj").string() :
+                std::filesystem::path(tsFile).replace_extension(objExt).string() :
                 options.outputFile;
         } else {
-            objFile = std::filesystem::path(tsFile).replace_extension(".obj").string();
+            objFile = std::filesystem::path(tsFile).replace_extension(objExt).string();
         }
 
         if (options.verbose) {
@@ -250,8 +313,14 @@ int Driver::run() {
         }
 
         if (!options.compileOnly) {
+            // Default output extension is platform-specific
+#ifdef _WIN32
+            std::string defaultExeExt = ".exe";
+#else
+            std::string defaultExeExt = "";
+#endif
             std::string exeOutput = options.outputFile.empty() ?
-                std::filesystem::path(tsFile).replace_extension(".exe").string() :
+                std::filesystem::path(tsFile).replace_extension(defaultExeExt).string() :
                 options.outputFile;
 
             if (options.verbose) {
@@ -262,16 +331,19 @@ int Driver::run() {
             linkOpts.objectFiles.push_back(objFile);
             linkOpts.debug = options.debug;
             linkOpts.debugRuntime = options.debugRuntime;
-            
+
             // Add compiler directory to library paths
-            // We need to find where the compiler is running from
-            char buffer[MAX_PATH];
-            GetModuleFileNameA(NULL, buffer, MAX_PATH);
-            std::filesystem::path compilerPath = std::filesystem::path(buffer).parent_path();
-            
+            auto compilerExe = getExecutablePath();
+            std::filesystem::path compilerPath;
+            if (!compilerExe.empty()) {
+                compilerPath = compilerExe.parent_path();
+            } else {
+                compilerPath = std::filesystem::current_path();
+            }
+
             linkOpts.libraryPaths.push_back(compilerPath.string());
             linkOpts.libraryPaths.push_back((compilerPath / "lib").string());
-            
+
             // Development paths - order matters! Put the appropriate one first
             if (options.debugRuntime) {
                 SPDLOG_INFO("Using DEBUG runtime library");
@@ -282,86 +354,95 @@ int Driver::run() {
                 linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime" / "Debug").string());
             }
 
+#ifndef _WIN32
+            // On Linux with single-config generators, libs are directly under runtime/
+            linkOpts.libraryPaths.push_back((compilerPath / ".." / "runtime").string());
+            linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "runtime").string());
+#endif
+
             // Extension library paths - only add paths for extensions the program imports.
             // This reduces binary size significantly (e.g., hello world: ~7MB -> ~3.5MB).
+#ifdef _WIN32
+            // Windows multi-config: compiler is at build/src/compiler/Release/ts-aot.exe
             std::filesystem::path extensionsPath = compilerPath / ".." / ".." / ".." / "extensions" / "node";
+#else
+            // Linux single-config: compiler is at build/src/compiler/ts-aot
+            std::filesystem::path extensionsPath = compilerPath / ".." / ".." / "extensions" / "node";
+#endif
 
             // Map from normalized module name to {libName, dirName}
             struct ExtLibInfo { const char* libName; const char* dirName; };
             static const std::unordered_map<std::string, ExtLibInfo> MODULE_TO_LIB = {
-                {"fs",              {"ts_fs.lib",              "fs"}},
-                {"path",            {"ts_path.lib",            "path"}},
-                {"os",              {"ts_os.lib",              "os"}},
-                {"http",            {"ts_http.lib",            "http"}},
-                {"https",           {"ts_http.lib",            "http"}},
-                {"http2",           {"ts_http2.lib",           "http2"}},
-                {"net",             {"ts_net.lib",             "net"}},
-                {"dns",             {"ts_dns.lib",             "dns"}},
-                {"dgram",           {"ts_dgram.lib",           "dgram"}},
-                {"crypto",          {"ts_crypto.lib",          "crypto"}},
-                {"zlib",            {"ts_zlib.lib",            "zlib"}},
-                {"url",             {"ts_url.lib",             "url"}},
-                {"util",            {"ts_util.lib",            "util"}},
-                {"events",          {"ts_events.lib",          "events"}},
-                {"stream",          {"ts_stream.lib",          "stream"}},
-                {"readline",        {"ts_readline.lib",        "readline"}},
-                {"child_process",   {"ts_child_process.lib",   "child_process"}},
-                {"cluster",         {"ts_cluster.lib",         "cluster"}},
-                {"assert",          {"ts_assert.lib",          "assert"}},
-                {"async_hooks",     {"ts_async_hooks.lib",     "async_hooks"}},
-                {"perf_hooks",      {"ts_perf_hooks.lib",      "perf_hooks"}},
-                {"string_decoder",  {"ts_string_decoder.lib",  "string_decoder"}},
-                {"tty",             {"ts_tty.lib",             "tty"}},
-                {"v8",              {"ts_v8.lib",              "v8"}},
-                {"vm",              {"ts_vm.lib",              "vm"}},
-                {"inspector",       {"ts_inspector.lib",       "inspector"}},
-                {"module",          {"ts_module.lib",          "module"}},
+                {"fs",              {"ts_fs",              "fs"}},
+                {"path",            {"ts_path",            "path"}},
+                {"os",              {"ts_os",              "os"}},
+                {"http",            {"ts_http",            "http"}},
+                {"https",           {"ts_http",            "http"}},
+                {"http2",           {"ts_http2",           "http2"}},
+                {"net",             {"ts_net",             "net"}},
+                {"dns",             {"ts_dns",             "dns"}},
+                {"dgram",           {"ts_dgram",           "dgram"}},
+                {"crypto",          {"ts_crypto",          "crypto"}},
+                {"zlib",            {"ts_zlib",            "zlib"}},
+                {"url",             {"ts_url",             "url"}},
+                {"util",            {"ts_util",            "util"}},
+                {"events",          {"ts_events",          "events"}},
+                {"stream",          {"ts_stream",          "stream"}},
+                {"readline",        {"ts_readline",        "readline"}},
+                {"child_process",   {"ts_child_process",   "child_process"}},
+                {"cluster",         {"ts_cluster",         "cluster"}},
+                {"assert",          {"ts_assert",          "assert"}},
+                {"async_hooks",     {"ts_async_hooks",     "async_hooks"}},
+                {"perf_hooks",      {"ts_perf_hooks",      "perf_hooks"}},
+                {"string_decoder",  {"ts_string_decoder",  "string_decoder"}},
+                {"tty",             {"ts_tty",             "tty"}},
+                {"v8",              {"ts_v8",              "v8"}},
+                {"vm",              {"ts_vm",              "vm"}},
+                {"inspector",       {"ts_inspector",       "inspector"}},
+                {"module",          {"ts_module",          "module"}},
             };
 
             // Determine which extension libraries to link by scanning the LLVM IR
             // for external symbol references with known extension prefixes.
-            // This is more reliable than import tracking because the codegen
-            // generates calls to extension functions transitively (e.g., fs
-            // operations that return streams generate ts_stream_* calls).
             struct SymbolPrefix { const char* prefix; const char* libName; const char* dirName; };
             static const SymbolPrefix SYMBOL_PREFIXES[] = {
-                {"ts_fs_",              "ts_fs.lib",              "fs"},
-                {"ts_path_",            "ts_path.lib",            "path"},
-                {"ts_os_",              "ts_os.lib",              "os"},
-                {"ts_http2_",           "ts_http2.lib",           "http2"},
-                {"ts_http_",            "ts_http.lib",            "http"},
-                {"ts_https_",           "ts_http.lib",            "http"},
-                {"ts_net_",             "ts_net.lib",             "net"},
-                {"ts_dns_",             "ts_dns.lib",             "dns"},
-                {"ts_dgram_",           "ts_dgram.lib",           "dgram"},
-                {"ts_crypto_",          "ts_crypto.lib",          "crypto"},
-                {"ts_zlib_",            "ts_zlib.lib",            "zlib"},
-                {"ts_url_",             "ts_url.lib",             "url"},
-                {"ts_querystring_",     "ts_url.lib",             "url"},
-                {"ts_util_",            "ts_util.lib",            "util"},
-                {"ts_event_emitter_",   "ts_events.lib",          "events"},
-                {"ts_events_",          "ts_events.lib",          "events"},
-                {"ts_stream_",          "ts_stream.lib",          "stream"},
-                {"ts_readable_",        "ts_stream.lib",          "stream"},
-                {"ts_writable_",        "ts_stream.lib",          "stream"},
-                {"ts_duplex_",          "ts_stream.lib",          "stream"},
-                {"ts_transform_",       "ts_stream.lib",          "stream"},
-                {"ts_readline_",        "ts_readline.lib",        "readline"},
-                {"ts_child_process_",   "ts_child_process.lib",   "child_process"},
-                {"ts_cluster_",         "ts_cluster.lib",         "cluster"},
-                {"ts_assert_",          "ts_assert.lib",          "assert"},
-                {"ts_async_hooks_",     "ts_async_hooks.lib",     "async_hooks"},
-                {"ts_perf_hooks_",      "ts_perf_hooks.lib",      "perf_hooks"},
-                {"ts_performance_",     "ts_perf_hooks.lib",      "perf_hooks"},
-                {"ts_string_decoder_",  "ts_string_decoder.lib",  "string_decoder"},
-                {"ts_tty_",             "ts_tty.lib",             "tty"},
-                {"ts_v8_",              "ts_v8.lib",              "v8"},
-                {"ts_vm_",              "ts_vm.lib",              "vm"},
-                {"ts_inspector_",       "ts_inspector.lib",       "inspector"},
-                {"ts_module_",          "ts_module.lib",          "module"},
-                {"ts_fetch",            "ts_fetch.lib",           "fetch"},
-                {"ts_socket_",          "ts_net.lib",             "net"},
-                {"ts_server_",          "ts_net.lib",             "net"},
+                {"ts_fs_",              "ts_fs",              "fs"},
+                {"ts_path_",            "ts_path",            "path"},
+                {"ts_os_",              "ts_os",              "os"},
+                {"ts_http2_",           "ts_http2",           "http2"},
+                {"ts_http_",            "ts_http",            "http"},
+                {"ts_https_",           "ts_http",            "http"},
+                {"ts_net_",             "ts_net",             "net"},
+                {"ts_dns_",             "ts_dns",             "dns"},
+                {"ts_dgram_",           "ts_dgram",           "dgram"},
+                {"ts_crypto_",          "ts_crypto",          "crypto"},
+                {"ts_zlib_",            "ts_zlib",            "zlib"},
+                {"ts_url_",             "ts_url",             "url"},
+                {"ts_querystring_",     "ts_url",             "url"},
+                {"ts_util_",            "ts_util",            "util"},
+                {"ts_event_emitter_",   "ts_events",          "events"},
+                {"ts_events_",          "ts_events",          "events"},
+                {"ts_stream_",          "ts_stream",          "stream"},
+                {"ts_readable_",        "ts_stream",          "stream"},
+                {"ts_writable_",        "ts_stream",          "stream"},
+                {"ts_duplex_",          "ts_stream",          "stream"},
+                {"ts_transform_",       "ts_stream",          "stream"},
+                {"ts_readline_",        "ts_readline",        "readline"},
+                {"ts_child_process_",   "ts_child_process",   "child_process"},
+                {"ts_cluster_",         "ts_cluster",         "cluster"},
+                {"ts_assert_",          "ts_assert",          "assert"},
+                {"ts_async_hooks_",     "ts_async_hooks",     "async_hooks"},
+                {"ts_perf_hooks_",      "ts_perf_hooks",      "perf_hooks"},
+                {"ts_performance_",     "ts_perf_hooks",      "perf_hooks"},
+                {"ts_string_decoder_",  "ts_string_decoder",  "string_decoder"},
+                {"ts_tty_",             "ts_tty",             "tty"},
+                {"ts_v8_",              "ts_v8",              "v8"},
+                {"ts_vm_",              "ts_vm",              "vm"},
+                {"ts_inspector_",       "ts_inspector",       "inspector"},
+                {"ts_module_",          "ts_module",          "module"},
+                {"ts_fetch",            "ts_fetch",           "fetch"},
+                {"ts_socket_",          "ts_net",             "net"},
+                {"ts_server_",          "ts_net",             "net"},
             };
 
             std::set<std::string> requiredLibs;
@@ -385,7 +466,6 @@ int Driver::run() {
             }
 
             // Also include extensions based on analyzer import tracking
-            // (catches cases where extension init functions are needed)
             for (const auto& mod : analyzer.getUsedBuiltinModules()) {
                 std::string normalized = mod;
                 if (normalized.starts_with("node:")) normalized = normalized.substr(5);
@@ -396,23 +476,20 @@ int Driver::run() {
                 }
             }
 
-            // Transitive dependencies: extensions that create EventEmitter
-            // objects need ts_events.lib for the runtime .on() property
-            // access to work (ts_builtin_lookup_special("event_emitter_on")).
+            // Transitive dependencies
             static const std::unordered_map<std::string, std::vector<std::pair<const char*, const char*>>> EXT_DEPS = {
-                {"ts_net.lib",           {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}}},
-                {"ts_http.lib",          {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}, {"ts_net.lib", "net"}, {"ts_fetch.lib", "fetch"}}},
-                {"ts_http2.lib",         {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}, {"ts_net.lib", "net"}}},
-                {"ts_fetch.lib",         {{"ts_url.lib", "url"}}},
-                {"ts_fs.lib",            {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}}},
-                {"ts_child_process.lib", {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}}},
-                {"ts_cluster.lib",       {{"ts_events.lib", "events"}, {"ts_child_process.lib", "child_process"}, {"ts_net.lib", "net"}}},
-                {"ts_dgram.lib",         {{"ts_events.lib", "events"}}},
-                {"ts_readline.lib",      {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}}},
-                {"ts_stream.lib",        {{"ts_events.lib", "events"}}},
-                {"ts_tty.lib",           {{"ts_events.lib", "events"}, {"ts_stream.lib", "stream"}, {"ts_net.lib", "net"}}},
+                {"ts_net",           {{"ts_events", "events"}, {"ts_stream", "stream"}}},
+                {"ts_http",          {{"ts_events", "events"}, {"ts_stream", "stream"}, {"ts_net", "net"}, {"ts_fetch", "fetch"}}},
+                {"ts_http2",         {{"ts_events", "events"}, {"ts_stream", "stream"}, {"ts_net", "net"}}},
+                {"ts_fetch",         {{"ts_url", "url"}}},
+                {"ts_fs",            {{"ts_events", "events"}, {"ts_stream", "stream"}}},
+                {"ts_child_process", {{"ts_events", "events"}, {"ts_stream", "stream"}}},
+                {"ts_cluster",       {{"ts_events", "events"}, {"ts_child_process", "child_process"}, {"ts_net", "net"}}},
+                {"ts_dgram",         {{"ts_events", "events"}}},
+                {"ts_readline",      {{"ts_events", "events"}, {"ts_stream", "stream"}}},
+                {"ts_stream",        {{"ts_events", "events"}}},
+                {"ts_tty",           {{"ts_events", "events"}, {"ts_stream", "stream"}, {"ts_net", "net"}}},
             };
-            // Resolve transitive deps (iterate until stable)
             bool changed = true;
             while (changed) {
                 changed = false;
@@ -431,6 +508,7 @@ int Driver::run() {
 
             // Add library paths only for required extension directories
             for (const auto& dir : requiredDirs) {
+#ifdef _WIN32
                 if (options.debugRuntime) {
                     linkOpts.libraryPaths.push_back((extensionsPath / dir / "Debug").string());
                     linkOpts.libraryPaths.push_back((extensionsPath / dir / "Release").string());
@@ -438,12 +516,21 @@ int Driver::run() {
                     linkOpts.libraryPaths.push_back((extensionsPath / dir / "Release").string());
                     linkOpts.libraryPaths.push_back((extensionsPath / dir / "Debug").string());
                 }
+#else
+                linkOpts.libraryPaths.push_back((extensionsPath / dir).string());
+#endif
             }
-            
-            // vcpkg paths (relative to root) - debug vs release
-            // Priority: x64-windows-static-md (static libs, dynamic CRT) > x64-windows-static > x64-windows
+
+            // vcpkg paths
+#ifdef _WIN32
+            // Windows multi-config: 4 levels up from build/src/compiler/Release/
             std::filesystem::path rootPath = compilerPath / ".." / ".." / ".." / "..";
+#else
+            // Linux single-config: 3 levels up from build/src/compiler/
+            std::filesystem::path rootPath = compilerPath / ".." / ".." / "..";
+#endif
             std::filesystem::path vcpkgPath = rootPath / "vcpkg_installed";
+#ifdef _WIN32
             if (options.debugRuntime) {
                 linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows-static-md" / "debug" / "lib").string());
                 linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows-static" / "debug" / "lib").string());
@@ -451,64 +538,92 @@ int Driver::run() {
             linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows-static-md" / "lib").string());
             linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows-static" / "lib").string());
             linkOpts.libraryPaths.push_back((vcpkgPath / "x64-windows" / "lib").string());
+#else
+            if (options.debugRuntime) {
+                linkOpts.libraryPaths.push_back((vcpkgPath / "x64-linux" / "debug" / "lib").string());
+            }
+            linkOpts.libraryPaths.push_back((vcpkgPath / "x64-linux" / "lib").string());
+#endif
 
             for (const auto& path : options.libraryPaths) {
                 linkOpts.libraryPaths.push_back(path);
             }
 
             // Core runtime libraries
+#ifdef _WIN32
             linkOpts.libraries.push_back("tsruntime.lib");
             linkOpts.libraries.push_back("nodecore.lib");
+#else
+            linkOpts.libraries.push_back("-ltsruntime");
+            linkOpts.libraries.push_back("-lnodecore");
+#endif
 
-            // Extensions with static registrars need /WHOLEARCHIVE to ensure
-            // their constructors run (linker won't pull them in otherwise
-            // since nothing directly references the registrar symbols).
-            // /OPT:REF still strips unused functions after loading.
+            // Extensions with static registrars need whole-archive to ensure
+            // their constructors run (linker won't pull them in otherwise).
             static const std::set<std::string> REGISTRAR_LIBS = {
-                "ts_events.lib", "ts_fs.lib", "ts_path.lib",
-                "ts_os.lib", "ts_crypto.lib",
+                "ts_events", "ts_fs", "ts_path",
+                "ts_os", "ts_crypto",
             };
 
             // Extension libraries - only link what the program imports
             for (const auto& lib : requiredLibs) {
+#ifdef _WIN32
+                std::string winLib = lib + ".lib";
                 if (REGISTRAR_LIBS.count(lib)) {
-                    linkOpts.wholeArchiveLibs.push_back(lib);
+                    linkOpts.wholeArchiveLibs.push_back(winLib);
                 } else {
-                    linkOpts.libraries.push_back(lib);
+                    linkOpts.libraries.push_back(winLib);
                 }
+#else
+                linkOpts.libraries.push_back("-l" + lib);
+#endif
             }
 
+            // Third-party libraries
+#ifdef _WIN32
             linkOpts.libraries.push_back("tommath.lib");
+#else
+            linkOpts.libraries.push_back("-ltommath");
+#endif
 
-            // Runtime depends on spdlog/fmt when SPDLOG_COMPILED_LIB is enabled.
             if (options.debugRuntime) {
+#ifdef _WIN32
                 linkOpts.libraries.push_back("spdlogd.lib");
                 linkOpts.libraries.push_back("fmtd.lib");
+#else
+                linkOpts.libraries.push_back("-lspdlogd");
+                linkOpts.libraries.push_back("-lfmtd");
+#endif
             } else {
+#ifdef _WIN32
                 linkOpts.libraries.push_back("spdlog.lib");
                 linkOpts.libraries.push_back("fmt.lib");
+#else
+                linkOpts.libraries.push_back("-lspdlog");
+                linkOpts.libraries.push_back("-lfmt");
+#endif
             }
 
             // vcpkg dependencies
-            linkOpts.libraries.push_back("libuv.lib");        // libuv
-
-            linkOpts.libraries.push_back("icuuc.lib");        // ICU Unicode
-            linkOpts.libraries.push_back("icuin.lib");        // ICU i18n
+#ifdef _WIN32
+            linkOpts.libraries.push_back("libuv.lib");
+            linkOpts.libraries.push_back("icuuc.lib");
+            linkOpts.libraries.push_back("icuin.lib");
             if (options.bundleIcu) {
-                linkOpts.libraries.push_back("icudt.lib");        // Full ICU data (~29MB, self-contained)
+                linkOpts.libraries.push_back("icudt.lib");
             } else {
-                linkOpts.libraries.push_back("icudt_stub.lib");   // Stub (~0KB, loads data from external file)
+                linkOpts.libraries.push_back("icudt_stub.lib");
             }
-            linkOpts.libraries.push_back("libsodium.lib");    // libsodium
-            linkOpts.libraries.push_back("llhttp.lib");       // llhttp
-            linkOpts.libraries.push_back("libssl.lib");       // OpenSSL SSL
-            linkOpts.libraries.push_back("libcrypto.lib");    // OpenSSL Crypto
-            linkOpts.libraries.push_back("cares.lib");        // c-ares DNS
-            linkOpts.libraries.push_back("nghttp2.lib");     // nghttp2 (HTTP/2)
-            linkOpts.libraries.push_back("zlib.lib");         // zlib
-            linkOpts.libraries.push_back("brotlicommon.lib"); // Brotli common
-            linkOpts.libraries.push_back("brotlidec.lib");    // Brotli decoder
-            linkOpts.libraries.push_back("brotlienc.lib");    // Brotli encoder
+            linkOpts.libraries.push_back("libsodium.lib");
+            linkOpts.libraries.push_back("llhttp.lib");
+            linkOpts.libraries.push_back("libssl.lib");
+            linkOpts.libraries.push_back("libcrypto.lib");
+            linkOpts.libraries.push_back("cares.lib");
+            linkOpts.libraries.push_back("nghttp2.lib");
+            linkOpts.libraries.push_back("zlib.lib");
+            linkOpts.libraries.push_back("brotlicommon.lib");
+            linkOpts.libraries.push_back("brotlidec.lib");
+            linkOpts.libraries.push_back("brotlienc.lib");
 
             // Windows system libraries
             linkOpts.libraries.push_back("ws2_32.lib");
@@ -518,6 +633,26 @@ int Driver::run() {
             linkOpts.libraries.push_back("shell32.lib");
             linkOpts.libraries.push_back("crypt32.lib");
             linkOpts.libraries.push_back("bcrypt.lib");
+#else
+            linkOpts.libraries.push_back("-luv");
+            linkOpts.libraries.push_back("-licuuc");
+            linkOpts.libraries.push_back("-licui18n");
+            if (options.bundleIcu) {
+                linkOpts.libraries.push_back("-licudata");
+            } else {
+                linkOpts.libraries.push_back("-licudt_stub");
+            }
+            linkOpts.libraries.push_back("-lsodium");
+            linkOpts.libraries.push_back("-lllhttp");
+            linkOpts.libraries.push_back("-lssl");
+            linkOpts.libraries.push_back("-lcrypto");
+            linkOpts.libraries.push_back("-lcares");
+            linkOpts.libraries.push_back("-lnghttp2");
+            linkOpts.libraries.push_back("-lz");
+            linkOpts.libraries.push_back("-lbrotlicommon");
+            linkOpts.libraries.push_back("-lbrotlidec");
+            linkOpts.libraries.push_back("-lbrotlienc");
+#endif
 
             if (!ts::LinkerDriver::link(linkOpts)) {
                 if (options.verbose) {
@@ -539,7 +674,12 @@ int Driver::run() {
                 if (options.verbose) {
                     SPDLOG_INFO("Running {}...", exeOutput);
                 }
+#ifdef _WIN32
                 std::string runCmd = (std::filesystem::path(".") / exeOutput).string();
+#else
+                // On Linux, use ./ prefix for local executables
+                std::string runCmd = "./" + exeOutput;
+#endif
                 int runResult = std::system(runCmd.c_str());
                 return runResult;
             }
@@ -570,24 +710,24 @@ bool Driver::runNodeParser(const std::string& tsFile, const std::string& jsonFil
     if (options.verbose) {
         SPDLOG_DEBUG("Executing: {}", command);
     }
-    
+
     int result = std::system(command.c_str());
     return result == 0;
 }
 
 std::string Driver::findNodeExecutable() {
-    // Simple check for node in PATH
-    // On Windows, we can use 'where node' or just rely on system() finding it.
-    // But for absolute path, we might want to be more careful.
-    return "node"; 
+    return "node";
 }
 
 std::string Driver::findParserScript() {
-    // 1. Check relative to compiler executable
-    char buffer[MAX_PATH];
-    GetModuleFileNameA(NULL, buffer, MAX_PATH);
-    std::filesystem::path compilerPath = std::filesystem::path(buffer).parent_path();
-    
+    auto compilerExe = getExecutablePath();
+    std::filesystem::path compilerPath;
+    if (!compilerExe.empty()) {
+        compilerPath = compilerExe.parent_path();
+    } else {
+        compilerPath = std::filesystem::current_path();
+    }
+
     std::vector<std::filesystem::path> searchPaths = {
         compilerPath / "scripts" / "dump_ast.js",
         compilerPath / ".." / "scripts" / "dump_ast.js",

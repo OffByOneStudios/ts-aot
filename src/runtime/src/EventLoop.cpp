@@ -107,8 +107,6 @@ extern "C" void ts_process_next_tick(TsValue* callback) {
     }, callback);
 }
 
-#include <windows.h>
-
 static std::vector<std::function<void()>> microtasks;
 
 extern "C" void ts_queue_microtask(void (*callback)(void*), void* data) {
@@ -381,9 +379,10 @@ extern "C" TsValue* ts_timers_promises_setInterval(int64_t delay, TsValue* value
 
     // Set up [Symbol.asyncIterator] to return itself
     // NOTE: For ts_call_0, COMPILED functions expect TsValue* (*)(void*)
-    TsValue* iterFunc = ts_value_make_function((void*)[](void* ctx) -> TsValue* {
+    static auto iterLambda = [](void* ctx) -> TsValue* {
         return ts_value_make_object(ctx);
-    }, iteratorMap);
+    };
+    TsValue* iterFunc = ts_value_make_function((void*)(TsValue*(*)(void*))iterLambda, iteratorMap);
     TsValue iterKey;
     iterKey.type = ValueType::STRING_PTR;
     iterKey.ptr_val = TsString::Create("[Symbol.asyncIterator]");

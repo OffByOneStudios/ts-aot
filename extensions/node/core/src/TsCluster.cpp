@@ -73,7 +73,7 @@ TsCluster::TsCluster()
     , nextWorkerId_(1)
     , worker_(nullptr)
     , settings_(nullptr)
-    , schedulingPolicy_(SCHED_RR)  // Default to round-robin on most platforms
+    , schedulingPolicy_(CLUSTER_SCHED_RR)  // Default to round-robin on most platforms
     , execPath_("")
     , execArgv_("")
 {
@@ -89,7 +89,7 @@ TsCluster::TsCluster()
 
     // On Windows, default to SCHED_NONE (OS handles scheduling)
 #ifdef _WIN32
-    schedulingPolicy_ = SCHED_NONE;
+    schedulingPolicy_ = CLUSTER_SCHED_NONE;
 #endif
 
     // Create workers map (only used in master)

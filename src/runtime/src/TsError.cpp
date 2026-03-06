@@ -12,6 +12,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <dbghelp.h>
+#elif defined(__linux__)
+#include <execinfo.h>
+#include <cxxabi.h>
 #endif
 
 // Helper to build stack trace and create error object
@@ -85,6 +88,44 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
             ss << "0x" << std::hex << address << "\n";
         }
     }
+#elif defined(__linux__)
+    void* stack[64];
+    int frames = backtrace(stack, 63);
+    char** symbols = backtrace_symbols(stack, frames);
+
+    for (int i = 1; i < frames; i++) {
+        ss << "    at ";
+        if (symbols && symbols[i]) {
+            // Try to demangle the symbol name
+            // Format: "binary(mangled_name+0xoffset) [address]"
+            std::string sym(symbols[i]);
+            size_t begin = sym.find('(');
+            size_t end = sym.find('+', begin);
+            if (begin != std::string::npos && end != std::string::npos) {
+                std::string mangled = sym.substr(begin + 1, end - begin - 1);
+                int status = 0;
+                char* demangled = abi::__cxa_demangle(mangled.c_str(), nullptr, nullptr, &status);
+                if (status == 0 && demangled) {
+                    ss << demangled;
+                    free(demangled);
+                } else {
+                    ss << mangled;
+                }
+                // Extract address
+                size_t addr_begin = sym.find('[');
+                size_t addr_end = sym.find(']');
+                if (addr_begin != std::string::npos && addr_end != std::string::npos) {
+                    ss << " (" << sym.substr(addr_begin + 1, addr_end - addr_begin - 1) << ")";
+                }
+            } else {
+                ss << sym;
+            }
+        } else {
+            ss << "0x" << std::hex << (uintptr_t)stack[i];
+        }
+        ss << "\n";
+    }
+    free(symbols);
 #else
     ss << "    at <stack trace not supported on this platform>\n";
 #endif

@@ -6,15 +6,15 @@ find_package(unofficial-sodium CONFIG REQUIRED)
 # Fix broken unofficial-sodium target in some vcpkg versions
 if (TARGET unofficial-sodium::sodium)
     get_target_property(SODIUM_INC unofficial-sodium::sodium INTERFACE_INCLUDE_DIRECTORIES)
-    if (SODIUM_INC STREQUAL "/x64-windows-static/include")
-        set_target_properties(unofficial-sodium::sodium PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../../vcpkg_installed/x64-windows-static/include")
+    if (SODIUM_INC MATCHES "^/${VCPKG_TARGET_TRIPLET}/include$")
+        set_target_properties(unofficial-sodium::sodium PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include")
     endif()
-    
+
     # Ensure IMPORTED_LOCATION is set for static libraries
     get_target_property(SODIUM_LOC unofficial-sodium::sodium IMPORTED_LOCATION_RELEASE)
     if (NOT SODIUM_LOC)
-        find_library(SODIUM_LIB_RELEASE libsodium PATHS "${CMAKE_CURRENT_SOURCE_DIR}/../../vcpkg_installed/x64-windows-static/lib" NO_DEFAULT_PATH)
-        find_library(SODIUM_LIB_DEBUG libsodium PATHS "${CMAKE_CURRENT_SOURCE_DIR}/../../vcpkg_installed/x64-windows-static/debug/lib" NO_DEFAULT_PATH)
+        find_library(SODIUM_LIB_RELEASE NAMES sodium libsodium PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib" NO_DEFAULT_PATH)
+        find_library(SODIUM_LIB_DEBUG NAMES sodium libsodium PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/lib" NO_DEFAULT_PATH)
         if (SODIUM_LIB_RELEASE)
             set_target_properties(unofficial-sodium::sodium PROPERTIES IMPORTED_LOCATION_RELEASE "${SODIUM_LIB_RELEASE}")
         endif()
@@ -87,6 +87,7 @@ add_library(tsruntime STATIC
 # When linked instead of icudt.lib, executables are ~3MB instead of ~32MB.
 # Real ICU data is loaded at runtime from an external icudt74l.dat file.
 add_library(icudt_stub STATIC src/icudt_stub.cpp)
+target_link_libraries(icudt_stub PRIVATE ICU::uc)  # For correct ICU version headers
 
 target_include_directories(tsruntime PUBLIC include)
 
@@ -101,6 +102,8 @@ target_link_libraries(tsruntime PUBLIC
 
 if (WIN32)
     target_link_libraries(tsruntime PUBLIC Dbghelp)
+else()
+    target_link_libraries(tsruntime PUBLIC pthread dl)
 endif()
 
 if (TS_ICU_MODE STREQUAL "FULL")
