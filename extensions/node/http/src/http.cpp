@@ -106,7 +106,8 @@ bool ts_http_server_response_write(void* res, void* data) {
 void ts_http_server_response_end(void* res, void* data) {
     TsServerResponse* r = (TsServerResponse*)unbox_ptr(res);
     if (data) {
-        r->End(*(TsValue*)data);
+        TsValue val = nanbox_to_tagged((TsValue*)data);
+        r->End(val);
     } else {
         r->End();
     }

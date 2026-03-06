@@ -18,11 +18,44 @@ TsTextEncoder* TsTextEncoder::Create() {
     return new (mem) TsTextEncoder();
 }
 
+// Native function wrappers for TextEncoder methods
+static TsValue* TextEncoder_encode_native(void* ctx, int argc, TsValue** argv) {
+    TsTextEncoder* enc = (TsTextEncoder*)ctx;
+    if (!enc || argc < 1 || !argv) return (TsValue*)TsBuffer::Create(0);
+    TsString* str = (TsString*)ts_value_get_string(argv[0]);
+    if (!str) str = (TsString*)argv[0];
+    return (TsValue*)enc->Encode(str);
+}
+
+static TsValue* TextEncoder_encodeInto_native(void* ctx, int argc, TsValue** argv) {
+    TsTextEncoder* enc = (TsTextEncoder*)ctx;
+    if (!enc || argc < 2 || !argv) return ts_value_make_undefined();
+    TsString* src = (TsString*)ts_value_get_string(argv[0]);
+    if (!src) src = (TsString*)argv[0];
+    TsBuffer* dest = (TsBuffer*)ts_value_get_object(argv[1]);
+    if (!dest) dest = (TsBuffer*)argv[1];
+    return (TsValue*)enc->EncodeInto(src, dest);
+}
+
 TsValue TsTextEncoder::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "encoding") == 0) {
         TsValue v;
         v.type = ValueType::STRING_PTR;
         v.ptr_val = encoding;
+        return v;
+    }
+    if (strcmp(key, "encode") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)TextEncoder_encode_native, this, FunctionType::NATIVE, 1);
+        return v;
+    }
+    if (strcmp(key, "encodeInto") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)TextEncoder_encodeInto_native, this, FunctionType::NATIVE, 2);
         return v;
     }
     return TsObject::GetPropertyVirtual(key);
@@ -92,6 +125,16 @@ TsTextDecoder* TsTextDecoder::Create(TsString* label, bool fatal, bool ignoreBOM
     return new (mem) TsTextDecoder(label, fatal, ignoreBOM);
 }
 
+// Native function wrapper for TextDecoder.decode
+static TsValue* TextDecoder_decode_native(void* ctx, int argc, TsValue** argv) {
+    TsTextDecoder* dec = (TsTextDecoder*)ctx;
+    if (!dec) return (TsValue*)TsString::Create("");
+    if (argc < 1 || !argv) return (TsValue*)dec->Decode(nullptr);
+    TsBuffer* buf = (TsBuffer*)ts_value_get_object(argv[0]);
+    if (!buf) buf = (TsBuffer*)argv[0];
+    return (TsValue*)dec->Decode(buf);
+}
+
 TsValue TsTextDecoder::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "encoding") == 0) {
         TsValue v;
@@ -109,6 +152,13 @@ TsValue TsTextDecoder::GetPropertyVirtual(const char* key) {
         TsValue v;
         v.type = ValueType::BOOLEAN;
         v.b_val = ignoreBOM;
+        return v;
+    }
+    if (strcmp(key, "decode") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)TextDecoder_decode_native, this, FunctionType::NATIVE, 1);
         return v;
     }
     return TsObject::GetPropertyVirtual(key);

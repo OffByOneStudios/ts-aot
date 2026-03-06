@@ -72,8 +72,7 @@ static void try_ssl_step(FetchContext* ctx) {
         if (ret <= 0) {
             int err = SSL_get_error(ctx->ssl, ret);
             if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
-                TsValue val = TsValue(TsString::Create("SSL handshake failed"));
-                ts::ts_promise_reject_internal(ctx->promise, &val);
+                ts::ts_promise_reject_internal(ctx->promise, (TsValue*)TsString::Create("SSL handshake failed"));
                 return;
             }
         }
@@ -138,8 +137,7 @@ static int on_message_complete(llhttp_t* parser) {
 
     TsResponse* resp = TsResponse::Create(ctx->response_status, ctx->response_status_text, ctx->response_headers, body_buf);
     resp->vtable = ctx->response_vtable;
-    TsValue val = TsValue(resp);
-    ts::ts_promise_resolve_internal(ctx->promise, &val);
+    ts::ts_promise_resolve_internal(ctx->promise, (TsValue*)resp);
 
     if (!uv_is_closing((uv_handle_t*)&ctx->tcp)) {
         uv_close((uv_handle_t*)&ctx->tcp, nullptr);
@@ -165,8 +163,7 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
         }
     } else if (nread < 0) {
         if (nread != UV_EOF) {
-            TsValue val = TsValue(TsString::Create("Read error"));
-            ts::ts_promise_reject_internal(ctx->promise, &val);
+            ts::ts_promise_reject_internal(ctx->promise, (TsValue*)TsString::Create("Read error"));
         }
         if (!uv_is_closing((uv_handle_t*)stream)) {
             uv_close((uv_handle_t*)stream, nullptr);
@@ -180,8 +177,7 @@ static void on_connect(uv_connect_t* req, int status) {
     FetchContext* ctx = (FetchContext*)req->handle->data;
     free(req);
     if (status < 0) {
-        TsValue val = TsValue(TsString::Create("Connect error"));
-        ts::ts_promise_reject_internal(ctx->promise, &val);
+        ts::ts_promise_reject_internal(ctx->promise, (TsValue*)TsString::Create("Connect error"));
         return;
     }
 
@@ -226,8 +222,7 @@ static void on_connect(uv_connect_t* req, int status) {
 static void on_resolved(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
     FetchContext* ctx = (FetchContext*)req->data;
     if (status < 0) {
-        TsValue val = TsValue(TsString::Create("DNS error"));
-        ts::ts_promise_reject_internal(ctx->promise, &val);
+        ts::ts_promise_reject_internal(ctx->promise, (TsValue*)TsString::Create("DNS error"));
         return;
     }
 
@@ -386,6 +381,7 @@ TsHeaders* TsHeaders::Create() {
 }
 
 TsHeaders::TsHeaders() {
+    this->TsObject::magic = MAGIC;
     map = TsMap::Create();
 }
 
@@ -424,18 +420,22 @@ TsResponse* TsResponse::Create(int status, TsString* statusText, TsHeaders* head
 }
 
 TsResponse::TsResponse(int status, TsString* statusText, TsHeaders* headers, TsBuffer* body)
-    : status(status), statusText(statusText), headers(headers), body(body) {}
+    : status(status), statusText(statusText), headers(headers), body(body) {
+    this->TsObject::magic = MAGIC;
+}
 
-// Wrapper for .text() method called via dynamic dispatch
-static TsValue* Response_text_wrapper(void* context) {
-    TsResponse* resp = (TsResponse*)context;
+// Native function wrapper for .text() method
+static TsValue* Response_text_native(void* ctx, int argc, TsValue** argv) {
+    TsResponse* resp = (TsResponse*)ctx;
+    if (!resp) return ts::ts_promise_resolve(nullptr, ts_value_make_string(TsString::Create("")));
     TsString* str = resp->GetBody()->ToString();
     return ts::ts_promise_resolve(nullptr, ts_value_make_string(str));
 }
 
-// Wrapper for .json() method called via dynamic dispatch
-static TsValue* Response_json_wrapper(void* context) {
-    TsResponse* resp = (TsResponse*)context;
+// Native function wrapper for .json() method
+static TsValue* Response_json_native(void* ctx, int argc, TsValue** argv) {
+    TsResponse* resp = (TsResponse*)ctx;
+    if (!resp) return ts::ts_promise_resolve(nullptr, ts_value_make_undefined());
     TsString* str = resp->GetBody()->ToString();
     void* parsed = ts_json_parse(str);
     return ts::ts_promise_resolve(nullptr, (TsValue*)parsed);
@@ -470,14 +470,14 @@ TsValue TsResponse::GetPropertyVirtual(const char* key) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
         v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
-            (void*)Response_text_wrapper, this, FunctionType::COMPILED, 0);
+            (void*)Response_text_native, this, FunctionType::NATIVE, 0);
         return v;
     }
     if (strcmp(key, "json") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
         v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
-            (void*)Response_json_wrapper, this, FunctionType::COMPILED, 0);
+            (void*)Response_json_native, this, FunctionType::NATIVE, 0);
         return v;
     }
     return TsObject::GetPropertyVirtual(key);

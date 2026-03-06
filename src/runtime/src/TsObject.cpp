@@ -1600,7 +1600,9 @@ TsValue* ts_value_make_int(int64_t i) {
                 magic16 == 0x53524553 ||  // TsServerResponse::MAGIC "SRES"
                 magic16 == 0x4F55544D ||  // TsOutgoingMessage::MAGIC "OUTM"
                 magic16 == 0x494E434D ||  // TsIncomingMessage::MAGIC "INCM"
-                magic16 == 0x48535256) {  // TsHttpServer::MAGIC "HSRV"
+                magic16 == 0x48535256 ||  // TsHttpServer::MAGIC "HSRV"
+                magic16 == 0x52455350 ||  // TsResponse::MAGIC "RESP"
+                magic16 == 0x48454144) {  // TsHeaders::MAGIC "HEAD"
                 TsObject* tsObj = (TsObject*)obj;
                 TsValue result = tsObj->GetPropertyVirtual(keyStr);
                 if (result.type != ValueType::UNDEFINED) {

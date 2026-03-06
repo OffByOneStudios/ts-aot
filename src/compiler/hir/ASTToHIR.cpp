@@ -5240,6 +5240,31 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // TextEncoder() - no arguments
+    if (className == "TextEncoder") {
+        lastValue_ = builder_.createCall("ts_text_encoder_create", {}, HIRType::makeObject());
+        return;
+    }
+
+    // TextDecoder(label?, options?)
+    if (className == "TextDecoder") {
+        std::vector<std::shared_ptr<HIRValue>> decoderArgs;
+        if (!node->arguments.empty()) {
+            decoderArgs.push_back(lowerExpression(node->arguments[0].get()));
+        } else {
+            decoderArgs.push_back(builder_.createConstNull());
+        }
+        // fatal and ignoreBOM default to false
+        auto falseVal = builder_.createConstBool(false);
+        decoderArgs.push_back(falseVal);
+        decoderArgs.push_back(falseVal);
+        if (node->arguments.size() >= 2) {
+            // TODO: extract fatal and ignoreBOM from options object
+        }
+        lastValue_ = builder_.createCall("ts_text_decoder_create", decoderArgs, HIRType::makeObject());
+        return;
+    }
+
     // Lower constructor arguments
     std::vector<std::shared_ptr<HIRValue>> args;
     for (auto& arg : node->arguments) {
