@@ -25,6 +25,25 @@
 #include "TsNanBox.h"
 #include "TsDate.h"
 #include "TsRuntime.h"
+
+// Virtual-inheritance HTTP class dispatch, registered by TsHttp.cpp at startup.
+// Can't include TsHttp.h here (pulls in TsHeaders from separate extension lib).
+// Instead, TsHttp.cpp registers vtable pointers and dispatch callbacks.
+typedef TsValue (*VtableDispatchFn)(void* obj, const char* key);
+struct VtableDispatchEntry {
+    uint64_t vtable;
+    VtableDispatchFn dispatch;
+    bool isEventEmitter;
+};
+static VtableDispatchEntry g_vtable_dispatch[8];
+static int g_vtable_dispatch_count = 0;
+
+extern "C" void ts_register_vtable_dispatch(uint64_t vtable, VtableDispatchFn fn, bool isEventEmitter) {
+    if (g_vtable_dispatch_count < 8) {
+        g_vtable_dispatch[g_vtable_dispatch_count++] = {vtable, fn, isEventEmitter};
+    }
+}
+
 #include "MemoryTracker.h"
 #include <new>
 #include <cstdio>
@@ -1590,7 +1609,13 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Fall back to direct cast for TsObject subclasses that implement GetPropertyVirtual().
         // With NaN boxing, obj is always a raw pointer here (non-pointer values are filtered
-        // by the caller). Check magic at offset 16 for known subclasses.
+        // by the caller).
+        //
+        // Check magic at offset 16 for non-virtual-inheritance classes (direct TsObject subclasses).
+        // For virtual-inheritance classes (TsIncomingMessage, TsServerResponse, etc.), TsObject::magic
+        // is at a large offset (e.g., 176) due to MSVC's virtual base layout. For these, we validate
+        // the C++ vtable pointer and call GetPropertyVirtual via the primary vtable, which correctly
+        // dispatches even for virtual-inheritance classes.
         if (ts_gc_base(obj)) {
             uint32_t magic16 = *(uint32_t*)((uint8_t*)obj + 16);
             if (magic16 == 0x50524F4D ||  // TsPromise::MAGIC "PROM"
@@ -1607,6 +1632,18 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue result = tsObj->GetPropertyVirtual(keyStr);
                 if (result.type != ValueType::UNDEFINED) {
                     return result;
+                }
+            }
+            // Virtual-inheritance classes (stream classes) have TsObject::magic at a large offset
+            // (not offset 16) due to MSVC's virtual base layout. We can't use (TsObject*)obj cast
+            // because it doesn't adjust for virtual inheritance. Instead, match the primary vtable
+            // pointer against known class vtables and cast to the concrete type.
+            uint64_t vtableAddr = *(uint64_t*)obj;
+            for (int i = 0; i < g_vtable_dispatch_count; i++) {
+                if (vtableAddr == g_vtable_dispatch[i].vtable) {
+                    TsValue result = g_vtable_dispatch[i].dispatch(obj, keyStr);
+                    if (result.type != ValueType::UNDEFINED) return result;
+                    break;
                 }
             }
         }
@@ -1992,10 +2029,24 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue val = map->Get(k);
             return nanbox_from_tagged(val);
         }
-        if (magic8 == 0x45564E54 || magic16 == 0x45564E54) { // TsEventEmitter::MAGIC ("EVNT")
-            if (strcmp(keyStr, "on") == 0) {
-                void* fn = ts_builtin_lookup_special("event_emitter_on");
-                if (fn) return ts_value_make_function(fn, obj);
+        {
+            bool isEventEmitter = (magic8 == 0x45564E54 || magic16 == 0x45564E54); // TsEventEmitter::MAGIC ("EVNT")
+            // Virtual-inheritance EventEmitter subclasses have magic at large offset (not 8/16).
+            // Detect them by vtable pointer match against registered dispatch entries.
+            if (!isEventEmitter && ts_gc_base(obj)) {
+                uint64_t vt = *(uint64_t*)obj;
+                for (int i = 0; i < g_vtable_dispatch_count; i++) {
+                    if (vt == g_vtable_dispatch[i].vtable && g_vtable_dispatch[i].isEventEmitter) {
+                        isEventEmitter = true;
+                        break;
+                    }
+                }
+            }
+            if (isEventEmitter) {
+                if (strcmp(keyStr, "on") == 0) {
+                    void* fn = ts_builtin_lookup_special("event_emitter_on");
+                    if (fn) return ts_value_make_function(fn, obj);
+                }
             }
         }
 

@@ -6759,9 +6759,29 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         // was loaded from an alloca, use that alloca as the key. This ensures
         // multiple loads from the same variable share the same cell, while
         // different variables with the same name (e.g., inlined "this") don't.
+        // We also trace through GC pin allocas (gc.pin*) to find the original
+        // source variable, since GC pinning inserts store/reload pairs that
+        // would otherwise create different sourceKeys for the same variable.
         llvm::Value* sourceKey = capturedValue;
         if (auto* loadInst = llvm::dyn_cast<llvm::LoadInst>(capturedValue)) {
             sourceKey = loadInst->getPointerOperand();
+            // Follow through GC pin allocas to find original source
+            if (auto* pinAlloca = llvm::dyn_cast<llvm::AllocaInst>(sourceKey)) {
+                if (pinAlloca->getName().starts_with("gc.pin") ||
+                    pinAlloca->getName().starts_with("gc.reload")) {
+                    for (auto* user : pinAlloca->users()) {
+                        if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(user)) {
+                            if (storeInst->getPointerOperand() == pinAlloca) {
+                                llvm::Value* storedVal = storeInst->getValueOperand();
+                                if (auto* origLoad = llvm::dyn_cast<llvm::LoadInst>(storedVal)) {
+                                    sourceKey = origLoad->getPointerOperand();
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
         auto cellKey = std::make_pair(capVarName, sourceKey);
         llvm::BasicBlock* currentBB = builder_->GetInsertBlock();

@@ -127,7 +127,7 @@
   "http/client_request_properties.ts": "pass",
   "http/client_request_socket.ts": "pass",
   "http/fetch_basic.js": "pass",
-  "http/fetch_basic.ts": "fail",
+  "http/fetch_basic.ts": "pass",
   "http/http_add_trailers.ts": "pass",
   "http/http_client.ts": "pass",
   "http/http_constants.ts": "pass",

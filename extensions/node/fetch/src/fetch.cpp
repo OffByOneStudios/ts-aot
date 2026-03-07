@@ -12,9 +12,14 @@
 #include "TsURL.h"
 #include "TsBuffer.h"
 #include "TsArray.h"
+#include "TsFlatObject.h"
 #include <vector>
 #include <string>
+#include <set>
 #include <new>
+
+struct FetchContext;
+static std::set<FetchContext*> g_active_fetches;
 
 struct FetchContext {
     ts::TsPromise* promise;
@@ -100,6 +105,11 @@ static void try_ssl_step(FetchContext* ctx) {
     }
 }
 
+static void on_fetch_close(uv_handle_t* handle) {
+    FetchContext* ctx = (FetchContext*)handle->data;
+    g_active_fetches.erase(ctx);
+}
+
 // llhttp callbacks
 static int on_status(llhttp_t* parser, const char* at, size_t length) {
     FetchContext* ctx = (FetchContext*)parser->data;
@@ -140,7 +150,7 @@ static int on_message_complete(llhttp_t* parser) {
     ts::ts_promise_resolve_internal(ctx->promise, (TsValue*)resp);
 
     if (!uv_is_closing((uv_handle_t*)&ctx->tcp)) {
-        uv_close((uv_handle_t*)&ctx->tcp, nullptr);
+        uv_close((uv_handle_t*)&ctx->tcp, on_fetch_close);
     }
 
     return 0;
@@ -162,11 +172,14 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
             (void)err;
         }
     } else if (nread < 0) {
-        if (nread != UV_EOF) {
-            ts::ts_promise_reject_internal(ctx->promise, (TsValue*)TsString::Create("Read error"));
+        if (!ctx->done) {
+            ctx->done = true;
+            if (nread != UV_EOF) {
+                ts::ts_promise_reject_internal(ctx->promise, (TsValue*)TsString::Create("Read error"));
+            }
         }
         if (!uv_is_closing((uv_handle_t*)stream)) {
-            uv_close((uv_handle_t*)stream, nullptr);
+            uv_close((uv_handle_t*)stream, on_fetch_close);
         }
     }
 
@@ -243,6 +256,7 @@ void* ts_fetch(void* url_val, void* options_val) {
     ts::TsPromise* promise = ts::ts_promise_create();
 
     FetchContext* ctx = new(ts_alloc(sizeof(FetchContext))) FetchContext(promise, url, nullptr);
+    g_active_fetches.insert(ctx);
     ctx->is_https = std::string(url->GetProtocol()->ToUtf8()) == "https:";
     ctx->response_headers = TsHeaders::Create();
 
@@ -254,7 +268,12 @@ void* ts_fetch(void* url_val, void* options_val) {
     if (options_val) {
         TsValue optDec = nanbox_to_tagged((TsValue*)options_val);
         if (optDec.type == ValueType::OBJECT_PTR) {
-            TsMap* opt_map = (TsMap*)optDec.ptr_val;
+            void* opt_ptr = optDec.ptr_val;
+            // Handle flat objects (object literals compiled with inline slots)
+            if (is_flat_object(opt_ptr)) {
+                opt_ptr = ts_flat_object_to_map(opt_ptr);
+            }
+            TsMap* opt_map = (TsMap*)opt_ptr;
 
             // Method
             TsValue m_val = opt_map->Get(TsString::Create("method"));
@@ -271,12 +290,17 @@ void* ts_fetch(void* url_val, void* options_val) {
             // Headers
             TsValue h_val = opt_map->Get(TsString::Create("headers"));
             if (h_val.type == ValueType::OBJECT_PTR) {
-                uint32_t magic = *(uint32_t*)h_val.ptr_val;
+                void* h_ptr = h_val.ptr_val;
+                // Handle flat objects for headers
+                if (is_flat_object(h_ptr)) {
+                    h_ptr = ts_flat_object_to_map(h_ptr);
+                }
+                uint32_t magic = *(uint32_t*)h_ptr;
                 TsMap* h_map = nullptr;
                 if (magic == TsHeaders::MAGIC) {
-                    h_map = ((TsHeaders*)h_val.ptr_val)->GetMap();
+                    h_map = ((TsHeaders*)h_ptr)->GetMap();
                 } else if (magic == TsMap::MAGIC) {
-                    h_map = (TsMap*)h_val.ptr_val;
+                    h_map = (TsMap*)h_ptr;
                 }
 
                 if (h_map) {

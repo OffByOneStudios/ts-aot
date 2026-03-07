@@ -19,6 +19,18 @@
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 
+// Register vtable dispatch callbacks with TsObject.cpp for virtual-inheritance classes
+typedef TsValue (*VtableDispatchFn)(void* obj, const char* key);
+extern "C" void ts_register_vtable_dispatch(uint64_t vtable, VtableDispatchFn fn, bool isEventEmitter);
+
+static TsValue dispatch_incoming_message(void* obj, const char* key) {
+    return ((TsIncomingMessage*)obj)->GetPropertyVirtual(key);
+}
+
+static TsValue dispatch_server_response(void* obj, const char* key) {
+    return ((TsServerResponse*)obj)->GetPropertyVirtual(key);
+}
+
 struct HttpContext {
     TsHttpServer* server;
     TsSocket* socket;
@@ -37,6 +49,8 @@ struct HttpContext {
 };
 
 // TsIncomingMessage
+uint64_t TsIncomingMessage::s_vtable = 0;
+
 TsIncomingMessage::TsIncomingMessage() : TsEventEmitter(), TsReadable(), method(nullptr), url(nullptr) {
     this->magic = MAGIC;
     headers = TsHeaders::Create();
@@ -45,7 +59,12 @@ TsIncomingMessage::TsIncomingMessage() : TsEventEmitter(), TsReadable(), method(
 
 TsIncomingMessage* TsIncomingMessage::Create() {
     void* mem = ts_alloc(sizeof(TsIncomingMessage));
-    return new (mem) TsIncomingMessage();
+    TsIncomingMessage* obj = new (mem) TsIncomingMessage();
+    if (s_vtable == 0) {
+        s_vtable = *(uint64_t*)obj;
+        ts_register_vtable_dispatch(s_vtable, dispatch_incoming_message, true);
+    }
+    return obj;
 }
 
 TsValue TsIncomingMessage::GetPropertyVirtual(const char* key) {
@@ -218,9 +237,16 @@ TsServerResponse::TsServerResponse(TsSocket* socket) : TsOutgoingMessage(), sock
     this->magic = MAGIC;
 }
 
+uint64_t TsServerResponse::s_vtable = 0;
+
 TsServerResponse* TsServerResponse::Create(TsSocket* socket) {
     void* mem = ts_alloc(sizeof(TsServerResponse));
-    return new (mem) TsServerResponse(socket);
+    TsServerResponse* obj = new (mem) TsServerResponse(socket);
+    if (s_vtable == 0) {
+        s_vtable = *(uint64_t*)obj;
+        ts_register_vtable_dispatch(s_vtable, dispatch_server_response, true);
+    }
+    return obj;
 }
 
 void TsServerResponse::OnTimeout(uv_timer_t* handle) {
@@ -403,6 +429,25 @@ static int on_headers_complete(llhttp_t* parser) {
     char versionBuf[8];
     snprintf(versionBuf, sizeof(versionBuf), "%d.%d", parser->http_major, parser->http_minor);
     ctx->currentRequest->httpVersion = TsString::Create(versionBuf);
+
+    // Emit "request" event now so the handler can attach 'data'/'end' listeners
+    // before body data arrives (matches Node.js behavior)
+    TsValue* reqVal = ts_value_make_object(ctx->currentRequest);
+    TsValue* resVal = ts_value_make_object(ctx->currentResponse);
+    TsValue* args[] = { reqVal, resVal };
+    ctx->server->Emit("request", 2, (void**)args);
+    return 0;
+}
+
+static int on_body(llhttp_t* parser, const char* at, size_t length) {
+    HttpContext* ctx = (HttpContext*)parser->data;
+    if (!ctx || !ctx->currentRequest) return 0;
+    // Emit 'data' event on IncomingMessage with body chunk as string
+    // (Node.js HTTP IncomingMessage emits strings by default with 'utf8' encoding)
+    TsString* str = TsString::Create(std::string(at, length).c_str());
+    TsValue* strVal = ts_value_make_string(str);
+    TsEventEmitter* ee = ctx->currentRequest->AsEventEmitter();
+    if (ee) ee->Emit("data", 1, (void**)&strVal);
     return 0;
 }
 
@@ -413,13 +458,10 @@ static int on_message_complete(llhttp_t* parser) {
     // Mark the message as complete
     if (ctx->currentRequest) {
         ctx->currentRequest->complete = true;
+        // Emit 'end' event on IncomingMessage
+        TsEventEmitter* ee = ctx->currentRequest->AsEventEmitter();
+        if (ee) ee->Emit("end", 0, nullptr);
     }
-
-    TsValue* reqVal = ts_value_make_object(ctx->currentRequest);
-    TsValue* resVal = ts_value_make_object(ctx->currentResponse);
-    TsValue* args[] = { reqVal, resVal };
-
-    ctx->server->Emit("request", 2, (void**)args);
     return 0;
 }
 
@@ -474,6 +516,7 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
         httpCtx->settings.on_header_field = on_header_field;
         httpCtx->settings.on_header_value = on_header_value;
         httpCtx->settings.on_headers_complete = on_headers_complete;
+        httpCtx->settings.on_body = on_body;
         httpCtx->settings.on_message_complete = on_message_complete;
 
         llhttp_init(&httpCtx->parser, HTTP_REQUEST, &httpCtx->settings);
@@ -930,6 +973,7 @@ TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
         httpCtx->settings.on_header_field = on_header_field;
         httpCtx->settings.on_header_value = on_header_value;
         httpCtx->settings.on_headers_complete = on_headers_complete;
+        httpCtx->settings.on_body = on_body;
         httpCtx->settings.on_message_complete = on_message_complete;
 
         llhttp_init(&httpCtx->parser, HTTP_REQUEST, &httpCtx->settings);

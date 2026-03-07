@@ -39,6 +39,7 @@ class TsSocket;
 class TsIncomingMessage : public TsReadable {
 public:
     static constexpr uint32_t MAGIC = 0x494E434D; // "INCM"
+    static uint64_t s_vtable;  // Primary vtable pointer for type identification
     static TsIncomingMessage* Create();
 
     TsString* method;
@@ -102,6 +103,7 @@ protected:
 class TsServerResponse : public TsOutgoingMessage {
 public:
     static constexpr uint32_t MAGIC = 0x53524553; // "SRES"
+    static uint64_t s_vtable;  // Primary vtable pointer for type identification
     static TsServerResponse* Create(TsSocket* socket);
 
     void WriteHead(int status, TsObject* headers);
