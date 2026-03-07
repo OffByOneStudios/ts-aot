@@ -62,6 +62,10 @@ class NodeTestRunner:
         self.test_pattern = test_pattern
         self.verbose = verbose
 
+        # Set ICU_DATA so compiled executables can find ICU data files
+        self.test_env = os.environ.copy()
+        self.test_env['ICU_DATA'] = str(self.compiler_path.parent)
+
         self.total_tests = 0
         self.passed_tests = 0
         self.failed_tests = 0
@@ -111,7 +115,8 @@ class NodeTestRunner:
                 capture_output=True,
                 timeout=30,
                 encoding='utf-8',
-                errors='replace'
+                errors='replace',
+                env=self.test_env
             )
 
             if result.returncode != 0:
@@ -131,7 +136,8 @@ class NodeTestRunner:
                 capture_output=True,
                 timeout=10,
                 encoding='utf-8',
-                errors='replace'
+                errors='replace',
+                env=self.test_env
             )
 
             return result.returncode, result.stdout or "", result.stderr or ""

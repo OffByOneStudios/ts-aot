@@ -169,6 +169,10 @@ class GoldenIRRunner:
         self.test_path = test_path
         self.show_details = show_details
 
+        # Set ICU_DATA so compiled executables can find ICU data files
+        self.test_env = os.environ.copy()
+        self.test_env['ICU_DATA'] = str(self.compiler_path.parent)
+
         self.total_tests = 0
         self.passed_tests = 0
         self.failed_tests = 0
@@ -335,7 +339,8 @@ class GoldenIRRunner:
                     capture_output=True,
                     text=True,
                     encoding='utf-8',
-                    errors='replace'
+                    errors='replace',
+                    env=self.test_env
                 )
 
                 raw_hir_output = result.stdout + result.stderr
@@ -371,7 +376,8 @@ class GoldenIRRunner:
                         capture_output=True,
                         text=True,
                         encoding='utf-8',
-                        errors='replace'
+                        errors='replace',
+                        env=self.test_env
                     )
 
                     ir_output = result.stdout + result.stderr
@@ -401,7 +407,8 @@ class GoldenIRRunner:
                         capture_output=True,
                         text=True,
                         encoding='utf-8',
-                        errors='replace'
+                        errors='replace',
+                        env=self.test_env
                     )
 
                     runtime_output = result.stdout
