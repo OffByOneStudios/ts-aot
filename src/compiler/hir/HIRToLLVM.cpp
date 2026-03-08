@@ -11,8 +11,11 @@
 #include <llvm/IR/Intrinsics.h>
 
 #include <spdlog/spdlog.h>
+#include <llvm/BinaryFormat/Dwarf.h>
+
 #include <stdexcept>
 #include <unordered_set>
+#include <filesystem>
 
 namespace ts::hir {
 
@@ -107,6 +110,29 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
     hirModule_ = hirModule;
     module_ = std::make_unique<llvm::Module>(moduleName, context_);
 
+    // Initialize debug info if enabled
+    if (emitDebugInfo_) {
+        diBuilder_ = std::make_unique<llvm::DIBuilder>(*module_);
+        diFile_ = getOrCreateDIFile(hirModule->sourcePath);
+        diCompileUnit_ = diBuilder_->createCompileUnit(
+            llvm::dwarf::DW_LANG_C_plus_plus,
+            diFile_,
+            "ts-aot",       // Producer
+            false,           // isOptimized
+            "",              // Flags
+            0                // Runtime version
+        );
+        module_->addModuleFlag(llvm::Module::Warning, "Debug Info Version",
+                               llvm::DEBUG_METADATA_VERSION);
+#ifdef _WIN32
+        // Windows: CodeView format for VS/WinDbg
+        module_->addModuleFlag(llvm::Module::Warning, "CodeView", 1);
+#else
+        // Linux/Mac: DWARF format for GDB/LLDB
+        module_->addModuleFlag(llvm::Module::Warning, "Dwarf Version", 4);
+#endif
+    }
+
     // Initialize TsValue type
     initTsValueType();
 
@@ -197,6 +223,11 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
 
     // Create main entry point
     createMainFunction();
+
+    // Finalize debug info
+    if (diBuilder_) {
+        diBuilder_->finalize();
+    }
 
     return std::move(module_);
 }
@@ -563,6 +594,25 @@ void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
     );
     if (enableGCStatepoints_) {
         func->setGC("ts-aot-gc");
+    }
+
+    // Attach debug info (DISubprogram) to function
+    if (diBuilder_ && fn->sourceLine > 0) {
+        llvm::DIFile* fnFile = fn->sourceFile.empty() ? diFile_ :
+                               getOrCreateDIFile(fn->sourceFile);
+        llvm::DISubroutineType* fnDebugType = createFunctionDebugType(fn);
+        llvm::DISubprogram* sp = diBuilder_->createFunction(
+            fnFile,
+            fn->displayName.empty() ? fn->name : fn->displayName,
+            fn->mangledName,
+            fnFile,
+            fn->sourceLine,
+            fnDebugType,
+            fn->sourceLine,
+            llvm::DINode::FlagPrototyped,
+            llvm::DISubprogram::SPFlagDefinition
+        );
+        func->setSubprogram(sp);
     }
 
     // Set param names immediately so getOrCreateTrampoline can detect closure
@@ -1127,6 +1177,14 @@ void HIRToLLVM::lowerBlock(HIRBlock* block) {
 }
 
 void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
+    // Set debug location for this instruction
+    if (emitDebugInfo_ && inst->sourceLocation > 0 && currentFunction_) {
+        if (auto* sp = currentFunction_->getSubprogram()) {
+            builder_->SetCurrentDebugLocation(
+                llvm::DILocation::get(context_, inst->sourceLocation, 0, sp));
+        }
+    }
+
     switch (inst->opcode) {
         // Constants
         case HIROpcode::ConstInt:       lowerConstInt(inst); break;
@@ -8581,6 +8639,36 @@ llvm::Value* HIRToLLVM::emitDynamicMethodCall(llvm::Value* funcVal, llvm::Value*
 
     llvm::FunctionCallee callFn = module_->getOrInsertFunction(fnName, callFt);
     return builder_->CreateCall(callFt, callFn.getCallee(), callArgs);
+}
+
+//==============================================================================
+// Debug Info Helpers
+//==============================================================================
+
+llvm::DIFile* HIRToLLVM::getOrCreateDIFile(const std::string& path) {
+    if (path.empty()) {
+        if (diFile_) return diFile_;
+        // Fallback: create a placeholder file
+        diFile_ = diBuilder_->createFile("<unknown>", ".");
+        return diFile_;
+    }
+    auto it = diFiles_.find(path);
+    if (it != diFiles_.end()) return it->second;
+
+    std::filesystem::path p(path);
+    auto* file = diBuilder_->createFile(p.filename().string(), p.parent_path().string());
+    diFiles_[path] = file;
+    return file;
+}
+
+llvm::DISubroutineType* HIRToLLVM::createFunctionDebugType(HIRFunction* fn) {
+    // All params as unspecified type (sufficient for line mapping)
+    llvm::SmallVector<llvm::Metadata*, 8> types;
+    types.push_back(nullptr);  // Return type
+    for (size_t i = 0; i < fn->params.size(); ++i) {
+        types.push_back(nullptr);  // Parameter types
+    }
+    return diBuilder_->createSubroutineType(diBuilder_->getOrCreateTypeArray(types));
 }
 
 } // namespace ts::hir

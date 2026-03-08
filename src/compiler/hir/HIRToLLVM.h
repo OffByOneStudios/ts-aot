@@ -11,6 +11,8 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Intrinsics.h>
+#include <llvm/IR/DIBuilder.h>
+#include <llvm/IR/DebugInfoMetadata.h>
 
 #include <memory>
 #include <map>
@@ -65,6 +67,10 @@ public:
     // attribute, and calls get "deopt" operand bundles for RS4GC pass.
     void setEnableGCStatepoints(bool enable) { enableGCStatepoints_ = enable; }
 
+    // Enable debug info emission (CodeView on Windows, DWARF on Linux/Mac).
+    // When enabled, source file/line metadata is attached to LLVM IR instructions.
+    void setEmitDebugInfo(bool enable) { emitDebugInfo_ = enable; }
+
     //==========================================================================
     // Handler Accessors - Used by BuiltinHandler implementations
     //==========================================================================
@@ -91,6 +97,16 @@ private:
 
     // GC statepoint infrastructure (experimental)
     bool enableGCStatepoints_ = false;
+
+    // Debug info emission
+    bool emitDebugInfo_ = false;
+    std::unique_ptr<llvm::DIBuilder> diBuilder_;
+    llvm::DICompileUnit* diCompileUnit_ = nullptr;
+    llvm::DIFile* diFile_ = nullptr;
+    std::map<std::string, llvm::DIFile*> diFiles_;
+
+    llvm::DIFile* getOrCreateDIFile(const std::string& path);
+    llvm::DISubroutineType* createFunctionDebugType(HIRFunction* fn);
 
     // Get pointer type for GC-managed pointers (addrspace 1 when statepoints enabled)
     llvm::PointerType* getGCPtrTy();

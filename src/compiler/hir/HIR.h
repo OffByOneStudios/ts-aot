@@ -409,6 +409,10 @@ struct HIRFunction {
     bool hasRestParam = false;          // True if last parameter is a rest parameter (...args)
     size_t restParamIndex = 0;          // Index of the rest parameter (if hasRestParam is true)
 
+    // Source location (for debug info)
+    uint32_t sourceLine = 0;            // Line number of function definition
+    std::string sourceFile;             // Source file path
+
     // Value counter for SSA naming
     uint32_t nextValueId = 0;
 

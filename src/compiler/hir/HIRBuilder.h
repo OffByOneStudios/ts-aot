@@ -1200,13 +1200,20 @@ public:
         return result;
     }
 
+    // Source line tracking for debug info
+    void setCurrentSourceLine(uint32_t line) { currentSourceLine_ = line; }
+
 private:
     HIRModule* module_;
     HIRFunction* currentFunction_ = nullptr;
     HIRBlock* currentBlock_ = nullptr;
     uint32_t nextGlobalId_ = 0;
+    uint32_t currentSourceLine_ = 0;
 
     void emit(std::unique_ptr<HIRInstruction> inst) {
+        if (currentSourceLine_ > 0 && inst->sourceLocation == 0) {
+            inst->sourceLocation = currentSourceLine_;
+        }
         if (currentBlock_) {
             currentBlock_->addInstruction(std::move(inst));
         }

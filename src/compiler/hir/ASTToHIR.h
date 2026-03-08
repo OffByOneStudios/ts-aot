@@ -173,6 +173,13 @@ private:
                                           const std::vector<ast::Decorator>& classDecorators,
                                           const std::vector<ast::NodePtr>& members);
 
+    // Set current source line from AST node (for debug info propagation)
+    void setSourceLine(ast::Node* node) {
+        if (node && node->line > 0) {
+            builder_.setCurrentSourceLine(static_cast<uint32_t>(node->line));
+        }
+    }
+
     //==========================================================================
     // Visitor Implementation - Statements
     //==========================================================================

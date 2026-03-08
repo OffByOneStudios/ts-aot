@@ -279,6 +279,7 @@ ASTToHIR::ASTToHIR() : builder_(nullptr) {}
 
 std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program, const std::string& moduleName) {
     module_ = std::make_unique<HIRModule>(moduleName);
+    module_->sourcePath = program->sourceFile;
     builder_ = HIRBuilder(module_.get());
 
     valueCounter_ = 0;
@@ -331,6 +332,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                                            const std::vector<Specialization>& specializations,
                                            const std::string& moduleName) {
     module_ = std::make_unique<HIRModule>(moduleName);
+    module_->sourcePath = program->sourceFile;
     builder_ = HIRBuilder(module_.get());
 
     // Store specializations for lookup during call generation
@@ -647,6 +649,9 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             auto func = std::make_unique<HIRFunction>(spec.specializedName);
             func->isAsync = funcNode->isAsync;
             func->isGenerator = funcNode->isGenerator;
+            func->sourceLine = funcNode->line;
+            func->sourceFile = funcNode->sourceFile;
+            func->displayName = funcNode->name;
 
             // Collect destructured parameter patterns for later extraction
             struct SpecDestructuredParam {
@@ -875,6 +880,9 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             auto func = std::make_unique<HIRFunction>(spec.specializedName);
             func->isAsync = methodNode->isAsync;
             func->isGenerator = methodNode->isGenerator;
+            func->sourceLine = methodNode->line;
+            func->sourceFile = methodNode->sourceFile;
+            func->displayName = methodNode->name;
 
             // Add 'this' parameter first for instance methods
             // spec.argTypes[0] is the class type for 'this' (set by Monomorphizer)
@@ -1665,12 +1673,14 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerExpression(ast::Expression* expr) {
 }
 
 void ASTToHIR::visitProgram(ast::Program* node) {
+    setSourceLine(node);
     for (auto& stmt : node->body) {
         lowerStatement(stmt.get());
     }
 }
 
 void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
+    setSourceLine(node);
     // Declaration-only function (from .d.ts or overload signature) — no code to generate
     if (node->body.empty()) {
         return;
@@ -1680,6 +1690,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     auto func = std::make_unique<HIRFunction>(node->name);
     func->isAsync = node->isAsync;
     func->isGenerator = node->isGenerator;
+    func->sourceLine = node->line;
+    func->sourceFile = node->sourceFile;
 
     // Collect destructured parameter patterns for later extraction
     struct DestructuredParam {
@@ -2116,6 +2128,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 }
 
 void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
+    setSourceLine(node);
     // VariableDeclaration has name (NodePtr) and initializer (ExprPtr)
     // name can be Identifier, ObjectBindingPattern, or ArrayBindingPattern
 
@@ -2355,12 +2368,14 @@ void ASTToHIR::lowerRestElement(ast::BindingElement* binding,
 }
 
 void ASTToHIR::visitExpressionStatement(ast::ExpressionStatement* node) {
+    setSourceLine(node);
     if (node->expression) {
         lowerExpression(node->expression.get());
     }
 }
 
 void ASTToHIR::visitBlockStatement(ast::BlockStatement* node) {
+    setSourceLine(node);
     // Synthetic blocks (from multi-var declarations like "var a = 1, b = 2;")
     // should NOT create a new scope - variables need to be visible in the
     // enclosing scope, just like individual var declarations would be.
@@ -2381,6 +2396,7 @@ void ASTToHIR::visitBlockStatement(ast::BlockStatement* node) {
 }
 
 void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
+    setSourceLine(node);
     if (node->expression) {
         auto retVal = lowerExpression(node->expression.get());
         builder_.createReturn(retVal);
@@ -2390,6 +2406,7 @@ void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
 }
 
 void ASTToHIR::visitIfStatement(ast::IfStatement* node) {
+    setSourceLine(node);
     auto cond = lowerExpression(node->condition.get());
 
     auto* thenBlock = createBlock("if.then");
@@ -2418,6 +2435,7 @@ void ASTToHIR::visitIfStatement(ast::IfStatement* node) {
 }
 
 void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
+    setSourceLine(node);
     auto* condBlock = createBlock("while.cond");
     auto* bodyBlock = createBlock("while.body");
     auto* endBlock = createBlock("while.end");
@@ -2459,6 +2477,7 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
 }
 
 void ASTToHIR::visitForStatement(ast::ForStatement* node) {
+    setSourceLine(node);
     auto* condBlock = createBlock("for.cond");
     auto* bodyBlock = createBlock("for.body");
     auto* updateBlock = createBlock("for.update");
@@ -2522,6 +2541,7 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
 }
 
 void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
+    setSourceLine(node);
     // For-of loop: iterate over iterable (arrays or generators)
     auto* condBlock = createBlock("forof.cond");
     auto* bodyBlock = createBlock("forof.body");
@@ -2696,6 +2716,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
 }
 
 void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
+    setSourceLine(node);
     // For-in loop: iterate over object keys
     // Implementation: Get Object.keys(obj), then iterate over the array
     auto* condBlock = createBlock("forin.cond");
@@ -2787,6 +2808,7 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
 }
 
 void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
+    setSourceLine(node);
     if (!node->label.empty()) {
         // Labeled break - find the labeled loop
         auto it = labeledLoops_.find(node->label);
@@ -2803,6 +2825,7 @@ void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
 }
 
 void ASTToHIR::visitContinueStatement(ast::ContinueStatement* node) {
+    setSourceLine(node);
     if (!node->label.empty()) {
         // Labeled continue - find the labeled loop
         auto it = labeledLoops_.find(node->label);
@@ -2816,6 +2839,7 @@ void ASTToHIR::visitContinueStatement(ast::ContinueStatement* node) {
 }
 
 void ASTToHIR::visitLabeledStatement(ast::LabeledStatement* node) {
+    setSourceLine(node);
     // Set the pending label - the next loop will register itself with this label
     std::string savedLabel = pendingLabel_;
     pendingLabel_ = node->label;
@@ -2831,6 +2855,7 @@ void ASTToHIR::visitLabeledStatement(ast::LabeledStatement* node) {
 }
 
 void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
+    setSourceLine(node);
     auto switchVal = lowerExpression(node->expression.get());
 
     auto* endBlock = createBlock("switch.end");
@@ -2969,6 +2994,7 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
 }
 
 void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
+    setSourceLine(node);
     // Create basic blocks for exception handling control flow
     // Use createBlock (with unique numbering) to handle nested try statements
     auto tryBB = createBlock("try");
@@ -3095,6 +3121,7 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
 }
 
 void ASTToHIR::visitThrowStatement(ast::ThrowStatement* node) {
+    setSourceLine(node);
     // Lower the throw expression
     std::shared_ptr<HIRValue> exception;
     if (node->expression) {
@@ -3112,6 +3139,7 @@ void ASTToHIR::visitThrowStatement(ast::ThrowStatement* node) {
 }
 
 void ASTToHIR::visitImportDeclaration(ast::ImportDeclaration* node) {
+    setSourceLine(node);
     // Type-only imports are erased entirely - no runtime effect
     if (node->isTypeOnly) return;
 
@@ -3139,12 +3167,14 @@ void ASTToHIR::visitImportDeclaration(ast::ImportDeclaration* node) {
 }
 
 void ASTToHIR::visitExportDeclaration(ast::ExportDeclaration* node) {
+    setSourceLine(node);
     // Exports are handled at module resolution time
     // ExportDeclaration has moduleSpecifier, namedExports, isStarExport, namespaceExport
     // but no direct declaration - nothing to lower at HIR level
 }
 
 void ASTToHIR::visitExportAssignment(ast::ExportAssignment* node) {
+    setSourceLine(node);
     // Lower the expression
     if (node->expression) {
         lowerExpression(node->expression.get());
@@ -3152,10 +3182,12 @@ void ASTToHIR::visitExportAssignment(ast::ExportAssignment* node) {
 }
 
 void ASTToHIR::visitNamespaceDeclaration(ast::NamespaceDeclaration* node) {
+    setSourceLine(node);
     // Namespaces have no runtime code — type-only construct
 }
 
 void ASTToHIR::visitImportEqualsDeclaration(ast::ImportEqualsDeclaration* node) {
+    setSourceLine(node);
     // Import equals has no runtime code — resolved at analysis time
 }
 
@@ -3164,6 +3196,7 @@ void ASTToHIR::visitImportEqualsDeclaration(ast::ImportEqualsDeclaration* node) 
 //==============================================================================
 
 void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
+    setSourceLine(node);
     const std::string& op = node->op;
 
     // Handle nullish coalescing with short-circuit semantics
@@ -3804,6 +3837,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 }
 
 void ASTToHIR::visitConditionalExpression(ast::ConditionalExpression* node) {
+    setSourceLine(node);
     auto cond = lowerExpression(node->condition.get());
 
     // Use branch-based evaluation for correct short-circuit semantics.
@@ -3837,6 +3871,7 @@ void ASTToHIR::visitConditionalExpression(ast::ConditionalExpression* node) {
 }
 
 void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
+    setSourceLine(node);
     auto rhs = lowerExpression(node->right.get());
 
     // Handle simple identifier assignment
@@ -3988,6 +4023,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
 }
 
 void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
+    setSourceLine(node);
     if (!node) return;
     if (!node->callee) return;
     std::vector<std::shared_ptr<HIRValue>> args;
@@ -5008,6 +5044,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 }
 
 void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
+    setSourceLine(node);
     // Get constructor/class name
     auto* ident = dynamic_cast<ast::Identifier*>(node->expression.get());
     std::string className = "Object";
@@ -5462,12 +5499,14 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
 }
 
 void ASTToHIR::visitParenthesizedExpression(ast::ParenthesizedExpression* node) {
+    setSourceLine(node);
     if (node->expression) {
         lastValue_ = lowerExpression(node->expression.get());
     }
 }
 
 void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
+    setSourceLine(node);
     // Try to infer element type from the array's inferred type
     std::shared_ptr<HIRType> elemType = HIRType::makeAny();
     if (node->inferredType && node->inferredType->kind == ts::TypeKind::Array) {
@@ -5521,6 +5560,7 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
 }
 
 void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) {
+    setSourceLine(node);
     // Check for enum reverse mapping: EnumName[numericValue]
     auto* classNameIdent = dynamic_cast<ast::Identifier*>(node->expression.get());
     if (classNameIdent) {
@@ -5581,6 +5621,7 @@ void ASTToHIR::visitElementAccessExpression(ast::ElementAccessExpression* node) 
 }
 
 void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node) {
+    setSourceLine(node);
     // Check for static property access: ClassName.propertyName
     auto* classNameIdent = dynamic_cast<ast::Identifier*>(node->expression.get());
     if (classNameIdent) {
@@ -5874,6 +5915,7 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 }
 
 void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) {
+    setSourceLine(node);
     // Pre-scan: check if ALL properties are static string names (eligible for flat object)
     HIRShape* flatShape = nullptr;
     bool allStatic = true;
@@ -5968,6 +6010,7 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
 }
 
 void ASTToHIR::visitPropertyAssignment(ast::PropertyAssignment* node) {
+    setSourceLine(node);
     // Save the object before lowerExpression overwrites lastValue_
     auto obj = lastValue_;
 
@@ -5985,6 +6028,7 @@ void ASTToHIR::visitPropertyAssignment(ast::PropertyAssignment* node) {
 }
 
 void ASTToHIR::visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment* node) {
+    setSourceLine(node);
     // Save the object before any potential modification to lastValue_
     auto obj = lastValue_;
 
@@ -6066,22 +6110,26 @@ void ASTToHIR::visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment
 }
 
 void ASTToHIR::visitComputedPropertyName(ast::ComputedPropertyName* node) {
+    setSourceLine(node);
     if (node->expression) {
         lowerExpression(node->expression.get());
     }
 }
 
 void ASTToHIR::visitMethodDefinition(ast::MethodDefinition* node) {
+    setSourceLine(node);
     // Methods are handled during class lowering
 }
 
 void ASTToHIR::visitStaticBlock(ast::StaticBlock* node) {
+    setSourceLine(node);
     for (auto& stmt : node->body) {
         lowerStatement(stmt.get());
     }
 }
 
 void ASTToHIR::visitIdentifier(ast::Identifier* node) {
+    setSourceLine(node);
     // Handle 'this' keyword specially
     if (node->name == "this") {
         // Check if 'this' is a captured variable from an outer function
@@ -6261,16 +6309,19 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
 }
 
 void ASTToHIR::visitSuperExpression(ast::SuperExpression* node) {
+    setSourceLine(node);
     // TODO: Proper super handling
     lastValue_ = createValue(HIRType::makeObject());
     builder_.createConstNull(lastValue_);
 }
 
 void ASTToHIR::visitStringLiteral(ast::StringLiteral* node) {
+    setSourceLine(node);
     lastValue_ = builder_.createConstString(node->value);
 }
 
 void ASTToHIR::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node) {
+    setSourceLine(node);
     // Create a RegExp object from the literal text (e.g., "/pattern/flags")
     // The runtime function ts_regexp_from_literal parses the literal and creates the RegExp
     auto literalStr = builder_.createConstString(node->text);
@@ -6278,11 +6329,13 @@ void ASTToHIR::visitRegularExpressionLiteral(ast::RegularExpressionLiteral* node
 }
 
 void ASTToHIR::visitNumericLiteral(ast::NumericLiteral* node) {
+    setSourceLine(node);
     // In TypeScript/JavaScript, all numbers are IEEE 754 double-precision floats
     lastValue_ = builder_.createConstFloat(node->value);
 }
 
 void ASTToHIR::visitBigIntLiteral(ast::BigIntLiteral* node) {
+    setSourceLine(node);
     // Create a BigInt from the literal string value (e.g., "123n" -> "123")
     // The value in the AST includes the 'n' suffix, so we need to strip it
     std::string valueStr = node->value;
@@ -6299,18 +6352,22 @@ void ASTToHIR::visitBigIntLiteral(ast::BigIntLiteral* node) {
 }
 
 void ASTToHIR::visitBooleanLiteral(ast::BooleanLiteral* node) {
+    setSourceLine(node);
     lastValue_ = builder_.createConstBool(node->value);
 }
 
 void ASTToHIR::visitNullLiteral(ast::NullLiteral* node) {
+    setSourceLine(node);
     lastValue_ = builder_.createConstNull();
 }
 
 void ASTToHIR::visitUndefinedLiteral(ast::UndefinedLiteral* node) {
+    setSourceLine(node);
     lastValue_ = builder_.createConstUndefined();
 }
 
 void ASTToHIR::visitAwaitExpression(ast::AwaitExpression* node) {
+    setSourceLine(node);
     if (node->expression) {
         // Lower the promise expression
         auto promise = lowerExpression(node->expression.get());
@@ -6343,6 +6400,7 @@ void ASTToHIR::visitAwaitExpression(ast::AwaitExpression* node) {
 }
 
 void ASTToHIR::visitYieldExpression(ast::YieldExpression* node) {
+    setSourceLine(node);
     // Yield: yield value or yield* iterable
     // yield returns the value passed to next() when generator is resumed
     // yield* delegates to another generator/iterable
@@ -6371,12 +6429,14 @@ void ASTToHIR::visitYieldExpression(ast::YieldExpression* node) {
 }
 
 void ASTToHIR::visitDynamicImport(ast::DynamicImport* node) {
+    setSourceLine(node);
     // TODO: Dynamic import support
     lastValue_ = createValue(HIRType::makeAny());
     builder_.createConstUndefined(lastValue_);
 }
 
 void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
+    setSourceLine(node);
     // Generate unique function name for the arrow function
     std::string funcName = "__arrow_fn_" + std::to_string(arrowFuncCounter_++);
 
@@ -6384,6 +6444,8 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     auto func = std::make_unique<HIRFunction>(funcName);
     func->isAsync = node->isAsync;
     func->isGenerator = false;  // Arrow functions can't be generators
+    func->sourceLine = node->line;
+    func->sourceFile = node->sourceFile;
 
     // Set display name from assignment context (e.g., const myArrow = () => ...)
     if (!pendingClosureDisplayName_.empty()) {
@@ -6691,6 +6753,7 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
 }
 
 void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
+    setSourceLine(node);
     // Generate function name: use the node's name if available, otherwise generate one
     std::string funcName;
     if (!node->name.empty()) {
@@ -6705,6 +6768,8 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     auto func = std::make_unique<HIRFunction>(funcName);
     func->isAsync = node->isAsync;
     func->isGenerator = node->isGenerator;
+    func->sourceLine = node->line;
+    func->sourceFile = node->sourceFile;
 
     // Set display name: prefer node name, then assignment context
     if (!node->name.empty()) {
@@ -7019,6 +7084,8 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     auto func = std::make_unique<HIRFunction>(funcName);
     func->isAsync = node->isAsync;
     func->isGenerator = node->isGenerator;
+    func->sourceLine = node->line;
+    func->sourceFile = node->sourceFile;
 
     // Add implicit 'this' parameter for methods
     func->params.push_back({"this", HIRType::makeAny()});
@@ -7170,6 +7237,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
 }
 
 void ASTToHIR::visitTemplateExpression(ast::TemplateExpression* node) {
+    setSourceLine(node);
     // Start with the head string
     auto currentStr = builder_.createConstString(node->head);
 
@@ -7210,6 +7278,7 @@ void ASTToHIR::visitTemplateExpression(ast::TemplateExpression* node) {
 }
 
 void ASTToHIR::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node) {
+    setSourceLine(node);
     // Tagged template: tag`str${expr}str...`
     // Calls: tag(stringsArray, ...expressions)
     // stringsArray is an array of the literal parts with a 'raw' property
@@ -7276,6 +7345,7 @@ void ASTToHIR::visitTaggedTemplateExpression(ast::TaggedTemplateExpression* node
 }
 
 void ASTToHIR::visitAsExpression(ast::AsExpression* node) {
+    setSourceLine(node);
     // Type assertion - just lower the expression
     if (node->expression) {
         lastValue_ = lowerExpression(node->expression.get());
@@ -7283,6 +7353,7 @@ void ASTToHIR::visitAsExpression(ast::AsExpression* node) {
 }
 
 void ASTToHIR::visitNonNullExpression(ast::NonNullExpression* node) {
+    setSourceLine(node);
     // Non-null assertion - just lower the expression
     if (node->expression) {
         lastValue_ = lowerExpression(node->expression.get());
@@ -7290,6 +7361,7 @@ void ASTToHIR::visitNonNullExpression(ast::NonNullExpression* node) {
 }
 
 void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
+    setSourceLine(node);
     auto operand = lowerExpression(node->operand.get());
 
     const std::string& op = node->op;
@@ -7407,6 +7479,7 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 }
 
 void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
+    setSourceLine(node);
     // Handle delete obj.prop or delete obj["prop"]
     if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())) {
         // delete obj.prop
@@ -7430,6 +7503,7 @@ void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
 }
 
 void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
+    setSourceLine(node);
     auto operand = lowerExpression(node->operand.get());
     auto oldValue = operand;
 
@@ -7520,6 +7594,7 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
 }
 
 void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
+    setSourceLine(node);
     SPDLOG_WARN("visitClassDeclaration: name={} currentFunc={}",
         node->name, currentFunction_ ? currentFunction_->name : "null");
 
@@ -7664,6 +7739,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             auto func = std::make_unique<HIRFunction>(methodFuncName);
             func->isAsync = methodDef->isAsync;
             func->isGenerator = methodDef->isGenerator;
+            func->sourceLine = methodDef->line;
+            func->sourceFile = methodDef->sourceFile;
 
             // For instance methods (and constructor), 'this' is the first parameter
             if (!methodDef->isStatic) {
@@ -7853,6 +7930,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 }
 
 void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
+    setSourceLine(node);
     // Generate a unique class name for anonymous class expressions
     // Use the same naming convention as the analyzer (__anon_class_X)
     std::string className = node->name.empty()
@@ -8006,6 +8084,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             auto func = std::make_unique<HIRFunction>(methodFuncName);
             func->isAsync = methodDef->isAsync;
             func->isGenerator = methodDef->isGenerator;
+            func->sourceLine = methodDef->line;
+            func->sourceFile = methodDef->sourceFile;
 
             // For instance methods (and constructor), 'this' is the first parameter
             if (!methodDef->isStatic) {
@@ -8211,32 +8291,39 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 }
 
 void ASTToHIR::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
+    setSourceLine(node);
     // Interfaces are type-only, nothing to generate
 }
 
 void ASTToHIR::visitObjectBindingPattern(ast::ObjectBindingPattern* node) {
+    setSourceLine(node);
     // Handled during variable declaration
 }
 
 void ASTToHIR::visitArrayBindingPattern(ast::ArrayBindingPattern* node) {
+    setSourceLine(node);
     // Handled during variable declaration
 }
 
 void ASTToHIR::visitBindingElement(ast::BindingElement* node) {
+    setSourceLine(node);
     // Handled during variable declaration
 }
 
 void ASTToHIR::visitSpreadElement(ast::SpreadElement* node) {
+    setSourceLine(node);
     if (node->expression) {
         lastValue_ = lowerExpression(node->expression.get());
     }
 }
 
 void ASTToHIR::visitOmittedExpression(ast::OmittedExpression* node) {
+    setSourceLine(node);
     lastValue_ = builder_.createConstUndefined();
 }
 
 void ASTToHIR::visitTypeAliasDeclaration(ast::TypeAliasDeclaration* node) {
+    setSourceLine(node);
     // Type aliases are type-only, nothing to generate
 }
 
@@ -8337,6 +8424,7 @@ std::pair<bool, int64_t> ASTToHIR::constEvalEnumExpr(
 }
 
 void ASTToHIR::visitEnumDeclaration(ast::EnumDeclaration* node) {
+    setSourceLine(node);
     // Process enum members and store values
     std::map<std::string, EnumValue> members;
     std::map<int64_t, std::string> reverseMap;
@@ -8441,6 +8529,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerJsxChildren(const std::vector<ast::Expr
 }
 
 void ASTToHIR::visitJsxElement(ast::JsxElement* node) {
+    setSourceLine(node);
     // Lower JSX element: <tagName attributes>children</tagName>
     // Creates an object { type: tagName, props: {...}, children: [...] }
 
@@ -8458,6 +8547,7 @@ void ASTToHIR::visitJsxElement(ast::JsxElement* node) {
 }
 
 void ASTToHIR::visitJsxSelfClosingElement(ast::JsxSelfClosingElement* node) {
+    setSourceLine(node);
     // Lower self-closing JSX element: <tagName attributes />
     // Same as JsxElement but with empty children
 
@@ -8475,6 +8565,7 @@ void ASTToHIR::visitJsxSelfClosingElement(ast::JsxSelfClosingElement* node) {
 }
 
 void ASTToHIR::visitJsxFragment(ast::JsxFragment* node) {
+    setSourceLine(node);
     // Lower JSX fragment: <>children</>
     // Fragments have null tagName and no props
 
@@ -8492,12 +8583,14 @@ void ASTToHIR::visitJsxFragment(ast::JsxFragment* node) {
 }
 
 void ASTToHIR::visitJsxExpression(ast::JsxExpression* node) {
+    setSourceLine(node);
     if (node->expression) {
         lastValue_ = lowerExpression(node->expression.get());
     }
 }
 
 void ASTToHIR::visitJsxText(ast::JsxText* node) {
+    setSourceLine(node);
     lastValue_ = builder_.createConstString(node->text);
 }
 

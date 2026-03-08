@@ -213,6 +213,7 @@ int Driver::run() {
         hirContext = std::make_unique<llvm::LLVMContext>();
         hir::HIRToLLVM hirToLlvm(*hirContext);
         hirToLlvm.setEnableGCStatepoints(options.enableGCStatepoints);
+        hirToLlvm.setEmitDebugInfo(options.debug);
 
         // Embed ICU data path so compiled executables can find icudt74l.dat
         // next to the compiler instead of needing a local copy
