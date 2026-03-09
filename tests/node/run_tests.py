@@ -10,6 +10,9 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from ts_test_platform import get_compiler_path, output_path_for
+
 
 @dataclass
 class TestResult:
@@ -55,7 +58,7 @@ class NodeTestRunner:
     def __init__(self, test_pattern: str = "**/*.ts", verbose: bool = False):
         self.script_dir = Path(__file__).parent
         self.root_dir = self.script_dir.parent.parent
-        self.compiler_path = self.root_dir / 'build' / 'src' / 'compiler' / 'Release' / 'ts-aot.exe'
+        self.compiler_path = get_compiler_path(self.root_dir)
         self.test_pattern = test_pattern
         self.verbose = verbose
 
@@ -100,7 +103,7 @@ class NodeTestRunner:
 
     def compile_test(self, test_file: Path) -> tuple[bool, str]:
         """Compile a test file to an executable."""
-        exe_path = test_file.with_suffix('.exe')
+        exe_path = output_path_for(test_file)
 
         try:
             result = subprocess.run(
@@ -162,7 +165,7 @@ class NodeTestRunner:
     def run_single_test(self, test_file: Path) -> TestResult:
         """Compile and run a single test."""
         test_name = f"{test_file.parent.name}/{test_file.name}"
-        exe_path = test_file.with_suffix('.exe')
+        exe_path = output_path_for(test_file)
 
         if self.verbose:
             print(f"  Compiling {test_name}...")

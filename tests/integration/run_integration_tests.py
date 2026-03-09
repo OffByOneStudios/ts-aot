@@ -21,10 +21,13 @@ import argparse
 from pathlib import Path
 from typing import List, Tuple, Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from ts_test_platform import get_compiler_path, get_exe_suffix
+
 # Configuration
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
-COMPILER = PROJECT_ROOT / "build" / "src" / "compiler" / "Release" / "ts-aot.exe"
+COMPILER = get_compiler_path(PROJECT_ROOT)
 
 # Test categories and their entry points
 TESTS = {
@@ -60,7 +63,7 @@ def compile_test(category: str, entry_file: str) -> Tuple[bool, str, Optional[Pa
         return False, f"Entry file not found: {entry_path}", None
 
     # Output executable in same directory
-    exe_name = entry_file.replace(".ts", ".exe")
+    exe_name = entry_file.replace(".ts", get_exe_suffix())
     exe_path = test_dir / exe_name
 
     cmd = [str(COMPILER), str(entry_path), "-o", str(exe_path)]

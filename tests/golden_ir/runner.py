@@ -24,6 +24,9 @@ from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from ts_test_platform import get_compiler_path, get_exe_suffix
+
 
 class CheckType(Enum):
     """Type of CHECK pattern."""
@@ -162,7 +165,7 @@ class GoldenIRRunner:
         self.script_dir = Path(__file__).parent
         self.root_dir = self.script_dir.parent.parent
         self.tests_dir = self.script_dir.parent  # tests/ directory (parent of golden_ir/)
-        self.compiler_path = self.root_dir / 'build' / 'src' / 'compiler' / 'Release' / 'ts-aot.exe'
+        self.compiler_path = get_compiler_path(self.root_dir)
         self.test_path = test_path
         self.show_details = show_details
 
@@ -279,14 +282,15 @@ class GoldenIRRunner:
 
         # Default RUN command if not specified
         if not test.run_command:
-            test.run_command = '%ts-aot %s --dump-ir -o %t.exe && %t.exe'
+            _exe = get_exe_suffix()
+            test.run_command = f'%ts-aot %s --dump-ir -o %t{_exe} && %t{_exe}'
 
         return test
 
     def expand_run_command(self, command: str, test_file: Path, temp_dir: Path) -> Tuple[str, Path, Path]:
         """Expand placeholders in RUN command."""
         exe_name = test_file.stem
-        exe_path = temp_dir / f"{exe_name}.exe"
+        exe_path = temp_dir / f"{exe_name}{get_exe_suffix()}"
         ir_path = temp_dir / f"{exe_name}.ll"
 
         expanded = command
@@ -386,7 +390,7 @@ class GoldenIRRunner:
                             hir_output=hir_output
                         )
 
-                elif cmd.endswith('.exe'):
+                elif '--dump-ir' not in cmd and '--dump-hir' not in cmd:
                     # Runtime execution
                     if self.show_details:
                         print(color_text(f"  Running: {cmd}", Colors.CYAN))

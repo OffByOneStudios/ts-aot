@@ -434,17 +434,21 @@ ts-aot examples/test.ts --dump-types --dump-ir -o test.exe
 ### Test
 
 ```bash
-# All golden tests
-python tests/golden_ir/runner.py
+# All suites (golden IR, golden HIR, Node.js, npm, integration)
+python tests/run_all.py
 
-# Category
+# Single suite
+python tests/run_all.py --suite golden-ir
+python tests/run_all.py --suite node
+
+# Parallel execution
+python tests/run_all.py --parallel
+
+# Golden IR subset (standalone runner)
 python tests/golden_ir/runner.py tests/golden_ir/typescript/arrays/
 
-# Single test
+# Single golden test (standalone runner)
 python tests/golden_ir/runner.py tests/golden_ir/typescript/arrays/array_map.ts
-
-# Verbose
-python tests/golden_ir/runner.py --verbose tests/golden_ir/typescript/arrays/array_map.ts
 ```
 
 ### Debug

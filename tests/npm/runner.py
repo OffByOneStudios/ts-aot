@@ -17,6 +17,9 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from ts_test_platform import get_compiler_path, output_path_for
+
 
 @dataclass
 class TestResult:
@@ -59,7 +62,7 @@ class NpmTestRunner:
     def __init__(self, verbose: bool = False, reinstall: bool = False, filter_name: str = None):
         self.script_dir = Path(__file__).parent
         self.root_dir = self.script_dir.parent.parent
-        self.compiler_path = self.root_dir / 'build' / 'src' / 'compiler' / 'Release' / 'ts-aot.exe'
+        self.compiler_path = get_compiler_path(self.root_dir)
         self.verbose = verbose
         self.reinstall = reinstall
         self.filter_name = filter_name
@@ -114,7 +117,7 @@ class NpmTestRunner:
 
     def compile_test(self, test_file: Path) -> tuple[bool, str]:
         """Compile a test file with ts-aot."""
-        exe_path = test_file.with_suffix('.exe')
+        exe_path = output_path_for(test_file)
 
         try:
             result = subprocess.run(
@@ -175,7 +178,7 @@ class NpmTestRunner:
                               error=err, phase="compile")
 
         # Phase 3: Run
-        exe_path = test_file.with_suffix('.exe')
+        exe_path = output_path_for(test_file)
         if self.verbose:
             print(f"  [{name}] running...")
         exit_code, output, error = self.run_test(exe_path)

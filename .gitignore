@@ -102,6 +102,15 @@ Thumbs.db
 # Ctags configuration
 .ctags.d/
 
+# Release artifacts
+dist/
+
+# Test/debug project scaffolds
+testproject/
+
+# Debug IR dumps
+**/debug_ir.ll
+
 # Claude Code local settings (not shared with team)
 .claude/CLAUDE.local.md
 .claude/settings.local.json

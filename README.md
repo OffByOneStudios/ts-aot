@@ -268,14 +268,31 @@ ts-aot statically links all dependencies (vcpkg triplet `x64-windows-static-md`)
 ## Running Tests
 
 ```bash
-# Golden IR regression tests (compiler correctness)
+# Run all test suites (golden IR, golden HIR, Node.js, npm, integration)
+python tests/run_all.py
+
+# Run a specific suite
+python tests/run_all.py --suite golden-ir
+python tests/run_all.py --suite node
+python tests/run_all.py --suite npm
+
+# Run suites in parallel
+python tests/run_all.py --parallel
+
+# Verbose output (streams sub-runner output in real-time)
+python tests/run_all.py --suite node -v
+
+# List available suites
+python tests/run_all.py --list
+```
+
+Individual runners still work standalone:
+
+```bash
 python tests/golden_ir/runner.py tests/golden_ir
-
-# Node.js API tests
 python tests/node/run_tests.py
-
-# npm package integration tests
 python tests/npm/runner.py
+python tests/integration/run_integration_tests.py
 ```
 
 ## Documentation

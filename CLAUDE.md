@@ -122,7 +122,7 @@ See @.github/instructions/conformance-workflow.instructions.md for detailed step
    - Run compiler: `build/src/compiler/Release/ts-aot.exe tmp/test.ts -o tmp/test.exe`
    - Debug crashes: Use `/auto-debug` skill
    - Check types: Use `--dump-types` flag
-   - Run tests: `python tests/node/run_tests.py` and `python tests/golden_ir/runner.py tests/golden_ir`
+   - Run tests: `python tests/run_all.py` (all suites) or `python tests/run_all.py --suite node` (single suite)
 7. **Commit:** `git add . && git commit` with descriptive message referencing ticket
 
 ## Code Style and Standards
