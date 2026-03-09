@@ -4212,14 +4212,46 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
                 return;
             } else {
-                // Method not yet registered (e.g., constructor calling a method
-                // defined later in the class body). Use naming convention.
-                std::string methodFuncName = currentClass_->name + "_" + propAccess->name;
-                auto obj = lowerExpression(propAccess->expression.get());
-                std::vector<std::shared_ptr<HIRValue>> methodArgs;
-                methodArgs.push_back(obj);
-                for (auto& arg : args) methodArgs.push_back(arg);
-                lastValue_ = builder_.createCall(methodFuncName, methodArgs, HIRType::makeAny());
+                // Method not found in current class. Check if it's:
+                // 1. An abstract method → dynamic dispatch via vtable
+                // 2. Inherited from a user-defined base class → direct call
+                // 3. Inherited from a runtime/extension base class → dynamic dispatch
+
+                // Check abstract methods first
+                if (currentClass_->abstractMethods.count(propAccess->name)) {
+                    auto obj = lookupVariable("this");
+                    if (!obj) obj = builder_.createConstNull();
+                    lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
+                    return;
+                }
+
+                // Walk base class chain for user-defined inherited methods
+                HIRClass* searchClass = currentClass_->baseClass;
+                while (searchClass) {
+                    auto baseIt = searchClass->methods.find(propAccess->name);
+                    if (baseIt != searchClass->methods.end() && baseIt->second) {
+                        // Found in user-defined base class - direct call
+                        HIRFunction* method = baseIt->second;
+                        std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                        auto thisVal = lookupVariable("this");
+                        methodArgs.push_back(thisVal ? thisVal : builder_.createConstNull());
+                        for (auto& arg : args) methodArgs.push_back(arg);
+                        auto resultType = method->returnType;
+                        if (method->isGenerator) {
+                            resultType = HIRType::makeClass("Generator", 0);
+                        }
+                        lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
+                        return;
+                    }
+                    searchClass = searchClass->baseClass;
+                }
+
+                // Not found in any user class - use dynamic dispatch.
+                // This handles methods inherited from runtime/extension base
+                // classes (e.g., Counter extends EventEmitter → this.emit()).
+                auto obj = lookupVariable("this");
+                if (!obj) obj = builder_.createConstNull();
+                lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
                 return;
             }
         }
@@ -7705,6 +7737,32 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
         // Collect static blocks for deferred execution
         if (auto* staticBlock = dynamic_cast<ast::StaticBlock*>(memberPtr.get())) {
             deferredStaticBlocks_.push_back(staticBlock);
+        }
+    }
+
+    // Inherit abstract methods from base class
+    if (hirClass->baseClass) {
+        hirClass->abstractMethods = hirClass->baseClass->abstractMethods;
+    }
+
+    // Track abstract methods declared in this class and pre-register concrete methods.
+    // Pre-registration ensures that when lowering method bodies, calls to other methods
+    // in the same class (defined later) can be found in the methods map.
+    for (auto& memberPtr : node->members) {
+        if (auto* methodDef = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
+            if (methodDef->isAbstract) {
+                hirClass->abstractMethods.insert(methodDef->name);
+            } else if (methodDef->hasBody && methodDef->name != "constructor") {
+                // Concrete method overrides abstract - remove from set
+                hirClass->abstractMethods.erase(methodDef->name);
+                // Pre-register with nullptr so forward references resolve
+                std::string methodKey = methodDef->name;
+                if (methodDef->isGetter) methodKey = "__getter_" + methodDef->name;
+                else if (methodDef->isSetter) methodKey = "__setter_" + methodDef->name;
+                if (!methodDef->isStatic && hirClass->methods.find(methodKey) == hirClass->methods.end()) {
+                    hirClass->methods[methodKey] = nullptr;
+                }
+            }
         }
     }
 

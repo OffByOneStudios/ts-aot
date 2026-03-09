@@ -1,6 +1,9 @@
+// Integration Test: Abstract Classes
+// Tests abstract method dispatch through inheritance
+
 abstract class Shape {
     abstract getArea(): number;
-    
+
     printArea(): void {
         console.log(this.getArea());
     }
@@ -8,12 +11,12 @@ abstract class Shape {
 
 class Square extends Shape {
     side: number;
-    
+
     constructor(side: number) {
         super();
         this.side = side;
     }
-    
+
     getArea(): number {
         return this.side * this.side;
     }
@@ -21,21 +24,27 @@ class Square extends Shape {
 
 class Circle extends Shape {
     radius: number;
-    
+
     constructor(radius: number) {
         super();
         this.radius = radius;
     }
-    
+
     getArea(): number {
         return 3 * this.radius * this.radius; // Simplified PI=3
     }
 }
 
-function main() {
+function user_main(): number {
+    console.log('Integration Test: Abstract Classes');
+    console.log('==================================');
+
     const s = new Square(5);
-    s.printArea(); // 25
-    
+    s.printArea(); // Should print 25
+
     const c = new Circle(3);
-    c.printArea(); // 27
+    c.printArea(); // Should print 27
+
+    console.log('PASS');
+    return 0;
 }

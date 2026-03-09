@@ -467,6 +467,9 @@ struct HIRClass {
     // VTable for virtual dispatch
     std::vector<std::pair<std::string, HIRFunction*>> vtable;
 
+    // Abstract methods (declared but not implemented in this class)
+    std::set<std::string> abstractMethods;
+
     // Constructor
     HIRFunction* constructor = nullptr;
 
