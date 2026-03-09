@@ -368,11 +368,30 @@ void ExtensionRegistry::loadDefaultExtensions() {
     searchPaths.push_back("../extensions");
     searchPaths.push_back("../../extensions");
 
+    // Find the directory with the most ext.json files (best coverage)
+    std::string bestPath;
+    size_t bestCount = 0;
     for (const auto& path : searchPaths) {
         if (std::filesystem::exists(path) && std::filesystem::is_directory(path)) {
-            loadExtensions(path);
-            return;
+            // Count ext.json files recursively
+            size_t count = 0;
+            for (auto& entry : std::filesystem::recursive_directory_iterator(path)) {
+                if (entry.is_regular_file()) {
+                    auto fname = entry.path().filename().string();
+                    if (fname.size() > 9 && fname.substr(fname.size() - 9) == ".ext.json") {
+                        count++;
+                    }
+                }
+            }
+            if (count > bestCount) {
+                bestCount = count;
+                bestPath = path;
+            }
         }
+    }
+    if (!bestPath.empty()) {
+        loadExtensions(bestPath);
+        return;
     }
 
     SPDLOG_DEBUG("No extensions directory found in default locations");

@@ -26,6 +26,44 @@
 #include <cstring>
 #include <new>
 
+// Runtime helper: check if a vtable belongs to a registered EventEmitter subclass
+extern "C" bool ts_is_registered_event_emitter(uint64_t vtable);
+
+// Helper: safely dynamic_cast from a raw void* pointer.
+// On Linux/Itanium ABI, virtual inheritance means TsObject is NOT at offset 0
+// for stream classes (TsReadable, TsWritable, etc.). (TsObject*)rawPtr is wrong
+// because it doesn't point to the TsObject subobject.
+// We handle this by:
+//   1. Try regular dynamic_cast via (TsObject*) - works for non-virtual inheritance
+//   2. If that fails on Linux, use the vtable dispatch table to find the vbase
+//      offset, get a valid TsEventEmitter*, then dynamic_cast from there.
+template<typename T>
+static T* safe_dynamic_cast(void* rawPtr) {
+    if (!rawPtr) return nullptr;
+
+    // Try standard dynamic_cast (works for non-virtual inheritance like TsServer)
+    T* result = dynamic_cast<T*>((TsObject*)rawPtr);
+    if (result) return result;
+
+#ifdef __linux__
+    // On Linux/Itanium ABI, for virtual-inheritance classes,
+    // use the vbase offset to find TsEventEmitter*, then dynamic_cast from there.
+    {
+        uint64_t vt = *(uint64_t*)rawPtr;
+        if (ts_is_registered_event_emitter(vt)) {
+            void** vtbl = (void**)vt;
+            ptrdiff_t vbase_offset = (ptrdiff_t)vtbl[-3];
+            if (vbase_offset > 0 && vbase_offset < 4096) {
+                TsEventEmitter* emitter = reinterpret_cast<TsEventEmitter*>((char*)rawPtr + vbase_offset);
+                return dynamic_cast<T*>(emitter);
+            }
+        }
+    }
+#endif
+
+    return nullptr;
+}
+
 // External function declarations
 extern "C" TsValue* ts_function_call(TsValue* boxedFunc, int argc, TsValue** argv);
 extern "C" TsValue* ts_object_get_property(void* obj, const char* key);
@@ -256,87 +294,76 @@ bool ts_write_stream_pending(void* stream) {
 
 bool ts_readable_destroyed(void* stream) {
     if (!stream) return true;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return true;
     return r->IsDestroyed();
 }
 
 bool ts_readable_readable(void* stream) {
     if (!stream) return false;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return false;
     return r->IsReadable();
 }
 
 bool ts_readable_is_paused(void* stream) {
     if (!stream) return true;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return true;
     return r->IsPaused();
 }
 
 bool ts_readable_readable_ended(void* stream) {
     if (!stream) return true;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return true;
     return r->IsReadableEnded();
 }
 
 bool ts_readable_readable_flowing(void* stream) {
     if (!stream) return false;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return false;
     return r->IsReadableFlowing();
 }
 
 void ts_readable_unpipe(void* stream) {
     if (!stream) return;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (r) r->Unpipe();
 }
 
 int64_t ts_readable_readable_high_water_mark(void* stream) {
     if (!stream) return 16384;  // Default 16KB
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return 16384;
     return r->GetHighWaterMark();
 }
 
 int64_t ts_readable_readable_length(void* stream) {
     if (!stream) return 0;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return 0;
     return r->GetReadableLength();
 }
 
 bool ts_readable_readable_object_mode(void* stream) {
     if (!stream) return false;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return false;
     return r->IsObjectMode();
 }
 
 bool ts_readable_readable_aborted(void* stream) {
     if (!stream) return false;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return false;
     return r->IsReadableAborted();
 }
 
 bool ts_readable_readable_did_read(void* stream) {
     if (!stream) return false;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (!r) return false;
     return r->IsReadableDidRead();
 }
@@ -346,7 +373,7 @@ void* ts_readable_readable_encoding(void* stream) {
 
     void* rawStream = ts_nanbox_safe_unbox(stream);
 
-    TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(rawStream);
     if (!r) return nullptr;
 
     const char* encoding = r->GetEncoding();
@@ -360,7 +387,7 @@ void* ts_readable_set_encoding(void* stream, void* encoding) {
 
     void* rawStream = ts_nanbox_safe_unbox(stream);
 
-    TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(rawStream);
     if (!r) return stream;
 
     TsString* encStr = nullptr;
@@ -383,7 +410,7 @@ void ts_readable_unshift(void* stream, void* chunk) {
 
     void* rawStream = ts_nanbox_safe_unbox(stream);
 
-    TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(rawStream);
     if (!r) return;
 
     r->Unshift(chunk);
@@ -394,7 +421,7 @@ void* ts_readable_read(void* stream, int64_t size) {
 
     void* rawStream = ts_nanbox_safe_unbox(stream);
 
-    TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawStream);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(rawStream);
     if (!r) r = ((TsObject*)rawStream)->AsReadable();
     if (!r) return nullptr;
 
@@ -420,8 +447,7 @@ bool ts_writable_write(void* writable, void* val) {
     if (!writable || !val) return false;
 
     TsValue vd = nanbox_to_tagged((TsValue*)val);
-    TsEventEmitter* emitter = (TsEventEmitter*)writable;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(writable);
     if (!w) {
         w = (TsWritable*)writable;
     }
@@ -445,8 +471,7 @@ TS_NOINLINE void ts_writable_end(void* writable, void* dataPtr) {
     }
 
     TsValue dataDec = nanbox_to_tagged((TsValue*)dataPtr);
-    TsEventEmitter* emitter = (TsEventEmitter*)writable;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(writable);
     if (!w) {
         w = (TsWritable*)writable;
     }
@@ -459,86 +484,75 @@ TS_NOINLINE void ts_writable_end(void* writable, void* dataPtr) {
 
 bool ts_writable_destroyed(void* stream) {
     if (!stream) return true;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (!w) return true;
     return w->IsDestroyed();
 }
 
 bool ts_writable_writable(void* stream) {
     if (!stream) return false;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (!w) return false;
     return w->IsWritable();
 }
 
 bool ts_writable_writable_ended(void* stream) {
     if (!stream) return true;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (!w) return true;
     return w->IsWritableEnded();
 }
 
 bool ts_writable_writable_finished(void* stream) {
     if (!stream) return true;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (!w) return true;
     return w->IsWritableFinished();
 }
 
 bool ts_writable_writable_need_drain(void* stream) {
     if (!stream) return false;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (!w) return false;
     return w->IsWritableNeedDrain();
 }
 
 int64_t ts_writable_writable_high_water_mark(void* stream) {
     if (!stream) return 0;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (!w) return 0;
     return (int64_t)w->GetWritableHighWaterMark();
 }
 
 int64_t ts_writable_writable_length(void* stream) {
     if (!stream) return 0;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (!w) return 0;
     return (int64_t)w->GetWritableLength();
 }
 
 bool ts_writable_writable_object_mode(void* stream) {
     if (!stream) return false;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (!w) return false;
     return w->IsObjectMode();
 }
 
 void ts_writable_cork(void* stream) {
     if (!stream) return;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (w) w->Cork();
 }
 
 void ts_writable_uncork(void* stream) {
     if (!stream) return;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (w) w->Uncork();
 }
 
 bool ts_writable_writable_aborted(void* stream) {
     if (!stream) return false;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsWritable* w = dynamic_cast<TsWritable*>(emitter);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(stream);
     if (!w) return false;
     return w->IsWritableAborted();
 }
@@ -548,7 +562,7 @@ void* ts_writable_set_default_encoding(void* stream, void* encoding) {
 
     void* rawStream = ts_nanbox_safe_unbox(stream);
 
-    TsWritable* w = dynamic_cast<TsWritable*>((TsEventEmitter*)rawStream);
+    TsWritable* w = safe_dynamic_cast<TsWritable>(rawStream);
     if (!w) return stream;
 
     TsString* encStr = nullptr;
@@ -589,7 +603,7 @@ TsValue* pipe_end_cb(void* context, int argc, TsValue** argv) {
 }
 
 void* ts_stream_pipe(void* src, void* dest) {
-    TsEventEmitter* s = (TsEventEmitter*)src;
+    TsEventEmitter* s = safe_dynamic_cast<TsEventEmitter>(src);
     if (!s || s->magic != TsEventEmitter::MAGIC) return dest;
 
     PipeContext* ctx = (PipeContext*)ts_alloc(sizeof(PipeContext));
@@ -606,15 +620,13 @@ void* ts_stream_pipe(void* src, void* dest) {
 
 void ts_stream_pause(void* stream) {
     if (!stream) return;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (r) r->Pause();
 }
 
 void ts_stream_resume(void* stream) {
     if (!stream) return;
-    TsEventEmitter* emitter = (TsEventEmitter*)stream;
-    TsReadable* r = dynamic_cast<TsReadable*>(emitter);
+    TsReadable* r = safe_dynamic_cast<TsReadable>(stream);
     if (r) r->Resume();
 }
 
@@ -665,9 +677,7 @@ TsValue* pipeline_finish_cb(void* context, int argc, TsValue** argv) {
 static TsEventEmitter* unbox_stream(void* arg) {
     if (!arg) return nullptr;
     void* rawPtr = ts_nanbox_safe_unbox(arg);
-    TsEventEmitter* ee = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
-    if (!ee) ee = ((TsObject*)rawPtr)->AsEventEmitter();
-    return ee;
+    return safe_dynamic_cast<TsEventEmitter>(rawPtr);
 }
 
 // 3-arg version: pipeline(source, destination, callback)
@@ -715,10 +725,7 @@ void* ts_stream_pipeline(void* streams, void* callback) {
         TsValue* streamVal = (TsValue*)arr->Get(i);
         void* rawPtr = ts_value_get_object(streamVal);
         if (!rawPtr) rawPtr = (void*)streamVal;
-        ctx->streams[i] = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
-        if (!ctx->streams[i]) {
-            ctx->streams[i] = ((TsObject*)rawPtr)->AsEventEmitter();
-        }
+        ctx->streams[i] = safe_dynamic_cast<TsEventEmitter>(rawPtr);
     }
 
     TsValue* errorCb = ts_value_make_native_function((void*)pipeline_error_cb, ctx);
@@ -813,10 +820,7 @@ void* ts_stream_finished(void* stream, void* optionsOrCallback, void* callback) 
 
     void* rawPtr = ts_nanbox_safe_unbox(stream);
 
-    TsEventEmitter* emitter = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
-    if (!emitter) {
-        emitter = ((TsObject*)rawPtr)->AsEventEmitter();
-    }
+    TsEventEmitter* emitter = safe_dynamic_cast<TsEventEmitter>(rawPtr);
     if (!emitter) return ts_value_make_native_function((void*)finished_cleanup_fn, nullptr);
 
     TsValue* cb = (TsValue*)callback;
@@ -834,8 +838,8 @@ void* ts_stream_finished(void* stream, void* optionsOrCallback, void* callback) 
     ctx->endListener = ts_value_make_native_function((void*)finished_end_cb, ctx);
     ctx->finishListener = ts_value_make_native_function((void*)finished_finish_cb, ctx);
 
-    TsReadable* readable = dynamic_cast<TsReadable*>(emitter);
-    TsWritable* writable = dynamic_cast<TsWritable*>(emitter);
+    TsReadable* readable = safe_dynamic_cast<TsReadable>(rawPtr);
+    TsWritable* writable = safe_dynamic_cast<TsWritable>(rawPtr);
 
     if (readable && readable->IsDestroyed()) {
         finished_call_callback(ctx, nullptr);
@@ -992,14 +996,12 @@ void* ts_readable_wrap(void* readable, void* oldStream) {
 
     void* rawReadable = ts_nanbox_safe_unbox(readable);
 
-    TsReadable* r = dynamic_cast<TsReadable*>((TsEventEmitter*)rawReadable);
-    if (!r) r = ((TsObject*)rawReadable)->AsReadable();
+    TsReadable* r = safe_dynamic_cast<TsReadable>(rawReadable);
     if (!r) return readable;
 
     void* rawOldStream = ts_nanbox_safe_unbox(oldStream);
 
-    TsEventEmitter* oldEmitter = dynamic_cast<TsEventEmitter*>((TsObject*)rawOldStream);
-    if (!oldEmitter) oldEmitter = ((TsObject*)rawOldStream)->AsEventEmitter();
+    TsEventEmitter* oldEmitter = safe_dynamic_cast<TsEventEmitter>(rawOldStream);
     if (!oldEmitter) return readable;
 
     WrapContext* ctx = (WrapContext*)ts_alloc(sizeof(WrapContext));
@@ -1032,7 +1034,7 @@ void* ts_stream_transform_create(void* options) {
 void ts_stream_transform_push(void* transformPtr, void* data) {
     void* rawPtr = ts_nanbox_safe_unbox(transformPtr);
 
-    TsTransform* transform = dynamic_cast<TsTransform*>((TsObject*)rawPtr);
+    TsTransform* transform = safe_dynamic_cast<TsTransform>(rawPtr);
     if (!transform) return;
 
     transform->Push(data);
@@ -1041,7 +1043,7 @@ void ts_stream_transform_push(void* transformPtr, void* data) {
 void ts_stream_transform_push_null(void* transformPtr) {
     void* rawPtr = ts_nanbox_safe_unbox(transformPtr);
 
-    TsTransform* transform = dynamic_cast<TsTransform*>((TsObject*)rawPtr);
+    TsTransform* transform = safe_dynamic_cast<TsTransform>(rawPtr);
     if (!transform) return;
 
     transform->PushNull();
@@ -1050,7 +1052,7 @@ void ts_stream_transform_push_null(void* transformPtr) {
 void ts_stream_transform_set_transform(void* transformPtr, void* callback) {
     void* rawPtr = ts_nanbox_safe_unbox(transformPtr);
 
-    TsTransform* transform = dynamic_cast<TsTransform*>((TsObject*)rawPtr);
+    TsTransform* transform = safe_dynamic_cast<TsTransform>(rawPtr);
     if (!transform) return;
 
     transform->SetTransformCallback(callback);
@@ -1059,7 +1061,7 @@ void ts_stream_transform_set_transform(void* transformPtr, void* callback) {
 void ts_stream_transform_set_flush(void* transformPtr, void* callback) {
     void* rawPtr = ts_nanbox_safe_unbox(transformPtr);
 
-    TsTransform* transform = dynamic_cast<TsTransform*>((TsObject*)rawPtr);
+    TsTransform* transform = safe_dynamic_cast<TsTransform>(rawPtr);
     if (!transform) return;
 
     transform->SetFlushCallback(callback);

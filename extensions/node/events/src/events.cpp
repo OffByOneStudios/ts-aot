@@ -13,17 +13,49 @@
 
 using namespace ts;
 
-// Helper: extract TsEventEmitter* from a possibly NaN-boxed emitter pointer
+// Runtime helper: check if a vtable belongs to a registered EventEmitter subclass
+extern "C" bool ts_is_registered_event_emitter(uint64_t vtable);
+
+// Helper: extract TsEventEmitter* from a possibly NaN-boxed emitter pointer.
+// On Linux/Itanium ABI, virtual inheritance means TsObject is NOT at offset 0
+// for stream classes (TsReadable, TsWritable, etc.). For these, dynamic_cast
+// from (TsObject*) fails because the pointer doesn't point to a TsObject subobject.
+// We handle this by:
+//   1. Try regular dynamic_cast (works for non-virtual inheritance like TsServer)
+//   2. If that fails on Linux, check the vtable dispatch table and use the
+//      Itanium ABI vbase offset to find the TsEventEmitter subobject.
 static TsEventEmitter* getEmitter(void* emitter) {
     if (!emitter) return nullptr;
     // Guard against NaN-boxed non-pointer values (numbers, bools, undefined, null)
     uint64_t nb = (uint64_t)(uintptr_t)emitter;
     if (nanbox_is_number(nb) || nanbox_is_special(nb)) return nullptr;
     void* rawPtr = ts_nanbox_safe_unbox(emitter);
-    TsObject* obj = (TsObject*)rawPtr;
-    TsEventEmitter* e = dynamic_cast<TsEventEmitter*>(obj);
-    if (!e) e = obj->AsEventEmitter();
-    return e;
+    if (!rawPtr) return nullptr;
+
+    // Try standard dynamic_cast (works for non-virtual inheritance like TsServer)
+    TsEventEmitter* e = dynamic_cast<TsEventEmitter*>((TsObject*)rawPtr);
+    if (e) return e;
+
+#ifdef __linux__
+    // On Linux/Itanium ABI, for virtual-inheritance classes (TsReadable, TsSocket, etc.),
+    // (TsObject*)rawPtr is wrong because TsObject is inside the virtual base at a
+    // non-zero offset. Check the vtable dispatch table and use the vbase offset.
+    {
+        uint64_t vt = *(uint64_t*)rawPtr;
+        if (ts_is_registered_event_emitter(vt)) {
+            // This IS an EventEmitter subclass with virtual inheritance.
+            // In Itanium ABI, the vbase offset for the first virtual base
+            // is stored at vtable[-3] (before offset-to-top at [-2] and typeinfo at [-1]).
+            void** vtbl = (void**)vt;
+            ptrdiff_t vbase_offset = (ptrdiff_t)vtbl[-3];
+            if (vbase_offset > 0 && vbase_offset < 4096) {
+                return reinterpret_cast<TsEventEmitter*>((char*)rawPtr + vbase_offset);
+            }
+        }
+    }
+#endif
+
+    return nullptr;
 }
 
 extern "C" {
@@ -35,7 +67,6 @@ extern "C" {
     void ts_event_emitter_on(void* emitter, void* event, void* callback) {
         TsEventEmitter* e = getEmitter(emitter);
         if (!e) return;
-
         TsString* s = (TsString*)event;
         if (!s) return;
         e->On(s->ToUtf8(), callback);

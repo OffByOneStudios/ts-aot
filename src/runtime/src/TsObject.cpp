@@ -44,6 +44,17 @@ extern "C" void ts_register_vtable_dispatch(uint64_t vtable, VtableDispatchFn fn
     }
 }
 
+// Check if a vtable address belongs to a registered EventEmitter subclass.
+// Used by events extension to handle virtual-inheritance on Linux.
+extern "C" bool ts_is_registered_event_emitter(uint64_t vtable) {
+    for (int i = 0; i < g_vtable_dispatch_count; i++) {
+        if (vtable == g_vtable_dispatch[i].vtable && g_vtable_dispatch[i].isEventEmitter) {
+            return true;
+        }
+    }
+    return false;
+}
+
 #include "MemoryTracker.h"
 #include <new>
 #include <cstdio>
@@ -1704,7 +1715,6 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
         uint32_t magic20 = *(uint32_t*)((char*)obj + 20);
         uint32_t magic24 = *(uint32_t*)((char*)obj + 24);
-
         // Check for flat inline-slot object (magic at offset 0)
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
             TsValue* result = (TsValue*)ts_flat_object_get_property(obj, keyStr);

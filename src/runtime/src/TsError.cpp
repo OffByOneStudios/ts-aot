@@ -5,6 +5,7 @@
 #include "TsNanBox.h"
 #include <new>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <sstream>
 #include <iomanip>
@@ -89,15 +90,35 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
         }
     }
 #elif defined(__linux__)
+    // backtrace() can crash (SIGABRT) in statically linked binaries when
+    // DWARF unwind info is incomplete. Use a safe fallback.
     void* stack[64];
-    int frames = backtrace(stack, 63);
-    char** symbols = backtrace_symbols(stack, frames);
+    int frames = 0;
+    char** symbols = nullptr;
+
+    // Only attempt backtrace if not statically linked (check for dynamic linker)
+    // For static binaries, skip to avoid SIGABRT
+    FILE* maps = fopen("/proc/self/maps", "r");
+    bool is_dynamic = false;
+    if (maps) {
+        char line[512];
+        while (fgets(line, sizeof(line), maps)) {
+            if (strstr(line, "ld-linux") || strstr(line, "ld-musl")) {
+                is_dynamic = true;
+                break;
+            }
+        }
+        fclose(maps);
+    }
+
+    if (is_dynamic) {
+        frames = backtrace(stack, 63);
+        symbols = backtrace_symbols(stack, frames);
+    }
 
     for (int i = 1; i < frames; i++) {
         ss << "    at ";
         if (symbols && symbols[i]) {
-            // Try to demangle the symbol name
-            // Format: "binary(mangled_name+0xoffset) [address]"
             std::string sym(symbols[i]);
             size_t begin = sym.find('(');
             size_t end = sym.find('+', begin);
@@ -111,7 +132,6 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
                 } else {
                     ss << mangled;
                 }
-                // Extract address
                 size_t addr_begin = sym.find('[');
                 size_t addr_end = sym.find(']');
                 if (addr_begin != std::string::npos && addr_end != std::string::npos) {
@@ -125,7 +145,7 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
         }
         ss << "\n";
     }
-    free(symbols);
+    if (symbols) free(symbols);
 #else
     ss << "    at <stack trace not supported on this platform>\n";
 #endif

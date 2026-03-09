@@ -7910,13 +7910,22 @@ void HIRToLLVM::lowerSetupTry(HIRInstruction* inst) {
         builder_->getPtrTy(), {});
     llvm::Value* jmpBuf = builder_->CreateCall(pushFn, {});
 
-    // Call _setjmp(jmp_buf, frame_ptr) - Windows signature
+    // Call setjmp - platform-specific signature
     // Returns 0 on normal entry, non-zero when returning from longjmp
+#ifdef _WIN32
+    // Windows: _setjmp(jmp_buf, frame_ptr)
     auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
         builder_->getInt32Ty(),
         {builder_->getPtrTy(), builder_->getPtrTy()});
     llvm::Value* framePtr = llvm::ConstantPointerNull::get(builder_->getPtrTy());
     llvm::Value* setjmpResult = builder_->CreateCall(setjmpFn, {jmpBuf, framePtr});
+#else
+    // Linux/POSIX: _setjmp(jmp_buf) - doesn't save signal mask (faster)
+    auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
+        builder_->getInt32Ty(),
+        {builder_->getPtrTy()});
+    llvm::Value* setjmpResult = builder_->CreateCall(setjmpFn, {jmpBuf});
+#endif
 
     // Convert result to bool: true if non-zero (exception path)
     llvm::Value* isException = builder_->CreateICmpNE(setjmpResult,

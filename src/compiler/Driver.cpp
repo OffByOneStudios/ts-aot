@@ -575,7 +575,11 @@ int Driver::run() {
                     linkOpts.libraries.push_back(winLib);
                 }
 #else
-                linkOpts.libraries.push_back("-l" + lib);
+                if (REGISTRAR_LIBS.count(lib)) {
+                    linkOpts.wholeArchiveLibs.push_back("-l" + lib);
+                } else {
+                    linkOpts.libraries.push_back("-l" + lib);
+                }
 #endif
             }
 

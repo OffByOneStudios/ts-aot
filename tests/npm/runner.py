@@ -67,6 +67,10 @@ class NpmTestRunner:
         self.reinstall = reinstall
         self.filter_name = filter_name
 
+        # Set ICU_DATA so compiled executables can find ICU data files
+        self.test_env = os.environ.copy()
+        self.test_env['ICU_DATA'] = str(self.compiler_path.parent)
+
         self.results: List[TestResult] = []
         self.test_statuses: Dict[str, str] = {}
         self.previous_baseline: Dict[str, str] = {}
@@ -125,7 +129,8 @@ class NpmTestRunner:
                 capture_output=True,
                 timeout=60,
                 encoding='utf-8',
-                errors='replace'
+                errors='replace',
+                env=self.test_env
             )
             if result.returncode != 0:
                 return False, result.stderr or result.stdout or "Compilation failed"
@@ -143,7 +148,8 @@ class NpmTestRunner:
                 capture_output=True,
                 timeout=15,
                 encoding='utf-8',
-                errors='replace'
+                errors='replace',
+                env=self.test_env
             )
             return result.returncode, result.stdout or "", result.stderr or ""
         except subprocess.TimeoutExpired:

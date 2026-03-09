@@ -132,33 +132,42 @@ bool LinkerDriver::link(const Options& options) {
         args.push_back(obj.c_str());
     }
 
-    // Resolve -l flags to full paths and pass archives directly
-    // This avoids LLD search path issues with embedded invocation
-    std::vector<std::string> resolvedLibs;
-    for (const auto& lib : options.libraries) {
+    // Helper: resolve -l flag to full archive path
+    auto resolveLib = [&](const std::string& lib) -> std::string {
         if (lib.substr(0, 2) == "-l") {
             std::string libName = lib.substr(2);
-            std::string found;
-            // Search library paths for libXXX.a
             for (const auto& lp : libPathArgs) {
                 std::string dir = lp.substr(2);  // strip "-L"
                 std::string candidate = dir + "/lib" + libName + ".a";
                 if (std::filesystem::exists(candidate)) {
                     std::error_code ec;
                     auto canon = std::filesystem::canonical(candidate, ec);
-                    found = ec ? candidate : canon.string();
-                    break;
+                    return ec ? candidate : canon.string();
                 }
             }
-            if (!found.empty()) {
-                resolvedLibs.push_back(found);
-            } else {
-                // Fall back to -l flag
-                resolvedLibs.push_back(lib);
-            }
-        } else {
-            resolvedLibs.push_back(lib);
         }
+        return lib;  // Return as-is if not -l or not found
+    };
+
+    // Resolve -l flags to full paths and pass archives directly
+    // This avoids LLD search path issues with embedded invocation
+    std::vector<std::string> resolvedLibs;
+    for (const auto& lib : options.libraries) {
+        resolvedLibs.push_back(resolveLib(lib));
+    }
+
+    // Whole-archive libraries (force all symbols to be included,
+    // needed for static registrars that don't have external references)
+    std::vector<std::string> resolvedWholeArchiveLibs;
+    for (const auto& lib : options.wholeArchiveLibs) {
+        resolvedWholeArchiveLibs.push_back(resolveLib(lib));
+    }
+    if (!resolvedWholeArchiveLibs.empty()) {
+        args.push_back("--whole-archive");
+        for (const auto& lib : resolvedWholeArchiveLibs) {
+            args.push_back(lib.c_str());
+        }
+        args.push_back("--no-whole-archive");
     }
 
     // Pass all archives directly (no -l flags) in a group for circular dep resolution
