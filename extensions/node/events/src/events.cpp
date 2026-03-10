@@ -163,6 +163,22 @@ extern "C" {
         return ts_event_emitter_emit(emitter, event, 1, argv);
     }
 
+    bool ts_event_emitter_emit_packed(void* emitter, void* event, void* argsArray) {
+        if (!argsArray) {
+            return ts_event_emitter_emit(emitter, event, 0, nullptr);
+        }
+        TsArray* arr = (TsArray*)argsArray;
+        int64_t len = arr->Length();
+        if (len == 0) {
+            return ts_event_emitter_emit(emitter, event, 0, nullptr);
+        }
+        void** argv = (void**)alloca(len * sizeof(void*));
+        for (int64_t i = 0; i < len; i++) {
+            argv[i] = (void*)arr->Get(i);
+        }
+        return ts_event_emitter_emit(emitter, event, (int)len, argv);
+    }
+
     struct StaticOnceContext {
         TsPromise* promise;
     };

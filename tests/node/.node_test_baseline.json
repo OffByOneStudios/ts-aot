@@ -98,7 +98,7 @@
   "events/events_extended.ts": "pass",
   "events/events_listeners.ts": "pass",
   "events/events_raw_listeners.ts": "pass",
-  "events/events_static.ts": "fail",
+  "events/events_static.ts": "pass",
   "fs/fs_async.ts": "pass",
   "fs/fs_createReadStream.ts": "pass",
   "fs/fs_createWriteStream.ts": "pass",

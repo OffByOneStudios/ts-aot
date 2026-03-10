@@ -1661,6 +1661,22 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()          // pattern (raw TsString*)
             .ptrArg()          // flags (raw TsString*)
             .build());
+
+    // =========================================================================
+    // EventEmitter
+    // =========================================================================
+    // emit() is variadic: ee.emit('event', arg1, arg2, ...)
+    // Pack rest args into a TsArray and call the _packed variant.
+    // MethodResolutionPass resolves to Call: operands[0]=funcName, [1]=self, [2]=event, [3..]=rest
+    // restParamIndex=2 means operands[1] (self) and [2] (event) are fixed args;
+    // operands[3+] get packed into a TsArray.
+    reg.registerLowering("ts_EventEmitter_emit",
+        lowering("ts_event_emitter_emit_packed")
+            .returnsBool()
+            .ptrArg()      // self (emitter)
+            .ptrArg()      // event name (string)
+            .variadicHandling(VariadicHandling::PackArray, 2)
+            .build());
 }
 
 // Helper to build a LoweringSpec from extension lowering info

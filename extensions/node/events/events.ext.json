@@ -64,11 +64,11 @@
           "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "emit": {
-          "call": "ts_event_emitter_emit_ext",
+          "call": "ts_event_emitter_emit_packed",
           "hirName": "ts_EventEmitter_emit",
           "params": [
             {"name": "event", "type": "string"},
-            {"name": "arg1", "type": "any", "optional": true}
+            {"name": "args", "type": "any", "rest": true}
           ],
           "returns": "boolean",
           "lowering": { "args": ["ptr", "ptr"], "returns": "i1" }

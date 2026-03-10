@@ -5729,6 +5729,85 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
                 ? registry.lookup(hirName)
                 : nullptr;
             if (spec) {
+                // Handle PackArray variadic methods (e.g., EventEmitter.emit)
+                if (spec->variadicHandling == ::hir::VariadicHandling::PackArray) {
+                    // restParamIndex is in spec arg space (0=self, 1=first method arg, ...)
+                    // For CallMethod: operands[0]=obj, [1]=methodName, [2..]=args
+                    // Spec arg 0 = self (obj), spec arg N maps to operands[N+1]
+                    size_t restSpecIdx = spec->restParamIndex + 1; // +1 because self is arg 0
+                    // Fixed operand index where rest starts: self + restSpecIdx method args + 2 (obj, methodName)
+                    size_t restOperandIdx = restSpecIdx + 1; // operands index where rest args begin
+
+                    // Create array for rest arguments
+                    auto createFt = llvm::FunctionType::get(builder_->getPtrTy(), {}, false);
+                    auto createFn = module_->getOrInsertFunction("ts_array_create", createFt);
+                    llvm::Value* restArray = rawToGCPtr(builder_->CreateCall(createFt, createFn.getCallee(), {}));
+
+                    // Push each rest argument into the array
+                    auto pushFt = llvm::FunctionType::get(builder_->getInt64Ty(),
+                        { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+                    auto pushFn = module_->getOrInsertFunction("ts_array_push", pushFt);
+
+                    for (size_t i = restOperandIdx; i < inst->operands.size(); ++i) {
+                        llvm::Value* arg = getOperandValue(inst->operands[i]);
+                        arg = convertArg(arg, ::hir::ArgConversion::Box);
+                        builder_->CreateCall(pushFt, pushFn.getCallee(), { gcPtrToRaw(restArray), arg });
+                    }
+
+                    // Build fixed args: self + fixed method args
+                    std::vector<llvm::Value*> llvmArgs;
+                    size_t specArgIdx = 0;
+
+                    // Self arg
+                    if (specArgIdx < spec->argConversions.size()) {
+                        llvm::Value* selfArg = convertArg(obj, spec->argConversions[specArgIdx]);
+                        llvmArgs.push_back(selfArg);
+                        specArgIdx++;
+                    }
+
+                    // Fixed method args (before rest)
+                    for (size_t i = 2; i < restOperandIdx && i < inst->operands.size() && specArgIdx < spec->argConversions.size(); ++i, ++specArgIdx) {
+                        llvm::Value* arg = getOperandValue(inst->operands[i]);
+                        arg = convertArg(arg, spec->argConversions[specArgIdx]);
+                        llvmArgs.push_back(arg);
+                    }
+
+                    // Append the packed rest array
+                    llvmArgs.push_back(gcPtrToRaw(restArray));
+
+                    // Build LLVM function type
+                    llvm::Type* retTy = spec->returnType
+                        ? spec->returnType(context_)
+                        : builder_->getVoidTy();
+
+                    std::vector<llvm::Type*> argTys;
+                    for (const auto& argType : spec->argTypes) {
+                        argTys.push_back(argType(context_));
+                    }
+                    // Add rest array type if not in spec
+                    if (argTys.size() < llvmArgs.size()) {
+                        argTys.push_back(builder_->getPtrTy());
+                    }
+
+                    auto* ft = llvm::FunctionType::get(retTy, argTys, false);
+                    auto fn = module_->getOrInsertFunction(spec->runtimeFuncName, ft);
+
+                    llvm::Value* result;
+                    if (retTy->isVoidTy()) {
+                        builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+                        result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+                    } else {
+                        result = builder_->CreateCall(ft, fn.getCallee(), llvmArgs);
+                    }
+
+                    result = handleReturn(result, spec->returnHandling);
+
+                    if (inst->result) {
+                        setValue(inst->result, result);
+                    }
+                    return;
+                }
+
                 // Build LLVM function type from spec
                 llvm::Type* retTy = spec->returnType
                     ? spec->returnType(context_)
