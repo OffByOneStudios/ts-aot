@@ -1,12 +1,17 @@
 // Test: Generator functions generate correct HIR
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
-// HIR-CHECK: define generator @countUp
-// HIR-CHECK: yield
+// user_main calls countUp and iterates
+// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: call "countUp"
+// HIR-CHECK: call_method {{.*}}, "next"
 // HIR-CHECK: ret
 
-// HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: call
+// Generator function with yield
+// HIR-CHECK: define generator @countUp() -> class(Generator)
+// HIR-CHECK: yield
+// HIR-CHECK: yield
+// HIR-CHECK: yield
 // HIR-CHECK: ret
 
 // OUTPUT: 1

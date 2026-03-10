@@ -1,15 +1,21 @@
 // Test: Functions with multiple return paths
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// HIR-CHECK: define @classify
+// user_main calls classify_dbl (monomorphized name)
+// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: call "classify_dbl"
+// HIR-CHECK: ret
+
+// classify_dbl has multiple return paths with string literals
+// HIR-CHECK: define @classify_dbl(f64 %{{.*}}) -> string
+// HIR-CHECK: cmp.lt.f64
+// HIR-CHECK: condbr
 // HIR-CHECK: const.string "negative"
 // HIR-CHECK: ret
 // HIR-CHECK: const.string "zero"
 // HIR-CHECK: ret
 // HIR-CHECK: const.string "positive"
 // HIR-CHECK: ret
-
-// HIR-CHECK: define @user_main() -> f64
 
 // OUTPUT: negative
 // OUTPUT: zero

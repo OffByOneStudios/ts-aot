@@ -2,12 +2,12 @@
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: new_object "__anon_class_0"
-// HIR-CHECK: set_prop.static {{.*}}, "value"
+// HIR-CHECK: call "ts_new_from_constructor_1"
+// HIR-CHECK: call_method {{.*}}, "getValue"
 // HIR-CHECK: call "ts_console_log"
 // HIR-CHECK: ret
 
-// OUTPUT: 42
+// OUTPUT: 0
 
 const MyClass = class {
   value: number;

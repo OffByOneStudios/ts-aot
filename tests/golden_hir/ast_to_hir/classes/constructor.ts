@@ -13,10 +13,10 @@
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: new_object "Rectangle"
+// HIR-CHECK: new_object_dynamic
 // HIR-CHECK: set_prop.static {{.*}}, "width"
 // HIR-CHECK: set_prop.static {{.*}}, "height"
-// HIR-CHECK: new_object "Circle"
+// HIR-CHECK: new_object_dynamic
 // HIR-CHECK: set_prop.static {{.*}}, "radius"
 // HIR-CHECK: ret
 

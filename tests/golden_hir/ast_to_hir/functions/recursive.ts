@@ -1,14 +1,19 @@
 // Test: Recursive functions generate correct HIR
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// HIR-CHECK: define @factorial
-// HIR-CHECK: const.f64 1
-// HIR-CHECK: ret
-// HIR-CHECK: call "factorial"
-// HIR-CHECK: mul.f64
+// user_main calls factorial_dbl (monomorphized name)
+// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: call "factorial_dbl"
 // HIR-CHECK: ret
 
-// HIR-CHECK: define @user_main() -> f64
+// factorial_dbl has recursive call
+// HIR-CHECK: define @factorial_dbl(f64 %{{.*}}) -> f64
+// HIR-CHECK: cmp.le.f64
+// HIR-CHECK: condbr
+// HIR-CHECK: ret
+// HIR-CHECK: call "factorial_dbl"
+// HIR-CHECK: mul.f64
+// HIR-CHECK: ret
 
 // OUTPUT: 1
 // OUTPUT: 120

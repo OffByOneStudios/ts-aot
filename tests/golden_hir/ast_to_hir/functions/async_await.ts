@@ -1,12 +1,14 @@
 // Test: Async functions and await generate correct HIR
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
-// HIR-CHECK: define async @fetchData
+// user_main is async, calls fetchData and awaits
+// HIR-CHECK: define async @user_main() -> class(Promise)
+// HIR-CHECK: call "fetchData"
+// HIR-CHECK: await
 // HIR-CHECK: ret
 
-// HIR-CHECK: define async @user_main()
-// HIR-CHECK: call
-// HIR-CHECK: await
+// fetchData is async, returns a constant
+// HIR-CHECK: define async @fetchData() -> class(Promise)
 // HIR-CHECK: ret
 
 // OUTPUT: 42

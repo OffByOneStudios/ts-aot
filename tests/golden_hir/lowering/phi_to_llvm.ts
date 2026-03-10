@@ -1,12 +1,16 @@
 // Test: PHI nodes for conditional values
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// Conditional expressions should use PHI nodes
-// HIR-CHECK: define @max
-// HIR-CHECK: cmp.gt.f64
+// user_main calls max (emitted first)
+// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: call "max_dbl_dbl"
 // HIR-CHECK: ret
 
-// HIR-CHECK: define @user_main() -> f64
+// Conditional expressions in max (monomorphized as max_dbl_dbl)
+// HIR-CHECK: define @max_dbl_dbl
+// HIR-CHECK: cmp.gt.f64
+// HIR-CHECK: condbr
+// HIR-CHECK: ret
 
 // OUTPUT: 20
 // OUTPUT: 15

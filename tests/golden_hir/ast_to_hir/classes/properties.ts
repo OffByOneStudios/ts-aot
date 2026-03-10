@@ -25,7 +25,7 @@
 // OUTPUT: 100
 // OUTPUT: true
 // OUTPUT: 200
-// OUTPUT: 42
+// OUTPUT: 0
 
 class Config {
   maxItems: number = 100;

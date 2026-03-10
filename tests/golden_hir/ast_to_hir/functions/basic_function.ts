@@ -1,12 +1,13 @@
 // Test: Basic function definition and call
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 
-// HIR-CHECK: define @add(f64 %{{.*}}, f64 %{{.*}}) -> f64
+// add is inlined into user_main, but separate definition still exists
+// HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: add.f64
 // HIR-CHECK: ret
 
-// Function is inlined after optimization
-// HIR-CHECK: define @user_main() -> f64
+// Monomorphized function definition
+// HIR-CHECK: define @add_dbl_dbl(f64 %{{.*}}, f64 %{{.*}}) -> f64
 // HIR-CHECK: add.f64
 // HIR-CHECK: ret
 

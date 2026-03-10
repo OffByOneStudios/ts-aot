@@ -2,8 +2,8 @@
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
 // HIR-CHECK: define @user_main() -> f64
-// Map constructor uses runtime call
-// HIR-CHECK: call "ts_map_create"
+// Map constructor uses runtime call (explicit type variant)
+// HIR-CHECK: call "ts_map_create_explicit"
 // Set constructor uses runtime call
 // HIR-CHECK: call "ts_set_create"
 // HIR-CHECK: ret

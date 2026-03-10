@@ -18,7 +18,7 @@
 
 // Factory static method with inlined constructor
 // HIR-CHECK: define @Point_static_origin
-// HIR-CHECK: new_object "Point"
+// HIR-CHECK: new_object_dynamic
 // HIR-CHECK: set_prop.static {{.*}}, "x"
 // HIR-CHECK: set_prop.static {{.*}}, "y"
 // HIR-CHECK: ret
@@ -27,7 +27,7 @@
 // HIR-CHECK: const.f64 3.14159
 // HIR-CHECK: call "ts_console_log"
 // HIR-CHECK: add.f64
-// HIR-CHECK: new_object "Point"
+// HIR-CHECK: new_object_dynamic
 // HIR-CHECK: ret
 
 // OUTPUT: 3.14159

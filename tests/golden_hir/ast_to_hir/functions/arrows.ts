@@ -1,17 +1,22 @@
 // Test: Arrow functions generate correct HIR
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// Arrow function definitions come first in HIR
-// HIR-CHECK: define @__arrow_fn_0
+// user_main creates closures and calls them
+// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: make_closure "__arrow_fn_0"
+// HIR-CHECK: call_indirect
+// HIR-CHECK: make_closure "__arrow_fn_1"
+// HIR-CHECK: call_indirect
+// HIR-CHECK: ret
+
+// Arrow function definitions appear after user_main
+// HIR-CHECK: define @__arrow_fn_0({{.*}}) -> f64
 // HIR-CHECK: mul.f64
 // HIR-CHECK: ret
 
-// HIR-CHECK: define @__arrow_fn_1
+// HIR-CHECK: define @__arrow_fn_1({{.*}}) -> f64
 // HIR-CHECK: add.f64
 // HIR-CHECK: ret
-
-// Then user_main
-// HIR-CHECK: define @user_main() -> f64
 
 // OUTPUT: 10
 // OUTPUT: 7

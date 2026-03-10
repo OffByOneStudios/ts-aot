@@ -1,18 +1,21 @@
 // Test: Mutable closure captures generate correct HIR
 // RUN: %ts-aot %s --use-hir -o %t.exe && %t.exe
 
-// The inner function (appears first in HIR output)
-// HIR-CHECK: define @__arrow_fn_
-// HIR-CHECK: load_capture
-// HIR-CHECK: add.f64
-// HIR-CHECK: store_capture
+// makeCounter is inlined into user_main
+// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: make_closure "__arrow_fn_0"
+// HIR-CHECK: call_indirect
 // HIR-CHECK: ret
 
-// Counter function with mutable captured variable
-// HIR-CHECK: define @makeCounter
-// HIR-CHECK: make_closure
+// Separate makeCounter definition
+// HIR-CHECK: define @makeCounter() -> () -> f64
+// HIR-CHECK: make_closure "__arrow_fn_0"
 
-// HIR-CHECK: define @user_main() -> f64
+// Arrow function with mutable capture
+// HIR-CHECK: define @__arrow_fn_0({{.*}}) -> f64
+// HIR-CHECK: load_capture "count"
+// HIR-CHECK: add.f64
+// HIR-CHECK: store_capture "count"
 // HIR-CHECK: ret
 
 // OUTPUT: 1

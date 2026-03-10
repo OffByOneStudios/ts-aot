@@ -7,7 +7,7 @@
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: new_object "Point"
+// HIR-CHECK: new_object_dynamic
 // HIR-CHECK: set_prop.static {{.*}}, "x"
 // HIR-CHECK: set_prop.static {{.*}}, "y"
 // HIR-CHECK: ret

@@ -4,8 +4,15 @@
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: const.bool true
 // HIR-CHECK: const.bool false
-// HIR-CHECK: and.bool
-// HIR-CHECK: or.bool
+// Short-circuit AND: condbr on lhs, phi to merge
+// HIR-CHECK: box.bool
+// HIR-CHECK: condbr
+// HIR-CHECK: phi
+// Short-circuit OR: condbr on lhs, phi to merge
+// HIR-CHECK: box.bool
+// HIR-CHECK: condbr
+// HIR-CHECK: phi
+// Logical NOT
 // HIR-CHECK: not.bool
 // HIR-CHECK: ret
 

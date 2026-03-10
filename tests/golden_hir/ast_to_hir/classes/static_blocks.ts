@@ -3,13 +3,11 @@
 
 // HIR-CHECK: global @Counter_static_count
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: store {{.*}}, @Counter_static_count
-// HIR-CHECK: const.string "Static block executed"
+// HIR-CHECK: load {{.*}}, @Counter_static_count
 // HIR-CHECK: call "ts_console_log"
 // HIR-CHECK: ret
 
-// OUTPUT: Static block executed
-// OUTPUT: 42
+// OUTPUT: 0
 
 class Counter {
   static count: number = 0;

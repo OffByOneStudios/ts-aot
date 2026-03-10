@@ -1,13 +1,13 @@
 // Test: Function calls lower to LLVM call instructions
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// HIR calls should generate LLVM call
-// HIR-CHECK: define @add
+// Function is inlined into user_main after optimization
+// HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: add.f64
 // HIR-CHECK: ret
 
-// Function is inlined after optimization
-// HIR-CHECK: define @user_main() -> f64
+// HIR calls should generate LLVM call (monomorphized as add_dbl_dbl)
+// HIR-CHECK: define @add_dbl_dbl
 // HIR-CHECK: add.f64
 // HIR-CHECK: ret
 

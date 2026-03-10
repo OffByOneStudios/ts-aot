@@ -1,14 +1,16 @@
 // Test: Void functions generate correct HIR
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// HIR-CHECK: define @printMessage
-// HIR-CHECK: ret
-
-// Function is inlined after optimization
+// printMessage is inlined into user_main
 // HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: const.string "Hello from function!"
 // HIR-CHECK: call "ts_console_log"
 // HIR-CHECK: ret
+
+// Separate printMessage definition still exists
+// HIR-CHECK: define @printMessage() -> void
+// HIR-CHECK: const.string "Hello from function!"
+// HIR-CHECK: ret void
 
 // OUTPUT: Hello from function!
 // OUTPUT: done

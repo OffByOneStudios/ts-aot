@@ -1,19 +1,21 @@
 // Test: Closure capture lowering to LLVM
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// Arrow function is defined first (inner function hoisted)
+// user_main is emitted first (with inlined makeAccumulator)
+// HIR-CHECK: define @user_main() -> f64
+// HIR-CHECK: make_closure "__arrow_fn_0"
+// HIR-CHECK: call_indirect
+// HIR-CHECK: ret
+
+// makeAccumulator emitted after (monomorphized as makeAccumulator_dbl)
+// HIR-CHECK: define @makeAccumulator_dbl
+// HIR-CHECK: make_closure
+
+// Arrow function captures count and step
 // HIR-CHECK: define @__arrow_fn_0
 // HIR-CHECK: load_capture "count"
 // HIR-CHECK: add.f64
 // HIR-CHECK: store_capture
-// HIR-CHECK: ret
-
-// Then makeAccumulator uses make_closure
-// HIR-CHECK: define @makeAccumulator
-// HIR-CHECK: make_closure
-
-// Finally user_main
-// HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: ret
 
 // OUTPUT: 10

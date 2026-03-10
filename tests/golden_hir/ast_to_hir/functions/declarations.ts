@@ -1,25 +1,17 @@
 // Test: Function declarations with parameters and return
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// Test function with multiple parameters
-// HIR-CHECK: define @add({{.*}}, {{.*}}) -> f64
+// add and multiply are inlined; abs is called directly
+// HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: add.f64
-// HIR-CHECK: ret
-
-// Test function with return statement
-// HIR-CHECK: define @multiply({{.*}}, {{.*}}) -> f64
 // HIR-CHECK: mul.f64
+// HIR-CHECK: call "abs_dbl"
 // HIR-CHECK: ret
 
-// Test function with multiple returns (early return)
-// HIR-CHECK: define @abs
+// abs function with conditional return (not inlined due to branching)
+// HIR-CHECK: define @abs_dbl(f64 %{{.*}}) -> f64
 // HIR-CHECK: cmp.lt.f64
 // HIR-CHECK: condbr
-// HIR-CHECK: neg.f64
-// HIR-CHECK: ret
-// HIR-CHECK: ret
-
-// HIR-CHECK: define @user_main() -> f64
 // HIR-CHECK: ret
 
 // OUTPUT: 15

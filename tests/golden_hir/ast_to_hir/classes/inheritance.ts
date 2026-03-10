@@ -26,10 +26,10 @@
 // HIR-CHECK: ret
 
 // HIR-CHECK: define @user_main() -> f64
-// HIR-CHECK: new_object "Dog"
+// HIR-CHECK: new_object_dynamic
 // HIR-CHECK: set_prop.static {{.*}}, "name"
 // HIR-CHECK: set_prop.static {{.*}}, "breed"
-// HIR-CHECK: new_object "Cat"
+// HIR-CHECK: new_object_dynamic
 // HIR-CHECK: set_prop.static {{.*}}, "name"
 // HIR-CHECK: ret
 

@@ -1,16 +1,17 @@
 // Test: Rest parameters create array from call-site arguments
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// HIR-CHECK: define @sum
-// Rest parameter is an array - accessed via get_elem
-// HIR-CHECK: get_elem
-// HIR-CHECK: ret
-
+// user_main packages arguments into arrays and calls sum_arr
 // HIR-CHECK: define @user_main() -> f64
-// Call site packages arguments into array
 // HIR-CHECK: new_array.boxed
 // HIR-CHECK: set_elem
-// HIR-CHECK: call "sum"
+// HIR-CHECK: call "sum_arr"
+// HIR-CHECK: ret
+
+// sum function (monomorphized as sum_arr) iterates over rest array
+// HIR-CHECK: define @sum_arr({{.*}}) -> f64
+// HIR-CHECK: get_elem
+// HIR-CHECK: add.f64
 // HIR-CHECK: ret
 
 // OUTPUT: 10

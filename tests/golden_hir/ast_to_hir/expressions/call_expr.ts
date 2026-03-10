@@ -1,14 +1,17 @@
 // Test: Function call expressions in HIR
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// HIR-CHECK: define @add({{.*}}) -> f64
+// The add function is inlined into user_main, but also emitted separately
+// HIR-CHECK: define @user_main() -> f64
+// Inlined function call: arguments are const.f64, result is add.f64
+// HIR-CHECK: const.f64 10
+// HIR-CHECK: const.f64 20
 // HIR-CHECK: add.f64
 // HIR-CHECK: ret
 
-// HIR-CHECK: define @user_main() -> f64
-// Function call arguments stay as f64 since function parameters are f64
-// HIR-CHECK: const.f64 10
-// HIR-CHECK: const.f64 20
+// Original add function is also emitted
+// HIR-CHECK: define @add_dbl_dbl({{.*}}) -> f64
+// HIR-CHECK: add.f64
 // HIR-CHECK: ret
 
 // OUTPUT: 30

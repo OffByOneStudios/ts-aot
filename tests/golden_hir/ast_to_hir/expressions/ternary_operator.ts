@@ -1,18 +1,20 @@
 // Test: Ternary/conditional operator in HIR
 // RUN: %ts-aot %s --use-hir --dump-hir -o %t.exe && %t.exe
 
-// Ternary operator generates select instruction
+// Ternary operator generates condbr + phi (branch-based selection)
 // HIR-CHECK: define @user_main() -> f64
 
-// Condition check and select
+// First ternary: condition check and branch
 // HIR-CHECK: cmp.lt.f64
+// HIR-CHECK: condbr
 // HIR-CHECK: const.string "small"
 // HIR-CHECK: const.string "large"
-// HIR-CHECK: select
+// HIR-CHECK: phi
 
 // Second ternary with numbers
 // HIR-CHECK: cmp.gt.f64
-// HIR-CHECK: select
+// HIR-CHECK: condbr
+// HIR-CHECK: phi
 
 // HIR-CHECK: ret
 
