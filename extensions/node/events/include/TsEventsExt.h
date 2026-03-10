@@ -24,6 +24,7 @@ int ts_event_emitter_listener_count(void* emitter, void* event);
 void* ts_event_emitter_listeners(void* emitter, void* event);
 void* ts_event_emitter_raw_listeners(void* emitter, void* event);
 bool ts_event_emitter_emit(void* emitter, void* event, int argc, void** argv);
+bool ts_event_emitter_emit_ext(void* emitter, void* event, void* arg1);
 void* ts_event_emitter_event_names(void* emitter);
 
 // Static module methods (events.once, events.on)

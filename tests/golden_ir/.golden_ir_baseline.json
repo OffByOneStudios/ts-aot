@@ -122,7 +122,7 @@
   "golden_ir/typescript/arrays/array_every.ts": "pass",
   "golden_ir/typescript/arrays/array_filter.ts": "pass",
   "golden_ir/typescript/arrays/array_find.ts": "pass",
-  "golden_ir/typescript/arrays/array_findindex.ts": "pass",
+  "golden_ir/typescript/arrays/array_findIndex.ts": "pass",
   "golden_ir/typescript/arrays/array_indexof.ts": "pass",
   "golden_ir/typescript/arrays/array_join.ts": "pass",
   "golden_ir/typescript/arrays/array_literal.ts": "pass",

@@ -6,6 +6,12 @@
   "types": {
     "EventEmitter": {
       "kind": "class",
+      "constructor": {
+        "call": "ts_event_emitter_create",
+        "hirName": "ts_EventEmitter_create",
+        "params": [],
+        "lowering": { "args": [], "returns": "ptr" }
+      },
       "methods": {
         "on": {
           "call": "ts_event_emitter_on",
@@ -58,13 +64,14 @@
           "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
         },
         "emit": {
-          "call": "ts_event_emitter_emit",
+          "call": "ts_event_emitter_emit_ext",
           "hirName": "ts_EventEmitter_emit",
           "params": [
-            {"name": "event", "type": "string"}
+            {"name": "event", "type": "string"},
+            {"name": "arg1", "type": "any", "optional": true}
           ],
           "returns": "boolean",
-          "lowering": { "args": ["ptr"], "returns": "i1" }
+          "lowering": { "args": ["ptr", "ptr"], "returns": "i1" }
         },
         "removeListener": {
           "call": "ts_event_emitter_remove_listener",

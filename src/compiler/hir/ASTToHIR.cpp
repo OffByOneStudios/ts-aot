@@ -3785,9 +3785,28 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                 }
             }
 
+            // Check if this is a captured variable from an outer function
+            {
+                size_t scopeIndex = 0;
+                if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
+                    auto* capInfo = lookupVariableInfo(ident->name);
+                    auto type = capInfo && capInfo->elemType ? capInfo->elemType : result->type;
+                    registerCapture(ident->name, type, scopeIndex);
+                    currentFunction_->hasClosure = true;
+                    builder_.createStoreCapture(ident->name, result);
+                    lastValue_ = result;
+                    return;
+                }
+            }
+
             auto* info = lookupVariableInfo(ident->name);
             if (info && info->isAlloca) {
                 builder_.createStore(result, info->value, info->elemType);
+                // If this variable is captured by a nested closure, also update the cell
+                if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
+                    auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+                    builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
+                }
             } else if (info) {
                 // Direct value - promote to alloca for mutability
                 auto allocaPtr = builder_.createAlloca(result->type, ident->name);

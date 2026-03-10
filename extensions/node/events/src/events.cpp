@@ -155,6 +155,14 @@ extern "C" {
         return e->Emit(s->ToUtf8(), argc, argv);
     }
 
+    bool ts_event_emitter_emit_ext(void* emitter, void* event, void* arg1) {
+        if (!arg1 || ts_value_is_undefined((TsValue*)arg1) || ts_value_is_null((TsValue*)arg1)) {
+            return ts_event_emitter_emit(emitter, event, 0, nullptr);
+        }
+        void* argv[] = { arg1 };
+        return ts_event_emitter_emit(emitter, event, 1, argv);
+    }
+
     struct StaticOnceContext {
         TsPromise* promise;
     };

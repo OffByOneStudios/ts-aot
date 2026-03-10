@@ -116,6 +116,176 @@ static struct ModuleCacheScanner {
 // Used by TsMap.cpp to trace writes to module.exports.
 extern "C" void* g_debug_lodash_module_map = nullptr;
 
+// ============================================================================
+// Flat object EventEmitter delegation
+// When a class extends EventEmitter and is compiled as a flat object,
+// EventEmitter methods (on, emit, once, etc.) are delegated to a lazily-
+// created backing TsEventEmitter stored in the overflow map under "__emitter__".
+// ============================================================================
+
+// Get or create the backing TsEventEmitter for any object (flat or TsMap).
+// Uses TsMap storage under key "__emitter__" for the backing emitter.
+static TsEventEmitter* obj_get_or_create_emitter(void* obj) {
+    TsMap* storageMap = nullptr;
+
+    if (is_flat_object(obj)) {
+        uint32_t shapeId = flat_object_shape_id(obj);
+        ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+        if (!desc) return nullptr;
+
+        void** overflowPtr = flat_object_overflow_ptr(obj, desc->numSlots);
+        storageMap = (TsMap*)*overflowPtr;
+
+        // Check if __emitter__ already exists
+        if (storageMap) {
+            TsString* key = TsString::Create("__emitter__");
+            TsValue result = storageMap->Get(TsValue(key));
+            if (result.type != ValueType::UNDEFINED && result.ptr_val) {
+                return (TsEventEmitter*)result.ptr_val;
+            }
+        }
+
+        // Create new TsEventEmitter
+        void* mem = ts_gc_alloc(sizeof(TsEventEmitter));
+        TsEventEmitter* emitter = new (mem) TsEventEmitter();
+
+        // Store in overflow map
+        if (!storageMap) {
+            storageMap = TsMap::Create();
+            *overflowPtr = storageMap;
+            ts_gc_write_barrier(overflowPtr, storageMap);
+        }
+        TsString* key = TsString::Create("__emitter__");
+        TsValue emitterVal;
+        emitterVal.type = ValueType::OBJECT_PTR;
+        emitterVal.ptr_val = emitter;
+        storageMap->Set(TsValue(key), emitterVal);
+        return emitter;
+    } else {
+        // TsMap-based object
+        storageMap = (TsMap*)obj;
+        TsString* key = TsString::Create("__emitter__");
+        TsValue result = storageMap->Get(TsValue(key));
+        if (result.type != ValueType::UNDEFINED && result.ptr_val) {
+            return (TsEventEmitter*)result.ptr_val;
+        }
+
+        // Create new TsEventEmitter
+        void* mem = ts_gc_alloc(sizeof(TsEventEmitter));
+        TsEventEmitter* emitter = new (mem) TsEventEmitter();
+
+        TsValue emitterVal;
+        emitterVal.type = ValueType::OBJECT_PTR;
+        emitterVal.ptr_val = emitter;
+        storageMap->Set(TsValue(key), emitterVal);
+        return emitter;
+    }
+}
+
+
+// Helper: extract raw string pointer from NaN-boxed TsValue*
+static void* flat_ee_unbox_string(TsValue* v) {
+    uint64_t nb = (uint64_t)(uintptr_t)v;
+    if (nanbox_is_ptr(nb)) return nanbox_to_ptr(nb);
+    return v;  // already raw pointer
+}
+
+// Native function wrappers for flat object EventEmitter delegation.
+// These receive the flat object as context, get its backing emitter, and delegate.
+// IMPORTANT: argv[] entries are NaN-boxed TsValue*, but ts_event_emitter_on etc.
+// expect raw TsString* for event name. We need to unbox the event name.
+// The callback can stay NaN-boxed since TsEventEmitter stores/calls it as void*.
+static TsValue* flat_ee_on_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 2 || !ctx) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    TsEventEmitter* e = obj_get_or_create_emitter(ctx);
+    if (!e) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    void* eventStr = flat_ee_unbox_string(argv[0]);
+    e->On(((TsString*)eventStr)->ToUtf8(), argv[1]);
+    return (TsValue*)(uintptr_t)nanbox_ptr(ctx);  // return this for chaining
+}
+
+static TsValue* flat_ee_once_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 2 || !ctx) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    TsEventEmitter* e = obj_get_or_create_emitter(ctx);
+    if (!e) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    void* eventStr = flat_ee_unbox_string(argv[0]);
+    e->Once(((TsString*)eventStr)->ToUtf8(), argv[1]);
+    return (TsValue*)(uintptr_t)nanbox_ptr(ctx);
+}
+
+static TsValue* flat_ee_emit_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 1 || !ctx) return (TsValue*)(uintptr_t)nanbox_bool(false);
+    TsEventEmitter* e = obj_get_or_create_emitter(ctx);
+    if (!e) return (TsValue*)(uintptr_t)nanbox_bool(false);
+    void* eventStr = flat_ee_unbox_string(argv[0]);
+    // Collect remaining args
+    int emitArgc = argc - 1;
+    void** emitArgv = nullptr;
+    if (emitArgc > 0) {
+        emitArgv = (void**)argv + 1;  // argv[1..] are the emit arguments
+    }
+    bool result = e->Emit(((TsString*)eventStr)->ToUtf8(), emitArgc, emitArgv);
+    return (TsValue*)(uintptr_t)nanbox_bool(result);
+}
+
+static TsValue* flat_ee_off_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 2 || !ctx) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    TsEventEmitter* e = obj_get_or_create_emitter(ctx);
+    if (!e) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    void* eventStr = flat_ee_unbox_string(argv[0]);
+    e->RemoveListener(((TsString*)eventStr)->ToUtf8(), argv[1]);
+    return (TsValue*)(uintptr_t)nanbox_ptr(ctx);
+}
+
+static TsValue* flat_ee_removeAllListeners_native(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    TsEventEmitter* e = obj_get_or_create_emitter(ctx);
+    if (!e) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    if (argc >= 1) {
+        void* eventStr = flat_ee_unbox_string(argv[0]);
+        e->RemoveAllListeners(((TsString*)eventStr)->ToUtf8());
+    } else {
+        e->RemoveAllListeners(nullptr);
+    }
+    return (TsValue*)(uintptr_t)nanbox_ptr(ctx);
+}
+
+static TsValue* flat_ee_listenerCount_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 1 || !ctx) return (TsValue*)(uintptr_t)nanbox_int32(0);
+    TsEventEmitter* e = obj_get_or_create_emitter(ctx);
+    if (!e) return (TsValue*)(uintptr_t)nanbox_int32(0);
+    void* eventStr = flat_ee_unbox_string(argv[0]);
+    int count = e->ListenerCount(((TsString*)eventStr)->ToUtf8());
+    return (TsValue*)(uintptr_t)nanbox_int32(count);
+}
+
+static TsValue* flat_ee_eventNames_native(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    TsEventEmitter* e = obj_get_or_create_emitter(ctx);
+    if (!e) return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    void* names = e->EventNames();
+    return names ? (TsValue*)(uintptr_t)nanbox_ptr(names) : (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+}
+
+// Check if a property name is an EventEmitter method and return the appropriate wrapper
+static TsValue* flat_try_ee_method(void* obj, const char* keyStr) {
+    if (strcmp(keyStr, "on") == 0 || strcmp(keyStr, "addListener") == 0)
+        return ts_value_make_native_function((void*)flat_ee_on_native, obj);
+    if (strcmp(keyStr, "once") == 0)
+        return ts_value_make_native_function((void*)flat_ee_once_native, obj);
+    if (strcmp(keyStr, "emit") == 0)
+        return ts_value_make_native_function((void*)flat_ee_emit_native, obj);
+    if (strcmp(keyStr, "off") == 0 || strcmp(keyStr, "removeListener") == 0)
+        return ts_value_make_native_function((void*)flat_ee_off_native, obj);
+    if (strcmp(keyStr, "removeAllListeners") == 0)
+        return ts_value_make_native_function((void*)flat_ee_removeAllListeners_native, obj);
+    if (strcmp(keyStr, "listenerCount") == 0)
+        return ts_value_make_native_function((void*)flat_ee_listenerCount_native, obj);
+    if (strcmp(keyStr, "eventNames") == 0)
+        return ts_value_make_native_function((void*)flat_ee_eventNames_native, obj);
+    return nullptr;
+}
+
 // nanbox_from_tagged / nanbox_to_tagged are now in TsObject.h
 
 // Helper: check if a NaN-boxed value represents a string pointer
@@ -1629,6 +1799,15 @@ TsValue* ts_value_make_int(int64_t i) {
         // dispatches even for virtual-inheritance classes.
         if (ts_gc_base(obj)) {
             uint32_t magic16 = *(uint32_t*)((uint8_t*)obj + 16);
+            // Check for TsSet first - dispatch through its own vtable
+            if (magic16 == 0x53455453) {  // TsSet::MAGIC "SETS"
+                extern TsValue* ts_set_get_property(void* obj, void* propName);
+                TsString* propStr = TsString::Create(keyStr);
+                TsValue* result = ts_set_get_property(obj, propStr);
+                if (result && !ts_value_is_undefined(result)) {
+                    return result;
+                }
+            }
             if (magic16 == 0x50524F4D ||  // TsPromise::MAGIC "PROM"
                 magic16 == 0x54584E43 ||  // TsTextEncoder::MAGIC "TXNC"
                 magic16 == 0x54584443 ||  // TsTextDecoder::MAGIC "TXDC"
@@ -1740,6 +1919,9 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (strcmp(keyStr, "propertyIsEnumerable") == 0) {
                     return ts_value_make_native_function((void*)ts_object_propertyIsEnumerable_native, nullptr);
                 }
+                // Check for EventEmitter methods on flat objects extending EventEmitter
+                TsValue* eeMethod = flat_try_ee_method(obj, keyStr);
+                if (eeMethod) return eeMethod;
             }
             return result;
         }
@@ -1892,6 +2074,11 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
             TsMap* map = (TsMap*)obj;
 
+            // Handle Map .size property (computed, not stored as key-value)
+            if (strcmp(keyStr, "size") == 0) {
+                return ts_value_make_int(map->Size());
+            }
+
             // Walk the prototype chain looking for the property
             TsMap* currentMap = map;
             while (currentMap != nullptr) {
@@ -1941,6 +2128,11 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "propertyIsEnumerable") == 0) {
                 return ts_value_make_native_function((void*)ts_object_propertyIsEnumerable_native, nullptr);
+            }
+            // Check for EventEmitter methods on TsMap-backed objects extending EventEmitter
+            {
+                TsValue* eeMethod = flat_try_ee_method(obj, keyStr);
+                if (eeMethod) return eeMethod;
             }
 
             return ts_value_make_undefined();
@@ -4752,10 +4944,20 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
-        // Check if this is actually a TsMap before using map operations
-        // TsMap::MAGIC is at offset 16 (after vtable ptr + explicit vtable field)
+        // Check for TsSet (magic 0x53455453 "SETS" at offset 16, 20, or 24)
         uint32_t magic20 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 20);
         uint32_t magic24 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 24);
+        if (magic16 == 0x53455453 || magic20 == 0x53455453 || magic24 == 0x53455453) {
+            // TsSet - dispatch through ts_set_get_property
+            extern TsValue* ts_set_get_property(void* obj, void* propName);
+            if (keyStr) {
+                return ts_set_get_property(rawObj, keyStr);
+            }
+            return ts_value_make_undefined();
+        }
+
+        // Check if this is actually a TsMap before using map operations
+        // TsMap::MAGIC is at offset 16 (after vtable ptr + explicit vtable field)
         if (magic16 != 0x4D415053 && magic20 != 0x4D415053 && magic24 != 0x4D415053) {
             // Not a map - try ts_object_get_property as fallback
             if (keyStr) {
@@ -4798,6 +5000,14 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsMap* proto = map->GetPrototype();
                 if (proto) return ts_value_make_object(proto);
                 return ts_value_make_null();
+            }
+        }
+
+        // Handle Map/Set .size property (computed, not stored)
+        if (keyStr) {
+            const char* k = keyStr->ToUtf8();
+            if (k && strcmp(k, "size") == 0) {
+                return ts_value_make_int(map->Size());
             }
         }
 
