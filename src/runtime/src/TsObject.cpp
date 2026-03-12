@@ -6887,4 +6887,30 @@ void* ts_builtin_lookup_special(const char* name) {
 
         return ts_value_make_object(element);
     }
+
+    // Object() called as function (not constructor) - JS semantics
+    // Object() → empty object, Object(val) → val if object, else wrap
+    void* ts_object_constructor(void* arg) {
+        if (!arg) return TsMap::Create();
+
+        uint64_t nb = (uint64_t)(uintptr_t)arg;
+
+        // null/undefined → empty object
+        if (nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+            return TsMap::Create();
+        }
+
+        // If already a pointer (object/array/etc), return as-is
+        if (nanbox_is_ptr(nb)) {
+            return arg;
+        }
+
+        // Primitives: wrap in empty object (simplified - real JS wraps in Number/String/Boolean objects)
+        return TsMap::Create();
+    }
+
+    // Object() with no args - create empty object
+    void* ts_object_create_empty() {
+        return TsMap::Create();
+    }
 }

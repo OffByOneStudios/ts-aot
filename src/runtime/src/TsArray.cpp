@@ -2646,4 +2646,44 @@ extern "C" {
         }
         array->SetUnchecked(index, bits);
     }
+
+    // Array(arg) constructor called as function - handles JS semantics:
+    // Array(n) where n is non-negative integer: create array of length n
+    // Array(x) where x is not integer: create array with x as single element
+    void* ts_array_constructor(void* arg) {
+        if (!arg) return TsArray::Create(0);
+
+        uint64_t nb = (uint64_t)(uintptr_t)arg;
+
+        // Check if arg is a number
+        if (nanbox_is_int32(nb)) {
+            int64_t n = nanbox_to_int64(nb);
+            if (n >= 0) return TsArray::CreateSized((size_t)n);
+            // Negative: treat as single element
+            TsArray* arr = TsArray::Create(1);
+            arr->Push((int64_t)arg);
+            return arr;
+        }
+        if (nanbox_is_double(nb)) {
+            double d = nanbox_to_double(nb);
+            int64_t n = (int64_t)d;
+            if (d == (double)n && n >= 0) return TsArray::CreateSized((size_t)n);
+            // Non-integer or negative: single element
+            TsArray* arr = TsArray::Create(1);
+            arr->Push((int64_t)arg);
+            return arr;
+        }
+
+        // Non-number: create array with arg as single element
+        TsArray* arr = TsArray::Create(1);
+        arr->Push((int64_t)arg);
+        return arr;
+    }
+
+    // Push a NaN-boxed value onto an array (for Array(a, b, c) pattern)
+    void ts_array_push_any(void* arr, void* value) {
+        if (!arr) return;
+        TsArray* array = (TsArray*)arr;
+        array->Push((int64_t)value);
+    }
 }

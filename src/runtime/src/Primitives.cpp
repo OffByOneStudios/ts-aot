@@ -942,4 +942,16 @@ double ts_to_number(TsValue* v) {
     return std::numeric_limits<double>::quiet_NaN();
 }
 
+// Helper: native function that returns globalThis when called
+static TsValue* ts_return_globalThis_native(void* ctx, int argc, TsValue** argv) {
+    extern TsValue* globalThis;
+    return globalThis;
+}
+
+// Function('return this')() stub - returns a callable that returns globalThis
+// Used by lodash _root.js as a last-resort fallback for getting the global object
+void* ts_function_constructor_stub() {
+    return ts_value_make_native_function((void*)ts_return_globalThis_native, nullptr);
+}
+
 }

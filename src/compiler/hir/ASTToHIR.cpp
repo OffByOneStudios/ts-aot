@@ -4769,6 +4769,40 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             return;
         }
 
+        if (ident->name == "Array") {
+            // Array() → empty array; Array(n) → sized array; Array(a,b,c) → [a,b,c]
+            if (args.empty()) {
+                lastValue_ = builder_.createCall("ts_array_create", {}, HIRType::makeArray(HIRType::makeAny(), false));
+            } else if (args.size() == 1) {
+                lastValue_ = builder_.createCall("ts_array_constructor", {args[0]}, HIRType::makeArray(HIRType::makeAny(), false));
+            } else {
+                // Array(a, b, c) → create + push each element
+                auto arr = builder_.createCall("ts_array_create", {}, HIRType::makeArray(HIRType::makeAny(), false));
+                for (auto& arg : args) {
+                    builder_.createCall("ts_array_push_any", {arr, arg}, HIRType::makeVoid());
+                }
+                lastValue_ = arr;
+            }
+            return;
+        }
+
+        if (ident->name == "Object") {
+            // Object() and Object(value) - create or return object
+            if (args.empty()) {
+                lastValue_ = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
+            } else {
+                lastValue_ = builder_.createCall("ts_object_constructor", {args[0]}, HIRType::makeAny());
+            }
+            return;
+        }
+
+        if (ident->name == "Function") {
+            // Function('return this')() - eval-like pattern used by lodash _root.js
+            // Return a closure that returns globalThis
+            lastValue_ = builder_.createCall("ts_function_constructor_stub", {}, HIRType::makeAny());
+            return;
+        }
+
         // Error constructors called as functions (without new) - same as new Error()
         if (ident->name == "Error" || ident->name == "TypeError" || ident->name == "RangeError" ||
             ident->name == "ReferenceError" || ident->name == "SyntaxError" || ident->name == "URIError" ||

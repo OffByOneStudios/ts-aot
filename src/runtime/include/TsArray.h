@@ -191,4 +191,6 @@ extern "C" {
     void ts_array_set_smi(void* arr, int64_t index, int64_t value);  // Fast SMI set
     double ts_array_get_double_fast(void* arr, int64_t index);  // Fast double get
     void ts_array_set_double_fast(void* arr, int64_t index, double value);  // Fast double set
+    void* ts_array_constructor(void* arg);  // Array(arg) - JS constructor semantics
+    void ts_array_push_any(void* arr, void* value);  // Push NaN-boxed value
 }
