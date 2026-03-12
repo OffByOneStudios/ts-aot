@@ -113,7 +113,7 @@ private:
     std::optional<fs::path> getPackageEntryPoint(const fs::path& packageDir, const PackageJson& pkg);
 
     // Recursively resolve conditional exports (handles nested { "import": { "types": ..., "default": ... } })
-    static std::optional<std::string> resolveExportCondition(const nlohmann::json& val);
+    static std::optional<std::string> resolveExportCondition(const nlohmann::json& val, bool preferESM = false);
     
     fs::path currentDir;
     fs::path projectRoot;

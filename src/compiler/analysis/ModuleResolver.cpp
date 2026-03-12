@@ -521,7 +521,7 @@ std::optional<fs::path> ModuleResolver::tryDirectory(const fs::path& dirPath) {
     return std::nullopt;
 }
 
-std::optional<std::string> ModuleResolver::resolveExportCondition(const nlohmann::json& val) {
+std::optional<std::string> ModuleResolver::resolveExportCondition(const nlohmann::json& val, bool preferESM) {
     if (val.is_string()) {
         return val.get<std::string>();
     }
@@ -533,7 +533,7 @@ std::optional<std::string> ModuleResolver::resolveExportCondition(const nlohmann
         // Array of fallback conditions — try each in order, return first that resolves
         // e.g., [{"import": "./index.mjs"}, {"require": "./index.cjs"}, "./fallback.js"]
         for (const auto& item : val) {
-            auto result = resolveExportCondition(item);
+            auto result = resolveExportCondition(item, preferESM);
             if (result) return result;
         }
         return std::nullopt;
@@ -541,21 +541,22 @@ std::optional<std::string> ModuleResolver::resolveExportCondition(const nlohmann
     if (!val.is_object()) {
         return std::nullopt;
     }
-    // Priority: node > require > default > import > types
-    // Prefer "node" first because it targets the Node.js runtime which is closest
-    // to our AOT compiler's semantics (CJS, crypto.randomBytes, etc.).
-    // Packages like uuid have "node" -> "require" -> "./dist/index.js" (CJS)
-    // but "default" -> "./dist/esm-browser/index.js" (browser ESM without Node APIs).
-    // Prefer "require" over "import" because CJS entry points are usually .js
-    // while ESM entries are .mjs which may not exist in all packages.
     // "types" must be LAST because it resolves to .d.ts (declaration-only, no
     // executable code). Packages like dotenv have "types" pointing to .d.ts
     // and "require"/"default" pointing to .js — we must prefer the .js.
     // This handles arbitrarily nested conditionals like:
     // { "import": { "types": "./dist/index.d.mts", "default": "./dist/index.mjs" } }
-    for (const char* key : {"node", "require", "default", "import", "types"}) {
-        if (val.contains(key)) {
-            auto result = resolveExportCondition(val[key]);
+    //
+    // When preferESM is true (package has "type": "module"), prefer "import" over
+    // "require" since the ESM entry points are the primary distribution format and
+    // CJS versions may use patterns like `class Foo extends pkg.Bar` that our
+    // parser handles less well than ESM's direct `import { Bar } from ...`.
+    const char* esmOrder[] = {"node", "import", "default", "require", "types"};
+    const char* cjsOrder[] = {"node", "require", "default", "import", "types"};
+    const char** order = preferESM ? esmOrder : cjsOrder;
+    for (int i = 0; i < 5; i++) {
+        if (val.contains(order[i])) {
+            auto result = resolveExportCondition(val[order[i]], preferESM);
             if (result) return result;
         }
     }
@@ -623,13 +624,15 @@ std::optional<PackageJson> ModuleResolver::parsePackageJson(const fs::path& pack
         }
         
         // Parse exports field with recursive conditional resolution
+        // For "type": "module" packages, prefer ESM entry points over CJS
+        bool preferESM = pkg.hasTypeModule;
         if (j.contains("exports")) {
             auto& exports = j["exports"];
             if (exports.is_string()) {
                 pkg.exports["."] = exports.get<std::string>();
             } else if (exports.is_array()) {
                 // "exports": ["./index.mjs", "./index.cjs"] — array fallback for root
-                auto resolved = resolveExportCondition(exports);
+                auto resolved = resolveExportCondition(exports, preferESM);
                 if (resolved) {
                     pkg.exports["."] = *resolved;
                 }
@@ -647,14 +650,14 @@ std::optional<PackageJson> ModuleResolver::parsePackageJson(const fs::path& pack
 
                 if (!hasSubpathKeys) {
                     // Root condition map — resolve the whole object as "."
-                    auto resolved = resolveExportCondition(exports);
+                    auto resolved = resolveExportCondition(exports, preferESM);
                     if (resolved) {
                         pkg.exports["."] = *resolved;
                     }
                 } else {
                     // Subpath map — resolve each key's value
                     for (auto& [key, val] : exports.items()) {
-                        auto resolved = resolveExportCondition(val);
+                        auto resolved = resolveExportCondition(val, preferESM);
                         if (resolved) {
                             if (key.find('*') != std::string::npos) {
                                 pkg.wildcardExports.push_back({key, *resolved});

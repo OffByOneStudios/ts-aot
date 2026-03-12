@@ -560,7 +560,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_array_set",
-        lowering("ts_array_set")
+        lowering("ts_array_set_v")
             .returnsVoid()
             .ptrArg()      // array
             .i64Arg()      // index

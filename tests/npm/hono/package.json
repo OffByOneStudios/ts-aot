@@ -1,0 +1,7 @@
+{
+  "name": "ts-aot-test-hono",
+  "private": true,
+  "dependencies": {
+    "hono": "4.7.6"
+  }
+}

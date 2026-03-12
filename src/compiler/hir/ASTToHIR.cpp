@@ -6713,12 +6713,41 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     // Lower function body
     // The body can be either a BlockStatement or an Expression (implicit return)
     if (auto* blockStmt = dynamic_cast<ast::BlockStatement*>(node->body.get())) {
-        // Block body - lower each statement
+        // JavaScript function hoisting: pre-declare nested function names as variables
+        // This allows functions to be called before they appear in source order.
         for (auto& stmt : blockStmt->statements) {
-            lowerStatement(stmt.get());
-            // Stop processing after a terminator
-            if (builder_.isBlockTerminated()) {
-                break;
+            if (auto* nestedFunc = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                auto nestedFuncType = std::make_shared<HIRType>(HIRTypeKind::Function);
+                for (auto& param : nestedFunc->parameters) {
+                    std::shared_ptr<HIRType> paramType = HIRType::makeAny();
+                    if (!param->type.empty()) {
+                        paramType = convertTypeFromString(param->type);
+                    }
+                    nestedFuncType->paramTypes.push_back(paramType);
+                }
+                nestedFuncType->returnType = nestedFunc->returnType.empty()
+                    ? HIRType::makeAny()
+                    : convertTypeFromString(nestedFunc->returnType);
+                auto allocaVal = builder_.createAlloca(nestedFuncType, nestedFunc->name);
+                builder_.createStore(builder_.createConstNull(), allocaVal);
+                defineVariableAlloca(nestedFunc->name, allocaVal, nestedFuncType);
+            }
+        }
+
+        // FIRST PASS: Process FunctionDeclarations to create closures (hoisting)
+        for (auto& stmt : blockStmt->statements) {
+            if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                lowerStatement(stmt.get());
+            }
+        }
+
+        // SECOND PASS: Process non-FunctionDeclaration statements in order
+        for (auto& stmt : blockStmt->statements) {
+            if (!dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                lowerStatement(stmt.get());
+                if (builder_.isBlockTerminated()) {
+                    break;
+                }
             }
         }
     } else if (auto* exprBody = dynamic_cast<ast::Expression*>(node->body.get())) {

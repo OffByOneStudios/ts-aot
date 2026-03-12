@@ -977,7 +977,8 @@ ast::NodePtr Parser::parseClassMember() {
     }
 
     // async
-    if (current_.kind == TokenKind::KW_async && !current_.hadNewlineBefore) {
+    // In class bodies, async is always a method modifier (no ASI concern like in expressions)
+    if (current_.kind == TokenKind::KW_async) {
         auto saved = saveState();
         advance();
         // If followed by identifier/keyword/star/open-bracket/open-paren, it's async
