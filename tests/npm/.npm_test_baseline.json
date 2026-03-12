@@ -1,3 +1,15 @@
 {
-  "semver": "runtime_error"
+  "dotenv": "pass",
+  "escape-string-regexp": "pass",
+  "eventemitter3": "pass",
+  "fast-deep-equal": "pass",
+  "hono": "compile_error",
+  "is-number": "pass",
+  "is-plain-object": "pass",
+  "lodash": "pass",
+  "ms": "pass",
+  "nanoid": "pass",
+  "picomatch": "pass",
+  "semver": "pass",
+  "uuid": "pass"
 }

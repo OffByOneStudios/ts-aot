@@ -383,14 +383,35 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         if (!funcNode) continue;
         // Note: We include all module init functions (including the main file)
         // because file-level variables need to be shared across functions.
+        // Helper to register a single name as a module global
+        auto registerModuleGlobalName = [&](const std::string& name, std::shared_ptr<HIRType> globalType) {
+            if (name.find("__") == 0 || name == "exports") return;
+            moduleGlobalVars_.insert(name);
+            module_->globals["__modvar_" + name] = globalType;
+        };
+
+        // Helper to extract all binding names from a destructuring pattern
+        std::function<void(ast::Node*, std::shared_ptr<HIRType>)> registerBindingNames;
+        registerBindingNames = [&](ast::Node* node, std::shared_ptr<HIRType> globalType) {
+            if (auto* ident = dynamic_cast<ast::Identifier*>(node)) {
+                registerModuleGlobalName(ident->name, globalType);
+            } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(node)) {
+                for (auto& elem : objPat->elements) {
+                    if (auto* binding = dynamic_cast<ast::BindingElement*>(elem.get())) {
+                        registerBindingNames(binding->name.get(), globalType);
+                    }
+                }
+            } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(node)) {
+                for (auto& elem : arrPat->elements) {
+                    if (auto* binding = dynamic_cast<ast::BindingElement*>(elem.get())) {
+                        registerBindingNames(binding->name.get(), globalType);
+                    }
+                }
+            }
+        };
+
         // Helper lambda to register a VariableDeclaration as a module global
         auto registerModuleVar = [&](ast::VariableDeclaration* varDecl) {
-            auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get());
-            if (!ident) return;
-            // Skip synthetic variables like __module_obj_0, exports, etc.
-            if (ident->name.find("__") == 0 || ident->name == "exports") return;
-            moduleVarDecls_[ident->name] = varDecl;
-            moduleGlobalVars_.insert(ident->name);
             // Infer type from initializer to preserve Object vs Any distinction.
             // This is critical for method dispatch: without it, object literal methods
             // like "add" or "info" collide with Set.add() or console.info().
@@ -403,7 +424,17 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     globalType = HIRType::makeArray(HIRType::makeAny());
                 }
             }
-            module_->globals["__modvar_" + ident->name] = globalType;
+
+            if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                // Simple variable: const x = ...
+                if (ident->name.find("__") == 0 || ident->name == "exports") return;
+                moduleVarDecls_[ident->name] = varDecl;
+                registerModuleGlobalName(ident->name, globalType);
+            } else {
+                // Destructuring pattern: const { a, b } = ... or const [a, b] = ...
+                // For destructured require(), each extracted variable is Any type
+                registerBindingNames(varDecl->name.get(), HIRType::makeAny());
+            }
         };
 
         for (auto& stmt : funcNode->body) {
@@ -2300,6 +2331,12 @@ void ASTToHIR::lowerBindingElement(ast::BindingElement* binding,
         auto allocaPtr = builder_.createAlloca(varType, ident->name);
         builder_.createStore(extractedValue, allocaPtr, varType);
         defineVariableAlloca(ident->name, allocaPtr, varType);
+
+        // If this variable is a module-scoped global (e.g. from destructured require()),
+        // also store to the __modvar_ LLVM global so other functions can access it.
+        if (moduleGlobalVars_.count(ident->name)) {
+            builder_.createStoreGlobal("__modvar_" + ident->name, extractedValue);
+        }
     } else if (auto* nestedObj = dynamic_cast<ast::ObjectBindingPattern*>(binding->name.get())) {
         // Nested object destructuring: { a: { b, c } }
         lowerObjectBindingPattern(nestedObj, extractedValue);
@@ -2343,6 +2380,12 @@ void ASTToHIR::lowerBindingElementByIndex(ast::BindingElement* binding,
         auto allocaPtr = builder_.createAlloca(varType, ident->name);
         builder_.createStore(extractedValue, allocaPtr, varType);
         defineVariableAlloca(ident->name, allocaPtr, varType);
+
+        // If this variable is a module-scoped global (e.g. from destructured require()),
+        // also store to the __modvar_ LLVM global so other functions can access it.
+        if (moduleGlobalVars_.count(ident->name)) {
+            builder_.createStoreGlobal("__modvar_" + ident->name, extractedValue);
+        }
     } else if (auto* nestedObj = dynamic_cast<ast::ObjectBindingPattern*>(binding->name.get())) {
         lowerObjectBindingPattern(nestedObj, extractedValue);
     } else if (auto* nestedArr = dynamic_cast<ast::ArrayBindingPattern*>(binding->name.get())) {
@@ -8442,6 +8485,31 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         // If no explicit constructor, load the implicit default constructor
         // For now, just return a pointer to the class (the runtime will handle allocation)
         lastValue_ = builder_.createLoadFunction(className + "_constructor");
+    }
+
+    // Set up prototype object with instance methods for dynamic dispatch.
+    // This is critical for untyped JS classes (e.g. npm modules) where method
+    // calls go through ts_object_get_property -> prototype chain lookup.
+    if (!hirClass->methods.empty()) {
+        auto ctorVal = lastValue_;
+
+        // Create prototype TsMap
+        auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
+
+        // Populate prototype with instance methods
+        for (auto& [methodKey, methodFunc] : hirClass->methods) {
+            if (!methodFunc) continue;  // skip abstract methods
+
+            // Load the method as a closure (LoadFunction wraps in TsClosure)
+            auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+
+            // Store on prototype: proto.methodName = closure
+            // For getters/setters, methodKey already has __getter_/__setter_ prefix
+            builder_.createSetPropStatic(proto, methodKey, methodClosure);
+        }
+
+        // Set constructor.prototype = proto
+        builder_.createSetPropStatic(ctorVal, "prototype", proto);
     }
 }
 
