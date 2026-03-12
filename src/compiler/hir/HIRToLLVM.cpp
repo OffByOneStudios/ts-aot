@@ -1407,13 +1407,16 @@ void HIRToLLVM::lowerConstCString(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerConstNull(HIRInstruction* inst) {
-    llvm::Value* result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    // NaN-box null sentinel (0x02) - distinct from undefined (0x0A) and C++ nullptr (0x0)
+    llvm::Value* intVal = llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0000000000000002ULL);
+    llvm::Value* result = builder_->CreateIntToPtr(intVal, builder_->getPtrTy());
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerConstUndefined(HIRInstruction* inst) {
-    // Create undefined value as null pointer (or call ts_undefined_value)
-    llvm::Value* result = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    // NaN-box undefined sentinel (0x0A) - distinct from null (0x02) and C++ nullptr (0x0)
+    llvm::Value* intVal = llvm::ConstantInt::get(builder_->getInt64Ty(), 0x000000000000000AULL);
+    llvm::Value* result = builder_->CreateIntToPtr(intVal, builder_->getPtrTy());
     setValue(inst->result, result);
 }
 
@@ -2640,6 +2643,11 @@ void HIRToLLVM::lowerCastBoolToI64(HIRInstruction* inst) {
 // BoxInt: i64 → ptr (NaN-boxed)
 // If value fits in int32, tag with 0xFFFE prefix. Otherwise convert to double and bias.
 llvm::Value* HIRToLLVM::emitInlineBoxInt(llvm::Value* val) {
+    // Guard: if the LLVM value is a double (e.g., JS number from untyped code),
+    // convert to i64 first. HIR BoxInt may receive f64 values from dynamic paths.
+    if (val->getType()->isDoubleTy()) {
+        val = builder_->CreateFPToSI(val, builder_->getInt64Ty(), "nb.f2i");
+    }
     // Check if value fits in int32 range
     llvm::Value* trunc = builder_->CreateTrunc(val, builder_->getInt32Ty(), "nb.trunc");
     llvm::Value* sext = builder_->CreateSExt(trunc, builder_->getInt64Ty(), "nb.sext");

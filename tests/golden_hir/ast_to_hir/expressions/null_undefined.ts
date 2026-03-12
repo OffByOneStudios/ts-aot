@@ -6,7 +6,7 @@
 // HIR-CHECK: const.undefined
 // HIR-CHECK: ret
 
-// OUTPUT: undefined
+// OUTPUT: null
 // OUTPUT: undefined
 // OUTPUT: true
 // OUTPUT: true
