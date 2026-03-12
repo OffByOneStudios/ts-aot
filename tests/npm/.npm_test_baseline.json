@@ -2,6 +2,7 @@
   "dotenv": "pass",
   "escape-string-regexp": "pass",
   "eventemitter3": "pass",
+  "express": "pass",
   "fast-deep-equal": "pass",
   "hono": "compile_error",
   "is-number": "pass",

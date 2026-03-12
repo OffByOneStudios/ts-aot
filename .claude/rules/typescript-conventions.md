@@ -24,7 +24,7 @@ The `examples/` directory is **reserved** for polished, production-ready code th
 
 ## Entry Point
 
-**All test files must have a `user_main` function:**
+**Test files conventionally define a `user_main` function:**
 
 ```typescript
 function user_main(): number {
@@ -33,7 +33,9 @@ function user_main(): number {
 }
 ```
 
-**Why:** The compiler generates a `main()` function that calls `user_main()`.
+**How it works:** The compiler generates a C `main()` that calls `ts_main(argc, argv, user_main)`. The runtime's `ts_main` initializes the GC, libuv event loop, and runs module init functions *before* invoking `user_main`. This ensures all runtime infrastructure is ready before user code executes.
+
+**`user_main` is optional.** If no `user_main` is defined, the Monomorphizer automatically creates a `__synthetic_user_main` that wraps the file's top-level statements. The compiler prefers `__synthetic_user_main` over `user_main`, so both approaches work. Top-level code executes the same way standard JavaScript engines work — the `user_main` convention in test files is just for clarity.
 
 ## Type Annotations
 
