@@ -4359,6 +4359,21 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // from being dispatched to the runtime's built-in extension methods.
             if (!foundInUserClass && !moduleGlobalVars_.count(className)) {
                 auto& extReg = ext::ExtensionRegistry::instance();
+
+                // Check for static methods FIRST when expression is a bare identifier
+                // matching a type/global name (e.g., Response.json() vs resp.json()).
+                // This prevents static methods from being shadowed by instance methods.
+                auto* bareIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+                if (bareIdent && extReg.isClassKind(bareIdent->name)) {
+                    const ext::MethodDefinition* extStaticMethod = extReg.findStaticMethod(bareIdent->name, propAccess->name);
+                    if (extStaticMethod && extStaticMethod->lowering) {
+                        std::string funcName = extStaticMethod->hirName.value_or(extStaticMethod->call);
+                        auto resultType = extTypeRefToHIR(extStaticMethod->returns);
+                        lastValue_ = builder_.createCall(funcName, args, resultType);
+                        return;
+                    }
+                }
+
                 if (extReg.isClassKind(className)) {
                     const ext::MethodDefinition* extMethod = extReg.findMethod(className, propAccess->name);
                     if (extMethod && extMethod->lowering) {

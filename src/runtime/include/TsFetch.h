@@ -18,6 +18,8 @@ public:
 
     TsMap* GetMap() { return map; }
 
+    TsValue GetPropertyVirtual(const char* key) override;
+
 private:
     TsHeaders();
     uint32_t magic = MAGIC;
@@ -50,6 +52,29 @@ private:
     TsBuffer* body;
 };
 
+class TsRequest : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x52455155; // "REQU"
+    static TsRequest* Create(TsString* url, TsString* method, TsHeaders* headers, TsBuffer* body);
+
+    TsString* GetMethod() { return method; }
+    TsString* GetUrl() { return url; }
+    TsHeaders* GetHeaders() { return headers; }
+    TsBuffer* GetBody() { return body; }
+
+    TsRequest* Clone();
+
+    TsValue GetPropertyVirtual(const char* key) override;
+
+private:
+    TsRequest(TsString* url, TsString* method, TsHeaders* headers, TsBuffer* body);
+    uint32_t magic = MAGIC;
+    TsString* method;
+    TsString* url;
+    TsHeaders* headers;
+    TsBuffer* body;
+};
+
 extern "C" {
     void* ts_headers_create();
     void ts_headers_append(void* headers, void* name, void* value);
@@ -66,4 +91,19 @@ extern "C" {
     void* ts_response_json(void* ctx, void* resp);
 
     void* ts_fetch(void* url, void* options);
+
+    // Web Standards constructors
+    void* ts_request_create(void* url, void* options);
+    void* ts_response_create(void* body, void* options);
+    void* ts_headers_create_from_init(void* init);
+    void* ts_response_json_static(void* data, void* init);
+    void* ts_response_redirect_static(void* url, void* status);
+
+    // Request property getters and methods
+    void* ts_request_get_method(void* self);
+    void* ts_request_get_url(void* self);
+    void* ts_request_get_headers(void* self);
+    void* ts_request_text(void* self);
+    void* ts_request_json(void* self);
+    void* ts_request_clone(void* self);
 }

@@ -441,6 +441,9 @@ int Driver::run() {
                 {"ts_inspector_",       "ts_inspector",       "inspector"},
                 {"ts_module_",          "ts_module",          "module"},
                 {"ts_fetch",            "ts_fetch",           "fetch"},
+                {"ts_request_",         "ts_fetch",           "fetch"},
+                {"ts_response_",        "ts_fetch",           "fetch"},
+                {"ts_headers_",         "ts_fetch",           "fetch"},
                 {"ts_socket_",          "ts_net",             "net"},
                 {"ts_server_",          "ts_net",             "net"},
             };

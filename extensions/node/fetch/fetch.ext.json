@@ -4,8 +4,121 @@
   "version": "1.0.0",
   "modules": [],
   "types": {
+    "Headers": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_headers_create_from_init",
+        "params": [
+          {"name": "init", "type": "any", "optional": true}
+        ],
+        "returns": "Headers",
+        "lowering": { "args": ["ptr"], "returns": "ptr" }
+      },
+      "methods": {
+        "get": {
+          "call": "ts_headers_get",
+          "params": [
+            {"name": "name", "type": "string"}
+          ],
+          "returns": "string",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "set": {
+          "call": "ts_headers_set",
+          "params": [
+            {"name": "name", "type": "string"},
+            {"name": "value", "type": "string"}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "append": {
+          "call": "ts_headers_append",
+          "params": [
+            {"name": "name", "type": "string"},
+            {"name": "value", "type": "string"}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "void" }
+        },
+        "has": {
+          "call": "ts_headers_has",
+          "params": [
+            {"name": "name", "type": "string"}
+          ],
+          "returns": "boolean",
+          "lowering": { "args": ["ptr"], "returns": "i1" }
+        },
+        "delete": {
+          "call": "ts_headers_delete",
+          "params": [
+            {"name": "name", "type": "string"}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        }
+      }
+    },
+    "Request": {
+      "kind": "class",
+      "constructor": {
+        "call": "ts_request_create",
+        "params": [
+          {"name": "input", "type": "any"},
+          {"name": "init", "type": "any", "optional": true}
+        ],
+        "returns": "Request",
+        "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+      },
+      "properties": {
+        "method": {
+          "type": "string",
+          "getter": "ts_request_get_method",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "url": {
+          "type": "string",
+          "getter": "ts_request_get_url",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "headers": {
+          "type": "any",
+          "getter": "ts_request_get_headers",
+          "lowering": { "args": [], "returns": "ptr" }
+        }
+      },
+      "methods": {
+        "text": {
+          "call": "ts_request_text",
+          "params": [],
+          "returns": "Promise",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "json": {
+          "call": "ts_request_json",
+          "params": [],
+          "returns": "Promise",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "clone": {
+          "call": "ts_request_clone",
+          "params": [],
+          "returns": "Request",
+          "lowering": { "args": [], "returns": "ptr" }
+        }
+      }
+    },
     "Response": {
       "kind": "class",
+      "constructor": {
+        "call": "ts_response_create",
+        "params": [
+          {"name": "body", "type": "any", "optional": true},
+          {"name": "init", "type": "any", "optional": true}
+        ],
+        "returns": "Response",
+        "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+      },
       "properties": {
         "status": {
           "type": "int",
@@ -31,17 +144,35 @@
       "methods": {
         "text": {
           "call": "ts_response_text",
-          "hirName": "ts_response_text",
           "params": [],
           "returns": "Promise",
           "lowering": { "args": [], "returns": "ptr" }
         },
         "json": {
           "call": "ts_response_json",
-          "hirName": "ts_response_json",
           "params": [],
           "returns": "Promise",
           "lowering": { "args": [], "returns": "ptr" }
+        }
+      },
+      "staticMethods": {
+        "json": {
+          "call": "ts_response_json_static",
+          "params": [
+            {"name": "data", "type": "any"},
+            {"name": "init", "type": "any", "optional": true}
+          ],
+          "returns": "Response",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+        },
+        "redirect": {
+          "call": "ts_response_redirect_static",
+          "params": [
+            {"name": "url", "type": "string"},
+            {"name": "status", "type": "number", "optional": true}
+          ],
+          "returns": "Response",
+          "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
         }
       }
     }
@@ -60,6 +191,12 @@
     },
     "Response": {
       "type": "Response"
+    },
+    "Request": {
+      "type": "Request"
+    },
+    "Headers": {
+      "type": "Headers"
     }
   }
 }
