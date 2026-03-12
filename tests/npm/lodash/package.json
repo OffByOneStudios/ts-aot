@@ -1,0 +1,7 @@
+{
+  "name": "ts-aot-test-lodash",
+  "private": true,
+  "dependencies": {
+    "lodash": "^4.17.21"
+  }
+}
