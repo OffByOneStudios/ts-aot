@@ -1,6 +1,5 @@
 // Test: express sub-dependencies
 // Tests pure-JS packages bundled with Express that don't require HTTP stack
-// Skipped: statuses (crash - nested closure module var), cookie (hang - decodeURIComponent loop)
 
 const pathToRegexp = require('./node_modules/path-to-regexp');
 const flatten = require('./node_modules/array-flatten');
@@ -53,6 +52,9 @@ function user_main(): number {
     // --- escape-html ---
     check("escapeHtml safe text", escapeHtml('hello'), 'hello');
     check("escapeHtml empty", escapeHtml(''), '');
+    check("escapeHtml angle brackets", escapeHtml('<script>'), '&lt;script&gt;');
+    check("escapeHtml ampersand", escapeHtml('a&b'), 'a&amp;b');
+    check("escapeHtml mixed", escapeHtml('<div class="x">'), '&lt;div class=&quot;x&quot;&gt;');
 
     // --- summary ---
     console.log("---");

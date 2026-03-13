@@ -2486,6 +2486,7 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
     // Push loop context for break/continue
     LoopContext ctx = {condBlock, endBlock};
     loopStack_.push(ctx);
+    breakTargetStack_.push(endBlock);
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -2510,6 +2511,7 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
     emitBranchIfNeeded(condBlock);
 
     loopStack_.pop();
+    breakTargetStack_.pop();
     if (!myLabel.empty()) {
         labeledLoops_.erase(myLabel);
     }
@@ -2529,6 +2531,7 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
     // Push loop context (continue -> update, break -> end)
     LoopContext ctx = {updateBlock, endBlock};
     loopStack_.push(ctx);
+    breakTargetStack_.push(endBlock);
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -2573,6 +2576,7 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
     builder_.createBranch(condBlock);
 
     loopStack_.pop();
+    breakTargetStack_.pop();
     if (!myLabel.empty()) {
         labeledLoops_.erase(myLabel);
     }
@@ -2594,6 +2598,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     // Push loop context (continue -> update, break -> end)
     LoopContext ctx = {updateBlock, endBlock};
     loopStack_.push(ctx);
+    breakTargetStack_.push(endBlock);
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -2749,6 +2754,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     }
 
     loopStack_.pop();
+    breakTargetStack_.pop();
     if (!myLabel.empty()) {
         labeledLoops_.erase(myLabel);
     }
@@ -2770,6 +2776,7 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
     // Push loop context (continue -> update, break -> end)
     LoopContext ctx = {updateBlock, endBlock};
     loopStack_.push(ctx);
+    breakTargetStack_.push(endBlock);
 
     // Register with label if this loop is labeled
     std::string myLabel;
@@ -2841,6 +2848,7 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
     builder_.createBranch(condBlock);
 
     loopStack_.pop();
+    breakTargetStack_.pop();
     if (!myLabel.empty()) {
         labeledLoops_.erase(myLabel);
     }
@@ -2858,12 +2866,9 @@ void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
         if (it != labeledLoops_.end()) {
             builder_.createBranch(it->second.breakTarget);
         }
-    } else if (!loopStack_.empty()) {
-        // Unlabeled break - use innermost loop
-        builder_.createBranch(loopStack_.top().breakTarget);
-    } else if (!switchStack_.empty()) {
-        // Unlabeled break inside switch (but not inside a loop within the switch)
-        builder_.createBranch(switchStack_.top().breakTarget);
+    } else if (!breakTargetStack_.empty()) {
+        // Unlabeled break - use innermost breakable context (loop or switch)
+        builder_.createBranch(breakTargetStack_.top());
     }
 }
 
@@ -2903,6 +2908,7 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
 
     auto* endBlock = createBlock("switch.end");
     switchStack_.push({endBlock, {}, nullptr});
+    breakTargetStack_.push(endBlock);
 
     std::vector<HIRBlock*> caseBlocks;
     HIRBlock* defaultBlock = endBlock;
@@ -3031,6 +3037,7 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
     }
 
     switchStack_.pop();
+    breakTargetStack_.pop();
 
     builder_.setInsertPoint(endBlock);
     currentBlock_ = endBlock;

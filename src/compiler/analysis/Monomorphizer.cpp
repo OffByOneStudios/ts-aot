@@ -9,6 +9,50 @@
 
 namespace ts {
 
+// File-static analyzer pointer, set during rewriteRequire pass
+static Analyzer* s_rewriteAnalyzer = nullptr;
+
+// Convert a JSON value to an AST expression (for inlining require('./foo.json'))
+static std::unique_ptr<ast::Expression> jsonToAstExpr(const nlohmann::json& j) {
+    if (j.is_null()) {
+        return std::make_unique<ast::NullLiteral>();
+    }
+    if (j.is_boolean()) {
+        auto lit = std::make_unique<ast::BooleanLiteral>();
+        lit->value = j.get<bool>();
+        return lit;
+    }
+    if (j.is_number()) {
+        auto lit = std::make_unique<ast::NumericLiteral>();
+        lit->value = j.get<double>();
+        return lit;
+    }
+    if (j.is_string()) {
+        auto lit = std::make_unique<ast::StringLiteral>();
+        lit->value = j.get<std::string>();
+        return lit;
+    }
+    if (j.is_array()) {
+        auto arr = std::make_unique<ast::ArrayLiteralExpression>();
+        for (const auto& elem : j) {
+            arr->elements.push_back(jsonToAstExpr(elem));
+        }
+        return arr;
+    }
+    if (j.is_object()) {
+        auto obj = std::make_unique<ast::ObjectLiteralExpression>();
+        for (auto& [key, val] : j.items()) {
+            auto prop = std::make_unique<ast::PropertyAssignment>();
+            prop->name = key;
+            prop->initializer = jsonToAstExpr(val);
+            obj->properties.push_back(std::move(prop));
+        }
+        return obj;
+    }
+    // Fallback: null
+    return std::make_unique<ast::NullLiteral>();
+}
+
 static ast::Expression* unwrapParens(ast::Expression* expr) {
     while (expr) {
         auto* paren = dynamic_cast<ast::ParenthesizedExpression*>(expr);
@@ -256,6 +300,30 @@ static void rewriteRequireInExprOwned(std::unique_ptr<ast::Expression>& expr,
                     lit->value, resolved.path, fromPath);
                 expr = std::move(replacement);
                 return;
+            }
+        }
+    }
+
+    // Match: require('file.json') → inline JSON object literal
+    if (s_rewriteAnalyzer) {
+        if (auto* call = dynamic_cast<ast::CallExpression*>(expr.get())) {
+            auto* id = dynamic_cast<ast::Identifier*>(call->callee.get());
+            if (id && id->name == "require" && call->arguments.size() >= 1) {
+                auto* lit = dynamic_cast<ast::StringLiteral*>(call->arguments[0].get());
+                if (lit) {
+                    auto resolved = resolver.resolve(lit->value, fs::path(fromPath));
+                    if (resolved.isValid() && resolved.type == ModuleType::JSON) {
+                        auto modIt = s_rewriteAnalyzer->modules.find(resolved.path);
+                        if (modIt != s_rewriteAnalyzer->modules.end() &&
+                            modIt->second->isJsonModule && modIt->second->jsonContent.has_value()) {
+                            auto replacement = jsonToAstExpr(modIt->second->jsonContent.value());
+                            replacement->inferredType = std::make_shared<Type>(TypeKind::Any);
+                            SPDLOG_DEBUG("Inlined JSON require('{}') in {}", lit->value, fromPath);
+                            expr = std::move(replacement);
+                            return;
+                        }
+                    }
+                }
             }
         }
     }
@@ -626,6 +694,8 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         // import('literal') → ts_dynamic_import('resolvedPath')
         {
             auto& resolver = analyzer.getModuleResolver();
+            // Set analyzer pointer so JSON require() can be inlined
+            s_rewriteAnalyzer = &analyzer;
             // Rewrite require/require.resolve/import()/import.meta in moduleInit body
             // For JS modules: rewrites require(), require.resolve(), import(), import.meta
             // For TS modules: rewrites import() and import.meta (no require() calls present)
@@ -637,6 +707,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             for (auto& bodyStmt : newBody) {
                 rewriteRequireInStmt(bodyStmt.get(), resolver, path);
             }
+            s_rewriteAnalyzer = nullptr;
         }
 
         // Inject CJS import binding extraction for JavaScript module imports.

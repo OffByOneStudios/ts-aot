@@ -110,6 +110,10 @@ private:
     };
     std::stack<SwitchContext> switchStack_;
 
+    // Unified break target stack - both loops and switches push here.
+    // break uses the top of this stack; continue uses loopStack_.
+    std::stack<HIRBlock*> breakTargetStack_;
+
     // Class context - tracks when we're inside a class body
     HIRClass* currentClass_ = nullptr;
 
