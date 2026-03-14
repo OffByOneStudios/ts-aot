@@ -1385,6 +1385,20 @@ extern "C" {
         return s->Substring(start, end);
     }
 
+    void* ts_string_substr(void* str, int64_t start, int64_t length) {
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        int64_t len = s->Length();
+        // Handle negative start (relative to end)
+        if (start < 0) start = std::max<int64_t>(len + start, 0);
+        if (start >= len) return TsString::Create("");
+        // INT64_MIN sentinel means "length not provided" - default to rest of string
+        if (length == INT64_MIN) length = len - start;
+        if (length <= 0) return TsString::Create("");
+        int64_t end = std::min<int64_t>(start + length, len);
+        return s->Substring(start, end);
+    }
+
     void* ts_string_slice(void* str, int64_t start, int64_t end) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return str;

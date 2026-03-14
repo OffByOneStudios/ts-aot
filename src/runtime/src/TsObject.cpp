@@ -623,6 +623,48 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)func;
     }
 
+    // Built-in function wrappers for first-class value use
+    // These wrap runtime functions as native function callbacks (void* ctx, int argc, TsValue** argv)
+
+    static TsValue* builtin_encodeURIComponent_native(void* ctx, int argc, TsValue** argv) {
+        void* arg = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return (TsValue*)ts_encode_uri_component(arg);
+    }
+    static TsValue* builtin_decodeURIComponent_native(void* ctx, int argc, TsValue** argv) {
+        void* arg = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return (TsValue*)ts_decode_uri_component(arg);
+    }
+    static TsValue* builtin_encodeURI_native(void* ctx, int argc, TsValue** argv) {
+        void* arg = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return (TsValue*)ts_encode_uri(arg);
+    }
+    static TsValue* builtin_decodeURI_native(void* ctx, int argc, TsValue** argv) {
+        void* arg = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        return (TsValue*)ts_decode_uri(arg);
+    }
+    static TsValue* builtin_parseInt_native(void* ctx, int argc, TsValue** argv) {
+        TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
+        return (TsValue*)ts_value_make_int(ts_number_parseInt(arg));
+    }
+    static TsValue* builtin_parseFloat_native(void* ctx, int argc, TsValue** argv) {
+        TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
+        return (TsValue*)ts_value_make_double(ts_number_parseFloat(arg));
+    }
+
+    void* ts_get_builtin_function(void* nameStr) {
+        TsString* name = ts_ensure_flat(nameStr);
+        if (!name) return nullptr;
+        const char* n = name->ToUtf8();
+        if (!n) return nullptr;
+        if (strcmp(n, "encodeURIComponent") == 0) return ts_value_make_native_function((void*)builtin_encodeURIComponent_native, nullptr);
+        if (strcmp(n, "decodeURIComponent") == 0) return ts_value_make_native_function((void*)builtin_decodeURIComponent_native, nullptr);
+        if (strcmp(n, "encodeURI") == 0) return ts_value_make_native_function((void*)builtin_encodeURI_native, nullptr);
+        if (strcmp(n, "decodeURI") == 0) return ts_value_make_native_function((void*)builtin_decodeURI_native, nullptr);
+        if (strcmp(n, "parseInt") == 0) return ts_value_make_native_function((void*)builtin_parseInt_native, nullptr);
+        if (strcmp(n, "parseFloat") == 0) return ts_value_make_native_function((void*)builtin_parseFloat_native, nullptr);
+        return nullptr;
+    }
+
     void* ts_function_get_ptr(TsValue* val) {
         if (!val) return nullptr;
         uint64_t nb = nanbox_from_tsvalue_ptr(val);
@@ -3621,6 +3663,16 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_array(ts_map_keys(rawPtr));
         }
 
+        // Handle TsFunction and TsClosure - delegate to their properties map
+        if (magic == 0x46554E43) { // TsFunction::MAGIC
+            TsMap* props = ((TsFunction*)rawPtr)->properties;
+            if (props) return ts_value_make_array(ts_map_keys(props));
+        }
+        if (magic == 0x434C5352) { // TsClosure magic
+            TsMap* props = ((TsClosure*)rawPtr)->properties;
+            if (props) return ts_value_make_array(ts_map_keys(props));
+        }
+
         return ts_value_make_array(TsArray::Create(0));
     }
 
@@ -3867,8 +3919,19 @@ TsValue* ts_value_make_int(int64_t i) {
             rawPtr = ts_flat_object_to_map(rawPtr);
         }
 
-        // Check if it's a TsMap
+        // Check if it's a TsMap (or extract properties map from function/closure)
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic == 0x46554E43) { // TsFunction::MAGIC
+            TsFunction* func = (TsFunction*)rawPtr;
+            if (!func->properties) func->properties = TsMap::Create();
+            rawPtr = func->properties;
+            magic = 0x4D415053;
+        } else if (magic == 0x434C5352) { // TsClosure magic
+            TsClosure* clos = (TsClosure*)rawPtr;
+            if (!clos->properties) clos->properties = TsMap::Create();
+            rawPtr = clos->properties;
+            magic = 0x4D415053;
+        }
         if (magic != 0x4D415053) {  // TsMap::MAGIC
             return obj;
         }
@@ -4042,8 +4105,19 @@ TsValue* ts_value_make_int(int64_t i) {
             rawPtr = ts_flat_object_to_map(rawPtr);
         }
 
-        // Check if it's a TsMap
+        // Check if it's a TsMap (or extract properties map from function/closure)
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+        if (magic == 0x46554E43) { // TsFunction::MAGIC
+            TsFunction* func = (TsFunction*)rawPtr;
+            if (!func->properties) return ts_value_make_object(nullptr);
+            rawPtr = func->properties;
+            magic = 0x4D415053;
+        } else if (magic == 0x434C5352) { // TsClosure magic
+            TsClosure* clos = (TsClosure*)rawPtr;
+            if (!clos->properties) return ts_value_make_object(nullptr);
+            rawPtr = clos->properties;
+            magic = 0x4D415053;
+        }
         if (magic != 0x4D415053) {
             return ts_value_make_object(nullptr);  // undefined for non-objects
         }

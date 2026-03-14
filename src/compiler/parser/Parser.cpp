@@ -1351,6 +1351,7 @@ ast::StmtPtr Parser::parseForStatement() {
         } else {
             auto block = std::make_unique<ast::BlockStatement>();
             setLocation(block.get(), kwTok);
+            block->isSynthetic = true;
             for (auto& d : decls) block->statements.push_back(std::move(d));
             initializer = std::move(block);
         }

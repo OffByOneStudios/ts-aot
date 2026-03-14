@@ -1904,6 +1904,53 @@ extern "C" {
         return arr;
     }
 
+    void* ts_array_splice(void* arr, int64_t start, int64_t deleteCount, void* items) {
+        if (!arr) return ts_array_create();
+        TsArray* a = (TsArray*)arr;
+        int64_t len = a->Length();
+
+        // Normalize start
+        if (start < 0) start = len + start;
+        if (start < 0) start = 0;
+        if (start > len) start = len;
+
+        // Normalize deleteCount
+        if (deleteCount < 0) deleteCount = 0;
+        if (deleteCount > len - start) deleteCount = len - start;
+
+        // Collect deleted elements into result
+        TsArray* result = TsArray::Create(deleteCount > 0 ? deleteCount : 4);
+        for (int64_t i = 0; i < deleteCount; i++) {
+            result->Push(a->Get(start + i));
+        }
+
+        // Collect tail (elements after splice region)
+        TsArray* tail = TsArray::Create(4);
+        for (int64_t i = start + deleteCount; i < len; i++) {
+            tail->Push(a->Get(i));
+        }
+
+        // Truncate to start
+        while (a->Length() > start) {
+            a->Pop();
+        }
+
+        // Insert new items (items is a TsArray* or null)
+        if (items) {
+            TsArray* itemsArr = (TsArray*)items;
+            for (int64_t i = 0; i < itemsArr->Length(); i++) {
+                a->Push(itemsArr->Get(i));
+            }
+        }
+
+        // Re-add tail
+        for (int64_t i = 0; i < tail->Length(); i++) {
+            a->Push(tail->Get(i));
+        }
+
+        return result;
+    }
+
     // ES2023 "change array by copy" methods
     void* ts_array_toReversed(void* arr) {
         return ((TsArray*)arr)->ToReversed();

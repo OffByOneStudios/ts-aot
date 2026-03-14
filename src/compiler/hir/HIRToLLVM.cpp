@@ -4897,7 +4897,12 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             for (size_t i = 1; i < inst->operands.size(); ++i) {
                 paramTypes.push_back(builder_->getPtrTy());
             }
-            llvm::FunctionType* ft = llvm::FunctionType::get(builder_->getPtrTy(), paramTypes, false);
+            // Special-case functions that return non-ptr types
+            llvm::Type* retType = builder_->getPtrTy();
+            if (funcName == "ts_to_number") {
+                retType = builder_->getDoubleTy();
+            }
+            llvm::FunctionType* ft = llvm::FunctionType::get(retType, paramTypes, false);
             fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
         }
     }

@@ -1,5 +1,6 @@
 #include "TsBuffer.h"
 #include "TsNanBox.h"
+#include "TsConsString.h"
 #include "GC.h"
 #include "TsRuntime.h"
 #include "TsArray.h"
@@ -1014,6 +1015,18 @@ extern "C" {
     int64_t ts_buffer_byte_length(void* buf) {
         if (!buf || (uint64_t)(uintptr_t)buf < 0x10000) return 0;
         return (int64_t)((TsBuffer*)buf)->GetByteLength();
+    }
+
+    int64_t ts_buffer_byte_length_string(void* str, void* encoding) {
+        if (!str) return 0;
+        // Get the string as UTF-8 and return byte count
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return 0;
+        const char* utf8 = s->ToUtf8();
+        if (!utf8) return 0;
+        // TODO: handle encoding parameter (base64, hex, etc.)
+        // For now, assume utf8 encoding (most common case)
+        return (int64_t)strlen(utf8);
     }
 
     int64_t ts_buffer_byte_offset(void* buf) {

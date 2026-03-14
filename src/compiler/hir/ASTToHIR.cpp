@@ -6392,6 +6392,18 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         return;
     }
 
+    // Check for known built-in functions used as values (not in call position)
+    // These need native function wrappers so they can be passed as callbacks
+    static const std::set<std::string> builtinFunctions = {
+        "encodeURIComponent", "decodeURIComponent", "encodeURI", "decodeURI",
+        "parseInt", "parseFloat"
+    };
+    if (builtinFunctions.count(node->name)) {
+        auto nameVal = builder_.createConstString(node->name);
+        lastValue_ = builder_.createCall("ts_get_builtin_function", {nameVal}, HIRType::makeAny());
+        return;
+    }
+
     // Fallback: Check for known JavaScript built-in objects not yet in extension files
     // This maintains backwards compatibility while migrating to registry-based lookups
     static const std::set<std::string> builtinObjects = {
