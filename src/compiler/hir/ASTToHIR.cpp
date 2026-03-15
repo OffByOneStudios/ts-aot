@@ -381,13 +381,15 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         if (spec.originalName.find("__module_init_") != 0) continue;
         auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node);
         if (!funcNode) continue;
+        // Set currentModulePath_ so modVarName() generates unique globals per module
+        currentModulePath_ = spec.modulePath;
         // Note: We include all module init functions (including the main file)
         // because file-level variables need to be shared across functions.
         // Helper to register a single name as a module global
         auto registerModuleGlobalName = [&](const std::string& name, std::shared_ptr<HIRType> globalType) {
             if (name.find("__") == 0 || name == "exports") return;
             moduleGlobalVars_.insert(name);
-            module_->globals["__modvar_" + name] = globalType;
+            module_->globals[modVarName(name)] = globalType;
         };
 
         // Helper to extract all binding names from a destructuring pattern
@@ -458,7 +460,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 // after the capturing function (capture gets null due to source ordering).
                 if (!funcDecl->name.empty() && funcDecl->name.find("__") != 0) {
                     moduleGlobalVars_.insert(funcDecl->name);
-                    module_->globals["__modvar_" + funcDecl->name] = HIRType::makeAny();
+                    module_->globals[modVarName(funcDecl->name)] = HIRType::makeAny();
                 }
             }
         }
@@ -673,6 +675,9 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             // Skip lambda specializations - they'll be generated when encountered
             continue;
         }
+
+        // Track current module path for cross-module function name disambiguation
+        currentModulePath_ = spec.modulePath;
 
         // Get the node - could be FunctionDeclaration or MethodDefinition
         if (auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
@@ -2128,7 +2133,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         // instead of closure cells, fixing ordering issues where a capturing function
         // is declared before the captured function.
         if (moduleGlobalVars_.count(node->name)) {
-            builder_.createStoreGlobal("__modvar_" + node->name, closureVal);
+            builder_.createStoreGlobal(modVarName(node->name), closureVal);
         }
     } else if (savedFunc) {
         // Nested function without captures - still store it so it can be called
@@ -2153,7 +2158,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
         // Also store to module global for module-level function declarations
         if (moduleGlobalVars_.count(node->name)) {
-            builder_.createStoreGlobal("__modvar_" + node->name, closureVal);
+            builder_.createStoreGlobal(modVarName(node->name), closureVal);
         }
     }
 }
@@ -2253,7 +2258,7 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
         // also store the value to the LLVM global variable so other functions
         // from the same module can access it via LoadGlobal.
         if (moduleGlobalVars_.count(ident->name)) {
-            std::string globalName = "__modvar_" + ident->name;
+            std::string globalName = modVarName(ident->name);
             builder_.createStoreGlobal(globalName, initValue);
         }
     } else if (auto* objPattern = dynamic_cast<ast::ObjectBindingPattern*>(node->name.get())) {
@@ -2335,7 +2340,7 @@ void ASTToHIR::lowerBindingElement(ast::BindingElement* binding,
         // If this variable is a module-scoped global (e.g. from destructured require()),
         // also store to the __modvar_ LLVM global so other functions can access it.
         if (moduleGlobalVars_.count(ident->name)) {
-            builder_.createStoreGlobal("__modvar_" + ident->name, extractedValue);
+            builder_.createStoreGlobal(modVarName(ident->name), extractedValue);
         }
     } else if (auto* nestedObj = dynamic_cast<ast::ObjectBindingPattern*>(binding->name.get())) {
         // Nested object destructuring: { a: { b, c } }
@@ -2384,7 +2389,7 @@ void ASTToHIR::lowerBindingElementByIndex(ast::BindingElement* binding,
         // If this variable is a module-scoped global (e.g. from destructured require()),
         // also store to the __modvar_ LLVM global so other functions can access it.
         if (moduleGlobalVars_.count(ident->name)) {
-            builder_.createStoreGlobal("__modvar_" + ident->name, extractedValue);
+            builder_.createStoreGlobal(modVarName(ident->name), extractedValue);
         }
     } else if (auto* nestedObj = dynamic_cast<ast::ObjectBindingPattern*>(binding->name.get())) {
         lowerObjectBindingPattern(nestedObj, extractedValue);
@@ -3829,7 +3834,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             if (currentFunction_ && moduleGlobalVars_.count(ident->name)) {
                 size_t scopeIdx = 0;
                 if (isCapturedVariable(ident->name, &scopeIdx)) {
-                    builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                    builder_.createStoreGlobal(modVarName(ident->name), result);
                     lastValue_ = result;
                     return;
                 }
@@ -3868,7 +3873,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
             // If this variable is a module-scoped global, also update __modvar_ global
             if (moduleGlobalVars_.count(ident->name)) {
-                builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                builder_.createStoreGlobal(modVarName(ident->name), result);
             }
 
             lastValue_ = result;
@@ -3952,7 +3957,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         if (currentFunction_ && moduleGlobalVars_.count(ident->name)) {
             size_t scopeIndex = 0;
             if (isCapturedVariable(ident->name, &scopeIndex)) {
-                builder_.createStoreGlobal("__modvar_" + ident->name, rhs);
+                builder_.createStoreGlobal(modVarName(ident->name), rhs);
                 lastValue_ = rhs;
                 return;
             }
@@ -4000,7 +4005,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // so other functions (arrow functions, function expressions) from the same module
         // can read the updated value via LoadGlobalTyped.
         if (moduleGlobalVars_.count(ident->name)) {
-            builder_.createStoreGlobal("__modvar_" + ident->name, rhs);
+            builder_.createStoreGlobal(modVarName(ident->name), rhs);
         }
 
         lastValue_ = rhs;
@@ -4142,8 +4147,15 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 argTypes.push_back(arg->inferredType ? arg->inferredType
                                    : std::make_shared<ts::Type>(ts::TypeKind::Any));
             }
+            // Get module path from namespace type for cross-module disambiguation
+            std::string nsModulePath;
+            if (auto nsType = std::dynamic_pointer_cast<ts::NamespaceType>(propAccess->expression->inferredType)) {
+                if (nsType->module) {
+                    nsModulePath = nsType->module->path;
+                }
+            }
             std::string mangledName = Monomorphizer::generateMangledName(
-                funcName, argTypes, node->resolvedTypeArguments);
+                funcName, argTypes, node->resolvedTypeArguments, nsModulePath);
 
             // Check specializations to determine if this is a user-defined function
             bool foundSpec = false;
@@ -4690,7 +4702,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // capture ordering (e.g., fmtLong captures plural, but plural's
             // closure isn't created yet when fmtLong's closure is created).
             if (moduleGlobalVars_.count(ident->name)) {
-                std::string globalName = "__modvar_" + ident->name;
+                std::string globalName = modVarName(ident->name);
                 auto funcPtr = builder_.createLoadGlobalTyped(globalName, HIRType::makeAny());
                 lastValue_ = builder_.createCallIndirect(funcPtr, args, HIRType::makeAny());
                 return;
@@ -4740,7 +4752,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         // CJS named imports that are function expressions (not FunctionDeclarations)
         // are stored in moduleGlobalVars_ and must be called indirectly.
         if (moduleGlobalVars_.count(ident->name)) {
-            std::string globalName = "__modvar_" + ident->name;
+            std::string globalName = modVarName(ident->name);
             auto funcPtr = builder_.createLoadGlobalTyped(globalName, HIRType::makeAny());
             lastValue_ = builder_.createCallIndirect(funcPtr, args, HIRType::makeAny());
             return;
@@ -5017,7 +5029,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             for (auto& arg : node->arguments) {
                 argTypes.push_back(arg->inferredType ? arg->inferredType : std::make_shared<ts::Type>(ts::TypeKind::Any));
             }
-            std::string mangledName = Monomorphizer::generateMangledName(ident->name, argTypes, node->resolvedTypeArguments);
+            std::string mangledName = Monomorphizer::generateMangledName(ident->name, argTypes, node->resolvedTypeArguments, currentModulePath_);
             callName = mangledName;
 
             // Look up the function - try mangled name first, then original name
@@ -5838,7 +5850,7 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             }
 
             // Check for module-level globals (exported variables)
-            std::string globalName = "__modvar_" + node->name;
+            std::string globalName = modVarName(node->name);
             auto globalVar = lookupVariable(globalName);
             if (globalVar) {
                 lastValue_ = globalVar;
@@ -6199,7 +6211,7 @@ void ASTToHIR::visitShorthandPropertyAssignment(ast::ShorthandPropertyAssignment
     if (!val && currentFunction_ && moduleGlobalVars_.count(node->name)) {
         size_t si = 0;
         if (isCapturedVariable(node->name, &si)) {
-            std::string globalName = "__modvar_" + node->name;
+            std::string globalName = modVarName(node->name);
             auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
             val = builder_.createLoadGlobalTyped(globalName, type);
         }
@@ -6317,14 +6329,14 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             // defining function knows to use __modvar_ too
             moduleGlobalsUsedByInner_.insert(node->name);
 
-            std::string globalName = "__modvar_" + node->name;
+            std::string globalName = modVarName(node->name);
             auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
             lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
             return;
         }
         // In the defining function, use global if any inner function accesses it
         if (moduleGlobalsUsedByInner_.count(node->name)) {
-            std::string globalName = "__modvar_" + node->name;
+            std::string globalName = modVarName(node->name);
             auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
             lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
             return;
@@ -6421,7 +6433,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // compile their functions into module_->functions, but we need to use the
     // imported closure (which has prototype/properties set up) not a fresh one.
     if (moduleGlobalVars_.count(node->name)) {
-        std::string globalName = "__modvar_" + node->name;
+        std::string globalName = modVarName(node->name);
         auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
         lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
         return;
@@ -7623,7 +7635,7 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             if (currentFunction_ && moduleGlobalVars_.count(ident->name)) {
                 size_t scopeIdx = 0;
                 if (isCapturedVariable(ident->name, &scopeIdx)) {
-                    builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                    builder_.createStoreGlobal(modVarName(ident->name), result);
                     handledAsModGlobal = true;
                 }
             }
@@ -7648,7 +7660,7 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                         }
                         // If used by inner function AND module global, also update __modvar_
                         if (moduleGlobalsUsedByInner_.count(ident->name)) {
-                            builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                            builder_.createStoreGlobal(modVarName(ident->name), result);
                         }
                     } else {
                         defineVariable(ident->name, result);
@@ -7737,7 +7749,7 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
             if (currentFunction_ && moduleGlobalVars_.count(ident->name)) {
                 size_t scopeIdx = 0;
                 if (isCapturedVariable(ident->name, &scopeIdx)) {
-                    builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                    builder_.createStoreGlobal(modVarName(ident->name), result);
                     handledAsModGlobal = true;
                 }
             }
@@ -7762,7 +7774,7 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                         }
                         // If used by inner function AND module global, also update __modvar_
                         if (moduleGlobalsUsedByInner_.count(ident->name)) {
-                            builder_.createStoreGlobal("__modvar_" + ident->name, result);
+                            builder_.createStoreGlobal(modVarName(ident->name), result);
                         }
                     } else {
                         defineVariable(ident->name, result);

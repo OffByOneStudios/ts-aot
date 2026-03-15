@@ -4,6 +4,7 @@
 #include "HIR.h"
 #include "HIRBuilder.h"
 #include "../analysis/Type.h"
+#include "../analysis/Module.h"
 #include "../analysis/Monomorphizer.h"
 
 #include <map>
@@ -48,6 +49,20 @@ private:
 
     // Store specializations for looking up function info during call generation
     const std::vector<Specialization>* specializations_ = nullptr;
+
+    // Current module path for cross-module function name disambiguation
+    std::string currentModulePath_;
+
+    // Helper: generate module-prefixed global variable name
+    // Returns "__modvar_<name>" for the main file, "__modvar_<name>_m<hash>" for imported modules
+    std::string modVarName(const std::string& name) const {
+        if (currentModulePath_.empty()) {
+            return "__modvar_" + name;
+        }
+        std::hash<std::string> hasher;
+        auto hash = hasher(currentModulePath_) % 999999;
+        return "__modvar_" + name + "_m" + std::to_string(hash);
+    }
 
     // Map from locally imported name -> (extension module name, exported name)
     // E.g., { "join" -> {"path", "join"} } for `import { join } from 'path'`

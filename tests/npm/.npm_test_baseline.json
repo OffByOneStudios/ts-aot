@@ -9,8 +9,8 @@
   "is-plain-object": "pass",
   "lodash": "pass",
   "ms": "pass",
-  "nanoid": "pass",
+  "nanoid": "runtime_error",
   "picomatch": "pass",
-  "semver": "pass",
+  "semver": "runtime_error",
   "uuid": "pass"
 }

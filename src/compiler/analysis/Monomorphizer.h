@@ -18,6 +18,7 @@ struct Specialization {
     std::shared_ptr<Type> returnType; // Inferred return type
     std::shared_ptr<Type> classType; // If this is a class method, the class type
     ast::Node* node; // Pointer to the original AST node (FunctionDeclaration or MethodDefinition)
+    std::string modulePath; // Source module path (for cross-module name disambiguation)
 };
 
 class Analyzer; // Forward declaration
@@ -30,7 +31,7 @@ public:
 
     const std::vector<Specialization>& getSpecializations() const { return specializations; }
 
-    static std::string generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments = {});
+    static std::string generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments = {}, const std::string& modulePath = "");
 
 private:
     std::vector<std::unique_ptr<ast::FunctionDeclaration>> syntheticFunctions;

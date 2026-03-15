@@ -477,6 +477,18 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     const auto& usages = analyzer.getFunctionUsages();
     std::vector<std::string> moduleInitFunctions;
 
+    // Determine main source file path for skipping module hash on main file functions.
+    // Normalize to absolute path for reliable comparison since searchPath uses absolute paths
+    // but program->body[0]->sourceFile may be relative.
+    std::string mainSourceFilePath;
+    if (!program->body.empty() && !program->body[0]->sourceFile.empty()) {
+        try {
+            mainSourceFilePath = std::filesystem::canonical(program->body[0]->sourceFile).string();
+        } catch (...) {
+            mainSourceFilePath = std::filesystem::absolute(program->body[0]->sourceFile).string();
+        }
+    }
+
     SPDLOG_INFO("Monomorphizing {} modules", analyzer.moduleOrder.size());
     for (const auto& path : analyzer.moduleOrder) {
         SPDLOG_INFO("Processing module: {}", path);
@@ -1115,7 +1127,11 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         spec.argTypes = { std::make_shared<Type>(TypeKind::Any) };
         spec.returnType = std::make_shared<Type>(TypeKind::Any);
         spec.node = moduleInit.get();
-        
+        // Set module path for cross-module __modvar_ disambiguation (skip main file)
+        if (path != mainSourceFilePath) {
+            spec.modulePath = path;
+        }
+
         // Set line number to 1 for synthetic module init
         moduleInit->line = 1;
         moduleInit->column = 1;
@@ -1331,6 +1347,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     mainSpec.node = userMain.get();
     specializations.push_back(mainSpec);
 
+    // Use the same normalized mainSourceFilePath from above
+    std::string mainSourceFile = mainSourceFilePath;
+
     std::set<std::string> processedSpecializations;
     bool changed = true;
     while (changed) {
@@ -1379,15 +1398,20 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                     adjustedArgTypes = newArgTypes;
                 }
 
-                // Include module path in the specialization key to distinguish same-named functions
-                // in different modules with the same argument types
-                std::string mangled = generateMangledName(name, adjustedArgTypes, call.typeArguments);
+                // Only add module hash for functions from imported modules, not the main file.
+                // Functions in the main file are called without module hash at the call site.
+                // For imported modules, both cross-module and intra-module calls need the hash
+                // so that same-named functions in different modules get unique LLVM names.
+                std::string mangledModulePath;
+                if (!searchPath.empty() && searchPath != mainSourceFile) {
+                    mangledModulePath = searchPath;
+                }
+                std::string mangled = generateMangledName(name, adjustedArgTypes, call.typeArguments, mangledModulePath);
                 std::string specKey = call.modulePath.empty() ? mangled : (call.modulePath + "::" + mangled);
                 if (processedSpecializations.count(specKey)) continue;
 
-                // Also check the mangled name directly to prevent duplicate HIR functions
-                // when the same function is called from different modules (different specKey
-                // but same specializedName would create duplicate LLVM function definitions)
+                // The mangled name now includes a module hash, so same-named functions
+                // from different modules get unique LLVM function names
                 if (processedSpecializations.count(mangled)) continue;
 
                 processedSpecializations.insert(specKey);
@@ -1397,6 +1421,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 Specialization spec;
                 spec.originalName = name;
                 spec.specializedName = mangled;
+                spec.modulePath = mangledModulePath;
 
                 if (spec.specializedName == "main") {
                     spec.specializedName = "__ts_main";
@@ -2005,12 +2030,20 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     syntheticFunctions.push_back(std::move(userMain));
 }
 
-std::string Monomorphizer::generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments) {
+std::string Monomorphizer::generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments, const std::string& modulePath) {
     if (originalName == "main" && argTypes.empty()) {
         return "__ts_main";
     }
     std::string name = originalName;
-    
+
+    // Add module hash suffix for cross-module disambiguation
+    // This prevents name collisions when different JS modules define functions with the same name
+    if (!modulePath.empty()) {
+        std::hash<std::string> hasher;
+        auto hash = hasher(modulePath) % 999999;
+        name += "_m" + std::to_string(hash);
+    }
+
     if (!typeArguments.empty()) {
         name += "_T";
         for (const auto& type : typeArguments) {
