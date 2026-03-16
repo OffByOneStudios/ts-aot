@@ -1742,8 +1742,9 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // Create HIR function - HIRFunction constructor requires a name
     // Add module hash suffix for cross-module disambiguation when inside a
     // module init function (JS modules may define functions with the same name).
-    // Only apply to functions nested inside module init (untyped JS path) — typed
-    // specializations already have mangled names from the Monomorphizer.
+    // Only apply to direct children of module init — functions inside function
+    // expressions are accessed via closures, not by name, so they don't need
+    // module-level disambiguation. They get unique names from funcExprCounter_.
     std::string funcName = node->name;
     if (!currentModulePath_.empty() && currentFunction_ &&
         currentFunction_->name.find("__module_init_") == 0) {
