@@ -1148,6 +1148,23 @@ ASTToHIR::VariableInfo* ASTToHIR::lookupVariableInfo(const std::string& name) {
     return nullptr;
 }
 
+ASTToHIR::VariableInfo* ASTToHIR::lookupVariableInfoInCurrentFunction(const std::string& name) {
+    // Search scopes only within the current function (stop at function boundaries
+    // that belong to a different function). This prevents a `var` declaration in a
+    // nested function from finding and overwriting an outer function's alloca.
+    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+        auto found = it->variables.find(name);
+        if (found != it->variables.end()) {
+            return &found->second;
+        }
+        // Stop at function boundaries belonging to a different function
+        if (it->isFunctionBoundary && it->owningFunction != currentFunction_) {
+            break;
+        }
+    }
+    return nullptr;
+}
+
 std::shared_ptr<HIRValue> ASTToHIR::lookupVariable(const std::string& name) {
     // Legacy method - looks up and emits load if needed
     auto* info = lookupVariableInfo(name);
@@ -1723,7 +1740,18 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     }
 
     // Create HIR function - HIRFunction constructor requires a name
-    auto func = std::make_unique<HIRFunction>(node->name);
+    // Add module hash suffix for cross-module disambiguation when inside a
+    // module init function (JS modules may define functions with the same name).
+    // Only apply to functions nested inside module init (untyped JS path) — typed
+    // specializations already have mangled names from the Monomorphizer.
+    std::string funcName = node->name;
+    if (!currentModulePath_.empty() && currentFunction_ &&
+        currentFunction_->name.find("__module_init_") == 0) {
+        std::hash<std::string> hasher;
+        auto hash = hasher(currentModulePath_) % 999999;
+        funcName += "_m" + std::to_string(hash);
+    }
+    auto func = std::make_unique<HIRFunction>(funcName);
     func->isAsync = node->isAsync;
     func->isGenerator = node->isGenerator;
     func->sourceLine = node->line;
@@ -2096,7 +2124,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             }
         }
 
-        auto closureVal = builder_.createMakeClosure(node->name, captureValues, closureFuncType);
+        auto closureVal = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
 
         // Mark captured variables as "captured by nested"
         int captureIdx = 0;
@@ -2146,7 +2174,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
         // Create a closure with no captures (for call_indirect compatibility)
         std::vector<std::shared_ptr<HIRValue>> emptyCaptureValues;
-        auto closureVal = builder_.createMakeClosure(node->name, emptyCaptureValues, funcType);
+        auto closureVal = builder_.createMakeClosure(funcName, emptyCaptureValues, funcType);
 
         // Store into pre-created alloca or define new variable
         auto* existingInfo = lookupVariableInfo(node->name);
@@ -2233,8 +2261,11 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             varType = initValue->type;
         }
 
-        // Check if this variable was already pre-hoisted - if so, reuse its alloca
-        auto* existingInfo = lookupVariableInfo(ident->name);
+        // Check if this variable was already pre-hoisted in the CURRENT function -
+        // if so, reuse its alloca. We must only match allocas from the current
+        // function scope, not from outer functions, because a `var` declaration
+        // inside a nested function should shadow outer variables, not overwrite them.
+        auto* existingInfo = lookupVariableInfoInCurrentFunction(ident->name);
         if (existingInfo && existingInfo->isAlloca) {
             // Variable was pre-hoisted: just store the init value into the existing alloca
             builder_.createStore(initValue, existingInfo->value, varType);
@@ -2257,7 +2288,11 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
         // If this variable is a module-scoped global (from an imported module),
         // also store the value to the LLVM global variable so other functions
         // from the same module can access it via LoadGlobal.
-        if (moduleGlobalVars_.count(ident->name)) {
+        // Only do this in the module init function itself — a `var` declaration
+        // inside a nested function expression (e.g., forEach callback) with the
+        // same name should shadow the module global, not overwrite it.
+        if (moduleGlobalVars_.count(ident->name) &&
+            (!currentFunction_ || currentFunction_->name.find("__module_init_") == 0)) {
             std::string globalName = modVarName(ident->name);
             builder_.createStoreGlobal(globalName, initValue);
         }
@@ -6325,6 +6360,34 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     // This ensures the module init function sees updates from closures that modify
     // the variable (e.g., let R = 0; const f = () => { R++; }; f(); exports.R = R).
     if (currentFunction_ && moduleGlobalVars_.count(node->name)) {
+        // Check for a local variable in the CURRENT function's scope first —
+        // local declarations (var/let/const or parameters) inside nested
+        // functions shadow module globals. We must only check scopes belonging
+        // to the current function (not outer functions) because outer function
+        // locals aren't accessible via LLVM alloca from a different function.
+        {
+            bool foundLocal = false;
+            for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                auto found = it->variables.find(node->name);
+                if (found != it->variables.end() && it->owningFunction == currentFunction_) {
+                    // Found in current function's scope — use the local
+                    auto* info = &found->second;
+                    if (info->isAlloca && info->elemType) {
+                        lastValue_ = builder_.createLoad(info->elemType, info->value);
+                    } else {
+                        lastValue_ = info->value;
+                    }
+                    foundLocal = true;
+                    break;
+                }
+                // Stop at function boundaries — don't look into outer functions
+                if (it->isFunctionBoundary && it->owningFunction != currentFunction_) {
+                    break;
+                }
+            }
+            if (foundLocal) return;
+        }
+
         size_t scopeIndex = 0;
         if (isCapturedVariable(node->name, &scopeIndex)) {
             // Inner function accessing a module global -- record it so the

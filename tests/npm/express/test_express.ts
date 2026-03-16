@@ -2,10 +2,9 @@
 // Tests pure-JS packages bundled with Express that don't require HTTP stack
 //
 // Skipped packages and reasons:
-// - cookie: constructor name collision with content-type (both have 'parse' with 'new')
-// - vary: module.exports = function pattern (properties on function objects)
+// - cookie: works standalone, but constructor name collision with content-type
+//   when both compiled together (both have 'parse' function, content-type uses 'new')
 // - merge-descriptors: Object.defineProperty doesn't propagate values to flat objects
-// - statuses: compiler crash (props on function + JSON require)
 
 const pathToRegexp = require('./node_modules/path-to-regexp');
 const flatten = require('./node_modules/array-flatten');
@@ -17,6 +16,8 @@ const encodeUrl = require('./node_modules/encodeurl');
 const rangeParser = require('./node_modules/range-parser');
 const cookieSignature = require('./node_modules/cookie-signature');
 const etag = require('./node_modules/etag');
+const vary = require('./node_modules/vary');
+const statuses = require('./node_modules/statuses');
 
 function user_main(): number {
     let failures = 0;
@@ -106,6 +107,16 @@ function user_main(): number {
     check("etag starts with quote", et1.indexOf('"') === 0, true);
     const et2 = etag("");
     check("etag empty string", typeof et2, "string");
+
+    // --- vary (3 checks) ---
+    check("vary append empty", vary.append("", "Accept"), "Accept");
+    check("vary append existing", vary.append("Accept", "Accept-Encoding"), "Accept, Accept-Encoding");
+    check("vary append duplicate", vary.append("Accept", "Accept"), "Accept");
+
+    // --- statuses (3 checks) ---
+    check("statuses 200 message", statuses.message["200"], "OK");
+    check("statuses 404 message", statuses.message["404"], "Not Found");
+    check("statuses codes includes 200", statuses.codes.indexOf(200) !== -1, true);
 
     // --- summary ---
     console.log("---");

@@ -390,6 +390,7 @@ private:
     void defineVariableAlloca(const std::string& name, std::shared_ptr<HIRValue> allocaPtr,
                                std::shared_ptr<HIRType> elemType);
     VariableInfo* lookupVariableInfo(const std::string& name);
+    VariableInfo* lookupVariableInfoInCurrentFunction(const std::string& name);
     std::shared_ptr<HIRValue> lookupVariable(const std::string& name);
 
     // Closure capture helpers
