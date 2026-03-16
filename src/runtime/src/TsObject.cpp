@@ -1864,7 +1864,9 @@ TsValue* ts_value_make_int(int64_t i) {
                 magic16 == 0x48535256 ||  // TsHttpServer::MAGIC "HSRV"
                 magic16 == 0x52455350 ||  // TsResponse::MAGIC "RESP"
                 magic16 == 0x52455155 ||  // TsRequest::MAGIC "REQU"
-                magic16 == 0x48454144) {  // TsHeaders::MAGIC "HEAD"
+                magic16 == 0x48454144 ||  // TsHeaders::MAGIC "HEAD"
+                magic16 == 0x48415348 ||  // TsCryptoHash::MAGIC "HASH"
+                magic16 == 0x484D4143) {  // TsCryptoHmac::MAGIC "HMAC"
                 TsObject* tsObj = (TsObject*)obj;
                 TsValue result = tsObj->GetPropertyVirtual(keyStr);
                 if (result.type != ValueType::UNDEFINED) {

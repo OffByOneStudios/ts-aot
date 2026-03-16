@@ -6,8 +6,6 @@
 // - vary: module.exports = function pattern (properties on function objects)
 // - merge-descriptors: Object.defineProperty doesn't propagate values to flat objects
 // - statuses: compiler crash (props on function + JSON require)
-// - cookie-signature: typeof check fails on boxed string args in require() context
-// - etag: crypto hash returns undefined in require() context
 
 const pathToRegexp = require('./node_modules/path-to-regexp');
 const flatten = require('./node_modules/array-flatten');
@@ -17,6 +15,8 @@ const contentType = require('./node_modules/content-type');
 const fresh = require('./node_modules/fresh');
 const encodeUrl = require('./node_modules/encodeurl');
 const rangeParser = require('./node_modules/range-parser');
+const cookieSignature = require('./node_modules/cookie-signature');
+const etag = require('./node_modules/etag');
 
 function user_main(): number {
     let failures = 0;
@@ -91,6 +91,21 @@ function user_main(): number {
     check("range-parser length", rp1.length, 1);
     check("range-parser start", rp1[0].start, 0);
     check("range-parser end", rp1[0].end, 499);
+
+    // --- cookie-signature (3 checks) ---
+    const signed = cookieSignature.sign("hello", "secret");
+    check("cookie-signature sign prefix", signed.indexOf("hello.") === 0, true);
+    const unsigned_val = cookieSignature.unsign(signed, "secret");
+    check("cookie-signature unsign", unsigned_val, "hello");
+    const bad_unsign = cookieSignature.unsign(signed, "wrong");
+    check("cookie-signature unsign bad secret", bad_unsign, false);
+
+    // --- etag (3 checks) ---
+    const et1 = etag("hello world");
+    check("etag is string", typeof et1, "string");
+    check("etag starts with quote", et1.indexOf('"') === 0, true);
+    const et2 = etag("");
+    check("etag empty string", typeof et2, "string");
 
     // --- summary ---
     console.log("---");

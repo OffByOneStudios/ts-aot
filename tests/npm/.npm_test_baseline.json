@@ -4,7 +4,7 @@
   "eventemitter3": "pass",
   "express": "pass",
   "fast-deep-equal": "pass",
-  "hono": "pass",
+  "hono": "compile_error",
   "is-number": "pass",
   "is-plain-object": "pass",
   "lodash": "pass",

@@ -95,6 +95,9 @@ public:
         return buf->ToBase64();
     }
 
+    // Virtual property dispatch for dynamic method access
+    TsValue GetPropertyVirtual(const char* key) override;
+
     // Copy the hash state for incremental hashing
     TsCryptoHash* Copy() {
         if (finalized) return nullptr;
@@ -196,6 +199,9 @@ public:
         if (!buf) return nullptr;
         return buf->ToBase64();
     }
+
+    // Virtual property dispatch for dynamic method access
+    TsValue GetPropertyVirtual(const char* key) override;
 };
 
 // ============================================================================
@@ -1367,6 +1373,97 @@ void* Hmac_update(void* hmacObj, void* data) {
 
 void* Hmac_digest(void* hmacObj, void* encoding) {
     return ts_crypto_hmac_digest(hmacObj, encoding);
+}
+
+// ============================================================================
+// GetPropertyVirtual wrappers for dynamic dispatch
+// These enable hash.digest() / hmac.update() etc. to work via ts_object_get_property
+// ============================================================================
+
+// Wrapper: hash.update(data) -> Hash
+static TsValue* hash_update_wrapper(void* context, TsValue* data) {
+    void* result = ts_crypto_hash_update(context, data);
+    return ts_value_make_object(result);
+}
+
+// Wrapper: hash.digest(encoding?) -> string/Buffer
+static TsValue* hash_digest_wrapper(void* context, TsValue* encoding) {
+    // Extract encoding string from TsValue if provided
+    void* enc = nullptr;
+    if (encoding && !ts_value_is_undefined(encoding)) {
+        enc = ts_value_get_string(encoding);
+    }
+    void* result = ts_crypto_hash_digest(context, enc);
+    if (!result) return ts_value_make_undefined();
+    // Result is either TsString* (hex/base64) or TsBuffer*
+    return ts_ensure_boxed(result);
+}
+
+// Wrapper: hash.copy() -> Hash
+static TsValue* hash_copy_wrapper(void* context) {
+    void* result = ts_crypto_hash_copy(context);
+    if (!result) return ts_value_make_undefined();
+    return ts_value_make_object(result);
+}
+
+// Wrapper: hmac.update(data) -> Hmac
+static TsValue* hmac_update_wrapper(void* context, TsValue* data) {
+    void* result = ts_crypto_hmac_update(context, data);
+    return ts_value_make_object(result);
+}
+
+// Wrapper: hmac.digest(encoding?) -> string/Buffer
+static TsValue* hmac_digest_wrapper(void* context, TsValue* encoding) {
+    void* enc = nullptr;
+    if (encoding && !ts_value_is_undefined(encoding)) {
+        enc = ts_value_get_string(encoding);
+    }
+    void* result = ts_crypto_hmac_digest(context, enc);
+    if (!result) return ts_value_make_undefined();
+    return ts_ensure_boxed(result);
+}
+
+TsValue TsCryptoHash::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "update") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)hash_update_wrapper, this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    if (strcmp(key, "digest") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)hash_digest_wrapper, this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    if (strcmp(key, "copy") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)hash_copy_wrapper, this, FunctionType::COMPILED, 0);
+        return v;
+    }
+    return TsObject::GetPropertyVirtual(key);
+}
+
+TsValue TsCryptoHmac::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "update") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)hmac_update_wrapper, this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    if (strcmp(key, "digest") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)hmac_digest_wrapper, this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    return TsObject::GetPropertyVirtual(key);
 }
 
 // ============================================================================
