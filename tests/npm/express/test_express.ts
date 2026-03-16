@@ -2,8 +2,6 @@
 // Tests pure-JS packages bundled with Express that don't require HTTP stack
 //
 // Skipped packages and reasons:
-// - cookie: works standalone, but constructor name collision with content-type
-//   when both compiled together (both have 'parse' function, content-type uses 'new')
 // - merge-descriptors: Object.defineProperty doesn't propagate values to flat objects
 
 const pathToRegexp = require('./node_modules/path-to-regexp');
@@ -18,6 +16,7 @@ const cookieSignature = require('./node_modules/cookie-signature');
 const etag = require('./node_modules/etag');
 const vary = require('./node_modules/vary');
 const statuses = require('./node_modules/statuses');
+const cookie = require('./node_modules/cookie');
 
 function user_main(): number {
     let failures = 0;
@@ -117,6 +116,14 @@ function user_main(): number {
     check("statuses 200 message", statuses.message["200"], "OK");
     check("statuses 404 message", statuses.message["404"], "Not Found");
     check("statuses codes includes 200", statuses.codes.indexOf(200) !== -1, true);
+
+    // --- cookie (3 checks) ---
+    const ck1 = cookie.parse("foo=bar");
+    check("cookie parse single", ck1.foo, "bar");
+    const ck2 = cookie.parse("foo=bar; baz=qux");
+    check("cookie parse multi", ck2.baz, "qux");
+    const ck3 = cookie.serialize("name", "value");
+    check("cookie serialize", ck3.indexOf("name=value") === 0, true);
 
     // --- summary ---
     console.log("---");
