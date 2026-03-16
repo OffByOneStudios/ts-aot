@@ -7212,9 +7212,44 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         }
     }
 
-    // Lower function body (vector of statements)
+    // JavaScript function hoisting: pre-declare nested function names as variables.
+    // This allows functions to be called before they appear in source order.
     for (auto& stmt : node->body) {
-        lowerStatement(stmt.get());
+        if (auto* funcDecl = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            auto funcType = std::make_shared<HIRType>(HIRTypeKind::Function);
+            for (auto& param : funcDecl->parameters) {
+                std::shared_ptr<HIRType> paramType = HIRType::makeAny();
+                if (!param->type.empty()) {
+                    paramType = convertTypeFromString(param->type);
+                }
+                funcType->paramTypes.push_back(paramType);
+            }
+            funcType->returnType = funcDecl->returnType.empty()
+                ? HIRType::makeAny()
+                : convertTypeFromString(funcDecl->returnType);
+
+            auto allocaVal = builder_.createAlloca(funcType, funcDecl->name);
+            builder_.createStore(builder_.createConstNull(), allocaVal);
+            defineVariableAlloca(funcDecl->name, allocaVal, funcType);
+        }
+    }
+
+    // Lower function body in two passes for proper JavaScript function hoisting:
+    // FIRST PASS: Process FunctionDeclarations to create closures
+    for (auto& stmt : node->body) {
+        if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            lowerStatement(stmt.get());
+        }
+    }
+
+    // SECOND PASS: Process non-FunctionDeclaration statements in order
+    for (auto& stmt : node->body) {
+        if (!dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+            lowerStatement(stmt.get());
+            if (builder_.isBlockTerminated()) {
+                break;
+            }
+        }
     }
 
     // Add implicit return undefined if no terminator
