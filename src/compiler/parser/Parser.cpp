@@ -1215,6 +1215,7 @@ ast::StmtPtr Parser::parseDoWhileStatement() {
 
     auto node = std::make_unique<ast::WhileStatement>();
     setLocation(node.get(), startTok);
+    node->isDoWhile = true;
 
     node->body = parseDeclarationOrStatement();
     expect(TokenKind::KW_while, "'while'");

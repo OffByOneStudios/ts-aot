@@ -2501,7 +2501,9 @@ void ASTToHIR::visitWhileStatement(ast::WhileStatement* node) {
         pendingLabel_.clear();  // Clear so nested loops don't also register
     }
 
-    builder_.createBranch(condBlock);
+    // For do-while, jump to body first (body executes before condition).
+    // For while, jump to condition first.
+    builder_.createBranch(node->isDoWhile ? bodyBlock : condBlock);
 
     // Condition block
     builder_.setInsertPoint(condBlock);

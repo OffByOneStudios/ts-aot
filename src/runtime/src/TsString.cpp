@@ -748,6 +748,21 @@ int64_t TsString::IndexOf(TsString* searchString) {
     return s.indexOf(search);
 }
 
+int64_t TsString::IndexOf(TsString* searchString, int64_t startPos) {
+    icu::UnicodeString s;
+    if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
+    else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
+
+    if (startPos < 0) startPos = 0;
+    if (startPos >= s.length()) return -1;
+
+    icu::UnicodeString search;
+    if (searchString->isSmall) search = icu::UnicodeString::fromUTF8(searchString->data.inlineBuffer);
+    else { searchString->ensureImpl(); search = *static_cast<icu::UnicodeString*>(searchString->data.heap.impl); }
+
+    return s.indexOf(search, (int32_t)startPos);
+}
+
 int64_t TsString::LastIndexOf(TsString* searchString) {
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
@@ -1459,6 +1474,14 @@ extern "C" {
         TsString* search = ts_ensure_flat(searchString);
         if (!search) return -1;
         return s->IndexOf(search);
+    }
+
+    int64_t ts_string_indexOf_from(void* str, void* searchString, int64_t startPos) {
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return -1;
+        TsString* search = ts_ensure_flat(searchString);
+        if (!search) return -1;
+        return s->IndexOf(search, startPos);
     }
 
     int64_t ts_string_lastIndexOf(void* str, void* searchString) {

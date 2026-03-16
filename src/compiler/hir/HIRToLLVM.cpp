@@ -4859,6 +4859,18 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
+    // String.indexOf with start position: redirect to ts_string_indexOf_from
+    if ((funcName == "ts_string_indexOf" || funcName == "ts_path_indexOf") && inst->operands.size() >= 4) {
+        auto* spec = ::hir::LoweringRegistry::instance().lookup("ts_string_indexOf_from");
+        if (spec) {
+            llvm::Value* result = lowerRegisteredCall(inst, *spec);
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+    }
+
     // Try registry-based lowering for runtime functions
     if (auto* spec = ::hir::LoweringRegistry::instance().lookup(funcName)) {
         llvm::Value* result = lowerRegisteredCall(inst, *spec);

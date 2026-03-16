@@ -49,6 +49,7 @@ public:
     bool EndsWith(TsString* suffix);
     bool Includes(TsString* searchString);
     int64_t IndexOf(TsString* searchString);
+    int64_t IndexOf(TsString* searchString, int64_t startPos);
     int64_t LastIndexOf(TsString* searchString);
     TsString* ToLowerCase();
     TsString* ToUpperCase();
@@ -123,6 +124,7 @@ extern "C" {
     bool ts_string_endsWith(void* str, void* suffix);
     bool ts_string_includes(void* str, void* searchString);
     int64_t ts_string_indexOf(void* str, void* searchString);
+    int64_t ts_string_indexOf_from(void* str, void* searchString, int64_t startPos);
     int64_t ts_string_lastIndexOf(void* str, void* searchString);
     void* ts_string_toLowerCase(void* str);
     void* ts_string_toUpperCase(void* str);

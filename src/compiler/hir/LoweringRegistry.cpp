@@ -860,6 +860,14 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // searchString
             .build());
 
+    reg.registerLowering("ts_string_indexOf_from",
+        lowering("ts_string_indexOf_from")
+            .returnsI64()
+            .ptrArg()      // string
+            .ptrArg()      // searchString
+            .i64Arg()      // startPos
+            .build());
+
     // Workaround: ts_path_indexOf is generated when a variable named 'path'
     // (which is a string) has indexOf called on it - ASTToHIR confuses it
     // with the path module. Map to ts_string_indexOf.

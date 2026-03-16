@@ -319,6 +319,7 @@ struct IfStatement : Statement {
 struct WhileStatement : Statement {
     ExprPtr condition;
     StmtPtr body;
+    bool isDoWhile = false;  // true for do-while loops (body executes before condition)
     std::string getKind() const override { return "WhileStatement"; }
     void accept(Visitor* visitor) override { visitor->visitWhileStatement(this); }
 };

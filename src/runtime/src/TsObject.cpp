@@ -967,6 +967,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsString* str = (TsString*)ctx;
         void* search = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
         if (!search) search = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (argc >= 2 && argv && argv[1]) {
+            int64_t startPos = ts_value_get_int(argv[1]);
+            return ts_value_make_int(ts_string_indexOf_from(str, search, startPos));
+        }
         return ts_value_make_int(ts_string_indexOf(str, search));
     }
     static TsValue* ts_string_substring_native(void* ctx, int argc, TsValue** argv) {

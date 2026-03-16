@@ -2,8 +2,8 @@
 // Tests pure-JS packages bundled with Express that don't require HTTP stack
 //
 // Skipped packages and reasons:
-// - cookie: dynamic key assignment on empty object literal returns undefined
-// - vary: internal 'parse' function name collides with content-type's 'parse'
+// - cookie: constructor name collision with content-type (both have 'parse' with 'new')
+// - vary: module.exports = function pattern (properties on function objects)
 // - merge-descriptors: Object.defineProperty doesn't propagate values to flat objects
 // - statuses: compiler crash (props on function + JSON require)
 // - cookie-signature: typeof check fails on boxed string args in require() context
