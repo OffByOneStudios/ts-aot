@@ -4630,6 +4630,13 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_bool(nanbox_to_number(nba) == nanbox_to_number(nbb));
         }
 
+        // Both strings: compare by content
+        if (nanbox_is_string_ptr(nba) && nanbox_is_string_ptr(nbb)) {
+            TsString* s1 = (TsString*)nanbox_to_ptr(nba);
+            TsString* s2 = (TsString*)nanbox_to_ptr(nbb);
+            return ts_value_make_bool(s1->Equals(s2));
+        }
+
         // Coerce to numbers
         return ts_value_make_bool(nanbox_extract_double(a) == nanbox_extract_double(b));
     }
