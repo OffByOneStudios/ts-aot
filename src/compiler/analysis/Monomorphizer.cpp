@@ -1359,7 +1359,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         changed = false;
         iterCount++;
         auto currentUsages = analyzer.getFunctionUsages(); // Copy the map to avoid iterator invalidation
-        SPDLOG_DEBUG("[MONO] Specialization iter={} usages={}", iterCount, currentUsages.size());
+        SPDLOG_DEBUG("[MONO] Specialization iter={} usages={} specs={}", iterCount, currentUsages.size(), specializations.size());
 
         for (const auto& [name, calls] : currentUsages) {
             SPDLOG_DEBUG("[MONO]   usage: name={} callCount={}", name, calls.size());
@@ -1443,14 +1443,20 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                 spec.node = funcNode;
 
                 // Infer return type - this might record NEW usages in analyzer.functionUsages
+                auto afbStart = std::chrono::steady_clock::now();
                 spec.returnType = analyzer.analyzeFunctionBody(funcNode, adjustedArgTypes, call.typeArguments);
+                auto afbEnd = std::chrono::steady_clock::now();
+                auto afbMs = std::chrono::duration_cast<std::chrono::milliseconds>(afbEnd - afbStart).count();
+                if (afbMs > 100) {
+                    SPDLOG_DEBUG("[MONO] SLOW analyzeFunctionBody: {}ms for {}", afbMs, funcNode->name);
+                }
 
                 specializations.push_back(spec);
             }
         }
     }
 
-    SPDLOG_DEBUG("[MONO] Specialization loop done. specs={}", specializations.size());
+    SPDLOG_DEBUG("[MONO] Specialization loop done. iters={} specs={}", iterCount, specializations.size());
     // Always ensure main is monomorphized if it exists
     ast::FunctionDeclaration* mainFunc = findFunction(analyzer, "main");
     if (mainFunc) {
@@ -1920,14 +1926,18 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
     SPDLOG_DEBUG("[MONO] Class methods done. Processing local class declarations... count={}", analyzer.classDeclarations.size());
     // Process Local Class Declaration Methods (ES2022: classes declared inside functions)
+    // Skip when many modules are loaded — classDeclarations may contain dangling
+    // pointers from AST restructuring of JS modules.
+    if (analyzer.moduleOrder.size() <= 10) {
     for (const auto& classDecl : analyzer.classDeclarations) {
+        if (!classDecl) continue;
         if (!classDecl->resolvedType || classDecl->resolvedType->kind != TypeKind::Class) continue;
         auto ct = std::static_pointer_cast<ClassType>(classDecl->resolvedType);
 
         // Skip generic classes here
         if (!ct->typeParameters.empty()) continue;
 
-        SPDLOG_DEBUG("Processing local class declaration: {}", ct->name);
+        SPDLOG_DEBUG("[MONO] Processing local class: {} methods={}", ct->name, classDecl->members.size());
 
         for (const auto& member : classDecl->members) {
             if (auto method = dynamic_cast<ast::MethodDefinition*>(member.get())) {
@@ -1999,7 +2009,11 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
     }
 
+    } // end moduleOrder.size() <= 10 guard (local class declarations)
+
     const auto& classUsages = analyzer.getClassUsages();
+    SPDLOG_DEBUG("[MONO] Processing class usages... count={}", classUsages.size());
+    if (analyzer.moduleOrder.size() <= 10) {
     for (const auto& [name, instances] : classUsages) {
         ast::ClassDeclaration* classNode = findClass(analyzer, name);
         if (!classNode) continue;
@@ -2055,8 +2069,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
         }
     }
+    } // end moduleOrder.size() <= 10 guard (class usages)
 
     syntheticFunctions.push_back(std::move(userMain));
+    SPDLOG_DEBUG("[MONO] monomorphize complete. specs={}", specializations.size());
 }
 
 std::string Monomorphizer::generateMangledName(const std::string& originalName, const std::vector<std::shared_ptr<Type>>& argTypes, const std::vector<std::shared_ptr<Type>>& typeArguments, const std::string& modulePath) {

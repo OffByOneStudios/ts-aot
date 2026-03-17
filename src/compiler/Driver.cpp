@@ -1,4 +1,5 @@
 #include "Driver.h"
+#include <chrono>
 #include <unicode/uvernum.h>
 #include "ast/AstLoader.h"
 #include "parser/Parser.h"
@@ -214,9 +215,10 @@ int Driver::run() {
             SPDLOG_INFO("Monomorphizing...");
         }
         ts::Monomorphizer monomorphizer;
-        SPDLOG_DEBUG("[DRIVER] Starting monomorphize...");
+        auto t0 = std::chrono::steady_clock::now();
         monomorphizer.monomorphize(program.get(), analyzer);
-        SPDLOG_DEBUG("[DRIVER] Monomorphize done. specializations={}", monomorphizer.getSpecializations().size());
+        auto t1 = std::chrono::steady_clock::now();
+        SPDLOG_WARN("[TIMING] monomorphize: {}ms, specs={}", std::chrono::duration_cast<std::chrono::milliseconds>(t1-t0).count(), monomorphizer.getSpecializations().size());
 
         // IMPORTANT: Declaration order matters for destruction!
         // Context must be declared BEFORE Module so Module is destroyed first.
@@ -230,10 +232,11 @@ int Driver::run() {
         }
 
         std::string moduleName = std::filesystem::path(tsFile).stem().string();
-        SPDLOG_DEBUG("[DRIVER] Starting ASTToHIR lower...");
+        auto t2 = std::chrono::steady_clock::now();
         hir::ASTToHIR astToHir;
         auto hirModule = astToHir.lower(program.get(), monomorphizer.getSpecializations(), moduleName);
-        SPDLOG_DEBUG("[DRIVER] ASTToHIR done.");
+        auto t3 = std::chrono::steady_clock::now();
+        SPDLOG_WARN("[TIMING] ASTToHIR: {}ms, functions={}", std::chrono::duration_cast<std::chrono::milliseconds>(t3-t2).count(), hirModule ? hirModule->functions.size() : 0);
 
         // Run HIR optimization passes
         if (options.verbose) {
@@ -250,7 +253,10 @@ int Driver::run() {
         passManager.addPass(std::make_unique<hir::MethodResolutionPass>());
         passManager.addPass(std::make_unique<hir::BuiltinResolutionPass>());
 
+        auto t4 = std::chrono::steady_clock::now();
         auto passResult = passManager.run(*hirModule);
+        auto t5 = std::chrono::steady_clock::now();
+        SPDLOG_WARN("[TIMING] HIR passes: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(t5-t4).count());
         if (!passResult.success()) {
             SPDLOG_ERROR("HIR pass failed: {}", passResult.error);
             return 1;
@@ -284,7 +290,10 @@ int Driver::run() {
             }
         }
 
+        auto t6 = std::chrono::steady_clock::now();
         hirOwnedModule = hirToLlvm.lower(hirModule.get(), moduleName);
+        auto t7 = std::chrono::steady_clock::now();
+        SPDLOG_WARN("[TIMING] HIRToLLVM: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(t7-t6).count());
         modulePtr = hirOwnedModule.get();
 
         if (options.dumpIR) {
