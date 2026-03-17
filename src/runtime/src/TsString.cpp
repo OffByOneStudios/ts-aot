@@ -1218,6 +1218,26 @@ extern "C" {
         return s->CodePointAt(index);
     }
 
+    void* ts_string_fromCharCode(void* charCodesArray) {
+        // String.fromCharCode(...charCodes) — creates a string from 16-bit char codes
+        if (!charCodesArray) return TsString::Create("");
+        TsArray* arr = (TsArray*)charCodesArray;
+        int64_t len = arr->Length();
+        std::u16string u16;
+        u16.reserve(len);
+        for (int64_t i = 0; i < len; i++) {
+            int64_t rawVal = arr->Get(i);
+            uint64_t nb = (uint64_t)rawVal;
+            int64_t code = nanbox_to_int64(nb);
+            u16.push_back(static_cast<char16_t>(code & 0xFFFF));
+        }
+        // Convert UTF-16 to TsString (ICU-based)
+        icu::UnicodeString ustr(reinterpret_cast<const UChar*>(u16.data()), (int32_t)u16.size());
+        std::string utf8;
+        ustr.toUTF8String(utf8);
+        return TsString::Create(utf8.c_str());
+    }
+
     void* ts_string_fromCodePoint(void* codePointsArray) {
         if (!codePointsArray) return TsString::Create("");
         TsArray* arr = (TsArray*)codePointsArray;
