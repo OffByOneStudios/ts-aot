@@ -7855,6 +7855,11 @@ void HIRToLLVM::lowerPhi(HIRInstruction* inst) {
     llvm::BasicBlock* phiBlock = builder_->GetInsertBlock();
     llvm::PHINode* phi = builder_->CreatePHI(type, inst->phiIncoming.size(), "phi");
 
+    // Track which LLVM blocks have already been added to avoid duplicate entries.
+    // Duplicates can arise when multiple HIR blocks map to the same LLVM block
+    // (e.g., after block splitting for write barriers or GC safepoints).
+    llvm::SmallPtrSet<llvm::BasicBlock*, 8> addedBlocks;
+
     for (auto& [val, block] : inst->phiIncoming) {
         llvm::BasicBlock* llvmBlock = getBlock(block);
         if (!llvmBlock) continue;
@@ -7945,6 +7950,9 @@ void HIRToLLVM::lowerPhi(HIRInstruction* inst) {
                     llvmVal = builder_->CreateFPToSI(llvmVal, type);
                 }
             }
+            // Skip duplicate entries from the same LLVM block
+            if (addedBlocks.count(llvmBlock)) continue;
+            addedBlocks.insert(llvmBlock);
             phi->addIncoming(llvmVal, llvmBlock);
         }
     }

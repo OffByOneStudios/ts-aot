@@ -670,7 +670,13 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
     }
 
     // Second pass: generate functions from specializations
+    SPDLOG_WARN("[ASTToHIR] Generating {} specializations...", specializations.size());
+    size_t specIdx = 0;
     for (const auto& spec : specializations) {
+        specIdx++;
+        if (specIdx % 20 == 0) {
+            SPDLOG_WARN("[ASTToHIR] spec {}/{}: {}", specIdx, specializations.size(), spec.specializedName);
+        }
         if (spec.specializedName.find("lambda") != std::string::npos) {
             // Skip lambda specializations - they'll be generated when encountered
             continue;
