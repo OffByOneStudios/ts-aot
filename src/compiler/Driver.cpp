@@ -214,7 +214,9 @@ int Driver::run() {
             SPDLOG_INFO("Monomorphizing...");
         }
         ts::Monomorphizer monomorphizer;
+        SPDLOG_DEBUG("[DRIVER] Starting monomorphize...");
         monomorphizer.monomorphize(program.get(), analyzer);
+        SPDLOG_DEBUG("[DRIVER] Monomorphize done. specializations={}", monomorphizer.getSpecializations().size());
 
         // IMPORTANT: Declaration order matters for destruction!
         // Context must be declared BEFORE Module so Module is destroyed first.
@@ -228,8 +230,10 @@ int Driver::run() {
         }
 
         std::string moduleName = std::filesystem::path(tsFile).stem().string();
+        SPDLOG_DEBUG("[DRIVER] Starting ASTToHIR lower...");
         hir::ASTToHIR astToHir;
         auto hirModule = astToHir.lower(program.get(), monomorphizer.getSpecializations(), moduleName);
+        SPDLOG_DEBUG("[DRIVER] ASTToHIR done.");
 
         // Run HIR optimization passes
         if (options.verbose) {

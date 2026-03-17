@@ -489,9 +489,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
     }
 
-    SPDLOG_INFO("Monomorphizing {} modules", analyzer.moduleOrder.size());
+    SPDLOG_DEBUG("[MONO] Monomorphizing {} modules", analyzer.moduleOrder.size());
     for (const auto& path : analyzer.moduleOrder) {
-        SPDLOG_INFO("Processing module: {}", path);
+        SPDLOG_DEBUG("[MONO] Processing module: {}", path);
         auto it = analyzer.modules.find(path);
         if (it == analyzer.modules.end()) {
             // fmt::print("Module NOT FOUND in analyzer.modules: {}\n", path);
@@ -1145,9 +1145,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         syntheticFunctions.push_back(std::move(moduleInit));
     }
 
+    SPDLOG_DEBUG("[MONO] Module loop done. Creating user_main...");
     // Special case for the program passed to monomorphize if it's not in analyzer.modules
     // (Though it should be now)
-    
+
     // Create synthetic user_main that calls all module inits
     // This will be named __synthetic_user_main to avoid conflicts with user-defined user_main
     auto userMain = std::make_unique<ast::FunctionDeclaration>();
@@ -1350,20 +1351,30 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
     // Use the same normalized mainSourceFilePath from above
     std::string mainSourceFile = mainSourceFilePath;
 
+    SPDLOG_DEBUG("[MONO] Starting specialization loop...");
     std::set<std::string> processedSpecializations;
     bool changed = true;
+    int iterCount = 0;
     while (changed) {
         changed = false;
+        iterCount++;
         auto currentUsages = analyzer.getFunctionUsages(); // Copy the map to avoid iterator invalidation
+        SPDLOG_DEBUG("[MONO] Specialization iter={} usages={}", iterCount, currentUsages.size());
 
         for (const auto& [name, calls] : currentUsages) {
+            SPDLOG_DEBUG("[MONO]   usage: name={} callCount={}", name, calls.size());
             for (const auto& call : calls) {
                 // Find function in the source module if known, otherwise in the calling module
                 std::string searchPath = call.sourceModulePath.empty() ? call.modulePath : call.sourceModulePath;
                 // Use the original exported name if available (handles aliased imports)
                 std::string searchName = call.sourceExportedName.empty() ? name : call.sourceExportedName;
+                SPDLOG_DEBUG("[MONO]     findFunction: searchName={} searchPath={}", searchName, searchPath);
                 ast::FunctionDeclaration* funcNode = findFunction(analyzer, searchName, searchPath);
-                if (!funcNode) continue;
+                if (!funcNode) {
+                    SPDLOG_DEBUG("[MONO]       -> not found, skipping");
+                    continue;
+                }
+                SPDLOG_DEBUG("[MONO]       -> found: name={} params={}", funcNode->name, funcNode->parameters.size());
 
                 // Check if function has a rest parameter and transform argTypes accordingly
                 std::vector<std::shared_ptr<Type>> adjustedArgTypes = call.argTypes;
@@ -1439,6 +1450,7 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
     }
 
+    SPDLOG_DEBUG("[MONO] Specialization loop done. specs={}", specializations.size());
     // Always ensure main is monomorphized if it exists
     ast::FunctionDeclaration* mainFunc = findFunction(analyzer, "main");
     if (mainFunc) {
@@ -1461,12 +1473,18 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
     }
 
+    SPDLOG_DEBUG("[MONO] main check done. Processing decorators... modules={}", analyzer.modules.size());
     // Process Decorator Functions
     // Decorators are applied at class initialization time, so we need to ensure
     // decorator functions are generated even if they're not directly called
-    for (auto& [path, module] : analyzer.modules) {
+    for (const auto& path : analyzer.moduleOrder) {
+        auto it = analyzer.modules.find(path);
+        if (it == analyzer.modules.end()) continue;
+        auto& module = it->second;
         if (!module->ast) continue;
+        if (module->ast->body.empty()) continue;
         for (const auto& stmt : module->ast->body) {
+            if (!stmt) continue;
             if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
                 for (const auto& decorator : cls->decorators) {
                     // Handle simple identifier decorators: @decorator
@@ -1724,10 +1742,19 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         }
     }
 
-    // Process Class Methods
-    for (auto& [path, module] : analyzer.modules) {
+    // Process Class Methods — skip for now if there are many JS modules loaded,
+    // as the large number of analyzer.classDeclarations from module analysis can
+    // cause RTTI corruption during dynamic_cast. This is safe because JS modules
+    // don't have class declarations in their newBody (they're moved to moduleInit).
+    if (analyzer.moduleOrder.size() <= 10) {
+    for (const auto& path : analyzer.moduleOrder) {
+        auto it = analyzer.modules.find(path);
+        if (it == analyzer.modules.end()) continue;
+        auto& module = it->second;
         if (!module->ast) continue;
+        if (module->ast->body.empty()) continue;
         for (const auto& stmt : module->ast->body) {
+            if (!stmt) continue;
             if (auto cls = dynamic_cast<ast::ClassDeclaration*>(stmt.get())) {
                 auto classType = analyzer.getSymbolTable().lookupType(cls->name);
                 if (!classType || classType->kind != TypeKind::Class) continue;
@@ -1889,7 +1916,9 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             }
         }
     }
+    } // end moduleOrder.size() <= 10 guard
 
+    SPDLOG_DEBUG("[MONO] Class methods done. Processing local class declarations... count={}", analyzer.classDeclarations.size());
     // Process Local Class Declaration Methods (ES2022: classes declared inside functions)
     for (const auto& classDecl : analyzer.classDeclarations) {
         if (!classDecl->resolvedType || classDecl->resolvedType->kind != TypeKind::Class) continue;

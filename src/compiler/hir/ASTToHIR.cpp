@@ -1112,7 +1112,13 @@ void ASTToHIR::pushFunctionScope(HIRFunction* func) {
 
 void ASTToHIR::popScope() {
     if (!scopes_.empty()) {
+        SPDLOG_DEBUG("[SCOPE] pop depth={} isFuncBoundary={} owner={}",
+            scopes_.size(),
+            scopes_.back().isFunctionBoundary,
+            scopes_.back().owningFunction ? scopes_.back().owningFunction->name : "null");
         scopes_.pop_back();
+    } else {
+        SPDLOG_ERROR("[SCOPE] popScope called on EMPTY scope stack!");
     }
 }
 
@@ -1734,6 +1740,10 @@ void ASTToHIR::visitProgram(ast::Program* node) {
 
 void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     setSourceLine(node);
+    SPDLOG_DEBUG("[FD] ENTER name={} scopes={} currentFunc={} bodySize={}",
+        node->name, scopes_.size(),
+        currentFunction_ ? currentFunction_->name : "null",
+        node->body.size());
     // Declaration-only function (from .d.ts or overload signature) — no code to generate
     if (node->body.empty()) {
         return;
@@ -7023,6 +7033,10 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
 
 void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     setSourceLine(node);
+    SPDLOG_DEBUG("[FE] ENTER: name={} scopes={} currentFunc={}",
+        node->name.empty() ? "(anon)" : node->name,
+        scopes_.size(),
+        currentFunction_ ? currentFunction_->name : "null");
     // Generate function name: use the node's name if available, otherwise generate one
     std::string funcName;
     if (!node->name.empty()) {

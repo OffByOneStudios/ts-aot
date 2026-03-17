@@ -11,15 +11,21 @@ namespace ts {
 
 using json = nlohmann::json;
 
-// Extension priority: TypeScript first, then JavaScript, then ESM/CJS variants
+// Extension priority: TypeScript first, then JavaScript, then declarations last.
+// .d.ts must come AFTER .js — when both exist (common in npm packages),
+// the .js file should be used for compilation. Loading .d.ts alongside .js
+// causes RTTI corruption from mixing typed declaration symbols with the
+// untyped JS compilation path.
 const std::vector<std::string> ModuleResolver::EXTENSIONS = {
-    ".ts", ".tsx", ".d.ts", ".mts", ".d.mts", ".cts", ".d.cts",
-    ".js", ".jsx", ".mjs", ".cjs", ".json"
+    ".ts", ".tsx", ".mts", ".cts",
+    ".js", ".jsx", ".mjs", ".cjs", ".json",
+    ".d.ts", ".d.mts", ".d.cts"
 };
 
 const std::vector<std::string> ModuleResolver::INDEX_FILES = {
-    "index.ts", "index.tsx", "index.d.ts",
-    "index.js", "index.jsx", "index.mjs", "index.cjs"
+    "index.ts", "index.tsx",
+    "index.js", "index.jsx", "index.mjs", "index.cjs",
+    "index.d.ts"
 };
 
 // Fallback builtin modules that don't have extension contracts yet
@@ -481,7 +487,7 @@ std::optional<fs::path> ModuleResolver::tryExtensions(const fs::path& basePath) 
         }
     }
     
-    // Try adding extensions
+    // Try adding extensions (order ensures .js is found before .d.ts)
     for (const auto& extension : EXTENSIONS) {
         fs::path withExt = basePath;
         withExt += extension;
@@ -489,7 +495,7 @@ std::optional<fs::path> ModuleResolver::tryExtensions(const fs::path& basePath) 
             return fs::absolute(withExt);
         }
     }
-    
+
     return std::nullopt;
 }
 
