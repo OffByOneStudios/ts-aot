@@ -3998,6 +3998,27 @@ void HIRToLLVM::lowerHasProp(HIRInstruction* inst) {
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     llvm::Value* key = getOperandValue(inst->operands[1]);
 
+    // Box key to ptr if needed — `in` operator can use numeric literals (e.g., `0 in obj`)
+    if (key->getType()->isDoubleTy()) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getDoubleTy()}, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_double", ft);
+        key = builder_->CreateCall(ft, boxFn.getCallee(), {key});
+    } else if (key->getType()->isIntegerTy(64)) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_int", ft);
+        key = builder_->CreateCall(ft, boxFn.getCallee(), {key});
+    } else if (key->getType()->isIntegerTy(1)) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+        key = builder_->CreateCall(ft, boxFn.getCallee(), {key});
+    }
+    // Box obj if needed
+    if (obj->getType()->isDoubleTy()) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getDoubleTy()}, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_double", ft);
+        obj = builder_->CreateCall(ft, boxFn.getCallee(), {obj});
+    }
+
     auto fn = getTsObjectHasProperty();
     llvm::Value* result = builder_->CreateCall(fn, {obj, key});
     result = builder_->CreateTrunc(result, builder_->getInt1Ty());
@@ -4491,6 +4512,19 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     if (funcName == "ts_object_has_property") {
         llvm::Value* obj = getOperandValue(inst->operands[1]);
         llvm::Value* key = getOperandValue(inst->operands[2]);
+        // Box key and obj to ptr if needed (e.g., `0 in params` passes double literal)
+        if (key->getType()->isDoubleTy()) {
+            key = emitInlineBoxFloat(key);
+        } else if (key->getType()->isIntegerTy(64)) {
+            key = emitInlineBoxInt(key);
+        } else if (key->getType()->isIntegerTy(1)) {
+            auto ft2 = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
+            auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", ft2);
+            key = builder_->CreateCall(ft2, boxFn.getCallee(), {key});
+        }
+        if (obj->getType()->isDoubleTy()) {
+            obj = emitInlineBoxFloat(obj);
+        }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getInt1Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_object_has_property", ft);
