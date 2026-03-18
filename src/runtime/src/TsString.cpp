@@ -1221,23 +1221,50 @@ extern "C" {
     void* ts_string_fromCharCode(void* charCodesArray) {
         // String.fromCharCode(...charCodes) — creates a string from 16-bit char codes
         if (!charCodesArray) return TsString::Create("");
-        // Unbox if NaN-boxed pointer
+
         uint64_t nb = (uint64_t)(uintptr_t)charCodesArray;
+
+        // Single number argument (NaN-boxed int or double)
+        if (nanbox_is_int32(nb)) {
+            int32_t code = nanbox_to_int32(nb);
+            char16_t ch = static_cast<char16_t>(code & 0xFFFF);
+            icu::UnicodeString ustr(&ch, 1);
+            std::string utf8;
+            ustr.toUTF8String(utf8);
+            return TsString::Create(utf8.c_str());
+        }
+        if (nanbox_is_number(nb)) {
+            int32_t code = (int32_t)nanbox_to_double(nb);
+            char16_t ch = static_cast<char16_t>(code & 0xFFFF);
+            icu::UnicodeString ustr(&ch, 1);
+            std::string utf8;
+            ustr.toUTF8String(utf8);
+            return TsString::Create(utf8.c_str());
+        }
+
+        // Unbox if NaN-boxed pointer
         if (nanbox_is_ptr(nb)) {
             charCodesArray = nanbox_to_ptr(nb);
         }
         if (!charCodesArray || (uintptr_t)charCodesArray < 0x10000) return TsString::Create("");
+
+        // Check if it's a TsArray (magic at offset 0 = 0x41525259 "ARRY")
+        uint32_t magic = *(uint32_t*)charCodesArray;
+        if (magic != 0x41525259) {
+            // Not an array — might be a single boxed value, return empty
+            return TsString::Create("");
+        }
+
         TsArray* arr = (TsArray*)charCodesArray;
         int64_t len = arr->Length();
         std::u16string u16;
         u16.reserve(len);
         for (int64_t i = 0; i < len; i++) {
             int64_t rawVal = arr->Get(i);
-            uint64_t nb = (uint64_t)rawVal;
-            int64_t code = nanbox_to_int64(nb);
+            uint64_t valNb = (uint64_t)rawVal;
+            int64_t code = nanbox_to_int64(valNb);
             u16.push_back(static_cast<char16_t>(code & 0xFFFF));
         }
-        // Convert UTF-16 to TsString (ICU-based)
         icu::UnicodeString ustr(reinterpret_cast<const UChar*>(u16.data()), (int32_t)u16.size());
         std::string utf8;
         ustr.toUTF8String(utf8);
