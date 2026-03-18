@@ -3545,22 +3545,39 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
-        // Check flat object (magic at offset 0)
+        // Guard against small integer values (NaN-boxed ints, undefined, null)
+        if ((uintptr_t)rawPtr < 0x10000) return ts_value_make_array(TsArray::Create(0));
+
+        // Check string — for...in on a string enumerates character indices
         uint32_t magic0 = *(uint32_t*)rawPtr;
-        if (magic0 == 0x464C4154) { // FLAT_MAGIC
-            return ts_value_make_array((TsArray*)ts_flat_object_keys(rawPtr));
+        if (magic0 == 0x53545247) { // TsString::MAGIC "STRG"
+            TsString* str = (TsString*)rawPtr;
+            int64_t len = str->Length();
+            TsArray* arr = TsArray::Create(len);
+            for (int64_t i = 0; i < len; i++) {
+                arr->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::FromInt(i)));
+            }
+            return ts_value_make_array(arr);
         }
 
-        // Check if this is a Proxy - dispatch through ownKeys trap
-        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawPtr);
-        if (proxy) {
-            return proxy->ownKeys();
+        // Check flat object (magic at offset 0)
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC
+            return ts_value_make_array((TsArray*)ts_flat_object_keys(rawPtr));
         }
 
         // Check TsMap::magic at offset 16 (after vptr + explicit vtable field)
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_keys(rawPtr));
+        }
+
+        // Check if this is a Proxy - only attempt dynamic_cast on known TsObject types
+        // (TsString, TsArray, etc. are NOT TsObject subclasses — dynamic_cast crashes)
+        if (magic == 0x50524F58) { // TsProxy::MAGIC "PROX"
+            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawPtr);
+            if (proxy) {
+                return proxy->ownKeys();
+            }
         }
 
         // Not a map - return empty array

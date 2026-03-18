@@ -1221,6 +1221,12 @@ extern "C" {
     void* ts_string_fromCharCode(void* charCodesArray) {
         // String.fromCharCode(...charCodes) — creates a string from 16-bit char codes
         if (!charCodesArray) return TsString::Create("");
+        // Unbox if NaN-boxed pointer
+        uint64_t nb = (uint64_t)(uintptr_t)charCodesArray;
+        if (nanbox_is_ptr(nb)) {
+            charCodesArray = nanbox_to_ptr(nb);
+        }
+        if (!charCodesArray || (uintptr_t)charCodesArray < 0x10000) return TsString::Create("");
         TsArray* arr = (TsArray*)charCodesArray;
         int64_t len = arr->Length();
         std::u16string u16;
