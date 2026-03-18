@@ -6,222 +6,72 @@ allowed-tools: Bash, Read, Write
 
 # Auto-Debug Skill
 
-Automatically analyze crashes and exceptions in ts-aot compiled executables using the Windows CDB debugger.
+Analyze crashes in ts-aot compiled executables using the x64 CDB debugger (on system PATH).
 
 ## When to Use
 
-**Trigger terms:** crash, access violation, debug executable, analyze crash, CDB, debugger, memory error, segfault
-
-- When an executable crashes without clear error messages
-- To analyze crash dumps and get stack traces
-- To debug lodash or other complex compilation issues
-- When you need automated crash analysis for multiple test cases
+**Trigger terms:** crash, access violation, debug, analyze crash, CDB, debugger, segfault
 
 ## Prerequisites
 
-- Windows SDK Debugging Tools installed (CDB)
-- Executable compiled with debug symbols (`-g` flag)
-- PDB file present alongside executable
+- CDB is on the system PATH (`C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb`)
+- For source-level debugging: compile with `-g` flag to generate PDB files
+- PDB will be auto-generated alongside the .exe
 
-## Instructions
+## Debug Symbol Info
 
-### 1. Identify the Crashing Executable
+The compiler generates CodeView/PDB debug info when `-g` is passed:
+- Source file + line number mapping (TypeScript/JavaScript → LLVM IR → native)
+- Function names (including mangled names like `selectColor_m310916`)
+- DISubprogram entries for each compiled function
+- Note: `!dbg` verification warnings may occur (non-fatal, PDB still generated)
 
-Look for `.exe` files mentioned in error messages or that the user reports are crashing.
+## Quick CDB Commands
 
-### 2. Run the Debug Analyzer Script
+### Get a stack trace from a crashing executable
 
-Use the PowerShell script at `.github/skills/auto-debug/debug_analyzer.ps1`:
-
-```powershell
-.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\test.exe
-```
-
-**With custom output file:**
-```powershell
-.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\test.exe -OutputFile crash_report.txt
-```
-
-### 3. Parse the Output
-
-The script captures:
-- **Exit Code** - Normal (0) or error code
-- **Exception Information** - Type and code of crash (e.g., 0xC0000005 = access violation)
-- **Call Stack** - Full stack trace showing crash location
-- **Registers** - CPU state at crash
-- **Local Variables** - Values at crash point
-- **Automatic Analysis** - CDB's `!analyze -v` output
-- **Module List** - Loaded DLLs and their versions
-
-### 4. Analyze the Results
-
-Look for:
-- **Source Line**: Which line of code crashed
-- **Function**: Which function was executing
-- **Exception Code**:
-  - `0xC0000005` = Access violation (null/invalid pointer)
-  - `0xC0000094` = Integer divide by zero
-  - `0xC00000FD` = Stack overflow
-- **Call Stack**: Trace from crash back to `user_main`
-
-### 5. Report Findings
-
-Provide a clear summary:
-```
-The executable crashed with an access violation (0xC0000005) in function `add_int_int` at line 42.
-
-Call stack:
-  user_main+0x142
-  ts_main+0x89
-  add_int_int+0x23  <-- CRASH HERE
-
-The crash appears to be caused by dereferencing a null pointer when accessing array element.
-```
-
-### 6. Suggest Fixes
-
-Based on the crash type and location, suggest:
-- Null pointer checks
-- Array bounds validation
-- Type casting issues (check runtime-safety.md rules)
-- Boxing/unboxing problems
-
-## Example Usage
-
-```powershell
-# User reports: "examples/test.exe crashes with access violation"
-
-# Step 1: Run debug analyzer
-.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\test.exe
-
-# Step 2: Read the output file
-# (The script will display a summary and save full output to debug_analysis.txt)
-
-# Step 3: Analyze the stack trace
-# Look for the function and line number where the crash occurred
-
-# Step 4: Identify the root cause
-# Example: "Crash in ts_array_get at null pointer dereference"
-
-# Step 5: Suggest fix
-# "The array pointer is null. Check that array is properly initialized before calling .get()"
-```
-
-## Integration with Workflow
-
-### After Compilation
-
-```powershell
+```bash
 # Compile with debug symbols
-build\src\compiler\Release\ts-aot.exe examples\test.ts -o examples\test.exe -g
+build/src/compiler/Release/ts-aot.exe mytest.ts -g -o tmp/mytest.exe
 
-# Run the executable
-examples\test.exe
-
-# If it crashes, analyze
-.\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath examples\test.exe
+# Run CDB with stack trace on first access violation
+printf "sxe av\ng\nkb 20\nq\n" > tmp/cdb_cmds.txt
+cdb -y "E:\src\github.com\cgrinker\ts-aoc\tmp" -cf tmp/cdb_cmds.txt "E:\src\github.com\cgrinker\ts-aoc\tmp\mytest.exe" 2>&1 | grep -A 20 "c0000005"
 ```
 
-### Batch Testing
+### Get function names at crash addresses
 
-```powershell
-# Test multiple files and collect crash data
-$tests = @("test1.exe", "test2.exe", "test3.exe")
-foreach ($test in $tests) {
-    Write-Host "`nAnalyzing $test..."
-    .\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath "examples\$test" -OutputFile "$test.debug.txt"
-}
+```bash
+printf "sxe av\ng\nkn 20\nq\n" > tmp/cdb_cmds.txt
+cdb -y "<pdb_dir>" -cf tmp/cdb_cmds.txt "<full_path_to_exe>"
 ```
 
-## Troubleshooting
+### Key CDB commands
+- `kn 20` — stack with frame numbers (needs PDB for symbol names)
+- `kb 20` — stack with first 3 args
+- `kP 20` — stack with full parameters
+- `r` — registers
+- `ln <addr>` — list nearest symbols for address
+- `lsa .` — list source lines at current IP
+- `dv /t` — display local variables with types
+- `!analyze -v` — automatic crash analysis
+- `sxe av` — break on access violation (first-chance)
+- `sxn av` — notify but don't break on first-chance AV
 
-### "CDB not found"
-Install Windows SDK from: https://developer.microsoft.com/windows/downloads/windows-sdk/
-Select "Debugging Tools for Windows" during installation.
+### Use the PowerShell script
 
-### "No symbols found"
-Ensure:
-- Executable compiled with `-g` flag
-- PDB file exists alongside .exe
-- Symbol paths are correct
-
-### "Access denied"
-Run PowerShell as Administrator if debugging system processes.
-
-## Output Format
-
-The skill produces two outputs:
-
-1. **Console Summary** - Key crash details highlighted
-2. **Full Report** - Complete debug output in `debug_analysis.txt` (or custom file)
-
-## Common Crash Patterns
-
-### Access Violation (0xC0000005)
-
-**Typical causes:**
-- Null pointer dereference
-- Invalid object cast (check runtime-safety.md)
-- Corrupted this pointer (virtual inheritance casting issue)
-- Buffer overflow
-
-**What to check:**
-- Verify all `dynamic_cast` usage
-- Check for C-style casts in runtime code
-- Ensure proper unboxing of void* parameters
-
-### Integer Divide by Zero (0xC0000094)
-
-**Typical causes:**
-- Division or modulo with zero divisor
-- Missing validation in math operations
-
-### Stack Overflow (0xC00000FD)
-
-**Typical causes:**
-- Infinite recursion
-- Very large stack allocations
-- Excessive function call depth
-
-## Advanced Features
-
-### Custom CDB Commands
-
-Edit `debug_analyzer.ps1` to add custom commands:
-
-```powershell
-$commands = @(
-    "g"                    # Run
-    "k"                    # Stack
-    "dv"                   # Variables
-    "!heap"                # Heap analysis
-    "!locks"               # Lock analysis
-    ".dump /ma crash.dmp"  # Create dump file
-    "q"                    # Quit
-)
-```
-
-### Parsing Output Programmatically
-
-The script returns a PowerShell object:
-
-```powershell
-$result = .\.github\skills\auto-debug\debug_analyzer.ps1 -ExePath test.exe
-if ($result.HasCrash) {
-    Write-Host "Crash detected! See $($result.OutputFile)"
-}
+```bash
+powershell -ExecutionPolicy Bypass -File .github/skills/auto-debug/debug_analyzer.ps1 -ExePath tmp/mytest.exe
 ```
 
 ## Important Notes
 
-- **NEVER invoke `cdb` directly** - always use the skill script
-- **ALWAYS compile with `-g` flag** for debug symbols
-- **Check runtime-safety.md** for common memory safety issues
-- Full debug output is saved to `debug_analysis.txt` by default
-- The script automatically handles CDB paths and output parsing
-
-## Related Documentation
-
-- @.github/DEVELOPMENT.md - Debugging & Diagnostics section
-- @.claude/rules/runtime-safety.md - Memory safety patterns
-- @.github/skills/auto-debug/debug_analyzer.ps1 - The actual script
+- CDB requires **full Windows paths** for executables (not relative Unix-style)
+- Without PDB (`-g`), stack traces show offsets only (e.g., `test+0xafd4`)
+- With PDB, stack traces show function names (e.g., `test!ts_object_keys+0x44`)
+- The VectoredException handler in the runtime catches first-chance AVs — use `sxe av` to break before the handler runs
+- Common crash patterns:
+  - `VCRUNTIME140!_RTDynamicCast` — dynamic_cast on non-TsObject type (TsString, TsArray)
+  - `TsArray::Length` at `[rcx+10h]` — NaN-boxed value passed as array pointer (need unboxing)
+  - `reading address FFFFFFFFFFFFFFFF` — vtable/RTTI corruption, or -1 sentinel value
+  - `reading address 0x0000000A` — small integer passed as pointer (NaN-boxed int)
