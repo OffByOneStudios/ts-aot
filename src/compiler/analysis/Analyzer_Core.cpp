@@ -128,16 +128,55 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
 
         ensureFnAny("require", 1);
         ensureAny("global");
+        ensureAny("globalThis");
         ensureAny("self");
         ensureAny("window");
+        // JavaScript built-in constructors/objects — must be defined so the
+        // Analyzer infers them as Any (not undefined) in untyped JS modules.
+        ensureAny("Object");
+        ensureAny("Array");
+        ensureAny("String");
+        ensureAny("Number");
+        ensureAny("Boolean");
         ensureAny("Function");
+        ensureAny("Symbol");
+        ensureAny("Map");
+        ensureAny("Set");
+        ensureAny("WeakMap");
+        ensureAny("WeakSet");
+        ensureAny("Date");
+        ensureAny("RegExp");
+        ensureAny("Promise");
+        ensureAny("Proxy");
+        ensureAny("Reflect");
+        ensureAny("Error");
+        ensureAny("TypeError");
+        ensureAny("RangeError");
+        ensureAny("ReferenceError");
+        ensureAny("SyntaxError");
+        ensureAny("EvalError");
+        ensureAny("URIError");
+        ensureAny("Math");
+        ensureAny("JSON");
+        ensureAny("Buffer");
         ensureAny("process");
         ensureAny("console");
         if (!symbols.lookup("__dirname")) symbols.define("__dirname", std::make_shared<Type>(TypeKind::String));
         if (!symbols.lookup("__filename")) symbols.define("__filename", std::make_shared<Type>(TypeKind::String));
         ensureFnAny("parseFloat", 1);
-        // parseInt commonly takes (string, radix)
         ensureFnAny("parseInt", 2);
+        ensureFnAny("isNaN", 1);
+        ensureFnAny("isFinite", 1);
+        ensureFnAny("encodeURIComponent", 1);
+        ensureFnAny("decodeURIComponent", 1);
+        ensureFnAny("encodeURI", 1);
+        ensureFnAny("decodeURI", 1);
+        ensureFnAny("setInterval", 2);
+        ensureFnAny("clearInterval", 1);
+        ensureFnAny("setTimeout", 2);
+        ensureFnAny("clearTimeout", 1);
+        ensureFnAny("setImmediate", 1);
+        ensureFnAny("clearImmediate", 1);
     }
 
     visitProgram(module->ast.get());

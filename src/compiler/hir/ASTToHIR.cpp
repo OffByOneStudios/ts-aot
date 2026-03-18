@@ -6346,6 +6346,10 @@ void ASTToHIR::visitStaticBlock(ast::StaticBlock* node) {
 
 void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     setSourceLine(node);
+    // Debug: uncomment to trace identifier resolution
+    // if (node->name == "Object" || node->name == "String" || node->name == "Array") {
+    //     SPDLOG_WARN("[IDENT-HIT] name={} func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
+    // }
     // Handle 'this' keyword specially
     if (node->name == "this") {
         // Check if 'this' is a captured variable from an outer function
@@ -6370,6 +6374,30 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         // (set by Function.prototype.call/apply)
         lastValue_ = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
         return;
+    }
+
+    // JavaScript built-in globals must be resolved BEFORE moduleGlobalVars_ check.
+    // In untyped JS modules, identifiers like String, Object, Array may appear in
+    // moduleGlobalVars_ (from Analyzer function usage tracking) but should resolve
+    // to runtime globals, not null module-scoped variables.
+    {
+        static const std::set<std::string> jsBuiltinGlobals = {
+            "Math", "JSON", "Object", "Array", "String", "Number",
+            "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
+            "process", "global", "globalThis", "Symbol", "Map", "Set",
+            "WeakMap", "WeakSet", "Proxy", "Reflect",
+            "EvalError", "RangeError", "ReferenceError", "SyntaxError",
+            "TypeError", "URIError", "Function", "console",
+            "parseInt", "parseFloat", "isNaN", "isFinite",
+            "encodeURIComponent", "decodeURIComponent", "encodeURI", "decodeURI",
+            "setInterval", "clearInterval", "setTimeout", "clearTimeout",
+            "setImmediate", "clearImmediate", "queueMicrotask",
+        };
+        if (jsBuiltinGlobals.count(node->name)) {
+            SPDLOG_WARN("[IDENT] builtin global: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
+            lastValue_ = builder_.createLoadGlobal(node->name);
+            return;
+        }
     }
 
     // For module-scoped variables, use __modvar_ globals when accessed from inner
@@ -6457,6 +6485,25 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         auto& extReg = ext::ExtensionRegistry::instance();
         if (!extReg.isRegisteredGlobalOrModule(node->name) && !moduleGlobalVars_.count(node->name)) {
             lastValue_ = builder_.createConstUndefined();
+            return;
+        }
+    }
+
+    // Check for JavaScript built-in objects EARLY — before namespace/extension checks.
+    // In untyped JS modules, built-ins like String, Object, Array may have
+    // incorrect inferred types (Namespace, Any, etc.) that cause them to be
+    // resolved as undefined instead of via LoadGlobal.
+    {
+        static const std::set<std::string> builtinObjects = {
+            "Math", "JSON", "Object", "Array", "String", "Number",
+            "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
+            "process", "global", "globalThis", "Symbol", "Map", "Set",
+            "WeakMap", "WeakSet", "Proxy", "Reflect",
+            "EvalError", "RangeError", "ReferenceError", "SyntaxError",
+            "TypeError", "URIError", "Function",
+        };
+        if (builtinObjects.count(node->name)) {
+            lastValue_ = builder_.createLoadGlobal(node->name);
             return;
         }
     }

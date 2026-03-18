@@ -7,6 +7,7 @@
 
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Intrinsics.h>
 
@@ -150,6 +151,9 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         getOrCreateGlobal(name, type);
     }
 
+    // GC root registration will be done after all functions are lowered
+    // (see end of this function) since globals may be created during lowering.
+
     // Forward-declare all functions first
     // This is necessary because functions may call each other before they are defined
     for (size_t i = 0; i < hirModule->functions.size(); ++i) {
@@ -223,6 +227,31 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
 
     // Create main entry point
     createMainFunction();
+
+    // Register __modvar_ globals as GC roots so the garbage collector
+    // scans them. Without this, closures stored in module-level variables
+    // can be collected during module initialization.
+    {
+        llvm::FunctionType* regFt = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(context_), {llvm::PointerType::get(context_, 0)}, false);
+        llvm::FunctionCallee regFn = module_->getOrInsertFunction("ts_gc_register_root", regFt);
+
+        llvm::FunctionType* ctorFt = llvm::FunctionType::get(
+            llvm::Type::getVoidTy(context_), false);
+        llvm::Function* ctorFn = llvm::Function::Create(
+            ctorFt, llvm::Function::InternalLinkage, "__ts_register_gc_roots", module_.get());
+        llvm::BasicBlock* ctorBB = llvm::BasicBlock::Create(context_, "entry", ctorFn);
+        llvm::IRBuilder<> ctorBuilder(ctorBB);
+
+        for (auto& gv : module_->globals()) {
+            if (gv.getName().starts_with("__modvar_")) {
+                ctorBuilder.CreateCall(regFt, regFn.getCallee(), {&gv});
+            }
+        }
+        ctorBuilder.CreateRetVoid();
+
+        llvm::appendToGlobalCtors(*module_, ctorFn, 65535);
+    }
 
     // Finalize debug info
     if (diBuilder_) {
