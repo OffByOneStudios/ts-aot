@@ -624,8 +624,10 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                                          module->type == ModuleType::TypedJavaScript);
 
         std::vector<std::unique_ptr<ast::Statement>> newBody;
+        SPDLOG_DEBUG("[MONO-BODY] module={} bodySize={}", path, module->ast->body.size());
         for (auto& stmt : module->ast->body) {
             std::string kind = stmt->getKind();
+            SPDLOG_DEBUG("[MONO-BODY]   stmt kind={}", kind);
             // For JavaScript: move FunctionDeclarations to moduleInit (runtime hoisting)
             // For TypeScript: keep FunctionDeclarations in newBody (compile-time processing)
             bool keepInNewBody = false;
@@ -655,11 +657,16 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
 
             if (keepInNewBody) {
                 newBody.push_back(std::move(stmt));
-                if (isLodashModule) {
-                    fmt::print("    -> Moved to newBody\n");
-                }
             } else {
                 // Move everything else (VariableDeclarations, ExpressionStatements, etc.) to module init
+                if (kind == "VariableDeclaration") {
+                    auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+                    std::string vname = "?";
+                    if (vd && vd->name) {
+                        if (auto* id = dynamic_cast<ast::Identifier*>(vd->name.get())) vname = id->name;
+                    }
+                    SPDLOG_DEBUG("[MONO-MOVE] {} → moduleInit: var={}", kind, vname);
+                }
                 moduleInit->body.push_back(std::move(stmt));
             }
         }

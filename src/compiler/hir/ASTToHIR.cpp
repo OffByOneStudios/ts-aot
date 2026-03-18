@@ -893,8 +893,10 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
 
             // SECOND PASS: Process non-FunctionDeclaration statements in order
+            SPDLOG_DEBUG("[SPEC] Body pass 2: {} stmts in {}", funcNode->body.size(), spec.specializedName);
             for (auto& stmt : funcNode->body) {
                 if (!dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                    SPDLOG_DEBUG("[SPEC]   stmt kind={}", stmt ? stmt->getKind() : "null");
                     lowerStatement(stmt.get());
                     if (builder_.isBlockTerminated()) {
                         break;
@@ -2242,6 +2244,8 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             }
         }
 
+        SPDLOG_DEBUG("[VD] initializer kind={} for var={}", node->initializer->getKind(),
+            dynamic_cast<ast::Identifier*>(node->name.get()) ? dynamic_cast<ast::Identifier*>(node->name.get())->name : "?");
         initValue = lowerExpression(node->initializer.get());
         pendingClosureDisplayName_.clear();
 
@@ -6394,7 +6398,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "setImmediate", "clearImmediate", "queueMicrotask",
         };
         if (jsBuiltinGlobals.count(node->name)) {
-            SPDLOG_WARN("[IDENT] builtin global: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
+            SPDLOG_DEBUG("[IDENT] builtin global: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
             lastValue_ = builder_.createLoadGlobal(node->name);
             return;
         }
