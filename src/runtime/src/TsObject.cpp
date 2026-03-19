@@ -4160,16 +4160,16 @@ TsValue* ts_value_make_int(int64_t i) {
         // Create descriptor object
         TsMap* desc = TsMap::Create();
 
-        // Set value
+        // Set value — use interned strings for keys so property lookup matches
         TsValue valueKey;
         valueKey.type = ValueType::STRING_PTR;
-        valueKey.ptr_val = TsString::Create("value");
+        valueKey.ptr_val = TsString::GetInterned("value");
         desc->Set(valueKey, value);
 
         // Set writable: true (we always allow writes in our simplified model)
         TsValue writableKey;
         writableKey.type = ValueType::STRING_PTR;
-        writableKey.ptr_val = TsString::Create("writable");
+        writableKey.ptr_val = TsString::GetInterned("writable");
         TsValue trueVal;
         trueVal.type = ValueType::BOOLEAN;
         trueVal.b_val = true;
@@ -4178,13 +4178,13 @@ TsValue* ts_value_make_int(int64_t i) {
         // Set enumerable: true
         TsValue enumKey;
         enumKey.type = ValueType::STRING_PTR;
-        enumKey.ptr_val = TsString::Create("enumerable");
+        enumKey.ptr_val = TsString::GetInterned("enumerable");
         desc->Set(enumKey, trueVal);
 
         // Set configurable: true
         TsValue configKey;
         configKey.type = ValueType::STRING_PTR;
-        configKey.ptr_val = TsString::Create("configurable");
+        configKey.ptr_val = TsString::GetInterned("configurable");
         desc->Set(configKey, trueVal);
 
         return ts_value_make_object(desc);
