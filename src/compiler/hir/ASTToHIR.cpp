@@ -6438,14 +6438,35 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
 
         size_t scopeIndex = 0;
         if (isCapturedVariable(node->name, &scopeIndex)) {
-            // Inner function accessing a module global -- record it so the
-            // defining function knows to use __modvar_ too
-            moduleGlobalsUsedByInner_.insert(node->name);
+            // Check: is the variable defined in a non-module-init function?
+            // If so, it's a function parameter/local captured by a closure —
+            // use LoadCapture, not LoadGlobal. Module globals from __module_init_
+            // should use LoadGlobal; function parameters should use captures.
+            auto* info = lookupVariableInfo(node->name);
+            bool isModuleInitVar = true;
+            if (info) {
+                // Find the owning function of the variable
+                for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                    if (it->variables.count(node->name)) {
+                        if (it->owningFunction &&
+                            it->owningFunction->name.find("__module_init_") != 0 &&
+                            it->owningFunction->name.find("__fn_expr_") != std::string::npos) {
+                            isModuleInitVar = false;
+                        }
+                        break;
+                    }
+                }
+            }
 
-            std::string globalName = modVarName(node->name);
-            auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
-            lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
-            return;
+            if (isModuleInitVar) {
+                // Module-level variable — use __modvar_ global
+                moduleGlobalsUsedByInner_.insert(node->name);
+                std::string globalName = modVarName(node->name);
+                auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
+                lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
+                return;
+            }
+            // else: fall through to the normal captured variable path below
         }
         // In the defining function, use global if any inner function accesses it
         if (moduleGlobalsUsedByInner_.count(node->name)) {
