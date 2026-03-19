@@ -6530,6 +6530,12 @@ TsValue* ts_value_make_int(int64_t i) {
         return key;
     }
 
+    // Post-init callbacks for builtin modules (e.g., events adds EventEmitter)
+    static std::unordered_map<std::string, void(*)(void*)>& getBuiltinPostInits() {
+        static std::unordered_map<std::string, void(*)(void*)> callbacks;
+        return callbacks;
+    }
+
     static TsValue* create_builtin_module(const std::string& name) {
         // Check g_module_cache for a previously created built-in module
         std::string cacheKey = "__builtin:" + name;
@@ -6570,6 +6576,13 @@ TsValue* ts_value_make_int(int64_t i) {
         mod->Set(nanbox_to_tagged(ts_value_make_string(exportsKey)),
                  nanbox_to_tagged(ts_value_make_object(mod)));
 
+        // Call post-init callback if registered (e.g., events adds EventEmitter)
+        auto& postInits = getBuiltinPostInits();
+        auto postInitIt = postInits.find(name);
+        if (postInitIt != postInits.end()) {
+            postInitIt->second((void*)mod);
+        }
+
         TsValue* result = (TsValue*)mod;
         // Cache in g_module_cache so the GC scanner keeps it alive
         TsValue* pathVal = ts_value_make_string(TsString::Create(cacheKey.c_str()));
@@ -6598,6 +6611,10 @@ void ts_builtin_register(const char* module, const char* name, void* fn_ptr, int
 void ts_builtin_register_str_prop(const char* module, const char* name, const char* value) {
     auto key = makeRegistryKey(module, name);
     getBuiltinStrProps()[key] = value;
+}
+
+void ts_builtin_register_post_init(const char* module, void (*callback)(void*)) {
+    getBuiltinPostInits()[module] = callback;
 }
 
 void ts_builtin_register_special(const char* name, void* fn_ptr) {

@@ -409,9 +409,141 @@ extern "C" {
     }
 }
 
+// Native thunk wrappers for EventEmitter instance methods.
+// These are called as (void* context, int argc, TsValue** argv) where
+// context is the EventEmitter (bound as 'this' via native function).
+// However, in the untyped JS path, 'this' isn't passed through context —
+// it's the first argument from ts_call_N.
+
+static TsValue* ee_on_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 3) return argv ? argv[0] : ts_value_make_undefined();
+    ts_event_emitter_on(argv[0], argv[1], argv[2]);
+    return argv[0]; // Return this for chaining
+}
+
+static TsValue* ee_once_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 3) return argv ? argv[0] : ts_value_make_undefined();
+    ts_event_emitter_once(argv[0], argv[1], argv[2]);
+    return argv[0];
+}
+
+static TsValue* ee_emit_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 2) return ts_value_make_bool(false);
+    // Collect remaining args
+    int extraArgc = argc - 2;
+    void** extraArgv = extraArgc > 0 ? (void**)alloca(extraArgc * sizeof(void*)) : nullptr;
+    for (int i = 0; i < extraArgc; i++) {
+        extraArgv[i] = argv[i + 2];
+    }
+    bool result = ts_event_emitter_emit(argv[0], argv[1], extraArgc, extraArgv);
+    return ts_value_make_bool(result);
+}
+
+static TsValue* ee_removeListener_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 3) return argv ? argv[0] : ts_value_make_undefined();
+    ts_event_emitter_remove_listener(argv[0], argv[1], argv[2]);
+    return argv[0];
+}
+
+static TsValue* ee_removeAllListeners_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 1) return ts_value_make_undefined();
+    void* event = argc >= 2 ? argv[1] : nullptr;
+    ts_event_emitter_remove_all_listeners(argv[0], event);
+    return argv[0];
+}
+
+static TsValue* ee_setMaxListeners_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 2) return argv ? argv[0] : ts_value_make_undefined();
+    // Extract int from NaN-boxed value
+    uint64_t nb = (uint64_t)(uintptr_t)argv[1];
+    int n = (int)nanbox_to_int64(nb);
+    ts_event_emitter_set_max_listeners(argv[0], n);
+    return argv[0];
+}
+
+static TsValue* ee_listeners_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 2) return ts_value_make_undefined();
+    void* result = ts_event_emitter_listeners(argv[0], argv[1]);
+    return result ? (TsValue*)result : ts_value_make_undefined();
+}
+
+static TsValue* ee_listenerCount_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 2) return ts_value_make_int(0);
+    int count = ts_event_emitter_listener_count(argv[0], argv[1]);
+    return ts_value_make_int(count);
+}
+
+static TsValue* ee_create_native(void* ctx, int argc, TsValue** argv) {
+    void* emitter = ts_event_emitter_create();
+    return ts_value_make_object(emitter);
+}
+
+// Create EventEmitter constructor with prototype
+// Called lazily when 'events' module is first required
+static TsMap* createEventEmitterConstructor() {
+    TsMap* ctor = TsMap::Create();
+
+    // Create prototype with instance methods
+    TsMap* proto = TsMap::Create();
+
+    auto addMethod = [](TsMap* map, const char* name, void* fn) {
+        extern TsValue* ts_value_make_native_function(void*, void*);
+        TsValue key;
+        key.type = ValueType::STRING_PTR;
+        key.ptr_val = TsString::GetInterned(name);
+        TsValue val;
+        val.type = ValueType::FUNCTION_PTR;
+        val.ptr_val = ts_value_make_native_function(fn, nullptr);
+        map->Set(key, val);
+    };
+
+    addMethod(proto, "on", (void*)ee_on_native);
+    addMethod(proto, "addListener", (void*)ee_on_native);
+    addMethod(proto, "once", (void*)ee_once_native);
+    addMethod(proto, "emit", (void*)ee_emit_native);
+    addMethod(proto, "removeListener", (void*)ee_removeListener_native);
+    addMethod(proto, "off", (void*)ee_removeListener_native);
+    addMethod(proto, "removeAllListeners", (void*)ee_removeAllListeners_native);
+    addMethod(proto, "setMaxListeners", (void*)ee_setMaxListeners_native);
+    addMethod(proto, "listeners", (void*)ee_listeners_native);
+    addMethod(proto, "listenerCount", (void*)ee_listenerCount_native);
+
+    // Set prototype property
+    TsValue protoKey;
+    protoKey.type = ValueType::STRING_PTR;
+    protoKey.ptr_val = TsString::GetInterned("prototype");
+    TsValue protoVal;
+    protoVal.type = ValueType::OBJECT_PTR;
+    protoVal.ptr_val = proto;
+    ctor->Set(protoKey, protoVal);
+
+    return ctor;
+}
+
+// Hook: called by create_builtin_module after building the events TsMap.
+// We add EventEmitter as a constructor object with methods on its prototype.
+extern "C" void ts_events_post_init(void* moduleMap) {
+    TsMap* mod = (TsMap*)moduleMap;
+    TsMap* ee = createEventEmitterConstructor();
+
+    TsValue key;
+    key.type = ValueType::STRING_PTR;
+    key.ptr_val = TsString::GetInterned("EventEmitter");
+    TsValue val;
+    val.type = ValueType::OBJECT_PTR;
+    val.ptr_val = ee;
+    mod->Set(key, val);
+}
+
+extern "C" void ts_builtin_register_post_init(const char*, void (*)(void*));
+
 // Register special functions used by tsruntime property access
 static struct EventsRegistrar {
     EventsRegistrar() {
         ts_builtin_register_special("event_emitter_on", (void*)ts_event_emitter_on);
+        // Register EventEmitter constructor in the builtin registry
+        ts_builtin_register("events", "EventEmitter", (void*)ee_create_native, TS_THUNK_FN);
+        // Register a post-init callback to replace with full constructor+prototype
+        ts_builtin_register_post_init("events", ts_events_post_init);
     }
 } g_events_registrar;
