@@ -624,7 +624,11 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
                                          module->type == ModuleType::TypedJavaScript);
 
         std::vector<std::unique_ptr<ast::Statement>> newBody;
-        SPDLOG_DEBUG("[MONO-BODY] module={} bodySize={}", path, module->ast->body.size());
+        // Log raw body for JS modules to trace how identifiers like Object are parsed
+        SPDLOG_DEBUG("[RAW] module={} isJS={} type={} bodySize={}", path, isJavaScriptModule, (int)module->type, module->ast->body.size());
+        for (size_t si = 0; si < module->ast->body.size(); si++) {
+            SPDLOG_DEBUG("[RAW] stmt[{}] kind={}", si, module->ast->body[si]->getKind());
+        }
         for (auto& stmt : module->ast->body) {
             std::string kind = stmt->getKind();
             SPDLOG_DEBUG("[MONO-BODY]   stmt kind={}", kind);

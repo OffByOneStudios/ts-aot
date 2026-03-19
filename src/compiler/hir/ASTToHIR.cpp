@@ -6350,10 +6350,9 @@ void ASTToHIR::visitStaticBlock(ast::StaticBlock* node) {
 
 void ASTToHIR::visitIdentifier(ast::Identifier* node) {
     setSourceLine(node);
-    // Debug: uncomment to trace identifier resolution
-    // if (node->name == "Object" || node->name == "String" || node->name == "Array") {
-    //     SPDLOG_WARN("[IDENT-HIT] name={} func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
-    // }
+    if (node->name == "Object" || node->name == "String") {
+        SPDLOG_DEBUG("[IDENT-TOP] name={} func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
+    }
     // Handle 'this' keyword specially
     if (node->name == "this") {
         // Check if 'this' is a captured variable from an outer function
