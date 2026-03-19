@@ -152,6 +152,9 @@ public:
     void SetTimeout(int msecs, void* callback = nullptr);
     void* timeoutCallback = nullptr;
 
+    // Dynamic property access for untyped JS modules
+    TsValue GetPropertyVirtual(const char* key) override;
+
 protected:
     TsHttpServer();
 };

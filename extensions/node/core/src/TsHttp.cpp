@@ -487,6 +487,113 @@ TsHttpServer::TsHttpServer() : TsServer() {
     this->magic = MAGIC;
 }
 
+// Dynamic property access for untyped JS modules
+TsValue TsHttpServer::GetPropertyVirtual(const char* key) {
+    // Server methods
+    if (strcmp(key, "listen") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* port, TsValue* host, TsValue* callback) -> TsValue* {
+                // Handle various argument patterns:
+                // listen(port, callback) or listen(port, host, callback)
+                extern void ts_net_server_listen(void*, void*, void*, void*);
+                void* actualCallback = nullptr;
+                void* actualHost = nullptr;
+                if (callback && !ts_value_is_undefined(callback)) {
+                    actualCallback = callback;
+                    actualHost = host;
+                } else if (host && !ts_value_is_undefined(host)) {
+                    // host might actually be the callback
+                    uint64_t nb = (uint64_t)(uintptr_t)host;
+                    // Check if it's a closure/function
+                    if (nanbox_is_ptr(nb)) {
+                        void* rawHost = nanbox_to_ptr(nb);
+                        if (rawHost) {
+                            uint32_t m = *(uint32_t*)((char*)rawHost + 16);
+                            if (m == 0x434C5352 || m == 0x46554E43) { // Closure or Function
+                                actualCallback = host;
+                            } else {
+                                actualHost = host;
+                            }
+                        }
+                    }
+                }
+                ts_net_server_listen(ctx, port, actualHost, actualCallback);
+                return ts_value_make_object(ctx);
+            },
+            this, FunctionType::COMPILED, 3);
+        return v;
+    }
+    if (strcmp(key, "close") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* callback) -> TsValue* {
+                extern void ts_net_server_close(void*, void*);
+                ts_net_server_close(ctx, callback);
+                return ts_value_make_object(ctx);
+            },
+            this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    if (strcmp(key, "address") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx) -> TsValue* {
+                extern void* ts_net_server_address(void*);
+                void* result = ts_net_server_address(ctx);
+                return result ? (TsValue*)result : ts_value_make_undefined();
+            },
+            this, FunctionType::COMPILED, 0);
+        return v;
+    }
+    if (strcmp(key, "on") == 0 || strcmp(key, "addListener") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* event, TsValue* callback) -> TsValue* {
+                TsEventEmitter* emitter = ((TsObject*)ctx)->AsEventEmitter();
+                if (emitter) {
+                    TsString* eventStr = (TsString*)ts_value_get_string(event);
+                    if (eventStr) {
+                        emitter->On(eventStr->ToUtf8(), callback);
+                    }
+                }
+                return ts_value_make_object(ctx);
+            },
+            this, FunctionType::COMPILED, 2);
+        return v;
+    }
+    if (strcmp(key, "setTimeout") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* msecs) -> TsValue* {
+                TsHttpServer* self = (TsHttpServer*)ctx;
+                uint64_t nb = (uint64_t)(uintptr_t)msecs;
+                int ms = (int)nanbox_to_int64(nb);
+                self->SetTimeout(ms);
+                return ts_value_make_object(ctx);
+            },
+            this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    // Check for timeout/keepAliveTimeout/etc properties
+    if (strcmp(key, "timeout") == 0) {
+        return nanbox_to_tagged(ts_value_make_int(this->timeout));
+    }
+    if (strcmp(key, "keepAliveTimeout") == 0) {
+        return nanbox_to_tagged(ts_value_make_int(this->keepAliveTimeout));
+    }
+    if (strcmp(key, "listening") == 0) {
+        return nanbox_to_tagged(ts_value_make_bool(this->listening));
+    }
+    // Fall back to EventEmitter properties (on, emit, etc.)
+    return TsServer::GetPropertyVirtual(key);
+}
+
 void TsHttpServer::SetTimeout(int msecs, void* callback) {
     this->timeout = msecs;
     this->timeoutCallback = callback;
