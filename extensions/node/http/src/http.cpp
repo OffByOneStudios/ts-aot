@@ -952,16 +952,15 @@ void ts_client_request_flush_headers(void* req) {
 
 } // extern "C"
 
-// Native thunk wrappers for builtin module registration
-static TsValue* http_createServer_native(void* ctx, int argc, TsValue** argv) {
-    void* callback = (argc >= 1) ? argv[0] : nullptr;
-    void* result = ts_http_create_server(nullptr, callback);
-    return result ? ts_value_make_object(result) : ts_value_make_undefined();
+// Simple wrapper matching the TS_THUNK_FN calling convention: (void*, void*, void*) -> void*
+// The thunk passes (arg1, arg2, arg3) directly.
+static void* http_createServer_simple(void* callback, void* unused1, void* unused2) {
+    return ts_http_create_server(nullptr, callback);
 }
 
 // Register HTTP functions for dynamic property access from JS modules
 static struct HttpRegistrar {
     HttpRegistrar() {
-        ts_builtin_register("http", "createServer", (void*)http_createServer_native, TS_THUNK_FN);
+        ts_builtin_register("http", "createServer", (void*)http_createServer_simple, TS_THUNK_FN);
     }
 } g_http_registrar;

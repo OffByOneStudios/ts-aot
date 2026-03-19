@@ -158,13 +158,31 @@ static std::vector<ForwardEntry>* g_current_forwarding = nullptr;
 // Platform Memory
 // ============================================================================
 
-static void* platform_alloc_block() {
+// NaN-boxing requires GC pointers to have top 16 bits = 0 (48-bit address space).
+// On Windows, VirtualAlloc(nullptr, ...) can return addresses above 0x0000FFFFFFFFFFFF
+// when the process has a large virtual address space. We use a hint address in the
+// low 48-bit range and fall back to nullptr if the hint fails.
+static void* platform_alloc_low(size_t size) {
 #ifdef _WIN32
-    return VirtualAlloc(nullptr, BLOCK_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    // Try with a hint address in the low range (below 0x0000FFFFFFFFFFFF)
+    // Start from 0x10000000 (256MB) and let Windows find a free region nearby
+    static void* hint = (void*)0x0000000010000000ULL;
+    void* p = VirtualAlloc(hint, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (p) {
+        // Advance hint past this allocation for next call
+        hint = (void*)((uintptr_t)p + size);
+        return p;
+    }
+    // Hint failed — fall back to any address
+    return VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 #else
-    void* p = mmap(nullptr, BLOCK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    void* p = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     return (p == MAP_FAILED) ? nullptr : p;
 #endif
+}
+
+static void* platform_alloc_block() {
+    return platform_alloc_low(BLOCK_SIZE);
 }
 
 static void platform_free_block(void* ptr) {
@@ -176,12 +194,7 @@ static void platform_free_block(void* ptr) {
 }
 
 static void* platform_alloc_large(size_t size) {
-#ifdef _WIN32
-    return VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-#else
-    void* p = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    return (p == MAP_FAILED) ? nullptr : p;
-#endif
+    return platform_alloc_low(size);
 }
 
 static void platform_free_large(void* ptr, size_t size) {
