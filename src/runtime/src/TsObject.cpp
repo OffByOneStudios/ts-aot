@@ -5074,6 +5074,19 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
+        // For TsObject subclasses with GetPropertyVirtual (TsHttpServer, etc.),
+        // delegate to ts_object_get_property which checks the magic16 whitelist.
+        if (keyStr) {
+            const char* k = keyStr->ToUtf8();
+            if (k && magic16 != 0x4D415053) {
+                // Not a TsMap — try ts_object_get_property for GetPropertyVirtual dispatch
+                TsValue* result = ts_object_get_property(rawObj, k);
+                if (result && !ts_value_is_undefined(result)) {
+                    return result;
+                }
+            }
+        }
+
         // Use TsMap::Get which handles hashing correctly (by string content, not pointer address)
         TsMap* map = (TsMap*)rawObj;
 

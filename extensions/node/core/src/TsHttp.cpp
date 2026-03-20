@@ -529,12 +529,12 @@ TsValue TsHttpServer::GetPropertyVirtual(const char* key) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
         v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
-            (void*)+[](void* ctx, TsValue* callback) -> TsValue* {
-                extern void ts_net_server_close(void*, void*);
-                ts_net_server_close(ctx, callback);
+            (void*)+[](void* ctx) -> TsValue* {
+                extern void ts_net_server_close(void*);
+                ts_net_server_close(ctx);
                 return ts_value_make_object(ctx);
             },
-            this, FunctionType::COMPILED, 1);
+            this, FunctionType::COMPILED, 0);
         return v;
     }
     if (strcmp(key, "address") == 0) {
