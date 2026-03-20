@@ -40,6 +40,13 @@ static void on_deferred_listening(uv_timer_t* timer) {
 void TsServer::Listen(int port, const char* host, void* callback) {
     if (closed) return;
 
+    if (!handle) {
+        // Handle wasn't initialized — reinitialize
+        handle = (uv_tcp_t*)malloc(sizeof(uv_tcp_t));
+        uv_tcp_init(uv_default_loop(), handle);
+        handle->data = this;
+    }
+
     const char* hostStr = host ? host : "0.0.0.0";
     struct sockaddr_in addr;
     uv_ip4_addr(hostStr, port, &addr);
