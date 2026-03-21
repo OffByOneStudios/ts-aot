@@ -220,14 +220,6 @@ bool TsEventEmitter::Emit(const char* event, int argc, void** argv) {
     for (int i = 0; i < copy->Length(); i++) {
         TsValue* callback = (TsValue*)(uintptr_t)copy->Get(i);
         if (callback && (uintptr_t)callback > 0x10000) {
-            // Debug: validate the callback pointer
-            uint64_t nb = (uint64_t)(uintptr_t)callback;
-            void* rawCb = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : (void*)callback;
-            if (rawCb) {
-                uint32_t m16 = *(uint32_t*)((char*)rawCb + 16);
-                
-                    event, callback, rawCb, m16);
-            }
             ts_function_call(callback, argc, (TsValue**)argv);
         }
     }
