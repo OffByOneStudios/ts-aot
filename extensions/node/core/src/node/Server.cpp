@@ -106,9 +106,7 @@ void TsServer::HandleConnection(int status) {
 
         TsValue* arg0 = ts_value_make_object(socket);
         void* args[] = { arg0 };
-        fprintf(stderr, "[SERVER] About to Emit 'connection' socket=%p\n", socket);
         Emit("connection", 1, args);
-        fprintf(stderr, "[SERVER] connection Emit returned\n");
     } else {
         uv_close((uv_handle_t*)client, nullptr);
     }

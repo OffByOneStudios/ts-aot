@@ -430,15 +430,12 @@ static int on_headers_complete(llhttp_t* parser) {
     snprintf(versionBuf, sizeof(versionBuf), "%d.%d", parser->http_major, parser->http_minor);
     ctx->currentRequest->httpVersion = TsString::Create(versionBuf);
 
-    fprintf(stderr, "[HTTP] on_headers_complete: server=%p\n", ctx->server);
     // Emit "request" event now so the handler can attach 'data'/'end' listeners
     // before body data arrives (matches Node.js behavior)
     TsValue* reqVal = ts_value_make_object(ctx->currentRequest);
     TsValue* resVal = ts_value_make_object(ctx->currentResponse);
     TsValue* args[] = { reqVal, resVal };
-    fprintf(stderr, "[HTTP] About to Emit 'request' with req=%p res=%p\n", reqVal, resVal);
     ctx->server->Emit("request", 2, (void**)args);
-    fprintf(stderr, "[HTTP] Emit returned\n");
     return 0;
 }
 
@@ -618,7 +615,6 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
 
     // Listen for "connection" event from base TsServer
     server->On("connection", ts_value_make_native_function((void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-        fprintf(stderr, "[HTTP] connection handler called: ctx=%p argc=%d\n", ctx, argc);
         TsHttpServer* self = (TsHttpServer*)ctx;
         TsValue a0 = nanbox_to_tagged(argv[0]);
         TsSocket* socket = (TsSocket*)a0.ptr_val;

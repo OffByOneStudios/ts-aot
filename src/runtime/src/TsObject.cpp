@@ -1870,6 +1870,15 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsObject* tsObj = (TsObject*)obj;
                 TsValue result = tsObj->GetPropertyVirtual(keyStr);
                 if (result.type != ValueType::UNDEFINED) {
+                    // GetPropertyVirtual returns a TsValue struct. We need to
+                    // convert it to a TsValue* (NaN-boxed pointer). The implicit
+                    // operator void*() on TaggedValue only handles OBJECT_PTR and
+                    // STRING_PTR — FUNCTION_PTR would return nullptr. So we must
+                    // explicitly return the ptr_val for function types.
+                    if (result.type == ValueType::FUNCTION_PTR) {
+                        return (TsValue*)result.ptr_val;
+                    }
+                    // For OBJECT_PTR/STRING_PTR, the implicit conversion works
                     return result;
                 }
             }
@@ -1881,7 +1890,10 @@ TsValue* ts_value_make_int(int64_t i) {
             for (int i = 0; i < g_vtable_dispatch_count; i++) {
                 if (vtableAddr == g_vtable_dispatch[i].vtable) {
                     TsValue result = g_vtable_dispatch[i].dispatch(obj, keyStr);
-                    if (result.type != ValueType::UNDEFINED) return result;
+                    if (result.type != ValueType::UNDEFINED) {
+                        if (result.type == ValueType::FUNCTION_PTR) return (TsValue*)result.ptr_val;
+                        return result;
+                    }
                     break;
                 }
             }
@@ -2696,7 +2708,6 @@ TsValue* ts_value_make_int(int64_t i) {
             void* fp = closure->func_ptr;
             // Guard: func_ptr must be in executable memory (.text), not heap
             if (fp && ts_gc_base(fp)) {
-                fprintf(stderr, "[CALL2] CORRUPT: closure=%p func_ptr=%p IS IN GC HEAP!\n", closure, fp);
                 return ts_value_make_undefined();
             }
             TsValue* u = ts_value_make_undefined();
@@ -2716,17 +2727,13 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) {
             // Nothing extracted — trace what we received
-            fprintf(stderr, "[CALL2] DISPATCH FAIL: boxedFunc=%p\n", boxedFunc);
             uint64_t nb = (uint64_t)(uintptr_t)boxedFunc;
-            fprintf(stderr, "[CALL2]   nanbox_is_ptr=%d nanbox_is_int=%d nanbox_is_number=%d\n",
                 nanbox_is_ptr(nb), nanbox_is_int32(nb), nanbox_is_number(nb));
             if (nanbox_is_ptr(nb)) {
                 void* raw = nanbox_to_ptr(nb);
-                fprintf(stderr, "[CALL2]   raw=%p\n", raw);
                 if (raw && (uintptr_t)raw > 0x10000) {
                     uint32_t m0 = *(uint32_t*)raw;
                     uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-                    fprintf(stderr, "[CALL2]   magic0=0x%08X magic16=0x%08X\n", m0, m16);
                 }
             }
             return ts_value_make_undefined();
@@ -2734,7 +2741,6 @@ TsValue* ts_value_make_int(int64_t i) {
         if (func->type == FunctionType::NATIVE) {
             void* fp = func->funcPtr;
             if (fp && ts_gc_base(fp)) {
-                fprintf(stderr, "[CALL2] NATIVE func_ptr=%p IS IN GC HEAP!\n", fp);
                 return ts_value_make_undefined();
             }
             TsValue* argv[2] = { arg1, arg2 };
@@ -2746,7 +2752,6 @@ TsValue* ts_value_make_int(int64_t i) {
             if (innerClosure) {
                 void* fp = innerClosure->func_ptr;
                 if (fp && ts_gc_base(fp)) {
-                    fprintf(stderr, "[CALL2] innerClosure func_ptr=%p IS IN GC HEAP!\n", fp);
                     return ts_value_make_undefined();
                 }
                 typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
@@ -2754,7 +2759,6 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             void* fp = func->funcPtr;
             if (fp && ts_gc_base(fp)) {
-                fprintf(stderr, "[CALL2] COMPILED func->funcPtr=%p IS IN GC HEAP! ctx=%p\n", fp, func->context);
                 return ts_value_make_undefined();
             }
             typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
