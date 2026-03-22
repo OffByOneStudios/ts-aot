@@ -59,6 +59,20 @@ void TsMap::Set(TsValue key, TsValue value) {
     }
 
     ((TsHashTable*)impl)->Set(key, value);
+
+    // Write barrier: if the stored value is a pointer, notify the GC
+    // so nursery pointers stored in old-gen hash tables are tracked.
+    // Without this, minor GC Phase 3 won't fix up the pointer after
+    // the nursery object is promoted.
+    if (value.type == ValueType::OBJECT_PTR || value.type == ValueType::STRING_PTR ||
+        value.type == ValueType::FUNCTION_PTR || value.type == ValueType::ARRAY_PTR) {
+        if (value.ptr_val) {
+            // The slot address is inside the hash table's bucket array.
+            // We don't know the exact slot, so use the hash table pointer
+            // itself as a conservative slot address for the card table.
+            ts_gc_write_barrier(impl, value.ptr_val);
+        }
+    }
 }
 
 TsValue TsMap::Get(TsValue key) {

@@ -2285,37 +2285,40 @@ static void gc_minor_collect_internal() {
             }
         };
 
-        if (g_card_table) {
-            // Scan all allocated slots whose cards are dirty (don't clear yet —
-            // modular indexing means multiple slots can alias the same card).
-            for (size_t sc = 0; sc < NUM_SIZE_CLASSES; sc++) {
-                for (BlockHeader* bh = g_heap->block_lists[sc]; bh; bh = bh->next) {
-                    if (!bh->block_mem || bh->live_count == 0) continue;
-                    uintptr_t bstart = (uintptr_t)bh->block_mem;
-                    for (size_t slot = 0; slot < bh->slot_count; slot++) {
-                        if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
-                        uintptr_t s = bstart + slot * bh->slot_size;
-                        if (!card_range_is_dirty(s, bh->slot_size)) continue;
-                        uintptr_t e = s + bh->slot_size;
-                        for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
-                            fixup_word(p);
-                        }
+        // Full old-gen scan: scan ALL allocated slots for nursery pointers.
+        // This is necessary because TsMap/TsHashTable stores values in
+        // ts_gc_alloc_old_gen buckets without write barriers, so the card
+        // table doesn't track all old-gen → nursery references.
+        // (V8's semi-space approach avoids this by using remembered sets,
+        // but for correctness we do a full scan until write barriers are
+        // added to all container types.)
+        for (size_t sc = 0; sc < NUM_SIZE_CLASSES; sc++) {
+            for (BlockHeader* bh = g_heap->block_lists[sc]; bh; bh = bh->next) {
+                if (!bh->block_mem || bh->live_count == 0) continue;
+                uintptr_t bstart = (uintptr_t)bh->block_mem;
+                for (size_t slot = 0; slot < bh->slot_count; slot++) {
+                    if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
+                    uintptr_t s = bstart + slot * bh->slot_size;
+                    uintptr_t e = s + bh->slot_size;
+                    for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                        fixup_word(p);
                     }
                 }
             }
-            // Large objects
-            for (LargeObjHeader* lo = g_heap->large_sentinel.next;
-                 lo != &g_heap->large_sentinel; lo = lo->next) {
-                if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
-                uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
-                if (!card_range_is_dirty(s, lo->data_size)) continue;
-                uintptr_t e = s + lo->data_size;
-                for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
-                    fixup_word(p);
-                }
+        }
+        // Large objects
+        for (LargeObjHeader* lo = g_heap->large_sentinel.next;
+             lo != &g_heap->large_sentinel; lo = lo->next) {
+            if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
+            uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
+            uintptr_t e = s + lo->data_size;
+            for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                fixup_word(p);
             }
+        }
 
-            // Bulk clear card table, then re-dirty for pinned references
+        // Clear card table, then re-dirty for pinned references
+        if (g_card_table) {
             memset(g_card_table, 0, CARD_TABLE_SIZE);
             for (size_t idx : redirty_cards) {
                 g_card_table[idx] = 1;
