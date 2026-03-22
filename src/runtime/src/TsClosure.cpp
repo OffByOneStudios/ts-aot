@@ -13,6 +13,25 @@ TsClosure* TsClosure::Create(void* funcPtr, int64_t numCaptures) {
     TsClosure* closure = new (mem) TsClosure();
     closure->func_ptr = funcPtr;
     closure->num_captures = numCaptures;
+    // Debug: track the specific closure that gets corrupted
+    extern void* g_watched_closure_ptr;
+    extern void* g_watched_fp_original_ptr;
+    if ((uintptr_t)closure == 0x101F2078ULL) {
+        g_watched_closure_ptr = closure;
+        g_watched_fp_original_ptr = funcPtr;
+        fprintf(stderr, "[WATCH] Target closure %p created with func_ptr=%p\n", closure, funcPtr);
+        fflush(stderr);
+    }
+    // Check if the watched closure's func_ptr changed
+    if (g_watched_closure_ptr) {
+        TsClosure* watched = (TsClosure*)g_watched_closure_ptr;
+        if (watched->func_ptr != g_watched_fp_original_ptr) {
+            fprintf(stderr, "[WATCH] *** CORRUPTION DETECTED! closure=%p func_ptr changed from %p to %p ***\n",
+                g_watched_closure_ptr, g_watched_fp_original_ptr, watched->func_ptr);
+            fflush(stderr);
+            g_watched_fp_original_ptr = watched->func_ptr; // Only report once
+        }
+    }
 
     if (numCaptures > 0) {
         // Allocate array for cell pointers
