@@ -38,7 +38,9 @@ struct TaggedValue {
     TaggedValue(void* v) : type(ValueType::OBJECT_PTR), ptr_val(v) {}
     TaggedValue(TsString* v) : type(ValueType::STRING_PTR), ptr_val(v) {}
     
-    operator void*() const { return (type == ValueType::OBJECT_PTR || type == ValueType::STRING_PTR) ? ptr_val : nullptr; }
+    operator void*() const {
+        return (type == ValueType::OBJECT_PTR || type == ValueType::STRING_PTR || type == ValueType::FUNCTION_PTR) ? ptr_val : nullptr;
+    }
 };
 
 using TsValue = TaggedValue;

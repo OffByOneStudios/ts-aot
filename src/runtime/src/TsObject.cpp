@@ -3067,15 +3067,20 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            void* fp = closure->func_ptr;
+            if (fp && ts_gc_base(fp)) {
+                fprintf(stderr, "[CWT1] CORRUPT func_ptr=%p IS GC! closure=%p boxedFunc=%p\n", fp, closure, boxedFunc);
+                ts_call_this_value = savedThis;
+                return ts_value_make_undefined();
+            }
             TsValue* u = ts_value_make_undefined();
             TsValue* result;
             if (closure->is_method) {
-                // Method trampolines expect (ctx, this, arg1) - pass thisArg, pad extra
                 typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                result = ((FnPad)closure->func_ptr)(closure, thisArg, arg1, u, u);
+                result = ((FnPad)fp)(closure, thisArg, arg1, u, u);
             } else {
                 typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                result = ((FnPad)closure->func_ptr)(closure, arg1, u, u, u);
+                result = ((FnPad)fp)(closure, arg1, u, u, u);
             }
             ts_call_this_value = savedThis;
             return result;

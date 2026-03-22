@@ -164,16 +164,29 @@ static std::vector<ForwardEntry>* g_current_forwarding = nullptr;
 // low 48-bit range and fall back to nullptr if the hint fails.
 static void* platform_alloc_low(size_t size) {
 #ifdef _WIN32
-    // Try with a hint address in the low range (below 0x0000FFFFFFFFFFFF)
-    // Start from 0x10000000 (256MB) and let Windows find a free region nearby
+    // NaN-boxing requires pointers with top 16 bits = 0 (48-bit address space).
+    // Use a hint starting at 256MB and retry at lower addresses if needed.
     static void* hint = (void*)0x0000000010000000ULL;
     void* p = VirtualAlloc(hint, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (p) {
-        // Advance hint past this allocation for next call
-        hint = (void*)((uintptr_t)p + size);
-        return p;
+        // Verify the allocation is in the 48-bit range
+        if ((uintptr_t)p < 0x0001000000000000ULL) {
+            hint = (void*)((uintptr_t)p + size);
+            return p;
+        }
+        // Address too high — free and retry with lower hint
+        VirtualFree(p, 0, MEM_RELEASE);
     }
-    // Hint failed — fall back to any address
+    // Try lower addresses
+    for (uintptr_t base = 0x20000000ULL; base < 0x0000800000000000ULL; base += 0x10000000ULL) {
+        p = VirtualAlloc((void*)base, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (p && (uintptr_t)p < 0x0001000000000000ULL) {
+            hint = (void*)((uintptr_t)p + size);
+            return p;
+        }
+        if (p) VirtualFree(p, 0, MEM_RELEASE);
+    }
+    // Last resort — accept any address
     return VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 #else
     void* p = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
