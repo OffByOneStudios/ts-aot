@@ -1283,37 +1283,18 @@ static void gc_sweep_phase() {
 // Full Collection
 // ============================================================================
 
-// Debug: watched closure globals (defined here, referenced by TsClosure.cpp)
-void* g_watched_closure_ptr = nullptr;
-void* g_watched_fp_original_ptr = nullptr;
-
-// Debug: check if the watched closure is corrupted
-static void ts_check_watched_closure(const char* phase) {
-    if (!g_watched_closure_ptr) return;
-    void* currentFp = *(void**)((char*)g_watched_closure_ptr + 24); // offset of func_ptr
-    if (currentFp != g_watched_fp_original_ptr) {
-        fprintf(stderr, "[GC-WATCH] *** func_ptr corrupted during %s! was=%p now=%p ***\n",
-            phase, g_watched_fp_original_ptr, currentFp);
-        fflush(stderr);
-    }
-}
-
 static void gc_collect_internal() {
     if (!g_heap) return;
 
     g_heap->collection_count++;
     g_in_collection = true;
 
-    ts_check_watched_closure("pre-mark");
     auto t0 = std::chrono::high_resolution_clock::now();
     gc_mark_phase();
-    ts_check_watched_closure("post-mark");
     auto t1 = std::chrono::high_resolution_clock::now();
     gc_process_weak_refs();
     gc_process_finalizers();
-    ts_check_watched_closure("post-finalizers");
     gc_sweep_phase();
-    ts_check_watched_closure("post-sweep");
     auto t2 = std::chrono::high_resolution_clock::now();
 
     g_in_collection = false;
@@ -1484,18 +1465,6 @@ void* ts_gc_alloc(size_t size) {
             g_nursery.total_allocated += alloc_size;
             g_nursery.alloc_count++;
             nursery_sync_to_exported();
-            // Check if this allocation overwrites the watched closure
-            if (g_watched_closure_ptr) {
-                uintptr_t wAddr = (uintptr_t)g_watched_closure_ptr;
-                uintptr_t aStart = (uintptr_t)result;
-                uintptr_t aEnd = aStart + alloc_size;
-                if (wAddr >= aStart && wAddr < aEnd) {
-                    fprintf(stderr, "[ALLOC] *** OVERWRITING watched closure %p! alloc at %p size=%zu ***\n",
-                        g_watched_closure_ptr, result, alloc_size);
-                    fflush(stderr);
-                }
-                ts_check_watched_closure("alloc-fast");
-            }
             return result;
         }
 
@@ -2082,14 +2051,11 @@ static void gc_minor_collect_internal() {
         }
     }
 
-    ts_check_watched_closure("minor-pre-pin");
     // Phase 0: Pin nursery objects referenced from the stack
     gc_pin_nursery_stack_roots();
-    ts_check_watched_closure("minor-post-pin");
 
     // Phase 0b: Mark live nursery objects (root discovery + BFS tracing)
     gc_mark_nursery_live();
-    ts_check_watched_closure("minor-post-mark-live");
 
     // Temporarily boost GC threshold to prevent gc_alloc_small from
     // triggering a full gc_collect_internal() during promotion
@@ -2187,7 +2153,6 @@ static void gc_minor_collect_internal() {
         return ptr; // Not forwarded (pinned or unknown)
     };
 
-    ts_check_watched_closure("minor-post-promote");
     // Phase 2: Fix up promoted objects' internal nursery pointers
     if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 2 (%zu forwarded)\n", forwarding.size()); fflush(stderr); }
     for (auto& fwd : forwarding) {
@@ -2216,7 +2181,6 @@ static void gc_minor_collect_internal() {
         }
     }
 
-    ts_check_watched_closure("minor-post-phase2");
     // Phase 2b: Fix up PINNED nursery objects' internal pointers.
     // Pinned objects may reference other nursery objects that were promoted.
     // Those internal pointers must be rewritten to the new old-gen addresses.
@@ -2258,7 +2222,6 @@ static void gc_minor_collect_internal() {
         }
     }
 
-    ts_check_watched_closure("minor-post-phase2b");
     if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 3\n"); fflush(stderr); }
     // Phase 3: Scan old-gen slots with dirty cards for nursery pointers and fix them.
     // Uses modular card indexing: iterate allocated slots, check card, fix pointers.

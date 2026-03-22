@@ -3059,9 +3059,6 @@ TsValue* ts_value_make_int(int64_t i) {
         if (closure) {
             void* volatile fp = closure->func_ptr;
             if (!fp || ts_gc_base((void*)fp)) {
-                fprintf(stderr, "[CWT1] CORRUPT func_ptr=%p IS GC! closure=%p boxedFunc=%p\n",
-                    (void*)fp, closure, boxedFunc);
-                fflush(stderr);
                 ts_call_this_value = savedThis;
                 return ts_value_make_undefined();
             }
