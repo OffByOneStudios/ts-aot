@@ -2726,16 +2726,6 @@ TsValue* ts_value_make_int(int64_t i) {
 
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) {
-            // Nothing extracted — trace what we received
-            uint64_t nb = (uint64_t)(uintptr_t)boxedFunc;
-                nanbox_is_ptr(nb), nanbox_is_int32(nb), nanbox_is_number(nb));
-            if (nanbox_is_ptr(nb)) {
-                void* raw = nanbox_to_ptr(nb);
-                if (raw && (uintptr_t)raw > 0x10000) {
-                    uint32_t m0 = *(uint32_t*)raw;
-                    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-                }
-            }
             return ts_value_make_undefined();
         }
         if (func->type == FunctionType::NATIVE) {
@@ -3067,9 +3057,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first - closures already have captured context
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
-            void* fp = closure->func_ptr;
-            if (fp && ts_gc_base(fp)) {
-                fprintf(stderr, "[CWT1] CORRUPT func_ptr=%p IS GC! closure=%p boxedFunc=%p\n", fp, closure, boxedFunc);
+            void* volatile fp = closure->func_ptr;
+            if (!fp || ts_gc_base((void*)fp)) {
+                fprintf(stderr, "[CWT1] CORRUPT func_ptr=%p IS GC! closure=%p boxedFunc=%p\n",
+                    (void*)fp, closure, boxedFunc);
+                fflush(stderr);
                 ts_call_this_value = savedThis;
                 return ts_value_make_undefined();
             }
@@ -3077,10 +3069,10 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* result;
             if (closure->is_method) {
                 typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                result = ((FnPad)fp)(closure, thisArg, arg1, u, u);
+                result = ((FnPad)(void*)fp)(closure, thisArg, arg1, u, u);
             } else {
                 typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                result = ((FnPad)fp)(closure, arg1, u, u, u);
+                result = ((FnPad)(void*)fp)(closure, arg1, u, u, u);
             }
             ts_call_this_value = savedThis;
             return result;

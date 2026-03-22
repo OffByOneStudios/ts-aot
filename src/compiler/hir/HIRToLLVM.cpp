@@ -720,6 +720,11 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     currentHIRFunction_ = fn;
     isAsyncFunction_ = fn->isAsync;
     isGeneratorFunction_ = fn->isGenerator;
+
+    // Clear stale debug location from previous function
+    if (emitDebugInfo_) {
+        builder_->SetCurrentDebugLocation(llvm::DebugLoc());
+    }
     stackAllocCount_ = 0;
     stackAllocBytes_ = 0;
     valueMap_.clear();
@@ -1207,10 +1212,15 @@ void HIRToLLVM::lowerBlock(HIRBlock* block) {
 
 void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
     // Set debug location for this instruction
-    if (emitDebugInfo_ && inst->sourceLocation > 0 && currentFunction_) {
+    if (emitDebugInfo_ && currentFunction_) {
         if (auto* sp = currentFunction_->getSubprogram()) {
-            builder_->SetCurrentDebugLocation(
-                llvm::DILocation::get(context_, inst->sourceLocation, 0, sp));
+            if (inst->sourceLocation > 0) {
+                builder_->SetCurrentDebugLocation(
+                    llvm::DILocation::get(context_, inst->sourceLocation, 0, sp));
+            }
+        } else {
+            // No subprogram — clear debug location to avoid misattribution
+            builder_->SetCurrentDebugLocation(llvm::DebugLoc());
         }
     }
 
