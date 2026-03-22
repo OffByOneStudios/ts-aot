@@ -430,12 +430,15 @@ static int on_headers_complete(llhttp_t* parser) {
     snprintf(versionBuf, sizeof(versionBuf), "%d.%d", parser->http_major, parser->http_minor);
     ctx->currentRequest->httpVersion = TsString::Create(versionBuf);
 
+    fprintf(stderr, "[HTTP] on_headers_complete: server=%p\n", ctx->server);
     // Emit "request" event now so the handler can attach 'data'/'end' listeners
     // before body data arrives (matches Node.js behavior)
     TsValue* reqVal = ts_value_make_object(ctx->currentRequest);
     TsValue* resVal = ts_value_make_object(ctx->currentResponse);
     TsValue* args[] = { reqVal, resVal };
+    fprintf(stderr, "[HTTP] About to Emit 'request' with req=%p res=%p\n", reqVal, resVal);
     ctx->server->Emit("request", 2, (void**)args);
+    fprintf(stderr, "[HTTP] Emit returned\n");
     return 0;
 }
 
@@ -493,7 +496,7 @@ TsValue TsHttpServer::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "listen") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
-        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
             (void*)+[](void* ctx, TsValue* port, TsValue* host, TsValue* callback) -> TsValue* {
                 // Handle various argument patterns:
                 // listen(port, callback) or listen(port, host, callback)
@@ -528,7 +531,7 @@ TsValue TsHttpServer::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "close") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
-        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
             (void*)+[](void* ctx) -> TsValue* {
                 extern void ts_net_server_close(void*);
                 ts_net_server_close(ctx);
@@ -540,7 +543,7 @@ TsValue TsHttpServer::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "address") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
-        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
             (void*)+[](void* ctx) -> TsValue* {
                 extern void* ts_net_server_address(void*);
                 void* result = ts_net_server_address(ctx);
@@ -552,7 +555,7 @@ TsValue TsHttpServer::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "on") == 0 || strcmp(key, "addListener") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
-        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
             (void*)+[](void* ctx, TsValue* event, TsValue* callback) -> TsValue* {
                 TsEventEmitter* emitter = ((TsObject*)ctx)->AsEventEmitter();
                 if (emitter) {
@@ -569,7 +572,7 @@ TsValue TsHttpServer::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "setTimeout") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
-        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
             (void*)+[](void* ctx, TsValue* msecs) -> TsValue* {
                 TsHttpServer* self = (TsHttpServer*)ctx;
                 uint64_t nb = (uint64_t)(uintptr_t)msecs;
@@ -602,7 +605,11 @@ void TsHttpServer::SetTimeout(int msecs, void* callback) {
 }
 
 TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
-    void* mem = ts_alloc(sizeof(TsHttpServer));
+    // Allocate outside the GC nursery — the server's address is stored in
+    // uv_tcp_t.data (handle->data = this). If allocated in the nursery,
+    // GC promotion would move the server but handle->data would remain
+    // stale, causing OnConnection to use a freed nursery address.
+    void* mem = malloc(sizeof(TsHttpServer));
     TsHttpServer* server = new (mem) TsHttpServer();
 
     if (callback) {
@@ -611,11 +618,14 @@ TsHttpServer* TsHttpServer::Create(TsValue* options, void* callback) {
 
     // Listen for "connection" event from base TsServer
     server->On("connection", ts_value_make_native_function((void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        fprintf(stderr, "[HTTP] connection handler called: ctx=%p argc=%d\n", ctx, argc);
         TsHttpServer* self = (TsHttpServer*)ctx;
         TsValue a0 = nanbox_to_tagged(argv[0]);
         TsSocket* socket = (TsSocket*)a0.ptr_val;
 
-        HttpContext* httpCtx = (HttpContext*)ts_alloc(sizeof(HttpContext));
+        // Allocate outside GC — HttpContext has llhttp structs with function
+        // pointers that must not be relocated by nursery GC.
+        HttpContext* httpCtx = (HttpContext*)malloc(sizeof(HttpContext));
         new (httpCtx) HttpContext(self, socket);
 
         llhttp_settings_init(&httpCtx->settings);
@@ -1072,7 +1082,9 @@ TsHttpsServer* TsHttpsServer::Create(TsValue* options, void* callback) {
         TsValue a0 = nanbox_to_tagged(argv[0]);
         TsSocket* socket = (TsSocket*)a0.ptr_val;
 
-        HttpContext* httpCtx = (HttpContext*)ts_alloc(sizeof(HttpContext));
+        // Allocate outside GC — HttpContext has llhttp structs with function
+        // pointers that must not be relocated by nursery GC.
+        HttpContext* httpCtx = (HttpContext*)malloc(sizeof(HttpContext));
         new (httpCtx) HttpContext(self, socket);
 
         llhttp_settings_init(&httpCtx->settings);

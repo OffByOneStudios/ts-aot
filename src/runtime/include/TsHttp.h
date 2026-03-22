@@ -152,6 +152,10 @@ public:
     void SetTimeout(int msecs, void* callback = nullptr);
     void* timeoutCallback = nullptr;
 
+    // Direct request callback — stored separately from EventEmitter
+    // to avoid NaN-boxing/GC issues with event dispatch
+    void* requestCallback = nullptr;
+
     // Dynamic property access for untyped JS modules
     TsValue GetPropertyVirtual(const char* key) override;
 

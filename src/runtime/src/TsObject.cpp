@@ -2693,10 +2693,15 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
-            // Pad with undefined args - callee may expect more params than caller provides
+            void* fp = closure->func_ptr;
+            // Guard: func_ptr must be in executable memory (.text), not heap
+            if (fp && ts_gc_base(fp)) {
+                fprintf(stderr, "[CALL2] CORRUPT: closure=%p func_ptr=%p IS IN GC HEAP!\n", closure, fp);
+                return ts_value_make_undefined();
+            }
             TsValue* u = ts_value_make_undefined();
             typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((FnPad)closure->func_ptr)(closure, arg1, arg2, u, u);
+            return ((FnPad)fp)(closure, arg1, arg2, u, u);
         }
 
         // Check for Proxy
@@ -2709,20 +2714,51 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         TsFunction* func = ts_extract_function(boxedFunc);
-        if (!func) return ts_value_make_undefined();
+        if (!func) {
+            // Nothing extracted — trace what we received
+            fprintf(stderr, "[CALL2] DISPATCH FAIL: boxedFunc=%p\n", boxedFunc);
+            uint64_t nb = (uint64_t)(uintptr_t)boxedFunc;
+            fprintf(stderr, "[CALL2]   nanbox_is_ptr=%d nanbox_is_int=%d nanbox_is_number=%d\n",
+                nanbox_is_ptr(nb), nanbox_is_int32(nb), nanbox_is_number(nb));
+            if (nanbox_is_ptr(nb)) {
+                void* raw = nanbox_to_ptr(nb);
+                fprintf(stderr, "[CALL2]   raw=%p\n", raw);
+                if (raw && (uintptr_t)raw > 0x10000) {
+                    uint32_t m0 = *(uint32_t*)raw;
+                    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+                    fprintf(stderr, "[CALL2]   magic0=0x%08X magic16=0x%08X\n", m0, m16);
+                }
+            }
+            return ts_value_make_undefined();
+        }
         if (func->type == FunctionType::NATIVE) {
+            void* fp = func->funcPtr;
+            if (fp && ts_gc_base(fp)) {
+                fprintf(stderr, "[CALL2] NATIVE func_ptr=%p IS IN GC HEAP!\n", fp);
+                return ts_value_make_undefined();
+            }
             TsValue* argv[2] = { arg1, arg2 };
-            TsValue* result = ((TsFunctionPtr)func->funcPtr)(func->context, 2, argv);
+            TsValue* result = ((TsFunctionPtr)fp)(func->context, 2, argv);
             return result;
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
             TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
+                void* fp = innerClosure->func_ptr;
+                if (fp && ts_gc_base(fp)) {
+                    fprintf(stderr, "[CALL2] innerClosure func_ptr=%p IS IN GC HEAP!\n", fp);
+                    return ts_value_make_undefined();
+                }
                 typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((FnPad)innerClosure->func_ptr)(innerClosure, arg1, arg2, u, u);
+                return ((FnPad)fp)(innerClosure, arg1, arg2, u, u);
+            }
+            void* fp = func->funcPtr;
+            if (fp && ts_gc_base(fp)) {
+                fprintf(stderr, "[CALL2] COMPILED func->funcPtr=%p IS IN GC HEAP! ctx=%p\n", fp, func->context);
+                return ts_value_make_undefined();
             }
             typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            TsValue* result = ((FnPad)func->funcPtr)(func->context, arg1, arg2, u, u);
+            TsValue* result = ((FnPad)fp)(func->context, arg1, arg2, u, u);
             return result;
         }
     }
