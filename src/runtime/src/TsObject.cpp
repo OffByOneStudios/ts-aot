@@ -1314,48 +1314,67 @@ TsValue* ts_value_make_int(int64_t i) {
     // Native wrappers for array methods (ctx = TsArray*)
     // ============================================================
 
+    // Helper: resolve array from ctx or this (for Array.prototype methods)
+    static TsArray* resolve_array_ctx(void* ctx) {
+        // If ctx looks like a valid TsArray, use it directly
+        if (ctx) {
+            uint32_t m = *(uint32_t*)ctx;
+            if (m == 0x41525259) return (TsArray*)ctx; // TsArray::MAGIC
+        }
+        // Fallback: get from 'this' (used by Array.prototype.method.call(arr, ...))
+        void* thisVal = ts_get_call_this();
+        if (thisVal) {
+            // Unbox if needed
+            void* raw = ts_value_get_object((TsValue*)thisVal);
+            if (!raw) raw = thisVal;
+            uint32_t m = *(uint32_t*)raw;
+            if (m == 0x41525259) return (TsArray*)raw;
+        }
+        return nullptr;
+    }
+
     // P0: Extremely common methods
-    static TsValue* ts_array_map_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_map_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_map(arr, callback, thisArg);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
-    static TsValue* ts_array_filter_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_filter_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_filter(arr, callback, thisArg);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
-    static TsValue* ts_array_forEach_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_forEach_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         ts_array_forEach(arr, callback, thisArg);
         return ts_value_make_undefined();
     }
-    static TsValue* ts_array_reduce_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_reduce_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* initialValue = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_reduce(arr, callback, initialValue);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
-    static TsValue* ts_array_push_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_push_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         for (int i = 0; i < argc; i++) {
             ts_array_push(arr, (void*)argv[i]);
         }
         return ts_value_make_int(arr->Length());
     }
-    static TsValue* ts_array_pop_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_pop_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* result = ts_array_pop(arr);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
-    static TsValue* ts_array_join_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_join_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* separator = nullptr;
         if (argc >= 1 && argv && argv[0]) {
@@ -1365,18 +1384,19 @@ TsValue* ts_value_make_int(int64_t i) {
         void* result = ts_array_join(arr, separator);
         return result ? ts_value_make_string((TsString*)result) : ts_value_make_string(TsString::Create(""));
     }
-    static TsValue* ts_array_indexOf_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_indexOf_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
         return ts_value_make_int(ts_array_indexOf(arr, value));
     }
-    static TsValue* ts_array_includes_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_includes_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
         return ts_value_make_bool(ts_array_includes(arr, value));
     }
-    static TsValue* ts_array_slice_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+    TsValue* ts_array_slice_native(void* ctx, int argc, TsValue** argv) {
+        TsArray* arr = resolve_array_ctx(ctx);
+        if (!arr) return ts_value_make_object(ts_array_create());
         int64_t start = 0, end = arr->Length();
         if (argc >= 1 && argv && argv[0]) {
             start = ts_value_get_int(argv[0]);
@@ -1459,43 +1479,43 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // P1: Common methods
-    static TsValue* ts_array_some_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_some_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_bool(ts_array_some(arr, callback, thisArg));
     }
-    static TsValue* ts_array_every_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_every_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_bool(ts_array_every(arr, callback, thisArg));
     }
-    static TsValue* ts_array_find_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_find_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         struct TaggedValue* result = ts_array_find(arr, callback, thisArg);
         return result ? nanbox_from_tagged(*result) : ts_value_make_undefined();
     }
-    static TsValue* ts_array_findIndex_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_findIndex_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_int(ts_array_findIndex(arr, callback, thisArg));
     }
-    static TsValue* ts_array_sort_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_sort_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* comparator = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* result = ts_array_sort(arr, comparator);
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
-    static TsValue* ts_array_reverse_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_reverse_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* result = ts_array_reverse(arr);
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
-    static TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
         int64_t deleteCount = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : arr->Length() - start;
@@ -1538,7 +1558,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
         return ts_value_make_object(result);
     }
-    static TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* other = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         // Unbox the other arg if needed
@@ -1551,7 +1571,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // P2: Moderate methods
-    static TsValue* ts_array_flat_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_flat_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         int64_t depth = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 1;
         void* result = ts_array_flat(arr, depth);
@@ -1570,12 +1590,12 @@ TsValue* ts_value_make_int(int64_t i) {
         void* result = ts_array_at(arr, index);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
-    static TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         void* result = ts_array_shift(arr);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
-    static TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = (TsArray*)ctx;
         for (int i = argc - 1; i >= 0; i--) {
             ts_array_unshift(arr, (void*)argv[i]);
@@ -1843,7 +1863,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // is at a large offset (e.g., 176) due to MSVC's virtual base layout. For these, we validate
         // the C++ vtable pointer and call GetPropertyVirtual via the primary vtable, which correctly
         // dispatches even for virtual-inheritance classes.
-        if (ts_gc_base(obj)) {
+        // Virtual property dispatch for TsObject subclasses.
+        // Note: do NOT guard with ts_gc_base() — some objects (e.g., TsHttpServer)
+        // are allocated with malloc (for libuv compatibility) and won't be in the GC heap.
+        // The magic16 whitelist check is sufficient to validate the pointer.
+        {
             uint32_t magic16 = *(uint32_t*)((uint8_t*)obj + 16);
             // Check for TsSet first - dispatch through its own vtable
             if (magic16 == 0x53455453) {  // TsSet::MAGIC "SETS"
@@ -4814,9 +4838,7 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
-                if (k && strcmp(k, "length") == 0) {
-                    return ts_value_make_int(arr->Length());
-                }
+                if (k) return ts_object_get_property(rawObj, k);
             }
             return ts_value_make_undefined();
         }

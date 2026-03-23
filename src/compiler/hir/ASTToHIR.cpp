@@ -1952,7 +1952,9 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         }
         if (usesArguments) {
             // Build args for ts_create_arguments_from_params(p0..p9)
-            // The runtime uses ts_last_call_argc to know how many were actually passed
+            // The runtime uses ts_last_call_argc to know how many were actually passed.
+            // Include both declared params AND hidden __argN__ params so that
+            // functions with fewer formal params than call args still capture all args.
             std::vector<std::shared_ptr<HIRValue>> callArgs;
 
             // Pass each user parameter (up to 10), padding with undefined
@@ -6837,6 +6839,26 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         func->params.push_back({paramName, paramType});
     }
 
+    // If the function body uses 'arguments', add hidden __argN__ params
+    // so the padded calling convention args can be captured.
+    // The runtime calls with 5 args: (closure, a0, a1, a2, a3).
+    {
+        bool bodyUsesArguments = false;
+        for (auto& stmt : node->body) {
+            if (containsArgumentsIdentifier(stmt.get())) {
+                bodyUsesArguments = true;
+                break;
+            }
+        }
+        if (bodyUsesArguments) {
+            // Pad to 5 total params (including __closure__)
+            while (func->params.size() < 5) {
+                std::string argName = "__arg" + std::to_string(func->params.size() - 1) + "__";
+                func->params.push_back({argName, HIRType::makeAny()});
+            }
+        }
+    }
+
     // Determine return type from inferred type or default to Any
     std::shared_ptr<HIRType> returnType = HIRType::makeAny();
     if (tsFuncType && tsFuncType->returnType) {
@@ -7160,6 +7182,24 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
             paramName = "param" + std::to_string(func->params.size());
         }
         func->params.push_back({paramName, paramType});
+    }
+
+    // If the function body uses 'arguments', add hidden __argN__ params
+    // so the padded calling convention args can be captured.
+    {
+        bool bodyUsesArguments = false;
+        for (auto& stmt : node->body) {
+            if (containsArgumentsIdentifier(stmt.get())) {
+                bodyUsesArguments = true;
+                break;
+            }
+        }
+        if (bodyUsesArguments) {
+            while (func->params.size() < 5) {
+                std::string argName = "__arg" + std::to_string(func->params.size() - 1) + "__";
+                func->params.push_back({argName, HIRType::makeAny()});
+            }
+        }
     }
 
     // Determine return type from explicit return type or inferred type

@@ -34,6 +34,28 @@ TsValue* ts_object_assign(TsValue* target, TsValue* source);
 TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);
 bool ts_object_is(TsValue* val1, TsValue* val2);
 TsValue* ts_array_isArray_native(void* context, int argc, TsValue** argv);
+// Array instance method natives (defined in TsObject.cpp)
+TsValue* ts_array_slice_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_map_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_filter_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_forEach_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_reduce_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_push_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_pop_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_join_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_indexOf_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_includes_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_some_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_every_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_find_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_findIndex_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_sort_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_reverse_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_flat_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv);
 TsValue* ts_json_parse_native(void* context, int argc, TsValue** argv);
 TsValue* ts_error_create(void* message);
@@ -136,8 +158,31 @@ void* ts_get_global_Array() {
     cached = TsMap::Create();
     addMethod(cached, "isArray", (void*)ts_array_isArray_native);
 
-    // Array.prototype
+    // Array.prototype — populated with instance methods so
+    // Array.prototype.slice.call(arr, ...) pattern works (used by Express)
     TsMap* proto = TsMap::Create();
+    addMethod(proto, "slice", (void*)ts_array_slice_native);
+    addMethod(proto, "map", (void*)ts_array_map_native);
+    addMethod(proto, "filter", (void*)ts_array_filter_native);
+    addMethod(proto, "forEach", (void*)ts_array_forEach_native);
+    addMethod(proto, "reduce", (void*)ts_array_reduce_native);
+    addMethod(proto, "push", (void*)ts_array_push_native);
+    addMethod(proto, "pop", (void*)ts_array_pop_native);
+    addMethod(proto, "join", (void*)ts_array_join_native);
+    addMethod(proto, "indexOf", (void*)ts_array_indexOf_native);
+    addMethod(proto, "includes", (void*)ts_array_includes_native);
+    addMethod(proto, "some", (void*)ts_array_some_native);
+    addMethod(proto, "every", (void*)ts_array_every_native);
+    addMethod(proto, "find", (void*)ts_array_find_native);
+    addMethod(proto, "findIndex", (void*)ts_array_findIndex_native);
+    addMethod(proto, "sort", (void*)ts_array_sort_native);
+    addMethod(proto, "reverse", (void*)ts_array_reverse_native);
+    addMethod(proto, "splice", (void*)ts_array_splice_native);
+    addMethod(proto, "concat", (void*)ts_array_concat_native);
+    addMethod(proto, "flat", (void*)ts_array_flat_native);
+    addMethod(proto, "shift", (void*)ts_array_shift_native);
+    addMethod(proto, "unshift", (void*)ts_array_unshift_native);
+
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;
     protoKey.ptr_val = TsString::GetInterned("prototype");
