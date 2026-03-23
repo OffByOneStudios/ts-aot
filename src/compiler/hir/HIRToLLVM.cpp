@@ -7105,6 +7105,47 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         builder_->CreateCall(setMethodFt, setMethodFn.getCallee(), { gcPtrToRaw(closure) });
     }
 
+    // Fix self-referencing closures: if a capture variable has the same name
+    // as the function being closed over, update the capture cell with the
+    // closure itself after creation. This handles patterns like:
+    //   function router(req, res, next) { router.handle(req, res, next); }
+    // where `router` captures itself.
+    {
+        // Get the function's display name (without module hash suffix)
+        std::string closureName;
+        if (hirModule_) {
+            for (const auto& hirFn : hirModule_->functions) {
+                if (hirFn->name == funcName || hirFn->mangledName == funcName) {
+                    closureName = hirFn->displayName.empty() ? hirFn->name : hirFn->displayName;
+                    break;
+                }
+            }
+        }
+        if (closureName.empty()) {
+            closureName = funcName;
+            auto pos = closureName.rfind("_m");
+            if (pos != std::string::npos) closureName = closureName.substr(0, pos);
+        }
+
+        for (size_t i = 0; i < captureNames.size(); ++i) {
+            if (captureNames[i] == closureName) {
+                // Self-reference detected: update cell[i] = closure
+                auto cellSetFt = llvm::FunctionType::get(
+                    builder_->getVoidTy(),
+                    { builder_->getPtrTy(), builder_->getPtrTy() },
+                    false);
+                auto cellSetFn = module_->getOrInsertFunction("ts_cell_set", cellSetFt);
+                llvm::Value* indexVal = llvm::ConstantInt::get(builder_->getInt64Ty(), i);
+                llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(),
+                    { gcPtrToRaw(closure), indexVal });
+                llvm::Value* boxedClosure = builder_->CreateCall(makeObjectFt, makeObject.getCallee(),
+                    { gcPtrToRaw(closure) });
+                builder_->CreateCall(cellSetFt, cellSetFn.getCallee(), { cell, boxedClosure });
+                break;
+            }
+        }
+    }
+
     if (inst->result) {
         setValue(inst->result, closure);
     }
