@@ -106,6 +106,9 @@ public:
     static uint64_t s_vtable;  // Primary vtable pointer for type identification
     static TsServerResponse* Create(TsSocket* socket);
 
+    // Dynamic property access for untyped JS modules
+    TsValue GetPropertyVirtual(const char* key) override;
+
     void WriteHead(int status, TsObject* headers);
 
     // TsWritable implementation

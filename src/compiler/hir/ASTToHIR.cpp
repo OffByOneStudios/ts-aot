@@ -6839,25 +6839,8 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         func->params.push_back({paramName, paramType});
     }
 
-    // If the function body uses 'arguments', add hidden __argN__ params
-    // so the padded calling convention args can be captured.
-    // The runtime calls with 5 args: (closure, a0, a1, a2, a3).
-    {
-        bool bodyUsesArguments = false;
-        for (auto& stmt : node->body) {
-            if (containsArgumentsIdentifier(stmt.get())) {
-                bodyUsesArguments = true;
-                break;
-            }
-        }
-        if (bodyUsesArguments) {
-            // Pad to 5 total params (including __closure__)
-            while (func->params.size() < 5) {
-                std::string argName = "__arg" + std::to_string(func->params.size() - 1) + "__";
-                func->params.push_back({argName, HIRType::makeAny()});
-            }
-        }
-    }
+    // Note: Arrow functions don't have their own 'arguments' object
+    // (they inherit from enclosing scope), so no hidden __argN__ params needed.
 
     // Determine return type from inferred type or default to Any
     std::shared_ptr<HIRType> returnType = HIRType::makeAny();

@@ -119,6 +119,121 @@ TsValue TsOutgoingMessage::GetPropertyVirtual(const char* key) {
     return TsObject::GetPropertyVirtual(key);
 }
 
+TsValue TsServerResponse::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "writeHead") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* statusCode, TsValue* headers) -> TsValue* {
+                TsServerResponse* res = (TsServerResponse*)ctx;
+                int status = 200;
+                if (statusCode) {
+                    uint64_t nb = (uint64_t)(uintptr_t)statusCode;
+                    status = (int)nanbox_to_int64(nb);
+                }
+                res->WriteHead(status, nullptr);
+                return ts_value_make_object(ctx);
+            },
+            this, FunctionType::COMPILED, 2);
+        return v;
+    }
+    if (strcmp(key, "write") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* data) -> TsValue* {
+                TsServerResponse* res = (TsServerResponse*)ctx;
+                if (data) {
+                    TsValue d = nanbox_to_tagged(data);
+                    if (d.type == ValueType::STRING_PTR) {
+                        TsString* str = (TsString*)d.ptr_val;
+                        const char* utf8 = str->ToUtf8();
+                        res->Write((void*)utf8, strlen(utf8));
+                    } else if (d.type == ValueType::OBJECT_PTR) {
+                        TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)d.ptr_val);
+                        if (buf) res->Write(buf->GetData(), buf->GetLength());
+                    }
+                }
+                return ts_value_make_bool(true);
+            },
+            this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    if (strcmp(key, "end") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* data) -> TsValue* {
+                TsServerResponse* res = (TsServerResponse*)ctx;
+                TsValue d;
+                d.type = ValueType::UNDEFINED;
+                d.i_val = 0;
+                if (data && !ts_value_is_undefined(data)) {
+                    d = nanbox_to_tagged(data);
+                }
+                res->End(d);
+                return ts_value_make_object(ctx);
+            },
+            this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    if (strcmp(key, "setHeader") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* name, TsValue* value) -> TsValue* {
+                TsServerResponse* res = (TsServerResponse*)ctx;
+                TsString* nameStr = (TsString*)ts_value_get_string(name);
+                if (nameStr) {
+                    res->SetHeader(nameStr, value);
+                }
+                return ts_value_make_object(ctx);
+            },
+            this, FunctionType::COMPILED, 2);
+        return v;
+    }
+    if (strcmp(key, "getHeader") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* name) -> TsValue* {
+                TsServerResponse* res = (TsServerResponse*)ctx;
+                TsString* nameStr = (TsString*)ts_value_get_string(name);
+                if (nameStr) {
+                    TsValue* result = res->GetHeader(nameStr);
+                    if (result) return result;
+                }
+                return ts_value_make_undefined();
+            },
+            this, FunctionType::COMPILED, 1);
+        return v;
+    }
+    if (strcmp(key, "statusCode") == 0) {
+        TsValue v;
+        v.type = ValueType::NUMBER_INT;
+        v.i_val = this->statusCode;
+        return v;
+    }
+    if (strcmp(key, "on") == 0 || strcmp(key, "addListener") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = new (malloc(sizeof(TsFunction))) TsFunction(
+            (void*)+[](void* ctx, TsValue* event, TsValue* callback) -> TsValue* {
+                TsEventEmitter* emitter = ((TsObject*)ctx)->AsEventEmitter();
+                if (emitter) {
+                    TsString* eventStr = (TsString*)ts_value_get_string(event);
+                    if (eventStr) {
+                        emitter->On(eventStr->ToUtf8(), callback);
+                    }
+                }
+                return ts_value_make_object(ctx);
+            },
+            this, FunctionType::COMPILED, 2);
+        return v;
+    }
+    return TsOutgoingMessage::GetPropertyVirtual(key);
+}
+
 void TsOutgoingMessage::SetHeader(TsString* name, TsValue* value) {
     if (!name || !headers) return;
     // Convert name to lowercase for case-insensitive matching
