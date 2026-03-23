@@ -28,6 +28,7 @@ public:
     TsString* name = nullptr; // Function name for .name and .toString()
     bool is_method = false;  // True for method trampolines (expect 'this' as arg 2)
     TsMap* properties = nullptr;  // For storing properties like .prototype
+    int32_t arity = 0;           // Number of user-visible parameters (for Function.length)
 
     TsClosure() : func_ptr(nullptr), num_captures(0), cells(nullptr) {
         magic = 0x434C5352; // 'CLSR'
@@ -66,6 +67,9 @@ extern "C" {
     // Create a cell and store it in the closure at the given index
     // This is a convenience function that combines ts_cell_create and ts_closure_set_cell
     void ts_closure_init_capture(TsClosure* closure, int64_t index, TsValue* initialValue);
+
+    // Set the arity (user-visible parameter count) on a TsClosure
+    void ts_closure_set_arity(TsClosure* closure, int32_t arity);
 
     // Check if a pointer is a TsClosure (by checking magic number)
     bool ts_is_closure(void* ptr);

@@ -2452,7 +2452,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_native_function((void*)ts_function_toString_native, (void*)closure);
             }
             if (strcmp(keyStr, "length") == 0) {
-                return ts_value_make_int(0);
+                return ts_value_make_int(closure->arity);
             }
             if (strcmp(keyStr, "call") == 0) {
                 TsValue* target = ts_value_make_object(closure);
@@ -3406,16 +3406,14 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* result = ts_function_call_with_this(constructorFn, thisArg, argc, argv);
 
         // 5. If the constructor returned an object, use that instead (JS spec)
+        // Per ECMAScript: if the constructor returns ANY object (not a primitive),
+        // that object is the result of `new`. This includes functions, arrays, etc.
         if (result && !ts_value_is_undefined(result) && !ts_value_is_null(result)) {
             uint64_t rNb = nanbox_from_tsvalue_ptr(result);
             if (nanbox_is_ptr(rNb)) {
                 void* rPtr = nanbox_to_ptr(rNb);
-                if (rPtr) {
-                    // Check if it's an object (TsMap, TsArray, etc.) - not a string or function
-                    uint32_t rm16 = *(uint32_t*)((char*)rPtr + 16);
-                    if (rm16 == 0x4D415053) { // TsMap
-                        return result;  // Constructor returned an object, use it
-                    }
+                if (rPtr && (uintptr_t)rPtr > 0x10000) {
+                    return result;
                 }
             }
         }
@@ -3817,10 +3815,51 @@ TsValue* ts_value_make_int(int64_t i) {
         void* objRaw = ts_value_get_object(obj);
         if (!objRaw) objRaw = obj;
 
-        // Check if obj is a TsMap
+        // Check if obj is a TsMap or TsClosure
         uint32_t magic = *(uint32_t*)((char*)objRaw + 16);
+
+        // Handle TsClosure: copy proto properties into closure->properties
+        // (supports Express pattern: setPrototypeOf(routerFunc, proto))
+        if (magic == 0x434C5352) { // TsClosure::MAGIC
+            TsClosure* closure = (TsClosure*)objRaw;
+            if (!proto || ts_value_is_nullish(proto)) return obj;
+
+            void* protoRaw = ts_value_get_object(proto);
+            if (!protoRaw) protoRaw = proto;
+
+            // Copy properties from proto (TsMap or TsClosure) into closure->properties
+            TsMap* sourceMap = nullptr;
+            uint32_t protoMagic = *(uint32_t*)((char*)protoRaw + 16);
+            if (protoMagic == 0x4D415053) {
+                sourceMap = (TsMap*)protoRaw;
+            } else if (protoMagic == 0x434C5352) {
+                sourceMap = ((TsClosure*)protoRaw)->properties;
+            }
+
+            if (sourceMap) {
+                if (!closure->properties) closure->properties = TsMap::Create();
+                // Copy all entries from sourceMap into closure->properties
+                TsArray* keys = (TsArray*)sourceMap->GetKeys();
+                if (keys) {
+                    for (int64_t i = 0; i < keys->Length(); i++) {
+                        TsValue* keyVal = (TsValue*)keys->Get(i);
+                        TsValue kd = nanbox_to_tagged(keyVal);
+                        TsValue val = sourceMap->Get(kd);
+                        if (val.type != ValueType::UNDEFINED) {
+                            // Only copy if not already defined on the closure
+                            TsValue existing = closure->properties->Get(kd);
+                            if (existing.type == ValueType::UNDEFINED) {
+                                closure->properties->Set(kd, val);
+                            }
+                        }
+                    }
+                }
+            }
+            return obj;
+        }
+
         if (magic != 0x4D415053) { // TsMap::MAGIC
-            return obj;  // Not a TsMap, return unchanged
+            return obj;  // Not a TsMap or TsClosure, return unchanged
         }
 
         TsMap* objMap = (TsMap*)objRaw;
@@ -5004,7 +5043,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         return ts_value_make_native_function((void*)ts_function_toString_native, (void*)closure);
                     }
                     if (strcmp(k, "length") == 0) {
-                        return ts_value_make_int(0);
+                        return ts_value_make_int(closure->arity);
                     }
                 }
             }

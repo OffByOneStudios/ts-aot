@@ -139,6 +139,12 @@ bool ts_is_closure(void* ptr) {
     return obj->magic == 0x434C5352; // 'CLSR'
 }
 
+void ts_closure_set_arity(TsClosure* closure, int32_t arity) {
+    if (closure) {
+        closure->arity = arity;
+    }
+}
+
 void ts_closure_set_name(TsClosure* closure, void* name) {
     if (closure) {
         closure->name = (TsString*)name;

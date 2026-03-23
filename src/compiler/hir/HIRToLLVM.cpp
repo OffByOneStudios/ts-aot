@@ -6535,6 +6535,37 @@ void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
             llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
             llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal });
 
+            // Set the function arity (user-visible parameter count, excluding __closure__ and hidden __arg params)
+            {
+                int32_t arity = 0;
+                if (hirModule_) {
+                    for (const auto& hirFn : hirModule_->functions) {
+                        if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                            for (const auto& p : hirFn->params) {
+                                if (p.first != "__closure__" && p.first.find("__arg") != 0) {
+                                    arity++;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                if (arity == 0 && fn) {
+                    // Fallback: count LLVM function params minus closure param
+                    int nParams = fn->arg_size();
+                    if (nParams > 1) arity = nParams - 1; // minus __closure__
+                }
+                if (arity > 0) {
+                    auto setArityFt = llvm::FunctionType::get(
+                        builder_->getVoidTy(),
+                        { builder_->getPtrTy(), builder_->getInt32Ty() },
+                        false);
+                    auto setArityFn = module_->getOrInsertFunction("ts_closure_set_arity", setArityFt);
+                    builder_->CreateCall(setArityFt, setArityFn.getCallee(),
+                        { closure, llvm::ConstantInt::get(builder_->getInt32Ty(), arity) });
+                }
+            }
+
             // Set the function's display name
             std::string displayName;
             if (hirModule_) {
