@@ -1589,6 +1589,13 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // constructor
             .build());
 
+    reg.registerLowering("ts_instanceof_dynamic",
+        lowering("ts_instanceof_dynamic")
+            .returnsBool()
+            .ptrArg()      // object (NaN-boxed)
+            .ptrArg()      // constructor (NaN-boxed)
+            .build());
+
     // ========================================
     // Assert and Zlib modules - loaded dynamically from JSON extensions
     // See: extensions/node/assert/assert.ext.json

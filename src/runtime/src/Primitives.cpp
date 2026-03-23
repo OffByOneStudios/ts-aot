@@ -1,4 +1,5 @@
 #include "TsRuntime.h"
+#include "TsObject.h"
 #include "TsString.h"
 #include "TsConsString.h"
 #include "TsBigInt.h"
@@ -708,6 +709,49 @@ bool ts_value_is_nullish(TsValue* v) {
     if (!v) return true;
     uint64_t nb = nanbox_from_tsvalue_ptr(v);
     return nanbox_is_undefined(nb) || nanbox_is_null(nb);
+}
+
+// JavaScript-spec-compliant instanceof for dynamic constructors.
+// Checks: is constructor.prototype in obj's prototype chain?
+// Used when the compiler doesn't know the class vtable at compile time
+// (e.g., `this instanceof Layer` where Layer is loaded via require()).
+bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
+    if (!obj || !constructor) return false;
+
+    // Get constructor.prototype
+    uint64_t ctorNb = nanbox_from_tsvalue_ptr(constructor);
+    if (!nanbox_is_ptr(ctorNb)) return false;
+    void* ctorPtr = nanbox_to_ptr(ctorNb);
+    if (!ctorPtr) return false;
+
+    // Get .prototype from the constructor
+    TsValue* protoVal = ts_object_get_property(ctorPtr, "prototype");
+    if (!protoVal || ts_value_is_undefined(protoVal)) return false;
+    uint64_t protoNb = nanbox_from_tsvalue_ptr(protoVal);
+    if (!nanbox_is_ptr(protoNb)) return false;
+    void* targetProto = nanbox_to_ptr(protoNb);
+    if (!targetProto) return false;
+
+    // Get obj's raw pointer
+    uint64_t objNb = nanbox_from_tsvalue_ptr(obj);
+    if (!nanbox_is_ptr(objNb)) return false;
+    void* rawObj = nanbox_to_ptr(objNb);
+    if (!rawObj) return false;
+
+    // Check magic to find prototype chain
+    uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+    if (magic16 == 0x4D415053) { // TsMap
+        TsMap* map = (TsMap*)rawObj;
+        TsMap* proto = map->GetPrototype();
+        int depth = 0;
+        while (proto && depth < 100) {
+            if ((void*)proto == targetProto) return true;
+            proto = proto->GetPrototype();
+            depth++;
+        }
+    }
+
+    return false;
 }
 
 bool ts_instanceof(void* obj, void* targetVTable) {

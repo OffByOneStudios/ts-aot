@@ -3368,13 +3368,37 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                 return;
             }
 
-            // Look for the VTable global for this class
-            std::string vtableGlobalName = ident->name + "_VTable_Global";
-            auto vtablePtr = builder_.createLoadGlobal(vtableGlobalName);
-            lastValue_ = builder_.createInstanceOf(lhs, vtablePtr);
+            // Check if identifier refers to a compiler-known class with a vtable
+            bool isKnownClass = false;
+            if (module_) {
+                for (auto& shape : module_->shapes) {
+                    if (shape->className == ident->name) {
+                        isKnownClass = true;
+                        break;
+                    }
+                }
+            }
+            if (isKnownClass) {
+                // Known class: use fast vtable comparison
+                std::string vtableGlobalName = ident->name + "_VTable_Global";
+                auto vtablePtr = builder_.createLoadGlobal(vtableGlobalName);
+                lastValue_ = builder_.createInstanceOf(lhs, vtablePtr);
+            } else {
+                // Unknown class (dynamic constructor, e.g., from require()):
+                // use JS-spec prototype-chain instanceof
+                auto rhs = lowerExpression(node->right.get());
+                auto boxedRhs = boxValueIfNeeded(rhs);
+                auto boxedLhs = boxValueIfNeeded(lhs);
+                lastValue_ = builder_.createCall("ts_instanceof_dynamic",
+                    {boxedLhs, boxedRhs}, HIRType::makeBool());
+            }
         } else {
-            // Can't resolve class, return false
-            lastValue_ = builder_.createConstBool(false);
+            // RHS is an expression (not a simple identifier) - use dynamic instanceof
+            auto rhs = lowerExpression(node->right.get());
+            auto boxedRhs = boxValueIfNeeded(rhs);
+            auto boxedLhs = boxValueIfNeeded(lhs);
+            lastValue_ = builder_.createCall("ts_instanceof_dynamic",
+                {boxedLhs, boxedRhs}, HIRType::makeBool());
         }
         return;
     }
