@@ -4757,15 +4757,20 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         }
 
         // Handle Function.prototype.call(thisArg, ...args)
+        // Use ts_call_with_this_N to properly save/restore the caller's this context.
+        // Previously used ts_set_call_this + ts_call_N which permanently clobbered this.
         if (propAccess->name == "call" && !args.empty()) {
             auto func = lowerExpression(propAccess->expression.get());
-            // First arg to .call() is the thisArg
+            auto boxedFunc = boxValueIfNeeded(func);
             auto thisArg = args[0];
-            // Set the this context before calling
-            builder_.createCall("ts_set_call_this", {thisArg}, HIRType::makeVoid());
-            // Remaining args are the actual function arguments
-            std::vector<std::shared_ptr<HIRValue>> callArgs(args.begin() + 1, args.end());
-            lastValue_ = builder_.createCallIndirect(func, callArgs, HIRType::makeAny());
+            auto boxedThis = boxValueIfNeeded(thisArg);
+            std::vector<std::shared_ptr<HIRValue>> callArgs = {boxedFunc, boxedThis};
+            for (size_t i = 1; i < args.size(); i++) {
+                callArgs.push_back(boxValueIfNeeded(args[i]));
+            }
+            size_t numArgs = args.size() - 1; // minus thisArg
+            std::string callFn = "ts_call_with_this_" + std::to_string(numArgs);
+            lastValue_ = builder_.createCall(callFn, callArgs, HIRType::makeAny());
             return;
         }
 
