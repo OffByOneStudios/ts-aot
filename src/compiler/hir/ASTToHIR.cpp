@@ -868,11 +868,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
             // Variable hoisting: pre-declare variable names ONLY when the initializer
             // contains a closure that could reference the variable being declared.
-            // Example: var interval = setInterval(function() { clearInterval(interval) }, 30)
+            // Note: we do NOT hoist all vars in typed function declarations because
+            // hoisting typed vars (bool, number) as Any/ptr causes type mismatches
+            // in the LLVM IR. The var hoisting for shared closure cells is only done
+            // in visitFunctionExpression (untyped JS) where all types are Any/ptr.
             for (auto& stmt : funcNode->body) {
                 if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
                     if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
-                        if (!lookupVariableInfo(ident->name) &&
+                        if (!lookupVariableInfoInCurrentFunction(ident->name) &&
                             varDecl->initializer && containsClosureExpression(varDecl->initializer.get())) {
                             auto varType = HIRType::makeAny();
                             auto allocaVal = builder_.createAlloca(varType, ident->name);
@@ -7361,6 +7364,51 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         }
     }
 
+    // JavaScript var hoisting for function expressions with nested func decls.
+    // Pre-declare var names so the first pass (function declarations) can find
+    // variable info to mark as isCapturedByNested for shared cell access.
+    // Safe for function expressions since all vars are Any/ptr type.
+    {
+        bool hasNestedFuncDecls = false;
+        for (auto& stmt : node->body) {
+            if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                hasNestedFuncDecls = true;
+                break;
+            }
+        }
+        if (!hasNestedFuncDecls) goto skip_var_hoisting;
+    }
+    for (auto& stmt : node->body) {
+        ast::VariableDeclaration* varDecl = nullptr;
+        if (stmt->getKind() == "VariableDeclaration") {
+            varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+        } else if (auto* block = dynamic_cast<ast::BlockStatement*>(stmt.get())) {
+            // Multi-variable declarations get wrapped in BlockStatement
+            for (auto& inner : block->statements) {
+                if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(inner.get())) {
+                    if (auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get())) {
+                        if (!lookupVariableInfoInCurrentFunction(ident->name)) {
+                            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
+                            builder_.createStore(builder_.createConstUndefined(), allocaVal);
+                            defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
+                        }
+                    }
+                }
+            }
+        }
+        if (varDecl) {
+            if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                if (!lookupVariableInfoInCurrentFunction(ident->name)) {
+                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
+                    builder_.createStore(builder_.createConstUndefined(), allocaVal);
+                    defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
+                }
+            }
+        }
+    }
+
+    skip_var_hoisting:
+
     // JavaScript function hoisting: pre-declare nested function names as variables.
     // This allows functions to be called before they appear in source order.
     for (auto& stmt : node->body) {
@@ -7377,9 +7425,16 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
                 ? HIRType::makeAny()
                 : convertTypeFromString(funcDecl->returnType);
 
-            auto allocaVal = builder_.createAlloca(funcType, funcDecl->name);
-            builder_.createStore(builder_.createConstNull(), allocaVal);
-            defineVariableAlloca(funcDecl->name, allocaVal, funcType);
+            // Use existing alloca from var hoisting if available, else create new
+            auto* existing = lookupVariableInfoInCurrentFunction(funcDecl->name);
+            if (existing && existing->isAlloca) {
+                // Update type to function type
+                existing->elemType = funcType;
+            } else {
+                auto allocaVal = builder_.createAlloca(funcType, funcDecl->name);
+                builder_.createStore(builder_.createConstNull(), allocaVal);
+                defineVariableAlloca(funcDecl->name, allocaVal, funcType);
+            }
         }
     }
 
