@@ -6497,14 +6497,20 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                 lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
                 return;
             }
-            // else: fall through to the normal captured variable path below
-        }
-        // In the defining function, use global if any inner function accesses it
-        if (moduleGlobalsUsedByInner_.count(node->name)) {
-            std::string globalName = modVarName(node->name);
-            auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
-            lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
-            return;
+            // Not a module-init var — fall through to the capture path below.
+            // Do NOT check moduleGlobalsUsedByInner_ here because that set is
+            // global across all modules. A same-named variable in a different
+            // module (e.g., `var path = require('path')`) would incorrectly
+            // redirect this function-local `path` to LoadGlobal.
+        } else {
+            // Not a captured variable but name matches a module global —
+            // check if the defining function uses it via module global
+            if (moduleGlobalsUsedByInner_.count(node->name)) {
+                std::string globalName = modVarName(node->name);
+                auto type = module_->globals.count(globalName) ? module_->globals[globalName] : HIRType::makeAny();
+                lastValue_ = builder_.createLoadGlobalTyped(globalName, type);
+                return;
+            }
         }
     }
 
