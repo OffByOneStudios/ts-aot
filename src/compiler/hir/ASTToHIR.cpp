@@ -2643,13 +2643,20 @@ void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
     // Without this, a tail-call return destroys the stack frame but leaves the
     // handler on exceptionStack, creating a "zombie frame" that longjmp can
     // jump back to — causing stack corruption and crashes.
-    for (int i = 0; i < tryDepth_; i++) {
-        builder_.createPopHandler();
-    }
+    // IMPORTANT: evaluate the return expression FIRST (while handler is still
+    // active), then pop handlers. This ensures try/catch still protects the
+    // expression evaluation (e.g., `return parseUrl(req).pathname` must be
+    // caught if parseUrl throws).
     if (node->expression) {
         auto retVal = lowerExpression(node->expression.get());
+        for (int i = 0; i < tryDepth_; i++) {
+            builder_.createPopHandler();
+        }
         builder_.createReturn(retVal);
     } else {
+        for (int i = 0; i < tryDepth_; i++) {
+            builder_.createPopHandler();
+        }
         builder_.createReturnVoid();
     }
 }
@@ -3299,12 +3306,15 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
     tryDepth_--;
 
     // Pop exception handler and branch to finally/merge
+    bool tryReachedMerge = false;
     if (currentBlock_->getTerminator() == nullptr) {
         builder_.createPopHandler();
         builder_.createBranch(afterTryDest);
+        tryReachedMerge = true;
     }
 
     // --- Catch Block ---
+    bool catchReachedMerge = false;
     if (catchBB && node->catchClause) {
         builder_.setInsertPoint(catchBB);
         currentBlock_ = catchBB;
@@ -3334,6 +3344,7 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
         // Branch to finally/merge
         if (currentBlock_->getTerminator() == nullptr) {
             builder_.createBranch(afterCatchDest);
+            catchReachedMerge = true;
         }
     }
 
@@ -3380,6 +3391,14 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
     // --- Merge Block ---
     builder_.setInsertPoint(mergeBB);
     currentBlock_ = mergeBB;
+
+    // If both try and catch terminated early (return/throw/break), no branches
+    // reach the merge block. Mark it as unreachable so LLVM doesn't emit dead
+    // code that crashes (e.g., call + int 3 from SimplifyCFG).
+    bool finallyReachedMerge = (finallyBB != nullptr); // finally always branches to merge
+    if (!tryReachedMerge && !catchReachedMerge && !finallyReachedMerge) {
+        builder_.createUnreachable();
+    }
 }
 
 void ASTToHIR::visitThrowStatement(ast::ThrowStatement* node) {
