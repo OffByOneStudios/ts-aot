@@ -79,6 +79,9 @@ static TsValue* uncaught_exception_capture_callback = nullptr;
 static uv_idle_t* process_ref_handle = nullptr;
 static bool process_is_referenced = true;
 
+// Global: tracks which module init is currently running (set before each init call)
+static const char* g_current_module_init = nullptr;
+
 #ifdef _WIN32
 static LONG WINAPI ts_vectored_exception_handler(PEXCEPTION_POINTERS info) {
     if (!info || !info->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
@@ -95,6 +98,9 @@ static LONG WINAPI ts_vectored_exception_handler(PEXCEPTION_POINTERS info) {
 
     fprintf(stderr, "[ts-aot] VectoredException: code=0x%08lx addr=%p module=%s\n",
             (unsigned long)code, addr, (modName[0] ? modName : "<unknown>"));
+    if (g_current_module_init) {
+        fprintf(stderr, "[ts-aot] Current module init: %s\n", g_current_module_init);
+    }
 
     // On access violation, dump registers and disassembly for nursery GC debugging
     if (code == 0xC0000005 && info->ContextRecord) {
@@ -203,6 +209,20 @@ static int ts_seh_filter(EXCEPTION_POINTERS* info, DWORD code) {
 #endif
 
 extern "C" {
+
+// Called before each module init for crash diagnostics
+void ts_debug_module_init(void* pathStr) {
+    TsString* s = (TsString*)pathStr;
+    if (s) {
+        static char buf[512];
+        const char* utf8 = s->ToUtf8();
+        if (utf8) {
+            strncpy(buf, utf8, sizeof(buf) - 1);
+            buf[sizeof(buf) - 1] = '\0';
+            g_current_module_init = buf;
+        }
+    }
+}
 
 TsValue* ts_debug_marker(TsValue* msg) {
     fprintf(stderr, "[ts-aot] marker: ");
@@ -1300,6 +1320,9 @@ void ts_pop_exception_handler() {
 
 void ts_throw(TsValue* exception) {
     currentException = exception;
+    fprintf(stderr, "[ts-aot] ts_throw: exceptionStack.size()=%zu module=%s\n",
+            exceptionStack.size(), g_current_module_init ? g_current_module_init : "<none>");
+    fflush(stderr);
     if (exceptionStack.empty()) {
         fprintf(stderr, "FATAL: Uncaught exception: ");
         ts_console_log_value(exception);
@@ -1333,7 +1356,11 @@ void ts_throw(TsValue* exception) {
     }
     ExceptionContext* ctx = exceptionStack.back();
     exceptionStack.pop_back();
-    longjmp(ctx->env, 1);
+    // Copy jmp_buf to stack before freeing, since longjmp never returns
+    jmp_buf env;
+    memcpy(&env, &ctx->env, sizeof(jmp_buf));
+    free(ctx);
+    longjmp(env, 1);
 }
 
 void ts_set_exception(TsValue* exception) {

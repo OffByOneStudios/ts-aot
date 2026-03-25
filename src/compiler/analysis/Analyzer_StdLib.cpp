@@ -127,6 +127,12 @@ Analyzer::Analyzer() {
     markerType->returnType = std::make_shared<Type>(TypeKind::Any);
     symbols.define("ts_debug_marker", markerType);
 
+    // Register ts_debug_module_init (internal - crash diagnostics)
+    auto debugInitType = std::make_shared<FunctionType>();
+    debugInitType->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+    debugInitType->returnType = std::make_shared<Type>(TypeKind::Void);
+    symbols.define("ts_debug_module_init", debugInitType);
+
     // Register undefined
     symbols.define("undefined", std::make_shared<Type>(TypeKind::Undefined));
     symbols.define("null", std::make_shared<Type>(TypeKind::Null));

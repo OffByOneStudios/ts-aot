@@ -101,6 +101,7 @@
   "golden_ir/javascript/patterns/async_await.js": "pass",
   "golden_ir/javascript/patterns/bitwise_ops.js": "pass",
   "golden_ir/javascript/patterns/generators.js": "pass",
+  "golden_ir/javascript/patterns/in_operator_safety.js": "pass",
   "golden_ir/javascript/patterns/json_methods.js": "pass",
   "golden_ir/javascript/patterns/map_set.js": "pass",
   "golden_ir/javascript/patterns/promises.js": "pass",

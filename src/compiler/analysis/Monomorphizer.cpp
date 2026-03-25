@@ -1262,6 +1262,24 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
         resName->name = resVarName;
         resDecl->name = std::move(resName);
 
+        // Emit ts_debug_module_init(path) before module init for crash diagnostics
+        {
+            auto debugCall = std::make_unique<ast::CallExpression>();
+            auto debugId = std::make_unique<ast::Identifier>();
+            debugId->name = "ts_debug_module_init";
+            auto debugFt = std::make_shared<FunctionType>();
+            debugFt->returnType = std::make_shared<Type>(TypeKind::Void);
+            debugFt->paramTypes = { std::make_shared<Type>(TypeKind::String) };
+            debugId->inferredType = debugFt;
+            debugCall->callee = std::move(debugId);
+            auto pathArg = std::make_unique<ast::StringLiteral>();
+            pathArg->value = path;
+            debugCall->arguments.push_back(std::move(pathArg));
+            auto debugStmt = std::make_unique<ast::ExpressionStatement>();
+            debugStmt->expression = std::move(debugCall);
+            userMain->body.push_back(std::move(debugStmt));
+        }
+
         auto call = std::make_unique<ast::CallExpression>();
         auto callId = std::make_unique<ast::Identifier>();
         callId->name = initName;

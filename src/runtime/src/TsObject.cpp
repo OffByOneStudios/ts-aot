@@ -931,8 +931,8 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
     static TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv);
 
-    static TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv);
-    static TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv);
 
     // Forward declaration for ts_string_search_regexp (defined in TsString.cpp)
     int64_t ts_string_search_regexp(void* str, void* regexp);
@@ -2488,16 +2488,20 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Native wrappers for Function.prototype.call/apply
     // ctx: TsValue* that boxes the target function (OBJECT_PTR or FUNCTION_PTR)
-    static TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv) {
+    // When ctx is nullptr (e.g., from Function.prototype.call via addMethod),
+    // the target comes from the caller's 'this' via ts_get_call_this().
+    TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv) {
         TsValue* target = (TsValue*)ctx;
+        if (!target) target = (TsValue*)ts_get_call_this();
         TsValue* thisArg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
         TsValue** args = (argc > 1 && argv) ? (argv + 1) : nullptr;
         int callArgc = argc > 1 ? (argc - 1) : 0;
         return ts_function_call_with_this(target, thisArg, callArgc, args);
     }
 
-    static TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv) {
         TsValue* target = (TsValue*)ctx;
+        if (!target) target = (TsValue*)ts_get_call_this();
         TsValue* thisArg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
         TsValue* argsArray = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
         return ts_function_apply(target, thisArg, argsArray);
@@ -3377,6 +3381,17 @@ TsValue* ts_value_make_int(int64_t i) {
     // Creates a new object, sets its prototype from constructor.prototype,
     // calls the constructor with this=newObject, and returns the new object.
     static TsValue* ts_new_from_constructor_impl(TsValue* constructorFn, int argc, TsValue** argv) {
+        // Guard: null/undefined constructor — return a basic object with .message if args provided
+        if (!constructorFn || ts_value_is_undefined(constructorFn) || ts_value_is_null(constructorFn)) {
+            TsMap* obj = TsMap::Create();
+            if (argc >= 1 && argv && argv[0]) {
+                TsValue msgKey; msgKey.type = ValueType::STRING_PTR;
+                msgKey.ptr_val = TsString::GetInterned("message");
+                obj->Set(msgKey, nanbox_to_tagged(argv[0]));
+            }
+            return ts_value_make_object(obj);
+        }
+
         // 1. Create a new TsMap object
         TsMap* newObj = TsMap::Create();
 
@@ -3403,6 +3418,17 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* thisArg = ts_value_make_object(newObj);
 
         // 4. Call the constructor with this = new object
+        // Guard: if constructor is not callable (e.g., TsMap stub), store args as .message
+        TsClosure* asClosure = ts_extract_closure(constructorFn);
+        TsFunction* asFunc = ts_extract_function(constructorFn);
+        if (!asClosure && !asFunc) {
+            if (argc >= 1 && argv && argv[0]) {
+                TsValue msgKey; msgKey.type = ValueType::STRING_PTR;
+                msgKey.ptr_val = TsString::GetInterned("message");
+                newObj->Set(msgKey, nanbox_to_tagged(argv[0]));
+            }
+            return thisArg;
+        }
         TsValue* result = ts_function_call_with_this(constructorFn, thisArg, argc, argv);
 
         // 5. If the constructor returned an object, use that instead (JS spec)
@@ -5525,7 +5551,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return false;
 
-        // Check for flat object BEFORE any dynamic_cast (flat objects have no vtable)
+        // Check for flat object (no C++ vtable — dynamic_cast would crash)
         uint32_t magic0 = *(uint32_t*)rawObj;
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
             TsString* keyStr = (TsString*)ts_value_get_string(key);
@@ -5535,27 +5561,41 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_flat_object_has_property(rawObj, k);
         }
 
-        // Check if this is a Proxy - dispatch through proxy trap
-        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
-        if (proxy) {
-            return proxy->has(key);
+        // Non-TsObject types at offset 0 — return early without dynamic_cast
+        if (magic0 == 0x53545247 || magic0 == 0x434F4E53) return false; // TsString, TsConsString
+        if (magic0 == 0x41525259) { // TsArray
+            TsString* keyStr2 = (TsString*)ts_value_get_string(key);
+            if (!keyStr2) return false;
+            const char* k = keyStr2->ToUtf8();
+            if (!k) return false;
+            if (strcmp(k, "length") == 0) return true;
+            char* end = nullptr;
+            long idx = strtol(k, &end, 10);
+            if (end != k && *end == '\0' && idx >= 0 && idx < ts_array_length(rawObj)) return true;
+            return false;
         }
+        if (magic0 == 0x4D415053 || magic0 == 0x53455453) return false; // TsMap/TsSet at offset 0
+        if (magic0 == 0x46554E43) return false; // Native function at offset 0
 
-        TsString* keyStr = (TsString*)ts_value_get_string(key);
-        if (!keyStr) return false;
-
+        // TsMap magic at offset 16/20/24 — TsProxy extends TsMap so dynamic_cast is safe here
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
         uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
         uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
-        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
-            TsMap* map = (TsMap*)rawObj;
+        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) {
+            // Safe to dynamic_cast: TsMap is a TsObject derivative
+            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+            if (proxy) {
+                return proxy->has(key);
+            }
 
-            // Create a proper TsValue key from the keyStr for lookup
+            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            if (!keyStr) return false;
+
+            TsMap* map = (TsMap*)rawObj;
             TsValue keyVal;
             keyVal.type = ValueType::STRING_PTR;
             keyVal.ptr_val = keyStr;
 
-            // Walk the prototype chain to check for the property
             TsMap* currentMap = map;
             while (currentMap != nullptr) {
                 if (currentMap->Has(keyVal)) {
@@ -5566,6 +5606,11 @@ TsValue* ts_value_make_int(int64_t i) {
             return false;
         }
 
+        // Non-TsObject types at offset 16 — return early
+        if (magic16 == 0x434C5352 || magic16 == 0x46554E43) return false; // TsClosure, native function
+        if (magic16 == 0x42494749 || magic16 == 0x53594D42) return false; // BigInt, Symbol
+
+        // Catch-all: unknown type (sentinels, etc.) — safe fallthrough, no dynamic_cast
         return false;
     }
 
@@ -5574,34 +5619,34 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = ts_value_get_object(obj);
         if (!rawObj) return false;
 
-        // Check for flat object BEFORE any dynamic_cast (flat objects have no vtable)
+        // Check for flat object (no C++ vtable — dynamic_cast would crash)
         uint32_t magic0 = *(uint32_t*)rawObj;
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
-            // Flat objects don't support delete on inline slots
-            // but could delete from overflow map
             return false;
         }
 
-        // Check if this is a Proxy - dispatch through proxy trap
-        TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
-        if (proxy) {
-            return proxy->deleteProperty(key);
-        }
+        // TsMap magic at offset 16/20/24 — TsProxy extends TsMap so dynamic_cast is safe here
+        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+        uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
+        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
+        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) {
+            // Safe to dynamic_cast: TsMap is a TsObject derivative
+            TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
+            if (proxy) {
+                return proxy->deleteProperty(key);
+            }
 
-        TsString* keyStr = (TsString*)ts_value_get_string(key);
-        if (!keyStr) return false;
+            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            if (!keyStr) return false;
 
-        // Check for TsMap using TsObject::magic at offset 16 (after vptr and vtable)
-        uint32_t magic = *(uint32_t*)((char*)rawObj + 16);
-        if (magic == 0x4D415053) { // TsMap::MAGIC "MAPS"
             TsMap* map = (TsMap*)rawObj;
-            // Create a proper TsValue key from the keyStr for delete
             TsValue keyVal;
             keyVal.type = ValueType::STRING_PTR;
             keyVal.ptr_val = keyStr;
             return map->Delete(keyVal);
         }
 
+        // Catch-all: non-TsObject types (strings, arrays, sentinels, etc.) — no dynamic_cast
         return false;
     }
 
@@ -6520,6 +6565,23 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* boxedKey = ts_value_make_string(exportsKey);
         TsValue* result = ts_object_get_dynamic(moduleObj, boxedKey);
         return result;
+    }
+
+    // Debug utility: dump all registered modules to stderr
+    // Callable from CDB: `!call test_express_diag!ts_modules_dump_all`
+    void ts_modules_dump_all() {
+        fprintf(stderr, "[ts-aot] Module cache (%zu entries):\n", g_module_cache.size());
+        for (auto& [key, val] : g_module_cache) {
+            uint32_t magic0 = 0, magic16 = 0;
+            void* raw = val ? ts_value_get_object((TsValue*)val) : nullptr;
+            if (raw) {
+                magic0 = *(uint32_t*)raw;
+                magic16 = *(uint32_t*)((char*)raw + 16);
+            }
+            fprintf(stderr, "  [%p m0=%08X m16=%08X] %s\n",
+                    (void*)val, magic0, magic16, key.c_str());
+        }
+        fflush(stderr);
     }
 
     TsValue* ts_module_get_default(TsValue* path) {

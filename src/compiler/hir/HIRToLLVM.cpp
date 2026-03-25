@@ -4056,11 +4056,14 @@ void HIRToLLVM::lowerHasProp(HIRInstruction* inst) {
         auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getDoubleTy()}, false);
         auto boxFn = module_->getOrInsertFunction("ts_value_make_double", ft);
         obj = builder_->CreateCall(ft, boxFn.getCallee(), {obj});
+    } else if (obj->getType()->isIntegerTy(64)) {
+        obj = emitInlineBoxInt(obj);
+    } else if (obj->getType()->isIntegerTy(1)) {
+        obj = emitInlineBoxBool(obj);
     }
 
     auto fn = getTsObjectHasProperty();
     llvm::Value* result = builder_->CreateCall(fn, {obj, key});
-    result = builder_->CreateTrunc(result, builder_->getInt1Ty());
     setValue(inst->result, result);
 }
 
@@ -6390,6 +6393,26 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_Error";
     } else if (globalName == "Buffer") {
         funcName = "ts_get_global_Buffer";
+    } else if (globalName == "Function") {
+        funcName = "ts_get_global_Function";
+    } else if (globalName == "TypeError") {
+        funcName = "ts_get_global_TypeError";
+    } else if (globalName == "RangeError") {
+        funcName = "ts_get_global_RangeError";
+    } else if (globalName == "Symbol") {
+        funcName = "ts_get_global_Symbol";
+    } else if (globalName == "Map") {
+        funcName = "ts_get_global_Map";
+    } else if (globalName == "Set") {
+        funcName = "ts_get_global_Set";
+    } else if (globalName == "WeakMap") {
+        funcName = "ts_get_global_WeakMap";
+    } else if (globalName == "WeakSet") {
+        funcName = "ts_get_global_WeakSet";
+    } else if (globalName == "Proxy") {
+        funcName = "ts_get_global_Proxy";
+    } else if (globalName == "Reflect") {
+        funcName = "ts_get_global_Reflect";
     } else if (globalName == "process") {
         funcName = "ts_get_global_process";
     } else if (globalName == "global" || globalName == "globalThis") {
@@ -8171,10 +8194,14 @@ void HIRToLLVM::lowerSetupTry(HIRInstruction* inst) {
     // Returns 0 on normal entry, non-zero when returning from longjmp
 #ifdef _WIN32
     // Windows: _setjmp(jmp_buf, frame_ptr)
+    // The frame pointer is REQUIRED for Win64 SEH integration.
+    // Passing NULL causes longjmp to abort (STATUS_BREAKPOINT 0x80000003).
     auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
         builder_->getInt32Ty(),
         {builder_->getPtrTy(), builder_->getPtrTy()});
-    llvm::Value* framePtr = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+    auto frameAddrFn = llvm::Intrinsic::getDeclaration(
+        module_.get(), llvm::Intrinsic::frameaddress, {builder_->getPtrTy()});
+    llvm::Value* framePtr = builder_->CreateCall(frameAddrFn, {builder_->getInt32(0)});
     llvm::Value* setjmpResult = builder_->CreateCall(setjmpFn, {jmpBuf, framePtr});
 #else
     // Linux/POSIX: _setjmp(jmp_buf) - doesn't save signal mask (faster)
@@ -8700,7 +8727,7 @@ llvm::FunctionCallee HIRToLLVM::getTsObjectSetProperty() {
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsObjectHasProperty() {
-    return getOrDeclareRuntimeFunction("ts_object_has_property", builder_->getInt32Ty(), {builder_->getPtrTy(), builder_->getPtrTy()});
+    return getOrDeclareRuntimeFunction("ts_object_has_property", builder_->getInt1Ty(), {builder_->getPtrTy(), builder_->getPtrTy()});
 }
 
 llvm::FunctionCallee HIRToLLVM::getTsObjectDeleteProperty() {

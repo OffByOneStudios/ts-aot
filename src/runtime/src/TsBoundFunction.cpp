@@ -4,6 +4,9 @@
 
 extern "C" {
 
+// Declared in TsObject.cpp
+void* ts_get_call_this();
+
 // Called when a bound function is invoked
 // ctx is a TsBoundFunction* containing the original function and bound args
 TsValue* ts_bound_function_call(void* ctx, int argc, TsValue** argv) {
@@ -40,6 +43,7 @@ TsValue* ts_bound_function_call(void* ctx, int argc, TsValue** argv) {
 // argv[0] is thisArg, argv[1...] are bound arguments
 TsValue* ts_function_bind_native(void* ctx, int argc, TsValue** argv) {
     TsValue* targetFunc = (TsValue*)ctx;
+    if (!targetFunc) targetFunc = (TsValue*)ts_get_call_this();
 
     // Get thisArg (first argument) or undefined
     TsValue* thisArg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
