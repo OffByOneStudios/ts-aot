@@ -129,6 +129,11 @@ private:
     // break uses the top of this stack; continue uses loopStack_.
     std::stack<HIRBlock*> breakTargetStack_;
 
+    // Try block depth: tracks how many exception handlers are active.
+    // return/break/continue inside try blocks must emit PopHandler for each
+    // active handler to prevent leaked handlers pointing to destroyed frames.
+    int tryDepth_ = 0;
+
     // Class context - tracks when we're inside a class body
     HIRClass* currentClass_ = nullptr;
 

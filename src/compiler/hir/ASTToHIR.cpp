@@ -2639,6 +2639,13 @@ void ASTToHIR::visitBlockStatement(ast::BlockStatement* node) {
 
 void ASTToHIR::visitReturnStatement(ast::ReturnStatement* node) {
     setSourceLine(node);
+    // Pop all active exception handlers before returning from inside try blocks.
+    // Without this, a tail-call return destroys the stack frame but leaves the
+    // handler on exceptionStack, creating a "zombie frame" that longjmp can
+    // jump back to — causing stack corruption and crashes.
+    for (int i = 0; i < tryDepth_; i++) {
+        builder_.createPopHandler();
+    }
     if (node->expression) {
         auto retVal = lowerExpression(node->expression.get());
         builder_.createReturn(retVal);
@@ -3061,28 +3068,30 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
 
 void ASTToHIR::visitBreakStatement(ast::BreakStatement* node) {
     setSourceLine(node);
+    for (int i = 0; i < tryDepth_; i++) {
+        builder_.createPopHandler();
+    }
     if (!node->label.empty()) {
-        // Labeled break - find the labeled loop
         auto it = labeledLoops_.find(node->label);
         if (it != labeledLoops_.end()) {
             builder_.createBranch(it->second.breakTarget);
         }
     } else if (!breakTargetStack_.empty()) {
-        // Unlabeled break - use innermost breakable context (loop or switch)
         builder_.createBranch(breakTargetStack_.top());
     }
 }
 
 void ASTToHIR::visitContinueStatement(ast::ContinueStatement* node) {
     setSourceLine(node);
+    for (int i = 0; i < tryDepth_; i++) {
+        builder_.createPopHandler();
+    }
     if (!node->label.empty()) {
-        // Labeled continue - find the labeled loop
         auto it = labeledLoops_.find(node->label);
         if (it != labeledLoops_.end()) {
             builder_.createBranch(it->second.continueTarget);
         }
     } else if (!loopStack_.empty()) {
-        // Unlabeled continue - use innermost loop
         builder_.createBranch(loopStack_.top().continueTarget);
     }
 }
@@ -3282,10 +3291,12 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
     builder_.setInsertPoint(tryBB);
     currentBlock_ = tryBB;
 
+    tryDepth_++;
     for (auto& stmt : node->tryBlock) {
         if (hasTerminator()) break;  // Stop if block already terminated (e.g., by throw)
         lowerStatement(stmt.get());
     }
+    tryDepth_--;
 
     // Pop exception handler and branch to finally/merge
     if (currentBlock_->getTerminator() == nullptr) {
