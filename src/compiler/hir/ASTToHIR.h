@@ -421,6 +421,17 @@ private:
     const std::vector<CaptureInfo>& getPendingCaptures() const { return pendingCaptures_; }
     void clearPendingCaptures() { pendingCaptures_.clear(); }
 
+    // Mutual recursion fix: after all inner function declarations are processed,
+    // patch stale closure cells where one sibling captured another that didn't
+    // exist yet at capture time.
+    struct InnerFuncClosureInfo {
+        std::string funcName;
+        std::shared_ptr<HIRValue> closureValue;
+        std::vector<std::pair<std::string, int>> captureNamesAndIndices;
+    };
+    std::vector<InnerFuncClosureInfo> innerFuncClosures_;
+    void emitMutualRecursionFixup();
+
     //==========================================================================
     // Control Flow Helpers
     //==========================================================================

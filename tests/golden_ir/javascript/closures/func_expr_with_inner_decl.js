@@ -1,25 +1,37 @@
-// Test: function expression with inner function declaration capturing outer vars
-// The inner function must see the function expression's scope variables.
+// Test: function expression with mutually recursive inner function declarations
+// Exact Express pattern: proto.method = function(...) { function next() { handle(); } function handle() { next(); } }
 
 var obj = {};
 
-obj.run = function run(items) {
-  var processed = 0;
+obj.run = function run(items, done) {
+  var idx = 0;
 
-  for (var i = 0; i < items.length; i++) {
-    handle(items[i]);
+  next();
+
+  function next(err) {
+    if (err) {
+      done(err);
+      return;
+    }
+    if (idx >= items.length) {
+      done(null);
+      return;
+    }
+    var item = items[idx++];
+    handle(item);
   }
-  console.log("total processed: " + processed);
 
   function handle(item) {
     console.log("handle: " + item);
-    processed++;
+    next(null);
   }
 };
 
-obj.run(["one", "two", "three"]);
+obj.run(["one", "two", "three"], function(err) {
+  console.log("done: err=" + err);
+});
 
 // OUTPUT: handle: one
 // OUTPUT: handle: two
 // OUTPUT: handle: three
-// OUTPUT: total processed: 3
+// OUTPUT: done: err=null

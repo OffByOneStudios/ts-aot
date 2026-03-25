@@ -926,6 +926,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     lowerStatement(stmt.get());
                 }
             }
+            emitMutualRecursionFixup();
 
             // SECOND PASS: Process non-FunctionDeclaration statements in order
             SPDLOG_DEBUG("[SPEC] Body pass 2: {} stmts in {}", funcNode->body.size(), spec.specializedName);
@@ -1163,6 +1164,40 @@ void ASTToHIR::popScope() {
     } else {
         SPDLOG_ERROR("[SCOPE] popScope called on EMPTY scope stack!");
     }
+}
+
+void ASTToHIR::emitMutualRecursionFixup() {
+    if (innerFuncClosures_.size() <= 1) {
+        innerFuncClosures_.clear();
+        return;
+    }
+
+    // Collect the set of inner function names in this scope
+    std::set<std::string> innerFuncNames;
+    for (const auto& info : innerFuncClosures_) {
+        innerFuncNames.insert(info.funcName);
+    }
+
+    // For each closure, update cells that reference sibling functions
+    for (const auto& info : innerFuncClosures_) {
+        for (const auto& [capName, capIdx] : info.captureNamesAndIndices) {
+            // Skip self-references (handled by existing LLVM-level fix)
+            if (capName == info.funcName) continue;
+
+            // If this capture names a sibling inner function, update the cell
+            if (innerFuncNames.count(capName)) {
+                auto* siblingInfo = lookupVariableInfo(capName);
+                if (siblingInfo && siblingInfo->isAlloca) {
+                    auto currentVal = builder_.createLoad(
+                        siblingInfo->elemType ? siblingInfo->elemType : HIRType::makeAny(),
+                        siblingInfo->value);
+                    builder_.createStoreCaptureFromClosure(
+                        info.closureValue, capIdx, currentVal);
+                }
+            }
+        }
+    }
+    innerFuncClosures_.clear();
 }
 
 void ASTToHIR::defineVariable(const std::string& name, std::shared_ptr<HIRValue> value) {
@@ -1877,6 +1912,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     HIRFunction* savedFunc = currentFunction_;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
+    auto savedInnerFuncClosures = std::move(innerFuncClosures_);
+    innerFuncClosures_.clear();
     // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
     auto savedLoopStack = loopStack_;
     auto savedSwitchStack = switchStack_;
@@ -2129,6 +2166,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             lowerStatement(stmt.get());
         }
     }
+    emitMutualRecursionFixup();
 
     // SECOND PASS: Process non-FunctionDeclaration statements in order
     for (size_t i = 0; i < node->body.size(); ++i) {
@@ -2166,6 +2204,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     currentFunction_ = savedFunc;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
+    innerFuncClosures_ = std::move(savedInnerFuncClosures);
     loopStack_ = savedLoopStack;
     switchStack_ = savedSwitchStack;
     labeledLoops_ = savedLabeledLoops;
@@ -2260,6 +2299,18 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         } else {
             // No pre-created alloca, define the function name as a closure variable
             defineVariable(node->name, closureVal);
+        }
+
+        // Record closure info for mutual recursion post-sweep
+        {
+            InnerFuncClosureInfo closureInfo;
+            closureInfo.funcName = node->name;
+            closureInfo.closureValue = closureVal;
+            int idx = 0;
+            for (const auto& cap : innerCaptures) {
+                closureInfo.captureNamesAndIndices.push_back({cap.first, idx++});
+            }
+            innerFuncClosures_.push_back(std::move(closureInfo));
         }
 
         // Also store to module global if this is a module-level function declaration.
@@ -6974,6 +7025,8 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     HIRFunction* savedFunc = currentFunction_;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
+    auto savedInnerFuncClosures = std::move(innerFuncClosures_);
+    innerFuncClosures_.clear();
     // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
     auto savedLoopStack = loopStack_;
     auto savedSwitchStack = switchStack_;
@@ -7093,6 +7146,7 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
                 lowerStatement(stmt.get());
             }
         }
+        emitMutualRecursionFixup();
 
         // SECOND PASS: Process non-FunctionDeclaration statements in order
         for (auto& stmt : blockStmt->statements) {
@@ -7132,6 +7186,7 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     currentFunction_ = savedFunc;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
+    innerFuncClosures_ = std::move(savedInnerFuncClosures);
     loopStack_ = savedLoopStack;
     switchStack_ = savedSwitchStack;
     labeledLoops_ = savedLabeledLoops;
@@ -7323,6 +7378,8 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     HIRFunction* savedFunc = currentFunction_;
     HIRBlock* savedBlock = currentBlock_;
     auto savedCaptures = pendingCaptures_;  // Save outer function's pending captures
+    auto savedInnerFuncClosures = std::move(innerFuncClosures_);
+    innerFuncClosures_.clear();
     // Save loop/switch/label stacks - nested functions must not see parent's break/continue targets
     auto savedLoopStack = loopStack_;
     auto savedSwitchStack = switchStack_;
@@ -7529,6 +7586,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
             lowerStatement(stmt.get());
         }
     }
+    emitMutualRecursionFixup();
 
     // SECOND PASS: Process non-FunctionDeclaration statements in order
     for (auto& stmt : node->body) {
@@ -7560,6 +7618,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     currentFunction_ = savedFunc;
     currentBlock_ = savedBlock;
     pendingCaptures_ = savedCaptures;  // Restore outer function's pending captures
+    innerFuncClosures_ = std::move(savedInnerFuncClosures);
     loopStack_ = savedLoopStack;
     switchStack_ = savedSwitchStack;
     labeledLoops_ = savedLabeledLoops;
