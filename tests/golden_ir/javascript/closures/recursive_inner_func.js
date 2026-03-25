@@ -1,14 +1,14 @@
-// Test: inner function declaration captures variables from outer function
-// and calls itself recursively (middleware dispatch pattern).
+// Test: inner function declaration calling itself recursively
+// Bug: self-reference cell update failed because displayName wasn't set,
+// so the name comparison "next" != "next_0" failed in HIRToLLVM.
 
 function dispatch(items) {
   var idx = 0;
-  var count = items.length;
 
   next();
 
   function next() {
-    if (idx >= count) {
+    if (idx >= items.length) {
       console.log("done, processed " + idx);
       return;
     }

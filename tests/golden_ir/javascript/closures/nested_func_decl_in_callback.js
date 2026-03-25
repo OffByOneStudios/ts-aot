@@ -1,18 +1,28 @@
-// Test: inner function declaration called from different contexts
-// The inner function must access outer variables regardless of call site.
+// Test: inner function declarations used as middleware callbacks with recursion
+// The core Express/Connect middleware chain pattern.
 
-function withHelper(items, cb) {
-  var count = items.length;
+function runMiddleware(stack, req) {
+  var idx = 0;
 
-  function getCount() {
-    return count;
+  next();
+
+  function next() {
+    if (idx >= stack.length) {
+      console.log("chain complete for " + req);
+      return;
+    }
+    var fn = stack[idx++];
+    fn(req, next);
   }
-
-  cb(getCount);
 }
 
-withHelper(["a", "b", "c"], function(getCount) {
-  console.log("count from callback: " + getCount());
-});
+var mw1 = function(req, next) { console.log("mw1: " + req); next(); };
+var mw2 = function(req, next) { console.log("mw2: " + req); next(); };
+var mw3 = function(req, next) { console.log("mw3: " + req); next(); };
 
-// OUTPUT: count from callback: 3
+runMiddleware([mw1, mw2, mw3], "/home");
+
+// OUTPUT: mw1: /home
+// OUTPUT: mw2: /home
+// OUTPUT: mw3: /home
+// OUTPUT: chain complete for /home

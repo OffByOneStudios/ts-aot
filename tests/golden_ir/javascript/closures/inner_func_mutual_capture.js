@@ -1,10 +1,10 @@
-// Test: two inner function declarations that reference shared outer variables
-// Each inner function must see the same closure cells for shared state.
+// Test: two inner function declarations sharing outer variables
+// Each must see the same closure cells for shared mutable state.
+// NOTE: mutual recursion between inner funcs is a known limitation.
 
 function pipeline(items, transform) {
   var idx = 0;
 
-  // Call process_item directly (not through next, to avoid recursion limitation)
   while (idx < items.length) {
     process_item(items[idx++]);
   }

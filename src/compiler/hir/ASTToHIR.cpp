@@ -1814,6 +1814,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     func->isGenerator = node->isGenerator;
     func->sourceLine = node->line;
     func->sourceFile = node->sourceFile;
+    func->displayName = node->name;
 
     // Collect destructured parameter patterns for later extraction
     struct DestructuredParam {

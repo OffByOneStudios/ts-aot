@@ -1,5 +1,5 @@
-// Test: function expression containing an inner function declaration
-// The inner function must capture variables from the function expression's scope.
+// Test: function expression with inner function declaration capturing outer vars
+// The inner function must see the function expression's scope variables.
 
 var obj = {};
 

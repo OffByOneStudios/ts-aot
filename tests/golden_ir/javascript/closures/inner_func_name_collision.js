@@ -1,29 +1,37 @@
 // Test: two functions with identically-named inner function declarations
-// Each inner `helper()` must be a separate compiled function with its own captures.
-// Bug fixed: both compiled to @helper, corrupting capture layouts.
+// that call themselves recursively. Each must be a separate compiled function
+// with its own captures AND working self-reference.
 
-function taskA(items) {
-  var label = "A";
+function handlerA(items) {
+  var prefix = "A";
+  var idx = 0;
 
-  helper();
+  next();
 
-  function helper() {
-    console.log(label + ": " + items.join(","));
+  function next() {
+    if (idx >= items.length) return;
+    console.log(prefix + ": " + items[idx++]);
+    next();
   }
 }
 
-function taskB(values) {
-  var label = "B";
+function handlerB(values) {
+  var prefix = "B";
+  var idx = 0;
 
-  helper();
+  next();
 
-  function helper() {
-    console.log(label + ": " + values.join(";"));
+  function next() {
+    if (idx >= values.length) return;
+    console.log(prefix + ": " + values[idx++]);
+    next();
   }
 }
 
-taskA(["x", "y"]);
-taskB(["1", "2"]);
+handlerA(["x", "y"]);
+handlerB(["1", "2"]);
 
-// OUTPUT: A: x,y
-// OUTPUT: B: 1;2
+// OUTPUT: A: x
+// OUTPUT: A: y
+// OUTPUT: B: 1
+// OUTPUT: B: 2

@@ -48,6 +48,7 @@
   "golden_ir/javascript/closures/module_pattern.js": "pass",
   "golden_ir/javascript/closures/nested_func_decl_in_callback.js": "pass",
   "golden_ir/javascript/closures/nested_iifes.js": "pass",
+  "golden_ir/javascript/closures/recursive_inner_func.js": "pass",
   "golden_ir/javascript/closures/umd_pattern.js": "pass",
   "golden_ir/javascript/console_log_format.ts": "pass",
   "golden_ir/javascript/control_flow/break_continue.js": "pass",
