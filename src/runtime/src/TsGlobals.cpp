@@ -73,6 +73,7 @@ void* ts_get_call_this();
 void* ts_value_get_object(TsValue* val);
 TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
 TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
+bool ts_object_has_property(void* objArg, void* keyArg);
 
 // Helper: add a native function to a TsMap
 static void addMethod(TsMap* map, const char* name, void* nativeFn) {
@@ -142,8 +143,15 @@ void* ts_get_global_Object() {
 
     // Object.prototype — a TsMap that serves as the base prototype
     TsMap* proto = TsMap::Create();
-    // hasOwnProperty is commonly accessed
-    addMethod(proto, "hasOwnProperty", (void*)ts_object_hasOwn_native);
+    // hasOwnProperty(key): instance method — 1 arg, 'this' is the object
+    addMethod(proto, "hasOwnProperty", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        if (argc < 1 || !argv[0]) return ts_value_make_bool(false);
+        void* thisObj = ctx;
+        if (!thisObj) thisObj = ts_get_call_this();
+        if (!thisObj) return ts_value_make_bool(false);
+        // Use ts_object_has_property which handles flat objects, TsMaps, etc.
+        return ts_value_make_bool(ts_object_has_property(thisObj, argv[0]));
+    });
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;
     protoKey.ptr_val = TsString::GetInterned("prototype");
