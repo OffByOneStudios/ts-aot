@@ -145,11 +145,27 @@ private:
     // Module-scoped variable declarations from imported modules
     // Maps variable name to the AST VariableDeclaration node (for lazy initialization)
     std::map<std::string, ast::VariableDeclaration*> moduleVarDecls_;
-    // Set of module-scoped variable names that have been promoted to globals
-    std::set<std::string> moduleGlobalVars_;
+    // Per-module set of module-scoped variable names that have been promoted to globals.
+    // Maps var name -> set of module paths that define it.
+    // This prevents cross-module name collisions (e.g., `var next` in module A
+    // should not shadow a local `function next()` in module B).
+    std::map<std::string, std::set<std::string>> moduleGlobalVarsByModule_;
     // Module globals accessed by inner (nested) functions -- the defining function
     // must read/write these from __modvar_ globals, not local allocas
-    std::set<std::string> moduleGlobalsUsedByInner_;
+    std::map<std::string, std::set<std::string>> moduleGlobalsUsedByInnerByModule_;
+
+    // Helper: check if name is a module global for the current module
+    bool isModuleGlobalVar(const std::string& name) const {
+        auto it = moduleGlobalVarsByModule_.find(name);
+        if (it == moduleGlobalVarsByModule_.end()) return false;
+        return it->second.count(currentModulePath_) > 0;
+    }
+    // Helper: check if name is used by an inner function in the current module
+    bool isModuleGlobalUsedByInner(const std::string& name) const {
+        auto it = moduleGlobalsUsedByInnerByModule_.find(name);
+        if (it == moduleGlobalsUsedByInnerByModule_.end()) return false;
+        return it->second.count(currentModulePath_) > 0;
+    }
     // Source file of the main program (to distinguish imported modules)
     std::string mainSourceFile_;
 

@@ -482,7 +482,9 @@ int Driver::run() {
             }
 
             // Also include extensions based on analyzer import tracking
+            SPDLOG_WARN("[LINK] usedBuiltinModules: {}", analyzer.getUsedBuiltinModules().size());
             for (const auto& mod : analyzer.getUsedBuiltinModules()) {
+                SPDLOG_WARN("[LINK]   builtin: {}", mod);
                 std::string normalized = mod;
                 if (normalized.starts_with("node:")) normalized = normalized.substr(5);
                 auto it = MODULE_TO_LIB.find(normalized);
