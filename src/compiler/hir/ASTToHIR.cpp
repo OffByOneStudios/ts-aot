@@ -1239,6 +1239,16 @@ ASTToHIR::VariableInfo* ASTToHIR::lookupVariableInfoInCurrentFunction(const std:
     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
         auto found = it->variables.find(name);
         if (found != it->variables.end()) {
+            // Safety: if we found the variable but it's in a scope owned by a
+            // different function, don't return it. This prevents a local `var`
+            // declaration from finding a same-named variable from an outer
+            // function's scope (e.g., `var url` in parseurl shadowing module-level
+            // `var url = require('url')`). Without this check, the function-local
+            // var stores to the outer function's alloca, which can be null or
+            // point to a destroyed stack frame.
+            if (it->isFunctionBoundary && it->owningFunction && it->owningFunction != currentFunction_) {
+                return nullptr;
+            }
             return &found->second;
         }
         // Stop at function boundaries belonging to a different function
@@ -3393,11 +3403,12 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
     currentBlock_ = mergeBB;
 
     // If both try and catch terminated early (return/throw/break), no branches
-    // reach the merge block. Mark it as unreachable so LLVM doesn't emit dead
-    // code that crashes (e.g., call + int 3 from SimplifyCFG).
-    bool finallyReachedMerge = (finallyBB != nullptr); // finally always branches to merge
+    // reach the merge block. Emit a dummy return so LLVM has a valid terminator
+    // (using unreachable here can cause SimplifyCFG to propagate traps into
+    // reachable code paths in some edge cases).
+    bool finallyReachedMerge = (finallyBB != nullptr);
     if (!tryReachedMerge && !catchReachedMerge && !finallyReachedMerge) {
-        builder_.createUnreachable();
+        builder_.createReturn(builder_.createConstUndefined());
     }
 }
 
