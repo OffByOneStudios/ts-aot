@@ -419,14 +419,102 @@ void TsServerResponse::AddTrailers(TsMap* trailers) {
     }
 }
 
+static const char* getStatusText(int code) {
+    switch (code) {
+        case 200: return "OK";
+        case 201: return "Created";
+        case 204: return "No Content";
+        case 301: return "Moved Permanently";
+        case 302: return "Found";
+        case 304: return "Not Modified";
+        case 400: return "Bad Request";
+        case 401: return "Unauthorized";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 500: return "Internal Server Error";
+        case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
+        default: return "OK";
+    }
+}
+
 void TsServerResponse::WriteHead(int status, TsObject* headers) {
+    if (headersSent) return;
     this->statusCode = status;
     this->headersSent = true;
 
-    std::string head = "HTTP/1.1 " + std::to_string(status) + " OK\r\n";
-    head += "Transfer-Encoding: chunked\r\n";
-    head += "\r\n";
+    // Status line with proper status text
+    const char* statusText = statusMessage ? statusMessage->ToUtf8() : getStatusText(status);
+    std::string head = "HTTP/1.1 " + std::to_string(status) + " " + statusText + "\r\n";
 
+    // Merge any passed headers into stored headers
+    // (Express calls writeHead(status, {key: val}) sometimes)
+    if (headers && !is_flat_object(headers)) {
+        TsMap* hMap = dynamic_cast<TsMap*>(headers);
+        if (hMap) {
+            TsArray* keys = (TsArray*)hMap->GetKeys();
+            if (keys) {
+                for (int64_t i = 0; i < keys->Length(); i++) {
+                    TsValue* kv = (TsValue*)keys->Get(i);
+                    TsValue kd = nanbox_to_tagged(kv);
+                    if (kd.type == ValueType::STRING_PTR && kd.ptr_val) {
+                        TsString* keyStr = (TsString*)kd.ptr_val;
+                        TsValue val = hMap->Get(kd);
+                        this->headers->Set(kd, val);
+                    }
+                }
+            }
+        }
+    }
+
+    // Serialize stored headers and check for Content-Length
+    hasContentLength = false;
+    if (this->headers) {
+        TsArray* keys = (TsArray*)this->headers->GetKeys();
+        if (keys) {
+            for (int64_t i = 0; i < keys->Length(); i++) {
+                TsValue* kv = (TsValue*)keys->Get(i);
+                TsValue kd = nanbox_to_tagged(kv);
+                if (kd.type == ValueType::STRING_PTR && kd.ptr_val) {
+                    TsString* keyStr = (TsString*)kd.ptr_val;
+                    const char* k = keyStr->ToUtf8();
+                    if (!k) continue;
+
+                    TsValue val = this->headers->Get(kd);
+                    std::string valStr;
+                    if (val.type == ValueType::STRING_PTR && val.ptr_val) {
+                        valStr = ((TsString*)val.ptr_val)->ToUtf8();
+                    } else if (val.type == ValueType::NUMBER_INT) {
+                        valStr = std::to_string(val.i_val);
+                    } else if (val.type == ValueType::NUMBER_DBL) {
+                        valStr = std::to_string((int64_t)val.d_val);
+                    } else {
+                        // Try converting via ts_string_from_value
+                        TsString* s = (TsString*)ts_string_from_value(nanbox_from_tagged(val));
+                        if (s) valStr = s->ToUtf8();
+                        else continue;
+                    }
+
+                    head += k;
+                    head += ": ";
+                    head += valStr;
+                    head += "\r\n";
+
+                    if (_stricmp(k, "content-length") == 0) {
+                        hasContentLength = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Only add chunked encoding if no Content-Length was set
+    if (!hasContentLength) {
+        head += "Transfer-Encoding: chunked\r\n";
+    }
+
+    head += "\r\n";
     socket->Write((void*)head.c_str(), head.length());
 }
 
@@ -434,12 +522,17 @@ bool TsServerResponse::Write(void* data, size_t length) {
     if (closed) return false;
     if (!headersSent) WriteHead(200, nullptr);
 
-    char chunk_header[32];
-    int header_len = sprintf(chunk_header, "%x\r\n", (unsigned int)length);
-    
-    socket->Write((void*)chunk_header, header_len);
-    socket->Write(data, length);
-    socket->Write((void*)"\r\n", 2);
+    if (hasContentLength) {
+        // Non-chunked: write body directly
+        socket->Write(data, length);
+    } else {
+        // Chunked encoding: hex size + data + CRLF
+        char chunk_header[32];
+        int header_len = sprintf(chunk_header, "%x\r\n", (unsigned int)length);
+        socket->Write((void*)chunk_header, header_len);
+        socket->Write(data, length);
+        socket->Write((void*)"\r\n", 2);
+    }
 
     return true;
 }
@@ -464,8 +557,10 @@ void TsServerResponse::End(TsValue data) {
 
     if (!headersSent) WriteHead(200, nullptr);
 
-    // Write final chunk marker
-    socket->Write((void*)"0\r\n", 3);
+    // Write final chunk marker (only for chunked encoding)
+    if (!hasContentLength) {
+        socket->Write((void*)"0\r\n", 3);
+    }
 
     // Write trailers if present
     if (pendingTrailers) {
@@ -493,8 +588,10 @@ void TsServerResponse::End(TsValue data) {
         }
     }
 
-    // Final CRLF
-    socket->Write((void*)"\r\n", 2);
+    // Final CRLF (only for chunked encoding)
+    if (!hasContentLength) {
+        socket->Write((void*)"\r\n", 2);
+    }
 
     closed = true;
     Emit("finish", 0, nullptr);

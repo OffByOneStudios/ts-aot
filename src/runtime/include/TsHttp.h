@@ -119,6 +119,7 @@ public:
     // ServerResponse-specific properties
     int statusCode = 200;
     TsString* statusMessage = nullptr;
+    bool hasContentLength = false;  // Set by WriteHead; controls chunked vs non-chunked
 
     // Trailer support
     void AddTrailers(TsMap* trailers);
