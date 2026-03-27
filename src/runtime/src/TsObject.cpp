@@ -112,6 +112,44 @@ static struct ModuleCacheScanner {
     }
 } g_module_cache_scanner;
 
+// Global side-map for dynamically assigned properties on native TsObject subclasses.
+// Native objects (TsServerResponse, TsIncomingMessage, etc.) are C++ objects with fixed
+// struct layouts — they can't store arbitrary JS properties. This map associates an
+// external TsMap* property bag with any native object pointer, enabling patterns like
+// Express's setPrototypeOf(res, app.response) which copies methods onto native objects.
+static std::unordered_map<void*, TsMap*> g_native_object_props;
+
+static struct NativePropsScanner {
+    NativePropsScanner() {
+        ts_gc_register_scanner([](void*) {
+            for (auto& [key, val] : g_native_object_props) {
+                if (val) ts_gc_mark_object(val);
+            }
+        }, nullptr);
+        ts_gc_register_minor_fixup([](void*) {
+            for (auto& [key, val] : g_native_object_props) {
+                if (val) {
+                    void* fixed = ts_gc_minor_lookup_forward(val);
+                    if (fixed != val) val = (TsMap*)fixed;
+                }
+            }
+        }, nullptr);
+    }
+} g_native_props_scanner;
+
+static TsMap* getNativeProps(void* obj) {
+    auto it = g_native_object_props.find(obj);
+    return (it != g_native_object_props.end()) ? it->second : nullptr;
+}
+
+static TsMap* getOrCreateNativeProps(void* obj) {
+    auto it = g_native_object_props.find(obj);
+    if (it != g_native_object_props.end()) return it->second;
+    TsMap* props = TsMap::Create();
+    g_native_object_props[obj] = props;
+    return props;
+}
+
 // Debug hook: captures the TsMap* backing lodash's synthetic module object.
 // Used by TsMap.cpp to trace writes to module.exports.
 extern "C" void* g_debug_lodash_module_map = nullptr;
@@ -2483,6 +2521,20 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
+        // Fallback: check side-map for dynamically assigned properties on native objects
+        {
+            TsMap* props = getNativeProps(obj);
+            if (props) {
+                TsValue k;
+                k.type = ValueType::STRING_PTR;
+                k.ptr_val = TsString::GetInterned(keyStr);
+                TsValue val = props->Get(k);
+                if (val.type != ValueType::UNDEFINED) {
+                    return nanbox_from_tagged(val);
+                }
+            }
+        }
+
         return ts_value_make_undefined();
     }
 
@@ -3885,7 +3937,60 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         if (magic != 0x4D415053) { // TsMap::MAGIC
-            return obj;  // Not a TsMap or TsClosure, return unchanged
+            // Generic TsObject subclass: copy proto properties into side-map
+            // This enables Express's setPrototypeOf(res, app.response) pattern
+            if (!proto || ts_value_is_nullish(proto)) return obj;
+
+            void* protoRaw = ts_value_get_object(proto);
+            if (!protoRaw) protoRaw = proto;
+
+            // Extract source map from proto (TsMap or TsClosure)
+            TsMap* sourceMap = nullptr;
+            uint32_t protoMagic = *(uint32_t*)((char*)protoRaw + 16);
+            if (protoMagic == 0x4D415053) {
+                sourceMap = (TsMap*)protoRaw;
+            } else if (protoMagic == 0x434C5352) {
+                sourceMap = ((TsClosure*)protoRaw)->properties;
+            }
+
+            if (sourceMap) {
+                TsMap* props = getOrCreateNativeProps(objRaw);
+                TsArray* keys = (TsArray*)sourceMap->GetKeys();
+                if (keys) {
+                    for (int64_t i = 0; i < keys->Length(); i++) {
+                        TsValue* keyVal = (TsValue*)keys->Get(i);
+                        TsValue kd = nanbox_to_tagged(keyVal);
+                        TsValue val = sourceMap->Get(kd);
+                        if (val.type != ValueType::UNDEFINED) {
+                            // Only copy if not already defined
+                            TsValue existing = props->Get(kd);
+                            if (existing.type == ValueType::UNDEFINED) {
+                                props->Set(kd, val);
+                            }
+                        }
+                    }
+                }
+                // Also walk prototype chain of sourceMap
+                TsMap* protoChain = sourceMap->GetPrototype();
+                while (protoChain) {
+                    TsArray* pkeys = (TsArray*)protoChain->GetKeys();
+                    if (pkeys) {
+                        for (int64_t i = 0; i < pkeys->Length(); i++) {
+                            TsValue* keyVal = (TsValue*)pkeys->Get(i);
+                            TsValue kd = nanbox_to_tagged(keyVal);
+                            TsValue val = protoChain->Get(kd);
+                            if (val.type != ValueType::UNDEFINED) {
+                                TsValue existing = props->Get(kd);
+                                if (existing.type == ValueType::UNDEFINED) {
+                                    props->Set(kd, val);
+                                }
+                            }
+                        }
+                    }
+                    protoChain = protoChain->GetPrototype();
+                }
+            }
+            return obj;
         }
 
         TsMap* objMap = (TsMap*)objRaw;
@@ -5543,6 +5648,12 @@ TsValue* ts_value_make_int(int64_t i) {
             return value;
         }
 
+        // Fallback: store on side-map for native TsObject subclasses
+        // This enables dynamic property writes on objects like TsServerResponse
+        {
+            TsMap* props = getOrCreateNativeProps(rawObj);
+            props->Set(key, value);
+        }
         return value;
     }
 
@@ -5609,6 +5720,20 @@ TsValue* ts_value_make_int(int64_t i) {
         // Non-TsObject types at offset 16 — return early
         if (magic16 == 0x434C5352 || magic16 == 0x46554E43) return false; // TsClosure, native function
         if (magic16 == 0x42494749 || magic16 == 0x53594D42) return false; // BigInt, Symbol
+
+        // Check side-map for dynamically assigned properties on native objects
+        {
+            TsMap* props = getNativeProps(rawObj);
+            if (props) {
+                TsString* keyStr = (TsString*)ts_value_get_string(key);
+                if (keyStr) {
+                    TsValue keyVal;
+                    keyVal.type = ValueType::STRING_PTR;
+                    keyVal.ptr_val = keyStr;
+                    if (props->Has(keyVal)) return true;
+                }
+            }
+        }
 
         // Catch-all: unknown type (sentinels, etc.) — safe fallthrough, no dynamic_cast
         return false;
