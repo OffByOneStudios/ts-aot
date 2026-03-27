@@ -57,6 +57,13 @@ SUITES = [
         'args': [],
         'verbose_flag': None,
     },
+    {
+        'name': 'Server',
+        'key': 'server',
+        'script': str(TESTS_DIR / 'server' / 'run_server_tests.py'),
+        'args': [],
+        'verbose_flag': '-v',
+    },
 ]
 
 ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -102,6 +109,15 @@ def parse_results(output: str, suite_key: str) -> dict:
 
     elif suite_key == 'integration':
         # Integration runner: "Passed: N" and "Failed: N"
+        m = re.search(r'Passed:\s+(\d+)', clean)
+        if m:
+            passed = int(m.group(1))
+        m = re.search(r'Failed:\s+(\d+)', clean)
+        if m:
+            failed = int(m.group(1))
+
+    elif suite_key == 'server':
+        # Server runner: "Passed: N" and "Failed: N"
         m = re.search(r'Passed:\s+(\d+)', clean)
         if m:
             passed = int(m.group(1))
