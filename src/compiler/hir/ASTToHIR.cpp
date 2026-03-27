@@ -6641,7 +6641,18 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                     break;
                 }
             }
-            if (foundLocal) return;
+            if (foundLocal) {
+                // If an inner function references this variable (populated during
+                // the hoisted function declaration pass), we must use LoadGlobal
+                // instead of the local so we see mutations from closures
+                // (e.g., let count = 0; function inc() { count++; }; inc(); console.log(count)).
+                // Only applies to __module_init_* functions where variables are true
+                // module-level globals, not to user_main or other user functions.
+                if (!isModuleGlobalUsedByInner(node->name) ||
+                    !currentFunction_ ||
+                    currentFunction_->name.find("__module_init_") != 0) return;
+                // Fall through to LoadGlobal path below
+            }
         }
 
         size_t scopeIndex = 0;

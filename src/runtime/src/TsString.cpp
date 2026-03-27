@@ -1,6 +1,7 @@
 #include "TsString.h"
 #include "TsConsString.h"
 #include "TsArray.h"
+#include "TsBuffer.h"
 #include "TsRegExp.h"
 #include "TsRuntime.h"
 #include "GC.h"
@@ -1877,6 +1878,12 @@ extern "C" {
             if (magic == 0x42494749) { // TsBigInt
                 // BigInt toString would need special handling
                 return TsString::GetInterned("[object BigInt]");
+            }
+            // Check magic at offset 16 for TsObject subclasses (TsBuffer, etc.)
+            uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+            if (magic16 == 0x42554646) { // TsBuffer::MAGIC "BUFF"
+                TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)ptr);
+                if (buf) return buf->ToString();
             }
             return TsString::GetInterned("[object Object]");
         }
