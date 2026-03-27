@@ -2393,6 +2393,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "prototype") == 0) {
                 if (!func->properties) {
                     func->properties = TsMap::Create();
+                ts_gc_write_barrier(&func->properties, func->properties);
                 }
                 TsValue protoKey;
                 protoKey.type = ValueType::STRING_PTR;
@@ -2467,6 +2468,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "prototype") == 0) {
                 if (!closure->properties) {
                     closure->properties = TsMap::Create();
+                ts_gc_write_barrier(&closure->properties, closure->properties);
                 }
                 TsValue protoKey;
                 protoKey.type = ValueType::STRING_PTR;
@@ -3916,6 +3918,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
             if (sourceMap) {
                 if (!closure->properties) closure->properties = TsMap::Create();
+                ts_gc_write_barrier(&closure->properties, closure->properties);
                 // Copy all entries from sourceMap into closure->properties
                 TsArray* keys = (TsArray*)sourceMap->GetKeys();
                 if (keys) {
@@ -4175,11 +4178,15 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == 0x46554E43) { // TsFunction::MAGIC
             TsFunction* func = (TsFunction*)rawPtr;
             if (!func->properties) func->properties = TsMap::Create();
+                ts_gc_write_barrier(&func->properties, func->properties);
             rawPtr = func->properties;
             magic = 0x4D415053;
         } else if (magic == 0x434C5352) { // TsClosure magic
             TsClosure* clos = (TsClosure*)rawPtr;
-            if (!clos->properties) clos->properties = TsMap::Create();
+            if (!clos->properties) {
+                clos->properties = TsMap::Create();
+                ts_gc_write_barrier(&clos->properties, clos->properties);
+            }
             rawPtr = clos->properties;
             magic = 0x4D415053;
         }
@@ -5192,6 +5199,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (k && strcmp(k, "prototype") == 0) {
                     if (!closure->properties) {
                         closure->properties = TsMap::Create();
+                ts_gc_write_barrier(&closure->properties, closure->properties);
                     }
                     TsValue protoKey;
                     protoKey.type = ValueType::STRING_PTR;
@@ -5584,6 +5592,7 @@ TsValue* ts_value_make_int(int64_t i) {
             TsFunction* func = (TsFunction*)rawObj;
             if (!func->properties) {
                 func->properties = TsMap::Create();
+                ts_gc_write_barrier(&func->properties, func->properties);
             }
             func->properties->Set(key, value);
             return value;
@@ -5594,6 +5603,7 @@ TsValue* ts_value_make_int(int64_t i) {
             TsClosure* closure = (TsClosure*)rawObj;
             if (!closure->properties) {
                 closure->properties = TsMap::Create();
+                ts_gc_write_barrier(&closure->properties, closure->properties);
             }
             closure->properties->Set(key, value);
             return value;
@@ -6425,8 +6435,9 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* objectFunc = (TsFunction*)ts_value_get_object(objectConstructor);
         if (!objectFunc->properties) {
             objectFunc->properties = TsMap::Create();
+                ts_gc_write_barrier(&objectFunc->properties, objectFunc->properties);
         }
-        
+
         // Object.keys
         TsValue keysKey; keysKey.type = ValueType::STRING_PTR; keysKey.ptr_val = TsString::Create("keys");
         objectFunc->properties->Set(keysKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_keys_native, nullptr)));
@@ -6506,6 +6517,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* arrayFunc = (TsFunction*)ts_value_get_object(arrayConstructor);
         if (!arrayFunc->properties) {
             arrayFunc->properties = TsMap::Create();
+                ts_gc_write_barrier(&arrayFunc->properties, arrayFunc->properties);
         }
         
         // Array.isArray
@@ -6576,6 +6588,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!func) return nullptr;
             if (!func->properties) {
                 func->properties = TsMap::Create();
+                ts_gc_write_barrier(&func->properties, func->properties);
             }
             
             // Create prototype object with methods
@@ -7079,6 +7092,7 @@ void* ts_builtin_lookup_special(const char* name) {
             TsFunction* func = (TsFunction*)raw;
             if (!func->properties) {
                 func->properties = TsMap::Create();
+                ts_gc_write_barrier(&func->properties, func->properties);
             }
             return func->properties;
         }

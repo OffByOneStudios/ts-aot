@@ -49,6 +49,11 @@ static bool g_gc_verbose = false;
 // after the card-table scan and reports any missed nursery pointers.
 static bool g_verify_cards = false;
 
+// Minor GC nursery root callback: when non-null, gc_mark_ptr/ts_gc_mark_object
+// will invoke this for nursery pointers (instead of ignoring them).
+// Set during scanner callback invocation in gc_mark_nursery_live().
+static void (*g_minor_gc_nursery_mark)(void* ptr) = nullptr;
+
 // ============================================================================
 // Nursery Configuration (Pin-Based Promotion, SGen-style)
 // ============================================================================
@@ -774,10 +779,13 @@ static void* gc_find_base(void* ptr) {
 static void gc_mark_ptr(void* ptr) {
     if (!ptr) return;
 
-    // Nursery pointers: pinned objects stay in nursery, so during full GC
-    // we scan them via gc_scan_nursery_roots(). No forwarding table needed.
+    // Nursery pointers: during full GC, scanned via gc_scan_nursery_roots().
+    // During minor GC scanner callback invocation, redirect to nursery marker.
     if (g_nursery.enabled && is_nursery_ptr(ptr)) {
-        return;  // Nursery objects scanned separately, not mark-swept
+        if (g_minor_gc_nursery_mark) {
+            g_minor_gc_nursery_mark(ptr);
+        }
+        return;  // Nursery objects not mark-swept in old-gen sense
     }
 
     uintptr_t addr = (uintptr_t)ptr;
@@ -1953,6 +1961,44 @@ static void gc_mark_nursery_live() {
         mark_nursery_obj(fin.target);
         mark_nursery_obj(fin.callback);
         mark_nursery_obj(fin.held_value);
+    }
+
+    // Root source 6: Custom scanner callbacks (module cache, native props, etc.)
+    // These call ts_gc_mark_object → gc_mark_ptr, which normally ignores nursery
+    // pointers. We temporarily install a redirect so nursery pointers found by
+    // scanners are marked as live roots. After the callbacks, we scan for any
+    // newly-marked objects and add them to the BFS worklist.
+    if (!g_heap->scanners.empty()) {
+        // Snapshot which objects are already marked
+        std::vector<bool> was_marked(nursery_objects.size());
+        for (size_t i = 0; i < nursery_objects.size(); i++) {
+            was_marked[i] = nursery_is_marked(*(uint64_t*)nursery_objects[i].prefix_ptr);
+        }
+
+        // Install redirect: gc_mark_ptr will call this for nursery pointers
+        g_minor_gc_nursery_mark = [](void* ptr) {
+            if (!is_nursery_ptr(ptr)) return;
+            void* base = nursery_find_base(ptr);
+            if (!base) return;
+            uint64_t* prefix = (uint64_t*)((char*)base - NURSERY_SIZE_PREFIX);
+            if (!nursery_is_marked(*prefix)) {
+                nursery_set_marked(prefix);
+            }
+        };
+
+        for (auto& entry : g_heap->scanners) {
+            entry.callback(entry.context);
+        }
+
+        g_minor_gc_nursery_mark = nullptr;
+
+        // Add newly-marked objects to worklist for BFS tracing
+        for (size_t i = 0; i < nursery_objects.size(); i++) {
+            if (!was_marked[i] && nursery_is_marked(*(uint64_t*)nursery_objects[i].prefix_ptr)) {
+                worklist.push_back(i);
+                marked_count++;
+            }
+        }
     }
 
     // BFS tracing: scan marked nursery objects for nursery-to-nursery pointers

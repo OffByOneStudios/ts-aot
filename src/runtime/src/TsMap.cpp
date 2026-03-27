@@ -51,6 +51,8 @@ TsMap::TsMap() {
 }
 
 void TsMap::Set(TsValue key, TsValue value) {
+    // Guard: skip if impl is corrupt (GC may have collected this TsMap)
+    if ((uintptr_t)impl < 0x10000) return;
     if (frozen) return;
 
     if (sealed || !extensible) {
