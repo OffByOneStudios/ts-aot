@@ -9,8 +9,12 @@ app.use(function(req: any, res: any, next: any) {
 });
 
 app.get('/', function(req: any, res: any) {
-  res.writeHead(200, {'Content-Type': 'application/json'});
-  res.end('{"message":"Hello from ts-aot Express!","status":"ok"}');
+  // Note: res.json() not yet working (Express prototype chain issue).
+  // Use setHeader + end directly for now.
+  var body = JSON.stringify({ message: 'Hello from ts-aot Express!', status: 'ok' });
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Length', '' + body.length);
+  res.end(body);
 });
 
 app.get('/health', function(req: any, res: any) {
