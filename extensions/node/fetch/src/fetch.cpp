@@ -810,6 +810,15 @@ TsValue TsHeaders::GetPropertyVirtual(const char* key) {
             (void*)Headers_forEach_native, this, FunctionType::NATIVE, 1);
         return v;
     }
+    // Fallback: look up arbitrary header names in the internal map
+    // This supports dot access like headers.referrer or headers["content-type"]
+    if (map) {
+        TsString* nameStr = TsString::Create(key);
+        TsValue val = map->Get(nameStr);
+        if (val.type != ValueType::UNDEFINED) {
+            return val;
+        }
+    }
     return TsObject::GetPropertyVirtual(key);
 }
 

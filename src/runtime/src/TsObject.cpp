@@ -2538,6 +2538,7 @@ TsValue* ts_value_make_int(int64_t i) {
         {
             TsMap* props = getNativeProps(obj);
             if (props) {
+                // Plain property lookup (functions like req.get, req.header)
                 TsValue k;
                 k.type = ValueType::STRING_PTR;
                 k.ptr_val = TsString::GetInterned(keyStr);
@@ -2545,6 +2546,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (val.type != ValueType::UNDEFINED) {
                     return nanbox_from_tagged(val);
                 }
+
+                // Getter dispatch for __getter_<name> entries (from Object.defineProperty).
+                // Currently disabled: getter functions (e.g., req.fresh) throw exceptions
+                // that aren't caught (ts_throw → exit(1)), killing the server process.
+                // Needs try-catch protection around getter invocation before enabling.
+                // See: express_req_properties, express_req_headers test failures.
             }
         }
 
@@ -5072,6 +5079,16 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+
+        // Handle TsHeaders (TsObject::magic at offset 16) — bracket access for header names
+        // Express does this.headers[lc] which goes through ts_object_get_dynamic
+        if (magic16 == 0x48454144) { // TsHeaders::MAGIC "HEAD"
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k) return ts_object_get_property(rawObj, k);
+            }
+            return ts_value_make_undefined();
+        }
 
         // Handle TsBuffer (TsObject::magic at offset 16)
         if (magic16 == 0x42554646) { // TsBuffer::MAGIC "BUFF"
