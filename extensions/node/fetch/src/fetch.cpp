@@ -682,6 +682,7 @@ TsHeaders* TsHeaders::Create() {
 TsHeaders::TsHeaders() {
     this->TsObject::magic = MAGIC;
     map = TsMap::Create();
+    ts_gc_write_barrier(&this->map, map);
 }
 
 void TsHeaders::Append(TsString* name, TsString* value) {
@@ -812,11 +813,16 @@ TsValue TsHeaders::GetPropertyVirtual(const char* key) {
     }
     // Fallback: look up arbitrary header names in the internal map
     // This supports dot access like headers.referrer or headers["content-type"]
+    // Use FindInterned to avoid allocation (which could trigger nursery GC).
+    // If the string isn't interned, it can't be a header key (HTTP headers
+    // are stored with interned lowercase strings).
     if (map) {
-        TsString* nameStr = TsString::Create(key);
-        TsValue val = map->Get(nameStr);
-        if (val.type != ValueType::UNDEFINED) {
-            return val;
+        TsString* nameStr = TsString::FindInterned(key);
+        if (nameStr) {
+            TsValue val = map->Get(nameStr);
+            if (val.type != ValueType::UNDEFINED) {
+                return val;
+            }
         }
     }
     return TsObject::GetPropertyVirtual(key);
