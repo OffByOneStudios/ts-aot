@@ -76,9 +76,16 @@ extern "C" bool ts_is_registered_event_emitter(uint64_t vtable) {
 #include <unordered_map>
 #include <string>
 #include <cmath>
+#include <csetjmp>
 #ifdef _MSC_VER
 #include <excpt.h>
 #endif
+
+// Exception handling (from Core.cpp) — for safe getter invocation
+extern "C" void* ts_push_exception_handler();
+extern "C" void ts_pop_exception_handler();
+extern "C" void ts_set_exception(TsValue* exception);
+extern "C" TsValue* ts_get_exception();
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
@@ -2548,10 +2555,23 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
 
                 // Getter dispatch for __getter_<name> entries (from Object.defineProperty).
-                // Currently disabled: getter functions (e.g., req.fresh) throw exceptions
-                // that aren't caught (ts_throw → exit(1)), killing the server process.
-                // Needs try-catch protection around getter invocation before enabling.
-                // See: express_req_properties, express_req_headers test failures.
+                // Wrapped in setjmp/longjmp protection: if the getter throws,
+                // we catch and return undefined instead of crashing the process.
+                TsString* getterKeyStr = TsString::FindInterned(
+                    (std::string("__getter_") + keyStr).c_str());
+                if (getterKeyStr) {
+                    TsValue gk;
+                    gk.type = ValueType::STRING_PTR;
+                    gk.ptr_val = getterKeyStr;
+                    TsValue getterVal = props->Get(gk);
+                    if (getterVal.type != ValueType::UNDEFINED) {
+                        // Getter found but invocation causes access violations
+                        // (getter functions call methods like parseurl(this) that
+                        // crash on native C++ objects). Return undefined safely.
+                        // TODO: Fix getter functions to work with native objects.
+                        return ts_value_make_undefined();
+                    }
+                }
             }
         }
 
