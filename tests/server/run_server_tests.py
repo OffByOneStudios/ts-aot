@@ -196,7 +196,10 @@ def http_request(url: str, method: str = 'GET', body: Optional[str] = None,
         resp_headers = {k.lower(): v for k, v in resp.getheaders()}
         return resp.status, resp_body, resp_headers
     except urllib.error.HTTPError as e:
-        resp_body = e.read().decode('utf-8', errors='replace') if e.fp else ''
+        try:
+            resp_body = e.read().decode('utf-8', errors='replace') if e.fp else ''
+        except Exception:
+            resp_body = ''
         resp_headers = {k.lower(): v for k, v in e.headers.items()}
         return e.code, resp_body, resp_headers
     except Exception as e:
