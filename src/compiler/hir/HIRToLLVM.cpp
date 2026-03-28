@@ -6578,7 +6578,7 @@ void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
                     int nParams = fn->arg_size();
                     if (nParams > 1) arity = nParams - 1; // minus __closure__
                 }
-                if (arity > 0) {
+                {
                     auto setArityFt = llvm::FunctionType::get(
                         builder_->getVoidTy(),
                         { builder_->getPtrTy(), builder_->getInt32Ty() },
@@ -6958,6 +6958,35 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
 
     llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), numCaptures);
     llvm::Value* closure = rawToGCPtr(builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal }));
+
+    // Set the function arity (user-visible parameter count for Function.length)
+    {
+        int32_t arity = 0;
+        if (hirModule_) {
+            for (const auto& hirFn : hirModule_->functions) {
+                if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                    for (const auto& p : hirFn->params) {
+                        if (p.first != "__closure__" && p.first.find("__arg") != 0) {
+                            arity++;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        if (arity == 0 && fn) {
+            // Fallback: count LLVM function params minus closure param
+            int nParams = fn->arg_size();
+            if (nParams > 1) arity = nParams - 1;
+        }
+        auto setArityFt = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { builder_->getPtrTy(), builder_->getInt32Ty() },
+            false);
+        auto setArityFn = module_->getOrInsertFunction("ts_closure_set_arity", setArityFt);
+        builder_->CreateCall(setArityFt, setArityFn.getCallee(),
+            { gcPtrToRaw(closure), llvm::ConstantInt::get(builder_->getInt32Ty(), arity) });
+    }
 
     // Set the function's display name on the closure for .name and .toString()
     {

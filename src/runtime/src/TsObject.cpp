@@ -2425,11 +2425,11 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_object(proto);
             }
             
-            // Handle .length specially - return 0 if not set
+            // Handle .length - return arity (parameter count)
             if (strcmp(keyStr, "length") == 0) {
-                return ts_value_make_int(0);
+                return ts_value_make_int(func->arity >= 0 ? func->arity : 0);
             }
-            
+
             // Handle .name specially - return function name if set
             if (strcmp(keyStr, "name") == 0) {
                 if (func->name) return ts_value_make_string(func->name);
@@ -5165,7 +5165,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         return ts_value_make_native_function((void*)ts_function_toString_native, (void*)func);
                     }
                     if (strcmp(k, "length") == 0) {
-                        return ts_value_make_int(0);
+                        return ts_value_make_int(func->arity >= 0 ? func->arity : 0);
                     }
                     if (strcmp(k, "name") == 0) {
                         if (func->name) return ts_value_make_string(func->name);
