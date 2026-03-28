@@ -31,6 +31,21 @@ static TsValue dispatch_server_response(void* obj, const char* key) {
     return ((TsServerResponse*)obj)->GetPropertyVirtual(key);
 }
 
+static bool dispatch_server_response_set(void* obj, const char* key, TsValue value) {
+    TsServerResponse* res = (TsServerResponse*)obj;
+    if (strcmp(key, "statusCode") == 0) {
+        if (value.type == ValueType::NUMBER_INT) {
+            res->statusCode = (int)value.i_val;
+        } else if (value.type == ValueType::NUMBER_DBL) {
+            res->statusCode = (int)value.d_val;
+        }
+        return true;  // Handled
+    }
+    return false;  // Not handled, fall through to side-map
+}
+
+extern "C" void ts_register_vtable_set_dispatch(uint64_t vtable, bool (*fn)(void*, const char*, TsValue));
+
 struct HttpContext {
     TsHttpServer* server;
     TsSocket* socket;
@@ -360,6 +375,7 @@ TsServerResponse* TsServerResponse::Create(TsSocket* socket) {
     if (s_vtable == 0) {
         s_vtable = *(uint64_t*)obj;
         ts_register_vtable_dispatch(s_vtable, dispatch_server_response, true);
+        ts_register_vtable_set_dispatch(s_vtable, dispatch_server_response_set);
     }
     return obj;
 }
@@ -520,7 +536,7 @@ void TsServerResponse::WriteHead(int status, TsObject* headers) {
 
 bool TsServerResponse::Write(void* data, size_t length) {
     if (closed) return false;
-    if (!headersSent) WriteHead(200, nullptr);
+    if (!headersSent) WriteHead(this->statusCode, nullptr);
 
     if (hasContentLength) {
         // Non-chunked: write body directly
@@ -543,7 +559,7 @@ void TsServerResponse::End() {
 
 void TsServerResponse::End(TsValue data) {
     if (closed) return;
-    
+
     if (data.type != ValueType::UNDEFINED) {
         if (data.type == ValueType::STRING_PTR) {
             TsString* str = (TsString*)data.ptr_val;
@@ -555,7 +571,7 @@ void TsServerResponse::End(TsValue data) {
         }
     }
 
-    if (!headersSent) WriteHead(200, nullptr);
+    if (!headersSent) WriteHead(this->statusCode, nullptr);
 
     // Write final chunk marker (only for chunked encoding)
     if (!hasContentLength) {

@@ -30,9 +30,11 @@
 // Can't include TsHttp.h here (pulls in TsHeaders from separate extension lib).
 // Instead, TsHttp.cpp registers vtable pointers and dispatch callbacks.
 typedef TsValue (*VtableDispatchFn)(void* obj, const char* key);
+typedef bool (*VtableSetDispatchFn)(void* obj, const char* key, TsValue value);
 struct VtableDispatchEntry {
     uint64_t vtable;
     VtableDispatchFn dispatch;
+    VtableSetDispatchFn setDispatch;
     bool isEventEmitter;
 };
 static VtableDispatchEntry g_vtable_dispatch[8];
@@ -40,7 +42,16 @@ static int g_vtable_dispatch_count = 0;
 
 extern "C" void ts_register_vtable_dispatch(uint64_t vtable, VtableDispatchFn fn, bool isEventEmitter) {
     if (g_vtable_dispatch_count < 8) {
-        g_vtable_dispatch[g_vtable_dispatch_count++] = {vtable, fn, isEventEmitter};
+        g_vtable_dispatch[g_vtable_dispatch_count++] = {vtable, fn, nullptr, isEventEmitter};
+    }
+}
+
+extern "C" void ts_register_vtable_set_dispatch(uint64_t vtable, VtableSetDispatchFn fn) {
+    for (int i = 0; i < g_vtable_dispatch_count; i++) {
+        if (g_vtable_dispatch[i].vtable == vtable) {
+            g_vtable_dispatch[i].setDispatch = fn;
+            return;
+        }
     }
 }
 
@@ -5656,6 +5667,22 @@ TsValue* ts_value_make_int(int64_t i) {
             // No setter - set property directly
             ts_map_set_v(rawObj, key, value);
             return value;
+        }
+
+        // Check vtable setter dispatch for native C++ objects (e.g., TsServerResponse.statusCode)
+        {
+            uint64_t vt = *(uint64_t*)rawObj;
+            const char* keyCStr = keyStr ? keyStr->ToUtf8() : nullptr;
+            if (keyCStr) {
+                for (int i = 0; i < g_vtable_dispatch_count; i++) {
+                    if (vt == g_vtable_dispatch[i].vtable && g_vtable_dispatch[i].setDispatch) {
+                        if (g_vtable_dispatch[i].setDispatch(rawObj, keyCStr, value)) {
+                            return value;  // Setter handled it
+                        }
+                        break;
+                    }
+                }
+            }
         }
 
         // Fallback: store on side-map for native TsObject subclasses
