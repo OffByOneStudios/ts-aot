@@ -2365,13 +2365,9 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "normalize") == 0) return ts_value_make_native_function((void*)ts_string_normalize_native, strObj);
             return ts_value_make_undefined();
         }
-        if (magic8 == 0x48454144 || magic16 == 0x48454144) { // TsHeaders::MAGIC ("HEAD")
-            struct FakeHeaders { void* vtable; uint32_t magic; TsMap* map; };
-            TsMap* map = ((FakeHeaders*)obj)->map;
-            TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned(keyStr);
-            TsValue val = map->Get(k);
-            return nanbox_from_tagged(val);
-        }
+        // TsHeaders: handled via virtual dispatch (GetPropertyVirtual) below.
+        // Previously had a FakeHeaders fast-path here with wrong struct layout
+        // that read TsObject::magic (offset 16) as a TsMap* pointer.
         {
             bool isEventEmitter = (magic8 == 0x45564E54 || magic16 == 0x45564E54); // TsEventEmitter::MAGIC ("EVNT")
             // Virtual-inheritance EventEmitter subclasses have magic at large offset (not 8/16).
@@ -2533,8 +2529,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // (TsArray, TsString are NOT TsObject subclasses and would crash on virtual call)
         if (magic0 != 0x41525259 && magic8 != 0x41525259 && magic16 != 0x41525259 &&  // TsArray
             magic0 != 0x53545247 && magic8 != 0x53545247 && magic0 != TsConsString::MAGIC && // TsString/TsConsString
-            magic0 != 0x52454758 &&                                                       // TsRegExp
-            magic8 != 0x48454144 && magic16 != 0x48454144) {                              // TsHeaders
+            magic0 != 0x52454758) {                                                       // TsRegExp
             TsValue result = ts_try_virtual_property_dispatch(obj, keyStr);
             if (result.type != ValueType::UNDEFINED) {
                 return nanbox_from_tagged(result);

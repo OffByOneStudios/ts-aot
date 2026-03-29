@@ -812,17 +812,15 @@ TsValue TsHeaders::GetPropertyVirtual(const char* key) {
         return v;
     }
     // Fallback: look up arbitrary header names in the internal map
-    // This supports dot access like headers.referrer or headers["content-type"]
-    // Use FindInterned to avoid allocation (which could trigger nursery GC).
-    // If the string isn't interned, it can't be a header key (HTTP headers
-    // are stored with interned lowercase strings).
+    // This supports dot/bracket access like headers.referrer or headers["content-type"]
     if (map) {
-        TsString* nameStr = TsString::FindInterned(key);
-        if (nameStr) {
-            TsValue val = map->Get(nameStr);
-            if (val.type != ValueType::UNDEFINED) {
-                return val;
-            }
+        TsString* nameStr = TsString::GetInterned(key);
+        TsValue k;
+        k.type = ValueType::STRING_PTR;
+        k.ptr_val = nameStr;
+        TsValue val = map->Get(k);
+        if (val.type != ValueType::UNDEFINED) {
+            return val;
         }
     }
     return TsObject::GetPropertyVirtual(key);
