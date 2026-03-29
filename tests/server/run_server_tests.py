@@ -176,9 +176,16 @@ def compile_server(source_path: Path, exe_path: Path) -> Tuple[bool, str]:
         return False, str(e)
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Handler that prevents urllib from following redirects."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def http_request(url: str, method: str = 'GET', body: Optional[str] = None,
                  headers: Optional[Dict[str, str]] = None,
-                 timeout: float = 5) -> Tuple[int, str, Dict[str, str]]:
+                 timeout: float = 5,
+                 follow_redirects: bool = True) -> Tuple[int, str, Dict[str, str]]:
     """Make an HTTP request. Returns (status_code, body, headers).
 
     Returns (-1, error_message, {}) on connection failure.
@@ -191,7 +198,11 @@ def http_request(url: str, method: str = 'GET', body: Optional[str] = None,
         req.data = body.encode('utf-8')
 
     try:
-        resp = urllib.request.urlopen(req, timeout=timeout)
+        if follow_redirects:
+            resp = urllib.request.urlopen(req, timeout=timeout)
+        else:
+            opener = urllib.request.build_opener(_NoRedirectHandler)
+            resp = opener.open(req, timeout=timeout)
         resp_body = resp.read().decode('utf-8', errors='replace')
         resp_headers = {k.lower(): v for k, v in resp.getheaders()}
         return resp.status, resp_body, resp_headers
@@ -217,7 +228,9 @@ def run_check(base_url: str, check: Dict[str, Any]) -> Tuple[bool, str]:
     body = check.get('body')
     headers = check.get('headers')
 
-    status, resp_body, resp_headers = http_request(url, method, body, headers)
+    follow_redirects = check.get('follow_redirects', True)
+    status, resp_body, resp_headers = http_request(url, method, body, headers,
+                                                    follow_redirects=follow_redirects)
 
     if status == -1:
         return False, f"{method} {path} -> connection error: {resp_body}"
