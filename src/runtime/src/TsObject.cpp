@@ -2550,8 +2550,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
 
                 // Getter dispatch for __getter_<name> entries (from Object.defineProperty).
-                // Wrapped in setjmp/longjmp protection: if the getter throws,
-                // we catch and return undefined instead of crashing the process.
+                // Wrapped in setjmp/longjmp protection so a throwing getter
+                // returns undefined instead of killing the process.
                 TsString* getterKeyStr = TsString::FindInterned(
                     (std::string("__getter_") + keyStr).c_str());
                 if (getterKeyStr) {
@@ -2560,11 +2560,19 @@ TsValue* ts_value_make_int(int64_t i) {
                     gk.ptr_val = getterKeyStr;
                     TsValue getterVal = props->Get(gk);
                     if (getterVal.type != ValueType::UNDEFINED) {
-                        // Getter found but invocation causes access violations
-                        // (getter functions call methods like parseurl(this) that
-                        // crash on native C++ objects). Return undefined safely.
-                        // TODO: Fix getter functions to work with native objects.
-                        return ts_value_make_undefined();
+                        TsValue* getterFunc = nanbox_from_tagged(getterVal);
+                        void* handler = ts_push_exception_handler();
+                        jmp_buf* env = (jmp_buf*)handler;
+                        if (setjmp(*env) == 0) {
+                            TsValue* result = ts_function_call_with_this(
+                                getterFunc, (TsValue*)obj, 0, nullptr);
+                            ts_pop_exception_handler();
+                            return result;
+                        } else {
+                            ts_pop_exception_handler();
+                            ts_set_exception(nullptr);
+                            return ts_value_make_undefined();
+                        }
                     }
                 }
             }
