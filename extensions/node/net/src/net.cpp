@@ -12,6 +12,7 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "GC.h"
+#include "TsObject.h"
 #include <string.h>
 #include <stdlib.h>
 #include <new>
@@ -697,5 +698,71 @@ extern "C" {
         TsSocket* s = getSocketFromVoid(socket);
         if (!s) return;
         s->End();
+    }
+
+    // net.createConnection(options, callback) — create and connect a socket
+    void* ts_net_create_connection(void* options, void* callback) {
+        void* mem = ts_alloc(sizeof(TsSocket));
+        TsSocket* socket = new (mem) TsSocket();
+
+        // Extract port and host from options
+        if (options) {
+            TsValue optVal = nanbox_to_tagged((TsValue*)options);
+            if (optVal.type == ValueType::NUMBER_INT || optVal.type == ValueType::NUMBER_DBL) {
+                // createConnection(port, callback) — port as first arg
+                int port = (optVal.type == ValueType::NUMBER_INT) ? (int)optVal.i_val : (int)optVal.d_val;
+                socket->Connect("127.0.0.1", port, callback);
+            } else if (optVal.type == ValueType::OBJECT_PTR && optVal.ptr_val) {
+                // createConnection({port, host}, callback) — options object
+                void* portVal = ts_object_get_property(optVal.ptr_val, "port");
+                void* hostVal = ts_object_get_property(optVal.ptr_val, "host");
+                int port = 0;
+                const char* host = "127.0.0.1";
+                if (portVal) {
+                    TsValue pv = nanbox_to_tagged((TsValue*)portVal);
+                    if (pv.type == ValueType::NUMBER_INT) port = (int)pv.i_val;
+                    else if (pv.type == ValueType::NUMBER_DBL) port = (int)pv.d_val;
+                }
+                if (hostVal) {
+                    TsValue hv = nanbox_to_tagged((TsValue*)hostVal);
+                    if (hv.type == ValueType::STRING_PTR && hv.ptr_val) {
+                        host = ((TsString*)hv.ptr_val)->ToUtf8();
+                    }
+                }
+                socket->Connect(host, port, callback);
+            }
+        }
+        if (callback) {
+            socket->On("connect", callback);
+        }
+        return socket;
+    }
+
+    // net.connect — alias for net.createConnection
+    void* ts_net_connect(void* options, void* callback) {
+        return ts_net_create_connection(options, callback);
+    }
+
+    // Socket.write(data) — write data to socket
+    bool ts_net_socket_write(void* socket, void* data) {
+        TsSocket* s = getSocketFromVoid(socket);
+        if (!s) return false;
+        if (!data) return false;
+
+        TsValue dv = nanbox_to_tagged((TsValue*)data);
+        if (dv.type == ValueType::STRING_PTR && dv.ptr_val) {
+            TsString* str = (TsString*)dv.ptr_val;
+            std::string utf8 = str->ToUtf8();
+            return s->Write((void*)utf8.c_str(), utf8.length());
+        }
+        // Buffer data
+        if (dv.type == ValueType::OBJECT_PTR && dv.ptr_val) {
+            uint32_t magic16 = *(uint32_t*)((char*)dv.ptr_val + 16);
+            if (magic16 == 0x42554646) { // TsBuffer::MAGIC
+                TsBuffer* buf = (TsBuffer*)dv.ptr_val;
+                return s->Write(buf->GetData(), buf->GetLength());
+            }
+        }
+        return false;
     }
 }
