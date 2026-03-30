@@ -369,6 +369,20 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
         llvm::ModulePassManager CovMPM;
         CovMPM.addPass(llvm::InstrProfilingLoweringPass());
         CovMPM.run(*module, MAM);
+
+        // Fix counter linkage: InstrProfilingLoweringPass creates __profc_*
+        // as linkonce_odr with COMDAT. On Windows/COFF, lld-link may discard
+        // COMDAT copies, causing some counters to point at dead memory.
+        // Change to internal linkage to ensure a single live copy per counter.
+        for (auto& gv : module->globals()) {
+            if (gv.getName().starts_with("__profc_") ||
+                gv.getName().starts_with("__profd_") ||
+                gv.getName().starts_with("__profn_")) {
+                if (gv.hasComdat()) gv.setComdat(nullptr);
+                if (gv.getLinkage() == llvm::GlobalValue::LinkOnceODRLinkage)
+                    gv.setLinkage(llvm::GlobalValue::InternalLinkage);
+            }
+        }
     }
 }
 
