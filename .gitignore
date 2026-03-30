@@ -111,6 +111,11 @@ testproject/
 # Debug IR dumps
 **/debug_ir.ll
 
+# Coverage profraw files
+tests/server/.coverage/
+*.profraw
+*.profdata
+
 # Claude Code local settings (not shared with team)
 .claude/CLAUDE.local.md
 .claude/settings.local.json

@@ -272,24 +272,27 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
     if (emitCoverage_) {
         emitCoverageMapping();
 
-        // Create a global constructor that calls atexit(__ts_profile_write)
-        llvm::FunctionType* writeProfileFt = llvm::FunctionType::get(
+        // Create a global constructor that registers atexit(__ts_profile_write)
+        // and starts a background flush thread via __ts_profile_start_flush().
+        // The flush thread writes profraw every 2s so coverage survives kills.
+        llvm::FunctionType* voidFt = llvm::FunctionType::get(
             builder_->getVoidTy(), false);
         llvm::FunctionCallee writeProfileFn = module_->getOrInsertFunction(
-            "__ts_profile_write", writeProfileFt);
+            "__ts_profile_write", voidFt);
+        llvm::FunctionCallee startFlushFn = module_->getOrInsertFunction(
+            "__ts_profile_start_flush", voidFt);
 
         llvm::FunctionType* atexitFt = llvm::FunctionType::get(
             builder_->getInt32Ty(), {builder_->getPtrTy()}, false);
         llvm::FunctionCallee atexitFn = module_->getOrInsertFunction("atexit", atexitFt);
 
-        llvm::FunctionType* ctorFt = llvm::FunctionType::get(
-            builder_->getVoidTy(), false);
         llvm::Function* ctorFn = llvm::Function::Create(
-            ctorFt, llvm::Function::InternalLinkage, "__ts_coverage_init", module_.get());
+            voidFt, llvm::Function::InternalLinkage, "__ts_coverage_init", module_.get());
         llvm::BasicBlock* ctorBB = llvm::BasicBlock::Create(context_, "entry", ctorFn);
         llvm::IRBuilder<> ctorBuilder(ctorBB);
         ctorBuilder.CreateCall(atexitFt, atexitFn.getCallee(),
                                {writeProfileFn.getCallee()});
+        ctorBuilder.CreateCall(voidFt, startFlushFn.getCallee());
         ctorBuilder.CreateRetVoid();
 
         llvm::appendToGlobalCtors(*module_, ctorFn, 65534);

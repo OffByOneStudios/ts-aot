@@ -6,15 +6,23 @@
 //
 // Profraw v9 format (LLVM 18):
 //   Header (14 x uint64), Data records, Counters, Bitmaps, Names
+//
+// Flush strategy: a background thread writes profraw every 2 seconds so that
+// coverage data survives process kills (where atexit doesn't fire).
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
+#include <thread>
+#include <chrono>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+static std::atomic<bool> g_flush_active{false};
 
 extern "C" {
 
@@ -178,7 +186,22 @@ static void writeProfileData() {
 
 // Called by generated code via atexit()
 void __ts_profile_write() {
+    g_flush_active.store(false);
     writeProfileData();
+}
+
+// Start a background thread that flushes profraw every 2 seconds.
+// Called from __ts_coverage_init (LLVM global constructor).
+void __ts_profile_start_flush() {
+    g_flush_active.store(true);
+    std::thread([]() {
+        while (g_flush_active.load(std::memory_order_relaxed)) {
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            if (g_flush_active.load(std::memory_order_relaxed)) {
+                writeProfileData();
+            }
+        }
+    }).detach();
 }
 
 } // extern "C"

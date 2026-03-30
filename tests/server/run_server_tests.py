@@ -5,9 +5,10 @@ Compiles TypeScript server applications, starts them as subprocesses,
 runs HTTP checks against them, and reports pass/fail.
 
 Usage:
-    python tests/server/run_server_tests.py          # Run all server tests
-    python tests/server/run_server_tests.py -v        # Verbose output
-    python tests/server/run_server_tests.py -t NAME   # Run specific test
+    python tests/server/run_server_tests.py              # Run all server tests
+    python tests/server/run_server_tests.py -v            # Verbose output
+    python tests/server/run_server_tests.py -t NAME       # Run specific test
+    python tests/server/run_server_tests.py --coverage    # Run with coverage collection
 """
 
 import argparse
@@ -153,16 +154,22 @@ class ServerProcess:
             _active_servers.remove(self)
 
 
-def compile_server(source_path: Path, exe_path: Path) -> Tuple[bool, str]:
+def compile_server(source_path: Path, exe_path: Path,
+                   coverage: bool = False) -> Tuple[bool, str]:
     """Compile a server TypeScript file to an executable."""
     env = os.environ.copy()
     env['ICU_DATA'] = str(COMPILER.parent)
 
+    cmd = [str(COMPILER)]
+    if coverage:
+        cmd.append('--coverage')
+    cmd.extend([str(source_path), '-o', str(exe_path)])
+
     try:
         result = subprocess.run(
-            [str(COMPILER), str(source_path), '-o', str(exe_path)],
+            cmd,
             capture_output=True,
-            timeout=60,
+            timeout=120 if coverage else 60,
             encoding='utf-8',
             errors='replace',
             env=env,
@@ -171,7 +178,7 @@ def compile_server(source_path: Path, exe_path: Path) -> Tuple[bool, str]:
             return False, result.stderr or result.stdout or "Unknown compile error"
         return True, ""
     except subprocess.TimeoutExpired:
-        return False, "Compilation timed out (60s)"
+        return False, "Compilation timed out"
     except Exception as e:
         return False, str(e)
 
@@ -315,7 +322,11 @@ def load_test_config(test_dir: Path) -> Optional[Dict[str, Any]]:
     return config
 
 
-def run_server_test(test_dir: Path, verbose: bool = False) -> Dict[str, Any]:
+COVERAGE_DIR = SCRIPT_DIR / '.coverage'
+
+
+def run_server_test(test_dir: Path, verbose: bool = False,
+                    coverage: bool = False) -> Dict[str, Any]:
     """Run a single server test. Returns result dict."""
     test_name = test_dir.name
     result = {
@@ -344,12 +355,17 @@ def run_server_test(test_dir: Path, verbose: bool = False) -> Dict[str, Any]:
         result['elapsed'] = time.time() - start
         return result
 
+    profraw_path = None
+    if coverage:
+        COVERAGE_DIR.mkdir(exist_ok=True)
+        profraw_path = COVERAGE_DIR / f'{test_name}.profraw'
+
     # Compile
     exe_path = test_dir / (test_name + get_exe_suffix())
     if verbose:
-        print(f"  Compiling {source_path.name}...")
+        print(f"  Compiling {source_path.name}{'  (with --coverage)' if coverage else ''}...")
 
-    ok, err = compile_server(source_path, exe_path)
+    ok, err = compile_server(source_path, exe_path, coverage=coverage)
     if not ok:
         result['error'] = f"Compile error: {err}"
         result['elapsed'] = time.time() - start
@@ -363,6 +379,8 @@ def run_server_test(test_dir: Path, verbose: bool = False) -> Dict[str, Any]:
     server_env['ICU_DATA'] = str(COMPILER.parent)
     extra_env = config.get('SERVER_ENV', {})
     server_env.update(extra_env)
+    if coverage and profraw_path:
+        server_env['LLVM_PROFILE_FILE'] = str(profraw_path)
 
     server = ServerProcess(exe_path, env=server_env)
     try:
@@ -408,6 +426,14 @@ def run_server_test(test_dir: Path, verbose: bool = False) -> Dict[str, Any]:
 
     finally:
         server.cleanup()
+        # In coverage mode, the background flush thread writes profraw every 2s.
+        # The last flush is at most 2s before we killed the server.
+        if coverage and verbose and profraw_path:
+            if profraw_path.exists():
+                sz = profraw_path.stat().st_size
+                print(f"  Coverage: {profraw_path.name} ({sz} bytes)")
+            else:
+                print(f"  Coverage: no profraw generated")
         # Clean up executable
         if exe_path.exists():
             try:
@@ -439,9 +465,11 @@ def find_test_dirs() -> List[Path]:
 class ServerTestRunner:
     """Main runner for server tests."""
 
-    def __init__(self, verbose: bool = False, test_filter: Optional[str] = None):
+    def __init__(self, verbose: bool = False, test_filter: Optional[str] = None,
+                 coverage: bool = False):
         self.verbose = verbose
         self.test_filter = test_filter
+        self.coverage = coverage
         self.results: List[Dict[str, Any]] = []
         self.test_statuses: Dict[str, str] = {}
         self.previous_baseline: Dict[str, str] = {}
@@ -492,7 +520,14 @@ class ServerTestRunner:
             print(color("No server tests found.", Colors.YELLOW))
             return 0
 
-        print(color("\n=== Server Test Suite ===\n", Colors.BOLD))
+        if self.coverage:
+            print(color("\n=== Server Test Suite (with coverage) ===\n", Colors.BOLD))
+            # Clean previous profraw files
+            if COVERAGE_DIR.exists():
+                for f in COVERAGE_DIR.glob('*.profraw'):
+                    f.unlink()
+        else:
+            print(color("\n=== Server Test Suite ===\n", Colors.BOLD))
         print(f"Found {len(test_dirs)} server test(s)\n")
 
         passed = 0
@@ -502,7 +537,8 @@ class ServerTestRunner:
             if not self.verbose:
                 print(f"[{i}/{len(test_dirs)}] {test_dir.name}...", end='', flush=True)
 
-            result = run_server_test(test_dir, verbose=self.verbose)
+            result = run_server_test(test_dir, verbose=self.verbose,
+                                     coverage=self.coverage)
             self.results.append(result)
 
             status_str = 'pass' if result['passed'] else 'fail'
@@ -552,16 +588,54 @@ class ServerTestRunner:
             if not self.regressions and not self.fixes:
                 print(color("No regressions.", Colors.GREEN))
 
+        # Coverage report
+        if self.coverage:
+            self._print_coverage_report()
+
         return 0 if failed == 0 else 1
+
+    def _print_coverage_report(self):
+        """Parse and display aggregate coverage from collected profraw files."""
+        if not COVERAGE_DIR.exists():
+            return
+        profraw_files = sorted(COVERAGE_DIR.glob('*.profraw'))
+        if not profraw_files:
+            print(color("\nNo profraw files collected.", Colors.YELLOW))
+            return
+
+        try:
+            from coverage_report import parse_profraw, merge_coverage, print_report
+            datasets = []
+            for pf in profraw_files:
+                try:
+                    data = parse_profraw(pf)
+                    if data:
+                        datasets.append((pf.stem, data))
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  Warning: failed to parse {pf.name}: {e}")
+            if datasets:
+                merged = merge_coverage(datasets)
+                print_report(merged, len(profraw_files), len(datasets))
+        except ImportError:
+            # Fallback: just report file counts
+            print(color(f"\nCoverage: {len(profraw_files)} profraw files collected "
+                        f"in {COVERAGE_DIR}", Colors.CYAN))
+            for pf in profraw_files:
+                sz = pf.stat().st_size
+                print(f"  {pf.name}: {sz} bytes")
 
 
 def main():
     parser = argparse.ArgumentParser(description='ts-aot server test runner')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
     parser.add_argument('-t', '--test', type=str, help='Run specific test by name')
+    parser.add_argument('--coverage', action='store_true',
+                        help='Compile with --coverage and collect profraw files')
     args = parser.parse_args()
 
-    runner = ServerTestRunner(verbose=args.verbose, test_filter=args.test)
+    runner = ServerTestRunner(verbose=args.verbose, test_filter=args.test,
+                              coverage=args.coverage)
     return runner.run()
 
 
