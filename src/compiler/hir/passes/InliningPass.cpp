@@ -475,7 +475,9 @@ std::vector<std::unique_ptr<HIRInstruction>> InliningPass::cloneInstructions(
         clone->switchDefault = inst->switchDefault;
 
         // Copy source location
-        clone->sourceLocation = inst->sourceLocation;
+        clone->sourceFileIdx = inst->sourceFileIdx;
+        clone->sourceLine = inst->sourceLine;
+        clone->sourceColumn = inst->sourceColumn;
 
         result.push_back(std::move(clone));
     }

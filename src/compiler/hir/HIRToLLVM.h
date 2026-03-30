@@ -71,6 +71,10 @@ public:
     // When enabled, source file/line metadata is attached to LLVM IR instructions.
     void setEmitDebugInfo(bool enable) { emitDebugInfo_ = enable; }
 
+    // Enable LLVM source-based coverage instrumentation.
+    // When enabled, emits llvm.instrprof.increment intrinsics and coverage mapping sections.
+    void setEmitCoverage(bool enable) { emitCoverage_ = enable; }
+
     //==========================================================================
     // Handler Accessors - Used by BuiltinHandler implementations
     //==========================================================================
@@ -100,6 +104,27 @@ private:
 
     // Debug info emission
     bool emitDebugInfo_ = false;
+
+    // Coverage instrumentation
+    bool emitCoverage_ = false;
+    llvm::Function* instrProfIncrement_ = nullptr;
+
+    struct CoverageRegion {
+        uint16_t fileIdx;
+        uint32_t lineStart, colStart, lineEnd, colEnd;
+    };
+    struct CoverageFunctionInfo {
+        std::string funcName;
+        std::string sourceFile;
+        uint64_t funcHash;
+        uint32_t numCounters;
+        std::vector<CoverageRegion> regions;
+    };
+    std::vector<CoverageFunctionInfo> coverageFunctions_;
+
+    void emitCoverageIncrement(const std::string& funcName, uint64_t funcHash,
+                               uint32_t numCounters, uint32_t counterIdx);
+    void emitCoverageMapping();
     std::unique_ptr<llvm::DIBuilder> diBuilder_;
     llvm::DICompileUnit* diCompileUnit_ = nullptr;
     llvm::DIFile* diFile_ = nullptr;

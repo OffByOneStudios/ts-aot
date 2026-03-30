@@ -58,6 +58,7 @@ int main(int argc, char** argv) {
             ("native-parser", "Use native C++ parser (default: true)", cxxopts::value<bool>()->default_value("true"))
             ("legacy-parser", "Force legacy Node.js parser (dump_ast.js)", cxxopts::value<bool>()->default_value("false"))
             ("gc-statepoints", "Enable LLVM GC statepoint infrastructure (experimental)", cxxopts::value<bool>()->default_value("false"))
+            ("coverage", "Emit LLVM source-based coverage instrumentation", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage")
             ("input", "Input file", cxxopts::value<std::string>());
 
@@ -147,6 +148,7 @@ int main(int argc, char** argv) {
         driverOpts.dumpTypes = result["dump-types"].as<bool>();
         driverOpts.bundleIcu = result["bundle-icu"].as<bool>();
         driverOpts.enableGCStatepoints = result["gc-statepoints"].as<bool>();
+        driverOpts.coverage = result["coverage"].as<bool>();
         driverOpts.verbose = result["verbose"].as<bool>();
 
         // Parser selection: --native-parser enables, --legacy-parser disables

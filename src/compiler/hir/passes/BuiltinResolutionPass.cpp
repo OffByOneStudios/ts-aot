@@ -80,7 +80,9 @@ std::unique_ptr<HIRInstruction> BuiltinResolutionPass::tryResolveBuiltin(
     // Create a direct Call instruction
     auto newInst = std::make_unique<HIRInstruction>(HIROpcode::Call);
     newInst->result = inst->result;
-    newInst->sourceLocation = inst->sourceLocation;
+    newInst->sourceFileIdx = inst->sourceFileIdx;
+    newInst->sourceLine = inst->sourceLine;
+    newInst->sourceColumn = inst->sourceColumn;
 
     // First operand is the runtime function name
     newInst->operands.push_back(resolution.runtimeFunction);

@@ -66,6 +66,7 @@ add_library(tsruntime STATIC
     src/md5.cpp
     src/TsJSON.cpp
     src/TsGlobals.cpp
+    src/TsProfileRuntime.cpp
     src/TsDate.cpp
     src/TsRegExp.cpp
     src/TsPromise.cpp

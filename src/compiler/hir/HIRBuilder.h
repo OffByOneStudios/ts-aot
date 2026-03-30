@@ -1200,7 +1200,12 @@ public:
         return result;
     }
 
-    // Source line tracking for debug info
+    // Source location tracking for debug info and coverage
+    void setCurrentSourceLoc(uint16_t fileIdx, uint32_t line, uint16_t column) {
+        currentSourceFileIdx_ = fileIdx;
+        currentSourceLine_ = line;
+        currentSourceColumn_ = column;
+    }
     void setCurrentSourceLine(uint32_t line) { currentSourceLine_ = line; }
 
 private:
@@ -1208,11 +1213,15 @@ private:
     HIRFunction* currentFunction_ = nullptr;
     HIRBlock* currentBlock_ = nullptr;
     uint32_t nextGlobalId_ = 0;
+    uint16_t currentSourceFileIdx_ = 0;
     uint32_t currentSourceLine_ = 0;
+    uint16_t currentSourceColumn_ = 0;
 
     void emit(std::unique_ptr<HIRInstruction> inst) {
-        if (currentSourceLine_ > 0 && inst->sourceLocation == 0) {
-            inst->sourceLocation = currentSourceLine_;
+        if (currentSourceLine_ > 0 && inst->sourceLine == 0) {
+            inst->sourceFileIdx = currentSourceFileIdx_;
+            inst->sourceLine = currentSourceLine_;
+            inst->sourceColumn = currentSourceColumn_;
         }
         if (currentBlock_) {
             currentBlock_->addInstruction(std::move(inst));

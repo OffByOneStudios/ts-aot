@@ -25,6 +25,7 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/Transforms/Scalar/RewriteStatepointsForGC.h>
+#include <llvm/Transforms/Instrumentation/InstrProfiling.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/InstrTypes.h>
 #ifdef _MSC_VER
@@ -361,6 +362,13 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
         } else {
             SPDLOG_INFO("Module verification passed after RS4GC");
         }
+    }
+
+    // Lower instrprof intrinsics into counter globals + profile data sections
+    if (emitCoverage_) {
+        llvm::ModulePassManager CovMPM;
+        CovMPM.addPass(llvm::InstrProfilingLoweringPass());
+        CovMPM.run(*module, MAM);
     }
 }
 

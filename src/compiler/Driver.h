@@ -24,6 +24,7 @@ struct DriverOptions {
     bool verbose = false;
     bool useNativeParser = true;   // Use native C++ parser instead of Node.js dump_ast.js
     bool enableGCStatepoints = false;  // --gc-statepoints: enable LLVM GC statepoint infrastructure
+    bool coverage = false;             // --coverage: emit LLVM source-based coverage instrumentation
     std::string runtimeBitcode;
     std::vector<std::string> libraryPaths;
 };

@@ -326,8 +326,10 @@ struct HIRInstruction {
     // Flat object shape (for NewObjectDynamic with known property names)
     HIRShape* objectShape = nullptr;
 
-    // Metadata
-    uint32_t sourceLocation = 0;    // Line number for debugging
+    // Source location metadata for debug info and coverage
+    uint16_t sourceFileIdx = 0;     // Index into HIRModule::sourceFiles
+    uint32_t sourceLine = 0;        // Line number
+    uint16_t sourceColumn = 0;      // Column number
 
     HIRInstruction(HIROpcode op) : opcode(op) {}
 
@@ -496,6 +498,9 @@ struct HIRModule {
 
     // Global variables
     std::map<std::string, std::shared_ptr<HIRType>> globals;
+
+    // Source file path table (deduplicated, indexed by HIRInstruction::sourceFileIdx)
+    std::vector<std::string> sourceFiles;
 
     // String constants (for interning)
     std::vector<std::string> stringConstants;

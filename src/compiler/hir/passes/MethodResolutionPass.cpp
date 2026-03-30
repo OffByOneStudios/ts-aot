@@ -101,7 +101,9 @@ std::unique_ptr<HIRInstruction> MethodResolutionPass::createOpcodeInstruction(
 
     auto newInst = std::make_unique<HIRInstruction>(opcode);
     newInst->result = original->result;
-    newInst->sourceLocation = original->sourceLocation;
+    newInst->sourceFileIdx = original->sourceFileIdx;
+    newInst->sourceLine = original->sourceLine;
+    newInst->sourceColumn = original->sourceColumn;
 
     // Add receiver as first operand
     newInst->operands.push_back(receiver);
@@ -123,7 +125,9 @@ std::unique_ptr<HIRInstruction> MethodResolutionPass::createRuntimeCallInstructi
 
     auto newInst = std::make_unique<HIRInstruction>(HIROpcode::Call);
     newInst->result = original->result;
-    newInst->sourceLocation = original->sourceLocation;
+    newInst->sourceFileIdx = original->sourceFileIdx;
+    newInst->sourceLine = original->sourceLine;
+    newInst->sourceColumn = original->sourceColumn;
 
     // Apply the return type from the registry to the result
     // This ensures that e.g. concat returns array type not any

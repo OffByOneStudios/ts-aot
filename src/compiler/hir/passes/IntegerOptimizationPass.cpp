@@ -647,7 +647,9 @@ IntegerOptimizationPass::convertToInt64(HIRInstruction* inst, HIRFunction& func)
     auto newInst = std::make_unique<HIRInstruction>(newOpcode);
     newInst->result = inst->result;
     newInst->operands = inst->operands;
-    newInst->sourceLocation = inst->sourceLocation;
+    newInst->sourceFileIdx = inst->sourceFileIdx;
+    newInst->sourceLine = inst->sourceLine;
+    newInst->sourceColumn = inst->sourceColumn;
 
     // Update result type
     if (newInst->result) {

@@ -32,6 +32,8 @@ set(LLVM_COMPONENTS
     OrcShared
     OrcTargetProcess
     ExecutionEngine
+    ProfileData
+    Coverage
 )
 if(WIN32)
     list(APPEND LLVM_COMPONENTS WindowsDriver WindowsManifest LibDriver)

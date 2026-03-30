@@ -134,6 +134,21 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
 #endif
     }
 
+    // Declare llvm.instrprof.increment intrinsic for coverage
+    if (emitCoverage_) {
+        llvm::Type* instrProfArgs[] = {
+            builder_->getPtrTy(),    // i8* function name
+            builder_->getInt64Ty(),  // i64 hash
+            builder_->getInt32Ty(),  // i32 num_counters
+            builder_->getInt32Ty()   // i32 counter_idx
+        };
+        llvm::FunctionType* instrProfTy = llvm::FunctionType::get(
+            builder_->getVoidTy(), instrProfArgs, false);
+        instrProfIncrement_ = llvm::Function::Create(
+            instrProfTy, llvm::Function::ExternalLinkage,
+            "llvm.instrprof.increment", module_.get());
+    }
+
     // Initialize TsValue type
     initTsValueType();
 
@@ -251,6 +266,33 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         ctorBuilder.CreateRetVoid();
 
         llvm::appendToGlobalCtors(*module_, ctorFn, 65535);
+    }
+
+    // Emit coverage: register atexit handler to write profraw
+    if (emitCoverage_) {
+        emitCoverageMapping();
+
+        // Create a global constructor that calls atexit(__ts_profile_write)
+        llvm::FunctionType* writeProfileFt = llvm::FunctionType::get(
+            builder_->getVoidTy(), false);
+        llvm::FunctionCallee writeProfileFn = module_->getOrInsertFunction(
+            "__ts_profile_write", writeProfileFt);
+
+        llvm::FunctionType* atexitFt = llvm::FunctionType::get(
+            builder_->getInt32Ty(), {builder_->getPtrTy()}, false);
+        llvm::FunctionCallee atexitFn = module_->getOrInsertFunction("atexit", atexitFt);
+
+        llvm::FunctionType* ctorFt = llvm::FunctionType::get(
+            builder_->getVoidTy(), false);
+        llvm::Function* ctorFn = llvm::Function::Create(
+            ctorFt, llvm::Function::InternalLinkage, "__ts_coverage_init", module_.get());
+        llvm::BasicBlock* ctorBB = llvm::BasicBlock::Create(context_, "entry", ctorFn);
+        llvm::IRBuilder<> ctorBuilder(ctorBB);
+        ctorBuilder.CreateCall(atexitFt, atexitFn.getCallee(),
+                               {writeProfileFn.getCallee()});
+        ctorBuilder.CreateRetVoid();
+
+        llvm::appendToGlobalCtors(*module_, ctorFn, 65534);
     }
 
     // Finalize debug info
@@ -1155,6 +1197,39 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         rpoOrder.assign(postOrder.rbegin(), postOrder.rend());
     }
 
+    // Emit coverage counter at function entry (counter 0)
+    if (emitCoverage_ && !rpoOrder.empty() && rpoOrder[0]) {
+        llvm::BasicBlock* entryBB = getBlock(rpoOrder[0]);
+        if (entryBB) {
+            builder_->SetInsertPoint(entryBB, entryBB->begin());
+            // Simple hash: use function name hash for now
+            uint64_t funcHash = std::hash<std::string>{}(fn->mangledName);
+            emitCoverageIncrement(fn->mangledName, funcHash, 1, 0);
+
+            // Record coverage function info for mapping
+            CoverageFunctionInfo covInfo;
+            covInfo.funcName = fn->mangledName;
+            covInfo.sourceFile = fn->sourceFile;
+            covInfo.funcHash = funcHash;
+            covInfo.numCounters = 1;
+            if (fn->sourceLine > 0) {
+                uint16_t fileIdx = 0;
+                for (uint16_t i = 0; i < hirModule_->sourceFiles.size(); ++i) {
+                    if (hirModule_->sourceFiles[i] == fn->sourceFile) { fileIdx = i; break; }
+                }
+                // Estimate function end line from last instruction
+                uint32_t endLine = fn->sourceLine;
+                for (auto& block : fn->blocks) {
+                    for (auto& inst : block->instructions) {
+                        if (inst->sourceLine > endLine) endLine = inst->sourceLine;
+                    }
+                }
+                covInfo.regions.push_back({fileIdx, fn->sourceLine, 1, endLine, 1});
+            }
+            coverageFunctions_.push_back(std::move(covInfo));
+        }
+    }
+
     // Lower each block in RPO order
     for (size_t bi = 0; bi < rpoOrder.size(); ++bi) {
         if (!rpoOrder[bi]) {
@@ -1214,9 +1289,9 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
     // Set debug location for this instruction
     if (emitDebugInfo_ && currentFunction_) {
         if (auto* sp = currentFunction_->getSubprogram()) {
-            if (inst->sourceLocation > 0) {
+            if (inst->sourceLine > 0) {
                 builder_->SetCurrentDebugLocation(
-                    llvm::DILocation::get(context_, inst->sourceLocation, 0, sp));
+                    llvm::DILocation::get(context_, inst->sourceLine, inst->sourceColumn, sp));
             }
         } else {
             // No subprogram — clear debug location to avoid misattribution
@@ -8991,6 +9066,40 @@ llvm::DISubroutineType* HIRToLLVM::createFunctionDebugType(HIRFunction* fn) {
         types.push_back(nullptr);  // Parameter types
     }
     return diBuilder_->createSubroutineType(diBuilder_->getOrCreateTypeArray(types));
+}
+
+//==============================================================================
+// Coverage Instrumentation
+//==============================================================================
+
+void HIRToLLVM::emitCoverageIncrement(const std::string& funcName, uint64_t funcHash,
+                                       uint32_t numCounters, uint32_t counterIdx) {
+    if (!instrProfIncrement_) return;
+
+    // Create or reuse the __profn_ global for this function name
+    std::string profnName = "__profn_" + funcName;
+    llvm::GlobalVariable* nameVar = module_->getGlobalVariable(profnName);
+    if (!nameVar) {
+        auto* strConst = llvm::ConstantDataArray::getString(context_, funcName, false);
+        nameVar = new llvm::GlobalVariable(
+            *module_, strConst->getType(), true,
+            llvm::GlobalValue::LinkOnceODRLinkage, strConst, profnName);
+        nameVar->setAlignment(llvm::Align(1));
+    }
+
+    llvm::Value* args[] = {
+        nameVar,
+        llvm::ConstantInt::get(builder_->getInt64Ty(), funcHash),
+        llvm::ConstantInt::get(builder_->getInt32Ty(), numCounters),
+        llvm::ConstantInt::get(builder_->getInt32Ty(), counterIdx)
+    };
+    builder_->CreateCall(instrProfIncrement_, args);
+}
+
+void HIRToLLVM::emitCoverageMapping() {
+    // Phase 3: coverage mapping sections will be implemented here.
+    // For now, the instrprof intrinsics are emitted and will be lowered
+    // by InstrProfilingLoweringPass into counter globals + profraw output.
 }
 
 } // namespace ts::hir

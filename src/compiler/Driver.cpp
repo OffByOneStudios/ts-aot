@@ -276,7 +276,8 @@ int Driver::run() {
         hirContext = std::make_unique<llvm::LLVMContext>();
         hir::HIRToLLVM hirToLlvm(*hirContext);
         hirToLlvm.setEnableGCStatepoints(options.enableGCStatepoints);
-        hirToLlvm.setEmitDebugInfo(options.debug);
+        hirToLlvm.setEmitDebugInfo(options.debug || options.coverage);
+        hirToLlvm.setEmitCoverage(options.coverage);
 
         // Embed ICU data path so compiled executables can find icudtXXl.dat
         // next to the compiler instead of needing a local copy
@@ -321,6 +322,7 @@ int Driver::run() {
         }
         ts::CodeGenerator codeGen(modulePtr);
         codeGen.setEnableGCStatepoints(options.enableGCStatepoints);
+        codeGen.setEmitCoverage(options.coverage);
         if (!codeGen.emitObjectFile(objFile, options.optLevel)) {
             return 1;
         }

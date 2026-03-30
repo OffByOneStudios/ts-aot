@@ -213,11 +213,24 @@ private:
                                           const std::vector<ast::Decorator>& classDecorators,
                                           const std::vector<ast::NodePtr>& members);
 
-    // Set current source line from AST node (for debug info propagation)
+    // Set current source location from AST node (for debug info and coverage)
     void setSourceLine(ast::Node* node) {
         if (node && node->line > 0) {
-            builder_.setCurrentSourceLine(static_cast<uint32_t>(node->line));
+            uint16_t fileIdx = getOrCreateFileIndex(node->sourceFile);
+            builder_.setCurrentSourceLoc(fileIdx,
+                static_cast<uint32_t>(node->line),
+                static_cast<uint16_t>(node->column));
         }
+    }
+
+    uint16_t getOrCreateFileIndex(const std::string& path) {
+        if (path.empty()) return 0;
+        auto& files = module_->sourceFiles;
+        for (uint16_t i = 0; i < files.size(); ++i) {
+            if (files[i] == path) return i;
+        }
+        files.push_back(path);
+        return static_cast<uint16_t>(files.size() - 1);
     }
 
     //==========================================================================
