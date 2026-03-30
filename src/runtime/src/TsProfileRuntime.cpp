@@ -1,7 +1,8 @@
 // TsProfileRuntime.cpp — Minimal LLVM profile runtime for coverage instrumentation
 //
 // Provides __llvm_profile_runtime and writes .profraw on exit.
-// Uses COFF section sentinels to find counter/data/name boundaries.
+// Finds counter/data/name sections by walking PE section headers at runtime,
+// avoiding fragile COFF section sentinel approaches.
 //
 // Profraw v9 format (LLVM 18):
 //   Header (14 x uint64), Data records, Counters, Bitmaps, Names
@@ -10,6 +11,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 extern "C" {
 
@@ -37,21 +42,45 @@ struct __llvm_profile_header {
     uint64_t ValueKindLast;
 };
 
-// COFF section sentinels — linker merges $A < $M < $Z
+// Find a PE section by name prefix. Returns base address and size.
+// Matches sections starting with `prefix` (e.g., ".lprfc" matches ".lprfc").
+// When multiple sections share a prefix, returns the LARGEST one
+// (the $M data section, not the tiny $A/$Z sentinels).
 #ifdef _WIN32
-#pragma section(".lprfc$A", read, write)
-#pragma section(".lprfc$Z", read, write)
-#pragma section(".lprfd$A", read, write)
-#pragma section(".lprfd$Z", read, write)
-#pragma section(".lprfn$A", read, write)
-#pragma section(".lprfn$Z", read, write)
+static bool findPESection(const char* prefix, char*& outBase, size_t& outSize) {
+    HMODULE hModule = GetModuleHandleA(NULL);
+    if (!hModule) return false;
 
-__declspec(allocate(".lprfc$A")) static uint64_t __lprfc_a = 0;
-__declspec(allocate(".lprfc$Z")) static uint64_t __lprfc_z = 0;
-__declspec(allocate(".lprfd$A")) static uint64_t __lprfd_a[8] = {};  // 64 bytes placeholder
-__declspec(allocate(".lprfd$Z")) static uint64_t __lprfd_z[8] = {};
-__declspec(allocate(".lprfn$A")) static uint8_t __lprfn_a = 0;
-__declspec(allocate(".lprfn$Z")) static uint8_t __lprfn_z = 0;
+    auto* dosHeader = (IMAGE_DOS_HEADER*)hModule;
+    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) return false;
+
+    auto* ntHeaders = (IMAGE_NT_HEADERS*)((char*)hModule + dosHeader->e_lfanew);
+    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) return false;
+
+    auto* section = IMAGE_FIRST_SECTION(ntHeaders);
+    WORD numSections = ntHeaders->FileHeader.NumberOfSections;
+    size_t prefixLen = strlen(prefix);
+
+    outBase = nullptr;
+    outSize = 0;
+
+    for (WORD i = 0; i < numSections; i++) {
+        // Section name is 8 bytes, may not be null-terminated
+        char name[9] = {};
+        memcpy(name, section[i].Name, 8);
+
+        if (strncmp(name, prefix, prefixLen) == 0) {
+            size_t sz = section[i].Misc.VirtualSize;
+            if (sz == 0) sz = section[i].SizeOfRawData;
+            // Pick the largest matching section (skip tiny sentinels)
+            if (sz > outSize) {
+                outBase = (char*)hModule + section[i].VirtualAddress;
+                outSize = sz;
+            }
+        }
+    }
+    return outBase != nullptr && outSize > 0;
+}
 #endif
 
 static const char* getProfileFilename() {
@@ -60,35 +89,33 @@ static const char* getProfileFilename() {
 }
 
 static void writeProfileData() {
+    char* cntsBegin = nullptr; size_t cntsSize = 0;
+    char* dataBegin = nullptr; size_t dataSize = 0;
+    char* namesBegin = nullptr; size_t namesSize = 0;
+
 #ifdef _WIN32
-    // Section sentinels bracket the $M data: $A < $M < $Z
-    char* cntsBegin = (char*)(&__lprfc_a + 1);
-    char* cntsEnd   = (char*)&__lprfc_z;
-    char* dataBegin = (char*)(&__lprfd_a[0] + 8);  // Skip 64-byte sentinel
-    char* dataEnd   = (char*)&__lprfd_z[0];
-    char* namesBegin = (char*)(&__lprfn_a + 1);
-    char* namesEnd   = (char*)&__lprfn_z;
+    if (!findPESection(".lprfc", cntsBegin, cntsSize)) return;
+    if (!findPESection(".lprfd", dataBegin, dataSize)) return;
+    findPESection(".lprfn", namesBegin, namesSize);  // Names optional
 #else
-    // ELF: linker-defined section boundaries
     extern char __start___llvm_prf_cnts[];
     extern char __stop___llvm_prf_cnts[];
     extern char __start___llvm_prf_data[];
     extern char __stop___llvm_prf_data[];
     extern char __start___llvm_prf_names[];
     extern char __stop___llvm_prf_names[];
-    char* cntsBegin = __start___llvm_prf_cnts;
-    char* cntsEnd   = __stop___llvm_prf_cnts;
-    char* dataBegin = __start___llvm_prf_data;
-    char* dataEnd   = __stop___llvm_prf_data;
-    char* namesBegin = __start___llvm_prf_names;
-    char* namesEnd   = __stop___llvm_prf_names;
+    cntsBegin = __start___llvm_prf_cnts;
+    cntsSize = __stop___llvm_prf_cnts - __start___llvm_prf_cnts;
+    dataBegin = __start___llvm_prf_data;
+    dataSize = __stop___llvm_prf_data - __start___llvm_prf_data;
+    namesBegin = __start___llvm_prf_names;
+    namesSize = __stop___llvm_prf_names - __start___llvm_prf_names;
 #endif
 
-    if (cntsEnd <= cntsBegin || dataEnd <= dataBegin) return;
+    size_t numCounters = cntsSize / sizeof(uint64_t);
+    size_t numData = dataSize / 64;  // 64 bytes per record
 
-    size_t numCounters = (size_t)(cntsEnd - cntsBegin) / sizeof(uint64_t);
-    size_t numData = (size_t)(dataEnd - dataBegin) / 64;  // 64 bytes per record
-    size_t namesSize = (namesEnd > namesBegin) ? (size_t)(namesEnd - namesBegin) : 0;
+    if (numCounters == 0 || numData == 0) return;
 
     const char* filename = getProfileFilename();
     FILE* f = fopen(filename, "wb");
@@ -109,29 +136,30 @@ static void writeProfileData() {
     header.NumBitmapBytes = 0;
     header.PaddingBytesAfterBitmapBytes = 0;
     header.NamesSize = namesSize;
-    header.CountersDelta = (uint64_t)(uintptr_t)(cntsBegin - dataBegin);
+    header.CountersDelta = (uint64_t)(intptr_t)(cntsBegin - dataBegin);
     header.BitmapDelta = 0;
-    header.NamesDelta = (uint64_t)(uintptr_t)(namesBegin - cntsEnd);
+    header.NamesDelta = (uint64_t)(intptr_t)(namesBegin - (cntsBegin + cntsSize));
     header.ValueKindLast = 1;  // IPVK_Last
 
     fwrite(&header, sizeof(header), 1, f);
 
-    // Fix data records: CounterPtr is a 32-bit COFF REL32 relocation stored
-    // in the lower 32 bits of a 64-bit field. Sign-extend to match the
-    // 64-bit CountersDelta so llvm-profdata computes correct counter indices.
+    // Write data records with sign-extended CounterPtr/BitmapPtr.
+    // These fields contain 32-bit COFF REL32 relocations in the lower 32 bits
+    // of a 64-bit field. Sign-extend to match the 64-bit CountersDelta.
     for (size_t i = 0; i < numData; i++) {
         char record[64];
         memcpy(record, dataBegin + i * 64, 64);
-        // CounterPtr is at offset 16 in the record (after NameRef + FuncHash)
+        // CounterPtr at offset 16 (after NameRef + FuncHash)
         int32_t rel32 = *(int32_t*)(record + 16);
         int64_t rel64 = (int64_t)rel32;
         memcpy(record + 16, &rel64, 8);
-        // BitmapPtr at offset 24 — same treatment
+        // BitmapPtr at offset 24
         rel32 = *(int32_t*)(record + 24);
         rel64 = (int64_t)rel32;
         memcpy(record + 24, &rel64, 8);
         fwrite(record, 64, 1, f);
     }
+
     fwrite(cntsBegin, sizeof(uint64_t), numCounters, f);
     if (paddingAfterCounters > 0) {
         uint64_t zero = 0;
