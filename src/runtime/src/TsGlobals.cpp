@@ -14,6 +14,7 @@
 extern "C" {
 
 // Forward declarations for native wrapper functions
+void* ts_get_builtin_function(void* nameStr);
 TsValue* ts_object_keys_native(void* context, int argc, TsValue** argv);
 TsValue* ts_object_values_native(void* context, int argc, TsValue** argv);
 TsValue* ts_object_entries_native(void* context, int argc, TsValue** argv);
@@ -595,8 +596,14 @@ void* ts_get_global_module() { return getModuleGlobal("module"); }
 void* ts_get_global_vm() { return getModuleGlobal("vm"); }
 void* ts_get_global_v8() { return getModuleGlobal("v8"); }
 
-// Generic global lookup by name
+// Generic global lookup by name (namePtr is a raw C string from createGlobalString)
 void* ts_get_global(void* namePtr) {
+    if (!namePtr) return nullptr;
+    const char* name = (const char*)namePtr;
+    // Try builtin functions (encodeURIComponent, decodeURIComponent, etc.)
+    TsString* tsName = TsString::Create(name);
+    void* builtin = ts_get_builtin_function(tsName);
+    if (builtin) return builtin;
     return nullptr;
 }
 

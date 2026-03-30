@@ -295,19 +295,10 @@ void TsOutgoingMessage::RemoveHeader(TsString* name) {
     headers->Delete(lowerName);
 }
 
-// Helper to convert TsValue to int64_t for array storage
+// Helper to convert TsValue to int64_t for array storage (NaN-boxed)
 static int64_t valueToInt64(const TsValue& v) {
-    switch (v.type) {
-        case ValueType::NUMBER_INT: return v.i_val;
-        case ValueType::NUMBER_DBL: return (int64_t)ts_value_make_double(v.d_val);
-        case ValueType::BOOLEAN: return (int64_t)ts_value_make_bool(v.b_val);
-        case ValueType::STRING_PTR: return (int64_t)v.ptr_val;  // String pointer stored directly
-        case ValueType::OBJECT_PTR: 
-        case ValueType::ARRAY_PTR:
-        case ValueType::PROMISE_PTR:
-            return (int64_t)v.ptr_val;  // Object pointer stored directly
-        default: return 0;
-    }
+    // Always store as NaN-boxed so GetElementBoxed() works correctly
+    return (int64_t)nanbox_from_tagged(v);
 }
 
 void TsOutgoingMessage::AppendHeader(TsString* name, TsValue* value) {
@@ -505,6 +496,28 @@ void TsServerResponse::WriteHead(int status, TsObject* headers) {
                         valStr = std::to_string(val.i_val);
                     } else if (val.type == ValueType::NUMBER_DBL) {
                         valStr = std::to_string((int64_t)val.d_val);
+                    } else if (val.type == ValueType::ARRAY_PTR ||
+                               (val.type == ValueType::OBJECT_PTR && dynamic_cast<TsArray*>((TsObject*)val.ptr_val))) {
+                        // Array header value — emit comma-separated (Node.js behavior)
+                        TsArray* arr = (val.type == ValueType::ARRAY_PTR) ?
+                            (TsArray*)val.ptr_val :
+                            dynamic_cast<TsArray*>((TsObject*)val.ptr_val);
+                        if (arr && arr->Length() > 0) {
+                            head += k;
+                            head += ": ";
+                            for (int64_t j = 0; j < arr->Length(); j++) {
+                                if (j > 0) head += ", ";
+                                // Get raw stored value (NaN-boxed) and convert to string
+                                int64_t rawVal = arr->Get(j);
+                                TsString* s = (TsString*)ts_string_from_value((TsValue*)(uintptr_t)rawVal);
+                                if (s) head += s->ToUtf8();
+                            }
+                            head += "\r\n";
+                            if (_stricmp(k, "content-length") == 0) {
+                                hasContentLength = true;
+                            }
+                        }
+                        continue;
                     } else {
                         // Try converting via ts_string_from_value
                         TsString* s = (TsString*)ts_string_from_value(nanbox_from_tagged(val));
