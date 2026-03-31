@@ -744,6 +744,24 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 func->params.push_back({paramName, paramType});
             }
 
+            // If the function body uses 'arguments', add hidden __argN__ params
+            // so extra call arguments beyond declared params can be captured.
+            {
+                bool bodyUsesArguments = false;
+                for (auto& stmt : funcNode->body) {
+                    if (containsArgumentsIdentifier(stmt.get())) {
+                        bodyUsesArguments = true;
+                        break;
+                    }
+                }
+                if (bodyUsesArguments) {
+                    while (func->params.size() < 10) {
+                        std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
+                        func->params.push_back({argName, HIRType::makeAny()});
+                    }
+                }
+            }
+
             // Set return type from specialization
             if (spec.returnType) {
                 func->returnType = convertType(spec.returnType);
@@ -915,6 +933,42 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                             }
                         }
                     }
+                }
+            }
+
+            // Create 'arguments' array-like object if the function body references 'arguments'.
+            // Must be done at function entry (before any other code) because inner calls
+            // will overwrite ts_last_call_argc, making lazy creation incorrect.
+            {
+                bool usesArguments = false;
+                for (auto& stmt : funcNode->body) {
+                    if (containsArgumentsIdentifier(stmt.get())) {
+                        usesArguments = true;
+                        break;
+                    }
+                }
+                if (usesArguments) {
+                    std::vector<std::shared_ptr<HIRValue>> callArgs;
+                    size_t userIdx = 0;
+                    for (size_t i = 0; i < funcPtr->params.size() && userIdx < 10; ++i) {
+                        if (funcPtr->params[i].first == "__closure__") continue;
+                        auto paramVal = lookupVariable(funcPtr->params[i].first);
+                        if (!paramVal) {
+                            paramVal = builder_.createConstUndefined();
+                        }
+                        callArgs.push_back(paramVal);
+                        userIdx++;
+                    }
+                    while (userIdx < 10) {
+                        callArgs.push_back(builder_.createConstUndefined());
+                        userIdx++;
+                    }
+
+                    auto argsArray = builder_.createCall("ts_create_arguments_from_params",
+                        callArgs, HIRType::makeAny());
+                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
+                    builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
+                    defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
                 }
             }
 
@@ -5449,6 +5503,13 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             }
             auto referrerVal = builder_.createConstCString(referrerPath);
             args.push_back(referrerVal);
+        }
+
+        // Set ts_last_call_argc before direct calls so the 'arguments' object
+        // (if the callee creates one) knows how many args were actually passed.
+        {
+            auto actualArgc = builder_.createConstInt(static_cast<int64_t>(node->arguments.size()));
+            builder_.createCall("ts_set_last_call_argc", {actualArgc}, HIRType::makeVoid());
         }
 
         // Determine return type from target function if available

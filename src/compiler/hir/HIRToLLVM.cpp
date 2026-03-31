@@ -5068,6 +5068,12 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             if (funcName == "ts_to_number") {
                 retType = builder_->getDoubleTy();
             }
+            // Special-case ts_set_last_call_argc: void(i64) not ptr(ptr)
+            if (funcName == "ts_set_last_call_argc") {
+                paramTypes.clear();
+                paramTypes.push_back(builder_->getInt64Ty());
+                retType = builder_->getVoidTy();
+            }
             llvm::FunctionType* ft = llvm::FunctionType::get(retType, paramTypes, false);
             fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
         }

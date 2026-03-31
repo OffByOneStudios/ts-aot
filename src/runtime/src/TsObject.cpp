@@ -493,6 +493,10 @@ int64_t ts_get_last_call_argc() {
     return ts_last_call_argc;
 }
 
+void ts_set_last_call_argc(int64_t argc) {
+    ts_last_call_argc = argc;
+}
+
 // Create an arguments array from function parameters.
 // p0-p9: the parameter values (up to 10), padded with undefined from compiler.
 // Uses ts_last_call_argc to determine how many were actually passed.
