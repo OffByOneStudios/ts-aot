@@ -5794,8 +5794,30 @@ TsValue* ts_value_make_int(int64_t i) {
             return false;
         }
 
+        // TsFunction — check its properties map (e.g., String.prototype)
+        if (magic16 == 0x46554E43) { // TsFunction::MAGIC
+            TsFunction* func = (TsFunction*)rawObj;
+            if (func->properties) {
+                TsString* keyStr = (TsString*)ts_value_get_string(key);
+                if (keyStr) {
+                    TsValue keyVal;
+                    keyVal.type = ValueType::STRING_PTR;
+                    keyVal.ptr_val = keyStr;
+                    if (func->properties->Has(keyVal)) return true;
+                }
+            }
+            // Also check built-in function properties
+            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k && (strcmp(k, "name") == 0 || strcmp(k, "length") == 0 ||
+                          strcmp(k, "bind") == 0 || strcmp(k, "call") == 0 ||
+                          strcmp(k, "apply") == 0)) return true;
+            }
+            return false;
+        }
         // Non-TsObject types at offset 16 — return early
-        if (magic16 == 0x434C5352 || magic16 == 0x46554E43) return false; // TsClosure, native function
+        if (magic16 == 0x434C5352) return false; // TsClosure
         if (magic16 == 0x42494749 || magic16 == 0x53594D42) return false; // BigInt, Symbol
 
         // Check side-map for dynamically assigned properties on native objects

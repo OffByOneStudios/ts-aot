@@ -69,8 +69,12 @@ TsValue* ts_value_make_object(void* ptr);
 TsValue* ts_value_make_bool(bool val);
 TsValue* ts_value_make_undefined();
 TsValue* ts_value_make_string(void* str);
+TsValue* ts_value_make_double(double d);
 bool ts_value_is_undefined(TsValue* val);
 void* ts_get_call_this();
+void* ts_string_from_value(TsValue* val);
+double ts_value_get_double(TsValue* v);
+bool ts_value_to_bool(TsValue* v);
 void* ts_value_get_object(TsValue* val);
 TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
 TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
@@ -256,12 +260,23 @@ STRING_PROTO_METHOD(trimEnd)
 #undef STRING_PROTO_METHOD
 
 void* ts_get_global_String() {
-    static TsMap* cached = nullptr;
+    static void* cached = nullptr;
     if (!cached) {
-        cached = TsMap::Create();
-        TsMap* proto = TsMap::Create();
+        // String() as a callable function: converts argument to string
+        auto stringFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (argc >= 1 && argv && argv[0]) {
+                void* result = ts_string_from_value(argv[0]);
+                return ts_value_make_string(result);
+            }
+            return ts_value_make_string(TsString::Create(""));
+        };
 
-        // Populate String.prototype with common methods
+        TsValue* ctorVal = ts_value_make_native_function((void*)+stringFn, nullptr);
+        void* ctorRaw = ts_value_get_object(ctorVal);
+        TsFunction* ctorFunc = (TsFunction*)ctorRaw;
+
+        // String.prototype with common methods
+        TsMap* proto = TsMap::Create();
         addMethod(proto, "indexOf", (void*)ts_string_proto_indexOf);
         addMethod(proto, "lastIndexOf", (void*)ts_string_proto_lastIndexOf);
         addMethod(proto, "slice", (void*)ts_string_proto_slice);
@@ -285,13 +300,15 @@ void* ts_get_global_String() {
         addMethod(proto, "trimStart", (void*)ts_string_proto_trimStart);
         addMethod(proto, "trimEnd", (void*)ts_string_proto_trimEnd);
 
-        TsValue protoKey;
-        protoKey.type = ValueType::STRING_PTR;
+        if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
         protoKey.ptr_val = TsString::GetInterned("prototype");
-        TsValue protoVal;
-        protoVal.type = ValueType::OBJECT_PTR;
+        TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
-        cached->Set(protoKey, protoVal);
+        ctorFunc->properties->Set(protoKey, protoVal);
+
+        ctorFunc->name = TsString::Create("String");
+        cached = (void*)ctorVal;
     }
     return cached;
 }
@@ -413,14 +430,60 @@ static TsMap* makeSimpleConstructorGlobal(const char* name) {
 }
 
 void* ts_get_global_Number() {
-    static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("Number");
+    static void* cached = nullptr;
+    if (!cached) {
+        auto numberFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (argc >= 1 && argv && argv[0]) {
+                double d = ts_value_get_double(argv[0]);
+                return ts_value_make_double(d);
+            }
+            return ts_value_make_double(0.0);
+        };
+
+        TsValue* ctorVal = ts_value_make_native_function((void*)+numberFn, nullptr);
+        void* ctorRaw = ts_value_get_object(ctorVal);
+        TsFunction* ctorFunc = (TsFunction*)ctorRaw;
+
+        if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
+        TsMap* proto = TsMap::Create();
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
+        protoVal.ptr_val = proto;
+        ctorFunc->properties->Set(protoKey, protoVal);
+
+        ctorFunc->name = TsString::Create("Number");
+        cached = (void*)ctorVal;
+    }
     return cached;
 }
 
 void* ts_get_global_Boolean() {
-    static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("Boolean");
+    static void* cached = nullptr;
+    if (!cached) {
+        auto boolFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (argc >= 1 && argv && argv[0]) {
+                bool b = ts_value_to_bool(argv[0]);
+                return ts_value_make_bool(b);
+            }
+            return ts_value_make_bool(false);
+        };
+
+        TsValue* ctorVal = ts_value_make_native_function((void*)+boolFn, nullptr);
+        void* ctorRaw = ts_value_get_object(ctorVal);
+        TsFunction* ctorFunc = (TsFunction*)ctorRaw;
+
+        if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
+        TsMap* proto = TsMap::Create();
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
+        protoVal.ptr_val = proto;
+        ctorFunc->properties->Set(protoKey, protoVal);
+
+        ctorFunc->name = TsString::Create("Boolean");
+        cached = (void*)ctorVal;
+    }
     return cached;
 }
 
