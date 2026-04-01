@@ -3912,7 +3912,6 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // If proto is null/undefined, return object with no prototype
         if (!proto || ts_value_is_nullish(proto)) {
-            // Object.create(null) - no prototype chain
             newObj->SetPrototype(nullptr);
             return ts_value_make_object(newObj);
         }
@@ -3924,7 +3923,6 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check if proto is a TsMap
         uint32_t magic = *(uint32_t*)((char*)protoRaw + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            // Set the prototype chain properly (don't copy properties)
             TsMap* protoMap = (TsMap*)protoRaw;
             newObj->SetPrototype(protoMap);
         }
@@ -4018,9 +4016,11 @@ TsValue* ts_value_make_int(int64_t i) {
                         }
                     }
                 }
-                // Also walk prototype chain of sourceMap
+                // Also walk prototype chain of sourceMap (with cycle detection)
                 TsMap* protoChain = sourceMap->GetPrototype();
-                while (protoChain) {
+                constexpr int kMaxProtoDepth = 256;
+                int depth = 0;
+                while (protoChain && protoChain != sourceMap && depth < kMaxProtoDepth) {
                     TsArray* pkeys = (TsArray*)protoChain->GetKeys();
                     if (pkeys) {
                         for (int64_t i = 0; i < pkeys->Length(); i++) {
@@ -4036,6 +4036,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         }
                     }
                     protoChain = protoChain->GetPrototype();
+                    depth++;
                 }
             }
             return obj;
@@ -5663,22 +5664,26 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
             TsMap* map = (TsMap*)rawObj;
 
-            // First check for a setter (__setter_<propertyName>)
+            // Check for a setter (__setter_<propertyName>), walking prototype chain
             const char* keyCStr = keyStr->ToUtf8();
             if (keyCStr) {
                 std::string setterKey = std::string("__setter_") + keyCStr;
                 TsValue sk;
                 sk.type = ValueType::STRING_PTR;
                 sk.ptr_val = TsString::GetInterned(setterKey.c_str());
-                TsValue setterVal = map->Get(sk);
-                if (setterVal.type != ValueType::UNDEFINED) {
-                    // Found a setter - invoke it with 'this' as the object and value as argument
-                    TsValue* boxedObj = nanbox_from_tagged(obj);
-                    TsValue* setterFunc = nanbox_from_tagged(setterVal);
-                    TsValue* boxedVal = nanbox_from_tagged(value);
-                    TsValue* args[] = { boxedVal };
-                    ts_function_call_with_this(setterFunc, boxedObj, 1, args);
-                    return value;
+                TsMap* currentMap = map;
+                while (currentMap) {
+                    TsValue setterVal = currentMap->Get(sk);
+                    if (setterVal.type != ValueType::UNDEFINED) {
+                        // Found a setter - invoke with 'this' as the ORIGINAL object
+                        TsValue* boxedObj = nanbox_from_tagged(obj);
+                        TsValue* setterFunc = nanbox_from_tagged(setterVal);
+                        TsValue* boxedVal = nanbox_from_tagged(value);
+                        TsValue* args[] = { boxedVal };
+                        ts_function_call_with_this(setterFunc, boxedObj, 1, args);
+                        return value;
+                    }
+                    currentMap = currentMap->GetPrototype();
                 }
             }
 
@@ -5691,7 +5696,9 @@ TsValue* ts_value_make_int(int64_t i) {
                     uint32_t pm20 = *(uint32_t*)((char*)protoPtr + 20);
                     uint32_t pm24 = *(uint32_t*)((char*)protoPtr + 24);
                     if (pm16 == 0x4D415053 || pm20 == 0x4D415053 || pm24 == 0x4D415053) {
-                        map->SetPrototype((TsMap*)protoPtr);
+                        if (!map->WouldCreateCycle((TsMap*)protoPtr)) {
+                            map->SetPrototype((TsMap*)protoPtr);
+                        }
                         return value;
                     }
                 }
