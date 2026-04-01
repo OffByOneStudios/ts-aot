@@ -4380,14 +4380,9 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* key = (TsValue*)keys->Get(i);
             TsValue desc = descMap->Get(nanbox_to_tagged(key));
 
-            // Call defineProperty for each
-            TsValue descVal;
-            descVal.type = ValueType::OBJECT_PTR;
-            // Direct field access — desc is a TsValue struct, not a NaN-boxed pointer
-            descVal.ptr_val = desc.ptr_val;
-            if (!descVal.ptr_val) descVal.ptr_val = &desc;
-
-            ts_object_defineProperty(obj, key, &descVal);
+            // Convert tagged TsValue to NaN-boxed TsValue* for ts_object_defineProperty
+            TsValue* descNb = nanbox_from_tagged(desc);
+            ts_object_defineProperty(obj, key, descNb);
         }
 
         return obj;
