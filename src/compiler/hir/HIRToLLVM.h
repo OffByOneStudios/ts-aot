@@ -240,6 +240,12 @@ private:
     // Used to avoid boxing string args when callee param is String-typed (not Any)
     std::map<std::string, std::vector<std::shared_ptr<HIRType>>> userFunctionParams_;
 
+    // Cache of closure globals for LoadFunction: funcName -> LLVM global holding the cached TsClosure*.
+    // Function declarations get a single TsClosure allocated on first reference and reused,
+    // preserving JavaScript function object identity (a === a must be true).
+    // Function expressions (__fn_expr_*, __arrow_fn_*) are excluded — they create new closures each time.
+    std::map<std::string, llvm::GlobalVariable*> closureCache_;
+
     // Flat object shape tracking: maps HIR value ID to its shape (for flat object fast path)
     std::map<uint32_t, HIRShape*> flatObjectShapes_;
 
@@ -437,6 +443,9 @@ private:
     void lowerStoreCapture(HIRInstruction* inst);
     void lowerLoadCaptureFromClosure(HIRInstruction* inst);
     void lowerStoreCaptureFromClosure(HIRInstruction* inst);
+
+    // Create a TsClosure for a function (trampoline, arity, name setup)
+    llvm::Value* createClosureForFunction(const std::string& funcName, llvm::Function* fn);
 
     // Function trampolines for dynamic calls
     // Generates a trampoline that converts a function's native calling convention

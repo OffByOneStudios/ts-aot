@@ -110,6 +110,8 @@ llvm::CallInst* HIRToLLVM::createCallWithDeopt(llvm::FunctionType* ft, llvm::Val
 std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::string& moduleName) {
     hirModule_ = hirModule;
     module_ = std::make_unique<llvm::Module>(moduleName, context_);
+    closureCache_.clear();
+    globalMap_.clear();
 
     // Initialize debug info if enabled
     if (emitDebugInfo_) {
@@ -6620,6 +6622,90 @@ void HIRToLLVM::lowerStoreGlobal(HIRInstruction* inst) {
     builder_->CreateStore(value, gv);
 }
 
+// Helper: create a TsClosure for a function, set arity and display name.
+// Used by lowerLoadFunction for both cached and uncached paths.
+llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, llvm::Function* fn) {
+    // Wrap in a TsClosure so .name and .toString() work (ES2019)
+    // Use a trampoline to ensure proper calling convention:
+    // ts_call_N passes (closure, arg1, ...) but the original function
+    // may not expect a closure context as its first parameter.
+    llvm::Function* trampolineFunc = getOrCreateTrampoline(fn);
+    llvm::Value* funcPtrToUse = trampolineFunc ? (llvm::Value*)trampolineFunc : (llvm::Value*)fn;
+
+    auto closureCreateFt = llvm::FunctionType::get(
+        builder_->getPtrTy(),
+        { builder_->getPtrTy(), builder_->getInt64Ty() },
+        false);
+    auto closureCreate = module_->getOrInsertFunction("ts_closure_create", closureCreateFt);
+    llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
+    llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal });
+
+    // Set the function arity (user-visible parameter count, excluding __closure__ and hidden __arg params)
+    {
+        int32_t arity = 0;
+        if (hirModule_) {
+            for (const auto& hirFn : hirModule_->functions) {
+                if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                    for (const auto& p : hirFn->params) {
+                        if (p.first != "__closure__" && p.first.find("__arg") != 0) {
+                            arity++;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        if (arity == 0 && fn) {
+            // Fallback: count LLVM function params minus closure param
+            int nParams = fn->arg_size();
+            if (nParams > 1) arity = nParams - 1; // minus __closure__
+        }
+        {
+            auto setArityFt = llvm::FunctionType::get(
+                builder_->getVoidTy(),
+                { builder_->getPtrTy(), builder_->getInt32Ty() },
+                false);
+            auto setArityFn = module_->getOrInsertFunction("ts_closure_set_arity", setArityFt);
+            builder_->CreateCall(setArityFt, setArityFn.getCallee(),
+                { closure, llvm::ConstantInt::get(builder_->getInt32Ty(), arity) });
+        }
+    }
+
+    // Set the function's display name
+    std::string displayName;
+    if (hirModule_) {
+        for (const auto& hirFn : hirModule_->functions) {
+            if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                displayName = !hirFn->displayName.empty() ? hirFn->displayName : hirFn->name;
+                break;
+            }
+        }
+    }
+    if (displayName.empty()) {
+        displayName = funcName;
+        auto pos = displayName.rfind("_M");
+        if (pos != std::string::npos) displayName = displayName.substr(0, pos);
+    }
+    if (!displayName.empty() && displayName.find("__arrow_fn_") != 0 &&
+        displayName.find("__fn_expr_") != 0 && displayName.find("module_init") == std::string::npos) {
+        auto setNameFt = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy() },
+            false);
+        auto setNameFn = module_->getOrInsertFunction("ts_closure_set_name", setNameFt);
+        auto strCreateFt = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy() },
+            false);
+        auto strCreateFn = module_->getOrInsertFunction("ts_string_create", strCreateFt);
+        llvm::Value* cStr = createGlobalString(displayName);
+        llvm::Value* tsStr = builder_->CreateCall(strCreateFt, strCreateFn.getCallee(), { cStr });
+        builder_->CreateCall(setNameFt, setNameFn.getCallee(), { closure, tsStr });
+    }
+
+    return closure;
+}
+
 void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
     std::string funcName = getOperandString(inst->operands[0]);
 
@@ -6627,86 +6713,58 @@ void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
     llvm::Function* fn = module_->getFunction(funcName);
     if (fn) {
         if (inst->result) {
-            // Wrap in a TsClosure so .name and .toString() work (ES2019)
-            // Use a trampoline to ensure proper calling convention:
-            // ts_call_N passes (closure, arg1, ...) but the original function
-            // may not expect a closure context as its first parameter.
-            llvm::Function* trampolineFunc = getOrCreateTrampoline(fn);
-            llvm::Value* funcPtrToUse = trampolineFunc ? (llvm::Value*)trampolineFunc : (llvm::Value*)fn;
+            // Function expressions and arrow functions create a new closure each time
+            // (JS spec: each evaluation produces a distinct function object).
+            // Function declarations should share a single closure identity so that
+            // properties set on the function are visible from all references.
+            bool isFunctionExpression = (funcName.find("__arrow_fn_") == 0 ||
+                                         funcName.find("__fn_expr_") == 0);
 
-            auto closureCreateFt = llvm::FunctionType::get(
-                builder_->getPtrTy(),
-                { builder_->getPtrTy(), builder_->getInt64Ty() },
-                false);
-            auto closureCreate = module_->getOrInsertFunction("ts_closure_create", closureCreateFt);
-            llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
-            llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal });
+            if (!isFunctionExpression) {
+                // Check the module-level closure cache
+                auto it = closureCache_.find(funcName);
+                if (it == closureCache_.end()) {
+                    // Create a module-level global to cache this closure
+                    auto* gv = new llvm::GlobalVariable(
+                        *module_, builder_->getPtrTy(), false,
+                        llvm::GlobalValue::InternalLinkage,
+                        llvm::ConstantPointerNull::get(builder_->getPtrTy()),
+                        "__closure_cache_" + funcName);
+                    closureCache_[funcName] = gv;
+                    it = closureCache_.find(funcName);
+                }
+                llvm::GlobalVariable* cacheGV = it->second;
 
-            // Set the function arity (user-visible parameter count, excluding __closure__ and hidden __arg params)
-            {
-                int32_t arity = 0;
-                if (hirModule_) {
-                    for (const auto& hirFn : hirModule_->functions) {
-                        if (hirFn->mangledName == funcName || hirFn->name == funcName) {
-                            for (const auto& p : hirFn->params) {
-                                if (p.first != "__closure__" && p.first.find("__arg") != 0) {
-                                    arity++;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-                if (arity == 0 && fn) {
-                    // Fallback: count LLVM function params minus closure param
-                    int nParams = fn->arg_size();
-                    if (nParams > 1) arity = nParams - 1; // minus __closure__
-                }
-                {
-                    auto setArityFt = llvm::FunctionType::get(
-                        builder_->getVoidTy(),
-                        { builder_->getPtrTy(), builder_->getInt32Ty() },
-                        false);
-                    auto setArityFn = module_->getOrInsertFunction("ts_closure_set_arity", setArityFt);
-                    builder_->CreateCall(setArityFt, setArityFn.getCallee(),
-                        { closure, llvm::ConstantInt::get(builder_->getInt32Ty(), arity) });
-                }
-            }
+                // Emit lazy initialization: load cached, branch if null
+                llvm::Value* cached = builder_->CreateLoad(builder_->getPtrTy(), cacheGV, "cached_closure");
+                llvm::Value* isNull = builder_->CreateICmpEQ(
+                    cached, llvm::ConstantPointerNull::get(builder_->getPtrTy()), "closure_is_null");
 
-            // Set the function's display name
-            std::string displayName;
-            if (hirModule_) {
-                for (const auto& hirFn : hirModule_->functions) {
-                    if (hirFn->mangledName == funcName || hirFn->name == funcName) {
-                        displayName = !hirFn->displayName.empty() ? hirFn->displayName : hirFn->name;
-                        break;
-                    }
-                }
-            }
-            if (displayName.empty()) {
-                displayName = funcName;
-                auto pos = displayName.rfind("_M");
-                if (pos != std::string::npos) displayName = displayName.substr(0, pos);
-            }
-            if (!displayName.empty() && displayName.find("__arrow_fn_") != 0 &&
-                displayName.find("__fn_expr_") != 0 && displayName.find("module_init") == std::string::npos) {
-                auto setNameFt = llvm::FunctionType::get(
-                    builder_->getVoidTy(),
-                    { builder_->getPtrTy(), builder_->getPtrTy() },
-                    false);
-                auto setNameFn = module_->getOrInsertFunction("ts_closure_set_name", setNameFt);
-                // Create a TsString from the C string constant
-                auto strCreateFt = llvm::FunctionType::get(
-                    builder_->getPtrTy(),
-                    { builder_->getPtrTy() },
-                    false);
-                auto strCreateFn = module_->getOrInsertFunction("ts_string_create", strCreateFt);
-                llvm::Value* cStr = createGlobalString(displayName);
-                llvm::Value* tsStr = builder_->CreateCall(strCreateFt, strCreateFn.getCallee(), { cStr });
-                builder_->CreateCall(setNameFt, setNameFn.getCallee(), { closure, tsStr });
-            }
+                llvm::BasicBlock* currentBB = builder_->GetInsertBlock();
+                llvm::BasicBlock* createBB = llvm::BasicBlock::Create(context_, "create_closure", currentFunction_);
+                llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(context_, "closure_ready", currentFunction_);
 
-            setValue(inst->result, closure);
+                builder_->CreateCondBr(isNull, createBB, mergeBB);
+
+                // Create closure block
+                builder_->SetInsertPoint(createBB);
+                llvm::Value* newClosure = createClosureForFunction(funcName, fn);
+                builder_->CreateStore(newClosure, cacheGV);
+                llvm::BasicBlock* createEndBB = builder_->GetInsertBlock(); // may differ after calls
+                builder_->CreateBr(mergeBB);
+
+                // Merge block with phi
+                builder_->SetInsertPoint(mergeBB);
+                llvm::PHINode* phi = builder_->CreatePHI(builder_->getPtrTy(), 2, "closure");
+                phi->addIncoming(cached, currentBB);
+                phi->addIncoming(newClosure, createEndBB);
+
+                setValue(inst->result, phi);
+            } else {
+                // Function expression: always create a new closure (no caching)
+                llvm::Value* closure = createClosureForFunction(funcName, fn);
+                setValue(inst->result, closure);
+            }
         }
     } else {
         // Function not found - create a null pointer
