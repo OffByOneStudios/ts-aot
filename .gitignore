@@ -16,7 +16,7 @@ vcpkg_installed/
 vcpkg/
 
 # Node.js
-node_modules/
+**/node_modules/
 package-lock.json
 
 # AST intermediate files (generated during compilation)
