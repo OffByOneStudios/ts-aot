@@ -2472,14 +2472,30 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure (magic at offset 16) - closures need .name, .toString(), .bind, .call, .apply, .prototype
         if (magic16 == 0x434C5352) { // TsClosure::MAGIC ("CLSR")
             TsClosure* closure = (TsClosure*)obj;
-            // Check properties first (e.g., previously-set .prototype or user properties)
+            // Walk properties + prototype chain (like TsMap path)
             if (closure->properties) {
                 TsValue k;
                 k.type = ValueType::STRING_PTR;
                 k.ptr_val = TsString::GetInterned(keyStr);
-                TsValue val = closure->properties->Get(k);
-                if (val.type != ValueType::UNDEFINED) {
-                    return nanbox_from_tagged(val);
+                TsMap* currentMap = closure->properties;
+                while (currentMap) {
+                    // Check for getter
+                    std::string getterKey = std::string("__getter_") + keyStr;
+                    TsValue gk;
+                    gk.type = ValueType::STRING_PTR;
+                    gk.ptr_val = TsString::GetInterned(getterKey.c_str());
+                    TsValue getterVal = currentMap->Get(gk);
+                    if (getterVal.type != ValueType::UNDEFINED) {
+                        TsValue* boxedObj = (TsValue*)obj;
+                        TsValue* getterFunc = nanbox_from_tagged(getterVal);
+                        return ts_function_call_with_this(getterFunc, boxedObj, 0, nullptr);
+                    }
+                    // Check for direct property
+                    TsValue val = currentMap->Get(k);
+                    if (val.type != ValueType::UNDEFINED) {
+                        return nanbox_from_tagged(val);
+                    }
+                    currentMap = currentMap->GetPrototype();
                 }
             }
             // Handle .prototype - lazily create like TsFunction
@@ -2540,44 +2556,48 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
-        // Fallback: check side-map for dynamically assigned properties on native objects
+        // Fallback: check side-map + prototype chain for native objects
         {
             TsMap* props = getNativeProps(obj);
             if (props) {
-                // Plain property lookup (functions like req.get, req.header)
                 TsValue k;
                 k.type = ValueType::STRING_PTR;
                 k.ptr_val = TsString::GetInterned(keyStr);
-                TsValue val = props->Get(k);
-                if (val.type != ValueType::UNDEFINED) {
-                    return nanbox_from_tagged(val);
-                }
 
-                // Getter dispatch for __getter_<name> entries (from Object.defineProperty).
-                // Wrapped in setjmp/longjmp protection so a throwing getter
-                // returns undefined instead of killing the process.
-                TsString* getterKeyStr = TsString::FindInterned(
-                    (std::string("__getter_") + keyStr).c_str());
-                if (getterKeyStr) {
-                    TsValue gk;
-                    gk.type = ValueType::STRING_PTR;
-                    gk.ptr_val = getterKeyStr;
-                    TsValue getterVal = props->Get(gk);
-                    if (getterVal.type != ValueType::UNDEFINED) {
-                        TsValue* getterFunc = nanbox_from_tagged(getterVal);
-                        void* handler = ts_push_exception_handler();
-                        jmp_buf* env = (jmp_buf*)handler;
-                        if (setjmp(*env) == 0) {
-                            TsValue* result = ts_function_call_with_this(
-                                getterFunc, (TsValue*)obj, 0, nullptr);
-                            ts_pop_exception_handler();
-                            return result;
-                        } else {
-                            ts_pop_exception_handler();
-                            ts_set_exception(nullptr);
-                            return ts_value_make_undefined();
+                // Walk prototype chain (same pattern as TsMap path)
+                TsMap* currentMap = props;
+                while (currentMap) {
+                    // Check for getter
+                    TsString* getterKeyStr = TsString::FindInterned(
+                        (std::string("__getter_") + keyStr).c_str());
+                    if (getterKeyStr) {
+                        TsValue gk;
+                        gk.type = ValueType::STRING_PTR;
+                        gk.ptr_val = getterKeyStr;
+                        TsValue getterVal = currentMap->Get(gk);
+                        if (getterVal.type != ValueType::UNDEFINED) {
+                            TsValue* getterFunc = nanbox_from_tagged(getterVal);
+                            void* handler = ts_push_exception_handler();
+                            jmp_buf* env = (jmp_buf*)handler;
+                            if (setjmp(*env) == 0) {
+                                TsValue* result = ts_function_call_with_this(
+                                    getterFunc, (TsValue*)obj, 0, nullptr);
+                                ts_pop_exception_handler();
+                                return result;
+                            } else {
+                                ts_pop_exception_handler();
+                                ts_set_exception(nullptr);
+                                return ts_value_make_undefined();
+                            }
                         }
                     }
+
+                    // Check for direct property
+                    TsValue val = currentMap->Get(k);
+                    if (val.type != ValueType::UNDEFINED) {
+                        return nanbox_from_tagged(val);
+                    }
+                    currentMap = currentMap->GetPrototype();
                 }
             }
         }
@@ -3941,17 +3961,21 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check if obj is a TsMap or TsClosure
         uint32_t magic = *(uint32_t*)((char*)objRaw + 16);
 
-        // Handle TsClosure: copy proto properties into closure->properties
-        // (supports Express pattern: setPrototypeOf(routerFunc, proto))
+        // Handle TsClosure: set prototype pointer on closure->properties
         if (magic == 0x434C5352) { // TsClosure::MAGIC
             TsClosure* closure = (TsClosure*)objRaw;
-            if (!proto || ts_value_is_nullish(proto)) return obj;
+
+            if (!proto || ts_value_is_nullish(proto)) {
+                if (closure->properties) closure->properties->SetPrototype(nullptr);
+                return obj;
+            }
 
             void* protoRaw = ts_value_get_object(proto);
             if (!protoRaw) protoRaw = proto;
 
-            // Copy properties from proto (TsMap or TsClosure) into closure->properties
+            // Extract source TsMap from proto (convert flat objects)
             TsMap* sourceMap = nullptr;
+            if (is_flat_object(protoRaw)) protoRaw = ts_flat_object_to_map(protoRaw);
             uint32_t protoMagic = *(uint32_t*)((char*)protoRaw + 16);
             if (protoMagic == 0x4D415053) {
                 sourceMap = (TsMap*)protoRaw;
@@ -3960,38 +3984,32 @@ TsValue* ts_value_make_int(int64_t i) {
             }
 
             if (sourceMap) {
-                if (!closure->properties) closure->properties = TsMap::Create();
-                ts_gc_write_barrier(&closure->properties, closure->properties);
-                // Copy all entries from sourceMap into closure->properties
-                TsArray* keys = (TsArray*)sourceMap->GetKeys();
-                if (keys) {
-                    for (int64_t i = 0; i < keys->Length(); i++) {
-                        TsValue* keyVal = (TsValue*)keys->Get(i);
-                        TsValue kd = nanbox_to_tagged(keyVal);
-                        TsValue val = sourceMap->Get(kd);
-                        if (val.type != ValueType::UNDEFINED) {
-                            // Only copy if not already defined on the closure
-                            TsValue existing = closure->properties->Get(kd);
-                            if (existing.type == ValueType::UNDEFINED) {
-                                closure->properties->Set(kd, val);
-                            }
-                        }
-                    }
+                if (!closure->properties) {
+                    closure->properties = TsMap::Create();
+                    ts_gc_write_barrier(&closure->properties, closure->properties);
+                }
+                if (!closure->properties->WouldCreateCycle(sourceMap)) {
+                    closure->properties->SetPrototype(sourceMap);
                 }
             }
             return obj;
         }
 
         if (magic != 0x4D415053) { // TsMap::MAGIC
-            // Generic TsObject subclass: copy proto properties into side-map
-            // This enables Express's setPrototypeOf(res, app.response) pattern
-            if (!proto || ts_value_is_nullish(proto)) return obj;
+            // Generic TsObject subclass (native C++ objects like TsServerResponse):
+            // set prototype pointer on the side-map instead of copying properties.
+            if (!proto || ts_value_is_nullish(proto)) {
+                TsMap* props = getNativeProps(objRaw);
+                if (props) props->SetPrototype(nullptr);
+                return obj;
+            }
 
             void* protoRaw = ts_value_get_object(proto);
             if (!protoRaw) protoRaw = proto;
 
-            // Extract source map from proto (TsMap or TsClosure)
+            // Extract source TsMap from proto (convert flat objects)
             TsMap* sourceMap = nullptr;
+            if (is_flat_object(protoRaw)) protoRaw = ts_flat_object_to_map(protoRaw);
             uint32_t protoMagic = *(uint32_t*)((char*)protoRaw + 16);
             if (protoMagic == 0x4D415053) {
                 sourceMap = (TsMap*)protoRaw;
@@ -4001,42 +4019,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
             if (sourceMap) {
                 TsMap* props = getOrCreateNativeProps(objRaw);
-                TsArray* keys = (TsArray*)sourceMap->GetKeys();
-                if (keys) {
-                    for (int64_t i = 0; i < keys->Length(); i++) {
-                        TsValue* keyVal = (TsValue*)keys->Get(i);
-                        TsValue kd = nanbox_to_tagged(keyVal);
-                        TsValue val = sourceMap->Get(kd);
-                        if (val.type != ValueType::UNDEFINED) {
-                            // Only copy if not already defined
-                            TsValue existing = props->Get(kd);
-                            if (existing.type == ValueType::UNDEFINED) {
-                                props->Set(kd, val);
-                            }
-                        }
-                    }
-                }
-                // Also walk prototype chain of sourceMap (with cycle detection)
-                TsMap* protoChain = sourceMap->GetPrototype();
-                constexpr int kMaxProtoDepth = 256;
-                int depth = 0;
-                while (protoChain && protoChain != sourceMap && depth < kMaxProtoDepth) {
-                    TsArray* pkeys = (TsArray*)protoChain->GetKeys();
-                    if (pkeys) {
-                        for (int64_t i = 0; i < pkeys->Length(); i++) {
-                            TsValue* keyVal = (TsValue*)pkeys->Get(i);
-                            TsValue kd = nanbox_to_tagged(keyVal);
-                            TsValue val = protoChain->Get(kd);
-                            if (val.type != ValueType::UNDEFINED) {
-                                TsValue existing = props->Get(kd);
-                                if (existing.type == ValueType::UNDEFINED) {
-                                    props->Set(kd, val);
-                                }
-                            }
-                        }
-                    }
-                    protoChain = protoChain->GetPrototype();
-                    depth++;
+                if (!props->WouldCreateCycle(sourceMap)) {
+                    props->SetPrototype(sourceMap);
                 }
             }
             return obj;
@@ -4053,6 +4037,9 @@ TsValue* ts_value_make_int(int64_t i) {
         // Unbox proto if needed
         void* protoRaw = ts_value_get_object(proto);
         if (!protoRaw) protoRaw = proto;
+
+        // Convert flat objects to TsMap
+        if (is_flat_object(protoRaw)) protoRaw = ts_flat_object_to_map(protoRaw);
 
         // Check if proto is a TsMap
         uint32_t protoMagic = *(uint32_t*)((char*)protoRaw + 16);
