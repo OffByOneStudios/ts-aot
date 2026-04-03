@@ -77,6 +77,13 @@ std::unique_ptr<HIRInstruction> BuiltinResolutionPass::tryResolveBuiltin(
         return nullptr;
     }
 
+    // Object.create with 2 args: skip static resolution so it falls through
+    // to the dynamic native path (ts_object_create_native) which handles
+    // the propertiesObject argument via ts_object_defineProperties.
+    if (globalName == "Object" && methodName == "create" && args.size() >= 2) {
+        return nullptr;
+    }
+
     // Create a direct Call instruction
     auto newInst = std::make_unique<HIRInstruction>(HIROpcode::Call);
     newInst->result = inst->result;
