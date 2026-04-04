@@ -99,6 +99,12 @@ public:
     static constexpr uint8_t CTRL_DELETED  = 0x7F;
     // Live entries: H2 in range [0x01, 0x7E]
 
+    // Property attribute flags (1 byte per slot, parallel to ctrl_)
+    static constexpr uint8_t ATTR_ENUMERABLE   = 0x01;
+    static constexpr uint8_t ATTR_WRITABLE     = 0x02;
+    static constexpr uint8_t ATTR_CONFIGURABLE = 0x04;
+    static constexpr uint8_t ATTR_DEFAULT      = 0x07; // all true (JS assignment default)
+
     static TsHashTable* Create(size_t initial_capacity = 8) {
         TsHashTable* ht = (TsHashTable*)ts_gc_alloc_old_gen(sizeof(TsHashTable));
         ht->size_ = 0;
@@ -107,30 +113,63 @@ public:
         while (cap < initial_capacity) cap <<= 1;
         ht->capacity_ = cap;
         ht->grow_thresh_ = cap - cap / 8;  // 87.5%
-        size_t alloc_size = cap + cap * sizeof(Entry);
+        // Layout: ctrl_[cap] + attrs_[cap] + entries_[cap * sizeof(Entry)]
+        size_t alloc_size = cap + cap + cap * sizeof(Entry);
         void* buf = ts_gc_alloc_old_gen(alloc_size);
         std::memset(buf, 0, alloc_size);
         ht->ctrl_ = (uint8_t*)buf;
-        ht->entries_ = (Entry*)((uint8_t*)buf + cap);
+        ht->attrs_ = (uint8_t*)buf + cap;
+        ht->entries_ = (Entry*)((uint8_t*)buf + cap + cap);
         return ht;
     }
 
     void Set(const TsValue& key, const TsValue& value) {
-        // Check for existing key first to avoid duplicate entries
+        // Check for existing key first — preserve attrs on update
         size_t existing = find_slot(key);
         if (existing != NOT_FOUND) {
             store_entry(existing, key, value);
+            // attrs_[existing] preserved — Set() doesn't change attributes
             return;
         }
 
-        // New key — grow if needed, then insert
+        // New key — default attributes (enumerable+writable+configurable)
         if (size_ >= grow_thresh_) {
             size_t new_cap = capacity_ < 256 ? capacity_ * 4 : capacity_ * 2;
             rehash(new_cap);
         }
 
-        insert_entry(key, value);
+        insert_entry(key, value, ATTR_DEFAULT);
         size_++;
+    }
+
+    void SetWithAttrs(const TsValue& key, const TsValue& value, uint8_t attrs) {
+        size_t existing = find_slot(key);
+        if (existing != NOT_FOUND) {
+            store_entry(existing, key, value);
+            attrs_[existing] = attrs;
+            return;
+        }
+
+        if (size_ >= grow_thresh_) {
+            size_t new_cap = capacity_ < 256 ? capacity_ * 4 : capacity_ * 2;
+            rehash(new_cap);
+        }
+
+        insert_entry(key, value, attrs);
+        size_++;
+    }
+
+    uint8_t GetAttrs(const TsValue& key) const {
+        size_t idx = find_slot(key);
+        if (idx == NOT_FOUND) return 0;
+        return attrs_[idx];
+    }
+
+    void SetAttrs(const TsValue& key, uint8_t attrs) {
+        size_t idx = find_slot(key);
+        if (idx != NOT_FOUND) {
+            attrs_[idx] = attrs;
+        }
     }
 
     TsValue Get(const TsValue& key) const {
@@ -147,6 +186,7 @@ public:
         size_t idx = find_slot(key);
         if (idx == NOT_FOUND) return false;
         ctrl_[idx] = CTRL_DELETED;
+        attrs_[idx] = 0;
         entries_[idx].key = TsValue();
         entries_[idx].value = TsValue();
         size_--;
@@ -155,6 +195,7 @@ public:
 
     void Clear() {
         std::memset(ctrl_, 0, capacity_);
+        std::memset(attrs_, 0, capacity_);
         std::memset(entries_, 0, capacity_ * sizeof(Entry));
         size_ = 0;
     }
@@ -174,6 +215,17 @@ public:
         for (size_t i = 0; i < capacity_; i++) {
             uint8_t c = ctrl_[i];
             if (c != CTRL_EMPTY && c != CTRL_DELETED) {
+                fn(entries_[i].key, entries_[i].value);
+            }
+        }
+    }
+
+    // Iterate only enumerable live entries.
+    template<typename F>
+    void ForEachEnumerable(F&& fn) const {
+        for (size_t i = 0; i < capacity_; i++) {
+            uint8_t c = ctrl_[i];
+            if (c != CTRL_EMPTY && c != CTRL_DELETED && (attrs_[i] & ATTR_ENUMERABLE)) {
                 fn(entries_[i].key, entries_[i].value);
             }
         }
@@ -202,6 +254,7 @@ public:
 
 private:
     uint8_t* ctrl_;
+    uint8_t* attrs_;   // Property attributes, parallel to ctrl_ (1 byte per slot)
     Entry* entries_;
     size_t size_;
     size_t capacity_;
@@ -255,34 +308,35 @@ private:
 
     void rehash(size_t new_capacity) {
         uint8_t* old_ctrl = ctrl_;
+        uint8_t* old_attrs = attrs_;
         Entry* old_entries = entries_;
         size_t old_capacity = capacity_;
 
         capacity_ = new_capacity;
         grow_thresh_ = new_capacity - new_capacity / 8;
 
-        size_t alloc_size = new_capacity + new_capacity * sizeof(Entry);
+        size_t alloc_size = new_capacity + new_capacity + new_capacity * sizeof(Entry);
         void* buf = ts_gc_alloc_old_gen(alloc_size);
         std::memset(buf, 0, alloc_size);
         ctrl_ = (uint8_t*)buf;
-        entries_ = (Entry*)((uint8_t*)buf + new_capacity);
+        attrs_ = (uint8_t*)buf + new_capacity;
+        entries_ = (Entry*)((uint8_t*)buf + new_capacity + new_capacity);
 
-        // Re-insert all live entries
+        // Re-insert all live entries with preserved attributes
         size_t count = 0;
         for (size_t i = 0; i < old_capacity; i++) {
             uint8_t c = old_ctrl[i];
             if (c != CTRL_EMPTY && c != CTRL_DELETED) {
-                insert_entry(old_entries[i].key, old_entries[i].value);
+                insert_entry(old_entries[i].key, old_entries[i].value, old_attrs[i]);
                 count++;
             }
         }
         size_ = count;
-        // Old buffer is GC-managed (old-gen), will be collected when unreachable
     }
 
     // Insert an entry known to not exist in the table.
     // Caller must ensure there is room (size_ < grow_thresh_).
-    void insert_entry(const TsValue& key, const TsValue& value) {
+    void insert_entry(const TsValue& key, const TsValue& value, uint8_t attrs = ATTR_DEFAULT) {
         size_t hash = hasher_(key);
         uint8_t h2 = h2_from_hash(hash);
         size_t idx = h1_from_hash(hash);
@@ -292,6 +346,7 @@ private:
 
             if (c == CTRL_EMPTY || c == CTRL_DELETED) {
                 ctrl_[idx] = h2;
+                attrs_[idx] = attrs;
                 store_entry(idx, key, value);
                 return;
             }

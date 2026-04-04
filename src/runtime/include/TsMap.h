@@ -14,14 +14,18 @@ public:
     static TsMap* Create();
 
     void Set(TsValue key, TsValue value);
+    void SetWithAttrs(TsValue key, TsValue value, uint8_t attrs);
     TsValue Get(TsValue key);
     bool Has(TsValue key);
     bool Delete(TsValue key);
     void Clear();
     int64_t Size();
     void* GetKeys();
+    void* GetEnumerableKeys();
     void* GetValues();
     void* GetEntries();
+    uint8_t GetPropertyAttrs(TsValue key);
+    void SetPropertyAttrs(TsValue key, uint8_t attrs);
     void ForEach(void* callback, void* thisArg = nullptr);
     TsMap* CopyExcluding(std::vector<TsString*>& excluded);
     

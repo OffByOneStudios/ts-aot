@@ -3769,7 +3769,9 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check TsMap::magic at offset 16 (after vptr + explicit vtable field)
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_value_make_array(ts_map_keys(rawPtr));
+            // Object.keys() returns only enumerable own properties
+            extern void* ts_map_enumerable_keys(void*);
+            return ts_value_make_array(ts_map_enumerable_keys(rawPtr));
         }
 
         // Check if this is a Proxy - only attempt dynamic_cast on known TsObject types
@@ -4313,14 +4315,84 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
-        // Check for value (data descriptor)
+        // Extract property attribute flags from descriptor.
+        // Per JS spec: missing flags default to false for new properties via defineProperty,
+        // but preserve existing value for properties that already exist.
+        // Attribute flag constants (match TsHashTable::ATTR_*)
+        constexpr uint8_t ATTR_ENUMERABLE   = 0x01;
+        constexpr uint8_t ATTR_WRITABLE     = 0x02;
+        constexpr uint8_t ATTR_CONFIGURABLE = 0x04;
+
+        uint8_t existingAttrs = map->GetPropertyAttrs(propKey);
+        bool propertyExists = map->Has(propKey);
+        uint8_t attrs = 0;
+
+        // enumerable
+        TsValue enumKey;
+        enumKey.type = ValueType::STRING_PTR;
+        enumKey.ptr_val = TsString::GetInterned("enumerable");
+        if (descMap->Has(enumKey)) {
+            TsValue ev = descMap->Get(enumKey);
+            if (ev.type == ValueType::BOOLEAN ? ev.i_val : (ev.type != ValueType::UNDEFINED && ev.ptr_val))
+                attrs |= ATTR_ENUMERABLE;
+        } else if (propertyExists) {
+            attrs |= (existingAttrs & ATTR_ENUMERABLE);
+        }
+
+        // writable
+        TsValue writableKey;
+        writableKey.type = ValueType::STRING_PTR;
+        writableKey.ptr_val = TsString::GetInterned("writable");
+        if (descMap->Has(writableKey)) {
+            TsValue wv = descMap->Get(writableKey);
+            if (wv.type == ValueType::BOOLEAN ? wv.i_val : (wv.type != ValueType::UNDEFINED && wv.ptr_val))
+                attrs |= ATTR_WRITABLE;
+        } else if (propertyExists) {
+            attrs |= (existingAttrs & ATTR_WRITABLE);
+        }
+
+        // configurable
+        TsValue configKey;
+        configKey.type = ValueType::STRING_PTR;
+        configKey.ptr_val = TsString::GetInterned("configurable");
+        if (descMap->Has(configKey)) {
+            TsValue cv = descMap->Get(configKey);
+            if (cv.type == ValueType::BOOLEAN ? cv.i_val : (cv.type != ValueType::UNDEFINED && cv.ptr_val))
+                attrs |= ATTR_CONFIGURABLE;
+        } else if (propertyExists) {
+            attrs |= (existingAttrs & ATTR_CONFIGURABLE);
+        }
+
+        // Store getters/setters with non-enumerable attrs (they're synthetic)
+        // (getter/setter code above already stored them — mark them non-enumerable)
+        if (descMap->Has(getKey)) {
+            std::string gk2 = std::string("__getter_") + propName;
+            TsValue gk2v;
+            gk2v.type = ValueType::STRING_PTR;
+            gk2v.ptr_val = TsString::GetInterned(gk2.c_str());
+            map->SetPropertyAttrs(gk2v, 0); // non-enumerable
+        }
+        if (descMap->Has(setKey)) {
+            std::string sk2 = std::string("__setter_") + propName;
+            TsValue sk2v;
+            sk2v.type = ValueType::STRING_PTR;
+            sk2v.ptr_val = TsString::GetInterned(sk2.c_str());
+            map->SetPropertyAttrs(sk2v, 0); // non-enumerable
+        }
+
+        // Check for value (data descriptor) — store with extracted attributes
         TsValue valueKey;
         valueKey.type = ValueType::STRING_PTR;
         valueKey.ptr_val = TsString::GetInterned("value");
 
         if (descMap->Has(valueKey)) {
             TsValue value = descMap->Get(valueKey);
-            map->Set(propKey, value);
+            map->SetWithAttrs(propKey, value, attrs);
+        } else if (!descMap->Has(getKey) && !descMap->Has(setKey)) {
+            // No value, getter, or setter — just update attributes on existing property
+            if (propertyExists) {
+                map->SetPropertyAttrs(propKey, attrs);
+            }
         }
 
         return obj;
@@ -4429,26 +4501,32 @@ TsValue* ts_value_make_int(int64_t i) {
         valueKey.ptr_val = TsString::GetInterned("value");
         desc->Set(valueKey, value);
 
-        // Set writable: true (we always allow writes in our simplified model)
+        // Read back actual property attribute flags
+        uint8_t attrs = map->GetPropertyAttrs(propKey);
+
         TsValue writableKey;
         writableKey.type = ValueType::STRING_PTR;
         writableKey.ptr_val = TsString::GetInterned("writable");
-        TsValue trueVal;
-        trueVal.type = ValueType::BOOLEAN;
-        trueVal.b_val = true;
-        desc->Set(writableKey, trueVal);
+        TsValue writableVal;
+        writableVal.type = ValueType::BOOLEAN;
+        writableVal.i_val = (attrs & 0x02) ? 1 : 0; // ATTR_WRITABLE
+        desc->Set(writableKey, writableVal);
 
-        // Set enumerable: true
         TsValue enumKey;
         enumKey.type = ValueType::STRING_PTR;
         enumKey.ptr_val = TsString::GetInterned("enumerable");
-        desc->Set(enumKey, trueVal);
+        TsValue enumVal;
+        enumVal.type = ValueType::BOOLEAN;
+        enumVal.i_val = (attrs & 0x01) ? 1 : 0; // ATTR_ENUMERABLE
+        desc->Set(enumKey, enumVal);
 
-        // Set configurable: true
         TsValue configKey;
         configKey.type = ValueType::STRING_PTR;
         configKey.ptr_val = TsString::GetInterned("configurable");
-        desc->Set(configKey, trueVal);
+        TsValue configVal;
+        configVal.type = ValueType::BOOLEAN;
+        configVal.i_val = (attrs & 0x04) ? 1 : 0; // ATTR_CONFIGURABLE
+        desc->Set(configKey, configVal);
 
         return ts_value_make_object(desc);
     }

@@ -77,6 +77,22 @@ void TsMap::Set(TsValue key, TsValue value) {
     }
 }
 
+void TsMap::SetWithAttrs(TsValue key, TsValue value, uint8_t attrs) {
+    if ((uintptr_t)impl < 0x10000) return;
+    if (frozen) return;
+    if (sealed || !extensible) {
+        auto* ht = (TsHashTable*)impl;
+        if (!ht->Has(key)) return;
+    }
+    ((TsHashTable*)impl)->SetWithAttrs(key, value, attrs);
+    if (value.type == ValueType::OBJECT_PTR || value.type == ValueType::STRING_PTR ||
+        value.type == ValueType::FUNCTION_PTR || value.type == ValueType::ARRAY_PTR) {
+        if (value.ptr_val) {
+            ts_gc_write_barrier(impl, value.ptr_val);
+        }
+    }
+}
+
 TsValue TsMap::Get(TsValue key) {
     return ((TsHashTable*)impl)->Get(key);
 }
@@ -106,6 +122,30 @@ void* TsMap::GetKeys() {
         keys->Push((int64_t)(uintptr_t)nanbox_from_tagged(key));
     });
     return keys;
+}
+
+void* TsMap::GetEnumerableKeys() {
+    auto* ht = (TsHashTable*)impl;
+    TsArray* keys = TsArray::Create(ht->Size());
+    ht->ForEachEnumerable([&](const TsValue& key, const TsValue& val) {
+        // Filter out synthetic __getter_/__setter_ keys
+        if (key.type == ValueType::STRING_PTR && key.ptr_val) {
+            const char* s = ((TsString*)key.ptr_val)->ToUtf8();
+            if (s && (strncmp(s, "__getter_", 9) == 0 || strncmp(s, "__setter_", 9) == 0)) {
+                return;
+            }
+        }
+        keys->Push((int64_t)(uintptr_t)nanbox_from_tagged(key));
+    });
+    return keys;
+}
+
+uint8_t TsMap::GetPropertyAttrs(TsValue key) {
+    return ((TsHashTable*)impl)->GetAttrs(key);
+}
+
+void TsMap::SetPropertyAttrs(TsValue key, uint8_t attrs) {
+    ((TsHashTable*)impl)->SetAttrs(key, attrs);
 }
 
 void* TsMap::GetValues() {
@@ -283,6 +323,11 @@ int64_t ts_map_size(void* map) {
 void* ts_map_keys(void* map) {
     if (!map) return nullptr;
     return ((TsMap*)map)->GetKeys();
+}
+
+void* ts_map_enumerable_keys(void* map) {
+    if (!map) return nullptr;
+    return ((TsMap*)map)->GetEnumerableKeys();
 }
 
 void* ts_map_values(void* map) {
