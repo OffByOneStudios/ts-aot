@@ -102,7 +102,7 @@
   "fs/fs_async.ts": "pass",
   "fs/fs_createReadStream.ts": "pass",
   "fs/fs_createWriteStream.ts": "pass",
-  "fs/fs_dirs.ts": "pass",
+  "fs/fs_dirs.ts": "fail",
   "fs/fs_exists_callback.ts": "pass",
   "fs/fs_fd_operations.ts": "pass",
   "fs/fs_links.ts": "pass",

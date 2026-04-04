@@ -5,7 +5,7 @@
   "express_app_route": "pass",
   "express_custom_headers": "pass",
   "express_error_middleware": "pass",
-  "express_hello": "fail",
+  "express_hello": "pass",
   "express_methods": "pass",
   "express_middleware_order": "pass",
   "express_middleware_path": "pass",

@@ -125,6 +125,8 @@
   "golden_ir/javascript/string_methods/slice_substring.js": "pass",
   "golden_ir/javascript/string_methods/split_join.js": "pass",
   "golden_ir/javascript/string_methods/trim.js": "pass",
+  "golden_ir/javascript/test_string_buffer_coercion.js": "fail",
+  "golden_ir/javascript/test_toplevel_closure_mutation.js": "fail",
   "golden_ir/typescript/arrays/array_at.ts": "pass",
   "golden_ir/typescript/arrays/array_concat.ts": "pass",
   "golden_ir/typescript/arrays/array_destructuring.ts": "pass",
