@@ -8361,6 +8361,12 @@ void HIRToLLVM::lowerSetupTry(HIRInstruction* inst) {
         builder_->getPtrTy(), {});
     llvm::Value* jmpBuf = builder_->CreateCall(pushFn, {});
 
+    // Mark the containing function as noinline — setjmp semantics require
+    // the stack frame to remain valid for longjmp to return to.
+    if (auto* parentFn = builder_->GetInsertBlock()->getParent()) {
+        parentFn->addFnAttr(llvm::Attribute::NoInline);
+    }
+
     // Call setjmp - platform-specific signature
     // Returns 0 on normal entry, non-zero when returning from longjmp
 #ifdef _WIN32
@@ -8370,16 +8376,28 @@ void HIRToLLVM::lowerSetupTry(HIRInstruction* inst) {
     auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
         builder_->getInt32Ty(),
         {builder_->getPtrTy(), builder_->getPtrTy()});
+    // Mark _setjmp as returns_twice so LLVM doesn't optimize across it
+    if (auto* fn = llvm::dyn_cast<llvm::Function>(setjmpFn.getCallee())) {
+        fn->addFnAttr(llvm::Attribute::ReturnsTwice);
+    }
     auto frameAddrFn = llvm::Intrinsic::getDeclaration(
         module_.get(), llvm::Intrinsic::frameaddress, {builder_->getPtrTy()});
     llvm::Value* framePtr = builder_->CreateCall(frameAddrFn, {builder_->getInt32(0)});
-    llvm::Value* setjmpResult = builder_->CreateCall(setjmpFn, {jmpBuf, framePtr});
+    auto* setjmpCall = builder_->CreateCall(setjmpFn, {jmpBuf, framePtr});
+    setjmpCall->addFnAttr(llvm::Attribute::ReturnsTwice);
+    llvm::Value* setjmpResult = setjmpCall;
 #else
     // Linux/POSIX: _setjmp(jmp_buf) - doesn't save signal mask (faster)
     auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
         builder_->getInt32Ty(),
         {builder_->getPtrTy()});
-    llvm::Value* setjmpResult = builder_->CreateCall(setjmpFn, {jmpBuf});
+    // Mark _setjmp as returns_twice so LLVM doesn't optimize across it
+    if (auto* fn = llvm::dyn_cast<llvm::Function>(setjmpFn.getCallee())) {
+        fn->addFnAttr(llvm::Attribute::ReturnsTwice);
+    }
+    auto* setjmpCallPosix = builder_->CreateCall(setjmpFn, {jmpBuf});
+    setjmpCallPosix->addFnAttr(llvm::Attribute::ReturnsTwice);
+    llvm::Value* setjmpResult = setjmpCallPosix;
 #endif
 
     // Convert result to bool: true if non-zero (exception path)
