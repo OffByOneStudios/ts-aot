@@ -2,6 +2,7 @@
 #define SPDLOG_COMPILED_LIB 1
 #include "TsObject.h"
 #include "TsArray.h"
+#include "TsError.h"
 #include "TsBigInt.h"
 #include "TsMap.h"
 #include "TsWeakMap.h"
@@ -1991,6 +1992,11 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
         if (!obj) {
+            // null pointer — throw TypeError
+            char msg[256];
+            snprintf(msg, sizeof(msg), "Cannot read properties of null (reading '%s')",
+                     keyStr ? keyStr : "?");
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
             return ts_value_make_undefined();
         }
 
@@ -2003,7 +2009,18 @@ TsValue* ts_value_make_int(int64_t i) {
         uint64_t nb = (uint64_t)(uintptr_t)obj;
 
         // Handle non-pointer NaN-boxed values
-        if (nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+        if (nanbox_is_undefined(nb)) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "Cannot read properties of undefined (reading '%s')",
+                     keyStr);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return ts_value_make_undefined();
+        }
+        if (nanbox_is_null(nb)) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "Cannot read properties of null (reading '%s')",
+                     keyStr);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
             return ts_value_make_undefined();
         }
         if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
@@ -5089,12 +5106,24 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
-        if (!obj || !key) return ts_value_make_undefined();
+        if (!obj) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", "Cannot read properties of null"));
+            return ts_value_make_undefined();
+        }
+        if (!key) return ts_value_make_undefined();
 
         uint64_t objNb = nanbox_from_tsvalue_ptr(obj);
         uint64_t keyNb = nanbox_from_tsvalue_ptr(key);
 
-        // Non-pointer obj: nothing to access
+        // Non-pointer obj: check for null/undefined NaN-boxed values
+        if (nanbox_is_null(objNb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", "Cannot read properties of null"));
+            return ts_value_make_undefined();
+        }
+        if (nanbox_is_undefined(objNb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", "Cannot read properties of undefined"));
+            return ts_value_make_undefined();
+        }
         if (!nanbox_is_ptr(objNb)) return ts_value_make_undefined();
 
         void* rawObj = nanbox_to_ptr(objNb);

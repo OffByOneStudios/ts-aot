@@ -16,4 +16,5 @@ private:
 extern "C" {
     void* ts_error_create(void* message);
     void* ts_error_create_with_options(void* message, void* options);  // ES2022
+    void* ts_error_create_typed(const char* name, const char* message);
 }

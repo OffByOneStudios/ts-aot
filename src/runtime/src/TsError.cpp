@@ -156,6 +156,48 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
     return (TsValue*)err;
 }
 
+// Build error object with a specific name (TypeError, RangeError, etc.)
+static TsValue* buildTypedErrorObject(const char* name, TsString* msgStr) {
+    TsMap* err = TsMap::Create();
+    err->Set(TsString::Create("message"), nanbox_to_tagged(ts_value_make_string(msgStr)));
+    err->Set(TsString::Create("name"), nanbox_to_tagged(ts_value_make_string(TsString::Create(name))));
+
+    std::stringstream ss;
+    ss << name << ": " << (msgStr ? msgStr->ToUtf8() : "") << "\n";
+
+#ifdef _WIN32
+    void* stack[64];
+    unsigned short frames = CaptureStackBackTrace(1, 63, stack, NULL);
+    HANDLE process = GetCurrentProcess();
+    static bool symInitialized = false;
+    if (!symInitialized) {
+        SymSetOptions(SymGetOptions() | SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS);
+        if (!SymInitialize(process, NULL, TRUE)) {
+            SymCleanup(process);
+            SymInitialize(process, NULL, TRUE);
+        }
+        symInitialized = true;
+    }
+    char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+    PSYMBOL_INFO symbol = (PSYMBOL_INFO)buffer;
+    symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+    symbol->MaxNameLen = MAX_SYM_NAME;
+    for (unsigned short i = 0; i < frames; i++) {
+        DWORD64 address = (DWORD64)stack[i];
+        ss << "    at ";
+        if (SymFromAddr(process, address, 0, symbol)) {
+            ss << symbol->Name << " (0x" << std::hex << address << std::dec << ")";
+        } else {
+            ss << "0x" << std::hex << address << std::dec;
+        }
+        ss << "\n";
+    }
+#endif
+
+    err->Set(TsString::Create("stack"), nanbox_to_tagged(ts_value_make_string(TsString::Create(ss.str().c_str()))));
+    return (TsValue*)err;
+}
+
 extern "C" {
     void* ts_error_create(void* message) {
         return buildErrorObject((TsString*)message, nullptr);
@@ -164,5 +206,9 @@ extern "C" {
     // ES2022: Error constructor with options { cause: ... }
     void* ts_error_create_with_options(void* message, void* options) {
         return buildErrorObject((TsString*)message, options);
+    }
+
+    void* ts_error_create_typed(const char* name, const char* message) {
+        return buildTypedErrorObject(name, TsString::Create(message));
     }
 }
