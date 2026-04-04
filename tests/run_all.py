@@ -64,6 +64,14 @@ SUITES = [
         'args': [],
         'verbose_flag': '-v',
     },
+    {
+        'name': 'test262',
+        'key': 'test262',
+        'script': str(TESTS_DIR / 'test262' / 'run_test262.py'),
+        'args': ['-c', 'language', '--limit', '500'],
+        'verbose_flag': '-v',
+        'opt_in': True,  # Not run by default — too slow for CI
+    },
 ]
 
 ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -124,6 +132,17 @@ def parse_results(output: str, suite_key: str) -> dict:
         m = re.search(r'Failed:\s+(\d+)', clean)
         if m:
             failed = int(m.group(1))
+
+    elif suite_key == 'test262':
+        # test262 runner: "Passed:        N" and "Failed:        N"
+        m = re.search(r'Passed:\s+(\d+)', clean)
+        if m:
+            passed = int(m.group(1))
+        # Count all non-pass non-skip as failed
+        for label in ('Failed', 'Compile Error', 'Timeout', 'Crash'):
+            m = re.search(rf'{label}:\s+(\d+)', clean)
+            if m:
+                failed += int(m.group(1))
 
     return {'passed': passed, 'failed': failed}
 
@@ -242,7 +261,7 @@ def main():
             print(f"Available: {', '.join(s['key'] for s in SUITES)}")
             return 1
     else:
-        selected = SUITES
+        selected = [s for s in SUITES if not s.get('opt_in')]
 
     print("ts-aot Test Runner")
     print("=" * 40)

@@ -442,8 +442,8 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
                  // Let the class method resolution below handle it
                  // Reset lastType so we can re-visit the expression below
              } else {
-                 // Default for other get calls (e.g., array element access)
-                 lastType = std::make_shared<Type>(TypeKind::Int);
+                 // Default for other get calls — return any since we don't know the type
+                 lastType = std::make_shared<Type>(TypeKind::Any);
                  node->inferredType = lastType;
                  return;
              }
