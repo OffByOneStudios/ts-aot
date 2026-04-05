@@ -10,6 +10,8 @@
 #include "TsString.h"
 #include <unordered_map>
 #include <string>
+#include <limits>
+#include <cmath>
 
 extern "C" {
 
@@ -453,6 +455,23 @@ void* ts_get_global_Number() {
         ctorFunc->properties->Set(protoKey, protoVal);
 
         ctorFunc->name = TsString::Create("Number");
+
+        // Static properties on Number constructor
+        auto setDouble = [&](const char* name, double val) {
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::Create(name);
+            TsValue v = nanbox_to_tagged(ts_value_make_double(val));
+            ctorFunc->properties->Set(k, v);
+        };
+        setDouble("NaN", std::numeric_limits<double>::quiet_NaN());
+        setDouble("POSITIVE_INFINITY", std::numeric_limits<double>::infinity());
+        setDouble("NEGATIVE_INFINITY", -std::numeric_limits<double>::infinity());
+        setDouble("MAX_SAFE_INTEGER", 9007199254740991.0);
+        setDouble("MIN_SAFE_INTEGER", -9007199254740991.0);
+        setDouble("EPSILON", 2.220446049250313e-16);
+        setDouble("MAX_VALUE", 1.7976931348623157e+308);
+        setDouble("MIN_VALUE", 5e-324);
+
         cached = (void*)ctorVal;
     }
     return cached;
