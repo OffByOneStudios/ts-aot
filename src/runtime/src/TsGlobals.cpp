@@ -540,6 +540,30 @@ void* ts_get_global_RangeError() {
     return cached;
 }
 
+void* ts_get_global_ReferenceError() {
+    static void* cached = nullptr;
+    if (!cached) cached = makeErrorConstructor("ReferenceError");
+    return cached;
+}
+
+void* ts_get_global_SyntaxError() {
+    static void* cached = nullptr;
+    if (!cached) cached = makeErrorConstructor("SyntaxError");
+    return cached;
+}
+
+void* ts_get_global_URIError() {
+    static void* cached = nullptr;
+    if (!cached) cached = makeErrorConstructor("URIError");
+    return cached;
+}
+
+void* ts_get_global_EvalError() {
+    static void* cached = nullptr;
+    if (!cached) cached = makeErrorConstructor("EvalError");
+    return cached;
+}
+
 void* ts_get_global_Symbol() {
     static TsMap* cached = nullptr;
     if (!cached) cached = makeSimpleConstructorGlobal("Symbol");

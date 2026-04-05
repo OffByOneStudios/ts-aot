@@ -198,6 +198,27 @@ static TsValue* buildTypedErrorObject(const char* name, TsString* msgStr) {
     return (TsValue*)err;
 }
 
+// Forward declarations for global constructor getters
+extern "C" void* ts_get_global_Error();
+extern "C" void* ts_get_global_TypeError();
+extern "C" void* ts_get_global_RangeError();
+extern "C" void* ts_get_global_ReferenceError();
+extern "C" void* ts_get_global_SyntaxError();
+extern "C" void* ts_get_global_URIError();
+extern "C" void* ts_get_global_EvalError();
+
+// Look up global error constructor by name
+static void* getErrorConstructorByName(const char* name) {
+    if (strcmp(name, "Error") == 0) return ts_get_global_Error();
+    if (strcmp(name, "TypeError") == 0) return ts_get_global_TypeError();
+    if (strcmp(name, "RangeError") == 0) return ts_get_global_RangeError();
+    if (strcmp(name, "ReferenceError") == 0) return ts_get_global_ReferenceError();
+    if (strcmp(name, "SyntaxError") == 0) return ts_get_global_SyntaxError();
+    if (strcmp(name, "URIError") == 0) return ts_get_global_URIError();
+    if (strcmp(name, "EvalError") == 0) return ts_get_global_EvalError();
+    return ts_get_global_Error();
+}
+
 extern "C" {
     void* ts_error_create(void* message) {
         return buildErrorObject((TsString*)message, nullptr);
@@ -210,5 +231,43 @@ extern "C" {
 
     void* ts_error_create_typed(const char* name, const char* message) {
         return buildTypedErrorObject(name, TsString::Create(message));
+    }
+
+    // Create a typed error from JS code: name and message are TsValue* (strings)
+    // Sets .constructor to the matching global constructor for assert.throws compat
+    void* ts_error_create_typed_js(void* nameVal, void* messageVal) {
+        TsString* name = nullptr;
+        TsString* msg = nullptr;
+
+        if (nameVal) {
+            void* raw = ts_value_get_string((TsValue*)nameVal);
+            if (raw) name = (TsString*)raw;
+        }
+        if (messageVal) {
+            void* raw = ts_value_get_string((TsValue*)messageVal);
+            if (raw) msg = (TsString*)raw;
+        }
+
+        const char* nameStr = name ? name->ToUtf8() : "Error";
+        TsValue* err = buildTypedErrorObject(nameStr, msg ? msg : TsString::Create(""));
+
+        // Set .constructor to the global constructor for this error type
+        void* ctor = getErrorConstructorByName(nameStr);
+        if (ctor && err) {
+            void* errRaw = ts_value_get_object(err);
+            if (errRaw) {
+                uint32_t m16 = *(uint32_t*)((char*)errRaw + 16);
+                if (m16 == 0x4D415053) {  // TsMap
+                    TsMap* errMap = (TsMap*)errRaw;
+                    TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
+                    ctorKey.ptr_val = TsString::GetInterned("constructor");
+                    TsValue ctorVal; ctorVal.type = ValueType::OBJECT_PTR;
+                    ctorVal.ptr_val = ctor;
+                    errMap->Set(ctorKey, ctorVal);
+                }
+            }
+        }
+
+        return err;
     }
 }

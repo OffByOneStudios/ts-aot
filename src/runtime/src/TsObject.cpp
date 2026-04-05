@@ -2430,13 +2430,19 @@ TsValue* ts_value_make_int(int64_t i) {
                 
                 // Create a new empty object as the prototype
                 TsMap* proto = TsMap::Create();
+                // Set Foo.prototype.constructor = Foo (per ES spec)
+                TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
+                ctorKey.ptr_val = TsString::GetInterned("constructor");
+                TsValue ctorVal; ctorVal.type = ValueType::FUNCTION_PTR;
+                ctorVal.ptr_val = func;
+                proto->Set(ctorKey, ctorVal);
                 TsValue protoStruct;
                 protoStruct.type = ValueType::OBJECT_PTR;
                 protoStruct.ptr_val = proto;
                 func->properties->Set(protoKey, protoStruct);
                 return ts_value_make_object(proto);
             }
-            
+
             // Handle .length - return arity (parameter count)
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int(func->arity >= 0 ? func->arity : 0);
@@ -2517,6 +2523,12 @@ TsValue* ts_value_make_int(int64_t i) {
                     return nanbox_from_tagged(existing);
                 }
                 TsMap* proto = TsMap::Create();
+                // Set closure.prototype.constructor = closure (per ES spec)
+                TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
+                ctorKey.ptr_val = TsString::GetInterned("constructor");
+                TsValue ctorVal; ctorVal.type = ValueType::OBJECT_PTR;
+                ctorVal.ptr_val = closure;
+                proto->Set(ctorKey, ctorVal);
                 TsValue protoStruct;
                 protoStruct.type = ValueType::OBJECT_PTR;
                 protoStruct.ptr_val = proto;
@@ -5267,16 +5279,36 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
             }
 
-            if (!func->properties) {
-                return ts_value_make_undefined();
+            if (func->properties) {
+                TsValue funcKeyVal = nanbox_to_tagged(key);
+                TsValue result = func->properties->Get(funcKeyVal);
+                if (result.type != ValueType::UNDEFINED) {
+                    return nanbox_from_tagged(result);
+                }
             }
-            // Use nanbox_to_tagged to create TsValue key for map lookup
-            TsValue funcKeyVal = nanbox_to_tagged(key);
-            TsValue result = func->properties->Get(funcKeyVal);
-            if (result.type == ValueType::UNDEFINED) {
-                return ts_value_make_undefined();
+            // Lazy .prototype creation with .constructor back-reference
+            if (keyStr) {
+                const char* k = keyStr->ToUtf8();
+                if (k && strcmp(k, "prototype") == 0) {
+                    if (!func->properties) {
+                        func->properties = TsMap::Create();
+                        ts_gc_write_barrier(&func->properties, func->properties);
+                    }
+                    TsMap* proto = TsMap::Create();
+                    TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
+                    ctorKey.ptr_val = TsString::GetInterned("constructor");
+                    TsValue ctorVal; ctorVal.type = ValueType::FUNCTION_PTR;
+                    ctorVal.ptr_val = func;
+                    proto->Set(ctorKey, ctorVal);
+                    TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+                    protoKey.ptr_val = TsString::GetInterned("prototype");
+                    TsValue protoStruct; protoStruct.type = ValueType::OBJECT_PTR;
+                    protoStruct.ptr_val = proto;
+                    func->properties->Set(protoKey, protoStruct);
+                    return ts_value_make_object(proto);
+                }
             }
-            return nanbox_from_tagged(result);
+            return ts_value_make_undefined();
         }
 
         // Check if this is a TsClosure and get its properties
@@ -5330,6 +5362,12 @@ TsValue* ts_value_make_int(int64_t i) {
                         return nanbox_from_tagged(existing);
                     }
                     TsMap* proto = TsMap::Create();
+                    // Set closure.prototype.constructor = closure
+                    TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
+                    ctorKey.ptr_val = TsString::GetInterned("constructor");
+                    TsValue ctorVal; ctorVal.type = ValueType::OBJECT_PTR;
+                    ctorVal.ptr_val = closure;
+                    proto->Set(ctorKey, ctorVal);
                     TsValue protoStruct;
                     protoStruct.type = ValueType::OBJECT_PTR;
                     protoStruct.ptr_val = proto;

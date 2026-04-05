@@ -5210,7 +5210,12 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             } else {
                 message = builder_.createConstString("");
             }
-            lastValue_ = builder_.createCall("ts_error_create", {message}, HIRType::makeAny());
+            if (ident->name != "Error") {
+                auto nameStr = builder_.createConstString(ident->name);
+                lastValue_ = builder_.createCall("ts_error_create_typed_js", {nameStr, message}, HIRType::makeAny());
+            } else {
+                lastValue_ = builder_.createCall("ts_error_create", {message}, HIRType::makeAny());
+            }
             return;
         }
 
@@ -5755,11 +5760,15 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
             message = builder_.createConstString("");
         }
 
-        // Call ts_error_create (returns already-boxed TsValue*)
+        // Call ts_error_create or ts_error_create_typed_js (returns already-boxed TsValue*)
         if (node->arguments.size() >= 2) {
             // ES2022: Error with options { cause: ... }
             auto options = lowerExpression(node->arguments[1].get());
             lastValue_ = builder_.createCall("ts_error_create_with_options", {message, options}, HIRType::makeAny());
+        } else if (className != "Error") {
+            // Typed error (TypeError, RangeError, etc.) — set correct .name and .constructor
+            auto nameStr = builder_.createConstString(className);
+            lastValue_ = builder_.createCall("ts_error_create_typed_js", {nameStr, message}, HIRType::makeAny());
         } else {
             lastValue_ = builder_.createCall("ts_error_create", {message}, HIRType::makeAny());
         }
