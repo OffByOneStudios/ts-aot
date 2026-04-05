@@ -6704,6 +6704,13 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
         builder_->CreateCall(setNameFt, setNameFn.getCallee(), { closure, tsStr });
     }
 
+    // Box the closure so it's properly NaN-boxed as a pointer.
+    // This ensures ts_typeof returns "function" and ts_extract_closure
+    // can identify it via nanbox_is_ptr + magic byte check.
+    auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_object",
+        builder_->getPtrTy(), {builder_->getPtrTy()});
+    closure = builder_->CreateCall(boxFn, {closure});
+
     return closure;
 }
 
@@ -7342,7 +7349,13 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     }
 
     if (inst->result) {
-        setValue(inst->result, closure);
+        // Box the closure so it's properly NaN-boxed as a pointer.
+        // This ensures ts_typeof returns "function" and ts_extract_closure
+        // can identify it via nanbox_is_ptr + magic byte check.
+        auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_object",
+            builder_->getPtrTy(), {builder_->getPtrTy()});
+        llvm::Value* boxed = builder_->CreateCall(boxFn, {gcPtrToRaw(closure)});
+        setValue(inst->result, rawToGCPtr(boxed));
     }
 }
 
