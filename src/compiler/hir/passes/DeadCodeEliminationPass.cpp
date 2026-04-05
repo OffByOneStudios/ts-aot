@@ -292,6 +292,37 @@ bool DeadCodeEliminationPass::hasSideEffects(HIRInstruction* inst) const {
         case HIROpcode::Await:
             return true;
 
+        // Property access can throw (TypeError on null/undefined, Proxy traps,
+        // getter side effects). Only safe to eliminate when the object operand
+        // is a known non-nullable type that can't have getters/proxies.
+        case HIROpcode::GetPropStatic:
+        case HIROpcode::GetPropDynamic:
+        case HIROpcode::GetElem: {
+            if (!inst->operands.empty()) {
+                if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+                    if (*valPtr && (*valPtr)->type) {
+                        auto kind = (*valPtr)->type->kind;
+                        if (kind == HIRTypeKind::Object ||
+                            kind == HIRTypeKind::Class ||
+                            kind == HIRTypeKind::Array ||
+                            kind == HIRTypeKind::String ||
+                            kind == HIRTypeKind::Map ||
+                            kind == HIRTypeKind::Set ||
+                            kind == HIRTypeKind::Int64 ||
+                            kind == HIRTypeKind::Float64 ||
+                            kind == HIRTypeKind::Bool ||
+                            kind == HIRTypeKind::BigInt ||
+                            kind == HIRTypeKind::Symbol ||
+                            kind == HIRTypeKind::Function ||
+                            kind == HIRTypeKind::Ptr) {
+                            return false;  // Known non-nullable — safe to eliminate
+                        }
+                    }
+                }
+            }
+            return true;  // Unknown/nullable type — may throw, preserve
+        }
+
         default:
             return false;
     }
