@@ -6537,8 +6537,9 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_events";
     } else if (globalName == "querystring") {
         funcName = "ts_get_global_querystring";
-    } else if (globalName == "assert") {
-        funcName = "ts_get_global_assert";
+    // Note: "assert" is intentionally NOT mapped here. Unlike console/process/Buffer,
+    // Node.js assert is NOT a global — it must be imported via require('assert').
+    // A user-defined `function assert(){}` should work without collision.
     } else if (globalName == "child_process") {
         funcName = "ts_get_global_child_process";
     } else if (globalName.find("__modvar_") == 0) {

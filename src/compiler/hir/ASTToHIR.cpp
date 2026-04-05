@@ -4863,6 +4863,19 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     // to generic method handlers (push, join, etc.) instead.
                     isLocalVarShadow = true;
                 }
+                // Also check: if the identifier is a locally-declared function (not
+                // imported via require), it shadows the extension module. Node.js modules
+                // like `assert` are NOT globals — they must be imported via require().
+                // A local `function assert(){}` should NOT be treated as the Node assert
+                // module. Only check for function-typed locals to avoid shadowing
+                // `var path = require('path')` which IS the module.
+                if (!isLocalVarShadow) {
+                    auto* varInfo = lookupVariableInfo(classNameIdent->name);
+                    if (varInfo && varInfo->elemType &&
+                        varInfo->elemType->kind == HIRTypeKind::Function) {
+                        isLocalVarShadow = true;
+                    }
+                }
 
                 if (!isLocalVarShadow) {
                 // Use the HIR name (matching LoweringRegistry derivation) so the registered lowering spec is found
