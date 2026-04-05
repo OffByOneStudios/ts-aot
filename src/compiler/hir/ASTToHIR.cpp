@@ -1886,10 +1886,9 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         node->name, scopes_.size(),
         currentFunction_ ? currentFunction_->name : "null",
         node->body.size());
-    // Declaration-only function (from .d.ts or overload signature) — no code to generate
-    if (node->body.empty()) {
-        return;
-    }
+    // Note: empty-body functions (e.g., `function F() {}`) are valid JS functions
+    // that return undefined. We still create a closure for them so typeof/instanceof
+    // work correctly. The body loop below will simply not emit any statements.
 
     // Create HIR function - HIRFunction constructor requires a name
     // Add module hash suffix for cross-module disambiguation when inside a

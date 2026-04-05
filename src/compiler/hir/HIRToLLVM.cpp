@@ -6775,10 +6775,25 @@ void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
             }
         }
     } else {
-        // Function not found - create a null pointer
-        SPDLOG_WARN("LoadFunction: function '{}' not found", funcName);
+        // Function not found (empty body or not compiled) — generate a stub
+        // that returns undefined, then create a closure wrapping it.
+        SPDLOG_WARN("LoadFunction: function '{}' not found, generating stub", funcName);
+
+        // Create stub: ptr @funcName(ptr %ctx, ptr, ptr, ptr, ptr) { ret undefined }
+        auto stubFt = llvm::FunctionType::get(builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getPtrTy(), builder_->getPtrTy(),
+              builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        fn = llvm::Function::Create(stubFt, llvm::GlobalValue::InternalLinkage,
+                                    funcName, module_.get());
+        auto* bb = llvm::BasicBlock::Create(context_, "entry", fn);
+        llvm::IRBuilder<> stubBuilder(bb);
+        auto undefFn = module_->getOrInsertFunction("ts_value_make_undefined",
+            llvm::FunctionType::get(builder_->getPtrTy(), {}, false));
+        stubBuilder.CreateRet(stubBuilder.CreateCall(undefFn));
+
         if (inst->result) {
-            setValue(inst->result, llvm::ConstantPointerNull::get(builder_->getPtrTy()));
+            llvm::Value* closure = createClosureForFunction(funcName, fn);
+            setValue(inst->result, closure);
         }
     }
 }
