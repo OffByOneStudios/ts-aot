@@ -293,6 +293,42 @@ Token Lexer::scanNumericLiteral() {
     tokenStartLine_ = line_;
     tokenStartColumn_ = column_;
 
+    // Helper: consume a run of digits (+ separators) with separator validation.
+    // Returns true on success, false (and reports error) on invalid separator position.
+    auto consumeDigitsWithSeparators = [&](auto isDigitFn, const char* context) -> bool {
+        bool prevWasSep = false;
+        bool prevWasDigit = false;
+        while (!isAtEnd()) {
+            char ch = peek();
+            if (isDigitFn(ch)) {
+                prevWasSep = false;
+                prevWasDigit = true;
+                advance();
+            } else if (ch == '_') {
+                if (prevWasSep) {
+                    reportLexError(std::string("Only one underscore is allowed as numeric separator in ") + context);
+                    advance();
+                    return false;
+                }
+                if (!prevWasDigit) {
+                    reportLexError(std::string("Numeric separator must follow a digit in ") + context);
+                    advance();
+                    return false;
+                }
+                prevWasSep = true;
+                prevWasDigit = false;
+                advance();
+            } else {
+                break;
+            }
+        }
+        if (prevWasSep) {
+            reportLexError(std::string("Numeric separator cannot be at end of ") + context);
+            return false;
+        }
+        return true;
+    };
+
     char c = peek();
 
     // Handle 0x, 0o, 0b prefixes
@@ -301,8 +337,10 @@ Token Lexer::scanNumericLiteral() {
         char next = peek();
         if (next == 'x' || next == 'X') {
             advance();
-            while (!isAtEnd() && (isHexDigit(peek()) || peek() == '_')) advance();
-            // Check for BigInt suffix
+            if (peek() == '_') {
+                reportLexError("Numeric separator cannot be after 0x prefix");
+            }
+            consumeDigitsWithSeparators([](char ch) { return isHexDigit(ch); }, "hex literal");
             if (!isAtEnd() && peek() == 'n') {
                 advance();
                 return makeToken(TokenKind::BigIntLiteral, start);
@@ -311,7 +349,10 @@ Token Lexer::scanNumericLiteral() {
         }
         if (next == 'o' || next == 'O') {
             advance();
-            while (!isAtEnd() && ((peek() >= '0' && peek() <= '7') || peek() == '_')) advance();
+            if (peek() == '_') {
+                reportLexError("Numeric separator cannot be after 0o prefix");
+            }
+            consumeDigitsWithSeparators([](char ch) { return ch >= '0' && ch <= '7'; }, "octal literal");
             if (!isAtEnd() && peek() == 'n') {
                 advance();
                 return makeToken(TokenKind::BigIntLiteral, start);
@@ -320,8 +361,32 @@ Token Lexer::scanNumericLiteral() {
         }
         if (next == 'b' || next == 'B') {
             advance();
-            while (!isAtEnd() && (peek() == '0' || peek() == '1' || peek() == '_')) advance();
+            if (peek() == '_') {
+                reportLexError("Numeric separator cannot be after 0b prefix");
+            }
+            consumeDigitsWithSeparators([](char ch) { return ch == '0' || ch == '1'; }, "binary literal");
             if (!isAtEnd() && peek() == 'n') {
+                advance();
+                return makeToken(TokenKind::BigIntLiteral, start);
+            }
+            return makeToken(TokenKind::NumericLiteral, start);
+        }
+
+        // Legacy octal / NonOctalDecimal: 0 followed by digits (no x/o/b/./eE suffix).
+        // NonOctalDecimal (0 followed by 8/9) is always a SyntaxError per spec.
+        // Also reject BigInt suffix on any 0-prefixed legacy number.
+        if (isDigit(next)) {
+            bool hasNonOctal = false;
+            while (!isAtEnd() && isDigit(peek())) {
+                if (peek() == '8' || peek() == '9') hasNonOctal = true;
+                advance();
+            }
+            if (hasNonOctal) {
+                reportLexError("Invalid numeric literal (leading 0 with 8/9 is not allowed)");
+            }
+            // Reject BigInt suffix on legacy octal (0nnn)
+            if (!isAtEnd() && peek() == 'n') {
+                reportLexError("BigInt literal cannot use legacy octal notation");
                 advance();
                 return makeToken(TokenKind::BigIntLiteral, start);
             }
@@ -330,27 +395,33 @@ Token Lexer::scanNumericLiteral() {
     }
 
     // Regular decimal number
-    while (!isAtEnd() && (isDigit(peek()) || peek() == '_')) {
-        advance();
-    }
+    bool hasDecimalPoint = false;
+    bool hasExponent = false;
+    consumeDigitsWithSeparators([](char ch) { return isDigit(ch); }, "decimal literal");
 
     // Decimal point
     if (!isAtEnd() && peek() == '.' && isDigit(peekAt(1))) {
         advance(); // .
-        while (!isAtEnd() && (isDigit(peek()) || peek() == '_')) {
-            advance();
-        }
+        hasDecimalPoint = true;
+        consumeDigitsWithSeparators([](char ch) { return isDigit(ch); }, "decimal fraction");
     }
 
     // Exponent
     if (!isAtEnd() && (peek() == 'e' || peek() == 'E')) {
         advance();
+        hasExponent = true;
         if (!isAtEnd() && (peek() == '+' || peek() == '-')) advance();
-        while (!isAtEnd() && (isDigit(peek()) || peek() == '_')) advance();
+        consumeDigitsWithSeparators([](char ch) { return isDigit(ch); }, "exponent");
     }
 
-    // BigInt suffix
+    // BigInt suffix — only valid for pure integer decimal literals
     if (!isAtEnd() && peek() == 'n') {
+        if (hasDecimalPoint) {
+            reportLexError("BigInt literal cannot have a decimal point");
+        }
+        if (hasExponent) {
+            reportLexError("BigInt literal cannot have an exponent");
+        }
         advance();
         return makeToken(TokenKind::BigIntLiteral, start);
     }

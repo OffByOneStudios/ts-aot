@@ -164,7 +164,11 @@ private:
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
     int errorCount_ = 0;       // Parse-time errors (redeclaration, etc.)
 public:
-    int getErrorCount() const { return errorCount_; }
+    int getErrorCount() const {
+        // Include lexer errors if lexer exists
+        int lexerErrs = lexer_ ? lexer_->getErrorCount() : 0;
+        return errorCount_ + lexerErrs;
+    }
 };
 
 } // namespace ts::parser

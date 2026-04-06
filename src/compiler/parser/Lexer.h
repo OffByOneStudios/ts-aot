@@ -220,6 +220,19 @@ private:
     bool regexAllowed_ = true;  // At start of file, regex is allowed
     bool hadNewline_ = false;   // Track newlines between tokens for ASI
 
+public:
+    // Lexer error tracking (SyntaxError at lex/parse time)
+    int errorCount_ = 0;
+    std::string lastError_;
+    int getErrorCount() const { return errorCount_; }
+    const std::string& getLastError() const { return lastError_; }
+    void reportLexError(const std::string& msg) {
+        errorCount_++;
+        if (lastError_.empty()) lastError_ = msg;
+        fprintf(stderr, "SyntaxError: %s\n", msg.c_str());
+    }
+private:
+
     // Template literal brace depth stack
     std::vector<int> templateBraceDepth_;
     int braceDepth_ = 0;
