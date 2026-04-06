@@ -231,8 +231,14 @@ void* ts_get_global_Array() {
 //   2. Let S be ? ToString(O).                          // coerces primitives
 // Then operates on S.
 static TsValue* string_proto_method(const char* methodName, void* ctx, int argc, TsValue** argv) {
-    TsValue* target = (TsValue*)ctx;
-    if (!target) target = (TsValue*)ts_get_call_this();
+    // Receiver is set by ts_call_with_this_N in the global ts_call_this_value
+    // BEFORE we're invoked. Prefer it over `ctx` (which is func->context and
+    // can hold a stale value from a previous .call() that threw — see
+    // ts_call_with_this_N's patchedCtx logic, which is longjmp-unsafe).
+    // ts_call_this_value is now snapshot/restored across exception unwind by
+    // ExceptionContext (Core.cpp), so it is the authoritative source.
+    TsValue* target = (TsValue*)ts_get_call_this();
+    if (!target) target = (TsValue*)ctx;
 
     // Spec step 1: RequireObjectCoercible — null/undefined throw TypeError.
     if (!target || ts_value_is_nullish(target)) {

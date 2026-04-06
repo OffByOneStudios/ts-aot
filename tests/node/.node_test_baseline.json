@@ -54,6 +54,7 @@
   "collections/test_weakref.ts": "pass",
   "collections/test_weakset.ts": "pass",
   "compiler/closure_increment.ts": "pass",
+  "compiler/exception_global_restoration.ts": "pass",
   "console/console_extended.ts": "pass",
   "console/console_grouping.ts": "pass",
   "console/console_methods.js": "pass",

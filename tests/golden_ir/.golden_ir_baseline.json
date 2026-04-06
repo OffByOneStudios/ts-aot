@@ -58,6 +58,7 @@
   "golden_ir/javascript/control_flow/labeled_loops.js": "pass",
   "golden_ir/javascript/control_flow/switch_statement.js": "pass",
   "golden_ir/javascript/control_flow/try_catch.js": "pass",
+  "golden_ir/javascript/control_flow/try_catch_this_restoration.js": "pass",
   "golden_ir/javascript/control_flow/while_do_while.js": "pass",
   "golden_ir/javascript/dynamic_types/arithmetic.js": "pass",
   "golden_ir/javascript/dynamic_types/comparisons.js": "pass",

@@ -43,9 +43,29 @@ extern "C" char** environ;
 
 namespace fs = std::filesystem;
 
+// Per-try-frame exception context. Holds the setjmp buffer plus a snapshot
+// of any runtime globals that participate in the calling-convention ABI but
+// are stored as plain mutable state (because the JIT-emitted ABI has no
+// dedicated slot for them). longjmp would otherwise leave these globals
+// pointing at whatever the aborted call set them to.
+//
+// Policy: any global that is "set before a call, restored after the call"
+// must be snapshotted here. ts_push_exception_handler() saves; ts_throw()
+// restores before longjmp. Currently tracked:
+//   - ts_call_this_value   (TsObject.cpp:473) — receiver for .call/.apply
+//   - ts_last_call_argc    (TsObject.cpp:478) — argc for arguments object
 struct ExceptionContext {
     jmp_buf env;
+    void*   saved_call_this_value;
+    int64_t saved_last_call_argc;
 };
+
+// Forward declarations of the runtime accessors we snapshot/restore.
+// These are defined in TsObject.cpp and exported via extern "C".
+extern "C" void*   ts_get_call_this();
+extern "C" void    ts_set_call_this(void* thisArg);
+extern "C" int64_t ts_get_last_call_argc();
+extern "C" void    ts_set_last_call_argc(int64_t argc);
 
 // Node.js init hook - set by nodecore (TsCluster.cpp) via static initializer
 TsNodeInitHook ts_node_init_hook = nullptr;
@@ -1306,6 +1326,10 @@ void ts_process_set_source_maps_enabled(bool enabled) {
 
 void* ts_push_exception_handler() {
     ExceptionContext* ctx = (ExceptionContext*)malloc(sizeof(ExceptionContext));
+    // Snapshot calling-convention globals at try-block entry. ts_throw will
+    // restore these before longjmp so the catch landing pad sees correct state.
+    ctx->saved_call_this_value = ts_get_call_this();
+    ctx->saved_last_call_argc  = ts_get_last_call_argc();
     exceptionStack.push_back(ctx);
     return (void*)ctx->env;
 }
@@ -1356,6 +1380,14 @@ void ts_throw(TsValue* exception) {
     }
     ExceptionContext* ctx = exceptionStack.back();
     exceptionStack.pop_back();
+
+    // Restore calling-convention globals BEFORE longjmp tears down the stack.
+    // The save/restore locals inside ts_call_with_this_N would normally do
+    // this on a normal return, but longjmp skips them. Without this, a catch
+    // block would see whatever `this` / argc the aborted call last set.
+    ts_set_call_this(ctx->saved_call_this_value);
+    ts_set_last_call_argc(ctx->saved_last_call_argc);
+
     // Copy jmp_buf to stack before freeing, since longjmp never returns
     jmp_buf env;
     memcpy(&env, &ctx->env, sizeof(jmp_buf));
