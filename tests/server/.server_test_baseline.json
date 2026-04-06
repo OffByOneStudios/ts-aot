@@ -1,4 +1,25 @@
 {
+  "express_404_fallthrough": "pass",
+  "express_app_all": "pass",
+  "express_app_param": "pass",
+  "express_app_route": "pass",
+  "express_custom_headers": "pass",
+  "express_error_middleware": "pass",
+  "express_hello": "pass",
+  "express_methods": "pass",
   "express_middleware_order": "pass",
-  "express_middleware_path": "pass"
+  "express_middleware_path": "pass",
+  "express_query_string": "pass",
+  "express_redirect": "compile_error",
+  "express_req_accepts": "pass",
+  "express_req_headers": "pass",
+  "express_req_properties": "pass",
+  "express_res_append": "pass",
+  "express_res_cookie": "pass",
+  "express_res_json": "pass",
+  "express_res_jsonp": "fail",
+  "express_res_send": "pass",
+  "express_res_set": "pass",
+  "express_route_params": "pass",
+  "express_status_codes": "pass"
 }

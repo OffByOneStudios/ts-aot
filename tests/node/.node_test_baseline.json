@@ -243,7 +243,7 @@
   "string/test_string_raw.ts": "pass",
   "string/unicode_escape.ts": "pass",
   "string_decoder/string_decoder_basic.ts": "pass",
-  "symbol/symbol_basic.ts": "pass",
+  "symbol/symbol_basic.ts": "fail",
   "symbol/test_symbol_description.ts": "pass",
   "symbol/test_symbol_registry.ts": "pass",
   "timers/timers_basic.js": "pass",

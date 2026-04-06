@@ -5,13 +5,18 @@
 // via dynamic property lookup.
 
 #include "GC.h"
+#include "TsRuntime.h"
 #include "TsObject.h"
 #include "TsMap.h"
 #include "TsString.h"
+#include "TsConsString.h"
+#include "TsNanBox.h"
+#include "TsError.h"
 #include <unordered_map>
 #include <string>
 #include <limits>
 #include <cmath>
+#include <cstdio>
 
 extern "C" {
 
@@ -61,7 +66,7 @@ TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv);
 TsValue* ts_json_parse_native(void* context, int argc, TsValue** argv);
-TsValue* ts_error_create(void* message);
+// ts_error_create is declared in TsError.h (returns void*)
 TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_function_bind_native(void* ctx, int argc, TsValue** argv);
@@ -219,15 +224,54 @@ void* ts_get_global_Array() {
 // ========================================
 // String global
 // ========================================
-// String.prototype method wrappers — extract string from ctx or ts_get_call_this()
-// These use ts_object_get_dynamic to call the actual method on the string instance.
+// String.prototype method wrappers — extract string from ctx or ts_get_call_this().
+//
+// Per ECMAScript spec each String.prototype method begins with:
+//   1. Let O be ? RequireObjectCoercible(this value).  // throws if null/undefined
+//   2. Let S be ? ToString(O).                          // coerces primitives
+// Then operates on S.
 static TsValue* string_proto_method(const char* methodName, void* ctx, int argc, TsValue** argv) {
     TsValue* target = (TsValue*)ctx;
     if (!target) target = (TsValue*)ts_get_call_this();
-    if (!target) return ts_value_make_undefined();
-    // Get the method from the string and call it
-    TsValue* method = ts_object_get_dynamic(target, ts_value_make_string(TsString::Create(methodName)));
-    if (!method || ts_value_is_undefined(method)) return ts_value_make_undefined();
+
+    // Spec step 1: RequireObjectCoercible — null/undefined throw TypeError.
+    if (!target || ts_value_is_nullish(target)) {
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+                 "String.prototype.%s called on null or undefined",
+                 methodName);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return ts_value_make_undefined();
+    }
+
+    // Spec step 2: ToString — coerce non-string primitives (number, bool, etc.)
+    // to a TsString. ts_string_from_value implements JS-spec ToString and throws
+    // TypeError for Symbol (handled by the existing Symbol coercion code path).
+    {
+        uint64_t nb = nanbox_from_tsvalue_ptr(target);
+        bool isAlreadyString = false;
+        if (nanbox_is_ptr(nb)) {
+            void* ptr = nanbox_to_ptr(nb);
+            if (ptr) {
+                uint32_t magic = *(uint32_t*)ptr;
+                if (magic == TsString::MAGIC || magic == TsConsString::MAGIC) {
+                    isAlreadyString = true;
+                }
+            }
+        }
+        if (!isAlreadyString) {
+            void* str = ts_string_from_value(target);
+            if (!str) return ts_value_make_undefined();
+            target = ts_value_make_string(str);
+        }
+    }
+
+    // Now dispatch to the underlying method via the string's prototype chain.
+    TsValue* method = ts_object_get_dynamic(target,
+        ts_value_make_string(TsString::Create(methodName)));
+    if (!method || ts_value_is_undefined(method)) {
+        return ts_value_make_undefined();
+    }
     return ts_function_call_with_this(method, target, argc, argv);
 }
 
@@ -351,8 +395,8 @@ static void* makeErrorConstructor(const char* errorName) {
         }
 
         // Fallback: create a standalone error object
-        if (argc > 0 && argv) return ts_error_create(argv[0]);
-        return ts_error_create(nullptr);
+        if (argc > 0 && argv) return (TsValue*)ts_error_create(argv[0]);
+        return (TsValue*)ts_error_create(nullptr);
     };
 
     // Create the TsFunction for the constructor
