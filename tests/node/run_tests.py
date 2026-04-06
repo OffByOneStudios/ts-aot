@@ -6,12 +6,30 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from ts_test_platform import get_compiler_path, output_path_for
+from ts_test_platform import get_compiler_path, get_exe_suffix, output_path_for
+
+
+def unique_output_path_for(source: Path) -> Path:
+    """Return a per-test output path in an isolated temp directory.
+
+    Each test gets a UUID-named subdirectory, avoiding collisions when:
+    - Multiple tests share a stem (foo.ts and foo.js in the same dir)
+    - Running in parallel (compiler writes .lib/.pdb/.obj files alongside exe)
+    """
+    ext = source.suffix.lstrip('.')
+    stem = f"{source.stem}_{ext}" if ext else source.stem
+    tmp_dir = Path(tempfile.gettempdir()) / f"node_test_{uuid.uuid4().hex[:12]}"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    return tmp_dir / (stem + get_exe_suffix())
 
 
 @dataclass
@@ -55,12 +73,13 @@ class NodeTestRunner:
 
     BASELINE_FILE = '.node_test_baseline.json'
 
-    def __init__(self, test_pattern: str = "**/*.ts", verbose: bool = False):
+    def __init__(self, test_pattern: str = "**/*.ts", verbose: bool = False, jobs: int = 1):
         self.script_dir = Path(__file__).parent
         self.root_dir = self.script_dir.parent.parent
         self.compiler_path = get_compiler_path(self.root_dir)
         self.test_pattern = test_pattern
         self.verbose = verbose
+        self.jobs = jobs
 
         # Set ICU_DATA so compiled executables can find ICU data files
         self.test_env = os.environ.copy()
@@ -80,6 +99,9 @@ class NodeTestRunner:
         self.previous_baseline: Dict[str, str] = {}
         self.regressions: List[str] = []
         self.fixes: List[str] = []
+
+        # Thread-safety for parallel execution
+        self._print_lock = threading.Lock()
 
     def check_compiler_exists(self) -> bool:
         """Verify that the compiler exists."""
@@ -105,13 +127,40 @@ class NodeTestRunner:
 
         return sorted(test_files)
 
-    def compile_test(self, test_file: Path) -> tuple[bool, str]:
-        """Compile a test file to an executable."""
-        exe_path = output_path_for(test_file)
+    def compile_test(self, test_file: Path, exe_path: Path = None) -> tuple[bool, str]:
+        """Compile a test file to an executable.
+
+        When running in parallel, we copy the source into the exe's temp
+        directory first so that intermediate compiler outputs (.obj, .lib,
+        .pdb) don't collide between workers touching the same source dir.
+        """
+        if exe_path is None:
+            exe_path = unique_output_path_for(test_file)
+
+        # Copy source (and any same-directory imports) to the exe's temp dir
+        # so intermediate .obj/.lib/.pdb files land there instead of next to
+        # the original source (which is a race condition with parallel workers).
+        if self.jobs > 1:
+            import shutil
+            work_src = exe_path.parent / test_file.name
+            try:
+                shutil.copy2(test_file, work_src)
+                # Also copy any .ts/.js files in the same directory (for imports)
+                for sibling in test_file.parent.iterdir():
+                    if sibling.is_file() and sibling.suffix in ('.ts', '.js') and sibling != test_file:
+                        try:
+                            shutil.copy2(sibling, exe_path.parent / sibling.name)
+                        except Exception:
+                            pass
+            except Exception as e:
+                return False, f"copy error: {e}"
+            compile_src = work_src
+        else:
+            compile_src = test_file
 
         try:
             result = subprocess.run(
-                [str(self.compiler_path), str(test_file), '-o', str(exe_path)],
+                [str(self.compiler_path), str(compile_src), '-o', str(exe_path)],
                 capture_output=True,
                 timeout=30,
                 encoding='utf-8',
@@ -171,13 +220,13 @@ class NodeTestRunner:
     def run_single_test(self, test_file: Path) -> TestResult:
         """Compile and run a single test."""
         test_name = f"{test_file.parent.name}/{test_file.name}"
-        exe_path = output_path_for(test_file)
+        exe_path = unique_output_path_for(test_file)
 
         if self.verbose:
             print(f"  Compiling {test_name}...")
 
         # Compile
-        compile_success, compile_error = self.compile_test(test_file)
+        compile_success, compile_error = self.compile_test(test_file, exe_path)
         if not compile_success:
             return TestResult(
                 name=test_name,
@@ -195,12 +244,12 @@ class NodeTestRunner:
         # Check status
         skipped, blocked = self.check_test_status(output)
 
-        # Clean up executable
-        if exe_path.exists():
-            try:
-                exe_path.unlink()
-            except:
-                pass
+        # Clean up the per-test temp directory (exe + .lib/.pdb/.obj etc)
+        try:
+            import shutil
+            shutil.rmtree(exe_path.parent, ignore_errors=True)
+        except Exception:
+            pass
 
         # Determine pass/fail
         passed = exit_code == 0 and not blocked
@@ -307,11 +356,14 @@ class NodeTestRunner:
             return 1
 
         print(f"Found {len(test_files)} test file(s)\n")
+        if self.jobs > 1:
+            print(f"Using {self.jobs} parallel workers\n")
 
-        for test_file in test_files:
-            result = self.run_single_test(test_file)
+        def apply_result(result: TestResult):
+            """Apply a completed test result to runner state (thread-safe for aggregation)."""
             self.results.append(result)
-            self.print_test_result(result)
+            with self._print_lock:
+                self.print_test_result(result)
 
             # Normalize test name for baseline key
             test_name = result.name.replace('\\', '/')
@@ -329,6 +381,16 @@ class NodeTestRunner:
                 self.passed_tests += 1
             else:
                 self.failed_tests += 1
+
+        if self.jobs > 1:
+            with ThreadPoolExecutor(max_workers=self.jobs) as executor:
+                futures = {executor.submit(self.run_single_test, f): f
+                           for f in test_files}
+                for fut in as_completed(futures):
+                    apply_result(fut.result())
+        else:
+            for test_file in test_files:
+                apply_result(self.run_single_test(test_file))
 
         # Compare against baseline and save new results
         self._compare_baseline()
@@ -385,10 +447,13 @@ def main():
     parser = argparse.ArgumentParser(description='Run Node.js API tests')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
     parser.add_argument('-p', '--pattern', default='**/*.ts', help='Test file pattern')
+    parser.add_argument('-j', '--jobs', type=int, default=1,
+                        help='Parallel worker threads (default: 1)')
 
     args = parser.parse_args()
 
-    runner = NodeTestRunner(test_pattern=args.pattern, verbose=args.verbose)
+    runner = NodeTestRunner(test_pattern=args.pattern, verbose=args.verbose,
+                            jobs=args.jobs)
     return runner.run_all_tests()
 
 

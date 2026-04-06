@@ -21,6 +21,7 @@ TESTS_DIR = Path(__file__).parent
 PROJECT_ROOT = TESTS_DIR.parent
 
 # Suite definitions: name, key (for --suite), command components, verbose flag
+# `parallel_args` are appended when --fast is specified.
 SUITES = [
     {
         'name': 'Golden IR',
@@ -28,6 +29,7 @@ SUITES = [
         'script': str(TESTS_DIR / 'golden_ir' / 'runner.py'),
         'args': [str(TESTS_DIR / 'golden_ir')],
         'verbose_flag': '--details',
+        'parallel_args': ['-j', '8'],
     },
     {
         'name': 'Golden HIR',
@@ -35,6 +37,7 @@ SUITES = [
         'script': str(TESTS_DIR / 'golden_ir' / 'runner.py'),
         'args': [str(TESTS_DIR / 'golden_hir')],
         'verbose_flag': '--details',
+        'parallel_args': ['-j', '8'],
     },
     {
         'name': 'Node.js',
@@ -42,6 +45,7 @@ SUITES = [
         'script': str(TESTS_DIR / 'node' / 'run_tests.py'),
         'args': [],
         'verbose_flag': '-v',
+        'parallel_args': ['-j', '8'],
     },
     {
         'name': 'NPM',
@@ -49,6 +53,7 @@ SUITES = [
         'script': str(TESTS_DIR / 'npm' / 'runner.py'),
         'args': [],
         'verbose_flag': '-v',
+        # npm tests share node_modules — keep sequential
     },
     {
         'name': 'Integration',
@@ -63,6 +68,7 @@ SUITES = [
         'script': str(TESTS_DIR / 'server' / 'run_server_tests.py'),
         'args': [],
         'verbose_flag': '-v',
+        'parallel_args': ['-j', '4'],  # capped — each test spawns a server subprocess
     },
     {
         'name': 'test262',
@@ -70,6 +76,7 @@ SUITES = [
         'script': str(TESTS_DIR / 'test262' / 'run_test262.py'),
         'args': ['-c', 'language', '--limit', '500'],
         'verbose_flag': '-v',
+        'parallel_args': ['-j', '12', '--interleave'],
         'opt_in': True,  # Not run by default — too slow for CI
     },
 ]
@@ -244,6 +251,8 @@ def main():
     parser.add_argument('--suite', '-s', type=str, help='Run a specific suite (e.g. golden-ir, node, npm)')
     parser.add_argument('--verbose', '-v', action='store_true', help='Stream sub-runner output in real-time')
     parser.add_argument('--parallel', '-p', action='store_true', help='Run suites concurrently')
+    parser.add_argument('--fast', action='store_true',
+                        help='Inject per-suite parallelism flags (-j N for each runner)')
     parser.add_argument('--list', '-l', action='store_true', help='List available suites')
     args = parser.parse_args()
 
@@ -262,6 +271,13 @@ def main():
             return 1
     else:
         selected = [s for s in SUITES if not s.get('opt_in')]
+
+    # --fast: append parallel_args to each selected suite's args
+    if args.fast:
+        selected = [
+            {**s, 'args': s['args'] + s.get('parallel_args', [])}
+            for s in selected
+        ]
 
     print("ts-aot Test Runner")
     print("=" * 40)

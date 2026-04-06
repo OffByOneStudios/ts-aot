@@ -18,9 +18,11 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import Any, List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -83,6 +85,15 @@ class TestResult:
     hir_output: str = ""
     runtime_output: str = ""
     exit_code: int = 0
+
+
+@dataclass
+class TestOutcome:
+    """Outcome of a single test run — aggregated after parallel execution."""
+    test_name: str
+    passed: bool
+    print_lines: List[str] = field(default_factory=list)
+    failure_detail: Optional[Dict[str, Any]] = None
 
 
 def extract_hir_section(output: str) -> str:
@@ -161,13 +172,14 @@ class GoldenIRRunner:
 
     BASELINE_FILE = '.golden_ir_baseline.json'
 
-    def __init__(self, test_path: str, show_details: bool = False):
+    def __init__(self, test_path: str, show_details: bool = False, jobs: int = 1):
         self.script_dir = Path(__file__).parent
         self.root_dir = self.script_dir.parent.parent
         self.tests_dir = self.script_dir.parent  # tests/ directory (parent of golden_ir/)
         self.compiler_path = get_compiler_path(self.root_dir)
         self.test_path = test_path
         self.show_details = show_details
+        self.jobs = jobs
 
         # Set ICU_DATA so compiled executables can find ICU data files
         self.test_env = os.environ.copy()
@@ -606,10 +618,11 @@ class GoldenIRRunner:
             failures=failures
         )
 
-    def run_single_test(self, test_file: Path):
-        """Run a single test file."""
-        self.total_tests += 1
+    def _run_one(self, test_file: Path) -> TestOutcome:
+        """Pure function: run a single test file and return the outcome.
 
+        Does not mutate runner state (safe to call from worker threads).
+        """
         # Try to make path relative for display
         try:
             test_name = str(test_file.relative_to(self.tests_dir))
@@ -618,99 +631,101 @@ class GoldenIRRunner:
                 test_name = str(test_file.relative_to(self.root_dir))
             except ValueError:
                 test_name = str(test_file)
-        # Normalize path separators for consistent baseline keys
         test_name = test_name.replace('\\', '/')
 
-        print(color_text(f"[{self.total_tests}] Testing: {test_name}", Colors.BLUE))
-
+        out = TestOutcome(test_name=test_name, passed=False)
         test = self.parse_test_file(test_file)
 
-        # Create temporary directory
+        # Create per-test temporary directory (UUID ensures no collisions)
         temp_dir = Path(tempfile.gettempdir()) / f"golden_ir_{uuid.uuid4()}"
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Compile and run
             result = self.run_test_compilation(test, temp_dir)
 
             if not result.success:
-                print(color_text('  X COMPILATION FAILED', Colors.RED))
-                print(color_text(f"  Error: {result.error}", Colors.RED))
-                self.failed_tests += 1
-                self.failure_details.append({
+                out.print_lines.append(color_text('  X COMPILATION FAILED', Colors.RED))
+                out.print_lines.append(color_text(f"  Error: {result.error}", Colors.RED))
+                out.failure_detail = {
                     'test': test_name,
                     'stage': result.stage,
-                    'error': result.error
-                })
-                self.test_results[test_name] = 'fail'
-                return
+                    'error': result.error,
+                }
+                return out
 
-            # Check HIR patterns first (if any)
             if test.hir_check_patterns:
-                hir_check_result = self.test_hir_check_patterns(result.hir_output, test.hir_check_patterns)
-
+                hir_check_result = self.test_hir_check_patterns(
+                    result.hir_output, test.hir_check_patterns)
                 if not hir_check_result.success:
-                    print(color_text('  X HIR-CHECK PATTERNS FAILED', Colors.RED))
-                    for failure in hir_check_result.failures:
-                        print(color_text(f"    {failure}", Colors.RED))
-                    self.failed_tests += 1
-                    self.failure_details.append({
+                    out.print_lines.append(color_text('  X HIR-CHECK PATTERNS FAILED', Colors.RED))
+                    for f in hir_check_result.failures:
+                        out.print_lines.append(color_text(f"    {f}", Colors.RED))
+                    out.failure_detail = {
                         'test': test_name,
                         'stage': 'HIR-CHECK Patterns',
-                        'failures': hir_check_result.failures
-                    })
-                    self.test_results[test_name] = 'fail'
-                    return
+                        'failures': hir_check_result.failures,
+                    }
+                    return out
 
-            # Check LLVM IR patterns
             if test.check_patterns:
                 check_result = self.test_check_patterns(result.ir_output, test.check_patterns)
-
                 if not check_result.success:
-                    print(color_text('  X CHECK PATTERNS FAILED', Colors.RED))
-                    for failure in check_result.failures:
-                        print(color_text(f"    {failure}", Colors.RED))
-                    self.failed_tests += 1
-                    self.failure_details.append({
+                    out.print_lines.append(color_text('  X CHECK PATTERNS FAILED', Colors.RED))
+                    for f in check_result.failures:
+                        out.print_lines.append(color_text(f"    {f}", Colors.RED))
+                    out.failure_detail = {
                         'test': test_name,
                         'stage': 'CHECK Patterns',
-                        'failures': check_result.failures
-                    })
-                    self.test_results[test_name] = 'fail'
-                    return
+                        'failures': check_result.failures,
+                    }
+                    return out
 
-            # Check output
             if test.expected_output or test.expected_exit_code != 0:
                 output_result = self.test_output(
                     result.runtime_output,
                     test.expected_output,
                     test.expected_exit_code,
-                    result.exit_code
+                    result.exit_code,
                 )
-
                 if not output_result.success:
-                    print(color_text('  X OUTPUT VALIDATION FAILED', Colors.RED))
-                    for failure in output_result.failures:
-                        print(color_text(f"    {failure}", Colors.RED))
-                    self.failed_tests += 1
-                    self.failure_details.append({
+                    out.print_lines.append(color_text('  X OUTPUT VALIDATION FAILED', Colors.RED))
+                    for f in output_result.failures:
+                        out.print_lines.append(color_text(f"    {f}", Colors.RED))
+                    out.failure_detail = {
                         'test': test_name,
                         'stage': 'Output',
-                        'failures': output_result.failures
-                    })
-                    self.test_results[test_name] = 'fail'
-                    return
+                        'failures': output_result.failures,
+                    }
+                    return out
 
             # Test passed
-            print(color_text('  + PASSED', Colors.GREEN))
-            self.passed_tests += 1
-            self.test_results[test_name] = 'pass'
-
+            out.passed = True
+            out.print_lines.append(color_text('  + PASSED', Colors.GREEN))
+            return out
         finally:
-            # Clean up temp directory
             if temp_dir.exists():
                 import shutil
                 shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def _apply_outcome(self, outcome: TestOutcome) -> None:
+        """Apply a completed TestOutcome to runner state. Call from main thread."""
+        self.total_tests += 1
+        print(color_text(f"[{self.total_tests}] Testing: {outcome.test_name}", Colors.BLUE))
+        for line in outcome.print_lines:
+            print(line)
+        if outcome.passed:
+            self.passed_tests += 1
+            self.test_results[outcome.test_name] = 'pass'
+        else:
+            self.failed_tests += 1
+            self.test_results[outcome.test_name] = 'fail'
+            if outcome.failure_detail:
+                self.failure_details.append(outcome.failure_detail)
+
+    def run_single_test(self, test_file: Path):
+        """Sequential API preserved for backwards compatibility."""
+        outcome = self._run_one(test_file)
+        self._apply_outcome(outcome)
 
     def _baseline_path(self) -> Path:
         """Return the path to the baseline JSON file."""
@@ -803,10 +818,18 @@ class GoldenIRRunner:
         print()
         print(color_text('Golden IR Test Runner', Colors.CYAN))
         print(color_text(f"Running {len(test_files)} tests.", Colors.CYAN))
+        if self.jobs > 1:
+            print(color_text(f"Using {self.jobs} parallel workers.", Colors.CYAN))
         print()
 
-        for test_file in test_files:
-            self.run_single_test(test_file)
+        if self.jobs > 1:
+            with ThreadPoolExecutor(max_workers=self.jobs) as ex:
+                futures = [ex.submit(self._run_one, f) for f in test_files]
+                for fut in as_completed(futures):
+                    self._apply_outcome(fut.result())
+        else:
+            for test_file in test_files:
+                self.run_single_test(test_file)
 
         # Compare against baseline and save new results
         self._compare_baseline()
@@ -823,10 +846,12 @@ def main():
     parser.add_argument('test_path', help='Path to test file or directory')
     parser.add_argument('--details', action='store_true', help='Show detailed output')
     parser.add_argument('--update-golden', action='store_true', help='Update golden files (not implemented)')
+    parser.add_argument('-j', '--jobs', type=int, default=1,
+                        help='Parallel worker threads (default: 1)')
 
     args = parser.parse_args()
 
-    runner = GoldenIRRunner(args.test_path, show_details=args.details)
+    runner = GoldenIRRunner(args.test_path, show_details=args.details, jobs=args.jobs)
     sys.exit(runner.run())
 
 

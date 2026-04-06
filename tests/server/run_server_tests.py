@@ -20,9 +20,11 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -36,13 +38,16 @@ BASELINE_FILE = '.server_test_baseline.json'
 
 # Track all active server processes for cleanup on crash/interrupt
 _active_servers: List['ServerProcess'] = []
+_active_servers_lock = threading.Lock()
 
 
 def _cleanup_all_servers():
     """Kill all active server processes. Called via atexit and signal handlers."""
-    for server in _active_servers:
+    with _active_servers_lock:
+        servers = list(_active_servers)
+        _active_servers.clear()
+    for server in servers:
         server.cleanup()
-    _active_servers.clear()
 
 
 atexit.register(_cleanup_all_servers)
@@ -91,7 +96,8 @@ class ServerProcess:
             stderr=subprocess.STDOUT,
             env=self.env,
         )
-        _active_servers.append(self)
+        with _active_servers_lock:
+            _active_servers.append(self)
 
     def wait_ready(self, pattern: str, timeout: float = 10) -> Optional[re.Match]:
         """Read stdout lines until pattern matches or timeout.
@@ -150,8 +156,9 @@ class ServerProcess:
                     self.proc.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     pass
-        if self in _active_servers:
-            _active_servers.remove(self)
+        with _active_servers_lock:
+            if self in _active_servers:
+                _active_servers.remove(self)
 
 
 def compile_server(source_path: Path, exe_path: Path,
@@ -466,15 +473,17 @@ class ServerTestRunner:
     """Main runner for server tests."""
 
     def __init__(self, verbose: bool = False, test_filter: Optional[str] = None,
-                 coverage: bool = False):
+                 coverage: bool = False, jobs: int = 1):
         self.verbose = verbose
         self.test_filter = test_filter
         self.coverage = coverage
+        self.jobs = jobs
         self.results: List[Dict[str, Any]] = []
         self.test_statuses: Dict[str, str] = {}
         self.previous_baseline: Dict[str, str] = {}
         self.regressions: List[str] = []
         self.fixes: List[str] = []
+        self._print_lock = threading.Lock()
 
     def _baseline_path(self) -> Path:
         return SCRIPT_DIR / BASELINE_FILE
@@ -532,40 +541,56 @@ class ServerTestRunner:
 
         passed = 0
         failed = 0
+        completed = 0
 
-        for i, test_dir in enumerate(test_dirs, 1):
-            if not self.verbose:
-                print(f"[{i}/{len(test_dirs)}] {test_dir.name}...", end='', flush=True)
+        def apply_result(i_ignored, test_dir: Path, result: Dict[str, Any]):
+            nonlocal passed, failed, completed
+            with self._print_lock:
+                completed += 1
+                i = completed
+                self.results.append(result)
 
-            result = run_server_test(test_dir, verbose=self.verbose,
-                                     coverage=self.coverage)
-            self.results.append(result)
+                status_str = 'pass' if result['passed'] else 'fail'
+                if result['error'] and 'Compile error' in result['error']:
+                    status_str = 'compile_error'
+                self.test_statuses[result['name']] = status_str
 
-            status_str = 'pass' if result['passed'] else 'fail'
-            if result['error'] and 'Compile error' in result['error']:
-                status_str = 'compile_error'
-            self.test_statuses[result['name']] = status_str
-
-            if result['passed']:
-                passed += 1
-                if not self.verbose:
-                    print(f"\r[{i}/{len(test_dirs)}] {test_dir.name}... "
+                if result['passed']:
+                    passed += 1
+                    print(f"[{i}/{len(test_dirs)}] {test_dir.name}... "
                           f"{color('PASS', Colors.GREEN)} ({result['elapsed']:.1f}s)")
-            else:
-                failed += 1
-                if not self.verbose:
-                    print(f"\r[{i}/{len(test_dirs)}] {test_dir.name}... "
+                else:
+                    failed += 1
+                    print(f"[{i}/{len(test_dirs)}] {test_dir.name}... "
                           f"{color('FAIL', Colors.RED)} ({result['elapsed']:.1f}s)")
 
-            # Print check details
-            if self.verbose or not result['passed']:
-                if result['error']:
-                    print(f"  {color(result['error'], Colors.RED)}")
-                for detail in result['check_details']:
-                    sym = color('ok', Colors.GREEN) if ' ok' in detail else color('FAIL', Colors.RED)
-                    # Replace the status symbol in the detail line
-                    display = detail.replace(' ok', f' {sym}', 1).replace(' FAIL', f' {sym}', 1)
-                    print(f"  {display}")
+                # Print check details
+                if self.verbose or not result['passed']:
+                    if result['error']:
+                        print(f"  {color(result['error'], Colors.RED)}")
+                    for detail in result['check_details']:
+                        sym = color('ok', Colors.GREEN) if ' ok' in detail else color('FAIL', Colors.RED)
+                        display = detail.replace(' ok', f' {sym}', 1).replace(' FAIL', f' {sym}', 1)
+                        print(f"  {display}")
+
+        if self.jobs > 1:
+            print(color(f"Using {self.jobs} parallel workers\n", Colors.CYAN))
+            with ThreadPoolExecutor(max_workers=self.jobs) as ex:
+                futures = {
+                    ex.submit(run_server_test, test_dir,
+                              verbose=self.verbose, coverage=self.coverage): test_dir
+                    for test_dir in test_dirs
+                }
+                for fut in as_completed(futures):
+                    test_dir = futures[fut]
+                    apply_result(0, test_dir, fut.result())
+        else:
+            for i, test_dir in enumerate(test_dirs, 1):
+                if not self.verbose:
+                    print(f"[{i}/{len(test_dirs)}] {test_dir.name}...", end='', flush=True)
+                result = run_server_test(test_dir, verbose=self.verbose,
+                                         coverage=self.coverage)
+                apply_result(i, test_dir, result)
 
         # Baseline comparison
         self._compare_baseline()
@@ -632,10 +657,16 @@ def main():
     parser.add_argument('-t', '--test', type=str, help='Run specific test by name')
     parser.add_argument('--coverage', action='store_true',
                         help='Compile with --coverage and collect profraw files')
+    parser.add_argument('-j', '--jobs', type=int, default=1,
+                        help='Parallel worker threads (default: 1). Caps at 6 since '
+                             'each test spawns a server subprocess.')
     args = parser.parse_args()
 
+    # Cap parallelism to avoid overwhelming the system with server processes
+    jobs = min(args.jobs, 6)
+
     runner = ServerTestRunner(verbose=args.verbose, test_filter=args.test,
-                              coverage=args.coverage)
+                              coverage=args.coverage, jobs=jobs)
     return runner.run()
 
 
