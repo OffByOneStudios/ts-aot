@@ -1548,10 +1548,12 @@ ast::StmtPtr Parser::parseTryStatement() {
 
     // try block
     expect(TokenKind::OpenBrace, "'{'");
+    pushLexicalScope();
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();
         if (stmt) node->tryBlock.push_back(std::move(stmt));
     }
+    popLexicalScope();
     expect(TokenKind::CloseBrace, "'}'");
 
     // catch clause
@@ -1570,20 +1572,24 @@ ast::StmtPtr Parser::parseTryStatement() {
         }
         // catch block
         expect(TokenKind::OpenBrace, "'{'");
+        pushLexicalScope();
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();
             if (stmt) node->catchClause->block.push_back(std::move(stmt));
         }
+        popLexicalScope();
         expect(TokenKind::CloseBrace, "'}'");
     }
 
     // finally clause
     if (match(TokenKind::KW_finally)) {
         expect(TokenKind::OpenBrace, "'{'");
+        pushLexicalScope();
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();
             if (stmt) node->finallyBlock.push_back(std::move(stmt));
         }
+        popLexicalScope();
         expect(TokenKind::CloseBrace, "'}'");
     }
 

@@ -157,10 +157,21 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
 }
 
 // Build error object with a specific name (TypeError, RangeError, etc.)
+// Forward declaration for getErrorConstructorByName (defined later)
+static void* getErrorConstructorByName(const char* name);
+
 static TsValue* buildTypedErrorObject(const char* name, TsString* msgStr) {
     TsMap* err = TsMap::Create();
     err->Set(TsString::Create("message"), nanbox_to_tagged(ts_value_make_string(msgStr)));
     err->Set(TsString::Create("name"), nanbox_to_tagged(ts_value_make_string(TsString::Create(name))));
+
+    // Set .constructor to the matching global constructor so
+    // `e.constructor === TypeError` works for assert.throws identity checks.
+    void* ctor = getErrorConstructorByName(name);
+    if (ctor) {
+        TsValue ctorVal; ctorVal.type = ValueType::OBJECT_PTR; ctorVal.ptr_val = ctor;
+        err->Set(TsString::Create("constructor"), ctorVal);
+    }
 
     std::stringstream ss;
     ss << name << ": " << (msgStr ? msgStr->ToUtf8() : "") << "\n";

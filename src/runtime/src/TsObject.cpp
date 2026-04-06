@@ -780,6 +780,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == TsConsString::MAGIC) {
             return ((TsConsString*)ptr)->Flatten();
         }
+        // Symbol: per spec, ToString throws TypeError
+        if (magic == 0x53594D42) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a Symbol value to a string"));
+            return TsString::Create(""); // unreachable
+        }
         // Not a string - try to convert
         return ts_string_from_value(v);
     }

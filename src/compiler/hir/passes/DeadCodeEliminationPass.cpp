@@ -323,6 +323,30 @@ bool DeadCodeEliminationPass::hasSideEffects(HIRInstruction* inst) const {
             return true;  // Unknown/nullable type — may throw, preserve
         }
 
+        // String concatenation can throw (TypeError for Symbol operand).
+        // Safe to eliminate only when both operands are known non-Symbol types.
+        case HIROpcode::StringConcat: {
+            auto isSafeForConcat = [](std::shared_ptr<HIRType> t) -> bool {
+                if (!t) return false;
+                auto k = t->kind;
+                return k == HIRTypeKind::String ||
+                       k == HIRTypeKind::Int64 ||
+                       k == HIRTypeKind::Float64 ||
+                       k == HIRTypeKind::Bool;
+                // Any/Ptr/Object/Class/etc. could be a Symbol wrapped in them
+            };
+            if (inst->operands.size() >= 2) {
+                auto* lhsPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0]);
+                auto* rhsPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[1]);
+                if (lhsPtr && rhsPtr && *lhsPtr && *rhsPtr) {
+                    if (isSafeForConcat((*lhsPtr)->type) && isSafeForConcat((*rhsPtr)->type)) {
+                        return false;  // Both primitives — safe to eliminate
+                    }
+                }
+            }
+            return true;  // Might throw — preserve
+        }
+
         default:
             return false;
     }

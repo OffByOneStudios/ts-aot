@@ -4,6 +4,7 @@
 #include "TsBuffer.h"
 #include "TsRegExp.h"
 #include "TsRuntime.h"
+#include "TsError.h"
 #include "GC.h"
 #include "TsGC.h"
 #include "TsNanBox.h"
@@ -1404,6 +1405,12 @@ extern "C" {
             if (addr < 0x10000) return TsString::Create("");
             uint32_t magic = *(uint32_t*)ptr;
             if (magic == TsString::MAGIC || magic == TsConsString::MAGIC) return ptr;
+            // Symbol: throw TypeError per spec
+            if (magic == 0x53594D42) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert a Symbol value to a string"));
+                return TsString::Create(""); // unreachable
+            }
             uint8_t firstByte = *(uint8_t*)ptr;
             if (firstByte <= 10) {
                 TsString* result = (TsString*)ts_string_from_value((TsValue*)ptr);

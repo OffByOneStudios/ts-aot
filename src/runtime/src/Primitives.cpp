@@ -4,6 +4,7 @@
 #include "TsConsString.h"
 #include "TsBigInt.h"
 #include "TsSymbol.h"
+#include "TsError.h"
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsSet.h"
