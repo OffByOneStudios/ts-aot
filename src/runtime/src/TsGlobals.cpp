@@ -702,6 +702,110 @@ void* ts_get_global_module() { return getModuleGlobal("module"); }
 void* ts_get_global_vm() { return getModuleGlobal("vm"); }
 void* ts_get_global_v8() { return getModuleGlobal("v8"); }
 
+// ============================================================================
+// TypedArray constructors
+// ============================================================================
+//
+// Each per-class TypedArray (Int8Array, Uint8Array, etc.) is exposed as a
+// callable native function whose [[Prototype]] (Object.getPrototypeOf(Int8Array))
+// points to a shared %TypedArray% intrinsic. This makes the test262 harness
+// (testTypedArray.js) work, and allows JS code to do `var TA = Int8Array; new TA(n)`.
+//
+// The compiler ALSO has a syntactic special case for `new Int8Array(n)`
+// (ASTToHIR.cpp) that bypasses these constructors. So these are primarily for
+// introspection and dynamic-constructor use.
+
+// Forward declarations for typed array runtime creators (defined in TsBuffer.cpp)
+extern "C" void* ts_typed_array_create_i8(int64_t length);
+extern "C" void* ts_typed_array_create_u8(int64_t length);
+extern "C" void* ts_typed_array_create_clamped(int64_t length);
+extern "C" void* ts_typed_array_create_i16(int64_t length);
+extern "C" void* ts_typed_array_create_u16(int64_t length);
+extern "C" void* ts_typed_array_create_i32(int64_t length);
+extern "C" void* ts_typed_array_create_u32(int64_t length);
+extern "C" void* ts_typed_array_create_f32(int64_t length);
+extern "C" void* ts_typed_array_create_f64(int64_t length);
+// ToNumber abstract op — defined in Primitives.cpp
+extern "C" double ts_to_number(TsValue* v);
+
+// Helper: build a constructor function with name + .prototype + optional [[Prototype]] link.
+// `nativeFn` is the native callable. If `parentProto` is non-null, sets the constructor's
+// [[Prototype]] (used to wire all per-class TypedArrays to %TypedArray%).
+static void* makeTypedArrayCtor(const char* name,
+                                TsValue* (*nativeFn)(void*, int, TsValue**),
+                                void* parentProto) {
+    TsValue* ctorVal = ts_value_make_native_function((void*)nativeFn, nullptr);
+    void* ctorRaw = ts_value_get_object(ctorVal);
+    TsFunction* ctorFunc = (TsFunction*)ctorRaw;
+
+    if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
+
+    // .prototype = empty TsMap
+    TsMap* proto = TsMap::Create();
+    TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+    protoKey.ptr_val = TsString::GetInterned("prototype");
+    TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
+    protoVal.ptr_val = proto;
+    ctorFunc->properties->Set(protoKey, protoVal);
+
+    // .name = constructor name
+    ctorFunc->name = TsString::Create(name);
+
+    // Link [[Prototype]] (the __proto__ slot, NOT .prototype) to %TypedArray%.
+    // This is what Object.getPrototypeOf(Int8Array) returns.
+    if (parentProto) {
+        ts_object_setPrototypeOf(ctorVal, (TsValue*)parentProto);
+    }
+
+    return (void*)ctorVal;
+}
+
+// %TypedArray% intrinsic — the shared parent of all per-class TypedArray constructors.
+// Per spec, %TypedArray% itself throws when called as a constructor, but tests typically
+// just use it for introspection (Object.getPrototypeOf(Int8Array) === TypedArray).
+void* ts_get_global_TypedArray() {
+    static void* cached = nullptr;
+    if (!cached) {
+        // %TypedArray% throws if called directly. We model it as a stub that returns undefined.
+        auto fn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            return ts_value_make_undefined();
+        };
+        cached = makeTypedArrayCtor("TypedArray", fn, nullptr);
+    }
+    return cached;
+}
+
+#define DEFINE_TYPED_ARRAY_CTOR(JsName, CName, RuntimeFn)                              \
+void* ts_get_global_##CName() {                                                         \
+    static void* cached = nullptr;                                                      \
+    if (!cached) {                                                                      \
+        auto fn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {                 \
+            int64_t length = 0;                                                         \
+            if (argc >= 1 && argv && argv[0]) {                                         \
+                /* Argument may be a number (length) or array/typedarray (copy). */     \
+                /* For now we just handle the length form — the most common case. */   \
+                length = (int64_t)ts_to_number(argv[0]);                                \
+                if (length < 0) length = 0;                                             \
+            }                                                                           \
+            return (TsValue*)RuntimeFn(length);                                         \
+        };                                                                              \
+        cached = makeTypedArrayCtor(#JsName, fn, ts_get_global_TypedArray());           \
+    }                                                                                   \
+    return cached;                                                                      \
+}
+
+DEFINE_TYPED_ARRAY_CTOR(Int8Array,         Int8Array,         ts_typed_array_create_i8)
+DEFINE_TYPED_ARRAY_CTOR(Uint8Array,        Uint8Array,        ts_typed_array_create_u8)
+DEFINE_TYPED_ARRAY_CTOR(Uint8ClampedArray, Uint8ClampedArray, ts_typed_array_create_clamped)
+DEFINE_TYPED_ARRAY_CTOR(Int16Array,        Int16Array,        ts_typed_array_create_i16)
+DEFINE_TYPED_ARRAY_CTOR(Uint16Array,       Uint16Array,       ts_typed_array_create_u16)
+DEFINE_TYPED_ARRAY_CTOR(Int32Array,        Int32Array,        ts_typed_array_create_i32)
+DEFINE_TYPED_ARRAY_CTOR(Uint32Array,       Uint32Array,       ts_typed_array_create_u32)
+DEFINE_TYPED_ARRAY_CTOR(Float32Array,      Float32Array,      ts_typed_array_create_f32)
+DEFINE_TYPED_ARRAY_CTOR(Float64Array,      Float64Array,      ts_typed_array_create_f64)
+
+#undef DEFINE_TYPED_ARRAY_CTOR
+
 // Generic global lookup by name (namePtr is a raw C string from createGlobalString)
 void* ts_get_global(void* namePtr) {
     if (!namePtr) return nullptr;

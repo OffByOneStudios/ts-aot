@@ -6685,6 +6685,12 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "encodeURIComponent", "decodeURIComponent", "encodeURI", "decodeURI",
             "setInterval", "clearInterval", "setTimeout", "clearTimeout",
             "setImmediate", "clearImmediate", "queueMicrotask",
+            // TypedArray constructors and the %TypedArray% intrinsic
+            "TypedArray",
+            "Int8Array", "Uint8Array", "Uint8ClampedArray",
+            "Int16Array", "Uint16Array",
+            "Int32Array", "Uint32Array",
+            "Float32Array", "Float64Array",
         };
         if (jsBuiltinGlobals.count(node->name)) {
             SPDLOG_DEBUG("[IDENT] builtin global: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");

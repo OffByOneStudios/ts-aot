@@ -6499,6 +6499,26 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_Proxy";
     } else if (globalName == "Reflect") {
         funcName = "ts_get_global_Reflect";
+    } else if (globalName == "TypedArray") {
+        funcName = "ts_get_global_TypedArray";
+    } else if (globalName == "Int8Array") {
+        funcName = "ts_get_global_Int8Array";
+    } else if (globalName == "Uint8Array") {
+        funcName = "ts_get_global_Uint8Array";
+    } else if (globalName == "Uint8ClampedArray") {
+        funcName = "ts_get_global_Uint8ClampedArray";
+    } else if (globalName == "Int16Array") {
+        funcName = "ts_get_global_Int16Array";
+    } else if (globalName == "Uint16Array") {
+        funcName = "ts_get_global_Uint16Array";
+    } else if (globalName == "Int32Array") {
+        funcName = "ts_get_global_Int32Array";
+    } else if (globalName == "Uint32Array") {
+        funcName = "ts_get_global_Uint32Array";
+    } else if (globalName == "Float32Array") {
+        funcName = "ts_get_global_Float32Array";
+    } else if (globalName == "Float64Array") {
+        funcName = "ts_get_global_Float64Array";
     } else if (globalName == "process") {
         funcName = "ts_get_global_process";
     } else if (globalName == "global" || globalName == "globalThis") {
