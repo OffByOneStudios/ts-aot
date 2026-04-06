@@ -17,11 +17,13 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, FIRST_COMPLETED, wait
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -38,6 +40,7 @@ TEST262_DIR = SCRIPT_DIR / "test262"
 HARNESS_DIR = TEST262_DIR / "harness"
 TEST_DIR = TEST262_DIR / "test"
 BASELINE_FILE = SCRIPT_DIR / ".test262_baseline.json"
+RESULTS_JSONL = SCRIPT_DIR / ".test262_results.jsonl"
 BUILD_DIR = SCRIPT_DIR / "build"
 
 # Features we know we DON'T support — skip tests requiring these
@@ -264,6 +267,105 @@ class TestResult:
     stderr: str = ""
 
 
+class ResultLog:
+    """Thread-safe append-only JSONL logger for test results.
+
+    Writes one JSON object per line. Each line is flushed immediately so that
+    if the process is killed mid-run, all completed results are preserved.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._lock = threading.Lock()
+        # Open in append mode — OS handles line atomicity for small writes
+        self._file = open(path, 'a', encoding='utf-8', buffering=1)
+
+    def write(self, result: TestResult, rel_path: str) -> None:
+        record = {
+            "path": rel_path,
+            "status": result.status,
+            "time_ms": int(result.time_ms),
+            "reason": result.reason[:200] if result.reason else "",
+        }
+        line = json.dumps(record, ensure_ascii=False) + "\n"
+        with self._lock:
+            self._file.write(line)
+            self._file.flush()
+            try:
+                os.fsync(self._file.fileno())
+            except (OSError, AttributeError):
+                pass  # not all platforms support fsync on text files
+
+    def close(self) -> None:
+        with self._lock:
+            try:
+                self._file.close()
+            except Exception:
+                pass
+
+
+def load_completed_set(jsonl_path: Path) -> Dict[str, str]:
+    """Load already-completed test paths and their statuses from the JSONL log.
+
+    Returns a dict mapping relative path -> status. Gracefully handles partial
+    final lines from an interrupted run.
+    """
+    completed: Dict[str, str] = {}
+    if not jsonl_path.exists():
+        return completed
+    try:
+        with open(jsonl_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    p = rec.get("path")
+                    s = rec.get("status")
+                    if p and s:
+                        completed[p] = s
+                except json.JSONDecodeError:
+                    # Partial line from interrupted write — skip
+                    continue
+    except Exception as e:
+        print(f"Warning: failed to read results log: {e}")
+    return completed
+
+
+def interleave_tests(tests: List[Path], base_dir: Path) -> List[Path]:
+    """Reorder tests so early termination gives representative coverage.
+
+    Groups by top-two-level directory (e.g. "language/expressions",
+    "built-ins/Array") and round-robins between groups. This way if we stop
+    after N tests, we have ~N/G tests from each of G categories instead of
+    N tests all from the alphabetically-first category.
+    """
+    groups: Dict[str, List[Path]] = {}
+    for t in tests:
+        try:
+            rel = t.relative_to(base_dir)
+        except ValueError:
+            rel = t
+        parts = rel.parts
+        if len(parts) >= 2:
+            key = f"{parts[0]}/{parts[1]}"
+        elif len(parts) == 1:
+            key = parts[0]
+        else:
+            key = "_other"
+        groups.setdefault(key, []).append(t)
+
+    # Round-robin merge
+    merged: List[Path] = []
+    while any(groups.values()):
+        for key in list(groups.keys()):
+            bucket = groups[key]
+            if bucket:
+                merged.append(bucket.pop(0))
+    return merged
+
+
 def build_test_source(test_path: Path, meta: TestMetadata) -> str:
     """Concatenate harness files + test body into a single source string."""
     parts = []
@@ -437,8 +539,26 @@ class Test262Runner:
         self.save_baseline = args.save_baseline
         self.jobs = args.jobs
         self.timeout = args.timeout
+        self.time_budget_min = args.time_budget_min
+        self.resume = args.resume
+        self.fresh = args.fresh
+        self.interleave = args.interleave
         self.compiler = get_compiler_path()
         self.build_dir = BUILD_DIR
+        # Shutdown flag — set by signal handler
+        self._shutdown = threading.Event()
+        self._result_log: Optional[ResultLog] = None
+
+    def _on_signal(self, signum, frame):
+        if not self._shutdown.is_set():
+            print("\n\n[!] Shutdown requested. Waiting for in-flight tests to complete...")
+            print("[!] Press Ctrl-C again to force-quit (may lose in-flight results).")
+            self._shutdown.set()
+        else:
+            print("\n[!] Force quit.")
+            if self._result_log:
+                self._result_log.close()
+            sys.exit(130)
 
     def run(self) -> int:
         if not TEST262_DIR.exists():
@@ -450,6 +570,18 @@ class Test262Runner:
             print(f"Error: compiler not found at {self.compiler}")
             return 1
 
+        # Optionally truncate the results log for a fresh run
+        if self.fresh and RESULTS_JSONL.exists():
+            RESULTS_JSONL.unlink()
+            print(f"[fresh] removed {RESULTS_JSONL.name}")
+
+        # Load already-completed results for resume
+        completed_map: Dict[str, str] = {}
+        if self.resume:
+            completed_map = load_completed_set(RESULTS_JSONL)
+            if completed_map:
+                print(f"[resume] loaded {len(completed_map)} previously-completed tests")
+
         # Discover tests
         print("Discovering tests...")
         tests = discover_tests(TEST_DIR, self.category, self.filter_str)
@@ -457,13 +589,28 @@ class Test262Runner:
             print("No tests found.")
             return 1
 
+        # Filter out already-completed tests
+        if completed_map:
+            before = len(tests)
+            tests = [t for t in tests
+                     if str(t.relative_to(TEST_DIR)) not in completed_map]
+            skipped = before - len(tests)
+            if skipped:
+                print(f"[resume] skipping {skipped} already-completed tests")
+
+        # Interleave for representative early-termination
+        if self.interleave:
+            tests = interleave_tests(tests, TEST_DIR)
+
         if self.limit and self.limit < len(tests):
             tests = tests[:self.limit]
 
-        print(f"Found {len(tests)} test(s)")
+        print(f"Found {len(tests)} test(s) to run")
+        if self.time_budget_min:
+            print(f"[budget] {self.time_budget_min} min wall-clock budget")
         self.build_dir.mkdir(parents=True, exist_ok=True)
 
-        # Load baseline
+        # Load baseline (for comparison at the end)
         baseline = {}
         if BASELINE_FILE.exists():
             try:
@@ -471,16 +618,39 @@ class Test262Runner:
             except Exception:
                 pass
 
+        # Open result log (append mode preserves any prior entries for resume)
+        self._result_log = ResultLog(RESULTS_JSONL)
+
+        # Install signal handler for graceful shutdown
+        try:
+            signal.signal(signal.SIGINT, self._on_signal)
+        except ValueError:
+            pass  # Not in main thread
+
         # Run tests
         results: List[TestResult] = []
         counts = {"pass": 0, "fail": 0, "skip": 0,
                   "compile_error": 0, "timeout": 0, "crash": 0}
         start_time = time.time()
 
-        if self.jobs > 1:
-            results = self._run_parallel(tests)
-        else:
-            results = self._run_sequential(tests)
+        try:
+            if self.jobs > 1:
+                results = self._run_parallel(tests, start_time)
+            else:
+                results = self._run_sequential(tests, start_time)
+        finally:
+            self._result_log.close()
+
+        # Add previously-completed results (from resume) to the totals
+        if completed_map:
+            # Build synthetic TestResult objects for baseline comparison
+            for rel_path, status in completed_map.items():
+                if any(str(r.path.relative_to(TEST_DIR)) == rel_path for r in results):
+                    continue
+                results.append(TestResult(
+                    path=TEST_DIR / rel_path,
+                    status=status,
+                ))
 
         # Tally
         for r in results:
@@ -556,39 +726,115 @@ class Test262Runner:
 
         return 1 if counts["fail"] + counts["crash"] > 0 else 0
 
-    def _run_sequential(self, tests: List[Path]) -> List[TestResult]:
+    def _budget_exceeded(self, start_time: float) -> bool:
+        if self.time_budget_min is None:
+            return False
+        elapsed = time.time() - start_time
+        return elapsed >= self.time_budget_min * 60.0
+
+    def _run_sequential(self, tests: List[Path], start_time: float) -> List[TestResult]:
         results = []
         for i, test_path in enumerate(tests):
+            if self._shutdown.is_set() or self._budget_exceeded(start_time):
+                print(f"\n[stop] halting at {i}/{len(tests)} (budget/shutdown)")
+                break
             r = run_single_test(test_path, self.compiler, self.build_dir,
                                 self.timeout, self.verbose)
             results.append(r)
+            # Write to incremental log immediately
+            rel = str(test_path.relative_to(TEST_DIR))
+            self._result_log.write(r, rel)
             if self.verbose or r.status in ("fail", "crash"):
-                rel = test_path.relative_to(TEST_DIR)
                 sym = {"pass": ".", "fail": "F", "skip": "S",
                        "compile_error": "C", "timeout": "T", "crash": "X"}
                 if self.verbose:
                     print(f"  [{i+1}/{len(tests)}] {sym.get(r.status, '?')} {rel}"
                           f"  ({r.time_ms:.0f}ms)")
             elif (i + 1) % 50 == 0:
-                print(f"  [{i+1}/{len(tests)}] ...", flush=True)
+                elapsed = time.time() - start_time
+                print(f"  [{i+1}/{len(tests)}] {elapsed:.0f}s...", flush=True)
         return results
 
-    def _run_parallel(self, tests: List[Path]) -> List[TestResult]:
-        results = []
+    def _run_parallel(self, tests: List[Path], start_time: float) -> List[TestResult]:
+        results: List[TestResult] = []
         done = 0
+        submitted = 0
+        total = len(tests)
+
         with ThreadPoolExecutor(max_workers=self.jobs) as executor:
-            futures = {
-                executor.submit(
+            # Keep a sliding window of in-flight futures rather than submitting all
+            # at once. This lets us stop submitting when the budget expires and
+            # avoid wasted work in the queue.
+            in_flight: Dict = {}
+            test_iter = iter(tests)
+            max_in_flight = self.jobs * 4  # small queue depth ahead of workers
+
+            def submit_next() -> bool:
+                """Submit the next test. Returns False if no more to submit."""
+                nonlocal submitted
+                if self._shutdown.is_set() or self._budget_exceeded(start_time):
+                    return False
+                try:
+                    t = next(test_iter)
+                except StopIteration:
+                    return False
+                fut = executor.submit(
                     run_single_test, t, self.compiler, self.build_dir,
-                    self.timeout, self.verbose
-                ): t for t in tests
-            }
-            for future in as_completed(futures):
-                r = future.result()
-                results.append(r)
-                done += 1
-                if done % 50 == 0:
-                    print(f"  [{done}/{len(tests)}] ...", flush=True)
+                    self.timeout, False  # don't let workers print verbose
+                )
+                in_flight[fut] = t
+                submitted += 1
+                return True
+
+            # Prime the queue
+            while len(in_flight) < max_in_flight and submit_next():
+                pass
+
+            last_progress_time = start_time
+            while in_flight:
+                # Wait for any future to complete (with short timeout to allow signal checks)
+                done_set, _ = wait(list(in_flight.keys()), timeout=1.0,
+                                   return_when=FIRST_COMPLETED)
+
+                for fut in done_set:
+                    test_path = in_flight.pop(fut)
+                    try:
+                        r = fut.result()
+                    except Exception as e:
+                        r = TestResult(test_path, "crash",
+                                       f"worker exception: {e}")
+                    results.append(r)
+                    rel = str(test_path.relative_to(TEST_DIR))
+                    self._result_log.write(r, rel)
+                    done += 1
+
+                    if self.verbose:
+                        sym = {"pass": ".", "fail": "F", "skip": "S",
+                               "compile_error": "C", "timeout": "T", "crash": "X"}
+                        print(f"  [{done}/{total}] {sym.get(r.status, '?')} {rel}"
+                              f"  ({r.time_ms:.0f}ms)", flush=True)
+
+                # Progress update every 5 seconds
+                now = time.time()
+                if now - last_progress_time >= 5.0:
+                    elapsed = now - start_time
+                    rate = done / elapsed if elapsed > 0 else 0
+                    print(f"  [{done}/{total}] {elapsed:.0f}s  ({rate:.1f} tests/s)",
+                          flush=True)
+                    last_progress_time = now
+
+                # Keep the queue filled
+                while len(in_flight) < max_in_flight:
+                    if not submit_next():
+                        break
+
+                if (self._shutdown.is_set() or self._budget_exceeded(start_time)) and not in_flight:
+                    break
+
+            if self._shutdown.is_set() or self._budget_exceeded(start_time):
+                print(f"\n[stop] halted at {done} tests ({submitted} submitted, "
+                      f"{total - submitted} not submitted)")
+
         return results
 
 
@@ -611,7 +857,42 @@ def main():
                         help="Parallel jobs (default: 1)")
     parser.add_argument("--timeout", "-t", type=int, default=10,
                         help="Per-test execution timeout in seconds (default: 10)")
+    parser.add_argument("--time-budget-min", type=float, default=None,
+                        help="Wall-clock budget in minutes (stops submitting new tests when exceeded)")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume from previous run using .test262_results.jsonl")
+    parser.add_argument("--fresh", action="store_true",
+                        help="Delete previous results log before running")
+    parser.add_argument("--interleave", action="store_true",
+                        help="Round-robin tests across categories for representative early-termination")
+    parser.add_argument("--fast", action="store_true",
+                        help="Preset: -j 12 --time-budget-min 20 --timeout 8 --resume --interleave")
+    parser.add_argument("--consolidate-baseline", action="store_true",
+                        help="Build baseline JSON from existing results log and exit")
     args = parser.parse_args()
+
+    # --consolidate-baseline: build baseline from existing JSONL and exit
+    if args.consolidate_baseline:
+        completed = load_completed_set(RESULTS_JSONL)
+        if not completed:
+            print(f"Error: no results in {RESULTS_JSONL}")
+            sys.exit(1)
+        # Exclude skips from the baseline (same as --save-baseline behavior)
+        baseline = {p: s for p, s in completed.items() if s != "skip"}
+        BASELINE_FILE.write_text(json.dumps(baseline, indent=2, sort_keys=True))
+        print(f"Consolidated baseline: {len(baseline)} entries -> {BASELINE_FILE}")
+        sys.exit(0)
+
+    # --fast preset: set reasonable defaults for a full-run
+    if args.fast:
+        if args.jobs == 1:
+            args.jobs = 12
+        if args.time_budget_min is None:
+            args.time_budget_min = 20
+        if args.timeout == 10:
+            args.timeout = 8
+        args.resume = True
+        args.interleave = True
 
     runner = Test262Runner(args)
     sys.exit(runner.run())

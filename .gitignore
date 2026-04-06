@@ -116,8 +116,9 @@ tests/server/.coverage/
 *.profraw
 *.profdata
 
-# test262 build artifacts
+# test262 build artifacts and incremental results log
 tests/test262/build/
+tests/test262/.test262_results.jsonl
 
 # Claude Code local settings (not shared with team)
 .claude/CLAUDE.local.md
