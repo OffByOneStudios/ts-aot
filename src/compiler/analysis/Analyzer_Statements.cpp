@@ -23,7 +23,9 @@ void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
         type = parseType(node->type, symbols);
     }
 
-    // Declare first so it's in scope for the initializer
+    // Declare the binding. The hoisting pass already registered the name with
+    // the correct DeclKind, so use the plain overload here which allows
+    // re-definition in the same scope (updating the type).
     declareBindingPattern(node->name.get(), type);
 
     if (node->initializer) {

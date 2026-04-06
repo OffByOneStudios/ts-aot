@@ -390,6 +390,32 @@ void Analyzer::declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> t
     }
 }
 
+void Analyzer::declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type, DeclKind kind) {
+    if (auto id = dynamic_cast<Identifier*>(pattern)) {
+        if (!symbols.define(id->name, type, kind)) {
+            if (kind == DeclKind::Var) {
+                // var+var is allowed, just update the type
+                symbols.update(id->name, type);
+            } else {
+                reportError("SyntaxError: Identifier '" + id->name + "' has already been declared");
+            }
+        }
+    } else if (auto obp = dynamic_cast<ObjectBindingPattern*>(pattern)) {
+        for (auto& elementNode : obp->elements) {
+            auto element = dynamic_cast<BindingElement*>(elementNode.get());
+            if (!element) continue;
+            declareBindingPattern(element->name.get(), std::make_shared<Type>(TypeKind::Any), kind);
+        }
+    } else if (auto abp = dynamic_cast<ArrayBindingPattern*>(pattern)) {
+        for (auto& elementNode : abp->elements) {
+            if (auto oe = dynamic_cast<OmittedExpression*>(elementNode.get())) continue;
+            if (auto element = dynamic_cast<BindingElement*>(elementNode.get())) {
+                declareBindingPattern(element->name.get(), std::make_shared<Type>(TypeKind::Any), kind);
+            }
+        }
+    }
+}
+
 void Analyzer::visitObjectBindingPattern(ast::ObjectBindingPattern* node) {}
 void Analyzer::visitArrayBindingPattern(ast::ArrayBindingPattern* node) {}
 void Analyzer::visitBindingElement(ast::BindingElement* node) {}

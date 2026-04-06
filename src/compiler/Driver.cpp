@@ -152,6 +152,10 @@ int Driver::run() {
 
             parser::Parser nativeParser;
             program = nativeParser.parse(source, tsFile);
+            if (nativeParser.getErrorCount() > 0) {
+                SPDLOG_ERROR("Compilation failed with {} parse error(s).", nativeParser.getErrorCount());
+                return 1;
+            }
         } else {
             // Legacy path: load from JSON
             if (options.verbose) {

@@ -174,6 +174,33 @@ void Parser::restoreState(const SavedState& state) {
     previous_ = state.previous;
 }
 
+void Parser::pushLexicalScope() {
+    lexicalScopes_.push_back(LexicalScope{});
+}
+
+void Parser::popLexicalScope() {
+    if (!lexicalScopes_.empty()) lexicalScopes_.pop_back();
+}
+
+bool Parser::declareLexicalName(const std::string& name, PDeclKind kind) {
+    if (lexicalScopes_.empty()) return true;
+    auto& scope = lexicalScopes_.back();
+    auto it = scope.names.find(name);
+    if (it != scope.names.end()) {
+        PDeclKind existing = it->second;
+        // var + var is OK
+        if (existing == PDeclKind::Var && kind == PDeclKind::Var) {
+            return true;
+        }
+        // Everything else is a redeclaration error
+        fprintf(stderr, "SyntaxError: Identifier '%s' has already been declared\n", name.c_str());
+        errorCount_++;
+        return false;
+    }
+    scope.names[name] = kind;
+    return true;
+}
+
 bool Parser::isStartOfExpression() const {
     switch (current_.kind) {
         case TokenKind::Identifier:
@@ -791,6 +818,10 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
     // Name (optional for default exports)
     if (isIdentifierOrKeyword()) {
         node->name = identifierName();
+        // Track in lexical scope for redeclaration detection (block-scoped functions)
+        if (!node->name.empty()) {
+            declareLexicalName(node->name, PDeclKind::Function);
+        }
     }
 
     // Type parameters
@@ -841,9 +872,19 @@ std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported) 
         auto decl = std::make_unique<ast::VariableDeclaration>();
         setLocation(decl.get(), current_);
         decl->isExported = isExported;
+        if (startTok.kind == TokenKind::KW_let) decl->varKind = ast::VarKind::Let;
+        else if (startTok.kind == TokenKind::KW_const) decl->varKind = ast::VarKind::Const;
 
         // Name or binding pattern
         decl->name = parseBindingNameOrPattern();
+
+        // Track declarations for redeclaration detection
+        if (auto* ident = dynamic_cast<ast::Identifier*>(decl->name.get())) {
+            PDeclKind dk = PDeclKind::Var;
+            if (decl->varKind == ast::VarKind::Let) dk = PDeclKind::Let;
+            else if (decl->varKind == ast::VarKind::Const) dk = PDeclKind::Const;
+            declareLexicalName(ident->name, dk);
+        }
 
         // Type annotation
         if (check(TokenKind::Colon)) {
@@ -1589,10 +1630,12 @@ ast::StmtPtr Parser::parseBlockStatement() {
     auto node = std::make_unique<ast::BlockStatement>();
     setLocation(node.get(), startTok);
 
+    pushLexicalScope();
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();
         if (stmt) node->statements.push_back(std::move(stmt));
     }
+    popLexicalScope();
     expect(TokenKind::CloseBrace, "'}'");
     return node;
 }

@@ -40,6 +40,31 @@ bool SymbolTable::define(const std::string& name, std::shared_ptr<Type> type) {
     return true;
 }
 
+bool SymbolTable::define(const std::string& name, std::shared_ptr<Type> type, DeclKind kind) {
+    if (scopes.empty()) return false;
+
+    auto& currentScope = scopes.back();
+    auto it = currentScope.find(name);
+    if (it != currentScope.end()) {
+        DeclKind existing = it->second->declKind;
+        // var + var is OK (JS hoisting allows redeclaration)
+        // Everything else is a conflict (let/const/function/class can't be redeclared)
+        if (existing == DeclKind::Var && kind == DeclKind::Var) {
+            // Update type but allow
+            it->second->type = type;
+            return true;
+        }
+        return false; // Lexical redeclaration error
+    }
+
+    auto symbol = std::make_shared<Symbol>();
+    symbol->name = name;
+    symbol->type = type;
+    symbol->declKind = kind;
+    currentScope[name] = symbol;
+    return true;
+}
+
 std::shared_ptr<Symbol> SymbolTable::lookup(const std::string& name) {
     // Search from the innermost scope outwards
     for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {

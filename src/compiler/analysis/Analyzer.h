@@ -222,6 +222,7 @@ private:
     void visitJsxText(ast::JsxText* node) override;
 
     void declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type);
+    void declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type, ts::DeclKind kind);
 
     std::shared_ptr<FunctionType> resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes);
 

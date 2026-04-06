@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <unordered_map>
 
 namespace ts::parser {
 
@@ -139,6 +140,18 @@ private:
     SavedState saveState() const;
     void restoreState(const SavedState& state);
 
+    // --- Lexical scope tracking for redeclaration detection ---
+    // Each scope maps names to their declaration kind
+    enum class PDeclKind { Var, Let, Const, Function };
+    struct LexicalScope {
+        std::unordered_map<std::string, PDeclKind> names;
+    };
+    std::vector<LexicalScope> lexicalScopes_;
+    void pushLexicalScope();
+    void popLexicalScope();
+    // Returns false if redeclaration conflict. Emits error if conflict.
+    bool declareLexicalName(const std::string& name, PDeclKind kind);
+
     // --- Data ---
     std::unique_ptr<Lexer> lexer_;
     Token current_;
@@ -149,6 +162,9 @@ private:
     bool inGenerator_ = false;  // Inside generator function?
     bool noIn_ = false;         // Suppress 'in' as binary operator (for-loop initializers)
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
+    int errorCount_ = 0;       // Parse-time errors (redeclaration, etc.)
+public:
+    int getErrorCount() const { return errorCount_; }
 };
 
 } // namespace ts::parser

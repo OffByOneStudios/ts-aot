@@ -387,8 +387,8 @@ std::shared_ptr<FunctionType> Analyzer::resolveOverload(const std::vector<std::s
 }
 
 void Analyzer::reportError(const std::string& message) {
-    // Strict mode errors should always be reported
-    if (message.starts_with("Strict mode:")) {
+    // Strict mode and syntax errors should always be reported
+    if (message.starts_with("Strict mode:") || message.starts_with("SyntaxError:")) {
         std::cerr << "Error: " << message << std::endl;
         errorCount++;
         return;

@@ -258,9 +258,12 @@ struct FunctionDeclaration : Statement {
     void accept(Visitor* visitor) override { visitor->visitFunctionDeclaration(this); }
 };
 
+enum class VarKind { Var, Let, Const };
+
 struct VariableDeclaration : Statement {
     NodePtr name;
     bool isExported = false;
+    VarKind varKind = VarKind::Var;
     std::string type;
     ExprPtr initializer;
     std::shared_ptr<ts::Type> resolvedType;
