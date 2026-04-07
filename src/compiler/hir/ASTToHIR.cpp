@@ -3747,6 +3747,17 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
     auto rhs = lowerExpression(node->right.get());
 
     // Helper to check if an operand is a string type
+    //
+    // NOTE Strategy B: these helpers fall back to `astNode->inferredType`
+    // (analyzer compile-time type) when `val->type` is Any. The fallback is
+    // LOAD-BEARING for benchmarks involving typed object property access:
+    // GetPropStatic always produces a boxed Any HIRValue, so without the
+    // AST fallback, expressions like `node.next.value + node.value` go
+    // through dynamic dispatch instead of typed arithmetic. Probe experiment
+    // (2026-04-07) showed +36% regression on array_churn and +46% on
+    // linked_list when the fallback was removed. The fallback can only be
+    // removed once SpecializationPass refines GetPropStatic with explicit
+    // unbox insertion (Phase 4 of the unification plan).
     auto isString = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
         if (val && val->type && val->type->kind == HIRTypeKind::String) return true;
         if (astNode && astNode->inferredType && astNode->inferredType->kind == ts::TypeKind::String) return true;
