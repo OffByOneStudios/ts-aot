@@ -6270,6 +6270,32 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
 
+    // Strategy B Phase 4a: extend the shape lookup to non-`this` typed
+    // receivers. If the receiver expression has a known class type, find
+    // the matching HIRClass and look up the property type from its shape.
+    // Mirrors the getter-resolution loop just below at lines ~6277-6291.
+    //
+    // Without this, GetPropStatic emits with propType=Any, the LLVM unbox
+    // doesn't fire, and downstream typed operations on property-access
+    // results lose precision (Phase 0b probe regression). This is the
+    // single change that unblocks Phase 0b, 0c, and 3c.
+    if (propType->kind == HIRTypeKind::Any &&
+        node->expression && node->expression->inferredType &&
+        node->expression->inferredType->kind == ts::TypeKind::Class) {
+        auto classType = std::dynamic_pointer_cast<ts::ClassType>(node->expression->inferredType);
+        if (classType) {
+            for (auto& cls : module_->classes) {
+                if (cls->name == classType->name && cls->shape) {
+                    auto typeIt = cls->shape->propertyTypes.find(node->name);
+                    if (typeIt != cls->shape->propertyTypes.end() && typeIt->second) {
+                        propType = typeIt->second;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     // Check for getter: look up the class type and see if it has __getter_<propName>
     HIRClass* targetClass = nullptr;
 
