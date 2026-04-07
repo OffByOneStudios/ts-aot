@@ -2918,8 +2918,18 @@ llvm::Value* HIRToLLVM::emitInlineUnboxFloat(llvm::Value* val) {
 // BoxBool: i1 → ptr (NaN-boxed)
 // TRUE = 0x07, FALSE = 0x06
 llvm::Value* HIRToLLVM::emitInlineBoxBool(llvm::Value* val) {
+    // If already a ptr (boxed Any TsValue*), pass through. This happens
+    // when the source is a runtime call like ts_value_lt that returns a
+    // boxed bool, and a downstream BoxBool was emitted by ASTToHIR before
+    // SpecializationPass replaced the original i1-producing opcode.
+    if (val->getType()->isPointerTy()) {
+        return val;
+    }
     // Ensure val is i1 - extension functions may return i32 for booleans
     if (val->getType() != builder_->getInt1Ty()) {
+        // Use the operand's actual integer type for the zero comparison.
+        // ConstantInt::get(ptr, 0) produces i0 0 (zero-width int) which
+        // is invalid LLVM — guarded above.
         val = builder_->CreateICmpNE(val,
             llvm::ConstantInt::get(val->getType(), 0), "nb.to_i1");
     }

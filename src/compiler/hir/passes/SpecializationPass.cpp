@@ -271,14 +271,20 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeComparison(HIRInst
     auto* rhs = rhsType.get();
 
     // Comparisons always return Bool, so the result type isn't a useful
-    // signal for picking the typed form. We can only use operand types.
-    // If one operand is concretely-typed and the other is Any, pick the
-    // concrete type's family — that matches the AST-fallback behavior of
-    // the legacy ASTToHIR helpers (`isFloat64(lhs) || isFloat64(rhs)`).
+    // signal for picking the typed form. Use operand-type precedence
+    // matching the legacy ASTToHIR helpers exactly:
+    //   1. BigInt (either operand)  → bigint runtime
+    //   2. Any (either operand)     → dynamic dispatch
+    //   3. Float64 (either operand) → F64 op (HIRToLLVM SIToFP-converts int)
+    //   4. else (both Int64)        → I64 op
+    //
+    // BUG WAS: comparing Int64 with Any fell into useInt and emitted
+    // CmpEqI64 with one i64 and one ptr operand → LLVM verification failed.
+    // The Any check must be OR, not AND, to catch mixed-type cases.
     bool useBigInt = isBigInt(lhs) || isBigInt(rhs);
-    bool useFloat  = isFloat64(lhs) || isFloat64(rhs);
-    bool useInt    = (isInt64(lhs) || isInt64(rhs)) && !useFloat && !useBigInt;
-    bool eitherAny = (isAny(lhs) && isAny(rhs));
+    bool eitherAny = isAny(lhs) || isAny(rhs);
+    bool useFloat  = !eitherAny && (isFloat64(lhs) || isFloat64(rhs));
+    bool useInt    = !eitherAny && !useFloat && isInt64(lhs) && isInt64(rhs);
 
     if (useBigInt) {
         const char* fn = nullptr;
@@ -305,7 +311,11 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeComparison(HIRInst
             case HIROpcode::CmpGe: fn = "ts_value_gte"; break;
             default: return nullptr;
         }
-        return makeCall(fn, inst, HIRType::makeBool());
+        // ts_value_X runtime helpers return TsValue* (boxed Any), NOT i1.
+        // The result type must match the LLVM representation — setting it
+        // to Bool would lie and downstream consumers (CondBranch, BoxBool)
+        // would try to treat the ptr as an i1 → LLVM verification failure.
+        return makeCall(fn, inst, HIRType::makeAny());
     }
 
     if (useFloat) {

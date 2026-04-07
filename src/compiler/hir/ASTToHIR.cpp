@@ -3896,44 +3896,29 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         else if (op == "*") lastValue_ = builder_.createMul(lhs, rhs, resultType);
         else if (op == "/") lastValue_ = builder_.createDiv(lhs, rhs, resultType);
         else                lastValue_ = builder_.createMod(lhs, rhs, resultType);
-    } else if (op == "<") {
-        // NOTE Strategy B: comparison migration is gated on Phase 4.
-        // Comparison result is always Bool, so the result type doesn't
-        // carry the operand-type information SpecializationPass needs to
-        // pick the right typed form. The legacy helpers fall back to
-        // ast::inferredType for property-access operands; SpecializationPass
-        // would lose that and emit ts_value_lt → benchmark regression.
-        // Migrate after Phase 4 fixes GetPropStatic precision.
+    } else if (op == "<" || op == "<=" || op == ">" || op == ">=") {
+        // Strategy B Phase 4d: emit generic ordering comparison.
+        // After Phase 4a+4c, operand types are reliable in HIR, so
+        // SpecializationPass can pick the right typed form from
+        // operand val->type alone (no AST fallback needed).
+        //
+        // Equality forms (==, !=, ===, !==) are NOT migrated here —
+        // they have many special cases (typesIncompatibleForStrictEqual,
+        // isString-pair check, isUndefinedLiteral/isNullLiteral) that are
+        // language-feature handling, not pure type-driven specialization.
         if (useBigInt) {
-            lastValue_ = builder_.createCall("ts_bigint_lt", {lhs, rhs}, HIRType::makeBool());
-        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
-            lastValue_ = builder_.createCall("ts_value_lt", {lhs, rhs}, HIRType::makeAny());
+            const char* fn = (op == "<")  ? "ts_bigint_lt"
+                           : (op == "<=") ? "ts_bigint_le"
+                           : (op == ">")  ? "ts_bigint_gt"
+                           :                "ts_bigint_ge";
+            lastValue_ = builder_.createCall(fn, {lhs, rhs}, HIRType::makeBool());
         } else {
-            lastValue_ = useFloat ? builder_.createCmpLtF64(lhs, rhs) : builder_.createCmpLtI64(lhs, rhs);
-        }
-    } else if (op == "<=") {
-        if (useBigInt) {
-            lastValue_ = builder_.createCall("ts_bigint_le", {lhs, rhs}, HIRType::makeBool());
-        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
-            lastValue_ = builder_.createCall("ts_value_lte", {lhs, rhs}, HIRType::makeAny());
-        } else {
-            lastValue_ = useFloat ? builder_.createCmpLeF64(lhs, rhs) : builder_.createCmpLeI64(lhs, rhs);
-        }
-    } else if (op == ">") {
-        if (useBigInt) {
-            lastValue_ = builder_.createCall("ts_bigint_gt", {lhs, rhs}, HIRType::makeBool());
-        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
-            lastValue_ = builder_.createCall("ts_value_gt", {lhs, rhs}, HIRType::makeAny());
-        } else {
-            lastValue_ = useFloat ? builder_.createCmpGtF64(lhs, rhs) : builder_.createCmpGtI64(lhs, rhs);
-        }
-    } else if (op == ">=") {
-        if (useBigInt) {
-            lastValue_ = builder_.createCall("ts_bigint_ge", {lhs, rhs}, HIRType::makeBool());
-        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
-            lastValue_ = builder_.createCall("ts_value_gte", {lhs, rhs}, HIRType::makeAny());
-        } else {
-            lastValue_ = useFloat ? builder_.createCmpGeF64(lhs, rhs) : builder_.createCmpGeI64(lhs, rhs);
+            std::shared_ptr<HIRValue> v;
+            if      (op == "<")  v = builder_.createCmpLt(lhs, rhs);
+            else if (op == "<=") v = builder_.createCmpLe(lhs, rhs);
+            else if (op == ">")  v = builder_.createCmpGt(lhs, rhs);
+            else                 v = builder_.createCmpGe(lhs, rhs);
+            lastValue_ = v;
         }
     } else if (op == "==") {
         // Loose equality - use coercing comparison
