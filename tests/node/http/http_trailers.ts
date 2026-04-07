@@ -51,7 +51,7 @@ function user_main(): number {
         process.exit(0);
     }, 2000);
 
-    server.listen(0, () => {
+    server.listen(0, '127.0.0.1', () => {
         const addr = server.address();
         let port = 0;
         if (addr && typeof addr === 'object') {

@@ -37,7 +37,7 @@ function user_main(): number {
         server.close();
     });
 
-    server.listen(9878, () => {
+    server.listen(9878, '127.0.0.1', () => {
         console.log("Server listening on port 9878");
 
         // Make a request

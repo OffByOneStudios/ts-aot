@@ -21,7 +21,7 @@ function user_main(): number {
         server.close();
     });
 
-    server.listen(9876, () => {
+    server.listen(9876, '127.0.0.1', () => {
         console.log("Server listening on port 9876");
 
         // Make a request

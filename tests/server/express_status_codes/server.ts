@@ -34,6 +34,6 @@ app.get('/server-error', function(req: any, res: any) {
 });
 
 const server = http.createServer(app);
-server.listen(13004, function() {
+server.listen(13004, '127.0.0.1', function() {
   console.log('listening on http://localhost:13004');
 });

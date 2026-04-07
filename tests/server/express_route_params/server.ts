@@ -18,6 +18,6 @@ app.get('/post/:postId/comment/:commentId', function(req: any, res: any) {
 });
 
 const server = http.createServer(app);
-server.listen(13001, function() {
+server.listen(13001, '127.0.0.1', function() {
   console.log('listening on http://localhost:13001');
 });

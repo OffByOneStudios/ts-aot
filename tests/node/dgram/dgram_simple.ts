@@ -53,7 +53,7 @@ function user_main(): number {
     });
 
     console.log("Binding to port 0...");
-    server.bind(0);
+    server.bind(0, '127.0.0.1');
 
     return 0;
 }

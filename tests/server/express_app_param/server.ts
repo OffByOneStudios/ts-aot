@@ -29,6 +29,6 @@ app.get('/item/:itemId', function(req: any, res: any) {
 });
 
 const server = http.createServer(app);
-server.listen(13021, function() {
+server.listen(13021, '127.0.0.1', function() {
   console.log('listening on http://localhost:13021');
 });

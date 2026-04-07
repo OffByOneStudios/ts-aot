@@ -29,6 +29,6 @@ app.get('/destination', function(req: any, res: any) {
 });
 
 const server = http.createServer(app);
-server.listen(13011, function() {
+server.listen(13011, '127.0.0.1', function() {
   console.log('listening on http://localhost:13011');
 });

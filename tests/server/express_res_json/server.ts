@@ -15,6 +15,6 @@ app.get('/status-json', function(req: any, res: any) {
 });
 
 const server = http.createServer(app);
-server.listen(13008, function() {
+server.listen(13008, '127.0.0.1', function() {
   console.log('listening on http://localhost:13008');
 });

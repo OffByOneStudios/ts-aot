@@ -29,6 +29,6 @@ app.post('/check-type', function(req: any, res: any) {
 });
 
 const server = http.createServer(app);
-server.listen(13025, function() {
+server.listen(13025, '127.0.0.1', function() {
   console.log('listening on http://localhost:13025');
 });

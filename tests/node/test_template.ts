@@ -110,7 +110,7 @@ function user_main(): Promise<number> {
     });
 
     // Listen on random port
-    server.listen(0, () => {
+    server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       const port = addr.port;
 

@@ -38,7 +38,7 @@ function user_main(): number {
     });
 
     console.log("About to bind...");
-    socket.bind(0);
+    socket.bind(0, '127.0.0.1');
     console.log("Bind called");
 
     return 0;

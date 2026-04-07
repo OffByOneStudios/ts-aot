@@ -20,6 +20,6 @@ app.use(function(req: any, res: any) {
 });
 
 const server = http.createServer(app);
-server.listen(13010, function() {
+server.listen(13010, '127.0.0.1', function() {
   console.log('listening on http://localhost:13010');
 });

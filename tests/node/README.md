@@ -139,8 +139,9 @@ function user_main(): number {
       res.end('Hello from server');
     });
 
-    // Start server on random port
-    server.listen(0, () => {
+    // Start server on random port. Always bind to 127.0.0.1 to avoid the
+    // Windows firewall dialog when running tests locally.
+    server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       const port = addr.port;
 
@@ -312,7 +313,10 @@ try {
 ```typescript
 const server = http.createServer(...);
 
-server.listen(0, () => {
+// Always bind to '127.0.0.1' (loopback) so the test doesn't trigger the
+// Windows firewall dialog. Binding to the wildcard interface causes a
+// firewall prompt every time the test runs.
+server.listen(0, '127.0.0.1', () => {
   // ... test logic ...
 
   // Always close server

@@ -30,7 +30,7 @@ function user_main(): number {
         console.log("Socket closed");
     });
 
-    socket.bind(0);
+    socket.bind(0, '127.0.0.1');
 
     return 0;
 }

@@ -29,6 +29,6 @@ app.get('/multi', function(req: any, res: any) {
 });
 
 const server = http.createServer(app);
-server.listen(13024, function() {
+server.listen(13024, '127.0.0.1', function() {
   console.log('listening on http://localhost:13024');
 });

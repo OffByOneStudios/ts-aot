@@ -41,7 +41,7 @@ function user_main(): number {
         });
 
         // Try to bind to the same port
-        socket2.bind(testPort, '0.0.0.0');
+        socket2.bind(testPort, '127.0.0.1');
     });
 
     socket1.on('close', () => {
@@ -54,7 +54,7 @@ function user_main(): number {
     });
 
     // Bind to a random port first
-    socket1.bind(0);
+    socket1.bind(0, '127.0.0.1');
 
     return 0;
 }

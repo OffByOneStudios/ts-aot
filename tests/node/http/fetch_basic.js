@@ -16,7 +16,7 @@ async function user_main() {
     }
   });
 
-  server.listen(0, async function() {
+  server.listen(0, '127.0.0.1', async function() {
     var addr = server.address();
     var port = addr.port;
     var base = 'http://127.0.0.1:' + port;

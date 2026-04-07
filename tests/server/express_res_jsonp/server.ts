@@ -15,6 +15,6 @@ app.get('/wrapped', function(req: any, res: any) {
 });
 
 const server = http.createServer(app);
-server.listen(13023, function() {
+server.listen(13023, '127.0.0.1', function() {
   console.log('listening on http://localhost:13023');
 });

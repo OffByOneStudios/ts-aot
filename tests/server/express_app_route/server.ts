@@ -19,6 +19,6 @@ app.route('/resource')
   });
 
 const server = http.createServer(app);
-server.listen(13022, function() {
+server.listen(13022, '127.0.0.1', function() {
   console.log('listening on http://localhost:13022');
 });

@@ -28,7 +28,7 @@ function user_main(): number {
     });
 
     // Listen on port 0 (OS assigns available port)
-    server.listen(0);
+    server.listen(0, '127.0.0.1');
 
     // Timeout in case callback doesn't fire
     setTimeout(() => {

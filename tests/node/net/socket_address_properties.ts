@@ -33,7 +33,7 @@ function user_main(): number {
     socket.end();
   });
 
-  server.listen(0, () => {
+  server.listen(0, '127.0.0.1', () => {
     console.log('  Server listening');
   });
 

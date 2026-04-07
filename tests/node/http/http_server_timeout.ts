@@ -23,7 +23,7 @@ function user_main(): number {
     console.log("After setTimeout: " + server.timeout);
 
     // Start server to verify it works
-    server.listen(0, () => {
+    server.listen(0, '127.0.0.1', () => {
         const addr = server.address();
         console.log("Server listening on port " + addr.port);
 

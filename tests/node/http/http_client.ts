@@ -11,7 +11,7 @@ async function user_main(): Promise<number> {
     res.end('ok');
   });
 
-  server.listen(0, async () => {
+  server.listen(0, '127.0.0.1', async () => {
     const addr = server.address();
     const port = addr.port;
     const base = 'http://127.0.0.1:' + port;
