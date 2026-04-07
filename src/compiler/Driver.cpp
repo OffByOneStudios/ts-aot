@@ -242,6 +242,16 @@ int Driver::run() {
         auto t3 = std::chrono::steady_clock::now();
         SPDLOG_WARN("[TIMING] ASTToHIR: {}ms, functions={}", std::chrono::duration_cast<std::chrono::milliseconds>(t3-t2).count(), hirModule ? hirModule->functions.size() : 0);
 
+        // Dump pre-pass HIR (raw output of ASTToHIR, before any optimization passes).
+        // Used by Strategy B refactor work to compare ASTToHIR emission against
+        // post-pass HIR for diff analysis.
+        if (options.dumpHirPre) {
+            std::cout << "; HIR (pre-passes, raw ASTToHIR output)\n";
+            hir::HIRPrinter printer(std::cout);
+            printer.print(*hirModule);
+            std::cout << "; --- end pre-passes HIR ---\n";
+        }
+
         // Run HIR optimization passes
         if (options.verbose) {
             SPDLOG_INFO("Running HIR passes...");

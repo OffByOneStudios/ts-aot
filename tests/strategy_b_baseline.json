@@ -1,0 +1,79 @@
+{
+  "_comment": "Strategy B refactor baseline. Snapshot taken at start of Phase 0a. Used to detect regressions during the unification work. See memory/strategy_b_unification_plan.md for context.",
+  "snapshot_date": "2026-04-07",
+  "snapshot_commit": "c380528",
+  "compiler_flags_added_in_phase_0a": [
+    "--dump-hir-pre",
+    "--strategy-b-mode {legacy|unified}"
+  ],
+
+  "test_suites": {
+    "golden_ir": {
+      "passed": 265,
+      "failed": 12,
+      "total": 277,
+      "rate_pct": 96
+    },
+    "node": {
+      "passed": 293,
+      "failed": 4,
+      "total": 297,
+      "rate_pct": 99
+    },
+    "server": {
+      "passed": 21,
+      "failed": 2,
+      "total": 23,
+      "rate_pct": 91
+    }
+  },
+
+  "test262": {
+    "_source": "tests/test262/.test262_results.jsonl (post-processed)",
+    "total_records": 45220,
+    "by_status": {
+      "pass": 4764,
+      "fail": 20961,
+      "skip": 14833,
+      "compile_error": 4604,
+      "timeout": 58
+    },
+    "overall_pass_rate_of_run_pct": 15.6,
+    "by_top_level_category": {
+      "annexB":   { "pass":  193, "fail":   476, "skip":  320, "other":   90, "total": 1079 },
+      "built-ins":{ "pass": 1890, "fail": 13352, "skip": 7058, "other":  432, "total": 22732 },
+      "harness":  { "pass":   45, "fail":    44, "skip":   17, "other":   10, "total": 116 },
+      "intl402":  { "pass":   65, "fail":   444, "skip": 1040, "other":   17, "total": 1566 },
+      "language": { "pass": 2568, "fail":  6572, "skip": 5851, "other": 3100, "total": 18091 },
+      "staging":  { "pass":    3, "fail":    73, "skip":  547, "other": 1013, "total": 1636 }
+    }
+  },
+
+  "benchmarks": {
+    "_source": "examples/benchmarks/memory/gc_compare.ts",
+    "_method": "Single run, ts-aot only (no Node.js comparison). Times in ms.",
+    "_runtime": "ts-aot",
+    "heap_initial_bytes": 38834176,
+    "rss_initial_bytes":  38850560,
+    "heap_final_bytes":   85598208,
+    "rss_final_bytes":    85598208,
+    "workloads": {
+      "short_lived_alloc": { "wall_ms":   11.74, "heap_after": 38875100, "items": 5000000,  "checksum": 1.25002e+12 },
+      "long_lived_graph":  { "wall_ms":  220.23, "heap_after": 68919300, "items":  128535,  "checksum": 7.5966e+09 },
+      "mixed_lifetime":    { "wall_ms": 1251.87, "heap_after": 113738000, "items":  500000, "checksum": 1.25e+11 },
+      "map_heavy":         { "wall_ms": 3178.33, "heap_after": 113177000, "items": 1500000, "checksum": 6.18629e+10 },
+      "array_churn":       { "wall_ms":  190.30, "heap_after": 107180000, "items": 2000000, "checksum": 2e+12 },
+      "linked_list":       { "wall_ms":  517.61, "heap_after":  85598200, "items": 1000000, "checksum": 5e+11 }
+    },
+    "_regression_threshold_pct": 5,
+    "_regression_note": "If any workload regresses by >5% wall time after a Phase 3+ commit, the phase doesn't ship until SpecializationPass is improved or the cause is investigated."
+  },
+
+  "phase_0a_completion_criteria": {
+    "baselines_captured": true,
+    "dump_hir_pre_flag_added": true,
+    "strategy_b_mode_flag_added": true,
+    "all_three_local_suites_match_pre_phase_0a": true,
+    "test262_byte_identical_to_pre_phase_0a": true
+  }
+}
