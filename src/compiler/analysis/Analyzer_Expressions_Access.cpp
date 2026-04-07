@@ -836,9 +836,15 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             return;
         }
 
-        if (currentModuleType != ModuleType::UntypedJavaScript) {
-            reportError(fmt::format("Unknown property {}", node->name));
-        }
+        // Strategy B Phase 5c: removed `currentModuleType != UntypedJavaScript` gate.
+        // The reportError function is currently muzzled (Analyzer_Helpers.cpp:389-398
+        // — only "Strict mode:" and "SyntaxError:" messages reach the user; others
+        // go to DEBUG log only). The gate was preventing a debug log entry, not a
+        // real error, so removing it has no user-visible effect. The same change
+        // should be applied to the other ~5 reportError calls in this file once
+        // the broader Phase 5e refactor adds a feature-flag mechanism for the
+        // muzzling.
+        reportError(fmt::format("Unknown property {}", node->name));
         lastType = std::make_shared<Type>(TypeKind::Any);
         node->inferredType = lastType;
 }
