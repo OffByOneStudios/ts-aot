@@ -108,10 +108,12 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     }
     
     for (const auto& param : node->parameters) {
+        // Strategy B Phase 5b: removed `if (UntypedJavaScript) Any` branch.
+        // For typed code, this is unchanged. For untyped code, this is a
+        // no-op for the common case (no annotation → still Any) and an
+        // improvement for the rare case (TS annotation in a .js file).
         std::shared_ptr<Type> pType;
-        if (currentModuleType == ModuleType::UntypedJavaScript) {
-            pType = std::make_shared<Type>(TypeKind::Any);
-        } else if (!param->type.empty()) {
+        if (!param->type.empty()) {
             pType = parseType(param->type, symbols);
         } else {
             pType = std::make_shared<Type>(TypeKind::Any);
@@ -346,9 +348,9 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         }
         
         for (const auto& param : node->parameters) {
-            if (currentModuleType == ModuleType::UntypedJavaScript) {
-                methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
-            } else if (!param->type.empty()) {
+            // Strategy B Phase 5b: removed UntypedJavaScript branch.
+            // For untyped methods with no annotation, both branches default to Any.
+            if (!param->type.empty()) {
                 methodType->paramTypes.push_back(parseType(param->type, symbols));
             } else {
                 methodType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
@@ -774,11 +776,11 @@ void Analyzer::visitArrowFunction(ast::ArrowFunction* node) {
     for (size_t i = 0; i < node->parameters.size(); i++) {
         auto& param = node->parameters[i];
         std::shared_ptr<Type> paramType = parseType(param->type, symbols);
-        
-        if (currentModuleType == ModuleType::UntypedJavaScript) {
-            paramType = std::make_shared<Type>(TypeKind::Any);
-        }
-        
+
+        // Strategy B Phase 5b: removed UntypedJavaScript override.
+        // parseType returns Any for empty annotations, which is the same
+        // result the override produced.
+
         // If param type is Any and we have a contextual type, use that instead
         if (paramType->kind == TypeKind::Any && contextualFuncType && i < contextualFuncType->paramTypes.size()) {
             paramType = contextualFuncType->paramTypes[i];
@@ -900,10 +902,10 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
     }
     
     for (const auto& param : node->parameters) {
+        // Strategy B Phase 5b: removed UntypedJavaScript branch.
+        // For untyped function expressions, both branches default to Any.
         std::shared_ptr<Type> pType;
-        if (currentModuleType == ModuleType::UntypedJavaScript) {
-            pType = std::make_shared<Type>(TypeKind::Any);
-        } else if (!param->type.empty()) {
+        if (!param->type.empty()) {
             pType = parseType(param->type, symbols);
         } else {
             pType = std::make_shared<Type>(TypeKind::Any);
