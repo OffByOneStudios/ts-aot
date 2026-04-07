@@ -75,12 +75,16 @@ void Analyzer::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     if (!node->returnType.empty()) {
         funcType->returnType = parseType(node->returnType, symbols);
     } else {
-        funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
+        funcType->returnType = std::make_shared<Type>(TypeKind::Void);
     }
 
-    if (currentModuleType == ModuleType::UntypedJavaScript) {
-        funcType->returnType = std::make_shared<Type>(TypeKind::Any);
-    }
+    // Strategy B Phase 5d-i: removed `if (UntypedJavaScript) returnType = Any` override.
+    // The body-inference loop at lines 195-197 below already overwrites the
+    // initial returnType with `currentReturnType` whenever the body has at
+    // least one return statement. The override only mattered for functions
+    // with NO return statements; those now correctly default to Void.
+    // visitFunctionDeclaration does not gate `needsReturnTypeInference`, so
+    // removing the override is safe — the inference loop is unconditional.
 
     if (node->isGenerator) {
         auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
