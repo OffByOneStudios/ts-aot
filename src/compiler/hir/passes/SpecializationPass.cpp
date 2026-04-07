@@ -189,9 +189,11 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeArithmetic(HIRInst
         return makeCall(fn, inst, HIRType::makeAny());
     }
 
-    // Float64: emit AddF64 family. Division and mod are always Float64
-    // per JS semantics (4/2 === 2.0, not 2).
-    if (useFloat || inst->opcode == HIROpcode::Div || inst->opcode == HIROpcode::Mod) {
+    // Float64 family. Note: Phase 3 faithfully matches today's ASTToHIR
+    // behavior. The existing code emits DivI64/ModI64 for int operands
+    // even though JS spec says division always returns Float — fixing
+    // that is a separate change, not a refactor.
+    if (useFloat) {
         HIROpcode newOp;
         switch (inst->opcode) {
             case HIROpcode::Add: newOp = HIROpcode::AddF64; break;
@@ -204,13 +206,15 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeArithmetic(HIRInst
         return makeTypedBinary(newOp, inst, HIRType::makeFloat64());
     }
 
-    // Both Int64 — pick the I64 family. (Div/Mod handled above as Float.)
+    // Both Int64 — pick the I64 family.
     if (useInt) {
         HIROpcode newOp;
         switch (inst->opcode) {
             case HIROpcode::Add: newOp = HIROpcode::AddI64; break;
             case HIROpcode::Sub: newOp = HIROpcode::SubI64; break;
             case HIROpcode::Mul: newOp = HIROpcode::MulI64; break;
+            case HIROpcode::Div: newOp = HIROpcode::DivI64; break;
+            case HIROpcode::Mod: newOp = HIROpcode::ModI64; break;
             default: return nullptr;
         }
         return makeTypedBinary(newOp, inst, HIRType::makeInt64());
