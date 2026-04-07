@@ -14,6 +14,7 @@
 #include "hir/LoweringRegistry.h"
 #include "hir/passes/PassManager.h"
 #include "hir/passes/TypePropagationPass.h"
+#include "hir/passes/SpecializationPass.h"
 #include "hir/passes/IntegerOptimizationPass.h"
 #include "hir/passes/ConstantFoldingPass.h"
 #include "hir/passes/MethodResolutionPass.h"
@@ -259,6 +260,11 @@ int Driver::run() {
 
         hir::PassManager passManager;
         passManager.addPass(std::make_unique<hir::TypePropagationPass>());
+        // Strategy B Phase 2: SpecializationPass rewrites generic opcodes
+        // (Add/Sub/Mul/Div/Mod/Neg, CmpEq..CmpGe, GetProp/SetProp) emitted
+        // by ASTToHIR (Phase 3+) into type-specific forms based on operand
+        // types. Currently a no-op until Phase 3 starts emitting generic ops.
+        passManager.addPass(std::make_unique<hir::SpecializationPass>());
         passManager.addPass(std::make_unique<hir::IntegerOptimizationPass>());
         passManager.addPass(std::make_unique<hir::ConstantFoldingPass>());
         passManager.addPass(std::make_unique<hir::DeadCodeEliminationPass>());
