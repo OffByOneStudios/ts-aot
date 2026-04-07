@@ -3875,21 +3875,29 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
     bool useBigInt = isBigInt(node->left.get()) || isBigInt(node->right.get());
 
     if (op == "+") {
-        // Check if either operand is a string - if so, use string concatenation
+        // Strategy B Phase 3: emit generic Add. SpecializationPass (which
+        // runs after TypePropagationPass) will rewrite this into the
+        // appropriate type-specific instruction (StringConcat, AddF64,
+        // AddI64, ts_bigint_add, ts_value_add) based on operand types.
+        //
+        // We still use the AST-fallback helpers here to compute a precise
+        // best-guess result type for the generic instruction. This is the
+        // load-bearing AST fallback identified in the Phase 0b probe — it
+        // can be removed once Phase 4 fixes GetPropStatic precision and
+        // SpecializationPass has access to all the same type info.
+        std::shared_ptr<HIRType> resultType;
         if (isString(lhs, node->left.get()) || isString(rhs, node->right.get())) {
-            lastValue_ = builder_.createStringConcat(lhs, rhs);
+            resultType = HIRType::makeString();
         } else if (useBigInt) {
-            // BigInt addition via runtime call
-            lastValue_ = builder_.createCall("ts_bigint_add", {lhs, rhs}, HIRType::makeObject());
+            resultType = HIRType::makeBigInt();
         } else if (isAnyOrNullish(lhs, node->left.get()) && isAnyOrNullish(rhs, node->right.get())) {
-            // Dynamic dispatch for any-typed operands - runtime handles number vs string
-            // Only when BOTH operands are any to avoid breaking concrete typed cases
-            lastValue_ = builder_.createCall("ts_value_add", {lhs, rhs}, HIRType::makeAny());
+            resultType = HIRType::makeAny();
         } else if (useFloat) {
-            lastValue_ = builder_.createAddF64(lhs, rhs);
+            resultType = HIRType::makeFloat64();
         } else {
-            lastValue_ = builder_.createAddI64(lhs, rhs);
+            resultType = HIRType::makeInt64();
         }
+        lastValue_ = builder_.createAdd(lhs, rhs, resultType);
     } else if (op == "-") {
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_sub", {lhs, rhs}, HIRType::makeObject());

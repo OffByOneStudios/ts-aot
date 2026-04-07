@@ -136,11 +136,22 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeArithmetic(HIRInst
     auto* lhs = lhsType.get();
     auto* rhs = rhsType.get();
 
-    bool useString = isString(lhs) || isString(rhs);
-    bool useBigInt = isBigInt(lhs) || isBigInt(rhs);
-    bool useFloat  = isFloat64(lhs) || isFloat64(rhs);
-    bool useInt    = isInt64(lhs) && isInt64(rhs);
-    bool eitherAny = isAny(lhs) || isAny(rhs);
+    // The RESULT type set by ASTToHIR is the analyzer's best verdict — it
+    // includes information from the AST inferredType that the HIRValue::type
+    // operands may have lost (e.g., GetPropStatic always produces Any but
+    // the analyzer knows the property's underlying type). Use it as the
+    // primary signal; fall back to operand-type analysis only when the
+    // result type is itself Any.
+    auto* resType = (inst->result && inst->result->type) ? inst->result->type.get() : nullptr;
+
+    // Combine result-type and operand-type evidence. If EITHER source says
+    // "this is type X", treat it as X.
+    bool useString = isString(resType) || isString(lhs) || isString(rhs);
+    bool useBigInt = isBigInt(resType) || isBigInt(lhs) || isBigInt(rhs);
+    bool useFloat  = isFloat64(resType) || isFloat64(lhs) || isFloat64(rhs);
+    bool useInt    = isInt64(resType) || (isInt64(lhs) && isInt64(rhs));
+    bool resultIsAny = isAny(resType);
+    bool eitherAny = (isAny(lhs) || isAny(rhs)) && resultIsAny;
 
     // Add is the only operator that can mean string concatenation.
     if (inst->opcode == HIROpcode::Add && useString) {
@@ -220,20 +231,25 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeNeg(HIRInstruction
     auto valType = operandType(inst->operands[0]);
     auto* t = valType.get();
 
-    if (isBigInt(t)) {
+    // Use the result type as the primary signal (set by ASTToHIR using AST
+    // fallback) and fall back to operand type only when result is Any.
+    auto* resType = (inst->result && inst->result->type) ? inst->result->type.get() : nullptr;
+
+    if (isBigInt(resType) || isBigInt(t)) {
         return makeCall("ts_bigint_neg", inst, HIRType::makeBigInt());
     }
-    if (isAny(t)) {
-        return makeCall("ts_value_neg", inst, HIRType::makeAny());
-    }
-    if (isFloat64(t)) {
+    if (isFloat64(resType) || isFloat64(t)) {
         return makeTypedBinary(HIROpcode::NegF64, inst, HIRType::makeFloat64());
     }
-    if (isInt64(t)) {
+    if (isInt64(resType) || isInt64(t)) {
         return makeTypedBinary(HIROpcode::NegI64, inst, HIRType::makeInt64());
     }
+    if (isAny(resType) && isAny(t)) {
+        return makeCall("ts_value_neg", inst, HIRType::makeAny());
+    }
 
-    SPDLOG_WARN("SpecializationPass: could not specialize neg (operand={})",
+    SPDLOG_WARN("SpecializationPass: could not specialize neg (result={}, operand={})",
+                resType ? resType->toString() : "null",
                 t ? t->toString() : "null");
     return nullptr;
 }
@@ -250,10 +266,15 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeComparison(HIRInst
     auto* lhs = lhsType.get();
     auto* rhs = rhsType.get();
 
+    // Comparisons always return Bool, so the result type isn't a useful
+    // signal for picking the typed form. We can only use operand types.
+    // If one operand is concretely-typed and the other is Any, pick the
+    // concrete type's family — that matches the AST-fallback behavior of
+    // the legacy ASTToHIR helpers (`isFloat64(lhs) || isFloat64(rhs)`).
     bool useBigInt = isBigInt(lhs) || isBigInt(rhs);
     bool useFloat  = isFloat64(lhs) || isFloat64(rhs);
-    bool useInt    = isInt64(lhs) && isInt64(rhs);
-    bool eitherAny = isAny(lhs) || isAny(rhs);
+    bool useInt    = (isInt64(lhs) || isInt64(rhs)) && !useFloat && !useBigInt;
+    bool eitherAny = (isAny(lhs) && isAny(rhs));
 
     if (useBigInt) {
         const char* fn = nullptr;
