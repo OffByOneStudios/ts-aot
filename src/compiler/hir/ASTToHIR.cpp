@@ -3918,6 +3918,13 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         else if (op == "/") lastValue_ = builder_.createDiv(lhs, rhs, resultType);
         else                lastValue_ = builder_.createMod(lhs, rhs, resultType);
     } else if (op == "<") {
+        // NOTE Strategy B: comparison migration is gated on Phase 4.
+        // Comparison result is always Bool, so the result type doesn't
+        // carry the operand-type information SpecializationPass needs to
+        // pick the right typed form. The legacy helpers fall back to
+        // ast::inferredType for property-access operands; SpecializationPass
+        // would lose that and emit ts_value_lt → benchmark regression.
+        // Migrate after Phase 4 fixes GetPropStatic precision.
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_lt", {lhs, rhs}, HIRType::makeBool());
         } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
@@ -8163,14 +8170,17 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 
     const std::string& op = node->op;
     if (op == "-") {
-        // Determine if operand is floating point
+        // Strategy B Phase 3: emit generic Neg. SpecializationPass will
+        // rewrite to NegF64 or NegI64 based on the result type. Keeps the
+        // AST-fallback helper logic local to ASTToHIR until Phase 4.
         bool isFloat = false;
         if (operand && operand->type && operand->type->kind == HIRTypeKind::Float64) {
             isFloat = true;
         } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
             isFloat = true;
         }
-        lastValue_ = isFloat ? builder_.createNegF64(operand) : builder_.createNegI64(operand);
+        auto resultType = isFloat ? HIRType::makeFloat64() : HIRType::makeInt64();
+        lastValue_ = builder_.createNeg(operand, resultType);
     } else if (op == "!") {
         lastValue_ = builder_.createLogicalNot(operand);
     } else if (op == "~") {
