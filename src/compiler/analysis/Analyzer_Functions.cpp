@@ -321,10 +321,13 @@ void Analyzer::visitMethodDefinition(MethodDefinition* node, std::shared_ptr<Cla
         }
 
         needsReturnTypeInference = node->returnType.empty();  // Set the outer variable, not a new local
-        if (currentModuleType == ModuleType::UntypedJavaScript) {
-            methodType->returnType = std::make_shared<Type>(TypeKind::Any);
-            needsReturnTypeInference = false;
-        }
+        // Strategy B Phase 5d-ii: removed `if (UntypedJavaScript) returnType = Any;
+        // needsReturnTypeInference = false` override. Untyped class methods now
+        // run the same body-walk return-type inference as typed methods (loop at
+        // lines 388-396). For methods whose body returns Any everywhere, the
+        // inferred type stays Any — so this is a no-op for the majority of npm
+        // class code. For methods that return concrete types, callers now see
+        // the precise type via TypePropagationPass + SpecializationPass.
 
         if (node->isGenerator) {
             auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
