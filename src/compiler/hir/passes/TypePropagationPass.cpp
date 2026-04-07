@@ -216,21 +216,19 @@ std::shared_ptr<HIRType> TypePropagationPass::inferResultType(HIRInstruction* in
             return HIRType::makeObject();
         case HIROpcode::GetPropStatic:
         case HIROpcode::GetPropDynamic:
-            // The HIR instruction always produces a boxed TsValue* (Any) at
-            // the LLVM level — the optional type annotation in operands[2]
-            // tells HIRToLLVM how to unbox the result, but the result value
-            // itself IS still boxed when the instruction completes.
+            // After Strategy B Phase 4a, ASTToHIR sets result->type from the
+            // receiver's class shape when the receiver is a typed class
+            // instance. Phase 4a also ensures the type annotation operand[2]
+            // matches, so lowerGetPropStatic emits the inline unbox and the
+            // LLVM value at the SSA name is actually the typed thing — no
+            // longer a lie.
             //
-            // Refining `result->type` to a more specific type would lie about
-            // the LLVM-level representation and cause downstream calls to
-            // mismatch their signatures (e.g., passing a ptr where the
-            // callee expects a double). The right place to do this kind of
-            // refinement is SpecializationPass (Phase 2+), which will insert
-            // an explicit Unbox instruction along with the type change.
-            //
-            // For now, leave the result as Any. The type annotation in
-            // operands[2] still drives unboxing in HIRToLLVM as before.
-            return HIRType::makeAny();
+            // Preserve the existing result type set at emission time.
+            // Returning nullptr from inferResultType means "no change",
+            // which is the correct behavior for both:
+            //   - Typed receivers (result->type is concrete from emission)
+            //   - Untyped receivers (result->type is Any from emission)
+            return inst->result ? inst->result->type : HIRType::makeAny();
         case HIROpcode::HasProp:
         case HIROpcode::DeleteProp:
             return HIRType::makeBool();
