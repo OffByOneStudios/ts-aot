@@ -624,7 +624,12 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
         }
 
         if (resolved.type == ModuleType::UntypedJavaScript) {
-            SPDLOG_WARN("Importing untyped JavaScript: {} (slow path)", resolved.path);
+            // Strategy B Phase 5a: demoted from WARN to DEBUG. After Phase 4
+            // the "slow path" for untyped JS is much closer to the typed path
+            // (HIR carries concrete types via class shape lookup), so the
+            // distinction is no longer warning-worthy. The check is left in
+            // place because Phase 5e will replace it with a feature flag.
+            SPDLOG_DEBUG("Importing untyped JavaScript: {} (slow path)", resolved.path);
         }
 
         if (resolved.isExternal) {
