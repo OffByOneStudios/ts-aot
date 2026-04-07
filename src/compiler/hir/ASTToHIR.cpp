@@ -3746,71 +3746,50 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
     auto lhs = lowerExpression(node->left.get());
     auto rhs = lowerExpression(node->right.get());
 
-    // Helper to check if an operand is a string type
+    // Strategy B Phase 4c: AST fallback removed.
     //
-    // NOTE Strategy B: these helpers fall back to `astNode->inferredType`
-    // (analyzer compile-time type) when `val->type` is Any. The fallback is
-    // LOAD-BEARING for benchmarks involving typed object property access:
-    // GetPropStatic always produces a boxed Any HIRValue, so without the
-    // AST fallback, expressions like `node.next.value + node.value` go
-    // through dynamic dispatch instead of typed arithmetic. Probe experiment
-    // (2026-04-07) showed +36% regression on array_churn and +46% on
-    // linked_list when the fallback was removed. The fallback can only be
-    // removed once SpecializationPass refines GetPropStatic with explicit
-    // unbox insertion (Phase 4 of the unification plan).
-    auto isString = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
-        if (val && val->type && val->type->kind == HIRTypeKind::String) return true;
-        if (astNode && astNode->inferredType && astNode->inferredType->kind == ts::TypeKind::String) return true;
-        return false;
+    // Until Phase 4a, these helpers had to fall back to `astNode->inferredType`
+    // because GetPropStatic for typed property access emitted with type=Any,
+    // losing the analyzer's type info on the HIR side. Phase 4a fixed that:
+    // ASTToHIR now passes the class-shape-derived type to createGetPropStatic,
+    // and the LLVM value at the SSA name is the actual typed thing.
+    //
+    // The AST fallback is now redundant and removed. The Phase 0b probe
+    // (commit caa81b8) regressed `array_churn` and `linked_list` by 36-46%
+    // because of the missing type info; that regression should NOT recur
+    // after 4a + 4b.
+    //
+    // BigInt is the only type still keyed off `astNode->inferredType` because
+    // HIRTypeKind::BigInt isn't yet propagated through HIRValue::type.
+    auto isString = [](const std::shared_ptr<HIRValue>& val, ast::Expression*) {
+        return val && val->type && val->type->kind == HIRTypeKind::String;
     };
 
-    // Helper to check if an operand is Float64 type
-    auto isFloat64 = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
-        if (val && val->type && val->type->kind == HIRTypeKind::Float64) return true;
-        if (astNode && astNode->inferredType && astNode->inferredType->kind == ts::TypeKind::Double) return true;
-        return false;
+    auto isFloat64 = [](const std::shared_ptr<HIRValue>& val, ast::Expression*) {
+        return val && val->type && val->type->kind == HIRTypeKind::Float64;
     };
 
-    // Helper to check if an operand is BigInt type
     auto isBigInt = [](ast::Expression* astNode) {
+        // TODO: HIRTypeKind::BigInt exists but isn't propagated through
+        // value flow. Migrate when value-creation sites set it consistently.
         return astNode && astNode->inferredType &&
                astNode->inferredType->kind == ts::TypeKind::BigInt;
     };
 
-    // Helper to check if an operand is a number type (Int or Double)
-    auto isNumber = [&isFloat64](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
-        // Check HIR type
+    auto isNumber = [&isFloat64](const std::shared_ptr<HIRValue>& val, ast::Expression*) {
         if (val && val->type) {
             if (val->type->kind == HIRTypeKind::Int64 ||
                 val->type->kind == HIRTypeKind::Float64) return true;
         }
-        // Check AST inferred type
-        if (astNode && astNode->inferredType) {
-            if (astNode->inferredType->kind == ts::TypeKind::Int ||
-                astNode->inferredType->kind == ts::TypeKind::Double) return true;
-        }
         return false;
     };
 
-    // Helper to check if an operand is a boolean type
-    auto isBoolean = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
-        if (val && val->type && val->type->kind == HIRTypeKind::Bool) return true;
-        if (astNode && astNode->inferredType && astNode->inferredType->kind == ts::TypeKind::Boolean) return true;
-        return false;
+    auto isBoolean = [](const std::shared_ptr<HIRValue>& val, ast::Expression*) {
+        return val && val->type && val->type->kind == HIRTypeKind::Bool;
     };
 
-    // Helper to check if an operand could be Any, Null, or Undefined type
-    // (requires runtime type checking for strict equality)
-    auto isAnyOrNullish = [](const std::shared_ptr<HIRValue>& val, ast::Expression* astNode) {
-        // Check HIR type
-        if (val && val->type && val->type->kind == HIRTypeKind::Any) return true;
-        // Check AST inferred type
-        if (astNode && astNode->inferredType) {
-            auto kind = astNode->inferredType->kind;
-            if (kind == ts::TypeKind::Any || kind == ts::TypeKind::Undefined ||
-                kind == ts::TypeKind::Null || kind == ts::TypeKind::Unknown) return true;
-        }
-        return false;
+    auto isAnyOrNullish = [](const std::shared_ptr<HIRValue>& val, ast::Expression*) {
+        return val && val->type && val->type->kind == HIRTypeKind::Any;
     };
 
     // Helper to check if an expression is the literal `undefined` keyword
