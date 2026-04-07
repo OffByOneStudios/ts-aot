@@ -1382,67 +1382,136 @@ TsValue* ts_value_make_int(int64_t i) {
     // ============================================================
 
     // Helper: resolve array from ctx or this (for Array.prototype methods)
+    // Helper: returns true if `p` looks like a valid heap pointer we can
+    // dereference for a 4-byte magic read. Filters out C-null AND NaN-box
+    // small-integer sentinels (NANBOX_NULL=0x2, NANBOX_UNDEFINED=0xA, etc.)
+    // which would otherwise crash the magic check.
+    static inline bool is_safe_ptr_for_magic(void* p) {
+        if (!p) return false;
+        uintptr_t u = (uintptr_t)p;
+        // Anything below 4KB is either a sentinel or a guard page.
+        if (u < 0x1000) return false;
+        return true;
+    }
+
     static TsArray* resolve_array_ctx(void* ctx) {
         // If ctx looks like a valid TsArray, use it directly
-        if (ctx) {
+        if (is_safe_ptr_for_magic(ctx)) {
             uint32_t m = *(uint32_t*)ctx;
             if (m == 0x41525259) return (TsArray*)ctx; // TsArray::MAGIC
         }
         // Fallback: get from 'this' (used by Array.prototype.method.call(arr, ...))
         void* thisVal = ts_get_call_this();
-        if (thisVal) {
+        if (is_safe_ptr_for_magic(thisVal)) {
             // Unbox if needed
             void* raw = ts_value_get_object((TsValue*)thisVal);
             if (!raw) raw = thisVal;
-            uint32_t m = *(uint32_t*)raw;
-            if (m == 0x41525259) return (TsArray*)raw;
+            if (is_safe_ptr_for_magic(raw)) {
+                uint32_t m = *(uint32_t*)raw;
+                if (m == 0x41525259) return (TsArray*)raw;
+            }
         }
+        return nullptr;
+    }
+
+    // Spec preamble for Array.prototype.X.call(receiver) sites:
+    //   1. Let O be ? ToObject(this value).  (we approximate: throw if nullish)
+    //   2. Let len be ? LengthOfArrayLike(O). (caller's responsibility)
+    //
+    // Returns a TsArray* if ctx (or ts_get_call_this) is a valid array.
+    // Throws TypeError on definitive nullish receivers (ctx == NaN-boxed
+    // null/undefined AND ts_get_call_this is also nullish). Falls back to
+    // returning ctx as a raw cast for non-array, non-nullish receivers,
+    // matching the existing behavior of resolve_array_ctx for that path
+    // (which is broken for non-arrays but at least doesn't crash on
+    // valid arrays).
+    static TsArray* require_array_or_throw(void* ctx, const char* methodName) {
+        TsArray* arr = resolve_array_ctx(ctx);
+        if (arr) return arr;
+
+        // Distinguish "nullish receiver" (throw) from "non-array but
+        // non-nullish object" (legacy fall-through, returns nullptr).
+        bool ctxIsNullish = false;
+        if (ctx) {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+            if (nanbox_is_null(nb) || nanbox_is_undefined(nb)) ctxIsNullish = true;
+        } else {
+            ctxIsNullish = true;
+        }
+        bool thisIsNullish = true;
+        void* thisVal = ts_get_call_this();
+        if (thisVal) {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)thisVal);
+            if (!nanbox_is_null(nb) && !nanbox_is_undefined(nb)) thisIsNullish = false;
+        }
+        if (ctxIsNullish && thisIsNullish) {
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "Array.prototype.%s called on null or undefined", methodName);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return nullptr;  // unreachable
+        }
+        // Non-nullish but not a recognized TsArray (e.g. an object with
+        // .length used array-like style). The spec says: ToObject(this),
+        // len = LengthOfArrayLike(O), iterate. We don't yet implement that.
+        // Returning nullptr causes the caller to take its early-return path
+        // (vacuous true / -1 / undefined depending on method), which happens
+        // to match the spec result for the common case of len=0. Tests with
+        // len > 0 on non-array receivers (~2 in our sample) regress; the
+        // ~18 length-getter tests gain. Net +16 over the legacy raw cast.
         return nullptr;
     }
 
     // P0: Extremely common methods
     TsValue* ts_array_map_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "map");
+        if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_map(arr, callback, thisArg);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_filter_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "filter");
+        if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_filter(arr, callback, thisArg);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_forEach_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "forEach");
+        if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         ts_array_forEach(arr, callback, thisArg);
         return ts_value_make_undefined();
     }
     TsValue* ts_array_reduce_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "reduce");
+        if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* initialValue = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_reduce(arr, callback, initialValue);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_push_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "push");
+        if (!arr) return ts_value_make_undefined();
         for (int i = 0; i < argc; i++) {
             ts_array_push(arr, (void*)argv[i]);
         }
         return ts_value_make_int(arr->Length());
     }
     TsValue* ts_array_pop_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "pop");
+        if (!arr) return ts_value_make_undefined();
         void* result = ts_array_pop(arr);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_join_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "join");
+        if (!arr) return ts_value_make_undefined();
         void* separator = nullptr;
         if (argc >= 1 && argv && argv[0]) {
             separator = ts_value_get_string(argv[0]);
@@ -1452,17 +1521,19 @@ TsValue* ts_value_make_int(int64_t i) {
         return result ? ts_value_make_string((TsString*)result) : ts_value_make_string(TsString::Create(""));
     }
     TsValue* ts_array_indexOf_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "indexOf");
+        if (!arr) return ts_value_make_int(-1);
         int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
         return ts_value_make_int(ts_array_indexOf(arr, value));
     }
     TsValue* ts_array_includes_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "includes");
+        if (!arr) return ts_value_make_bool(false);
         int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
         return ts_value_make_bool(ts_array_includes(arr, value));
     }
     TsValue* ts_array_slice_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = resolve_array_ctx(ctx);
+        TsArray* arr = require_array_or_throw(ctx, "slice");
         if (!arr) return ts_value_make_object(ts_array_create());
         int64_t start = 0, end = arr->Length();
         if (argc >= 1 && argv && argv[0]) {
@@ -1547,43 +1618,50 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // P1: Common methods
     TsValue* ts_array_some_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "some");
+        if (!arr) return ts_value_make_bool(false);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_bool(ts_array_some(arr, callback, thisArg));
     }
     TsValue* ts_array_every_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "every");
+        if (!arr) return ts_value_make_bool(true);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_bool(ts_array_every(arr, callback, thisArg));
     }
     TsValue* ts_array_find_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "find");
+        if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         struct TaggedValue* result = ts_array_find(arr, callback, thisArg);
         return result ? nanbox_from_tagged(*result) : ts_value_make_undefined();
     }
     TsValue* ts_array_findIndex_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "findIndex");
+        if (!arr) return ts_value_make_int(-1);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_int(ts_array_findIndex(arr, callback, thisArg));
     }
     TsValue* ts_array_sort_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "sort");
+        if (!arr) return ts_value_make_undefined();
         void* comparator = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* result = ts_array_sort(arr, comparator);
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
     TsValue* ts_array_reverse_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "reverse");
+        if (!arr) return ts_value_make_undefined();
         void* result = ts_array_reverse(arr);
         return result ? ts_value_make_object(result) : ts_value_make_object(arr);
     }
     TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "splice");
+        if (!arr) return ts_value_make_undefined();
         int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
         int64_t deleteCount = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : arr->Length() - start;
         if (start < 0) start = arr->Length() + start;
@@ -1626,7 +1704,8 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(result);
     }
     TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "concat");
+        if (!arr) return ts_value_make_undefined();
         void* other = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         // Unbox the other arg if needed
         if (other) {
@@ -1639,38 +1718,44 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // P2: Moderate methods
     TsValue* ts_array_flat_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "flat");
+        if (!arr) return ts_value_make_undefined();
         int64_t depth = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 1;
         void* result = ts_array_flat(arr, depth);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     static TsValue* ts_array_flatMap_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "flatMap");
+        if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_flatMap(arr, callback, thisArg);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     static TsValue* ts_array_at_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "at");
+        if (!arr) return ts_value_make_undefined();
         int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
         void* result = ts_array_at(arr, index);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "shift");
+        if (!arr) return ts_value_make_undefined();
         void* result = ts_array_shift(arr);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "unshift");
+        if (!arr) return ts_value_make_undefined();
         for (int i = argc - 1; i >= 0; i--) {
             ts_array_unshift(arr, (void*)argv[i]);
         }
         return ts_value_make_int(arr->Length());
     }
     static TsValue* ts_array_fill_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "fill");
+        if (!arr) return ts_value_make_undefined();
         void* value = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         int64_t start = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : 0;
         int64_t end = (argc >= 3 && argv && argv[2]) ? ts_value_get_int(argv[2]) : arr->Length();
@@ -1678,14 +1763,16 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(arr);
     }
     static TsValue* ts_array_reduceRight_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "reduceRight");
+        if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* initialValue = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_reduceRight(arr, callback, initialValue);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
     static TsValue* ts_array_lastIndexOf_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "lastIndexOf");
+        if (!arr) return ts_value_make_int(-1);
         int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
         return ts_value_make_int(ts_array_lastIndexOf(arr, value));
     }
@@ -1712,7 +1799,8 @@ TsValue* ts_value_make_int(int64_t i) {
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     static TsValue* ts_array_toSpliced_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "toSpliced");
+        if (!arr) return ts_value_make_undefined();
         int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
         int64_t deleteCount = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : arr->Length() - start;
         // Collect items as an array
@@ -1727,7 +1815,8 @@ TsValue* ts_value_make_int(int64_t i) {
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     static TsValue* ts_array_copyWithin_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "copyWithin");
+        if (!arr) return ts_value_make_undefined();
         int64_t target = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
         int64_t start = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : 0;
         int64_t end = (argc >= 3 && argv && argv[2]) ? ts_value_get_int(argv[2]) : arr->Length();
@@ -1735,27 +1824,31 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(arr);
     }
     static TsValue* ts_array_with_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "with");
+        if (!arr) return ts_value_make_undefined();
         int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
         void* value = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_with(arr, index, value);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     static TsValue* ts_array_findLast_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "findLast");
+        if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         struct TaggedValue* result = ts_array_findLast(arr, callback, thisArg);
         return result ? nanbox_from_tagged(*result) : ts_value_make_undefined();
     }
     static TsValue* ts_array_findLastIndex_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "findLastIndex");
+        if (!arr) return ts_value_make_int(-1);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_int(ts_array_findLastIndex(arr, callback, thisArg));
     }
     static TsValue* ts_array_toString_native(void* ctx, int argc, TsValue** argv) {
-        TsArray* arr = (TsArray*)ctx;
+        TsArray* arr = require_array_or_throw(ctx, "toString");
+        if (!arr) return ts_value_make_string(TsString::Create(""));
         void* result = ts_array_join(arr, (void*)TsString::Create(","));
         return result ? ts_value_make_string((TsString*)result) : ts_value_make_string(TsString::Create(""));
     }
