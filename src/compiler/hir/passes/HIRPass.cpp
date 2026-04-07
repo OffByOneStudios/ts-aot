@@ -5,12 +5,14 @@ namespace ts::hir {
 
 PassResult HIRFunctionPass::run(HIRModule& module) {
     PassResult result = PassResult::unchanged();
+    currentModule_ = &module;
 
     for (auto& func : module.functions) {
         auto funcResult = runOnFunction(*func);
 
         // Propagate errors immediately
         if (!funcResult.success()) {
+            currentModule_ = nullptr;
             return funcResult;
         }
 
@@ -18,6 +20,7 @@ PassResult HIRFunctionPass::run(HIRModule& module) {
         result |= funcResult;
     }
 
+    currentModule_ = nullptr;
     return result;
 }
 

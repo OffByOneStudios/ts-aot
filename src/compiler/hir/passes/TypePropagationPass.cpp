@@ -216,7 +216,20 @@ std::shared_ptr<HIRType> TypePropagationPass::inferResultType(HIRInstruction* in
             return HIRType::makeObject();
         case HIROpcode::GetPropStatic:
         case HIROpcode::GetPropDynamic:
-            // Could be refined based on shape info
+            // The HIR instruction always produces a boxed TsValue* (Any) at
+            // the LLVM level — the optional type annotation in operands[2]
+            // tells HIRToLLVM how to unbox the result, but the result value
+            // itself IS still boxed when the instruction completes.
+            //
+            // Refining `result->type` to a more specific type would lie about
+            // the LLVM-level representation and cause downstream calls to
+            // mismatch their signatures (e.g., passing a ptr where the
+            // callee expects a double). The right place to do this kind of
+            // refinement is SpecializationPass (Phase 2+), which will insert
+            // an explicit Unbox instruction along with the type change.
+            //
+            // For now, leave the result as Any. The type annotation in
+            // operands[2] still drives unboxing in HIRToLLVM as before.
             return HIRType::makeAny();
         case HIROpcode::HasProp:
         case HIROpcode::DeleteProp:
@@ -285,12 +298,34 @@ std::shared_ptr<HIRType> TypePropagationPass::inferResultType(HIRInstruction* in
         case HIROpcode::GCAllocArray:
             return HIRType::makePtr();
 
-        // Calls - type from result annotation
-        case HIROpcode::Call:
+        // Calls - refine from the called function's return type when possible
+        case HIROpcode::Call: {
+            // Operand layout for Call:
+            //   [0] = function name (string)
+            //   [1..N] = arguments (HIRValue*)
+            //
+            // If the called function exists in the current module and has a
+            // concrete return type, use it. This refines runtime helpers
+            // (ts_array_length, ts_string_concat, etc.) that ASTToHIR may
+            // have emitted with a generic Any return type.
+            if (inst->operands.size() >= 1 && currentModule_) {
+                auto* namePtr = std::get_if<std::string>(&inst->operands[0]);
+                if (namePtr) {
+                    HIRFunction* callee = currentModule_->getFunction(*namePtr);
+                    if (callee && callee->returnType &&
+                        callee->returnType->kind != HIRTypeKind::Any) {
+                        return callee->returnType;
+                    }
+                }
+            }
+            // Preserve existing type set at emission time
+            return inst->result ? inst->result->type : HIRType::makeAny();
+        }
         case HIROpcode::CallMethod:
         case HIROpcode::CallVirtual:
         case HIROpcode::CallIndirect:
-            // Keep existing type or use Any
+            // These have more complex resolution paths. For now keep existing
+            // emission-time type. Could be enhanced in a follow-up.
             return inst->result ? inst->result->type : HIRType::makeAny();
 
         // Globals
