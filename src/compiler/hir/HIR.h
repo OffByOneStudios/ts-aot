@@ -294,6 +294,41 @@ enum class HIROpcode {
     // Generator/Yield
     Yield,              // %r = yield %value (yield a value, returns value sent by next())
     YieldStar,          // %r = yield* %iterable (delegate to another generator/iterable)
+
+    //==========================================================================
+    // Strategy B Phase 1: Generic (pre-specialization) opcodes
+    //==========================================================================
+    // These are emitted by ASTToHIR in Phase 3+ instead of the type-specific
+    // forms above. SpecializationPass (Phase 2) reads operand types from
+    // HIRValue::type and rewrites these into the type-specific opcodes
+    // (AddI64/AddF64/StringConcat/Call("ts_value_add", ...)).
+    //
+    // Until Phase 3 starts emitting them, these are unreachable. HIRToLLVM
+    // currently has no lowerings for them — by design, they MUST be lowered
+    // by SpecializationPass before reaching HIRToLLVM.
+    //
+    // See memory/strategy_b_unification_plan.md for the migration plan.
+
+    // Generic arithmetic — operand types determine specialization
+    Add,                // %r = add %a, %b
+    Sub,                // %r = sub %a, %b
+    Mul,                // %r = mul %a, %b
+    Div,                // %r = div %a, %b
+    Mod,                // %r = mod %a, %b
+    Neg,                // %r = neg %a
+
+    // Generic comparison — operand types determine specialization
+    CmpEq,              // %r = cmp.eq %a, %b
+    CmpNe,              // %r = cmp.ne %a, %b
+    CmpLt,              // %r = cmp.lt %a, %b
+    CmpLe,              // %r = cmp.le %a, %b
+    CmpGt,              // %r = cmp.gt %a, %b
+    CmpGe,              // %r = cmp.ge %a, %b
+
+    // Generic property access — receiver type and key shape determine
+    // specialization (GetPropStatic vs GetPropDynamic vs typed inline).
+    GetProp,            // %r = get_prop %obj, %key (key may be string const or value)
+    SetProp,            // set_prop %obj, %key, %val
 };
 
 // Instruction operand

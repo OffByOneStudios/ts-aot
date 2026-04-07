@@ -247,6 +247,22 @@ static const char* opcodeToString(HIROpcode op) {
         // Generator/Yield
         case HIROpcode::Yield: return "yield";
         case HIROpcode::YieldStar: return "yield*";
+
+        // Strategy B Phase 1: generic opcodes (specialized by SpecializationPass)
+        case HIROpcode::Add: return "add";
+        case HIROpcode::Sub: return "sub";
+        case HIROpcode::Mul: return "mul";
+        case HIROpcode::Div: return "div";
+        case HIROpcode::Mod: return "mod";
+        case HIROpcode::Neg: return "neg";
+        case HIROpcode::CmpEq: return "cmp.eq";
+        case HIROpcode::CmpNe: return "cmp.ne";
+        case HIROpcode::CmpLt: return "cmp.lt";
+        case HIROpcode::CmpLe: return "cmp.le";
+        case HIROpcode::CmpGt: return "cmp.gt";
+        case HIROpcode::CmpGe: return "cmp.ge";
+        case HIROpcode::GetProp: return "get_prop";
+        case HIROpcode::SetProp: return "set_prop";
     }
     return "unknown";
 }

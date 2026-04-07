@@ -225,6 +225,88 @@ public:
     }
 
     //==========================================================================
+    //==========================================================================
+    // Strategy B Phase 1: Generic (pre-specialization) arithmetic and comparison
+    //==========================================================================
+    // These emit the generic opcodes that SpecializationPass (Phase 2) will
+    // rewrite into AddI64/AddF64/StringConcat/runtime calls based on operand
+    // types. The caller provides an expected result type (typically computed
+    // from operand types via the same logic ASTToHIR uses today).
+    //
+    // Until Phase 3 starts using these, they're unreachable. HIRToLLVM has
+    // explicit error cases for them so any leak is loud.
+
+    std::shared_ptr<HIRValue> createAdd(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs,
+                                         std::shared_ptr<HIRType> resultType) {
+        return createBinaryOp(HIROpcode::Add, lhs, rhs, resultType);
+    }
+    std::shared_ptr<HIRValue> createSub(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs,
+                                         std::shared_ptr<HIRType> resultType) {
+        return createBinaryOp(HIROpcode::Sub, lhs, rhs, resultType);
+    }
+    std::shared_ptr<HIRValue> createMul(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs,
+                                         std::shared_ptr<HIRType> resultType) {
+        return createBinaryOp(HIROpcode::Mul, lhs, rhs, resultType);
+    }
+    std::shared_ptr<HIRValue> createDiv(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs,
+                                         std::shared_ptr<HIRType> resultType) {
+        return createBinaryOp(HIROpcode::Div, lhs, rhs, resultType);
+    }
+    std::shared_ptr<HIRValue> createMod(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs,
+                                         std::shared_ptr<HIRType> resultType) {
+        return createBinaryOp(HIROpcode::Mod, lhs, rhs, resultType);
+    }
+    std::shared_ptr<HIRValue> createNeg(std::shared_ptr<HIRValue> val,
+                                         std::shared_ptr<HIRType> resultType) {
+        return createUnaryOp(HIROpcode::Neg, val, resultType);
+    }
+
+    // Generic comparisons always return Bool — no result type parameter needed.
+    std::shared_ptr<HIRValue> createCmpEq(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpEq, lhs, rhs, HIRType::makeBool());
+    }
+    std::shared_ptr<HIRValue> createCmpNe(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpNe, lhs, rhs, HIRType::makeBool());
+    }
+    std::shared_ptr<HIRValue> createCmpLt(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpLt, lhs, rhs, HIRType::makeBool());
+    }
+    std::shared_ptr<HIRValue> createCmpLe(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpLe, lhs, rhs, HIRType::makeBool());
+    }
+    std::shared_ptr<HIRValue> createCmpGt(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpGt, lhs, rhs, HIRType::makeBool());
+    }
+    std::shared_ptr<HIRValue> createCmpGe(std::shared_ptr<HIRValue> lhs, std::shared_ptr<HIRValue> rhs) {
+        return createBinaryOp(HIROpcode::CmpGe, lhs, rhs, HIRType::makeBool());
+    }
+
+    // Generic property access. Receiver type and key shape (string constant
+    // vs runtime value) determine specialization. The optional resultType
+    // is the analyzer-derived expected type — used by SpecializationPass to
+    // pick the right unbox after specialization.
+    std::shared_ptr<HIRValue> createGetProp(std::shared_ptr<HIRValue> obj,
+                                             std::shared_ptr<HIRValue> key,
+                                             std::shared_ptr<HIRType> resultType) {
+        if (!resultType) resultType = HIRType::makeAny();
+        auto result = createValue(resultType);
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::GetProp);
+        inst->result = result;
+        inst->operands.push_back(obj);
+        inst->operands.push_back(key);
+        inst->operands.push_back(resultType);
+        emit(std::move(inst));
+        return result;
+    }
+    void createSetProp(std::shared_ptr<HIRValue> obj, std::shared_ptr<HIRValue> key,
+                       std::shared_ptr<HIRValue> val) {
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::SetProp);
+        inst->operands.push_back(obj);
+        inst->operands.push_back(key);
+        inst->operands.push_back(val);
+        emit(std::move(inst));
+    }
+
     // Integer arithmetic
     //==========================================================================
 

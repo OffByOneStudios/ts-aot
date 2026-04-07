@@ -1476,6 +1476,31 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::SubI64Checked: lowerSubI64Checked(inst); break;
         case HIROpcode::MulI64Checked: lowerMulI64Checked(inst); break;
 
+        // Strategy B Phase 1+ generic opcodes — must be lowered by
+        // SpecializationPass before reaching HIRToLLVM. If one of these
+        // shows up here, SpecializationPass either didn't run or failed
+        // to specialize the instruction. This is a compiler bug, not a
+        // user error. Loud diagnostic so the cause is obvious.
+        case HIROpcode::Add:
+        case HIROpcode::Sub:
+        case HIROpcode::Mul:
+        case HIROpcode::Div:
+        case HIROpcode::Mod:
+        case HIROpcode::Neg:
+        case HIROpcode::CmpEq:
+        case HIROpcode::CmpNe:
+        case HIROpcode::CmpLt:
+        case HIROpcode::CmpLe:
+        case HIROpcode::CmpGt:
+        case HIROpcode::CmpGe:
+        case HIROpcode::GetProp:
+        case HIROpcode::SetProp:
+            SPDLOG_ERROR("Strategy B: generic HIR opcode {} reached HIRToLLVM. "
+                         "SpecializationPass must run before HIRToLLVM and rewrite "
+                         "all generic opcodes into type-specific forms.",
+                         static_cast<int>(inst->opcode));
+            break;
+
         default:
             SPDLOG_ERROR("Unknown HIR opcode: {}", static_cast<int>(inst->opcode));
             break;
