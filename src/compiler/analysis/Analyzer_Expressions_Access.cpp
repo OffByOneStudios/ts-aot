@@ -372,6 +372,47 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             fn->returnType = std::make_shared<Type>(TypeKind::Any);
             lastType = fn;
             return;
+        } else if (node->name == "concat") {
+            // Phase 9b: Array.prototype.concat(...items): T[]
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            fn->hasRest = true;
+            fn->returnType = objType;
+            lastType = fn;
+            return;
+        } else if (node->name == "flat") {
+            // Phase 9b: Array.prototype.flat(depth?): any[]
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            fn->isOptional.push_back(true);
+            fn->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+            lastType = fn;
+            return;
+        } else if (node->name == "flatMap") {
+            // Phase 9b: Array.prototype.flatMap(callback): any[]
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+            fn->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+            lastType = fn;
+            return;
+        } else if (node->name == "entries" || node->name == "keys" || node->name == "values") {
+            // Phase 9b: Array.prototype.entries/keys/values returns iterator-like
+            auto fn = std::make_shared<FunctionType>();
+            fn->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
+            lastType = fn;
+            return;
+        } else if (node->name == "copyWithin") {
+            // Phase 9b: Array.prototype.copyWithin(target, start, end?): T[]
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            fn->isOptional.push_back(false);
+            fn->isOptional.push_back(false);
+            fn->isOptional.push_back(true);
+            fn->returnType = objType;
+            lastType = fn;
+            return;
         }
     }
 
@@ -494,6 +535,58 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             }
             matchAllFn->returnType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Any));
             lastType = matchAllFn;
+            return;
+        } else if (node->name == "trimStart" || node->name == "trimEnd" ||
+                   node->name == "trimLeft"  || node->name == "trimRight") {
+            // Phase 9b: ES2019 String.prototype.trimStart/trimEnd (and legacy aliases)
+            auto fn = std::make_shared<FunctionType>();
+            fn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = fn;
+            return;
+        } else if (node->name == "startsWith" || node->name == "endsWith") {
+            // Phase 9b: String.prototype.startsWith/endsWith(searchString, position?): boolean
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            fn->isOptional.push_back(false);
+            fn->isOptional.push_back(true);
+            fn->returnType = std::make_shared<Type>(TypeKind::Boolean);
+            lastType = fn;
+            return;
+        } else if (node->name == "includes") {
+            // Phase 9b: String.prototype.includes(searchString, position?): boolean
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            fn->isOptional.push_back(false);
+            fn->isOptional.push_back(true);
+            fn->returnType = std::make_shared<Type>(TypeKind::Boolean);
+            lastType = fn;
+            return;
+        } else if (node->name == "indexOf" || node->name == "lastIndexOf") {
+            // Phase 9b: String.prototype.indexOf/lastIndexOf(searchString, position?): int
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            fn->isOptional.push_back(false);
+            fn->isOptional.push_back(true);
+            fn->returnType = std::make_shared<Type>(TypeKind::Int);
+            lastType = fn;
+            return;
+        } else if (node->name == "codePointAt") {
+            // Phase 9b: String.prototype.codePointAt(pos): int | undefined
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+            fn->returnType = std::make_shared<Type>(TypeKind::Int);
+            lastType = fn;
+            return;
+        } else if (node->name == "concat") {
+            // Phase 9b: String.prototype.concat(...strings): string
+            auto fn = std::make_shared<FunctionType>();
+            fn->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            fn->hasRest = true;
+            fn->returnType = std::make_shared<Type>(TypeKind::String);
+            lastType = fn;
             return;
         }
     }
