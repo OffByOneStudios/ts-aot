@@ -7564,56 +7564,14 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // Update function's value counter to start after parameters BEFORE the loop
     func->nextValueId = static_cast<uint32_t>(func->params.size());
 
-    // Register parameters in the scope (with default value handling)
+    // Register parameters in the scope (with default value handling).
+    // Strategy B Phase 6b: per-parameter logic factored into bindOneParameter.
+    // The slot-0 __closure__ has no AST parameter; user params start at index 1.
     for (size_t i = 0; i < func->params.size(); ++i) {
-        const auto& [paramName, paramType] = func->params[i];
-        auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-
-        // Check if this parameter has a default value (skip __closure__ at index 0)
         size_t astParamIdx = (i >= 1) ? (i - 1) : SIZE_MAX;
         ast::Parameter* astParam = (astParamIdx < node->parameters.size())
             ? node->parameters[astParamIdx].get() : nullptr;
-        if (astParam && astParam->initializer) {
-            // Parameter has a default value - need to check if undefined and use default
-            auto allocaVal = builder_.createAlloca(paramType);
-
-            auto isUndefined = builder_.createCall("ts_value_is_undefined",
-                {paramValue}, HIRType::makeBool());
-
-            auto defaultBB = func->createBlock("default_param");
-            auto usedBB = func->createBlock("use_param");
-            auto mergeBB = func->createBlock("param_merge");
-
-            builder_.createCondBranch(isUndefined, defaultBB, usedBB);
-
-            // Default block - evaluate default expression and store
-            builder_.setInsertPoint(defaultBB);
-            currentBlock_ = defaultBB;
-            auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
-            auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
-            if (paramType->kind == HIRTypeKind::Any) {
-                defaultVal = forceBoxValue(defaultVal);
-            }
-            builder_.createStore(defaultVal, allocaVal);
-            builder_.createBranch(mergeBB);
-
-            // Use param block - store the passed parameter value
-            builder_.setInsertPoint(usedBB);
-            currentBlock_ = usedBB;
-            builder_.createStore(paramValue, allocaVal);
-            builder_.createBranch(mergeBB);
-
-            // Merge block - continue execution
-            builder_.setInsertPoint(mergeBB);
-            currentBlock_ = mergeBB;
-
-            defineVariableAlloca(paramName, allocaVal, paramType);
-        } else {
-            // No default value - store into an alloca so reassignment works
-            auto allocaVal = builder_.createAlloca(paramType);
-            builder_.createStore(paramValue, allocaVal);
-            defineVariableAlloca(paramName, allocaVal, paramType);
-        }
+        bindOneParameter(func.get(), i, astParam, /*useAlloca=*/true);
     }
 
     // If the function is named, make it available in its own scope (for recursion)
