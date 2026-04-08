@@ -140,6 +140,13 @@ private:
     // Class expression tracking - maps variable names to class names for class expressions
     // E.g., "const MyClass = class { ... }" maps "MyClass" -> "__class_expr_0" or generated name
     std::map<std::string, std::string> variableToClassName_;
+    // Phase 9c-i: cache mapping AST class expression nodes to their registered
+    // HIRClass. Pre-scan in pass 1 of lower() registers all top-level class
+    // expressions early so visitNewExpression in function bodies can find them.
+    // Without this cache, the second invocation (during normal var-decl
+    // lowering) would create a duplicate class with a different __anon_class_N
+    // name.
+    std::map<ast::ClassExpression*, HIRClass*> astClassExprToHIRClass_;
 
     // Last generated class name from visitClassExpression (used by visitVariableDeclaration)
     std::string lastGeneratedClassName_;

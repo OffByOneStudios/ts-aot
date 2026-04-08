@@ -355,6 +355,31 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         }
     }
 
+    // Phase 9c-i: pre-register top-level class expressions assigned to
+    // variables (`const X = class { ... }`). Without this, function bodies
+    // visited in the second pass below see no class registered for X — they
+    // fall through visitNewExpression's "Unknown class" branch, which
+    // generates ts_new_from_constructor_N(undefined, args). The runtime
+    // fallback for an undefined constructor stores arg1 as `.message` instead
+    // of running the actual constructor body, silently producing wrong objects.
+    //
+    // Calling visitClassExpression here registers the HIRClass, shape,
+    // constructor, and methods. The trailer (loadFunction + prototype setup)
+    // is skipped because currentFunction_ is null at this point; the second
+    // invocation from visitVariableDeclaration during normal lowering hits
+    // the astClassExprToHIRClass_ cache and emits the trailer in the correct
+    // function context.
+    for (auto& stmt : program->body) {
+        auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+        if (!varDecl || !varDecl->initializer) continue;
+        auto* classExpr = dynamic_cast<ast::ClassExpression*>(varDecl->initializer.get());
+        if (!classExpr) continue;
+        visitClassExpression(classExpr);
+        if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+            variableToClassName_[ident->name] = lastGeneratedClassName_;
+        }
+    }
+
     // Determine the main source file for distinguishing imported modules.
     // The main file's statements come LAST in program->body (after all imports).
     // So we scan backwards to find the last unique sourceFile.
@@ -8688,6 +8713,37 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
 void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     setSourceLine(node);
+
+    // Phase 9c-i: if this AST node was already pre-registered in pass 1, skip
+    // straight to the trailer (loadFunction + prototype setup) and don't
+    // re-create the class. The pre-pass call had no current function so the
+    // trailer was skipped; this second call (from visitVariableDeclaration in
+    // a function body context) is where we emit the value-producing code.
+    auto cacheIt = astClassExprToHIRClass_.find(node);
+    if (cacheIt != astClassExprToHIRClass_.end()) {
+        HIRClass* hirClass = cacheIt->second;
+        lastGeneratedClassName_ = hirClass->name;
+        if (!currentFunction_) return;  // still in pass 1, nothing to emit yet
+        // Emit the value: a reference to the constructor function.
+        if (hirClass->constructor) {
+            lastValue_ = builder_.createLoadFunction(hirClass->constructor->name);
+        } else {
+            lastValue_ = builder_.createLoadFunction(hirClass->name + "_constructor");
+        }
+        // Set up prototype object with instance methods for dynamic dispatch.
+        if (!hirClass->methods.empty()) {
+            auto ctorVal = lastValue_;
+            auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
+            for (auto& [methodKey, methodFunc] : hirClass->methods) {
+                if (!methodFunc) continue;
+                auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+                builder_.createSetPropStatic(proto, methodKey, methodClosure);
+            }
+            builder_.createSetPropStatic(ctorVal, "prototype", proto);
+        }
+        return;
+    }
+
     // Generate a unique class name for anonymous class expressions
     // Use the same naming convention as the analyzer (__anon_class_X)
     std::string className = node->name.empty()
@@ -8700,6 +8756,9 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         lastValue_ = builder_.createConstNull();
         return;
     }
+    // Phase 9c-i: cache so a re-visit (from the var-decl lowering after the
+    // pre-pass) reuses this class instead of creating a duplicate.
+    astClassExprToHIRClass_[node] = hirClass;
 
     // Track the current class for 'this' handling
     HIRClass* savedClass = currentClass_;
@@ -9035,6 +9094,13 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
     // Store the generated class name for variable tracking (used by visitVariableDeclaration)
     lastGeneratedClassName_ = className;
+
+    // Phase 9c-i: if invoked from the pre-scan in pass 1 of lower() — when
+    // currentFunction_ is null — there's no insert point to emit the value
+    // setup into. Skip the trailer; the second (real) invocation from
+    // visitVariableDeclaration will hit the cache fast path above and emit
+    // the trailer with a valid current function.
+    if (!currentFunction_) return;
 
     // The result of a class expression is a reference to the class constructor
     // We use LoadFunction to get the constructor pointer
