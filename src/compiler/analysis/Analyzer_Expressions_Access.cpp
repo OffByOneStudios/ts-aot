@@ -241,7 +241,37 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         node->inferredType = lastType;
         return;
     }
-    
+
+    // Phase 9d: X.prototype access on class-like receivers.
+    // String.prototype.trim.call(...) and similar patterns are common in JS
+    // code. The receiver `String` is typed as an Object literal of static
+    // methods, so the existing field/method lookups don't have a `prototype`
+    // entry. The runtime handles this via dynamic dispatch — accessing
+    // `.prototype` on a class returns its prototype object, and method calls
+    // on that prototype invoke the method with the explicit `this` from
+    // `.call()`. Return Any to short-circuit the false-positive error.
+    if (node->name == "prototype") {
+        bool receiverIsClassLike = false;
+        if (objType->kind == TypeKind::Class) {
+            receiverIsClassLike = true;
+        } else if (objType->kind == TypeKind::Function) {
+            auto funcType = std::static_pointer_cast<FunctionType>(objType);
+            if (funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
+                receiverIsClassLike = true;
+            }
+        } else if (objType->kind == TypeKind::Object) {
+            // Built-in class statics (String, Array, Number, etc.) are typed
+            // as Object literals containing the static methods. Treat them
+            // as class-like for prototype access.
+            receiverIsClassLike = true;
+        }
+        if (receiverIsClassLike) {
+            lastType = std::make_shared<Type>(TypeKind::Any);
+            node->inferredType = lastType;
+            return;
+        }
+    }
+
     if (node->name == "length") {
         SPDLOG_DEBUG("  Accessing .length on type: {}", objType->toString());
         if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple || objType->kind == TypeKind::Any) {
