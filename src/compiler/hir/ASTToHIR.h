@@ -368,6 +368,32 @@ private:
     std::shared_ptr<HIRValue> lowerMethodDefinitionToFunction(ast::MethodDefinition* method);
 
     //==========================================================================
+    // Parameter Binder Helpers (Strategy B Phase 6)
+    //==========================================================================
+
+    // Bind a single function parameter: build the param HIRValue, emit the
+    // default-value branch if astParam->initializer is set, register the
+    // variable in the current scope (alloca-based or direct value).
+    //
+    // hirParamIndex is the index into func->params (which may differ from the
+    // AST parameter index when the function has prepended __closure__ slots).
+    // astParam may be nullptr for synthetic params (e.g., __closure__ itself).
+    // useAlloca=true uses defineVariableAlloca (params can be reassigned);
+    // useAlloca=false uses defineVariable (direct HIRValue, used by methods).
+    void bindOneParameter(HIRFunction* func,
+                          size_t hirParamIndex,
+                          ast::Parameter* astParam,
+                          bool useAlloca);
+
+    // Emit destructuring extraction for a parameter that has a binding pattern.
+    // hirParamIndex is the index into func->params; pattern is either an
+    // ObjectBindingPattern or ArrayBindingPattern from the original AST.
+    void extractDestructuringForParam(HIRFunction* func,
+                                      size_t hirParamIndex,
+                                      ast::ObjectBindingPattern* objPattern,
+                                      ast::ArrayBindingPattern* arrPattern);
+
+    //==========================================================================
     // JSX Helpers
     //==========================================================================
 

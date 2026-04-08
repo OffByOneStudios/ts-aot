@@ -1462,6 +1462,88 @@ std::shared_ptr<HIRValue> ASTToHIR::forceBoxValue(std::shared_ptr<HIRValue> valu
 }
 
 //==============================================================================
+// Parameter Binder Helpers (Strategy B Phase 6)
+//==============================================================================
+
+void ASTToHIR::bindOneParameter(HIRFunction* func,
+                                size_t hirParamIndex,
+                                ast::Parameter* astParam,
+                                bool useAlloca) {
+    const auto& [paramName, paramType] = func->params[hirParamIndex];
+    auto paramValue = std::make_shared<HIRValue>(
+        static_cast<uint32_t>(hirParamIndex), paramType, paramName);
+
+    if (astParam && astParam->initializer) {
+        // Parameter has a default value - check if undefined and use default.
+        // We can't use pointer comparison because ts_value_make_undefined()
+        // creates a new TsValue* each time, so pointers won't match. Instead
+        // use ts_value_is_undefined() which checks the type field.
+        auto allocaVal = builder_.createAlloca(paramType);
+
+        auto isUndefined = builder_.createCall("ts_value_is_undefined",
+            {paramValue}, HIRType::makeBool());
+
+        auto defaultBB = func->createBlock("default_param");
+        auto usedBB = func->createBlock("use_param");
+        auto mergeBB = func->createBlock("param_merge");
+
+        builder_.createCondBranch(isUndefined, defaultBB, usedBB);
+
+        // Default block - evaluate default expression and store
+        builder_.setInsertPoint(defaultBB);
+        currentBlock_ = defaultBB;
+        auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
+        auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
+        // Force box the default value if parameter type is Any. We use
+        // forceBoxValue because the expression might be a function call that
+        // gets inlined later, changing its type from Any to a concrete type.
+        if (paramType->kind == HIRTypeKind::Any) {
+            defaultVal = forceBoxValue(defaultVal);
+        }
+        builder_.createStore(defaultVal, allocaVal);
+        builder_.createBranch(mergeBB);
+
+        // Use param block - store the passed parameter value
+        builder_.setInsertPoint(usedBB);
+        currentBlock_ = usedBB;
+        builder_.createStore(paramValue, allocaVal);
+        builder_.createBranch(mergeBB);
+
+        // Merge block - continue execution
+        builder_.setInsertPoint(mergeBB);
+        currentBlock_ = mergeBB;
+
+        defineVariableAlloca(paramName, allocaVal, paramType);
+        return;
+    }
+
+    if (useAlloca) {
+        // No default value - store into an alloca so reassignment works
+        auto allocaVal = builder_.createAlloca(paramType);
+        builder_.createStore(paramValue, allocaVal);
+        defineVariableAlloca(paramName, allocaVal, paramType);
+    } else {
+        // Direct value registration (used by methods — params are not reassigned)
+        defineVariable(paramName, paramValue);
+    }
+}
+
+void ASTToHIR::extractDestructuringForParam(HIRFunction* func,
+                                            size_t hirParamIndex,
+                                            ast::ObjectBindingPattern* objPattern,
+                                            ast::ArrayBindingPattern* arrPattern) {
+    auto paramValue = std::make_shared<HIRValue>(
+        static_cast<uint32_t>(hirParamIndex),
+        HIRType::makeAny(),
+        func->params[hirParamIndex].first);
+    if (objPattern) {
+        lowerObjectBindingPattern(objPattern, paramValue);
+    } else if (arrPattern) {
+        lowerArrayBindingPattern(arrPattern, paramValue);
+    }
+}
+
+//==============================================================================
 // Type Conversion
 //==============================================================================
 
@@ -2001,81 +2083,18 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // don't conflict with parameter IDs 0, 1, 2, ...
     func->nextValueId = static_cast<uint32_t>(func->params.size());
 
-    // Register parameters in the scope so they can be looked up
-    // Parameter values have IDs 0, 1, 2, ... matching their index in HIRToLLVM
+    // Register parameters in the scope so they can be looked up.
+    // Parameter values have IDs 0, 1, 2, ... matching their index in HIRToLLVM.
+    // Strategy B Phase 6a: per-parameter logic factored into bindOneParameter.
     for (size_t i = 0; i < func->params.size(); ++i) {
-        const auto& [paramName, paramType] = func->params[i];
-        // Create a value representing this parameter with specific ID
-        auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-
-        // Check if this parameter has a default value
         ast::Parameter* astParam = (i < node->parameters.size()) ? node->parameters[i].get() : nullptr;
-        if (astParam && astParam->initializer) {
-            // Parameter has a default value - need to check if undefined and use default
-            // Create an alloca to store the potentially-defaulted value
-            auto allocaVal = builder_.createAlloca(paramType);
-
-            // Check if param is undefined using runtime function
-            // We can't use pointer comparison because ts_value_make_undefined() creates
-            // a new TsValue* each time, so pointers won't match. Instead use the
-            // runtime's ts_value_is_undefined() which checks the type field.
-            auto isUndefined = builder_.createCall("ts_value_is_undefined",
-                {paramValue}, HIRType::makeBool());
-
-            // Create basic blocks for the conditional
-            auto defaultBB = func->createBlock("default_param");
-            auto usedBB = func->createBlock("use_param");
-            auto mergeBB = func->createBlock("param_merge");
-
-            // Branch based on undefined check
-            builder_.createCondBranch(isUndefined, defaultBB, usedBB);
-
-            // Default block - evaluate default expression and store
-            builder_.setInsertPoint(defaultBB);
-            currentBlock_ = defaultBB;
-            auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
-            auto defaultVal = initExpr ? lowerExpression(initExpr) : builder_.createConstUndefined();
-            // Force box the default value if parameter type is Any
-            // We use forceBoxValue because the expression might be a function call
-            // that gets inlined later, changing its type from Any to a concrete type
-            if (paramType->kind == HIRTypeKind::Any) {
-                defaultVal = forceBoxValue(defaultVal);
-            }
-            builder_.createStore(defaultVal, allocaVal);
-            builder_.createBranch(mergeBB);
-
-            // Use param block - store the passed parameter value
-            builder_.setInsertPoint(usedBB);
-            currentBlock_ = usedBB;
-            builder_.createStore(paramValue, allocaVal);
-            builder_.createBranch(mergeBB);
-
-            // Merge block - continue execution
-            builder_.setInsertPoint(mergeBB);
-            currentBlock_ = mergeBB;
-
-            // Register the alloca as the variable (loads will get the correct value)
-            defineVariableAlloca(paramName, allocaVal, paramType);
-        } else {
-            // No default value - store into an alloca so reassignment works
-            auto allocaVal = builder_.createAlloca(paramType);
-            builder_.createStore(paramValue, allocaVal);
-            defineVariableAlloca(paramName, allocaVal, paramType);
-        }
+        bindOneParameter(func.get(), i, astParam, /*useAlloca=*/true);
     }
 
-    // Emit destructuring extraction for parameters with binding patterns
+    // Emit destructuring extraction for parameters with binding patterns.
+    // Strategy B Phase 6a: per-parameter logic factored into extractDestructuringForParam.
     for (auto& dp : destructuredParams) {
-        // Get the parameter value by its index
-        auto paramValue = std::make_shared<HIRValue>(
-            static_cast<uint32_t>(dp.paramIndex),
-            HIRType::makeAny(),
-            func->params[dp.paramIndex].first);
-        if (dp.objPattern) {
-            lowerObjectBindingPattern(dp.objPattern, paramValue);
-        } else if (dp.arrPattern) {
-            lowerArrayBindingPattern(dp.arrPattern, paramValue);
-        }
+        extractDestructuringForParam(func.get(), dp.paramIndex, dp.objPattern, dp.arrPattern);
     }
 
     // Create 'arguments' array-like object if the function body references 'arguments'.
