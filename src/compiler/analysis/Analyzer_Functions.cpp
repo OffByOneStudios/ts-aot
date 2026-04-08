@@ -869,10 +869,13 @@ void Analyzer::visitFunctionExpression(ast::FunctionExpression* node) {
         funcType->returnType = std::make_shared<Type>(TypeKind::Void); 
     }
 
-    if (currentModuleType == ModuleType::UntypedJavaScript) {
-        funcType->returnType = std::make_shared<Type>(TypeKind::Any);
-        needsReturnTypeInference = false;
-    }
+    // Strategy B Phase 5d-iii: removed `if (UntypedJavaScript) returnType = Any;
+    // needsReturnTypeInference = false` override. Untyped function expressions
+    // and arrow functions now run the same body-walk return-type inference as
+    // typed code (loop at lines 932-940). This is the largest-surface-area site
+    // in 5d because npm packages are full of arrow callbacks and assigned
+    // function expressions. For untyped bodies that produce only Any values,
+    // the inferred type stays Any and behavior is unchanged.
 
     if (node->isGenerator) {
         auto genClass = std::static_pointer_cast<ClassType>(symbols.lookupType(node->isAsync ? "AsyncGenerator" : "Generator"));
