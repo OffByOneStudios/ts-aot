@@ -28,6 +28,41 @@ struct CallSignature {
     std::string sourceExportedName;  // Original exported name in the source module (for aliased imports)
 };
 
+// Strategy B Phase 5e: per-feature flags that parameterize the analyzer's
+// dual-mode behavior. Each flag corresponds to one (or a few) `currentModuleType
+// == UntypedJavaScript` site(s) elsewhere in the analyzer. Default values
+// reflect the strict TypeScript profile (all flags off). The untyped-JS profile
+// turns them all on. Future work may flip individual flags to enable validation
+// or inference for untyped code without removing the dual-mode pipeline.
+struct AnalyzerOptions {
+    // --- Validation/error reporting ---
+    bool suppressErrors = false;            // Folded from former Analyzer::suppressErrors
+
+    // --- Traversal ---
+    bool minimalTraversal = false;          // Skip visitor dispatch, follow imports only
+                                            // (formerly `skipUntypedSemantic`)
+
+    // --- Symbol definition ---
+    bool defineCommonJSGlobals = false;     // Inject require/global/console/parseInt/etc.
+    bool autoDefineUndefinedIdents = false; // Auto-define unknown names as Any
+
+    // --- Inference behavior ---
+    bool defaultExpressionsToAny = false;   // Non-Identifier exprs → Any; var decls → Any
+    bool relaxedPropertyAccess = false;     // Unknown property → Any with no error
+};
+
+// Two named profiles. The struct is a POD of bools, so constexpr designated
+// initialization is well-formed in C++20.
+inline constexpr AnalyzerOptions kTypedProfile{};   // All false — strict TS behavior
+inline constexpr AnalyzerOptions kUntypedProfile{   // All true — current untyped JS behavior
+    .suppressErrors            = true,
+    .minimalTraversal          = true,
+    .defineCommonJSGlobals     = true,
+    .autoDefineUndefinedIdents = true,
+    .defaultExpressionsToAny   = true,
+    .relaxedPropertyAccess     = true,
+};
+
 class Analyzer : public ast::Visitor {
 public:
     Analyzer();
@@ -121,6 +156,12 @@ private:
     bool skipUntypedSemantic = false; // Skip expensive semantic checks for raw JS
     bool strictMode = false; // JavaScript strict mode ("use strict")
     bool globalStrictMode = false; // Strict mode at program level
+
+    // Strategy B Phase 5e: per-feature flags driving dual-mode behavior. Set
+    // at module-analysis entry from the kTypedProfile/kUntypedProfile
+    // constants based on currentModuleType. Sites are not yet reading from
+    // this in 5e-i — that conversion happens in 5e-ii.
+    AnalyzerOptions activeOptions = kTypedProfile;
 
     // Contextual typing stack - used to propagate expected types to arrow functions
     std::vector<std::shared_ptr<Type>> contextualTypeStack;

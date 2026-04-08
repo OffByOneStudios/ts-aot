@@ -18,6 +18,15 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     currentFilePath = fs::absolute(path).string();
     currentModuleType = moduleResolver.getModuleType(currentFilePath);
     bool prevSkipUntyped = skipUntypedSemantic;
+    // Strategy B Phase 5e-i: select profile from module type. activeOptions
+    // is not yet read by any site (that conversion is 5e-ii); this just wires
+    // the profile selection so the field is correctly populated.
+    AnalyzerOptions prevOptions = activeOptions;
+    activeOptions = (currentModuleType == ModuleType::UntypedJavaScript)
+        ? kUntypedProfile
+        : kTypedProfile;
+    SPDLOG_DEBUG("Analyzer::analyze profile = {}",
+        (currentModuleType == ModuleType::UntypedJavaScript) ? "untyped" : "typed");
     if (currentModuleType == ModuleType::UntypedJavaScript) {
         skipUntypedSemantic = true;
         SPDLOG_INFO("Permissive mode: skipping semantic checks for {}", currentFilePath);
@@ -83,6 +92,7 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
 
     performEscapeAnalysis(program);
     skipUntypedSemantic = prevSkipUntyped;
+    activeOptions = prevOptions;  // Strategy B Phase 5e-i: restore profile
 }
 
 void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
@@ -91,10 +101,16 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     auto oldModuleType = currentModuleType;
     bool oldSuppressErrors = suppressErrors;
     bool oldSkipUntyped = skipUntypedSemantic;
+    // Strategy B Phase 5e-i: save/restore activeOptions across nested module
+    // analysis. Profile is selected from module->type below.
+    AnalyzerOptions oldOptions = activeOptions;
 
     currentModule = module;
     currentFilePath = module->path;
     currentModuleType = module->type;
+    activeOptions = (module->type == ModuleType::UntypedJavaScript)
+        ? kUntypedProfile
+        : kTypedProfile;
     if (module->type != ModuleType::TypeScript) {
         suppressErrors = true;
     }
@@ -200,6 +216,7 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     currentModuleType = oldModuleType;
     suppressErrors = oldSuppressErrors;
     skipUntypedSemantic = oldSkipUntyped;
+    activeOptions = oldOptions;  // Strategy B Phase 5e-i: restore profile
 }
 
 void Analyzer::analyzeDeclarationModule(std::shared_ptr<Module> module) {
@@ -207,11 +224,15 @@ void Analyzer::analyzeDeclarationModule(std::shared_ptr<Module> module) {
     auto oldPath = currentFilePath;
     auto oldModuleType = currentModuleType;
     bool oldSuppressErrors = suppressErrors;
+    AnalyzerOptions oldOptions = activeOptions;  // Strategy B Phase 5e-i
 
     currentModule = module;
     currentFilePath = module->path;
     currentModuleType = ModuleType::Declaration;
     suppressErrors = true;  // Declarations may reference types we don't know
+    // Declaration files are type-only; use the typed profile.
+    activeOptions = kTypedProfile;
+    activeOptions.suppressErrors = true;
 
     symbols.enterScope();
 
@@ -237,6 +258,7 @@ void Analyzer::analyzeDeclarationModule(std::shared_ptr<Module> module) {
     currentFilePath = oldPath;
     currentModuleType = oldModuleType;
     suppressErrors = oldSuppressErrors;
+    activeOptions = oldOptions;  // Strategy B Phase 5e-i: restore profile
 }
 
 std::unique_ptr<ast::Program> Analyzer::parseSourceFile(const std::string& path) {

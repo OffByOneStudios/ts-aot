@@ -514,6 +514,7 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     auto oldModuleType = currentModuleType;
     bool oldSuppressErrors = suppressErrors;
     bool oldSkipUntyped = skipUntypedSemantic;
+    AnalyzerOptions oldOptions = activeOptions;  // Strategy B Phase 5e-i
 
     auto setContextForFunction = [&]() {
         // First, check explicit ownership for synthetic functions (e.g., module init).
@@ -528,12 +529,17 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
                     currentModule = module;
                     currentFilePath = module->path;
                     currentModuleType = module->type;
+                    activeOptions = (module->type == ModuleType::UntypedJavaScript)
+                        ? kUntypedProfile
+                        : kTypedProfile;
                     if (module->type != ModuleType::TypeScript) {
                         suppressErrors = true;
                     }
                     if (module->type == ModuleType::UntypedJavaScript) {
                         // Avoid the ultra-minimal skipUntypedSemantic behavior for bodies here.
                         skipUntypedSemantic = false;
+                        // Phase 5e-i: same fixup on the active profile.
+                        activeOptions.minimalTraversal = false;
                     }
                     return;
                 }
@@ -549,12 +555,17 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
                         currentModule = module;
                         currentFilePath = module->path;
                         currentModuleType = module->type;
+                        activeOptions = (module->type == ModuleType::UntypedJavaScript)
+                            ? kUntypedProfile
+                            : kTypedProfile;
                         if (module->type != ModuleType::TypeScript) {
                             suppressErrors = true;
                         }
                         if (module->type == ModuleType::UntypedJavaScript) {
                             // Avoid the ultra-minimal skipUntypedSemantic behavior for bodies here.
                             skipUntypedSemantic = false;
+                            // Phase 5e-i: same fixup on the active profile.
+                            activeOptions.minimalTraversal = false;
                         }
                         return;
                     }
@@ -760,7 +771,8 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     currentModuleType = oldModuleType;
     suppressErrors = oldSuppressErrors;
     skipUntypedSemantic = oldSkipUntyped;
-    
+    activeOptions = oldOptions;  // Strategy B Phase 5e-i: restore profile
+
     // For untyped modules, always return any regardless of inferred type
     if (isUntypedModule) {
         return std::make_shared<Type>(TypeKind::Any);
