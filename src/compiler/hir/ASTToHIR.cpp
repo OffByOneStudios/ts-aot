@@ -7857,11 +7857,17 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     // Enter function scope
     pushFunctionScope(func.get());
 
-    // Register parameters in the scope (including 'this')
+    // Register parameters in the scope (including 'this').
+    // Strategy B Phase 6d: per-parameter logic factored into bindOneParameter.
+    // Methods use defineVariable (not defineVariableAlloca) — params are not
+    // reassignable. Slot 0 is 'this' (synthetic, no AST param); user params
+    // start at index 1. Methods don't currently support default values, but
+    // bindOneParameter handles them correctly if a future change adds them.
     for (size_t i = 0; i < func->params.size(); ++i) {
-        const auto& [paramName, paramType] = func->params[i];
-        auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-        defineVariable(paramName, paramValue);
+        size_t astParamIdx = (i >= 1) ? (i - 1) : SIZE_MAX;
+        ast::Parameter* astParam = (astParamIdx < node->parameters.size())
+            ? node->parameters[astParamIdx].get() : nullptr;
+        bindOneParameter(func.get(), i, astParam, /*useAlloca=*/false);
     }
     func->nextValueId = static_cast<uint32_t>(func->params.size());
 
