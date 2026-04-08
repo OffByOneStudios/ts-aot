@@ -274,7 +274,15 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
 
     if (node->name == "length") {
         SPDLOG_DEBUG("  Accessing .length on type: {}", objType->toString());
-        if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array || objType->kind == TypeKind::Tuple || objType->kind == TypeKind::Any) {
+        // Phase 9f-i: also accept Class receivers. Extension classes
+        // (KeyObject, Buffer, Uint8Array, etc.) typically have a numeric
+        // length but don't always declare it in their schema. Returning Int
+        // here matches the runtime behavior (slow-path lookup returns the
+        // numeric length via dynamic dispatch) and silences the false-
+        // positive "Unknown property length" errors.
+        if (objType->kind == TypeKind::String || objType->kind == TypeKind::Array ||
+            objType->kind == TypeKind::Tuple || objType->kind == TypeKind::Any ||
+            objType->kind == TypeKind::Class) {
             lastType = std::make_shared<Type>(TypeKind::Int);
             return;
         }
