@@ -15,6 +15,7 @@
 #include <llvm/BinaryFormat/Dwarf.h>
 
 #include <stdexcept>
+#include <cassert>
 #include <unordered_set>
 #include <filesystem>
 
@@ -1476,11 +1477,11 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::SubI64Checked: lowerSubI64Checked(inst); break;
         case HIROpcode::MulI64Checked: lowerMulI64Checked(inst); break;
 
-        // Strategy B Phase 1+ generic opcodes — must be lowered by
-        // SpecializationPass before reaching HIRToLLVM. If one of these
-        // shows up here, SpecializationPass either didn't run or failed
-        // to specialize the instruction. This is a compiler bug, not a
-        // user error. Loud diagnostic so the cause is obvious.
+        // Strategy B Phase 8b: generic HIR opcodes (Add..CmpGe, GetProp,
+        // SetProp) are guaranteed to be rewritten by SpecializationPass before
+        // HIRToLLVM runs. If one slips through, that's a SpecializationPass
+        // bug — assert(false) gives a loud crash with a stack trace in debug
+        // builds and compiles to __builtin_unreachable() in release.
         case HIROpcode::Add:
         case HIROpcode::Sub:
         case HIROpcode::Mul:
@@ -1495,10 +1496,7 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::CmpGe:
         case HIROpcode::GetProp:
         case HIROpcode::SetProp:
-            SPDLOG_ERROR("Strategy B: generic HIR opcode {} reached HIRToLLVM. "
-                         "SpecializationPass must run before HIRToLLVM and rewrite "
-                         "all generic opcodes into type-specific forms.",
-                         static_cast<int>(inst->opcode));
+            assert(false && "Generic HIR opcode reached HIRToLLVM — SpecializationPass should have rewritten it");
             break;
 
         default:
