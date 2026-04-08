@@ -393,7 +393,13 @@ void Analyzer::reportError(const std::string& message) {
         errorCount++;
         return;
     }
-    // Temporarily suppress other analyzer errors to allow untyped CommonJS (lodash) to progress.
+    // Strategy B Phase 8a investigation (reverted): gating on
+    // activeOptions.suppressErrors revealed ~100 pre-existing analyzer false
+    // positives across the typed-TS test suite (e.g., "Unknown property concat"
+    // on typed Array, "Type string | unknown is not assignable to type string"
+    // on legitimate `unknown`-typed values). Cleaning those up is a separate
+    // multi-commit project. Until then, all non-syntax errors stay muzzled
+    // for both typed and untyped code.
     SPDLOG_DEBUG("Suppressing analyzer error: {}", message);
 }
 
