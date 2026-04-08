@@ -6482,6 +6482,71 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         return;
     }
 
+    // Phase 9c-iv-B: refine propType from `node->inferredType` for property
+    // access where the analyzer knows a more precise type than codegen has
+    // locally derived. This is needed for:
+    //   - `stream.Readable` (namespace.Class lookup) where the analyzer knows
+    //     the result is the Readable class but the propType derivation only
+    //     walks module_->classes (which doesn't contain extension classes).
+    //   - `extInstance.field` where the receiver is an extension class.
+    //
+    // Excluded:
+    //   - `this.X` accesses (currentClass_ is set): the class may not yet be
+    //     in module_->classes during method body lowering, and the existing
+    //     shape-lookup path handles `this.X` correctly.
+    //   - User-defined class instance accesses (receiver is a Class in
+    //     module_->classes): SROA + the existing shape-lookup path handle
+    //     these. Refining here would trip SROA expecting typed inline reads
+    //     of slots the constructor lowering hasn't yet filled.
+    //   - Object/structural-literal receivers: monomorphizer may reuse a
+    //     typed specialization for an Any-typed call site, and the structural
+    //     type may not match the actual runtime object's shape.
+    bool isThisAccess = false;
+    if (auto* thisIdent = dynamic_cast<ast::Identifier*>(node->expression.get())) {
+        if (thisIdent->name == "this") isThisAccess = true;
+    }
+    bool receiverIsUserDefinedClass = false;
+    if (node->expression && node->expression->inferredType &&
+        node->expression->inferredType->kind == ts::TypeKind::Class) {
+        auto receiverClass = std::dynamic_pointer_cast<ts::ClassType>(node->expression->inferredType);
+        if (receiverClass) {
+            for (auto& cls : module_->classes) {
+                if (cls->name == receiverClass->name) {
+                    receiverIsUserDefinedClass = true;
+                    break;
+                }
+            }
+        }
+    }
+    bool receiverIsObjectLiteral = false;
+    if (node->expression && node->expression->inferredType &&
+        node->expression->inferredType->kind == ts::TypeKind::Object) {
+        receiverIsObjectLiteral = true;
+    }
+    if (propType->kind == HIRTypeKind::Any &&
+        !isThisAccess &&
+        !currentClass_ &&
+        !receiverIsUserDefinedClass &&
+        node->inferredType) {
+        auto refined = convertType(node->inferredType);
+        if (refined && refined->kind != HIRTypeKind::Any) {
+            // For object-literal receivers, only refine to Class/Array/etc.
+            // (extension types). NEVER refine to primitive types like f64,
+            // because the monomorphizer may reuse a typed specialization for
+            // an Any-typed call site, and the structural type may not match
+            // the actual runtime object's shape — leading to typed loads of
+            // fields that don't exist (NaN out, see Phase 9c-iv-A history).
+            bool refinementIsPrimitive =
+                refined->kind == HIRTypeKind::Int64 ||
+                refined->kind == HIRTypeKind::Float64 ||
+                refined->kind == HIRTypeKind::Bool ||
+                refined->kind == HIRTypeKind::String;
+            if (!receiverIsObjectLiteral || !refinementIsPrimitive) {
+                propType = refined;
+            }
+        }
+    }
+
     lastValue_ = builder_.createGetPropStatic(obj, node->name, propType);
 }
 

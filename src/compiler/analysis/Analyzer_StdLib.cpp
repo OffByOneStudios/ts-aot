@@ -5,6 +5,7 @@
 #include <fmt/core.h>
 #include <sstream>
 #include <filesystem>
+#include <functional>
 #include <spdlog/spdlog.h>
 
 namespace fs = std::filesystem;
@@ -1756,10 +1757,75 @@ void Analyzer::registerTypesFromExtensions() {
     }
 
     // =========================================================================
-    // Pass 3: Patch method return types that reference other extension types
+    // Pass 3: Recursively patch ALL bare ClassType references to point to
+    // fully-registered types in the symbol table. (Phase 9c-iv-A)
     // =========================================================================
     // convertExtTypeRef creates bare ClassType(name) without fields/methods.
-    // Now that all types are registered, replace these with the actual registered types.
+    // Pre-9c-iv-A this pass only patched method return types, leaving
+    // callback parameter types and field types as bare empty classes. That
+    // caused false-positive "Unknown property" errors for code like
+    //
+    //   http.createServer((req, res) => { res.writeHead(200); });
+    //
+    // because `res` was contextually typed to a bare ServerResponse with no
+    // methods. The fix walks every type-shaped reference in every
+    // method/field/staticMethod/staticField/object-field/global and patches
+    // each bare ClassType to its full registered version. Inner FunctionType
+    // params/returns and Array element types are walked recursively.
+
+    // Recursive patcher: replaces bare ClassType with the full one from the
+    // symbol table. For composite types (Function, Array, Union) it recurses
+    // into their components in place.
+    std::function<std::shared_ptr<Type>(std::shared_ptr<Type>)> patchType =
+        [&](std::shared_ptr<Type> t) -> std::shared_ptr<Type> {
+        if (!t) return t;
+
+        if (t->kind == TypeKind::Class) {
+            auto cls = std::dynamic_pointer_cast<ClassType>(t);
+            if (cls && cls->methods.empty() && cls->fields.empty() &&
+                cls->staticMethods.empty() && cls->staticFields.empty()) {
+                auto fullType = symbols.lookupType(cls->name);
+                if (fullType && fullType.get() != cls.get()) {
+                    return fullType;
+                }
+            }
+            return t;
+        }
+
+        if (t->kind == TypeKind::Function) {
+            auto funcType = std::dynamic_pointer_cast<FunctionType>(t);
+            if (funcType) {
+                for (auto& pt : funcType->paramTypes) {
+                    pt = patchType(pt);
+                }
+                if (funcType->returnType) {
+                    funcType->returnType = patchType(funcType->returnType);
+                }
+            }
+            return t;
+        }
+
+        if (t->kind == TypeKind::Array) {
+            auto arrType = std::dynamic_pointer_cast<ArrayType>(t);
+            if (arrType && arrType->elementType) {
+                arrType->elementType = patchType(arrType->elementType);
+            }
+            return t;
+        }
+
+        if (t->kind == TypeKind::Union) {
+            auto unionType = std::dynamic_pointer_cast<UnionType>(t);
+            if (unionType) {
+                for (auto& member : unionType->types) {
+                    member = patchType(member);
+                }
+            }
+            return t;
+        }
+
+        return t;
+    };
+
     for (const auto& contract : contracts) {
         for (const auto& [typeName, typeDef] : contract.types) {
             auto registeredType = symbols.lookupType(typeName);
@@ -1767,51 +1833,52 @@ void Analyzer::registerTypesFromExtensions() {
             auto classType = std::dynamic_pointer_cast<ClassType>(registeredType);
             if (!classType) continue;
 
-            // Patch method return types
+            // Patch instance methods (params and return types, recursively)
             for (auto& [methodName, methodFunc] : classType->methods) {
-                if (methodFunc && methodFunc->returnType && methodFunc->returnType->kind == TypeKind::Class) {
-                    auto retClass = std::dynamic_pointer_cast<ClassType>(methodFunc->returnType);
-                    if (retClass && retClass->methods.empty() && retClass->fields.empty()) {
-                        // This is a bare ClassType - try to find the full registered version
-                        auto fullType = symbols.lookupType(retClass->name);
-                        if (fullType && fullType.get() != retClass.get()) {
-                            methodFunc->returnType = fullType;
-                        }
-                    }
+                if (methodFunc) {
+                    for (auto& pt : methodFunc->paramTypes) pt = patchType(pt);
+                    if (methodFunc->returnType) methodFunc->returnType = patchType(methodFunc->returnType);
                 }
             }
-            // Patch static method return types
+            // Patch static methods
             for (auto& [methodName, methodFunc] : classType->staticMethods) {
-                if (methodFunc && methodFunc->returnType && methodFunc->returnType->kind == TypeKind::Class) {
-                    auto retClass = std::dynamic_pointer_cast<ClassType>(methodFunc->returnType);
-                    if (retClass && retClass->methods.empty() && retClass->fields.empty()) {
-                        auto fullType = symbols.lookupType(retClass->name);
-                        if (fullType && fullType.get() != retClass.get()) {
-                            methodFunc->returnType = fullType;
-                        }
-                    }
+                if (methodFunc) {
+                    for (auto& pt : methodFunc->paramTypes) pt = patchType(pt);
+                    if (methodFunc->returnType) methodFunc->returnType = patchType(methodFunc->returnType);
+                }
+            }
+            // Patch instance fields
+            for (auto& [fieldName, fieldType] : classType->fields) {
+                fieldType = patchType(fieldType);
+            }
+            // Patch static fields
+            for (auto& [fieldName, fieldType] : classType->staticFields) {
+                fieldType = patchType(fieldType);
+            }
+            // Patch getters
+            for (auto& [getterName, getterFunc] : classType->getters) {
+                if (getterFunc && getterFunc->returnType) {
+                    getterFunc->returnType = patchType(getterFunc->returnType);
                 }
             }
         }
 
-        // Also patch object method return types (e.g., http2.connect() -> ClientHttp2Session)
+        // Patch object globals (extension `objects`)
         for (const auto& [objName, objDef] : contract.objects) {
             auto sym = symbols.lookup(objName);
             if (!sym) continue;
             auto objType = std::dynamic_pointer_cast<ObjectType>(sym->type);
             if (!objType) continue;
             for (auto& [fieldName, fieldType] : objType->fields) {
-                auto funcType = std::dynamic_pointer_cast<FunctionType>(fieldType);
-                if (funcType && funcType->returnType && funcType->returnType->kind == TypeKind::Class) {
-                    auto retClass = std::dynamic_pointer_cast<ClassType>(funcType->returnType);
-                    if (retClass && retClass->methods.empty() && retClass->fields.empty()) {
-                        auto fullType = symbols.lookupType(retClass->name);
-                        if (fullType && fullType.get() != retClass.get()) {
-                            funcType->returnType = fullType;
-                        }
-                    }
-                }
+                fieldType = patchType(fieldType);
             }
+        }
+
+        // Patch global function/value symbols
+        for (const auto& [globalName, globalDef] : contract.globals) {
+            auto sym = symbols.lookup(globalName);
+            if (!sym || !sym->type) continue;
+            sym->type = patchType(sym->type);
         }
     }
 
