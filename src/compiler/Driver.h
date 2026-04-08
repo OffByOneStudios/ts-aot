@@ -17,12 +17,6 @@ struct DriverOptions {
     bool dumpHir = false;       // Dump HIR after all optimization passes (final form)
     bool dumpHirPre = false;    // Dump HIR before any optimization passes (raw ASTToHIR output)
     bool dumpTypes = false;
-    // Strategy B refactor mode (typed/untyped pipeline unification — see
-    // memory/strategy_b_unification_plan.md). "legacy" preserves all current
-    // ASTToHIR type-decision branches. "unified" routes through the new
-    // generic-instruction emission + SpecializationPass path. Migration is
-    // phased — most operators still go through legacy until later phases.
-    std::string strategyBMode = "legacy";  // "legacy" | "unified"
     bool compileOnly = false;
     bool debug = false;
     bool debugRuntime = false;  // Link against debug version of tsruntime

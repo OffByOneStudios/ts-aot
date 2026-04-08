@@ -49,7 +49,6 @@ int main(int argc, char** argv) {
             ("dump-hir", "Dump HIR after all optimization passes (final form)", cxxopts::value<bool>()->default_value("false"))
             ("dump-hir-pre", "Dump HIR before any optimization passes (raw ASTToHIR output)", cxxopts::value<bool>()->default_value("false"))
             ("dump-types", "Dump inferred types", cxxopts::value<bool>()->default_value("false"))
-            ("strategy-b-mode", "Strategy B refactor mode: legacy | unified (see memory/strategy_b_unification_plan.md)", cxxopts::value<std::string>()->default_value("legacy"))
             ("use-hir", "[Deprecated, no-op] HIR pipeline is always used", cxxopts::value<bool>()->default_value("true"))
             ("v,verbose", "Verbose output", cxxopts::value<bool>()->default_value("false"))
             ("log-level", "Set log level (trace, debug, info, warn, error, off)", cxxopts::value<std::string>()->default_value("warning"))
@@ -149,12 +148,6 @@ int main(int argc, char** argv) {
         driverOpts.dumpHir = result["dump-hir"].as<bool>();
         driverOpts.dumpHirPre = result["dump-hir-pre"].as<bool>();
         driverOpts.dumpTypes = result["dump-types"].as<bool>();
-        driverOpts.strategyBMode = result["strategy-b-mode"].as<std::string>();
-        if (driverOpts.strategyBMode != "legacy" && driverOpts.strategyBMode != "unified") {
-            std::cerr << "Error: --strategy-b-mode must be 'legacy' or 'unified', got '"
-                      << driverOpts.strategyBMode << "'" << std::endl;
-            return 1;
-        }
         driverOpts.bundleIcu = result["bundle-icu"].as<bool>();
         driverOpts.enableGCStatepoints = result["gc-statepoints"].as<bool>();
         driverOpts.coverage = result["coverage"].as<bool>();
