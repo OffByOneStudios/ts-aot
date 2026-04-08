@@ -14,7 +14,9 @@ void Analyzer::visitExpressionStatement(ast::ExpressionStatement* node) {
 
 void Analyzer::visitVariableDeclaration(ast::VariableDeclaration* node) {
     std::shared_ptr<Type> type = std::make_shared<Type>(TypeKind::Any);
-    bool isJavaScript = (currentModuleType == ModuleType::UntypedJavaScript);
+    // Strategy B Phase 5e-ii Site #11: defaultExpressionsToAny (variable
+    // declarations are forced to Any in untyped JS — same flag as Site #5).
+    bool isJavaScript = activeOptions.defaultExpressionsToAny;
     
     if (isJavaScript) {
         // JavaScript slow path: all variables are Any

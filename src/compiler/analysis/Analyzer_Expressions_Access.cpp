@@ -8,8 +8,16 @@
 namespace ts {
 using namespace ast;
 void Analyzer::visitIdentifier(ast::Identifier* node) {
-    // Fully permissive path for untyped/non-TS modules
-    if (currentModuleType == ModuleType::UntypedJavaScript || suppressErrors || skipUntypedSemantic) {
+    // Strategy B Phase 5e-ii Site #6: autoDefineUndefinedIdents
+    // Note: this site previously also OR'd suppressErrors and
+    // skipUntypedSemantic, both of which are now folded into the active
+    // profile (suppressErrors is set in analyzeModule for non-TypeScript
+    // modules; minimalTraversal is the renamed skipUntypedSemantic). The
+    // autoDefineUndefinedIdents flag is set in kUntypedProfile, which is
+    // selected whenever currentModuleType == UntypedJavaScript at module
+    // entry. The remaining suppressErrors-only callers (e.g., declaration
+    // modules) also need this behavior, so OR with that flag explicitly.
+    if (activeOptions.autoDefineUndefinedIdents || suppressErrors || skipUntypedSemantic) {
         auto anyType = std::make_shared<Type>(TypeKind::Any);
         if (!symbols.lookup(node->name)) {
             symbols.define(node->name, anyType);
@@ -198,7 +206,8 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     auto objType = lastType;
     SPDLOG_TRACE("visitPropertyAccessExpression: name={} objType={} moduleType={}", node->name, objType->toString(), static_cast<int>(currentModuleType));
 
-    if (currentModuleType == ModuleType::UntypedJavaScript) {
+    // Strategy B Phase 5e-ii Site #7: relaxedPropertyAccess
+    if (activeOptions.relaxedPropertyAccess) {
         // For untyped JS, don't surface property errors—treat everything as any.
         lastType = std::make_shared<Type>(TypeKind::Any);
         node->inferredType = lastType;

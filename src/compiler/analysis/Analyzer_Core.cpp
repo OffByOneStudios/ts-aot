@@ -27,7 +27,11 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
         : kTypedProfile;
     SPDLOG_DEBUG("Analyzer::analyze profile = {}",
         (currentModuleType == ModuleType::UntypedJavaScript) ? "untyped" : "typed");
-    if (currentModuleType == ModuleType::UntypedJavaScript) {
+    // Strategy B Phase 5e-ii Site #1: top-level analyze() entry uses minimal
+    // traversal even though analyzeModule() does not. The activeOptions profile
+    // already has minimalTraversal=true for the untyped profile, but we set
+    // it explicitly here to make the dual-toggle pattern auditable.
+    if (activeOptions.minimalTraversal) {
         skipUntypedSemantic = true;
         SPDLOG_INFO("Permissive mode: skipping semantic checks for {}", currentFilePath);
     }
@@ -62,7 +66,8 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     symbols.define("__dirname", std::make_shared<Type>(TypeKind::String));
     symbols.define("__filename", std::make_shared<Type>(TypeKind::String));
 
-    if (currentModuleType == ModuleType::UntypedJavaScript) {
+    // Strategy B Phase 5e-ii Site #2: defineCommonJSGlobals
+    if (activeOptions.defineCommonJSGlobals) {
         auto requireFn = std::make_shared<FunctionType>();
         requireFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
         requireFn->returnType = std::make_shared<Type>(TypeKind::Any);
@@ -114,11 +119,12 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     if (module->type != ModuleType::TypeScript) {
         suppressErrors = true;
     }
+    // Strategy B Phase 5e-ii Site #3: at analyzeModule entry, untyped JS files
+    // need full traversal even though analyze() entry uses minimal traversal.
+    // Reset both the legacy bool and the active profile flag.
     if (currentModuleType == ModuleType::UntypedJavaScript) {
-        // For real-world JS (e.g., lodash), we still need a full traversal to build enough
-        // symbol info for codegen, but we do it permissively (suppressErrors=true).
-        // Avoid the ultra-minimal skipUntypedSemantic path here.
         skipUntypedSemantic = false;
+        activeOptions.minimalTraversal = false;
         SPDLOG_INFO("Permissive mode: analyzing untyped JavaScript for {}", currentFilePath);
     }
 
@@ -282,7 +288,8 @@ ResolvedModule Analyzer::resolveModule(const std::string& specifier) {
 
 void Analyzer::visit(Node* node) {
     if (!node) return;
-    if (skipUntypedSemantic && currentModuleType == ModuleType::UntypedJavaScript) {
+    // Strategy B Phase 5e-ii Site #4: minimal traversal short-circuit
+    if (activeOptions.minimalTraversal) {
         // Minimal traversal for raw JS: detect require() and ESM imports to pull deps, otherwise treat as any.
         if (auto call = dynamic_cast<ast::CallExpression*>(node)) {
             if (auto id = dynamic_cast<ast::Identifier*>(call->callee.get())) {
@@ -308,7 +315,8 @@ void Analyzer::visit(Node* node) {
     }
     node->accept(this);
 
-    if (currentModuleType == ModuleType::UntypedJavaScript) {
+    // Strategy B Phase 5e-ii Site #5: defaultExpressionsToAny
+    if (activeOptions.defaultExpressionsToAny) {
         // Don't force Any for identifiers, so we can still find functions
         // and other symbols by their original type in codegen.
         if (!dynamic_cast<Identifier*>(node)) {

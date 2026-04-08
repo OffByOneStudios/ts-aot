@@ -535,10 +535,10 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
                     if (module->type != ModuleType::TypeScript) {
                         suppressErrors = true;
                     }
+                    // Strategy B Phase 5e-ii Site #8: minimalTraversal reset for
+                    // synthetic-context restore (synthetic owner branch).
                     if (module->type == ModuleType::UntypedJavaScript) {
-                        // Avoid the ultra-minimal skipUntypedSemantic behavior for bodies here.
                         skipUntypedSemantic = false;
-                        // Phase 5e-i: same fixup on the active profile.
                         activeOptions.minimalTraversal = false;
                     }
                     return;
@@ -561,10 +561,10 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
                         if (module->type != ModuleType::TypeScript) {
                             suppressErrors = true;
                         }
+                        // Strategy B Phase 5e-ii Site #9: minimalTraversal reset
+                        // for synthetic-context restore (AST-walk fallback).
                         if (module->type == ModuleType::UntypedJavaScript) {
-                            // Avoid the ultra-minimal skipUntypedSemantic behavior for bodies here.
                             skipUntypedSemantic = false;
-                            // Phase 5e-i: same fixup on the active profile.
                             activeOptions.minimalTraversal = false;
                         }
                         return;
@@ -579,7 +579,12 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     // For untyped/opaque modules, we still need to visit statements to set inferredType on AST nodes.
     // This is required for codegen to work correctly (e.g., knowing when to use ts_object_set_prop).
     // We just skip error checking and return `any`.
-    bool isUntypedModule = (currentModuleType == ModuleType::UntypedJavaScript || suppressErrors || skipUntypedSemantic);
+    // Strategy B Phase 5e-ii: derived bool now reads suppressErrors which is
+    // set in analyzeModule for non-TypeScript modules. The activeOptions
+    // profile carries this same information; this OR keeps the legacy
+    // suppressErrors path live for callers that haven't gone through
+    // analyzeModule (e.g., direct analyzeFunctionBody from Monomorphizer).
+    bool isUntypedModule = (activeOptions.suppressErrors || suppressErrors || skipUntypedSemantic);
 
     symbols.enterScope();
 
