@@ -764,6 +764,34 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 current = current->baseClass;
             }
 
+            // Phase 9a: also check static fields/methods. Extension classes
+            // (Buffer, ChildProcess, etc.) are registered as ClassType directly
+            // with no constructor-function wrapper, so the existing static
+            // lookup at the Function branch below never fires for them. When
+            // user code does `Buffer.from(...)`, the receiver `Buffer` is a
+            // ClassType value and we need to find `from` in staticMethods here.
+            if (!definingClass) {
+                current = cls;
+                while (current) {
+                    if (current->staticFields.count(name)) {
+                        definingClass = current;
+                        access = current->staticFieldAccess.count(name)
+                            ? current->staticFieldAccess[name]
+                            : AccessModifier::Public;
+                        memberType = current->staticFields[name];
+                        break;
+                    } else if (current->staticMethods.count(name)) {
+                        definingClass = current;
+                        access = current->staticMethodAccess.count(name)
+                            ? current->staticMethodAccess[name]
+                            : AccessModifier::Public;
+                        memberType = current->staticMethods[name];
+                        break;
+                    }
+                    current = current->baseClass;
+                }
+            }
+
             if (definingClass) {
                 // Visibility check
                 bool allowed = true;
