@@ -598,11 +598,12 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
             }
             module->ast = std::shared_ptr<ast::Program>(ast.release());
 
-            // Analyze with errors suppressed (declarations may reference unavailable types)
-            bool prevSuppress = suppressErrors;
-            suppressErrors = true;
+            // Analyze with errors suppressed (declarations may reference unavailable types).
+            // Strategy B Phase 7c: save/restore the whole activeOptions struct.
+            AnalyzerOptions prevOptions = activeOptions;
+            activeOptions.suppressErrors = true;
             analyzeDeclarationModule(module);
-            suppressErrors = prevSuppress;
+            activeOptions = prevOptions;
 
             return module;
         }
@@ -636,12 +637,13 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
             SPDLOG_DEBUG("External package: {}", resolved.packageName);
         }
 
-        bool prevSuppress = suppressErrors;
+        // Strategy B Phase 7c: save/restore activeOptions struct.
+        AnalyzerOptions prevOptions = activeOptions;
         if (resolved.type != ModuleType::TypeScript) {
-            suppressErrors = true;
+            activeOptions.suppressErrors = true;
         }
         analyzeModule(module);
-        suppressErrors = prevSuppress;
+        activeOptions = prevOptions;
 
         // If we have a paired .d.ts, overlay typed exports AFTER JS analysis
         // (so .d.ts types override the untyped `any` from the JS analysis)
@@ -654,10 +656,11 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
                 typesModule->type = ModuleType::Declaration;
                 typesModule->ast = std::shared_ptr<ast::Program>(typesAst.release());
 
-                bool prevSup = suppressErrors;
-                suppressErrors = true;
+                // Strategy B Phase 7c: save/restore activeOptions struct.
+                AnalyzerOptions prevSupOptions = activeOptions;
+                activeOptions.suppressErrors = true;
                 analyzeDeclarationModule(typesModule);
-                suppressErrors = prevSup;
+                activeOptions = prevSupOptions;
 
                 // Overlay .d.ts typed exports on top of JS untyped exports
                 for (const auto& [name, sym] : typesModule->exports->getCurrentScopeSymbols()) {

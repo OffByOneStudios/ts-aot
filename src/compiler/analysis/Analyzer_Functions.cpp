@@ -512,7 +512,6 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     auto oldModule = currentModule;
     auto oldPath = currentFilePath;
     auto oldModuleType = currentModuleType;
-    bool oldSuppressErrors = suppressErrors;
     AnalyzerOptions oldOptions = activeOptions;  // Strategy B Phase 5e-i
 
     auto setContextForFunction = [&]() {
@@ -532,7 +531,7 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
                         ? kUntypedProfile
                         : kTypedProfile;
                     if (module->type != ModuleType::TypeScript) {
-                        suppressErrors = true;
+                        activeOptions.suppressErrors = true;
                     }
                     // Strategy B Phase 5e-ii Site #8: minimalTraversal reset for
                     // synthetic-context restore (synthetic owner branch).
@@ -557,7 +556,7 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
                             ? kUntypedProfile
                             : kTypedProfile;
                         if (module->type != ModuleType::TypeScript) {
-                            suppressErrors = true;
+                            activeOptions.suppressErrors = true;
                         }
                         // Strategy B Phase 5e-ii Site #9: minimalTraversal reset
                         // for synthetic-context restore (AST-walk fallback).
@@ -576,14 +575,9 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     // For untyped/opaque modules, we still need to visit statements to set inferredType on AST nodes.
     // This is required for codegen to work correctly (e.g., knowing when to use ts_object_set_prop).
     // We just skip error checking and return `any`.
-    // Strategy B Phase 5e-ii: derived bool now reads suppressErrors which is
-    // set in analyzeModule for non-TypeScript modules. The activeOptions
-    // profile carries this same information; this OR keeps the legacy
-    // suppressErrors path live for callers that haven't gone through
-    // analyzeModule (e.g., direct analyzeFunctionBody from Monomorphizer).
-    // Strategy B Phase 7b: dropped legacy `skipUntypedSemantic` operand.
-    // The remaining `suppressErrors` operand is folded in 7c.
-    bool isUntypedModule = (activeOptions.suppressErrors || suppressErrors);
+    // Strategy B Phase 7c: derived bool reads activeOptions.suppressErrors,
+    // which is set at every analyzeModule entry for non-TypeScript modules.
+    bool isUntypedModule = activeOptions.suppressErrors;
 
     symbols.enterScope();
 
@@ -773,7 +767,6 @@ std::shared_ptr<Type> Analyzer::analyzeFunctionBody(FunctionDeclaration* node, c
     currentModule = oldModule;
     currentFilePath = oldPath;
     currentModuleType = oldModuleType;
-    suppressErrors = oldSuppressErrors;
     activeOptions = oldOptions;  // Strategy B Phase 5e-i: restore profile
 
     // For untyped modules, always return any regardless of inferred type

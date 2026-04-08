@@ -9,9 +9,11 @@ namespace ts {
 using namespace ast;
 void Analyzer::visitIdentifier(ast::Identifier* node) {
     // Strategy B Phase 5e-ii Site #6: autoDefineUndefinedIdents.
-    // Phase 7b removed the legacy `skipUntypedSemantic` operand from this OR.
-    // The remaining `suppressErrors` operand is still legacy (folded in 7c).
-    if (activeOptions.autoDefineUndefinedIdents || suppressErrors) {
+    // Phase 7c also reads suppressErrors via the active profile, so the
+    // declaration-module path (which sets activeOptions.suppressErrors) gets
+    // the same auto-define behavior even though it doesn't set the
+    // autoDefineUndefinedIdents flag in its profile.
+    if (activeOptions.autoDefineUndefinedIdents || activeOptions.suppressErrors) {
         auto anyType = std::make_shared<Type>(TypeKind::Any);
         if (!symbols.lookup(node->name)) {
             symbols.define(node->name, anyType);

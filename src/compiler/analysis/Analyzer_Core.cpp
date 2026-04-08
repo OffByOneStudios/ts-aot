@@ -96,7 +96,6 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     auto oldModule = currentModule;
     auto oldPath = currentFilePath;
     auto oldModuleType = currentModuleType;
-    bool oldSuppressErrors = suppressErrors;
     // Strategy B Phase 5e-i: save/restore activeOptions across nested module
     // analysis. Profile is selected from module->type below.
     AnalyzerOptions oldOptions = activeOptions;
@@ -108,7 +107,7 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
         ? kUntypedProfile
         : kTypedProfile;
     if (module->type != ModuleType::TypeScript) {
-        suppressErrors = true;
+        activeOptions.suppressErrors = true;
     }
     // Strategy B Phase 5e-ii Site #3: at analyzeModule entry, untyped JS files
     // need full traversal even though analyze() entry uses minimal traversal.
@@ -209,7 +208,6 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     currentModule = oldModule;
     currentFilePath = oldPath;
     currentModuleType = oldModuleType;
-    suppressErrors = oldSuppressErrors;
     activeOptions = oldOptions;  // Strategy B Phase 5e-i: restore profile
 }
 
@@ -217,14 +215,12 @@ void Analyzer::analyzeDeclarationModule(std::shared_ptr<Module> module) {
     auto oldModule = currentModule;
     auto oldPath = currentFilePath;
     auto oldModuleType = currentModuleType;
-    bool oldSuppressErrors = suppressErrors;
     AnalyzerOptions oldOptions = activeOptions;  // Strategy B Phase 5e-i
 
     currentModule = module;
     currentFilePath = module->path;
     currentModuleType = ModuleType::Declaration;
-    suppressErrors = true;  // Declarations may reference types we don't know
-    // Declaration files are type-only; use the typed profile.
+    // Declaration files are type-only; use the typed profile with errors suppressed.
     activeOptions = kTypedProfile;
     activeOptions.suppressErrors = true;
 
@@ -251,7 +247,6 @@ void Analyzer::analyzeDeclarationModule(std::shared_ptr<Module> module) {
     currentModule = oldModule;
     currentFilePath = oldPath;
     currentModuleType = oldModuleType;
-    suppressErrors = oldSuppressErrors;
     activeOptions = oldOptions;  // Strategy B Phase 5e-i: restore profile
 }
 

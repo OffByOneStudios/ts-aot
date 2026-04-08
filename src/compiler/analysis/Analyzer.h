@@ -36,7 +36,7 @@ struct CallSignature {
 // or inference for untyped code without removing the dual-mode pipeline.
 struct AnalyzerOptions {
     // --- Validation/error reporting ---
-    bool suppressErrors = false;            // Folded from former Analyzer::suppressErrors
+    bool suppressErrors = false;            // Permissive mode for non-TS modules
 
     // --- Traversal ---
     bool minimalTraversal = false;          // Skip visitor dispatch, follow imports only
@@ -150,7 +150,6 @@ private:
     std::map<std::string, std::vector<CallSignature>> functionUsages;
     std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> classUsages;
     int errorCount = 0;
-    bool suppressErrors = false; // Permissive mode for untyped JS (legacy; folded in 7c)
     int functionDepth = 0;
     bool verbose = false;
     bool strictMode = false; // JavaScript strict mode ("use strict")
