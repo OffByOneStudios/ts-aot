@@ -8,16 +8,10 @@
 namespace ts {
 using namespace ast;
 void Analyzer::visitIdentifier(ast::Identifier* node) {
-    // Strategy B Phase 5e-ii Site #6: autoDefineUndefinedIdents
-    // Note: this site previously also OR'd suppressErrors and
-    // skipUntypedSemantic, both of which are now folded into the active
-    // profile (suppressErrors is set in analyzeModule for non-TypeScript
-    // modules; minimalTraversal is the renamed skipUntypedSemantic). The
-    // autoDefineUndefinedIdents flag is set in kUntypedProfile, which is
-    // selected whenever currentModuleType == UntypedJavaScript at module
-    // entry. The remaining suppressErrors-only callers (e.g., declaration
-    // modules) also need this behavior, so OR with that flag explicitly.
-    if (activeOptions.autoDefineUndefinedIdents || suppressErrors || skipUntypedSemantic) {
+    // Strategy B Phase 5e-ii Site #6: autoDefineUndefinedIdents.
+    // Phase 7b removed the legacy `skipUntypedSemantic` operand from this OR.
+    // The remaining `suppressErrors` operand is still legacy (folded in 7c).
+    if (activeOptions.autoDefineUndefinedIdents || suppressErrors) {
         auto anyType = std::make_shared<Type>(TypeKind::Any);
         if (!symbols.lookup(node->name)) {
             symbols.define(node->name, anyType);

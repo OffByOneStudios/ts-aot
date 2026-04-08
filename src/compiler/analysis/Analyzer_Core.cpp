@@ -17,22 +17,15 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     SPDLOG_DEBUG("Analyzer::analyze starting for {}", path);
     currentFilePath = fs::absolute(path).string();
     currentModuleType = moduleResolver.getModuleType(currentFilePath);
-    bool prevSkipUntyped = skipUntypedSemantic;
-    // Strategy B Phase 5e-i: select profile from module type. activeOptions
-    // is not yet read by any site (that conversion is 5e-ii); this just wires
-    // the profile selection so the field is correctly populated.
+    // Strategy B Phase 7b: select profile from module type. The legacy
+    // skipUntypedSemantic field is gone — readers consult activeOptions.minimalTraversal.
     AnalyzerOptions prevOptions = activeOptions;
     activeOptions = (currentModuleType == ModuleType::UntypedJavaScript)
         ? kUntypedProfile
         : kTypedProfile;
     SPDLOG_DEBUG("Analyzer::analyze profile = {}",
         (currentModuleType == ModuleType::UntypedJavaScript) ? "untyped" : "typed");
-    // Strategy B Phase 5e-ii Site #1: top-level analyze() entry uses minimal
-    // traversal even though analyzeModule() does not. The activeOptions profile
-    // already has minimalTraversal=true for the untyped profile, but we set
-    // it explicitly here to make the dual-toggle pattern auditable.
     if (activeOptions.minimalTraversal) {
-        skipUntypedSemantic = true;
         SPDLOG_INFO("Permissive mode: skipping semantic checks for {}", currentFilePath);
     }
     
@@ -96,7 +89,6 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
     moduleOrder.push_back(currentFilePath);
 
     performEscapeAnalysis(program);
-    skipUntypedSemantic = prevSkipUntyped;
     activeOptions = prevOptions;  // Strategy B Phase 5e-i: restore profile
 }
 
@@ -105,7 +97,6 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     auto oldPath = currentFilePath;
     auto oldModuleType = currentModuleType;
     bool oldSuppressErrors = suppressErrors;
-    bool oldSkipUntyped = skipUntypedSemantic;
     // Strategy B Phase 5e-i: save/restore activeOptions across nested module
     // analysis. Profile is selected from module->type below.
     AnalyzerOptions oldOptions = activeOptions;
@@ -121,9 +112,7 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     }
     // Strategy B Phase 5e-ii Site #3: at analyzeModule entry, untyped JS files
     // need full traversal even though analyze() entry uses minimal traversal.
-    // Reset both the legacy bool and the active profile flag.
     if (currentModuleType == ModuleType::UntypedJavaScript) {
-        skipUntypedSemantic = false;
         activeOptions.minimalTraversal = false;
         SPDLOG_INFO("Permissive mode: analyzing untyped JavaScript for {}", currentFilePath);
     }
@@ -221,7 +210,6 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
     currentFilePath = oldPath;
     currentModuleType = oldModuleType;
     suppressErrors = oldSuppressErrors;
-    skipUntypedSemantic = oldSkipUntyped;
     activeOptions = oldOptions;  // Strategy B Phase 5e-i: restore profile
 }
 

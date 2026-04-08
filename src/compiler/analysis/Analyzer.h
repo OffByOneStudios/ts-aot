@@ -150,10 +150,9 @@ private:
     std::map<std::string, std::vector<CallSignature>> functionUsages;
     std::map<std::string, std::vector<std::vector<std::shared_ptr<Type>>>> classUsages;
     int errorCount = 0;
-    bool suppressErrors = false; // Permissive mode for untyped JS
+    bool suppressErrors = false; // Permissive mode for untyped JS (legacy; folded in 7c)
     int functionDepth = 0;
     bool verbose = false;
-    bool skipUntypedSemantic = false; // Skip expensive semantic checks for raw JS
     bool strictMode = false; // JavaScript strict mode ("use strict")
     bool globalStrictMode = false; // Strict mode at program level
 
