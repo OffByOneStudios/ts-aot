@@ -1,5 +1,6 @@
 #include "Analyzer.h"
 #include "../ast/AstLoader.h"
+#include "../extensions/ExtensionLoader.h"
 #include <iostream>
 #include <fstream>
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -530,16 +531,44 @@ std::shared_ptr<Module> Analyzer::loadModule(const std::string& specifier) {
         module->path = resolved.path;
         module->analyzed = true;
         
-        auto sym = symbols.lookup(name);
-        if (sym && sym->type->kind == TypeKind::Object) {
-            auto objType = std::static_pointer_cast<ObjectType>(sym->type);
+        // Phase 9i: look up the extension global in the GLOBAL scope, not via
+        // symbols.lookup() which walks innermost-first. When loadModule is
+        // called from inside an analyzed npm module that has done
+        // `var http = require('http')`, the inner-scope local would shadow
+        // the global ObjectType with Any, causing the field copy to be
+        // silently skipped and module->exports to be left empty.
+        const auto& globalSyms = symbols.getGlobalSymbols();
+        auto globalIt = globalSyms.find(name);
+        std::shared_ptr<Type> globalType =
+            (globalIt != globalSyms.end()) ? globalIt->second->type : nullptr;
+        if (globalType && globalType->kind == TypeKind::Object) {
+            auto objType = std::static_pointer_cast<ObjectType>(globalType);
             for (auto& [fieldName, type] : objType->fields) {
                 module->exports->define(fieldName, type);
             }
-            
+
             // Special case for fs.promises
             if (name == "fs" && objType->fields.count("promises")) {
                 module->exports->define("promises", objType->fields["promises"]);
+            }
+        }
+
+        // Phase 9i: also expose extension contract types as module exports.
+        // Without this, `import * as net from 'net'; new net.Socket()` fails
+        // because Analyzer_StdLib.cpp registers Socket via symbols.defineType()
+        // into the global type registry only — never into the extension
+        // module's own exports table.
+        auto& extRegistry = ext::ExtensionRegistry::instance();
+        for (const auto& contract : extRegistry.getContracts()) {
+            bool ownsModule = false;
+            for (const auto& mod : contract.modules) {
+                if (mod == name) { ownsModule = true; break; }
+            }
+            if (!ownsModule) continue;
+            for (const auto& [typeName, typeDef] : contract.types) {
+                if (auto fullType = symbols.lookupType(typeName)) {
+                    module->exports->defineType(typeName, fullType);
+                }
             }
         }
         
