@@ -521,6 +521,75 @@ inline bool Type::isAssignableTo(std::shared_ptr<Type> other) {
         }
     }
 
+    // Phase 9h: Object literal structural assignability.
+    // TypeScript permits an object literal to be assigned to any class,
+    // interface, or intersection type whose required fields are all
+    // present in the literal with compatible types. The previous
+    // implementation rejected these because the universal fallback only
+    // handled kind-equality (Object != Class → false).
+    if (kind == TypeKind::Object) {
+        auto srcObj = std::static_pointer_cast<ObjectType>(shared_from_this());
+
+        // Object → Object: every target field must exist in the source
+        // with an assignable type.
+        if (other->kind == TypeKind::Object) {
+            auto dstObj = std::static_pointer_cast<ObjectType>(other);
+            for (const auto& [name, dstFieldType] : dstObj->fields) {
+                auto srcIt = srcObj->fields.find(name);
+                if (srcIt == srcObj->fields.end()) return false;
+                if (!srcIt->second->isAssignableTo(dstFieldType)) return false;
+            }
+            return true;
+        }
+
+        // Object → Class: walk the class hierarchy. Each field (including
+        // base class fields) must exist in the object with a compatible
+        // type. Methods are skipped — the runtime attaches them via the
+        // class machinery, not the literal.
+        if (other->kind == TypeKind::Class) {
+            auto dstClass = std::static_pointer_cast<ClassType>(other);
+            auto current = dstClass;
+            while (current) {
+                for (const auto& [name, dstFieldType] : current->fields) {
+                    auto srcIt = srcObj->fields.find(name);
+                    if (srcIt == srcObj->fields.end()) return false;
+                    if (!srcIt->second->isAssignableTo(dstFieldType)) return false;
+                }
+                current = current->baseClass;
+            }
+            return true;
+        }
+
+        // Object → Interface: check both fields and methods. Object literal
+        // "methods" are FunctionType-typed fields.
+        if (other->kind == TypeKind::Interface) {
+            auto dstInter = std::static_pointer_cast<InterfaceType>(other);
+            for (const auto& [name, dstFieldType] : dstInter->fields) {
+                auto srcIt = srcObj->fields.find(name);
+                if (srcIt == srcObj->fields.end()) return false;
+                if (!srcIt->second->isAssignableTo(dstFieldType)) return false;
+            }
+            for (const auto& [name, dstMethodType] : dstInter->methods) {
+                auto srcIt = srcObj->fields.find(name);
+                if (srcIt == srcObj->fields.end()) return false;
+                if (!srcIt->second->isAssignableTo(dstMethodType)) return false;
+            }
+            return true;
+        }
+
+        // Object → Intersection: must satisfy each component (recursively).
+        // Note: the existing Intersection-target handler at line ~572 below
+        // handles this too via the same recursion, but we include it here
+        // explicitly to keep the Object source case self-contained.
+        if (other->kind == TypeKind::Intersection) {
+            auto dstInter = std::static_pointer_cast<IntersectionType>(other);
+            for (auto& component : dstInter->types) {
+                if (!this->isAssignableTo(component)) return false;
+            }
+            return true;
+        }
+    }
+
     // Handle TypeParameter
     if (kind == TypeKind::TypeParameter) {
         if (other->kind == TypeKind::TypeParameter) {
