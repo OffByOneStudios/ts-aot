@@ -994,6 +994,39 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             return;
         }
 
+        // Phase 9f-iii: property access on Function-typed receivers.
+        // In JS, functions are objects and can have arbitrary properties
+        // attached. Examples:
+        //   util.inspect.defaultOptions   (`inspect` is a function with
+        //                                   attached options object)
+        //   myFn.staticData               (any function can be augmented)
+        // The analyzer's strict FunctionType doesn't model this, so unknown
+        // property access falls through to "Unknown property". Match JS
+        // semantics by returning typed values for the universally-known
+        // function properties (`name`, `length`) and Any for everything
+        // else. The runtime handles the access via dynamic dispatch.
+        //
+        // This check fires AFTER the existing static-method lookup at
+        // lines 941-990, so `MyClass.staticMethod` and similar typed
+        // patterns still work correctly.
+        if (objType->kind == TypeKind::Function) {
+            if (node->name == "name") {
+                lastType = std::make_shared<Type>(TypeKind::String);
+                node->inferredType = lastType;
+                return;
+            }
+            if (node->name == "length") {
+                lastType = std::make_shared<Type>(TypeKind::Int);
+                node->inferredType = lastType;
+                return;
+            }
+            // prototype is already handled by the 9d early-out at line ~245.
+            // Everything else returns Any (matches JS function-as-object).
+            lastType = std::make_shared<Type>(TypeKind::Any);
+            node->inferredType = lastType;
+            return;
+        }
+
         // Built-in methods fallback
         if (node->name == "includes" || node->name == "indexOf" || node->name == "lastIndexOf" || node->name == "toLowerCase" || node->name == "toUpperCase" || node->name == "slice" || node->name == "join") {
             lastType = std::make_shared<Type>(TypeKind::Any); // Or more specific function type
