@@ -99,6 +99,7 @@
   "types": {
     "Server": {
       "kind": "class",
+      "extends": "EventEmitter",
       "methods": {
         "listen": {
           "call": "ts_net_server_listen",

@@ -179,6 +179,29 @@ Analyzer::Analyzer() {
     bigIntType->returnType = std::make_shared<Type>(TypeKind::BigInt);
     symbols.define("BigInt", bigIntType);
 
+    // Phase 9g-v: Register built-in error class constructors as global symbols.
+    // Without these, code like `throw new TypeError("...")` errors with
+    // "Undefined variable TypeError" because the analyzer doesn't know that
+    // TypeError is a built-in. The runtime handles all of these via the
+    // standard Error class machinery, so we just need the analyzer to
+    // recognize the names as constructors that return an Error-like value.
+    {
+        auto makeErrorCtor = [&](const std::string& name) {
+            auto ctor = std::make_shared<FunctionType>();
+            ctor->paramTypes.push_back(std::make_shared<Type>(TypeKind::String));
+            ctor->isOptional.push_back(true);
+            ctor->returnType = std::make_shared<ClassType>(name);
+            symbols.define(name, ctor);
+        };
+        makeErrorCtor("Error");
+        makeErrorCtor("TypeError");
+        makeErrorCtor("RangeError");
+        makeErrorCtor("SyntaxError");
+        makeErrorCtor("ReferenceError");
+        makeErrorCtor("EvalError");
+        makeErrorCtor("URIError");
+    }
+
     // Register ts_aot intrinsic namespace
     auto tsAotType = std::make_shared<ObjectType>();
     auto comptimeType = std::make_shared<FunctionType>();
@@ -512,6 +535,10 @@ Analyzer::Analyzer() {
     regexpMatchArrayClass->fields["index"] = std::make_shared<Type>(TypeKind::Int);
     regexpMatchArrayClass->fields["input"] = std::make_shared<Type>(TypeKind::String);
     regexpMatchArrayClass->fields["length"] = std::make_shared<Type>(TypeKind::Int);
+    // Phase 9g-ii: groups field for ES2018 named capture groups.
+    // Modeled as Any (it's a `{[name: string]: string | undefined}` object;
+    // runtime uses dynamic property access to read named groups).
+    regexpMatchArrayClass->fields["groups"] = std::make_shared<Type>(TypeKind::Any);
     // indices is an array of [start, end] tuples (or undefined for non-participating groups)
     auto indicesElementType = std::make_shared<ArrayType>(std::make_shared<Type>(TypeKind::Int));
     regexpMatchArrayClass->fields["indices"] = std::make_shared<ArrayType>(indicesElementType);

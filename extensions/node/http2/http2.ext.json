@@ -29,6 +29,7 @@
     },
     "Http2Stream": {
       "kind": "class",
+      "extends": "EventEmitter",
       "properties": {
         "aborted": {
           "type": "boolean",
@@ -199,6 +200,7 @@
     },
     "Http2Session": {
       "kind": "class",
+      "extends": "EventEmitter",
       "properties": {
         "alpnProtocol": {
           "type": "string",

@@ -288,6 +288,18 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
         }
     }
 
+    // Phase 9g-iii: ES2019 Symbol.prototype.description.
+    // Symbol is a primitive type so it doesn't go through the Class branch's
+    // method lookup. Add a special case for `description` similar to `length`.
+    if (objType->kind == TypeKind::Symbol && node->name == "description") {
+        // Returns the description string (or undefined for Symbol() with no
+        // description). Model as String — the runtime returns null for the
+        // no-description case which the slow path handles.
+        lastType = std::make_shared<Type>(TypeKind::String);
+        node->inferredType = lastType;
+        return;
+    }
+
     if (objType->kind == TypeKind::Int || objType->kind == TypeKind::Double) {
         if (node->name == "toString") {
             auto fn = std::make_shared<FunctionType>();
@@ -920,6 +932,51 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                         break;
                     }
                     current = current->baseClass;
+                }
+            }
+
+            // Phase 9g-i: bare-class-with-typeArgs fallback. When the receiver
+            // is a fresh ClassType (e.g., Promise<T> created at a return-type
+            // use site in registerStdLib) with empty methods/fields/static
+            // tables, walk the registered counterpart's methods. Same shape
+            // as the 9c-iv-A pass-3 patcher but at lookup time. Fixes
+            // Promise.then/.catch and similar where the analyzer creates
+            // bare typeArgs instances.
+            if (!definingClass &&
+                cls->methods.empty() && cls->fields.empty() &&
+                cls->staticMethods.empty() && cls->staticFields.empty() &&
+                !cls->name.empty()) {
+                auto registered = symbols.lookupType(cls->name);
+                if (registered && registered->kind == TypeKind::Class) {
+                    auto regClass = std::dynamic_pointer_cast<ClassType>(registered);
+                    if (regClass && regClass.get() != cls.get()) {
+                        current = regClass;
+                        while (current) {
+                            if (current->fields.count(name)) {
+                                definingClass = current;
+                                access = current->fieldAccess.count(name)
+                                    ? current->fieldAccess[name]
+                                    : AccessModifier::Public;
+                                memberType = current->fields[name];
+                                break;
+                            } else if (current->methods.count(name)) {
+                                definingClass = current;
+                                access = current->methodAccess.count(name)
+                                    ? current->methodAccess[name]
+                                    : AccessModifier::Public;
+                                memberType = current->methods[name];
+                                break;
+                            } else if (current->getters.count(name)) {
+                                definingClass = current;
+                                access = current->methodAccess.count(name)
+                                    ? current->methodAccess[name]
+                                    : AccessModifier::Public;
+                                memberType = current->getters[name]->returnType;
+                                break;
+                            }
+                            current = current->baseClass;
+                        }
+                    }
                 }
             }
 
