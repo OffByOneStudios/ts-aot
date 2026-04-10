@@ -281,6 +281,14 @@
     },
     "Agent": {
       "kind": "class",
+      "constructor": {
+        "call": "ts_http_agent_create",
+        "hirName": "ts_http_Agent_create",
+        "params": [
+          {"name": "options", "type": "any", "optional": true}
+        ],
+        "lowering": { "args": ["boxed"], "returns": "ptr" }
+      },
       "properties": {
         "keepAlive": {
           "type": "boolean"
@@ -307,7 +315,15 @@
     },
     "HttpsAgent": {
       "kind": "class",
-      "extends": "Agent"
+      "extends": "Agent",
+      "constructor": {
+        "call": "ts_https_agent_create",
+        "hirName": "ts_https_HttpsAgent_create",
+        "params": [
+          {"name": "options", "type": "any", "optional": true}
+        ],
+        "lowering": { "args": ["boxed"], "returns": "ptr" }
+      }
     },
     "OutgoingMessage": {
       "kind": "class",

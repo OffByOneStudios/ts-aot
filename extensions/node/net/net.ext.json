@@ -100,6 +100,14 @@
     "Server": {
       "kind": "class",
       "extends": "EventEmitter",
+      "constructor": {
+        "call": "ts_net_create_server",
+        "hirName": "ts_net_Server_create",
+        "params": [
+          {"name": "callback", "type": "Function", "optional": true}
+        ],
+        "lowering": { "args": ["boxed"], "returns": "ptr" }
+      },
       "methods": {
         "listen": {
           "call": "ts_net_server_listen",
@@ -164,6 +172,12 @@
     "Socket": {
       "kind": "class",
       "extends": "Duplex",
+      "constructor": {
+        "call": "ts_net_create_socket",
+        "hirName": "ts_net_Socket_create",
+        "params": [],
+        "lowering": { "args": [], "returns": "ptr" }
+      },
       "methods": {
         "connect": {
           "call": "ts_net_socket_connect",

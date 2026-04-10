@@ -147,7 +147,19 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
 
     if (!node->namespaceImport.empty()) {
         auto nsType = std::make_shared<NamespaceType>(module);
-        symbols.define(node->namespaceImport, nsType);
+        // Phase 9i Bug 2: explicit `import * as X from 'mod'` must bind X
+        // to a NamespaceType even when the analyzer pre-registered X as a
+        // global ObjectType (which happens for built-in extension modules
+        // like `net`, `url`, `crypto` so untyped JS can use them without
+        // an import). Without the override, `net.Socket` resolves against
+        // the global ObjectType (which only carries the contract's
+        // `objects.*` methods, not its `types.*`) and falls through to
+        // "Unknown property Socket" because the namespace property dispatch
+        // path is never reached. `define` returns false on collision, so
+        // fall back to `update` to replace the existing binding.
+        if (!symbols.define(node->namespaceImport, nsType)) {
+            symbols.update(node->namespaceImport, nsType);
+        }
     }
 
     for (const auto& spec : node->namedImports) {

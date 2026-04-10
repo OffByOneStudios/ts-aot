@@ -5864,14 +5864,46 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     if (!hirClass) {
         auto& extReg = ext::ExtensionRegistry::instance();
         const ext::TypeDefinition* extType = extReg.findType(className);
-        if (extType && extType->constructor && !extType->constructor->call.empty()) {
-            // Extension type with a constructor - call the factory function directly
-            std::string hirName = extType->constructor->hirName
-                ? *extType->constructor->hirName
-                : extType->constructor->call;
+        if (extType) {
+            if (extType->constructor && !extType->constructor->call.empty()) {
+                // Extension type with a constructor - call the factory function directly
+                std::string hirName = extType->constructor->hirName
+                    ? *extType->constructor->hirName
+                    : extType->constructor->call;
 
-            // The constructor is a static factory function that returns the object
-            lastValue_ = builder_.createCall(hirName, args, HIRType::makePtr());
+                // The constructor is a static factory function that returns the object
+                lastValue_ = builder_.createCall(hirName, args, HIRType::makePtr());
+                return;
+            }
+            // Phase 9i Bug 3: extension type exists but its contract has no
+            // `constructor` block. Two interpretations:
+            //   - Node.js intends this class to be internal-only and its
+            //     runtime constructor body throws TypeError (the majority case
+            //     for crypto.Hash, http.IncomingMessage, all zlib.*, etc.)
+            //   - We forgot to wire a real C runtime constructor into the
+            //     schema (the minority case for legitimately new-able classes
+            //     like net.Socket).
+            // Both cases must throw a TypeError at the `new` site, because
+            // there is no way to materialize the correct underlying C++ object
+            // without a runtime constructor function. The previous behavior
+            // (silent fall-through to ts_map_create) produced a TsMap with the
+            // wrong shape, leading to memory corruption when the receiver was
+            // later passed to a method that dereferenced it via vtable offset.
+            SPDLOG_WARN("visitNewExpression: extension type '{}' has no constructor "
+                        "in its contract. Emitting TypeError throw at runtime "
+                        "(matches Node.js behavior for internal-only classes). "
+                        "If this class SHOULD be publicly constructable, add a "
+                        "`constructor` block to its .ext.json pointing at the "
+                        "C runtime factory function.", className);
+            auto nameStr = builder_.createConstString("TypeError");
+            auto msgStr = builder_.createConstString(
+                "Illegal constructor: " + className + " cannot be constructed directly");
+            auto err = builder_.createCall(
+                "ts_error_create_typed_js", {nameStr, msgStr}, HIRType::makeAny());
+            builder_.createThrow(err);
+            // Sentinel result for downstream visitor protocol (Throw is
+            // unreachable but the builder still expects lastValue_ to be set).
+            lastValue_ = builder_.createConstUndefined();
             return;
         }
     }

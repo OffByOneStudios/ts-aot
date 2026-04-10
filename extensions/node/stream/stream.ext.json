@@ -268,7 +268,15 @@
     },
     "Transform": {
       "kind": "class",
-      "extends": "Duplex"
+      "extends": "Duplex",
+      "constructor": {
+        "call": "ts_stream_transform_create",
+        "hirName": "ts_stream_Transform_create",
+        "params": [
+          {"name": "options", "type": "any", "optional": true}
+        ],
+        "lowering": { "args": ["boxed"], "returns": "ptr" }
+      }
     },
     "ReadStream": {
       "kind": "class",
