@@ -191,6 +191,16 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
 
     visitProgram(module->ast.get());
 
+    // Phase 9j: CommonJS default export fallback. Modules that use
+    // `module.exports = value` don't get their default export captured
+    // during visitor analysis because the assignment goes through the
+    // normal expression visitor, not the export declaration handler.
+    // Register Any as the default so that `import X from 'package'`
+    // binds X to Any rather than leaving it undefined.
+    if (!module->isESM && !module->exports->lookup("default")) {
+        module->exports->define("default", std::make_shared<Type>(TypeKind::Any));
+    }
+
     // Save all module-level symbols before exiting scope.
     // This allows us to restore them when re-analyzing function bodies during monomorphization.
     for (const auto& [name, sym] : symbols.getCurrentScopeSymbols()) {

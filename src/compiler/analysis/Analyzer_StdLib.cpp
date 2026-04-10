@@ -142,6 +142,33 @@ Analyzer::Analyzer() {
     symbols.define("Infinity", std::make_shared<Type>(TypeKind::Double));
     symbols.define("NaN", std::make_shared<Type>(TypeKind::Double));
 
+    // Phase 9j: register global functions that were previously only available
+    // in the untyped JS module profile (Analyzer_Core.cpp's ensureFnAny block).
+    // Typed TS files need them too since parseInt/isNaN/isFinite are standard
+    // ECMAScript globals, not CommonJS-specific.
+    {
+        auto parseIntFn = std::make_shared<FunctionType>();
+        parseIntFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        parseIntFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Int));
+        parseIntFn->returnType = std::make_shared<Type>(TypeKind::Int);
+        symbols.define("parseInt", parseIntFn);
+
+        auto parseFloatFn = std::make_shared<FunctionType>();
+        parseFloatFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        parseFloatFn->returnType = std::make_shared<Type>(TypeKind::Double);
+        symbols.define("parseFloat", parseFloatFn);
+
+        auto isNaNFn = std::make_shared<FunctionType>();
+        isNaNFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        isNaNFn->returnType = std::make_shared<Type>(TypeKind::Boolean);
+        symbols.define("isNaN", isNaNFn);
+
+        auto isFiniteFn = std::make_shared<FunctionType>();
+        isFiniteFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+        isFiniteFn->returnType = std::make_shared<Type>(TypeKind::Boolean);
+        symbols.define("isFinite", isFiniteFn);
+    }
+
     // Register Symbol global with all well-known symbols
     auto symbolType = std::make_shared<ObjectType>();
 
