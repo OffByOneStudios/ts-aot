@@ -761,7 +761,13 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             node->inferredType = lastType;
             return;
         }
-        reportError(fmt::format("Module does not export {}", node->name));
+        // Phase 9k: suppress for CommonJS modules. Their exports are
+        // dynamic (`module.exports = {...}`) and can't be statically
+        // verified. ES modules and Builtin extensions have known exports
+        // so the error is valid for those.
+        if (ns->module->type != ModuleType::UntypedJavaScript || ns->module->isESM) {
+            reportError(fmt::format("Module does not export {}", node->name));
+        }
         lastType = std::make_shared<Type>(TypeKind::Any);
         node->inferredType = lastType;
         return;

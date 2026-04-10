@@ -174,7 +174,13 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
                 SPDLOG_DEBUG("Importing type {} as {} from {}", name, spec.name, node->moduleSpecifier);
                 symbols.defineType(spec.name, type);
             } else {
-                reportError(fmt::format("Module {} does not export {}", node->moduleSpecifier, name));
+                // Phase 9k: suppress for CommonJS modules whose exports
+                // are dynamic. Also define the symbol as Any so that
+                // downstream usage doesn't produce "Undefined variable".
+                if (module->type != ModuleType::UntypedJavaScript || module->isESM) {
+                    reportError(fmt::format("Module {} does not export {}", node->moduleSpecifier, name));
+                }
+                symbols.define(spec.name, std::make_shared<Type>(TypeKind::Any));
             }
         }
     }
