@@ -101,19 +101,16 @@ void ts_async_local_storage_disable(void* als) {
 
 // AsyncResource functions
 void* ts_async_resource_create(void* type, int64_t triggerAsyncId) {
-    TsString* typeStr = nullptr;
-
-    // Unbox type string
-    void* rawPtr = ts_value_get_object((TsValue*)type);
-    if (rawPtr) {
-        typeStr = dynamic_cast<TsString*>((TsObject*)rawPtr);
-    }
-    if (!typeStr) {
-        TsValue typeDec = nanbox_to_tagged((TsValue*)type);
-        if (typeDec.type == ValueType::STRING_PTR) {
-            typeStr = (TsString*)typeDec.ptr_val;
-        }
-    }
+    // Phase 9i followup: use ts_value_get_string instead of an unsafe
+    // dynamic_cast<TsString*> on a non-TsObject pointer. The previous
+    // dynamic_cast crashed when called from the typed-constructor dispatch
+    // path because TsString isn't a TsObject subclass — RTTI walked the
+    // STRG magic as if it were a vptr. ts_value_get_string handles all
+    // input shapes: boxed TsValue*, raw TsString*, cons strings, and
+    // implicit string coercion of primitives.
+    TsString* typeStr = type
+        ? (TsString*)ts_value_get_string((TsValue*)type)
+        : nullptr;
     if (!typeStr) {
         typeStr = TsString::Create("UNKNOWN");
     }
