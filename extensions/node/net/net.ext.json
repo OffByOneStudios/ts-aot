@@ -166,6 +166,31 @@
           "setter": "ts_net_server_set_maxConnections",
           "type": "number",
           "lowering": { "args": [], "returns": "i64" }
+        },
+        "timeout": {
+          "getter": "ts_http_server_get_timeout",
+          "type": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "keepAliveTimeout": {
+          "getter": "ts_http_server_get_keep_alive_timeout",
+          "type": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "requestTimeout": {
+          "getter": "ts_http_server_get_request_timeout",
+          "type": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "maxHeadersCount": {
+          "getter": "ts_http_server_get_max_headers_count",
+          "type": "number",
+          "lowering": { "args": [], "returns": "i64" }
+        },
+        "headersSent": {
+          "getter": "ts_outgoing_message_get_headers_sent",
+          "type": "boolean",
+          "lowering": { "args": [], "returns": "i1" }
         }
       }
     },

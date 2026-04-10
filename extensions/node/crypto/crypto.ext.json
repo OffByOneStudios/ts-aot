@@ -5,6 +5,15 @@
   "objects": {
     "crypto": {
       "methods": {
+        "md5": {
+          "call": "ts_crypto_md5",
+          "hirName": "ts_crypto_md5",
+          "params": [
+            {"name": "data", "type": "string"}
+          ],
+          "returns": "string",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
         "createHash": {
           "call": "ts_crypto_createHash",
           "hirName": "ts_crypto_createHash",

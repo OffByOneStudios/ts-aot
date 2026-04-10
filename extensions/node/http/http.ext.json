@@ -178,6 +178,11 @@
       "kind": "class",
       "extends": "Writable",
       "properties": {
+        "headersSent": {
+          "type": "boolean",
+          "getter": "ts_outgoing_message_get_headers_sent",
+          "lowering": { "args": [], "returns": "i1" }
+        },
         "path": {
           "type": "string",
           "getter": "ts_client_request_get_path",
