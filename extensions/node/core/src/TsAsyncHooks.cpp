@@ -229,38 +229,26 @@ TsAsyncHook* TsAsyncHook::Create(TsValue* callbacks) {
     void* mem = ts_alloc(sizeof(TsAsyncHook));
     TsAsyncHook* hook = new (mem) TsAsyncHook();
 
-    // Extract callbacks from object
+    // Extract callbacks from object using ts_object_get_dynamic which
+    // handles both TsMap and flat-object (TsHashTable) shapes. The
+    // previous dynamic_cast<TsMap*> crashed on flat objects because
+    // TsHashTable is not a TsObject subclass — RTTI walked the FLAT
+    // magic (0x464C4154) as a vptr, dereferencing garbage.
     if (callbacks) {
-        TsValue cbDecoded = nanbox_to_tagged(callbacks);
-        if (cbDecoded.type == ValueType::OBJECT_PTR && cbDecoded.ptr_val) {
-            TsMap* cbObj = dynamic_cast<TsMap*>((TsObject*)cbDecoded.ptr_val);
-            if (cbObj) {
-                TsValue initVal = cbObj->Get(TsString::Create("init"));
-                if (initVal.type == ValueType::FUNCTION_PTR) {
-                    hook->initCallback = nanbox_from_tagged(initVal);
-                }
-
-                TsValue beforeVal = cbObj->Get(TsString::Create("before"));
-                if (beforeVal.type == ValueType::FUNCTION_PTR) {
-                    hook->beforeCallback = nanbox_from_tagged(beforeVal);
-                }
-
-                TsValue afterVal = cbObj->Get(TsString::Create("after"));
-                if (afterVal.type == ValueType::FUNCTION_PTR) {
-                    hook->afterCallback = nanbox_from_tagged(afterVal);
-                }
-
-                TsValue destroyVal = cbObj->Get(TsString::Create("destroy"));
-                if (destroyVal.type == ValueType::FUNCTION_PTR) {
-                    hook->destroyCallback = nanbox_from_tagged(destroyVal);
-                }
-
-                TsValue promiseResolveVal = cbObj->Get(TsString::Create("promiseResolve"));
-                if (promiseResolveVal.type == ValueType::FUNCTION_PTR) {
-                    hook->promiseResolveCallback = nanbox_from_tagged(promiseResolveVal);
-                }
+        auto getCallback = [&](const char* name) -> TsValue* {
+            TsValue* key = ts_value_make_string(TsString::Create(name));
+            TsValue* val = ts_object_get_dynamic(callbacks, key);
+            if (val && !ts_value_is_undefined(val) && !ts_value_is_null(val)) {
+                return val;
             }
-        }
+            return nullptr;
+        };
+
+        hook->initCallback = getCallback("init");
+        hook->beforeCallback = getCallback("before");
+        hook->afterCallback = getCallback("after");
+        hook->destroyCallback = getCallback("destroy");
+        hook->promiseResolveCallback = getCallback("promiseResolve");
     }
 
     return hook;
