@@ -1,5 +1,5 @@
 function main() {
-    const input = fs.readFileSync("tests/integration/aoc_2015_day6.txt");
+    const input = fs.readFileSync("tests/integration/aoc_2015_day6.txt", "utf8");
     const lines = input.split("\n");
     const grid = new Array(1000000);
     

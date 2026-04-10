@@ -19,9 +19,9 @@ ts_console_log("Round(4.6): " + rd);
 const f = Math.floor(4.8);
 ts_console_log("Floor(4.8): " + f);
 
-const path = "test_write.txt";
+const filePath = "test_write.txt";
 const content = "Hello from ts-aot!";
-fs.writeFileSync(path, content);
+fs.writeFileSync(filePath, content);
 
-const readBack = fs.readFileSync(path);
+const readBack = fs.readFileSync(filePath);
 ts_console_log("Read back: " + readBack);

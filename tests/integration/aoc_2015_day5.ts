@@ -36,7 +36,7 @@ function isNice(s: string) {
     return true;
 }
 
-var content = fs.readFileSync("tests/integration/aoc_2015_day5.input");
+var content = fs.readFileSync("tests/integration/aoc_2015_day5.input", "utf8");
 var lines = content.split("\n");
 var niceCount = 0;
 

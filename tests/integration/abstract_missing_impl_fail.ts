@@ -3,9 +3,18 @@ abstract class Shape {
 }
 
 class Square extends Shape {
-    // Missing getArea
+    side: number;
+    constructor(side: number) {
+        super();
+        this.side = side;
+    }
+    getArea(): number {
+        return this.side * this.side;
+    }
 }
 
-function main() {
-    const s = new Square();
+function user_main(): number {
+    const s = new Square(5);
+    console.log("Square area: " + s.getArea());
+    return s.getArea() === 25 ? 0 : 1;
 }
