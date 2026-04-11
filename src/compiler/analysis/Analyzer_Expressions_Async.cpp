@@ -16,8 +16,17 @@ void Analyzer::visitAwaitExpression(ast::AwaitExpression* node) {
     }
     if (type->kind == TypeKind::Class) {
         auto cls = std::static_pointer_cast<ClassType>(type);
-        if (cls->name.find("Promise") == 0 && !cls->typeArguments.empty()) {
-            lastType = cls->typeArguments[0];
+        if (cls->name.find("Promise") == 0) {
+            if (!cls->typeArguments.empty()) {
+                lastType = cls->typeArguments[0];
+            } else {
+                // Commit 6: Promise without explicit type arguments (e.g.,
+                // extension schemas declaring `returns: "Promise"` without
+                // the inner type). Resolve to Any so downstream property
+                // access doesn't fire false-positive "Unknown property"
+                // errors on Promise-unwrapped values.
+                lastType = std::make_shared<Type>(TypeKind::Any);
+            }
             node->inferredType = lastType;
             return;
         }

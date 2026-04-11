@@ -210,7 +210,13 @@ FunctionDefinition ExtensionLoader::parseFunction(const json& j) {
         }
     }
 
-    func.returns = parseTypeReference(j.value("returns", "void"));
+    // Note: j.value("returns", "void") throws when returns is an object
+    // (can't convert JSON object to string default). Check contains() first.
+    if (j.contains("returns")) {
+        func.returns = parseTypeReference(j["returns"]);
+    } else {
+        func.returns = parseTypeReference(json("void"));
+    }
 
     if (j.contains("typeParams") && j["typeParams"].is_array()) {
         for (const auto& tp : j["typeParams"]) {
