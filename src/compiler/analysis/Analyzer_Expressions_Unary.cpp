@@ -69,11 +69,28 @@ void Analyzer::visitAsExpression(ast::AsExpression* node) {
 }
 
 void Analyzer::visitNonNullExpression(ast::NonNullExpression* node) {
-    // Non-null assertion (value!) is a compile-time hint that the value is not null/undefined
-    // We simply pass through the inner expression's type
+    // Non-null assertion (value!) is a compile-time hint that the value
+    // is not null/undefined. Strip Null/Undefined/Unknown arms from a
+    // union source type so downstream assignability checks see the
+    // narrowed type instead of the widened union.
     visit(node->expression.get());
-    // TODO: If lastType is a union with null/undefined, we could narrow it here
-    // For now, just keep the inferred type as-is
+    if (lastType && lastType->kind == TypeKind::Union) {
+        auto u = std::static_pointer_cast<UnionType>(lastType);
+        std::vector<std::shared_ptr<Type>> narrowed;
+        for (auto& arm : u->types) {
+            if (arm->kind != TypeKind::Null &&
+                arm->kind != TypeKind::Undefined &&
+                arm->kind != TypeKind::Unknown) {
+                narrowed.push_back(arm);
+            }
+        }
+        if (narrowed.size() == 1) {
+            lastType = narrowed[0];
+        } else if (!narrowed.empty()) {
+            lastType = std::make_shared<UnionType>(narrowed);
+        }
+        // If nothing left, leave lastType as-is.
+    }
     node->inferredType = lastType;
 }
 

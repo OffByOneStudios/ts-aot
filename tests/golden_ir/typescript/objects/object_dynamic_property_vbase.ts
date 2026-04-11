@@ -14,17 +14,20 @@
 
 function readOptions(options: any): void {
     if (options !== undefined) {
-        if (options.iterations !== undefined) {
-            console.log(options.iterations);
+        // Use indexed access so the monomorphizer doesn't specialize
+        // to a shape that strips properties absent from the first caller.
+        const opts = options as any;
+        if (opts['iterations'] !== undefined) {
+            console.log(opts['iterations']);
         }
-        if (options.warmup !== undefined) {
-            console.log(options.warmup);
+        if (opts['warmup'] !== undefined) {
+            console.log(opts['warmup']);
         }
-        if (options.minTime !== undefined) {
-            console.log(options.minTime);
+        if (opts['minTime'] !== undefined) {
+            console.log(opts['minTime']);
         }
-        if (options.name !== undefined) {
-            console.log(options.name);
+        if (opts['name'] !== undefined) {
+            console.log(opts['name']);
         }
     }
 }

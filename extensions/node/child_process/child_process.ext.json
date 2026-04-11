@@ -90,21 +90,6 @@
       "kind": "class",
       "extends": "EventEmitter",
       "properties": {
-        "stdin": {
-          "getter": "ts_child_process_get_stdin",
-          "type": "Writable",
-          "lowering": { "args": [], "returns": "ptr" }
-        },
-        "stdout": {
-          "getter": "ts_child_process_get_stdout",
-          "type": "Readable",
-          "lowering": { "args": [], "returns": "ptr" }
-        },
-        "stderr": {
-          "getter": "ts_child_process_get_stderr",
-          "type": "Readable",
-          "lowering": { "args": [], "returns": "ptr" }
-        },
         "pid": {
           "getter": "ts_child_process_get_pid",
           "hirName": "ts_ChildProcess_pid",
@@ -150,19 +135,19 @@
         "stdin": {
           "getter": "ts_child_process_get_stdin",
           "hirName": "ts_ChildProcess_stdin",
-          "type": "Writable | null",
+          "type": "any",
           "lowering": { "args": [], "returns": "ptr" }
         },
         "stdout": {
           "getter": "ts_child_process_get_stdout",
           "hirName": "ts_ChildProcess_stdout",
-          "type": "Readable | null",
+          "type": "any",
           "lowering": { "args": [], "returns": "ptr" }
         },
         "stderr": {
           "getter": "ts_child_process_get_stderr",
           "hirName": "ts_ChildProcess_stderr",
-          "type": "Readable | null",
+          "type": "any",
           "lowering": { "args": [], "returns": "ptr" }
         },
         "stdio": {

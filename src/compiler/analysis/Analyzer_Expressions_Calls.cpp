@@ -376,10 +376,16 @@ void Analyzer::visitCallExpression(ast::CallExpression* node) {
              lastType = std::make_shared<Type>(TypeKind::String);
              return;
         } else if (prop->name == "sort" || prop->name == "reverse") {
-             // sort() and reverse() return the same array (for chaining)
+             // sort() and reverse() return the same array (for chaining).
+             // Only fire when receiver is actually an array — otherwise
+             // a user class with a .reverse() method (e.g., a generator)
+             // would be incorrectly typed as the receiver. Commit 6.
              visit(prop->expression.get());
-             // lastType now holds the array type
-             return;
+             if (lastType && lastType->kind == TypeKind::Array) {
+                 return;
+             }
+             // Fall through to the generic path below which uses the
+             // method's actual return type.
         } else if (prop->name == "forEach") {
              lastType = std::make_shared<Type>(TypeKind::Void);
              return;

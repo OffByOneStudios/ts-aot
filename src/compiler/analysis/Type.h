@@ -506,18 +506,31 @@ inline bool Type::isAssignableTo(std::shared_ptr<Type> other) {
         auto tupleThis = std::static_pointer_cast<TupleType>(shared_from_this());
         if (other->kind == TypeKind::Tuple) {
             auto tupleOther = std::static_pointer_cast<TupleType>(other);
-            // Commit 2: relaxed tuple length. Accept if each target element
-            // that has a corresponding source element is assignable, and any
-            // extra target elements are Any (rest-like). Also accept if
-            // source is longer (excess elements are dropped at runtime).
-            size_t minLen = std::min(tupleThis->elementTypes.size(), tupleOther->elementTypes.size());
+            // Commit 2/6: relaxed tuple length with rest-element support.
+            // If the target's last element is Array<T>, treat it as a rest
+            // parameter — all extra source elements must match T.
+            size_t thisLen = tupleThis->elementTypes.size();
+            size_t otherLen = tupleOther->elementTypes.size();
+            bool otherHasRest = otherLen > 0 &&
+                tupleOther->elementTypes[otherLen - 1]->kind == TypeKind::Array;
+            size_t fixedOther = otherHasRest ? otherLen - 1 : otherLen;
+            // Fixed prefix must match
+            size_t minLen = std::min(thisLen, fixedOther);
             for (size_t i = 0; i < minLen; ++i) {
                 if (!tupleThis->elementTypes[i]->isAssignableTo(tupleOther->elementTypes[i])) return false;
             }
-            // Extra target elements must be Any or Array (rest)
-            for (size_t i = minLen; i < tupleOther->elementTypes.size(); ++i) {
+            // Extra target elements (after source runs out) must be Any or Array
+            for (size_t i = minLen; i < fixedOther; ++i) {
                 if (tupleOther->elementTypes[i]->kind != TypeKind::Any &&
                     tupleOther->elementTypes[i]->kind != TypeKind::Array) return false;
+            }
+            // Rest element: remaining source elements must be assignable to
+            // the rest array's element type.
+            if (otherHasRest) {
+                auto restArr = std::static_pointer_cast<ArrayType>(tupleOther->elementTypes[otherLen - 1]);
+                for (size_t i = fixedOther; i < thisLen; ++i) {
+                    if (!tupleThis->elementTypes[i]->isAssignableTo(restArr->elementType)) return false;
+                }
             }
             return true;
         }

@@ -794,10 +794,15 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
             auto unionType = std::static_pointer_cast<UnionType>(objType);
             std::vector<std::shared_ptr<Type>> memberTypes;
             for (auto& t : unionType->types) {
+                // Commit 6: skip Null/Undefined arms during union property
+                // lookup. TypeScript's strictNullChecks requires users to
+                // narrow these before access, but for types like
+                // `Readable | null` the other arm carries the property.
+                if (t->kind == TypeKind::Null || t->kind == TypeKind::Undefined) {
+                    continue;
+                }
                 // Recursively check each type in the union
                 lastType = t;
-                // We need a way to check property access without side effects or with a way to restore state
-                // For now, let's assume we can just check if it's an object/class/interface
                 std::shared_ptr<Type> foundType = nullptr;
                 if (t->kind == TypeKind::Object) {
                     auto obj = std::dynamic_pointer_cast<ObjectType>(t);
@@ -823,8 +828,13 @@ void Analyzer::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
                 }
                 memberTypes.push_back(foundType);
             }
-            if (memberTypes.size() == 1) lastType = memberTypes[0];
-            else lastType = std::make_shared<UnionType>(memberTypes);
+            if (memberTypes.empty()) {
+                lastType = std::make_shared<Type>(TypeKind::Any);
+            } else if (memberTypes.size() == 1) {
+                lastType = memberTypes[0];
+            } else {
+                lastType = std::make_shared<UnionType>(memberTypes);
+            }
             return;
         } else if (objType->kind == TypeKind::Intersection) {
             auto interType = std::static_pointer_cast<IntersectionType>(objType);

@@ -399,14 +399,19 @@ void Analyzer::reportError(const std::string& message) {
         errorCount++;
         return;
     }
-    // Strategy B Phase 8a investigation (reverted): gating on
-    // activeOptions.suppressErrors revealed ~100 pre-existing analyzer false
-    // positives across the typed-TS test suite (e.g., "Unknown property concat"
-    // on typed Array, "Type string | unknown is not assignable to type string"
-    // on legitimate `unknown`-typed values). Cleaning those up is a separate
-    // multi-commit project. Until then, all non-syntax errors stay muzzled
-    // for both typed and untyped code.
-    SPDLOG_DEBUG("Suppressing analyzer error: {}", message);
+    // Phase 8a: un-muzzled. Analyzer errors now propagate to stderr and
+    // errorCount, causing Driver.cpp to fail compilation. This completes
+    // Strategy B: typed TS files get full semantic validation, and the
+    // 498 false positives identified during investigation have all been
+    // fixed across 10+ commits in the Phase 9 series. Untyped JS files
+    // still get suppressErrors=true via kUntypedProfile, keeping npm
+    // source code errors silent.
+    if (!activeOptions.suppressErrors) {
+        std::cerr << "Error: " << message << std::endl;
+        errorCount++;
+    } else {
+        SPDLOG_DEBUG("Suppressing analyzer error: {}", message);
+    }
 }
 
 std::shared_ptr<Type> Analyzer::substitute(std::shared_ptr<Type> type, const std::map<std::string, std::shared_ptr<Type>>& env) {
