@@ -498,11 +498,18 @@ void Analyzer::visitLabeledStatement(ast::LabeledStatement* node) {
 }
 
 void Analyzer::visitBlockStatement(ast::BlockStatement* node) {
-    symbols.enterScope();
+    // Synthetic blocks (e.g., multi-var-decl `const a=1, b=2, c=3` wrapped
+    // by the parser) must NOT enter a new scope — their variables belong
+    // to the enclosing scope.
+    if (!node->isSynthetic) {
+        symbols.enterScope();
+    }
     for (auto& stmt : node->statements) {
         visit(stmt.get());
     }
-    symbols.exitScope();
+    if (!node->isSynthetic) {
+        symbols.exitScope();
+    }
 }
 
 } // namespace ts

@@ -139,7 +139,12 @@ std::shared_ptr<Type> Analyzer::parseType(const std::string& typeName, SymbolTab
             while (pos < inner.size()) {
                 char c = inner[pos];
                 if (c == '{' || c == '<' || c == '(' || c == '[') depth++;
-                else if (c == '}' || c == '>' || c == ')' || c == ']') depth--;
+                else if (c == '>') {
+                    // Skip '=>' arrow syntax — don't treat > as a bracket
+                    // close when preceded by =
+                    if (pos > 0 && inner[pos-1] != '=') depth--;
+                }
+                else if (c == '}' || c == ')' || c == ']') depth--;
                 else if ((c == ',' || c == ';') && depth == 0) break;
                 pos++;
             }

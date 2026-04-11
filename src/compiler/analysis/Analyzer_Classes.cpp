@@ -374,7 +374,18 @@ void Analyzer::visitInterfaceDeclaration(ast::InterfaceDeclaration* node) {
 
     for (const auto& member : node->members) {
         if (auto prop = dynamic_cast<PropertyDefinition*>(member.get())) {
-            interfaceType->fields[prop->name] = parseType(prop->type, symbols);
+            auto fieldType = parseType(prop->type, symbols);
+            // Commit 4: wrap optional interface fields (iterations?: number)
+            // as Union<T, undefined> so the Object→Interface assignability
+            // check (Phase 9h/Commit 2) recognizes them as optional.
+            if (prop->isOptional) {
+                std::vector<std::shared_ptr<Type>> arms = {
+                    fieldType,
+                    std::make_shared<Type>(TypeKind::Undefined)
+                };
+                fieldType = std::make_shared<UnionType>(arms);
+            }
+            interfaceType->fields[prop->name] = fieldType;
         } else if (auto method = dynamic_cast<MethodDefinition*>(member.get())) {
             auto methodType = std::make_shared<FunctionType>();
             // Handle 'this' return type for method chaining

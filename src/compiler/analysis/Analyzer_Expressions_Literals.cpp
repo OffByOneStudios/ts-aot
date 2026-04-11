@@ -176,6 +176,19 @@ void Analyzer::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
             } else {
                 objType->fields[md->name] = lastType;
             }
+        } else if (auto se = dynamic_cast<ast::SpreadElement*>(prop.get())) {
+            // Commit 4: spread element in object literal — merge the source
+            // object's fields into the result. Later properties override
+            // earlier ones per ES2018 spec. Without this, `{ ...obj1, c: 3 }`
+            // only gets `c` and subsequent property access on `a`/`b` fails.
+            // `lastType` was set by `visit(prop.get())` above, which visits
+            // the SpreadElement and recurses into its expression.
+            if (lastType && lastType->kind == TypeKind::Object) {
+                auto srcObj = std::static_pointer_cast<ObjectType>(lastType);
+                for (const auto& [name, type] : srcObj->fields) {
+                    objType->fields[name] = type;
+                }
+            }
         }
     }
     lastType = objType;

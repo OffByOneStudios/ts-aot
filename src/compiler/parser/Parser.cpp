@@ -1141,7 +1141,7 @@ ast::NodePtr Parser::parseClassMember() {
     prop->decorators = std::move(decorators);
 
     // Optional marker
-    if (match(TokenKind::QuestionMark)) {}
+    if (match(TokenKind::QuestionMark)) { prop->isOptional = true; }
     // Definite assignment assertion
     if (match(TokenKind::ExclamationMark)) {}
 
@@ -2162,6 +2162,7 @@ ast::StmtPtr Parser::parseInterfaceDeclaration(bool isExported, bool isDefaultEx
             setLocation(prop.get(), previous_);
             prop->name = name;
             prop->isReadonly = isReadonly;
+            prop->isOptional = isOptional;
             if (check(TokenKind::Colon)) {
                 prop->type = parseTypeAnnotation();
             }
