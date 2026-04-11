@@ -150,6 +150,16 @@
           "returns": "Server",
           "lowering": { "args": [], "returns": "ptr" }
         },
+        "setTimeout": {
+          "call": "ts_http_server_set_timeout",
+          "hirName": "ts_http_server_setTimeout",
+          "params": [
+            {"name": "msecs", "type": "number"},
+            {"name": "callback", "type": "Function", "optional": true}
+          ],
+          "returns": "Server",
+          "lowering": { "args": ["i64", "boxed"], "returns": "ptr" }
+        },
         "getConnections": {
           "call": "ts_net_server_get_connections",
           "hirName": "ts_net_server_getConnections",
@@ -191,6 +201,11 @@
           "getter": "ts_outgoing_message_get_headers_sent",
           "type": "boolean",
           "lowering": { "args": [], "returns": "i1" }
+        },
+        "headersTimeout": {
+          "getter": "ts_http_server_get_headers_timeout",
+          "type": "number",
+          "lowering": { "args": [], "returns": "i64" }
         }
       }
     },

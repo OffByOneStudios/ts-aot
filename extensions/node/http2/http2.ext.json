@@ -367,6 +367,7 @@
     },
     "Http2Server": {
       "kind": "class",
+      "extends": "EventEmitter",
       "methods": {
         "listen": {
           "call": "ts_http2_server_listen",

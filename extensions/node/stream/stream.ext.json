@@ -264,7 +264,14 @@
     },
     "Duplex": {
       "kind": "class",
-      "extends": "Readable"
+      "extends": "Readable",
+      "properties": {
+        "writable": {
+          "type": "boolean",
+          "getter": "ts_writable_writable",
+          "lowering": { "args": [], "returns": "i1" }
+        }
+      }
     },
     "Transform": {
       "kind": "class",

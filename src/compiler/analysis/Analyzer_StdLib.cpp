@@ -543,6 +543,15 @@ Analyzer::Analyzer() {
     toJSON->returnType = std::make_shared<Type>(TypeKind::String);
     dateClass->methods["toJSON"] = toJSON;
 
+    // Commit 3: Date.valueOf() and Date.toString()
+    auto dateValueOf = std::make_shared<FunctionType>();
+    dateValueOf->returnType = std::make_shared<Type>(TypeKind::Double);
+    dateClass->methods["valueOf"] = dateValueOf;
+
+    auto dateToString = std::make_shared<FunctionType>();
+    dateToString->returnType = std::make_shared<Type>(TypeKind::String);
+    dateClass->methods["toString"] = dateToString;
+
     auto toString = std::make_shared<FunctionType>();
     toString->returnType = std::make_shared<Type>(TypeKind::String);
     dateClass->methods["toString"] = toString;
@@ -666,6 +675,12 @@ Analyzer::Analyzer() {
 
     // console.dirxml(value) - alias for console.dir in Node.js
     consoleType->fields["dirxml"] = dirType;
+
+    // console.assert(condition, ...args) - Commit 3
+    auto assertType = std::make_shared<FunctionType>();
+    assertType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    assertType->returnType = std::make_shared<Type>(TypeKind::Void);
+    consoleType->fields["assert"] = assertType;
 
     symbols.define("console", consoleType);
 
