@@ -119,6 +119,7 @@ tests/server/.coverage/
 # test262 build artifacts and incremental results log
 tests/test262/build/
 tests/test262/.test262_results.jsonl
+tests/test262/.smoke_baseline.json
 
 # Claude Code local settings (not shared with team)
 .claude/CLAUDE.local.md
