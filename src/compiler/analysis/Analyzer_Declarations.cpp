@@ -174,13 +174,22 @@ void Analyzer::visitImportDeclaration(ast::ImportDeclaration* node) {
                 SPDLOG_DEBUG("Importing type {} as {} from {}", name, spec.name, node->moduleSpecifier);
                 symbols.defineType(spec.name, type);
             } else {
+                // Commit 5: type-only imports (`import type { X } from ...`
+                // and `import { type X } from ...`) don't require the
+                // exported symbol to exist at runtime. Silently define as
+                // Any — TypeScript erases these at compile time.
+                bool isTypeOnly = node->isTypeOnly || spec.isTypeOnly;
                 // Phase 9k: suppress for CommonJS modules whose exports
                 // are dynamic. Also define the symbol as Any so that
                 // downstream usage doesn't produce "Undefined variable".
-                if (module->type != ModuleType::UntypedJavaScript || module->isESM) {
+                if (!isTypeOnly && (module->type != ModuleType::UntypedJavaScript || module->isESM)) {
                     reportError(fmt::format("Module {} does not export {}", node->moduleSpecifier, name));
                 }
-                symbols.define(spec.name, std::make_shared<Type>(TypeKind::Any));
+                if (isTypeOnly) {
+                    symbols.defineType(spec.name, std::make_shared<Type>(TypeKind::Any));
+                } else {
+                    symbols.define(spec.name, std::make_shared<Type>(TypeKind::Any));
+                }
             }
         }
     }

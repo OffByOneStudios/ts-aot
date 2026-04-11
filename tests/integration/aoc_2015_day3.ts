@@ -1,4 +1,4 @@
-let input = fs.readFileSync("tests/integration/aoc_2015_day3.txt", "utf8");
+let input = fs.readFileSync("tests/integration/aoc_2015_day3.txt", "utf8") as any;
 let x = 0;
 let y = 0;
 let visited = new Map();

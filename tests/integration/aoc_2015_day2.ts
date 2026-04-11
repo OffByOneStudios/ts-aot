@@ -1,4 +1,4 @@
-let input = fs.readFileSync("E:\\src\\github.com\\cgrinker\\ts-aoc\\tests\\integration\\aoc_2015_day2.txt", "utf8");
+let input = fs.readFileSync("E:\\src\\github.com\\cgrinker\\ts-aoc\\tests\\integration\\aoc_2015_day2.txt", "utf8") as any;
 let lines = input.split("\n");
 let total = 0;
 

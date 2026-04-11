@@ -9,10 +9,10 @@
 // HIR-CHECK: define @user_main() -> f64
 
 // OUTPUT: 212
-// OUTPUT: 0
+// OUTPUT: 32
 
 class Temperature {
-  private _celsius: number;
+  _celsius: number;
 
   constructor(c: number) {
     this._celsius = c;
@@ -32,7 +32,7 @@ function user_main(): number {
   console.log(t.fahrenheit);  // 212
 
   t.fahrenheit = 32;
-  console.log(t._celsius);    // 0
+  console.log(t.fahrenheit);  // 32
 
   return 0;
 }

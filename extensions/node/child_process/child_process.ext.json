@@ -68,7 +68,7 @@
             {"name": "args", "type": "string[]", "optional": true},
             {"name": "options", "type": "object", "optional": true}
           ],
-          "returns": "string | Buffer",
+          "returns": "any",
           "lowering": { "args": ["ptr", "ptr", "boxed"], "returns": "ptr" }
         },
         "fork": {
@@ -90,6 +90,21 @@
       "kind": "class",
       "extends": "EventEmitter",
       "properties": {
+        "stdin": {
+          "getter": "ts_child_process_get_stdin",
+          "type": "Writable",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "stdout": {
+          "getter": "ts_child_process_get_stdout",
+          "type": "Readable",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
+        "stderr": {
+          "getter": "ts_child_process_get_stderr",
+          "type": "Readable",
+          "lowering": { "args": [], "returns": "ptr" }
+        },
         "pid": {
           "getter": "ts_child_process_get_pid",
           "hirName": "ts_ChildProcess_pid",
@@ -213,22 +228,22 @@
           "type": "number"
         },
         "output": {
-          "type": "(Buffer | string | null)[]"
+          "type": "any[]"
         },
         "stdout": {
-          "type": "Buffer | string"
+          "type": "any"
         },
         "stderr": {
-          "type": "Buffer | string"
+          "type": "any"
         },
         "status": {
-          "type": "number | null"
+          "type": "number"
         },
         "signal": {
-          "type": "string | null"
+          "type": "string"
         },
         "error": {
-          "type": "Error | undefined"
+          "type": "any"
         }
       }
     }
