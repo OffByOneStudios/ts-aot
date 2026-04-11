@@ -25,7 +25,18 @@ void Analyzer::analyze(ast::Program* program, const std::string& path) {
         : kTypedProfile;
     SPDLOG_DEBUG("Analyzer::analyze profile = {}",
         (currentModuleType == ModuleType::UntypedJavaScript) ? "untyped" : "typed");
-    if (activeOptions.minimalTraversal) {
+    // Entry-point untyped JS must do full traversal to discover nested
+    // require()/import calls inside variable initializers, so child modules
+    // get loaded and registered with `{exports: {}}` in the monomorphizer.
+    // This matches the analyzeModule() behavior for child modules (~line 114).
+    // Without this, `const b = require('./b')` at the top level never triggers
+    // loadModule('./b'), b.js is never in analyzer.moduleOrder, Phase 1 of
+    // synthetic user_main never registers it, and runtime lookups return
+    // undefined.
+    if (currentModuleType == ModuleType::UntypedJavaScript) {
+        activeOptions.minimalTraversal = false;
+        SPDLOG_INFO("Permissive mode: analyzing untyped JavaScript entry point {}", currentFilePath);
+    } else if (activeOptions.minimalTraversal) {
         SPDLOG_INFO("Permissive mode: skipping semantic checks for {}", currentFilePath);
     }
     
