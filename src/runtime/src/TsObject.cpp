@@ -2678,6 +2678,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue* target = ts_value_make_object(closure);
                 return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
             }
+            // Object.prototype methods — nullptr ctx, ts_call_with_this sets
+            // ts_call_this_value before the native runs, so ts_get_call_this()
+            // returns the closure at call time.
+            if (strcmp(keyStr, "hasOwnProperty") == 0) {
+                return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+            }
             return ts_value_make_undefined();
         }
 
@@ -5719,6 +5725,9 @@ TsValue* ts_value_make_int(int64_t i) {
                     if (strcmp(k, "length") == 0) {
                         return ts_value_make_int(closure->arity);
                     }
+                    if (strcmp(k, "hasOwnProperty") == 0) {
+                        return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                    }
                 }
             }
             // Check closure properties (e.g., .prototype)
@@ -6869,6 +6878,51 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (k) return ts_value_make_bool(ts_flat_object_has_property(obj, k));
             }
             return ts_value_make_bool(false);
+        }
+
+        // Check for TsClosure / TsFunction — they have synthetic own properties
+        // (length, name, prototype) stored as fields, not in a TsMap. Check these
+        // directly, then fall through to the properties TsMap for user-set properties.
+        if (obj) {
+            uint32_t m16 = *(uint32_t*)((char*)obj + 16);
+            if (m16 == 0x434C5352) { // TsClosure::MAGIC
+                TsClosure* cl = (TsClosure*)obj;
+                TsValue* keyVal = argv[0];
+                TsValue keyTV = nanbox_to_tagged(keyVal);
+                if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+                    const char* k = ((TsString*)keyTV.ptr_val)->ToUtf8();
+                    if (k) {
+                        // Synthetic own properties from closure fields
+                        if (strcmp(k, "length") == 0 || strcmp(k, "name") == 0 ||
+                            strcmp(k, "prototype") == 0) {
+                            return ts_value_make_bool(true);
+                        }
+                    }
+                }
+                // Check user-set properties in the TsMap
+                if (cl->properties) {
+                    return ts_value_make_bool(cl->properties->Has(keyTV));
+                }
+                return ts_value_make_bool(false);
+            }
+            if (m16 == TsFunction::MAGIC) { // TsFunction
+                TsFunction* fn = (TsFunction*)obj;
+                TsValue* keyVal = argv[0];
+                TsValue keyTV = nanbox_to_tagged(keyVal);
+                if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+                    const char* k = ((TsString*)keyTV.ptr_val)->ToUtf8();
+                    if (k) {
+                        if (strcmp(k, "length") == 0 || strcmp(k, "name") == 0 ||
+                            strcmp(k, "prototype") == 0) {
+                            return ts_value_make_bool(true);
+                        }
+                    }
+                }
+                if (fn->properties) {
+                    return ts_value_make_bool(fn->properties->Has(keyTV));
+                }
+                return ts_value_make_bool(false);
+            }
         }
 
         // Check if it's a TsMap
