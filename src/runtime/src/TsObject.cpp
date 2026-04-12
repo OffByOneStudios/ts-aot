@@ -6087,8 +6087,27 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
-        // Coerce key to string — direct field access from TsValue struct
-        TsString* keyStr = (key.type == ValueType::STRING_PTR) ? (TsString*)key.ptr_val : nullptr;
+        // Coerce key to string — per ES spec, property keys are always strings
+        // (or Symbols). Numeric keys like obj[1] = val are equivalent to
+        // obj["1"] = val. Convert non-string keys to their string representation.
+        TsString* keyStr = nullptr;
+        if (key.type == ValueType::STRING_PTR) {
+            keyStr = (TsString*)key.ptr_val;
+        } else if (key.type == ValueType::NUMBER_INT) {
+            keyStr = TsString::Create(std::to_string(key.i_val).c_str());
+        } else if (key.type == ValueType::NUMBER_DBL) {
+            // Use the JS-style double-to-string for property keys
+            char buf[64];
+            double d = key.d_val;
+            if (d == (int64_t)d && d >= -999999999 && d <= 999999999) {
+                snprintf(buf, sizeof(buf), "%lld", (long long)(int64_t)d);
+            } else {
+                snprintf(buf, sizeof(buf), "%.17g", d);
+            }
+            keyStr = TsString::Create(buf);
+        } else if (key.type == ValueType::BOOLEAN) {
+            keyStr = TsString::Create(key.i_val ? "true" : "false");
+        }
         if (!keyStr) return value;
 
         // Targeted trace: module.exports writes for the tracked module object (lodash or test_umdsim)

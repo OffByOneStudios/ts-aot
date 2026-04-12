@@ -4082,6 +4082,23 @@ void HIRToLLVM::lowerSetPropDynamic(HIRInstruction* inst) {
     // Pin boxed obj — subsequent boxing calls can trigger GC
     obj = gcPin(obj, "gc.pin.obj");
 
+    // Box the key if it's not already a pointer (computed property names can
+    // produce numeric or boolean keys: `{ [1]: 'B' }` lowers [1] as i64).
+    // ts_object_set_dynamic expects TsValue* for the key argument.
+    if (!key->getType()->isPointerTy()) {
+        if (key->getType()->isIntegerTy(64)) {
+            auto fn = getTsValueMakeInt();
+            key = builder_->CreateCall(fn, {key});
+        } else if (key->getType()->isDoubleTy()) {
+            auto fn = getTsValueMakeDouble();
+            key = builder_->CreateCall(fn, {key});
+        } else if (key->getType()->isIntegerTy(1)) {
+            auto fn = getTsValueMakeBool();
+            llvm::Value* extended = builder_->CreateZExt(key, builder_->getInt32Ty());
+            key = builder_->CreateCall(fn, {extended});
+        }
+    }
+
     // Pin key if it's a pointer (might be collected during value boxing)
     if (key->getType()->isPointerTy()) {
         key = gcPin(key, "gc.pin.key");

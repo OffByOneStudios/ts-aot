@@ -6599,7 +6599,9 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
             break;
         }
         if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
-            if (pa->name.empty()) {
+            // Computed property names (e.g. { [expr]: val }) use dynamic keys
+            // and can't go into a flat shape — fall back to TsMap.
+            if (pa->name.empty() || dynamic_cast<ast::ComputedPropertyName*>(pa->nameNode.get())) {
                 allStatic = false;
                 break;
             }
@@ -6643,28 +6645,40 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
             // Create a function for the method
             auto funcValue = lowerMethodDefinitionToFunction(method);
 
-            // Determine the property key
-            std::string keyName;
-            if (auto* id = dynamic_cast<ast::Identifier*>(method->nameNode.get())) {
-                if (method->isGetter) {
-                    keyName = "__getter_" + id->name;
-                } else if (method->isSetter) {
-                    keyName = "__setter_" + id->name;
-                } else {
-                    keyName = id->name;
+            // Check for computed property name: { [expr]() {} }
+            if (auto* computed = dynamic_cast<ast::ComputedPropertyName*>(method->nameNode.get())) {
+                if (computed->expression && funcValue) {
+                    auto keyVal = lowerExpression(computed->expression.get());
+                    // For computed getters/setters we'd need __getter_<dynamic>
+                    // which isn't supported. Fall back to a plain dynamic set —
+                    // the getter/setter semantics won't fire but the property
+                    // will at least exist on the object, preventing crashes.
+                    builder_.createSetPropDynamic(obj, keyVal, funcValue);
                 }
-            } else if (!method->name.empty()) {
-                if (method->isGetter) {
-                    keyName = "__getter_" + method->name;
-                } else if (method->isSetter) {
-                    keyName = "__setter_" + method->name;
-                } else {
-                    keyName = method->name;
+            } else {
+                // Determine the property key from Identifier or name string
+                std::string keyName;
+                if (auto* id = dynamic_cast<ast::Identifier*>(method->nameNode.get())) {
+                    if (method->isGetter) {
+                        keyName = "__getter_" + id->name;
+                    } else if (method->isSetter) {
+                        keyName = "__setter_" + id->name;
+                    } else {
+                        keyName = id->name;
+                    }
+                } else if (!method->name.empty()) {
+                    if (method->isGetter) {
+                        keyName = "__getter_" + method->name;
+                    } else if (method->isSetter) {
+                        keyName = "__setter_" + method->name;
+                    } else {
+                        keyName = method->name;
+                    }
                 }
-            }
 
-            if (!keyName.empty() && funcValue) {
-                builder_.createSetPropStatic(obj, keyName, funcValue);
+                if (!keyName.empty() && funcValue) {
+                    builder_.createSetPropStatic(obj, keyName, funcValue);
+                }
             }
         } else {
             // Save the object before visiting property (which may overwrite lastValue_)
@@ -6684,11 +6698,18 @@ void ASTToHIR::visitPropertyAssignment(ast::PropertyAssignment* node) {
 
     auto val = lowerExpression(node->initializer.get());
 
-    // PropertyAssignment has name (string) directly
-    std::string propName = node->name;
-
-    if (!propName.empty() && obj) {
-        builder_.createSetPropStatic(obj, propName, val);
+    // Check for computed property name: { [expr]: value }
+    if (auto* computed = dynamic_cast<ast::ComputedPropertyName*>(node->nameNode.get())) {
+        if (computed->expression && obj) {
+            auto keyVal = lowerExpression(computed->expression.get());
+            builder_.createSetPropDynamic(obj, keyVal, val);
+        }
+    } else {
+        // PropertyAssignment has name (string) directly
+        std::string propName = node->name;
+        if (!propName.empty() && obj) {
+            builder_.createSetPropStatic(obj, propName, val);
+        }
     }
 
     // Restore lastValue_ to the object for any subsequent properties
