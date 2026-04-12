@@ -227,6 +227,11 @@ def discover_tests(base_dir: Path, category: str = None,
 
     tests = sorted(search_dir.rglob("*.js"))
 
+    # Skip *_FIXTURE.js files — these are helper modules meant to be pulled
+    # in by other tests via `includes:` metadata, not run standalone. Running
+    # them top-level produces spurious crashes.
+    tests = [t for t in tests if not t.name.endswith("_FIXTURE.js")]
+
     if filter_str:
         tests = [t for t in tests if filter_str in str(t)]
 
@@ -389,6 +394,90 @@ def build_test_source(test_path: Path, meta: TestMetadata) -> str:
     return '\n'.join(parts)
 
 
+def _extract_failure_reason(stdout: str, stderr: str, returncode: int) -> str:
+    """Produce a meaningful reason for a failed test from its output.
+
+    ts-aot's runtime prints uncaught exceptions in a FATAL block where the
+    label parts go to stderr and the value parts go to stdout, and the
+    thrown Test262Error object has no `.name` field (compiler lowers `new
+    Test262Error(msg)` via the generic constructor path, producing
+    `{message: msg}`). Neither half contains the literal substring "Error"
+    that the original extractor looked for — so ~60% of real assertion
+    failures were collapsing into the generic "exit code N" cluster.
+
+    This helper recognizes the ts-aot FATAL/ts_throw format plus standard
+    JS error patterns and falls back to the last non-empty line before
+    giving up on "exit code N".
+    """
+    combined = stdout + "\n" + stderr
+
+    # 1. CRASHes and OOM — highest priority so they're not drowned by later
+    #    matches. Distinguish real OS-level faults (access violation,
+    #    integer divide, stack overflow) from Microsoft C++ EH rethrows
+    #    (code 0xe06d7363) which are benign: those are just our runtime's
+    #    ts_throw propagating through the VEH handler.
+    m = re.search(r"VectoredException.*?code=(0x[0-9a-fA-F]+)", combined)
+    if m:
+        code = m.group(1).lower()
+        # 0xe06d7363 = 'msc' EH magic — a C++ exception, not a true crash.
+        # Let the uncaught-exception extractor below handle it.
+        if code != "0xe06d7363":
+            return f"CRASH: VectoredException {code}"
+    if "[TsGC] FATAL: Out of memory" in combined:
+        return "CRASH: out of memory"
+    if "FATAL:" in combined and "Uncaught" not in combined:
+        m = re.search(r"FATAL: (.{0,200})", combined)
+        if m:
+            return f"FATAL: {m.group(1).strip()}"[:200]
+
+    # 2. Uncaught exceptions from ts_throw. The FATAL block is split across
+    #    stdout/stderr. Reconstruct the assertion message by scanning stdout
+    #    and stderr line-by-line for the `.message = ` value or the first
+    #    non-blank line after `FATAL: Uncaught exception:`.
+    if "ts_throw: exceptionStack.size()=0" in combined or "FATAL: Uncaught exception" in combined:
+        # Try to pull .message from stderr first (canonical location) then
+        # stdout (where our runtime routes the value via printf).
+        for stream in (stderr, stdout, combined):
+            # [ \t]*= must not span newlines; otherwise we'd jump to the next
+            # FATAL block label like `.name =` on a later line.
+            m = re.search(r"\.message[ \t]*=[ \t]*(\S.{0,180})", stream)
+            if m:
+                msg = m.group(1).strip()
+                if msg and msg != "undefined":
+                    return f"Uncaught Test262Error: {msg}"[:200]
+        # Fallback: any non-blank, non-warning stdout line is likely the
+        # value printout of the exception.
+        for line in stdout.split("\n"):
+            line = line.strip()
+            if (line and not line.startswith("[") and line != "[object Object]"
+                    and line != "undefined"):
+                return f"Uncaught: {line}"[:200]
+        return "Uncaught exception (no message)"
+
+    # 3. Standard JS error patterns: TypeError, RangeError, etc. These can
+    #    legitimately come from test code itself, not only from ts-aot's
+    #    FATAL block.
+    for pat_name in ("TypeError", "RangeError", "SyntaxError",
+                     "ReferenceError", "URIError", "EvalError"):
+        m = re.search(rf"\b{pat_name}\b.*", combined)
+        if m:
+            return m.group(0).strip()[:200]
+
+    # 4. Harness-driven Test262Error with legible prefix (rare — only when
+    #    the compiler actually creates a properly-named Error instance).
+    m = re.search(r"Test262Error.*", combined)
+    if m:
+        return m.group(0).strip()[:200]
+
+    # 5. Last-resort: first non-warning, non-empty line of the combined
+    #    output gives the operator *something* to grep on.
+    for line in combined.split("\n"):
+        line = line.strip()
+        if line and not line.startswith("["):
+            return f"exit code {returncode}: {line[:150]}"[:200]
+    return f"exit code {returncode}"
+
+
 def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
                     timeout: int = 10, verbose: bool = False) -> TestResult:
     """Compile and run a single test262 test."""
@@ -512,15 +601,8 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
                           exit_code=0, stdout=run.stdout or "",
                           stderr=run.stderr or "")
     else:
-        reason = ""
-        output = (run.stdout or "") + (run.stderr or "")
-        # Extract error message
-        for line in output.split('\n'):
-            if 'Test262Error' in line or 'Error' in line:
-                reason = line.strip()[:200]
-                break
-        if not reason:
-            reason = f"exit code {run.returncode}"
+        reason = _extract_failure_reason(run.stdout or "", run.stderr or "",
+                                         run.returncode)
         return TestResult(test_path, "fail", reason,
                           time_ms=elapsed, exit_code=run.returncode,
                           stdout=run.stdout or "", stderr=run.stderr or "")
