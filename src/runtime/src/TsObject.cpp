@@ -5499,6 +5499,13 @@ TsValue* ts_value_make_int(int64_t i) {
         } else if (nanbox_is_ptr(keyNb) && !keyIsInt) {
             keyStr = (TsString*)ts_value_get_string(key);
         }
+        // Per ES spec, obj[1] is equivalent to obj["1"] for non-array
+        // objects. Convert numeric keys to string so flat-object and TsMap
+        // lookups work. Array/string/typed-array branches above handle
+        // integer keys directly via keyIdx and return before reaching this.
+        if (!keyStr && keyIsInt) {
+            keyStr = TsString::Create(std::to_string(keyIdx).c_str());
+        }
 
         // Check magic to determine object type
         uint32_t magic0 = *(uint32_t*)rawObj;
@@ -6038,8 +6045,26 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
-        // Coerce key to string — direct field access from TsValue struct
-        TsString* keyStr = (key.type == ValueType::STRING_PTR) ? (TsString*)key.ptr_val : nullptr;
+        // Coerce key to string — per ES spec, property keys are always strings.
+        // Numeric keys like obj[1] are equivalent to obj["1"]. The array/
+        // typed-array branches above handle integer keys directly and return
+        // before reaching this point, so the conversion only affects
+        // non-array objects (TsMap, flat objects, etc.).
+        TsString* keyStr = nullptr;
+        if (key.type == ValueType::STRING_PTR) {
+            keyStr = (TsString*)key.ptr_val;
+        } else if (key.type == ValueType::NUMBER_INT) {
+            keyStr = TsString::Create(std::to_string(key.i_val).c_str());
+        } else if (key.type == ValueType::NUMBER_DBL) {
+            char buf[64];
+            double d = key.d_val;
+            if (d == (int64_t)d && d >= -999999999 && d <= 999999999) {
+                snprintf(buf, sizeof(buf), "%lld", (long long)(int64_t)d);
+            } else {
+                snprintf(buf, sizeof(buf), "%.17g", d);
+            }
+            keyStr = TsString::Create(buf);
+        }
         if (!keyStr) {
             TsValue undef;
             undef.type = ValueType::UNDEFINED;
@@ -6109,6 +6134,15 @@ TsValue* ts_value_make_int(int64_t i) {
             keyStr = TsString::Create(key.i_val ? "true" : "false");
         }
         if (!keyStr) return value;
+        // Update the key TsValue itself to string form so downstream TsMap
+        // Set calls store the property with a string key — matching how GETs
+        // will look it up. Without this, numeric keys are stored as
+        // {type: NUMBER_INT} but read as {type: STRING_PTR, ptr_val: "1"},
+        // causing lookup mismatches.
+        if (key.type != ValueType::STRING_PTR) {
+            key.type = ValueType::STRING_PTR;
+            key.ptr_val = keyStr;
+        }
 
         // Targeted trace: module.exports writes for the tracked module object (lodash or test_umdsim)
         if (g_debug_lodash_module_map && rawObj == g_debug_lodash_module_map) {
