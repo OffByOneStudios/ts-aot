@@ -87,14 +87,19 @@ TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
 TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
 bool ts_object_has_property(void* objArg, void* keyArg);
 
-// Helper: add a native function to a TsMap
-static void addMethod(TsMap* map, const char* name, void* nativeFn) {
+// Helper: add a native function to a TsMap, setting .name and .arity
+// so hasOwnProperty('length'/'name') works per ES spec.
+static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 1) {
     TsValue key;
     key.type = ValueType::STRING_PTR;
     key.ptr_val = TsString::GetInterned(name);
     TsValue val;
     val.type = ValueType::FUNCTION_PTR;
     TsValue* fn = ts_value_make_native_function(nativeFn, nullptr);
+    // Set function metadata so .length and .name return correct values
+    TsFunction* func = (TsFunction*)fn;
+    func->name = TsString::Create(name);
+    func->arity = arity;
     val.ptr_val = fn;
     map->Set(key, val);
 }

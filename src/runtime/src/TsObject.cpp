@@ -688,6 +688,16 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)func;
     }
 
+    // Create a native function with name and arity set, so .length/.name
+    // and hasOwnProperty('length'/'name') work per ES spec.
+    static TsValue* makeNamedNativeFunction(void* funcPtr, void* context, const char* name, int arity) {
+        TsValue* fn = ts_value_make_native_function(funcPtr, context);
+        TsFunction* func = (TsFunction*)fn;
+        func->name = TsString::Create(name);
+        func->arity = arity;
+        return fn;
+    }
+
     // Built-in function wrappers for first-class value use
     // These wrap runtime functions as native function callbacks (void* ctx, int argc, TsValue** argv)
 
@@ -2597,7 +2607,11 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue* target = ts_value_make_object(func);
                 return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
             }
-            
+
+            if (strcmp(keyStr, "hasOwnProperty") == 0) {
+                return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+            }
+
             return ts_value_make_undefined();
         }
 
@@ -5665,6 +5679,9 @@ TsValue* ts_value_make_int(int64_t i) {
                         if (func->name) return ts_value_make_string(func->name);
                         return ts_value_make_string(TsString::Create(""));
                     }
+                    if (strcmp(k, "hasOwnProperty") == 0) {
+                        return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                    }
                 }
             }
 
@@ -7208,7 +7225,7 @@ TsValue* ts_value_make_int(int64_t i) {
         
         // Array.isArray
         TsValue isArrayKey; isArrayKey.type = ValueType::STRING_PTR; isArrayKey.ptr_val = TsString::Create("isArray");
-        arrayFunc->properties->Set(isArrayKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_array_isArray_native, nullptr)));
+        arrayFunc->properties->Set(isArrayKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_array_isArray_native, nullptr, "isArray", 1)));
         
         Array = arrayConstructor;
 
@@ -7220,28 +7237,28 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue absKey; absKey.type = ValueType::STRING_PTR; absKey.ptr_val = TsString::Create("abs");
         TsValue maxKey; maxKey.type = ValueType::STRING_PTR; maxKey.ptr_val = TsString::Create("max");
         TsValue minKey; minKey.type = ValueType::STRING_PTR; minKey.ptr_val = TsString::Create("min");
-        mathMap->Set(randomKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_math_random_native, nullptr)));
-        mathMap->Set(floorKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_math_floor_native, nullptr)));
-        mathMap->Set(ceilKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_math_ceil_native, nullptr)));
-        mathMap->Set(absKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_math_abs_native, nullptr)));
-        mathMap->Set(maxKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_math_max_native, nullptr)));
-        mathMap->Set(minKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_math_min_native, nullptr)));
+        mathMap->Set(randomKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_random_native, nullptr, "random", 0)));
+        mathMap->Set(floorKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_floor_native, nullptr, "floor", 1)));
+        mathMap->Set(ceilKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_ceil_native, nullptr, "ceil", 1)));
+        mathMap->Set(absKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_abs_native, nullptr, "abs", 1)));
+        mathMap->Set(maxKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_max_native, nullptr, "max", 2)));
+        mathMap->Set(minKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_min_native, nullptr, "min", 2)));
         Math = ts_value_make_object(mathMap);
 
         // Initialize JSON with parse/stringify
         TsMap* jsonMap = TsMap::Create();
         TsValue parseKey; parseKey.type = ValueType::STRING_PTR; parseKey.ptr_val = TsString::Create("parse");
         TsValue stringifyKey; stringifyKey.type = ValueType::STRING_PTR; stringifyKey.ptr_val = TsString::Create("stringify");
-        jsonMap->Set(parseKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_json_parse_native, nullptr)));
-        jsonMap->Set(stringifyKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_json_stringify_native, nullptr)));
+        jsonMap->Set(parseKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_json_parse_native, nullptr, "parse", 2)));
+        jsonMap->Set(stringifyKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_json_stringify_native, nullptr, "stringify", 3)));
         JSON = ts_value_make_object(jsonMap);
         process = ts_value_make_object(TsMap::Create());
         Buffer = ts_value_make_object(TsMap::Create());
 
         // Global functions - parseInt/parseFloat are now actual C functions,
         // create native function wrappers for the global object
-        TsValue* parseIntWrapper = ts_value_make_native_function((void*)ts_parseInt_native, nullptr);
-        TsValue* parseFloatWrapper = ts_value_make_native_function((void*)ts_parseFloat_native, nullptr);
+        TsValue* parseIntWrapper = makeNamedNativeFunction((void*)ts_parseInt_native, nullptr, "parseInt", 2);
+        TsValue* parseFloatWrapper = makeNamedNativeFunction((void*)ts_parseFloat_native, nullptr, "parseFloat", 1);
 
         // Node-like global object (minimal) - lodash needs many constructors
         TsMap* globalMap = TsMap::Create();
@@ -7350,8 +7367,8 @@ TsValue* ts_value_make_int(int64_t i) {
         globalMap->Set(makeKey("undefined"), nanbox_to_tagged(ts_value_make_undefined()));
         globalMap->Set(makeKey("NaN"), nanbox_to_tagged(ts_value_make_double(std::numeric_limits<double>::quiet_NaN())));
         globalMap->Set(makeKey("Infinity"), nanbox_to_tagged(ts_value_make_double(std::numeric_limits<double>::infinity())));
-        globalMap->Set(makeKey("isNaN"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_isNaN_native, nullptr)));
-        globalMap->Set(makeKey("isFinite"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_isFinite_native, nullptr)));
+        globalMap->Set(makeKey("isNaN"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isNaN_native, nullptr, "isNaN", 1)));
+        globalMap->Set(makeKey("isFinite"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isFinite_native, nullptr, "isFinite", 1)));
 
         global = ts_value_make_object(globalMap);
         globalThis = global;  // ES2020: globalThis is an alias for global
