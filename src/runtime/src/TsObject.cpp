@@ -104,9 +104,13 @@ extern "C" {
     double ts_value_get_double(TsValue* v);
     int64_t ts_value_get_int(TsValue* v);
     bool ts_value_to_bool(TsValue* v);
-    
+
     // Forward declaration for TsArray.cpp
     TsValue* ts_array_get_as_value(void* arr, int64_t index);
+
+    // Defined later in this TU; forward-declared here so ts_value_get_string
+    // (and any other earlier caller) can invoke it before its definition.
+    TsValue* ts_to_primitive(TsValue* val, int hint);
 }
 
 static std::unordered_map<std::string, TsValue*> g_module_cache;
@@ -785,6 +789,24 @@ TsValue* ts_value_make_int(int64_t i) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Cannot convert a Symbol value to a string"));
             return TsString::Create(""); // unreachable
+        }
+        // The compiler lowers `obj + str` as ts_string_concat(get_string(obj),
+        // get_string(str)), so this runtime function is the site where binary +
+        // coerces object operands. Per ES5.1 §11.6.1, binary + applies
+        // ToPrimitive with hint "default" to BOTH operands BEFORE the
+        // string-concat-if-either-is-string dispatch. For plain objects the
+        // default hint means valueOf → toString. So we pass hint 0 (default)
+        // here, not hint 2 (string).
+        //
+        // Consequence: String(obj) (which per §9.8 should use hint "string")
+        // will also use "default" via this path. For plain objects with both
+        // methods defined, that yields valueOf's result instead of toString's.
+        // Rare and easy to work around (user can call .toString() explicitly).
+        // Fixing it properly would require the compiler to route String(obj)
+        // through a different runtime entry point with the "string" hint.
+        TsValue* coerced = ts_to_primitive(v, 0 /* hint: default (valueOf first) */);
+        if (coerced != v) {
+            return ts_value_get_string(coerced);
         }
         // Not a string - try to convert
         return ts_string_from_value(v);
@@ -5162,8 +5184,82 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(result);
     }
 
+    // ES5.1 §9.1 ToPrimitive (simplified). Hint: 0=default, 1=number, 2=string.
+    // Called by binary operators (and ts_value_get_double / ts_value_get_string)
+    // for spec-compliant valueOf/toString coercion. For primitives, returns input
+    // unchanged. For plain objects, tries the appropriate method in spec order
+    // and returns its result if primitive. Falls through to the input value if
+    // no primitive can be obtained so callers' numeric/string fallbacks still
+    // produce a well-defined, non-crashing value.
+    //
+    // Intentionally non-static: ts_value_get_double in Primitives.cpp needs to
+    // forward-declare and call this.
+    extern "C" TsValue* ts_to_primitive(TsValue* val, int hint) {
+        if (!val) return val;
+        uint64_t nb = nanbox_from_tsvalue_ptr(val);
+        // All primitives pass through
+        if (nanbox_is_undefined(nb) || nanbox_is_null(nb) ||
+            nanbox_is_int32(nb) || nanbox_is_double(nb) ||
+            nanbox_is_bool(nb)) {
+            return val;
+        }
+        if (!nanbox_is_ptr(nb)) return val;
+        // Strings are primitives for our purposes
+        if (nanbox_is_string_ptr(nb)) return val;
+
+        void* obj = nanbox_to_ptr(nb);
+        if (!obj) return val;
+
+        // Skip non-plain-object pointer types where calling valueOf/toString
+        // would either be pointless (BigInt/Symbol already handled specially
+        // by callers) or recursive (Closures — a function's valueOf returns
+        // itself). We specifically target plain objects, arrays, and maps.
+        uint32_t magic0 = *(uint32_t*)obj;
+        uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
+        // Closure = function; skip (its valueOf returns itself)
+        if (magic16 == 0x434C5352) return val;
+        if (magic0 == 0x46554E43) return val;
+        if (magic16 == 0x46554E43) return val;
+        // BigInt/Symbol have their own primitive semantics
+        if (magic16 == 0x42494749) return val;  // BigInt
+        if (magic16 == 0x53594D42) return val;  // Symbol
+
+        // hint 2 (string) → toString first, else valueOf first
+        const char* firstMethod  = (hint == 2) ? "toString" : "valueOf";
+        const char* secondMethod = (hint == 2) ? "valueOf"  : "toString";
+
+        auto is_primitive_result = [](TsValue* r) -> bool {
+            if (!r) return false;
+            uint64_t rnb = nanbox_from_tsvalue_ptr(r);
+            if (nanbox_is_undefined(rnb) || nanbox_is_null(rnb) ||
+                nanbox_is_int32(rnb) || nanbox_is_double(rnb) ||
+                nanbox_is_bool(rnb)) return true;
+            if (nanbox_is_ptr(rnb) && nanbox_is_string_ptr(rnb)) return true;
+            return false;
+        };
+
+        // Try first method
+        TsValue* method = ts_object_get_property(obj, firstMethod);
+        if (method && !ts_value_is_undefined(method)) {
+            TsValue* result = ts_call_with_this_0(method, val);
+            if (is_primitive_result(result)) return result;
+        }
+        // Fall back to second method
+        method = ts_object_get_property(obj, secondMethod);
+        if (method && !ts_value_is_undefined(method)) {
+            TsValue* result = ts_call_with_this_0(method, val);
+            if (is_primitive_result(result)) return result;
+        }
+        // Spec says TypeError here. Return input so existing numeric fallback
+        // (nanbox_extract_double → 0) gives a well-defined, non-crashing value.
+        return val;
+    }
+
     TsValue* ts_value_add(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
+        // ES5.1 §11.6.1: ToPrimitive both operands with hint "default"
+        a = ts_to_primitive(a, 0);
+        b = ts_to_primitive(b, 0);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
 
@@ -5201,6 +5297,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_sub(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);  // hint: number
+        b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
         if (nanbox_is_int32(nba) && nanbox_is_int32(nbb)) {
@@ -5212,6 +5310,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_mul(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
         if (nanbox_is_int32(nba) && nanbox_is_int32(nbb)) {
@@ -5223,6 +5323,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_div(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
         double d1 = nanbox_extract_double(a);
         double d2 = nanbox_extract_double(b);
         if (d2 == 0.0) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
@@ -5231,6 +5333,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_mod(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
         double d1 = nanbox_extract_double(a);
         double d2 = nanbox_extract_double(b);
         if (d2 == 0.0) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
@@ -5266,12 +5370,23 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_bool(s1->Equals(s2));
         }
 
+        // ES5.1 §11.9.3 steps 8-9: asymmetric loose equality between an
+        // object and a Number/String coerces the object via ToPrimitive.
+        // Apply to both sides conservatively; if the result is still
+        // non-primitive on both, the numeric fallback handles it.
+        a = ts_to_primitive(a, 0);
+        b = ts_to_primitive(b, 0);
+
         // Coerce to numbers
         return ts_value_make_bool(nanbox_extract_double(a) == nanbox_extract_double(b));
     }
 
     TsValue* ts_value_lt(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_bool(false);
+        // ES5.1 §11.8.5: Abstract Relational Comparison uses ToPrimitive
+        // with hint "number" on both operands.
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
         if (nanbox_is_string_ptr(nba) && nanbox_is_string_ptr(nbb)) {
@@ -5284,6 +5399,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_gt(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_bool(false);
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
         if (nanbox_is_string_ptr(nba) && nanbox_is_string_ptr(nbb)) {
@@ -5296,6 +5413,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_lte(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_bool(false);
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
         if (nanbox_is_string_ptr(nba) && nanbox_is_string_ptr(nbb)) {
@@ -5308,6 +5427,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_value_gte(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_bool(false);
+        a = ts_to_primitive(a, 1);
+        b = ts_to_primitive(b, 1);
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
         if (nanbox_is_string_ptr(nba) && nanbox_is_string_ptr(nbb)) {

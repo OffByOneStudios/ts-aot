@@ -17,6 +17,11 @@
 #include <cstdlib>
 #include <cinttypes>
 
+// Forward declaration: ts_to_primitive lives in TsObject.cpp. Called from
+// ts_value_get_double below so binary ops on plain objects invoke
+// user-defined valueOf/toString per ES5.1 §9.3.
+extern "C" TsValue* ts_to_primitive(TsValue* val, int hint);
+
 static std::map<std::string, std::chrono::steady_clock::time_point> consoleTimers;
 static std::map<std::string, int64_t> consoleCounters;
 static int consoleGroupDepth = 0;
@@ -895,6 +900,15 @@ double ts_value_get_double(TsValue* v) {
         if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
             try { return std::stod(ts_ensure_flat(ptr)->ToUtf8()); }
             catch (...) { return std::numeric_limits<double>::quiet_NaN(); }
+        }
+        // ES5.1 §9.3 ToNumber on an object: call ToPrimitive with hint
+        // "number", which invokes user-defined valueOf/toString. If that
+        // produces a different primitive, recurse on it. This is the hot
+        // path hit by binary arith/comparison on plain objects since the
+        // compiler lowers `any + num` etc. as ts_value_get_double + fadd.
+        TsValue* coerced = ts_to_primitive(v, 1 /* hint: number */);
+        if (coerced != v) {
+            return ts_value_get_double(coerced);
         }
     }
     return 0.0;
