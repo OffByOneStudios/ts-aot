@@ -4291,7 +4291,8 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
         bool isBuffer = false;
         if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
             if (*hirVal && (*hirVal)->type) {
-                if ((*hirVal)->type->kind == HIRTypeKind::Any) {
+                if ((*hirVal)->type->kind == HIRTypeKind::Any ||
+                    (*hirVal)->type->kind == HIRTypeKind::Object) {
                     useDynamicAccess = true;
                 } else if ((*hirVal)->type->kind == HIRTypeKind::Class &&
                            (*hirVal)->type->className == "Buffer") {

@@ -5503,8 +5503,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // objects. Convert numeric keys to string so flat-object and TsMap
         // lookups work. Array/string/typed-array branches above handle
         // integer keys directly via keyIdx and return before reaching this.
+        // Also rebuild the NaN-boxed `key` pointer so downstream
+        // nanbox_to_tagged(key) produces {type: STRING_PTR} for TsMap::Get.
         if (!keyStr && keyIsInt) {
             keyStr = TsString::Create(std::to_string(keyIdx).c_str());
+            key = ts_value_make_string(keyStr);
         }
 
         // Check magic to determine object type
