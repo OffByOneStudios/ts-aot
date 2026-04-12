@@ -692,24 +692,33 @@ void* ts_get_global_console() {
     return (void*)sentinel;
 }
 
+// These globals are initialized in ts_runtime_init() → initGlobal() in
+// TsObject.cpp, which runs from ts_main() before any user code executes.
+// Previously returned sentinel strings ("Math", "Buffer", etc.) which
+// worked for the typed call path (extension contracts bypass property
+// access) but broke first-class value access like `Math.abs.length` or
+// `typeof Math.abs` because property access on a string sentinel falls
+// through all handlers to undefined.
+extern "C" TsValue* Math;
+extern "C" TsValue* JSON;
+extern "C" TsValue* process;
+extern "C" TsValue* Buffer;
+extern "C" TsValue* globalThis;
+
 void* ts_get_global_Math() {
-    static const char sentinel[] = "Math";
-    return (void*)sentinel;
+    return (void*)Math;
 }
 
 void* ts_get_global_Buffer() {
-    static const char sentinel[] = "Buffer";
-    return (void*)sentinel;
+    return (void*)Buffer;
 }
 
 void* ts_get_global_process() {
-    static const char sentinel[] = "process";
-    return (void*)sentinel;
+    return (void*)process;
 }
 
 void* ts_get_global_globalThis() {
-    static const char sentinel[] = "globalThis";
-    return (void*)sentinel;
+    return (void*)globalThis;
 }
 
 // ========================================
