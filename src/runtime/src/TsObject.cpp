@@ -748,12 +748,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!name) return nullptr;
         const char* n = name->ToUtf8();
         if (!n) return nullptr;
-        if (strcmp(n, "encodeURIComponent") == 0) return ts_value_make_native_function((void*)builtin_encodeURIComponent_native, nullptr);
-        if (strcmp(n, "decodeURIComponent") == 0) return ts_value_make_native_function((void*)builtin_decodeURIComponent_native, nullptr);
-        if (strcmp(n, "encodeURI") == 0) return ts_value_make_native_function((void*)builtin_encodeURI_native, nullptr);
-        if (strcmp(n, "decodeURI") == 0) return ts_value_make_native_function((void*)builtin_decodeURI_native, nullptr);
-        if (strcmp(n, "parseInt") == 0) return ts_value_make_native_function((void*)builtin_parseInt_native, nullptr);
-        if (strcmp(n, "parseFloat") == 0) return ts_value_make_native_function((void*)builtin_parseFloat_native, nullptr);
+        if (strcmp(n, "encodeURIComponent") == 0) return makeNamedNativeFunction((void*)builtin_encodeURIComponent_native, nullptr, "encodeURIComponent", 1);
+        if (strcmp(n, "decodeURIComponent") == 0) return makeNamedNativeFunction((void*)builtin_decodeURIComponent_native, nullptr, "decodeURIComponent", 1);
+        if (strcmp(n, "encodeURI") == 0) return makeNamedNativeFunction((void*)builtin_encodeURI_native, nullptr, "encodeURI", 1);
+        if (strcmp(n, "decodeURI") == 0) return makeNamedNativeFunction((void*)builtin_decodeURI_native, nullptr, "decodeURI", 1);
+        if (strcmp(n, "parseInt") == 0) return makeNamedNativeFunction((void*)builtin_parseInt_native, nullptr, "parseInt", 2);
+        if (strcmp(n, "parseFloat") == 0) return makeNamedNativeFunction((void*)builtin_parseFloat_native, nullptr, "parseFloat", 1);
         return nullptr;
     }
 
@@ -2161,17 +2161,17 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
             // Number methods: toString, toFixed, valueOf, toPrecision, toExponential
-            if (strcmp(keyStr, "toString") == 0) return ts_value_make_native_function((void*)ts_number_toString_native, obj);
-            if (strcmp(keyStr, "toFixed") == 0) return ts_value_make_native_function((void*)ts_number_toFixed_native, obj);
-            if (strcmp(keyStr, "valueOf") == 0) return ts_value_make_native_function((void*)ts_number_valueOf_native, obj);
-            if (strcmp(keyStr, "toPrecision") == 0) return ts_value_make_native_function((void*)ts_number_toPrecision_native, obj);
-            if (strcmp(keyStr, "toExponential") == 0) return ts_value_make_native_function((void*)ts_number_toExponential_native, obj);
+            if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_number_toString_native, obj, "toString", 1);
+            if (strcmp(keyStr, "toFixed") == 0) return makeNamedNativeFunction((void*)ts_number_toFixed_native, obj, "toFixed", 1);
+            if (strcmp(keyStr, "valueOf") == 0) return makeNamedNativeFunction((void*)ts_number_valueOf_native, obj, "valueOf", 0);
+            if (strcmp(keyStr, "toPrecision") == 0) return makeNamedNativeFunction((void*)ts_number_toPrecision_native, obj, "toPrecision", 1);
+            if (strcmp(keyStr, "toExponential") == 0) return makeNamedNativeFunction((void*)ts_number_toExponential_native, obj, "toExponential", 1);
             return ts_value_make_undefined();
         }
         if (nanbox_is_bool(nb)) {
             // Boolean methods: toString, valueOf
-            if (strcmp(keyStr, "toString") == 0) return ts_value_make_native_function((void*)ts_boolean_toString_native, obj);
-            if (strcmp(keyStr, "valueOf") == 0) return ts_value_make_native_function((void*)ts_boolean_valueOf_native, obj);
+            if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_boolean_toString_native, obj, "toString", 0);
+            if (strcmp(keyStr, "valueOf") == 0) return makeNamedNativeFunction((void*)ts_boolean_valueOf_native, obj, "valueOf", 0);
             return ts_value_make_undefined();
         }
 
@@ -2199,23 +2199,23 @@ TsValue* ts_value_make_int(int64_t i) {
             uint64_t resultNb = nanbox_from_tsvalue_ptr(result);
             if (resultNb == NANBOX_UNDEFINED) {
                 if (strcmp(keyStr, "hasOwnProperty") == 0) {
-                    return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                    return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
                 }
                 if (strcmp(keyStr, "toString") == 0) {
-                    return ts_value_make_native_function((void*)ts_object_toString_native, nullptr);
+                    return makeNamedNativeFunction((void*)ts_object_toString_native, nullptr, "toString", 0);
                 }
                 if (strcmp(keyStr, "valueOf") == 0) {
-                    return ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr);
+                    return makeNamedNativeFunction((void*)ts_object_valueOf_native, nullptr, "valueOf", 0);
                 }
                 if (strcmp(keyStr, "constructor") == 0) {
                     extern TsValue* Object;
                     if (Object) return Object;
                 }
                 if (strcmp(keyStr, "isPrototypeOf") == 0) {
-                    return ts_value_make_native_function((void*)ts_object_isPrototypeOf_native, nullptr);
+                    return makeNamedNativeFunction((void*)ts_object_isPrototypeOf_native, nullptr, "isPrototypeOf", 1);
                 }
                 if (strcmp(keyStr, "propertyIsEnumerable") == 0) {
-                    return ts_value_make_native_function((void*)ts_object_propertyIsEnumerable_native, nullptr);
+                    return makeNamedNativeFunction((void*)ts_object_propertyIsEnumerable_native, nullptr, "propertyIsEnumerable", 1);
                 }
                 // Check for EventEmitter methods on flat objects extending EventEmitter
                 TsValue* eeMethod = flat_try_ee_method(obj, keyStr);
@@ -2252,10 +2252,10 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_int(re->GetLastIndex());
             }
             if (strcmp(keyStr, "test") == 0) {
-                return ts_value_make_native_function((void*)ts_regexp_test_native, re);
+                return makeNamedNativeFunction((void*)ts_regexp_test_native, re, "test", 1);
             }
             if (strcmp(keyStr, "exec") == 0) {
-                return ts_value_make_native_function((void*)ts_regexp_exec_native, re);
+                return makeNamedNativeFunction((void*)ts_regexp_exec_native, re, "exec", 1);
             }
             return ts_value_make_undefined();
         }
@@ -2298,26 +2298,26 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsDate (magic at offset 0)
         if (magic0 == 0x44415445) { // TsDate::MAGIC ("DATE")
             TsDate* date = (TsDate*)obj;
-            if (strcmp(keyStr, "getTime") == 0) return ts_value_make_native_function((void*)ts_date_getTime_native, date);
-            if (strcmp(keyStr, "getFullYear") == 0) return ts_value_make_native_function((void*)ts_date_getFullYear_native, date);
-            if (strcmp(keyStr, "getMonth") == 0) return ts_value_make_native_function((void*)ts_date_getMonth_native, date);
-            if (strcmp(keyStr, "getDate") == 0) return ts_value_make_native_function((void*)ts_date_getDate_native, date);
-            if (strcmp(keyStr, "getHours") == 0) return ts_value_make_native_function((void*)ts_date_getHours_native, date);
-            if (strcmp(keyStr, "getMinutes") == 0) return ts_value_make_native_function((void*)ts_date_getMinutes_native, date);
-            if (strcmp(keyStr, "getSeconds") == 0) return ts_value_make_native_function((void*)ts_date_getSeconds_native, date);
-            if (strcmp(keyStr, "getMilliseconds") == 0) return ts_value_make_native_function((void*)ts_date_getMilliseconds_native, date);
-            if (strcmp(keyStr, "getUTCFullYear") == 0) return ts_value_make_native_function((void*)ts_date_getUTCFullYear_native, date);
-            if (strcmp(keyStr, "getUTCMonth") == 0) return ts_value_make_native_function((void*)ts_date_getUTCMonth_native, date);
-            if (strcmp(keyStr, "getUTCDate") == 0) return ts_value_make_native_function((void*)ts_date_getUTCDate_native, date);
-            if (strcmp(keyStr, "getUTCHours") == 0) return ts_value_make_native_function((void*)ts_date_getUTCHours_native, date);
-            if (strcmp(keyStr, "getUTCMinutes") == 0) return ts_value_make_native_function((void*)ts_date_getUTCMinutes_native, date);
-            if (strcmp(keyStr, "getUTCSeconds") == 0) return ts_value_make_native_function((void*)ts_date_getUTCSeconds_native, date);
-            if (strcmp(keyStr, "getUTCMilliseconds") == 0) return ts_value_make_native_function((void*)ts_date_getUTCMilliseconds_native, date);
-            if (strcmp(keyStr, "toISOString") == 0) return ts_value_make_native_function((void*)ts_date_toISOString_native, date);
-            if (strcmp(keyStr, "toJSON") == 0) return ts_value_make_native_function((void*)ts_date_toJSON_native, date);
-            if (strcmp(keyStr, "toString") == 0) return ts_value_make_native_function((void*)ts_date_toString_native, date);
-            if (strcmp(keyStr, "toDateString") == 0) return ts_value_make_native_function((void*)ts_date_toDateString_native, date);
-            if (strcmp(keyStr, "valueOf") == 0) return ts_value_make_native_function((void*)ts_date_valueOf_native, date);
+            if (strcmp(keyStr, "getTime") == 0) return makeNamedNativeFunction((void*)ts_date_getTime_native, date, "getTime", 0);
+            if (strcmp(keyStr, "getFullYear") == 0) return makeNamedNativeFunction((void*)ts_date_getFullYear_native, date, "getFullYear", 0);
+            if (strcmp(keyStr, "getMonth") == 0) return makeNamedNativeFunction((void*)ts_date_getMonth_native, date, "getMonth", 0);
+            if (strcmp(keyStr, "getDate") == 0) return makeNamedNativeFunction((void*)ts_date_getDate_native, date, "getDate", 0);
+            if (strcmp(keyStr, "getHours") == 0) return makeNamedNativeFunction((void*)ts_date_getHours_native, date, "getHours", 0);
+            if (strcmp(keyStr, "getMinutes") == 0) return makeNamedNativeFunction((void*)ts_date_getMinutes_native, date, "getMinutes", 0);
+            if (strcmp(keyStr, "getSeconds") == 0) return makeNamedNativeFunction((void*)ts_date_getSeconds_native, date, "getSeconds", 0);
+            if (strcmp(keyStr, "getMilliseconds") == 0) return makeNamedNativeFunction((void*)ts_date_getMilliseconds_native, date, "getMilliseconds", 0);
+            if (strcmp(keyStr, "getUTCFullYear") == 0) return makeNamedNativeFunction((void*)ts_date_getUTCFullYear_native, date, "getUTCFullYear", 0);
+            if (strcmp(keyStr, "getUTCMonth") == 0) return makeNamedNativeFunction((void*)ts_date_getUTCMonth_native, date, "getUTCMonth", 0);
+            if (strcmp(keyStr, "getUTCDate") == 0) return makeNamedNativeFunction((void*)ts_date_getUTCDate_native, date, "getUTCDate", 0);
+            if (strcmp(keyStr, "getUTCHours") == 0) return makeNamedNativeFunction((void*)ts_date_getUTCHours_native, date, "getUTCHours", 0);
+            if (strcmp(keyStr, "getUTCMinutes") == 0) return makeNamedNativeFunction((void*)ts_date_getUTCMinutes_native, date, "getUTCMinutes", 0);
+            if (strcmp(keyStr, "getUTCSeconds") == 0) return makeNamedNativeFunction((void*)ts_date_getUTCSeconds_native, date, "getUTCSeconds", 0);
+            if (strcmp(keyStr, "getUTCMilliseconds") == 0) return makeNamedNativeFunction((void*)ts_date_getUTCMilliseconds_native, date, "getUTCMilliseconds", 0);
+            if (strcmp(keyStr, "toISOString") == 0) return makeNamedNativeFunction((void*)ts_date_toISOString_native, date, "toISOString", 0);
+            if (strcmp(keyStr, "toJSON") == 0) return makeNamedNativeFunction((void*)ts_date_toJSON_native, date, "toJSON", 1);
+            if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_date_toString_native, date, "toString", 0);
+            if (strcmp(keyStr, "toDateString") == 0) return makeNamedNativeFunction((void*)ts_date_toDateString_native, date, "toDateString", 0);
+            if (strcmp(keyStr, "valueOf") == 0) return makeNamedNativeFunction((void*)ts_date_valueOf_native, date, "valueOf", 0);
             return ts_value_make_undefined();
         }
 
