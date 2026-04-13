@@ -805,6 +805,16 @@ public:
         emit(std::move(inst));
     }
 
+    std::shared_ptr<HIRValue> createDeleteProp(std::shared_ptr<HIRValue> obj, std::shared_ptr<HIRValue> key) {
+        auto result = createValue(HIRType::makeBool());
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::DeleteProp);
+        inst->result = result;
+        inst->operands.push_back(obj);
+        inst->operands.push_back(key);
+        emit(std::move(inst));
+        return result;
+    }
+
     // Overloads with pre-created result or simpler interface
     void createNewObject(std::shared_ptr<HIRValue> result, const std::string& className) {
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::NewObject);

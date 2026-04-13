@@ -8370,10 +8370,13 @@ void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
     setSourceLine(node);
     // Handle delete obj.prop or delete obj["prop"]
     if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())) {
-        // delete obj.prop
+        // delete obj.prop — use DeleteProp HIR opcode so the lowering goes
+        // through lowerDeleteProp → getTsObjectDeleteProperty (correct i32
+        // return type). The generic createCall path declared the function
+        // with ptr return type, causing it to be silently unlinked.
         auto obj = lowerExpression(propAccess->expression.get());
         auto key = builder_.createConstString(propAccess->name);
-        lastValue_ = builder_.createCall("ts_object_delete_property", {obj, key}, HIRType::makeBool());
+        lastValue_ = builder_.createDeleteProp(obj, key);
         return;
     }
 
@@ -8381,7 +8384,7 @@ void ASTToHIR::visitDeleteExpression(ast::DeleteExpression* node) {
         // delete obj["prop"] or delete obj[key]
         auto obj = lowerExpression(elemAccess->expression.get());
         auto key = lowerExpression(elemAccess->argumentExpression.get());
-        lastValue_ = builder_.createCall("ts_object_delete_property", {obj, key}, HIRType::makeBool());
+        lastValue_ = builder_.createDeleteProp(obj, key);
         return;
     }
 

@@ -18,6 +18,7 @@
 #include "TsRegExp.h"
 #include "TsBoundFunction.h"
 #include "TsClosure.h"
+#include "TsHashTable.h"
 #include "TsProxy.h"
 #include "TsTextEncoding.h"
 #include "GC.h"
