@@ -382,24 +382,62 @@ void* ts_map_copy_excluding_v2(void* obj, void* excluded_keys_array) {
     return map->CopyExcluding(excluded_vec);
 }
 
+// Validate that context points to a TsMap (has [[MapData]] internal slot).
+// Per ES spec, Map methods must throw TypeError if `this` is not a Map.
+extern "C" void ts_throw(TsValue* err);
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
+static void* requireMapData(void* context, const char* methodName) {
+    if (!context) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Method Map.prototype.get called on incompatible receiver"));
+        return nullptr;
+    }
+    void* rawCtx = context;
+    uint64_t nb = (uint64_t)(uintptr_t)context;
+    if (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) {
+        rawCtx = nanbox_to_ptr(nb);
+    }
+    if (!rawCtx) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Method Map.prototype.get called on incompatible receiver"));
+        return nullptr;
+    }
+    // Check for TsMap or TsSet magic at multiple offsets (extends TsObject → magic at 16, 20, or 24)
+    uint32_t m16 = *(uint32_t*)((char*)rawCtx + 16);
+    uint32_t m20 = *(uint32_t*)((char*)rawCtx + 20);
+    uint32_t m24 = *(uint32_t*)((char*)rawCtx + 24);
+    if (m16 != TsMap::MAGIC && m20 != TsMap::MAGIC && m24 != TsMap::MAGIC &&
+        m16 != TsSet::MAGIC && m20 != TsSet::MAGIC && m24 != TsSet::MAGIC) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Method Map.prototype.get called on incompatible receiver"));
+        return nullptr;
+    }
+    return rawCtx;
+}
+
 TsValue* ts_map_set_wrapper(void* context, TsValue* key, TsValue* value) {
+    void* rawCtx = requireMapData(context, "set");
+    if (!rawCtx) return ts_value_make_undefined();
     TsValue keyDecoded = nanbox_to_tagged(key);
     TsValue valDecoded = nanbox_to_tagged(value);
     uint64_t hash = (uint64_t)keyDecoded.i_val;
-    __ts_map_set_at(context, hash, (uint8_t)keyDecoded.type, keyDecoded.i_val, (uint8_t)valDecoded.type, valDecoded.i_val);
+    __ts_map_set_at(rawCtx, hash, (uint8_t)keyDecoded.type, keyDecoded.i_val, (uint8_t)valDecoded.type, valDecoded.i_val);
     return ts_value_make_undefined();
 }
 
 TsValue* ts_map_get_wrapper(void* context, TsValue* key) {
+    void* rawCtx = requireMapData(context, "get");
+    if (!rawCtx) return ts_value_make_undefined();
     uint64_t hash = (uint64_t)(uintptr_t)key;
     TsValue keyTV = nanbox_to_tagged(key);
-    int64_t bucket = __ts_map_find_bucket(context, hash, (uint8_t)keyTV.type, keyTV.i_val);
+    int64_t bucket = __ts_map_find_bucket(rawCtx, hash, (uint8_t)keyTV.type, keyTV.i_val);
     if (bucket < 0) {
         return ts_value_make_undefined();
     }
     uint8_t result_type;
     int64_t result_val;
-    __ts_map_get_value_at(context, bucket, &result_type, &result_val);
+    __ts_map_get_value_at(rawCtx, bucket, &result_type, &result_val);
     TsValue result;
     result.type = (ValueType)result_type;
     result.i_val = result_val;
@@ -435,45 +473,45 @@ TsValue* ts_map_has_fast(void* map, TsValue* key) {
 }
 
 TsValue* ts_map_has_wrapper(void* context, TsValue* key) {
-    if (context) {
-        uint32_t obj_magic = ((TsObject*)context)->magic;
-        if (obj_magic == TsSet::MAGIC) {
-            return ts_value_make_bool(ts_set_has(context, key));
-        }
+    void* rawCtx = requireMapData(context, "has");
+    if (!rawCtx) return ts_value_make_bool(false);
+    uint32_t obj_magic = ((TsObject*)rawCtx)->magic;
+    if (obj_magic == TsSet::MAGIC) {
+        return ts_value_make_bool(ts_set_has(rawCtx, key));
     }
-    return ts_value_make_bool(ts_map_has(context, key));
+    return ts_value_make_bool(ts_map_has(rawCtx, key));
 }
 
 TsValue* ts_map_delete_wrapper(void* context, TsValue* key) {
-    if (context) {
-        uint32_t obj_magic = ((TsObject*)context)->magic;
-        if (obj_magic == TsSet::MAGIC) {
-            return ts_value_make_bool(ts_set_delete(context, key));
-        }
+    void* rawCtx = requireMapData(context, "delete");
+    if (!rawCtx) return ts_value_make_bool(false);
+    uint32_t obj_magic = ((TsObject*)rawCtx)->magic;
+    if (obj_magic == TsSet::MAGIC) {
+        return ts_value_make_bool(ts_set_delete(rawCtx, key));
     }
-    return ts_value_make_bool(ts_map_delete(context, key));
+    return ts_value_make_bool(ts_map_delete(rawCtx, key));
 }
 
 TsValue* ts_map_clear_wrapper(void* context) {
-    if (context) {
-        uint32_t obj_magic = ((TsObject*)context)->magic;
-        if (obj_magic == TsSet::MAGIC) {
-            ts_set_clear(context);
-            return ts_value_make_undefined();
-        }
+    void* rawCtx = requireMapData(context, "clear");
+    if (!rawCtx) return ts_value_make_undefined();
+    uint32_t obj_magic = ((TsObject*)rawCtx)->magic;
+    if (obj_magic == TsSet::MAGIC) {
+        ts_set_clear(rawCtx);
+        return ts_value_make_undefined();
     }
-    ts_map_clear(context);
+    ts_map_clear(rawCtx);
     return ts_value_make_undefined();
 }
 
 TsValue* ts_map_size_wrapper(void* context) {
-    if (context) {
-        uint32_t obj_magic = ((TsObject*)context)->magic;
-        if (obj_magic == TsSet::MAGIC) {
-            return ts_value_make_int(ts_set_size(context));
-        }
+    void* rawCtx = requireMapData(context, "size");
+    if (!rawCtx) return ts_value_make_int(0);
+    uint32_t obj_magic = ((TsObject*)rawCtx)->magic;
+    if (obj_magic == TsSet::MAGIC) {
+        return ts_value_make_int(ts_set_size(rawCtx));
     }
-    return ts_value_make_int(ts_map_size(context));
+    return ts_value_make_int(ts_map_size(rawCtx));
 }
 
 // ============================================================

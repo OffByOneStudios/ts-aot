@@ -3358,15 +3358,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_call_0(boxedFunc);
 
-        if (patchedCtx) func->context = savedCtx;
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
@@ -3401,15 +3398,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_call_1(boxedFunc, arg1);
 
-        if (patchedCtx) func->context = savedCtx;
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
@@ -3440,15 +3434,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_call_2(boxedFunc, arg1, arg2);
 
-        if (patchedCtx) func->context = savedCtx;
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
@@ -3477,15 +3468,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_call_3(boxedFunc, arg1, arg2, arg3);
 
-        if (patchedCtx) func->context = savedCtx;
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
@@ -3513,15 +3501,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_call_4(boxedFunc, arg1, arg2, arg3, arg4);
 
-        if (patchedCtx) func->context = savedCtx;
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
@@ -3544,15 +3529,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_call_5(boxedFunc, arg1, arg2, arg3, arg4, arg5);
 
-        if (patchedCtx) func->context = savedCtx;
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
@@ -3575,15 +3557,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_call_6(boxedFunc, arg1, arg2, arg3, arg4, arg5, arg6);
 
-        if (patchedCtx) func->context = savedCtx;
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
@@ -3606,15 +3585,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_call_7(boxedFunc, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 
-        if (patchedCtx) func->context = savedCtx;
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
@@ -3637,15 +3613,12 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_call_8(boxedFunc, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 
-        if (patchedCtx) func->context = savedCtx;
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
@@ -3880,17 +3853,12 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Preserve the captured context and only override when the function has none.
         void* savedCtx = func->context;
-        bool patchedCtx = false;
-        if (!func->context) {
-            func->context = thisArg;
-            patchedCtx = true;
-        }
+        // .call() always overrides the receiver for TsFunction
+        func->context = thisArg;
 
         TsValue* result = ts_function_call(boxedFunc, argc, argv);
 
-        if (patchedCtx) {
-            func->context = savedCtx;
-        }
+        func->context = savedCtx;
         ts_call_this_value = savedThis;
         return result;
     }
