@@ -688,13 +688,29 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)func;
     }
 
-    // Create a native function with name and arity set, so .length/.name
-    // and hasOwnProperty('length'/'name') work per ES spec.
+    // Create a native function with name and arity set as real own
+    // properties in the TsMap, so hasOwnProperty, getOwnPropertyDescriptor,
+    // delete, and Object.defineProperty all work through standard TsMap
+    // property machinery. Per ES spec, Function.length and Function.name
+    // are {writable:false, enumerable:false, configurable:true}.
     static TsValue* makeNamedNativeFunction(void* funcPtr, void* context, const char* name, int arity) {
         TsValue* fn = ts_value_make_native_function(funcPtr, context);
         TsFunction* func = (TsFunction*)fn;
         func->name = TsString::Create(name);
         func->arity = arity;
+        // Store in properties TsMap with correct attributes
+        if (!func->properties) {
+            func->properties = TsMap::Create();
+            ts_gc_write_barrier(&func->properties, func->properties);
+        }
+        TsValue lengthKey; lengthKey.type = ValueType::STRING_PTR;
+        lengthKey.ptr_val = TsString::GetInterned("length");
+        TsValue lengthVal; lengthVal.type = ValueType::NUMBER_INT; lengthVal.i_val = arity;
+        func->properties->SetWithAttrs(lengthKey, lengthVal, TsHashTable::ATTR_CONFIGURABLE);
+        TsValue nameKey; nameKey.type = ValueType::STRING_PTR;
+        nameKey.ptr_val = TsString::GetInterned("name");
+        TsValue nameVal; nameVal.type = ValueType::STRING_PTR; nameVal.ptr_val = func->name;
+        func->properties->SetWithAttrs(nameKey, nameVal, TsHashTable::ATTR_CONFIGURABLE);
         return fn;
     }
 
@@ -4794,33 +4810,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check if it's a TsMap (or extract properties map from function/closure)
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
 
-        // TsFunction/TsClosure: check synthetic own properties (length, name)
-        // before falling through to the properties TsMap. These are stored as
-        // struct fields, not in the TsMap, so the TsMap lookup would miss them.
-        // Per ES spec: Function.length is {writable:false, enumerable:false, configurable:true}
-        // Function.name is {writable:false, enumerable:false, configurable:true}
-        if (magic == 0x46554E43 || magic == 0x434C5352) {
-            TsValue propKey = nanbox_to_tagged(prop);
-            if (propKey.type == ValueType::STRING_PTR && propKey.ptr_val) {
-                const char* k = ((TsString*)propKey.ptr_val)->ToUtf8();
-                if (k) {
-                    if (strcmp(k, "length") == 0) {
-                        int arity = 0;
-                        if (magic == 0x46554E43) arity = ((TsFunction*)rawPtr)->arity >= 0 ? ((TsFunction*)rawPtr)->arity : 0;
-                        else arity = ((TsClosure*)rawPtr)->arity;
-                        return buildPropertyDescriptor(ts_value_make_int(arity), false, false, true);
-                    }
-                    if (strcmp(k, "name") == 0) {
-                        TsString* name = nullptr;
-                        if (magic == 0x46554E43) name = ((TsFunction*)rawPtr)->name;
-                        else name = ((TsClosure*)rawPtr)->name;
-                        TsValue* nameVal = name ? ts_value_make_string(name) : ts_value_make_string(TsString::Create(""));
-                        return buildPropertyDescriptor(nameVal, false, false, true);
-                    }
-                }
-            }
-        }
-
+        // TsFunction/TsClosure: .length/.name are now stored in the
+        // properties TsMap with correct attributes (by ts_closure_set_arity/
+        // set_name and makeNamedNativeFunction). Fall through to the
+        // properties-TsMap extraction below — no synthetic override needed.
         if (magic == 0x46554E43) { // TsFunction::MAGIC
             TsFunction* func = (TsFunction*)rawPtr;
             if (!func->properties) return ts_value_make_object(nullptr);
@@ -6541,8 +6534,23 @@ TsValue* ts_value_make_int(int64_t i) {
             return 1; // delete on non-existent property returns true
         }
 
-        // Check magic to confirm it's a TsMap
+        // Check magic to determine object type
         uint32_t magic = *(uint32_t*)((char*)rawMap + 16);
+
+        // TsFunction/TsClosure: delete from their properties TsMap
+        if (magic == TsFunction::MAGIC) {
+            TsFunction* func = (TsFunction*)rawMap;
+            if (!func->properties) return 1; // non-existent = true
+            TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
+            return func->properties->Delete(kv) ? 1 : 0;
+        }
+        if (magic == 0x434C5352) { // TsClosure
+            TsClosure* cl = (TsClosure*)rawMap;
+            if (!cl->properties) return 1;
+            TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
+            return cl->properties->Delete(kv) ? 1 : 0;
+        }
+
         if (magic != 0x4D415053) return 0; // Not a TsMap ("MAPS")
 
         TsMap* map = (TsMap*)rawMap;
@@ -6942,45 +6950,26 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_bool(false);
         }
 
-        // Check for TsClosure / TsFunction — they have synthetic own properties
-        // (length, name, prototype) stored as fields, not in a TsMap. Check these
-        // directly, then fall through to the properties TsMap for user-set properties.
+        // TsClosure / TsFunction: .length/.name are now stored in the
+        // properties TsMap (by ts_closure_set_arity/set_name and
+        // makeNamedNativeFunction). Check TsMap directly — this handles
+        // deletion correctly since TsMap::Delete removes the entry.
         if (obj) {
             uint32_t m16 = *(uint32_t*)((char*)obj + 16);
-            if (m16 == 0x434C5352) { // TsClosure::MAGIC
+            if (m16 == 0x434C5352) { // TsClosure
                 TsClosure* cl = (TsClosure*)obj;
-                TsValue* keyVal = argv[0];
-                TsValue keyTV = nanbox_to_tagged(keyVal);
-                if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
-                    const char* k = ((TsString*)keyTV.ptr_val)->ToUtf8();
-                    if (k) {
-                        // Synthetic own properties from closure fields
-                        if (strcmp(k, "length") == 0 || strcmp(k, "name") == 0 ||
-                            strcmp(k, "prototype") == 0) {
-                            return ts_value_make_bool(true);
-                        }
-                    }
-                }
-                // Check user-set properties in the TsMap
                 if (cl->properties) {
+                    TsValue* keyVal = argv[0];
+                    TsValue keyTV = nanbox_to_tagged(keyVal);
                     return ts_value_make_bool(cl->properties->Has(keyTV));
                 }
                 return ts_value_make_bool(false);
             }
             if (m16 == TsFunction::MAGIC) { // TsFunction
                 TsFunction* fn = (TsFunction*)obj;
-                TsValue* keyVal = argv[0];
-                TsValue keyTV = nanbox_to_tagged(keyVal);
-                if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
-                    const char* k = ((TsString*)keyTV.ptr_val)->ToUtf8();
-                    if (k) {
-                        if (strcmp(k, "length") == 0 || strcmp(k, "name") == 0 ||
-                            strcmp(k, "prototype") == 0) {
-                            return ts_value_make_bool(true);
-                        }
-                    }
-                }
                 if (fn->properties) {
+                    TsValue* keyVal = argv[0];
+                    TsValue keyTV = nanbox_to_tagged(keyVal);
                     return ts_value_make_bool(fn->properties->Has(keyTV));
                 }
                 return ts_value_make_bool(false);

@@ -2,6 +2,8 @@
 #include "../include/TsObject.h"
 #include "../include/TsRuntime.h"
 #include "../include/TsString.h"
+#include "../include/TsMap.h"
+#include "../include/TsHashTable.h"
 #include "../include/GC.h"
 #include "../include/TsGC.h"
 #include "../include/TsNanBox.h"
@@ -139,15 +141,47 @@ bool ts_is_closure(void* ptr) {
     return obj->magic == 0x434C5352; // 'CLSR'
 }
 
+// Helper: ensure closure->properties TsMap exists, store a key/value with
+// ES spec attributes. Called from set_arity and set_name so .length/.name
+// are real own properties in the TsMap — enabling hasOwnProperty,
+// getOwnPropertyDescriptor, delete, and Object.defineProperty to work
+// through the standard TsMap property machinery.
+//
+// Safe to call here because ts_closure_set_arity is emitted inside
+// generated function bodies that run AFTER ts_main() → ts_runtime_init(),
+// so GC and string interning are fully initialized.
+static void closure_store_own_property(TsClosure* cl, const char* keyName, TsValue val, uint8_t attrs) {
+    if (!cl->properties) {
+        cl->properties = TsMap::Create();
+        ts_gc_write_barrier(&cl->properties, cl->properties);
+    }
+    TsValue key;
+    key.type = ValueType::STRING_PTR;
+    key.ptr_val = TsString::GetInterned(keyName);
+    cl->properties->SetWithAttrs(key, val, attrs);
+}
+
 void ts_closure_set_arity(TsClosure* closure, int32_t arity) {
     if (closure) {
         closure->arity = arity;
+        // Per ES spec: Function.length is {writable:false, enumerable:false, configurable:true}
+        TsValue val;
+        val.type = ValueType::NUMBER_INT;
+        val.i_val = arity;
+        closure_store_own_property(closure, "length", val, TsHashTable::ATTR_CONFIGURABLE);
     }
 }
 
 void ts_closure_set_name(TsClosure* closure, void* name) {
     if (closure) {
         closure->name = (TsString*)name;
+        // Per ES spec: Function.name is {writable:false, enumerable:false, configurable:true}
+        if (name) {
+            TsValue val;
+            val.type = ValueType::STRING_PTR;
+            val.ptr_val = name;
+            closure_store_own_property(closure, "name", val, TsHashTable::ATTR_CONFIGURABLE);
+        }
     }
 }
 
