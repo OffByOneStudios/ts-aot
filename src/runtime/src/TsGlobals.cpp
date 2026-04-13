@@ -641,15 +641,100 @@ void* ts_get_global_Symbol() {
     return cached;
 }
 
+// Forward declarations for Set/Map wrappers — must be before first use
+extern "C" {
+    TsValue* ts_set_has_wrapper(void* context, TsValue* value);
+    TsValue* ts_set_add_wrapper(void* context, TsValue* value);
+    TsValue* ts_set_delete_wrapper(void* context, TsValue* value);
+    TsValue* ts_set_clear_wrapper(void* context);
+    TsValue* ts_set_size_wrapper(void* context);
+    void ts_set_forEach(void* set, void* callback, void* thisArg);
+    TsValue* ts_map_get_wrapper(void* context, TsValue* key);
+    TsValue* ts_map_set_wrapper(void* context, TsValue* key, TsValue* value);
+    TsValue* ts_map_has_wrapper(void* context, TsValue* key);
+    TsValue* ts_map_delete_wrapper(void* context, TsValue* key);
+    TsValue* ts_map_clear_wrapper(void* context);
+    TsValue* ts_map_size_wrapper(void* context);
+}
+
 void* ts_get_global_Map() {
-    static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("Map");
+    static void* cached = nullptr;
+    if (!cached) {
+        TsMap* ctor = makeSimpleConstructorGlobal("Map");
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoVal = ctor->Get(protoKey);
+        TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
+            ? (TsMap*)protoVal.ptr_val : TsMap::Create();
+
+        addMethod(proto, "get", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_get_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "set", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_set_wrapper(ctx,
+                (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+        }, 2);
+        addMethod(proto, "has", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_has_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "delete", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "clear", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_clear_wrapper(ctx);
+        }, 0);
+
+        cached = (void*)ctor;
+    }
     return cached;
 }
 
 void* ts_get_global_Set() {
-    static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("Set");
+    static void* cached = nullptr;
+    if (!cached) {
+        TsMap* ctor = makeSimpleConstructorGlobal("Set");
+        // Get the prototype TsMap from the constructor
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsFunction* ctorFunc = (TsFunction*)(void*)ctor;
+        // ctor is a TsMap, get its "prototype" value
+        TsValue protoVal = ctor->Get(protoKey);
+        TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
+            ? (TsMap*)protoVal.ptr_val : TsMap::Create();
+
+        // Register Set.prototype methods — these use ctx as the Set object
+        addMethod(proto, "has", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_has_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "add", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_add_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "delete", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "clear", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_clear_wrapper(ctx);
+        }, 0);
+        addMethod(proto, "forEach", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+            void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+            ts_set_forEach(ctx, callback, thisArg);
+            return ts_value_make_undefined();
+        });
+
+        cached = (void*)ctor;
+    }
     return cached;
 }
 
