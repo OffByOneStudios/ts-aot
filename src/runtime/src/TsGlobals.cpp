@@ -665,9 +665,24 @@ void* ts_get_global_WeakSet() {
     return cached;
 }
 
+// Forward declarations for Reflect methods (TsReflect.cpp)
+extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* newTargetArg);
+extern "C" TsValue* ts_reflect_get(void* targetArg, void* propArg, void* receiverArg);
+
+// Native wrapper for Reflect.construct callable from JS
+static TsValue* ts_reflect_construct_native(void* ctx, int argc, TsValue** argv) {
+    void* target = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+    void* args = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+    void* newTarget = (argc >= 3 && argv) ? (void*)argv[2] : nullptr;
+    return ts_reflect_construct(target, args, newTarget);
+}
+
 void* ts_get_global_Reflect() {
     static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("Reflect");
+    if (!cached) {
+        cached = makeSimpleConstructorGlobal("Reflect");
+        addMethod(cached, "construct", (void*)ts_reflect_construct_native, 2);
+    }
     return cached;
 }
 
