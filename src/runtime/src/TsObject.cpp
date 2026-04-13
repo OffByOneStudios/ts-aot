@@ -1440,6 +1440,15 @@ TsValue* ts_value_make_int(int64_t i) {
         uintptr_t u = (uintptr_t)p;
         // Anything below 4KB is either a sentinel or a guard page.
         if (u < 0x1000) return false;
+        // NaN-boxed primitives (doubles, int32, bool) have their high bits
+        // above the canonical 48-bit pointer range. Reject them — they aren't
+        // real heap pointers. Valid heap pointers fit in 48 bits on x64.
+        uint64_t nb = (uint64_t)u;
+        if (!nanbox_is_ptr(nb) && (nanbox_is_number(nb) || nanbox_is_bool(nb))) {
+            return false;
+        }
+        // Also reject pointers with high bits set (above 48-bit canonical range).
+        if (u >> 48) return false;
         return true;
     }
 
@@ -1560,7 +1569,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     TsValue* ts_array_join_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "join");
-        if (!arr) return ts_value_make_undefined();
+        if (!arr) return ts_value_make_string(TsString::Create(""));
         void* separator = nullptr;
         if (argc >= 1 && argv && argv[0]) {
             separator = ts_value_get_string(argv[0]);
