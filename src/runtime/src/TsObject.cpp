@@ -2409,13 +2409,13 @@ TsValue* ts_value_make_int(int64_t i) {
             // If not found in the prototype chain, check Object.prototype methods
             // This provides prototype chain behavior for plain objects
             if (strcmp(keyStr, "hasOwnProperty") == 0) {
-                return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
             }
             if (strcmp(keyStr, "toString") == 0) {
-                return ts_value_make_native_function((void*)ts_object_toString_native, nullptr);
+                return makeNamedNativeFunction((void*)ts_object_toString_native, nullptr, "toString", 0);
             }
             if (strcmp(keyStr, "valueOf") == 0) {
-                return ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr);
+                return makeNamedNativeFunction((void*)ts_object_valueOf_native, nullptr, "valueOf", 0);
             }
             if (strcmp(keyStr, "constructor") == 0) {
                 extern TsValue* Object;
@@ -2626,7 +2626,7 @@ TsValue* ts_value_make_int(int64_t i) {
             }
 
             if (strcmp(keyStr, "hasOwnProperty") == 0) {
-                return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
             }
 
             return ts_value_make_undefined();
@@ -2713,7 +2713,7 @@ TsValue* ts_value_make_int(int64_t i) {
             // ts_call_this_value before the native runs, so ts_get_call_this()
             // returns the closure at call time.
             if (strcmp(keyStr, "hasOwnProperty") == 0) {
-                return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
             }
             return ts_value_make_undefined();
         }
@@ -5719,7 +5719,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         return ts_value_make_string(TsString::Create(""));
                     }
                     if (strcmp(k, "hasOwnProperty") == 0) {
-                        return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                        return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
                     }
                 }
             }
@@ -5782,7 +5782,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         return ts_value_make_int(closure->arity);
                     }
                     if (strcmp(k, "hasOwnProperty") == 0) {
-                        return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                        return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
                     }
                 }
             }
@@ -5992,13 +5992,13 @@ TsValue* ts_value_make_int(int64_t i) {
                 const char* k = keyStr->ToUtf8();
                 if (k) {
                     if (strcmp(k, "hasOwnProperty") == 0) {
-                        return ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr);
+                        return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
                     }
                     if (strcmp(k, "toString") == 0) {
-                        return ts_value_make_native_function((void*)ts_object_toString_native, nullptr);
+                        return makeNamedNativeFunction((void*)ts_object_toString_native, nullptr, "toString", 0);
                     }
                     if (strcmp(k, "valueOf") == 0) {
-                        return ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr);
+                        return makeNamedNativeFunction((void*)ts_object_valueOf_native, nullptr, "valueOf", 0);
                     }
                 }
             }
@@ -7178,43 +7178,43 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Object.keys
         TsValue keysKey; keysKey.type = ValueType::STRING_PTR; keysKey.ptr_val = TsString::Create("keys");
-        objectFunc->properties->Set(keysKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_keys_native, nullptr)));
+        objectFunc->properties->Set(keysKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_keys_native, nullptr, "keys", 1)));
         
         // Object.values
         TsValue valuesKey; valuesKey.type = ValueType::STRING_PTR; valuesKey.ptr_val = TsString::Create("values");
-        objectFunc->properties->Set(valuesKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_values_native, nullptr)));
+        objectFunc->properties->Set(valuesKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_values_native, nullptr, "values", 1)));
         
         // Object.entries
         TsValue entriesKey; entriesKey.type = ValueType::STRING_PTR; entriesKey.ptr_val = TsString::Create("entries");
-        objectFunc->properties->Set(entriesKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_entries_native, nullptr)));
+        objectFunc->properties->Set(entriesKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_entries_native, nullptr, "entries", 1)));
 
         // Object.getOwnPropertyNames
         TsValue gopnKey; gopnKey.type = ValueType::STRING_PTR; gopnKey.ptr_val = TsString::Create("getOwnPropertyNames");
-        objectFunc->properties->Set(gopnKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_getOwnPropertyNames_native, nullptr)));
+        objectFunc->properties->Set(gopnKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_getOwnPropertyNames_native, nullptr, "getOwnPropertyNames", 1)));
 
         // Object.getPrototypeOf
         TsValue gpoKey; gpoKey.type = ValueType::STRING_PTR; gpoKey.ptr_val = TsString::Create("getPrototypeOf");
-        objectFunc->properties->Set(gpoKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_getPrototypeOf_native, nullptr)));
+        objectFunc->properties->Set(gpoKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_getPrototypeOf_native, nullptr, "getPrototypeOf", 1)));
 
         // Object.create
         TsValue createKey; createKey.type = ValueType::STRING_PTR; createKey.ptr_val = TsString::Create("create");
-        objectFunc->properties->Set(createKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_create_native, nullptr)));
+        objectFunc->properties->Set(createKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_create_native, nullptr, "create", 2)));
 
         // Object.freeze
         TsValue freezeKey; freezeKey.type = ValueType::STRING_PTR; freezeKey.ptr_val = TsString::Create("freeze");
-        objectFunc->properties->Set(freezeKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_freeze_native, nullptr)));
+        objectFunc->properties->Set(freezeKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_freeze_native, nullptr, "freeze", 1)));
 
         // Object.seal
         TsValue sealKey; sealKey.type = ValueType::STRING_PTR; sealKey.ptr_val = TsString::Create("seal");
-        objectFunc->properties->Set(sealKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_seal_native, nullptr)));
+        objectFunc->properties->Set(sealKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_seal_native, nullptr, "seal", 1)));
 
         // Object.preventExtensions
         TsValue peKey; peKey.type = ValueType::STRING_PTR; peKey.ptr_val = TsString::Create("preventExtensions");
-        objectFunc->properties->Set(peKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_preventExtensions_native, nullptr)));
+        objectFunc->properties->Set(peKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_preventExtensions_native, nullptr, "preventExtensions", 1)));
 
         // Object.isFrozen
         TsValue isFrozenKey; isFrozenKey.type = ValueType::STRING_PTR; isFrozenKey.ptr_val = TsString::Create("isFrozen");
-        objectFunc->properties->Set(isFrozenKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_isFrozen_native, nullptr)));
+        objectFunc->properties->Set(isFrozenKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_isFrozen_native, nullptr, "isFrozen", 1)));
 
         // Object.isSealed
         TsValue isSealedKey; isSealedKey.type = ValueType::STRING_PTR; isSealedKey.ptr_val = TsString::Create("isSealed");
