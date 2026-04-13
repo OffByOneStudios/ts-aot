@@ -752,13 +752,63 @@ void* ts_get_global_Set() {
 
 void* ts_get_global_WeakMap() {
     static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("WeakMap");
+    if (!cached) {
+        cached = makeSimpleConstructorGlobal("WeakMap");
+        // Get the prototype TsMap from the constructor
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoVal = cached->Get(protoKey);
+        TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
+            ? (TsMap*)protoVal.ptr_val : TsMap::Create();
+
+        // WeakMap.prototype methods — share implementations with Map
+        // via the dual-purpose ts_map_*_wrapper functions.
+        addMethod(proto, "has", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_has_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "get", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_get_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "set", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_set_wrapper(ctx,
+                (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+        }, 2);
+        addMethod(proto, "delete", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+    }
     return cached;
 }
 
 void* ts_get_global_WeakSet() {
     static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("WeakSet");
+    if (!cached) {
+        cached = makeSimpleConstructorGlobal("WeakSet");
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoVal = cached->Get(protoKey);
+        TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
+            ? (TsMap*)protoVal.ptr_val : TsMap::Create();
+
+        // WeakSet.prototype methods — share Set implementations
+        addMethod(proto, "has", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_has_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "add", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_add_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+        addMethod(proto, "delete", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+        });
+    }
     return cached;
 }
 

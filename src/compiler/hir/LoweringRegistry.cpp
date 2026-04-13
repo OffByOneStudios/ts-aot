@@ -1014,6 +1014,11 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .build());
 
+    reg.registerLowering("ts_weakmap_create",
+        lowering("ts_weakmap_create")
+            .returnsPtr()
+            .build());
+
     reg.registerLowering("ts_map_create_explicit",
         lowering("ts_map_create_explicit")
             .returnsPtr()

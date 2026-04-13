@@ -5695,9 +5695,9 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
-    // Handle built-in WeakMap class (implemented as Map wrapper)
+    // Handle built-in WeakMap class (uses TsWeakMap with WMAP magic)
     if (className == "WeakMap") {
-        lastValue_ = builder_.createCall("ts_map_create", {}, HIRType::makeMap());
+        lastValue_ = builder_.createCall("ts_weakmap_create", {}, HIRType::makeMap());
         return;
     }
 

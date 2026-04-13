@@ -147,11 +147,16 @@ static void* requireSet(void* context, const char* methodName) {
             "Set method called on incompatible receiver"));
         return nullptr;
     }
-    // Check for TsSet magic at multiple offsets (TsSet extends TsObject → magic at 16, 20, or 24)
+    // Check for TsSet or TsWeakSet magic at multiple offsets
+    // (TsSet extends TsObject → magic at 16, 20, or 24)
+    constexpr uint32_t WEAKSET_MAGIC = 0x57534554; // "WSET"
+    auto is_valid = [](uint32_t m) {
+        return m == TsSet::MAGIC || m == WEAKSET_MAGIC;
+    };
     uint32_t m16 = *(uint32_t*)((char*)rawCtx + 16);
     uint32_t m20 = *(uint32_t*)((char*)rawCtx + 20);
     uint32_t m24 = *(uint32_t*)((char*)rawCtx + 24);
-    if (m16 != TsSet::MAGIC && m20 != TsSet::MAGIC && m24 != TsSet::MAGIC) {
+    if (!is_valid(m16) && !is_valid(m20) && !is_valid(m24)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Set method called on incompatible receiver"));
         return nullptr;

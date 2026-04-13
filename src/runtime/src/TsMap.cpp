@@ -403,12 +403,29 @@ static void* requireMapData(void* context, const char* methodName) {
             "Method Map.prototype.get called on incompatible receiver"));
         return nullptr;
     }
-    // Check for TsMap or TsSet magic at multiple offsets (extends TsObject → magic at 16, 20, or 24)
+    // Check for TsMap/TsSet/TsWeakMap/TsWeakSet magic at multiple offsets
+    // (extends TsObject → magic at 16, 20, or 24).
+    // NOTE: plain object literals {} are also TsMap internally, so we
+    // additionally require IsExplicitMap() for TsMap::MAGIC matches —
+    // new Map() sets that flag, plain objects do not.
+    constexpr uint32_t WEAKMAP_MAGIC = 0x574D4150; // "WMAP"
+    constexpr uint32_t WEAKSET_MAGIC = 0x57534554; // "WSET"
     uint32_t m16 = *(uint32_t*)((char*)rawCtx + 16);
     uint32_t m20 = *(uint32_t*)((char*)rawCtx + 20);
     uint32_t m24 = *(uint32_t*)((char*)rawCtx + 24);
-    if (m16 != TsMap::MAGIC && m20 != TsMap::MAGIC && m24 != TsMap::MAGIC &&
-        m16 != TsSet::MAGIC && m20 != TsSet::MAGIC && m24 != TsSet::MAGIC) {
+    bool hasMapMagic = (m16 == TsMap::MAGIC || m20 == TsMap::MAGIC || m24 == TsMap::MAGIC);
+    bool hasSetMagic = (m16 == TsSet::MAGIC || m20 == TsSet::MAGIC || m24 == TsSet::MAGIC);
+    bool hasWeakMapMagic = (m16 == WEAKMAP_MAGIC || m20 == WEAKMAP_MAGIC || m24 == WEAKMAP_MAGIC);
+    bool hasWeakSetMagic = (m16 == WEAKSET_MAGIC || m20 == WEAKSET_MAGIC || m24 == WEAKSET_MAGIC);
+    bool isValid = false;
+    if (hasWeakMapMagic || hasWeakSetMagic || hasSetMagic) {
+        // WeakMap/WeakSet/Set are explicit instances — accept directly.
+        isValid = true;
+    } else if (hasMapMagic) {
+        // Distinguish explicit Map from plain object literal.
+        isValid = ((TsMap*)rawCtx)->IsExplicitMap();
+    }
+    if (!isValid) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Method Map.prototype.get called on incompatible receiver"));
         return nullptr;
