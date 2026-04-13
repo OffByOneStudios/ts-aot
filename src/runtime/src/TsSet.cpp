@@ -125,31 +125,69 @@ void ts_set_forEach(void* set, void* callback, void* thisArg) {
     ((TsSet*)set)->ForEach(callback, thisArg);
 }
 
-TsValue* ts_set_add_wrapper(void* context, TsValue* value) {
+// Validate that ctx points to a TsSet (has [[SetData]] internal slot).
+// Per ES spec, Set methods must throw TypeError if `this` is not a Set.
+extern "C" void ts_throw(TsValue* err);
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
+static void* requireSet(void* context, const char* methodName) {
+    if (!context) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Set method called on incompatible receiver"));
+        return nullptr;
+    }
     void* rawCtx = context;
     uint64_t nb = (uint64_t)(uintptr_t)context;
     if (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) {
         rawCtx = nanbox_to_ptr(nb);
     }
+    if (!rawCtx) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Set method called on incompatible receiver"));
+        return nullptr;
+    }
+    // Check for TsSet magic at multiple offsets (TsSet extends TsObject → magic at 16, 20, or 24)
+    uint32_t m16 = *(uint32_t*)((char*)rawCtx + 16);
+    uint32_t m20 = *(uint32_t*)((char*)rawCtx + 20);
+    uint32_t m24 = *(uint32_t*)((char*)rawCtx + 24);
+    if (m16 != TsSet::MAGIC && m20 != TsSet::MAGIC && m24 != TsSet::MAGIC) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Set method called on incompatible receiver"));
+        return nullptr;
+    }
+    return rawCtx;
+}
+
+TsValue* ts_set_add_wrapper(void* context, TsValue* value) {
+    void* rawCtx = requireSet(context, "add");
+    if (!rawCtx) return ts_value_make_undefined();
     ts_set_add(rawCtx, value);
     return ts_value_make_object(rawCtx);
 }
 
 TsValue* ts_set_has_wrapper(void* context, TsValue* value) {
-    return ts_value_make_bool(ts_set_has(context, value));
+    void* rawCtx = requireSet(context, "has");
+    if (!rawCtx) return ts_value_make_bool(false);
+    return ts_value_make_bool(ts_set_has(rawCtx, value));
 }
 
 TsValue* ts_set_delete_wrapper(void* context, TsValue* value) {
-    return ts_value_make_bool(ts_set_delete(context, value));
+    void* rawCtx = requireSet(context, "delete");
+    if (!rawCtx) return ts_value_make_bool(false);
+    return ts_value_make_bool(ts_set_delete(rawCtx, value));
 }
 
 TsValue* ts_set_clear_wrapper(void* context) {
-    ts_set_clear(context);
+    void* rawCtx = requireSet(context, "clear");
+    if (!rawCtx) return ts_value_make_undefined();
+    ts_set_clear(rawCtx);
     return ts_value_make_undefined();
 }
 
 TsValue* ts_set_size_wrapper(void* context) {
-    return ts_value_make_int(ts_set_size(context));
+    void* rawCtx = requireSet(context, "size");
+    if (!rawCtx) return ts_value_make_int(0);
+    return ts_value_make_int(ts_set_size(rawCtx));
 }
 
 TsValue* ts_set_get_property(void* obj, void* propName) {
