@@ -4761,6 +4761,23 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Object.getOwnPropertyDescriptor(obj, prop) - gets the descriptor for a property
     // Returns { value: ..., writable: true, enumerable: true, configurable: true }
+    // Helper: build a property descriptor {value, writable, enumerable, configurable}
+    static TsValue* buildPropertyDescriptor(TsValue* value, bool writable, bool enumerable, bool configurable) {
+        TsMap* desc = TsMap::Create();
+        TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::GetInterned("value");
+        desc->Set(vk, nanbox_to_tagged(value));
+        TsValue wk; wk.type = ValueType::STRING_PTR; wk.ptr_val = TsString::GetInterned("writable");
+        TsValue wv; wv.type = ValueType::BOOLEAN; wv.i_val = writable ? 1 : 0;
+        desc->Set(wk, wv);
+        TsValue ek; ek.type = ValueType::STRING_PTR; ek.ptr_val = TsString::GetInterned("enumerable");
+        TsValue ev; ev.type = ValueType::BOOLEAN; ev.i_val = enumerable ? 1 : 0;
+        desc->Set(ek, ev);
+        TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("configurable");
+        TsValue cv; cv.type = ValueType::BOOLEAN; cv.i_val = configurable ? 1 : 0;
+        desc->Set(ck, cv);
+        return ts_value_make_object(desc);
+    }
+
     TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop) {
         if (!obj || !prop) return ts_value_make_object(nullptr);
 
@@ -4776,6 +4793,34 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check if it's a TsMap (or extract properties map from function/closure)
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
+
+        // TsFunction/TsClosure: check synthetic own properties (length, name)
+        // before falling through to the properties TsMap. These are stored as
+        // struct fields, not in the TsMap, so the TsMap lookup would miss them.
+        // Per ES spec: Function.length is {writable:false, enumerable:false, configurable:true}
+        // Function.name is {writable:false, enumerable:false, configurable:true}
+        if (magic == 0x46554E43 || magic == 0x434C5352) {
+            TsValue propKey = nanbox_to_tagged(prop);
+            if (propKey.type == ValueType::STRING_PTR && propKey.ptr_val) {
+                const char* k = ((TsString*)propKey.ptr_val)->ToUtf8();
+                if (k) {
+                    if (strcmp(k, "length") == 0) {
+                        int arity = 0;
+                        if (magic == 0x46554E43) arity = ((TsFunction*)rawPtr)->arity >= 0 ? ((TsFunction*)rawPtr)->arity : 0;
+                        else arity = ((TsClosure*)rawPtr)->arity;
+                        return buildPropertyDescriptor(ts_value_make_int(arity), false, false, true);
+                    }
+                    if (strcmp(k, "name") == 0) {
+                        TsString* name = nullptr;
+                        if (magic == 0x46554E43) name = ((TsFunction*)rawPtr)->name;
+                        else name = ((TsClosure*)rawPtr)->name;
+                        TsValue* nameVal = name ? ts_value_make_string(name) : ts_value_make_string(TsString::Create(""));
+                        return buildPropertyDescriptor(nameVal, false, false, true);
+                    }
+                }
+            }
+        }
+
         if (magic == 0x46554E43) { // TsFunction::MAGIC
             TsFunction* func = (TsFunction*)rawPtr;
             if (!func->properties) return ts_value_make_object(nullptr);
