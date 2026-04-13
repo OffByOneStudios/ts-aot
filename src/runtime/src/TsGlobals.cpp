@@ -8,6 +8,7 @@
 #include "TsRuntime.h"
 #include "TsObject.h"
 #include "TsMap.h"
+#include "TsHashTable.h"
 #include "TsString.h"
 #include "TsConsString.h"
 #include "TsNanBox.h"
@@ -100,6 +101,17 @@ static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 
     TsFunction* func = (TsFunction*)fn;
     func->name = TsString::Create(name);
     func->arity = arity;
+    // Store .length/.name in properties TsMap with correct attributes
+    // so hasOwnProperty/getOwnPropertyDescriptor work per ES spec
+    if (!func->properties) func->properties = TsMap::Create();
+    TsValue lk; lk.type = ValueType::STRING_PTR;
+    lk.ptr_val = TsString::GetInterned("length");
+    TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = arity;
+    func->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+    TsValue nk; nk.type = ValueType::STRING_PTR;
+    nk.ptr_val = TsString::GetInterned("name");
+    TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = func->name;
+    func->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
     val.ptr_val = fn;
     map->Set(key, val);
 }

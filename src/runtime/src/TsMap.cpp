@@ -626,6 +626,24 @@ static TsValue* ts_map_forEach_iter_wrapper(void* context, int argc, TsValue** a
     return ts_value_make_undefined();
 }
 
+// Helper: create a TsFunction with name, arity, and properties TsMap
+static TsValue* makeMapMethod(void* funcPtr, void* ctx, const char* methodName, int arity) {
+    TsValue* val = ts_value_make_function(funcPtr, ctx);
+    TsFunction* func = (TsFunction*)val;
+    func->name = TsString::Create(methodName);
+    func->arity = arity;
+    if (!func->properties) func->properties = TsMap::Create();
+    TsValue lengthKey; lengthKey.type = ValueType::STRING_PTR;
+    lengthKey.ptr_val = TsString::GetInterned("length");
+    TsValue lengthVal; lengthVal.type = ValueType::NUMBER_INT; lengthVal.i_val = arity;
+    func->properties->SetWithAttrs(lengthKey, lengthVal, TsHashTable::ATTR_CONFIGURABLE);
+    TsValue nameKey; nameKey.type = ValueType::STRING_PTR;
+    nameKey.ptr_val = TsString::GetInterned("name");
+    TsValue nameVal; nameVal.type = ValueType::STRING_PTR; nameVal.ptr_val = func->name;
+    func->properties->SetWithAttrs(nameKey, nameVal, TsHashTable::ATTR_CONFIGURABLE);
+    return val;
+}
+
 TsValue* ts_map_get_property(void* obj, void* propName) {
     TsMap* map = (TsMap*)obj;
     TsString* prop = (TsString*)propName;
@@ -642,25 +660,25 @@ TsValue* ts_map_get_property(void* obj, void* propName) {
     }
 
     if (strcmp(name, "get") == 0) {
-        return ts_value_make_function((void*)ts_map_get_wrapper, obj);
+        return makeMapMethod((void*)ts_map_get_wrapper, obj, "get", 1);
     } else if (strcmp(name, "set") == 0) {
-        return ts_value_make_function((void*)ts_map_set_wrapper, obj);
+        return makeMapMethod((void*)ts_map_set_wrapper, obj, "set", 2);
     } else if (strcmp(name, "has") == 0) {
-        return ts_value_make_function((void*)ts_map_has_wrapper, obj);
+        return makeMapMethod((void*)ts_map_has_wrapper, obj, "has", 1);
     } else if (strcmp(name, "delete") == 0) {
-        return ts_value_make_function((void*)ts_map_delete_wrapper, obj);
+        return makeMapMethod((void*)ts_map_delete_wrapper, obj, "delete", 1);
     } else if (strcmp(name, "clear") == 0) {
-        return ts_value_make_function((void*)ts_map_clear_wrapper, obj);
+        return makeMapMethod((void*)ts_map_clear_wrapper, obj, "clear", 0);
     } else if (strcmp(name, "size") == 0) {
         return ts_value_make_int(ts_map_size(obj));
     } else if (strcmp(name, "keys") == 0) {
-        return ts_value_make_native_function((void*)ts_map_keys_iter_wrapper, obj);
+        return makeMapMethod((void*)ts_map_keys_iter_wrapper, obj, "keys", 0);
     } else if (strcmp(name, "values") == 0) {
-        return ts_value_make_native_function((void*)ts_map_values_iter_wrapper, obj);
+        return makeMapMethod((void*)ts_map_values_iter_wrapper, obj, "values", 0);
     } else if (strcmp(name, "entries") == 0) {
-        return ts_value_make_native_function((void*)ts_map_entries_iter_wrapper, obj);
+        return makeMapMethod((void*)ts_map_entries_iter_wrapper, obj, "entries", 0);
     } else if (strcmp(name, "forEach") == 0) {
-        return ts_value_make_native_function((void*)ts_map_forEach_iter_wrapper, obj);
+        return makeMapMethod((void*)ts_map_forEach_iter_wrapper, obj, "forEach", 1);
     }
 
     return ts_value_make_undefined();

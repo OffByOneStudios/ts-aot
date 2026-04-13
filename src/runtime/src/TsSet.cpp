@@ -1,5 +1,6 @@
 #include "TsSet.h"
 #include "TsHashTable.h"
+#include "TsMap.h"
 #include "TsWeakSet.h"
 #include "TsArray.h"
 #include "TsObject.h"
@@ -190,18 +191,36 @@ TsValue* ts_set_size_wrapper(void* context) {
     return ts_value_make_int(ts_set_size(rawCtx));
 }
 
+// Helper: create a TsFunction with name, arity, and properties TsMap
+static TsValue* makeSetMethod(void* funcPtr, void* ctx, const char* methodName, int arity) {
+    TsValue* val = ts_value_make_function(funcPtr, ctx);
+    TsFunction* func = (TsFunction*)val;
+    func->name = TsString::Create(methodName);
+    func->arity = arity;
+    if (!func->properties) func->properties = TsMap::Create();
+    TsValue lengthKey; lengthKey.type = ValueType::STRING_PTR;
+    lengthKey.ptr_val = TsString::GetInterned("length");
+    TsValue lengthVal; lengthVal.type = ValueType::NUMBER_INT; lengthVal.i_val = arity;
+    func->properties->SetWithAttrs(lengthKey, lengthVal, TsHashTable::ATTR_CONFIGURABLE);
+    TsValue nameKey; nameKey.type = ValueType::STRING_PTR;
+    nameKey.ptr_val = TsString::GetInterned("name");
+    TsValue nameVal; nameVal.type = ValueType::STRING_PTR; nameVal.ptr_val = func->name;
+    func->properties->SetWithAttrs(nameKey, nameVal, TsHashTable::ATTR_CONFIGURABLE);
+    return val;
+}
+
 TsValue* ts_set_get_property(void* obj, void* propName) {
     TsString* prop = (TsString*)propName;
     const char* name = prop->ToUtf8();
 
     if (strcmp(name, "add") == 0) {
-        return ts_value_make_function((void*)ts_set_add_wrapper, obj);
+        return makeSetMethod((void*)ts_set_add_wrapper, obj, "add", 1);
     } else if (strcmp(name, "has") == 0) {
-        return ts_value_make_function((void*)ts_set_has_wrapper, obj);
+        return makeSetMethod((void*)ts_set_has_wrapper, obj, "has", 1);
     } else if (strcmp(name, "delete") == 0) {
-        return ts_value_make_function((void*)ts_set_delete_wrapper, obj);
+        return makeSetMethod((void*)ts_set_delete_wrapper, obj, "delete", 1);
     } else if (strcmp(name, "clear") == 0) {
-        return ts_value_make_function((void*)ts_set_clear_wrapper, obj);
+        return makeSetMethod((void*)ts_set_clear_wrapper, obj, "clear", 0);
     } else if (strcmp(name, "size") == 0) {
         return ts_value_make_int(ts_set_size(obj));
     }
