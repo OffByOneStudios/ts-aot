@@ -7218,34 +7218,34 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Object.isSealed
         TsValue isSealedKey; isSealedKey.type = ValueType::STRING_PTR; isSealedKey.ptr_val = TsString::Create("isSealed");
-        objectFunc->properties->Set(isSealedKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_isSealed_native, nullptr)));
+        objectFunc->properties->Set(isSealedKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_isSealed_native, nullptr, "isSealed", 1)));
 
         // Object.isExtensible
         TsValue isExtensibleKey; isExtensibleKey.type = ValueType::STRING_PTR; isExtensibleKey.ptr_val = TsString::Create("isExtensible");
-        objectFunc->properties->Set(isExtensibleKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_isExtensible_native, nullptr)));
+        objectFunc->properties->Set(isExtensibleKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_isExtensible_native, nullptr, "isExtensible", 1)));
 
         // Object.defineProperty
         TsValue dpKey; dpKey.type = ValueType::STRING_PTR; dpKey.ptr_val = TsString::Create("defineProperty");
-        objectFunc->properties->Set(dpKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_defineProperty_native, nullptr)));
+        objectFunc->properties->Set(dpKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_defineProperty_native, nullptr, "defineProperty", 3)));
 
         // Object.defineProperties
         TsValue dpsKey; dpsKey.type = ValueType::STRING_PTR; dpsKey.ptr_val = TsString::Create("defineProperties");
-        objectFunc->properties->Set(dpsKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_defineProperties_native, nullptr)));
+        objectFunc->properties->Set(dpsKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_defineProperties_native, nullptr, "defineProperties", 2)));
 
         // Object.getOwnPropertyDescriptor
         TsValue gopdKey; gopdKey.type = ValueType::STRING_PTR; gopdKey.ptr_val = TsString::Create("getOwnPropertyDescriptor");
-        objectFunc->properties->Set(gopdKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_getOwnPropertyDescriptor_native, nullptr)));
+        objectFunc->properties->Set(gopdKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_getOwnPropertyDescriptor_native, nullptr, "getOwnPropertyDescriptor", 2)));
 
         // Object.getOwnPropertyDescriptors (ES2017)
         TsValue gopdsKey; gopdsKey.type = ValueType::STRING_PTR; gopdsKey.ptr_val = TsString::Create("getOwnPropertyDescriptors");
-        objectFunc->properties->Set(gopdsKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_getOwnPropertyDescriptors_native, nullptr)));
+        objectFunc->properties->Set(gopdsKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_getOwnPropertyDescriptors_native, nullptr, "getOwnPropertyDescriptors", 1)));
 
         Object = objectConstructor;
 
         // Initialize console
         TsMap* consoleMap = TsMap::Create();
         TsValue logKey; logKey.type = ValueType::STRING_PTR; logKey.ptr_val = TsString::Create("log");
-        consoleMap->Set(logKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_console_log_native, nullptr)));
+        consoleMap->Set(logKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_console_log_native, nullptr, "log", 1)));
         console = ts_value_make_object(consoleMap);
 
         // Initialize Array - make it callable
@@ -7335,7 +7335,7 @@ TsValue* ts_value_make_int(int64_t i) {
             // Add toString method
             TsValue toStringKey = makeKey("toString");
             if (isFunction) {
-                protoMap->Set(toStringKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_function_toString_native, nullptr)));
+                protoMap->Set(toStringKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_function_toString_native, nullptr, "toString", 0)));
             } else {
                 protoMap->Set(toStringKey, nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_toString_native, nullptr)));
             }
@@ -7387,8 +7387,8 @@ TsValue* ts_value_make_int(int64_t i) {
         objectProtoMap->Set(makeKey("toString"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_toString_native, nullptr)));
         objectProtoMap->Set(makeKey("valueOf"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr)));
         objectProtoMap->Set(makeKey("hasOwnProperty"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_hasOwnProperty_native, nullptr)));
-        objectProtoMap->Set(makeKey("isPrototypeOf"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_isPrototypeOf_native, nullptr)));
-        objectProtoMap->Set(makeKey("propertyIsEnumerable"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_propertyIsEnumerable_native, nullptr)));
+        objectProtoMap->Set(makeKey("isPrototypeOf"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_isPrototypeOf_native, nullptr, "isPrototypeOf", 1)));
+        objectProtoMap->Set(makeKey("propertyIsEnumerable"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_object_propertyIsEnumerable_native, nullptr, "propertyIsEnumerable", 1)));
         objectProtoMap->Set(makeKey("constructor"), nanbox_to_tagged(Object));
         objectFunc->properties->Set(protoKey, nanbox_to_tagged(ts_value_make_object(objectProtoMap)));
         
