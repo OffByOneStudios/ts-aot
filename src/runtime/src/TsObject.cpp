@@ -1043,7 +1043,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Forward declarations for prototype methods
     static TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv);
-    static TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv);
     static TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
     static TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv);
 
@@ -6924,7 +6924,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     
     // Object.prototype.hasOwnProperty(key)
-    static TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv) {
         if (argc < 1 || !argv[0]) {
             return ts_value_make_bool(false);
         }

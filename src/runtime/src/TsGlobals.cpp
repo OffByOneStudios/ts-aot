@@ -160,15 +160,12 @@ void* ts_get_global_Object() {
 
     // Object.prototype — a TsMap that serves as the base prototype
     TsMap* proto = TsMap::Create();
-    // hasOwnProperty(key): instance method — 1 arg, 'this' is the object
-    addMethod(proto, "hasOwnProperty", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-        if (argc < 1 || !argv[0]) return ts_value_make_bool(false);
-        void* thisObj = ctx;
-        if (!thisObj) thisObj = ts_get_call_this();
-        if (!thisObj) return ts_value_make_bool(false);
-        // Use ts_object_has_property which handles flat objects, TsMaps, etc.
-        return ts_value_make_bool(ts_object_has_property(thisObj, argv[0]));
-    });
+    // hasOwnProperty(key): use the canonical implementation from TsObject.cpp
+    // which handles TsClosure/TsFunction properties TsMap (for .length/.name
+    // after delete). The old inline lambda used ts_object_has_property which
+    // doesn't check function property maps.
+    extern TsValue* ts_object_hasOwnProperty_native(void*, int, TsValue**);
+    addMethod(proto, "hasOwnProperty", (void*)ts_object_hasOwnProperty_native);
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;
     protoKey.ptr_val = TsString::GetInterned("prototype");
