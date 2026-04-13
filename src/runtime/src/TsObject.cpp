@@ -2604,7 +2604,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
             // Handle Function.prototype methods directly on the function
             if (strcmp(keyStr, "toString") == 0) {
-                return ts_value_make_native_function((void*)ts_function_toString_native, (void*)func);
+                return makeNamedNativeFunction((void*)ts_function_toString_native, (void*)func, "toString", 0);
             }
 
             // Function.prototype.call / apply
@@ -2612,17 +2612,17 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "call") == 0) {
                 // Box the function properly for ts_function_call_with_this
                 TsValue* target = ts_value_make_object(func);
-                return ts_value_make_native_function((void*)ts_function_call_native, (void*)target);
+                return makeNamedNativeFunction((void*)ts_function_call_native, (void*)target, "call", 1);
             }
             if (strcmp(keyStr, "apply") == 0) {
                 TsValue* target = ts_value_make_object(func);
-                return ts_value_make_native_function((void*)ts_function_apply_native, (void*)target);
+                return makeNamedNativeFunction((void*)ts_function_apply_native, (void*)target, "apply", 2);
             }
 
             // Function.prototype.bind: create a bound function wrapper
             if (strcmp(keyStr, "bind") == 0) {
                 TsValue* target = ts_value_make_object(func);
-                return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
+                return makeNamedNativeFunction((void*)ts_function_bind_native, (void*)target, "bind", 1);
             }
 
             if (strcmp(keyStr, "hasOwnProperty") == 0) {
@@ -2692,22 +2692,22 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_string(TsString::Create(""));
             }
             if (strcmp(keyStr, "toString") == 0) {
-                return ts_value_make_native_function((void*)ts_function_toString_native, (void*)closure);
+                return makeNamedNativeFunction((void*)ts_function_toString_native, (void*)closure, "toString", 0);
             }
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int(closure->arity);
             }
             if (strcmp(keyStr, "call") == 0) {
                 TsValue* target = ts_value_make_object(closure);
-                return ts_value_make_native_function((void*)ts_function_call_native, (void*)target);
+                return makeNamedNativeFunction((void*)ts_function_call_native, (void*)target, "call", 1);
             }
             if (strcmp(keyStr, "apply") == 0) {
                 TsValue* target = ts_value_make_object(closure);
-                return ts_value_make_native_function((void*)ts_function_apply_native, (void*)target);
+                return makeNamedNativeFunction((void*)ts_function_apply_native, (void*)target, "apply", 2);
             }
             if (strcmp(keyStr, "bind") == 0) {
                 TsValue* target = ts_value_make_object(closure);
-                return ts_value_make_native_function((void*)ts_function_bind_native, (void*)target);
+                return makeNamedNativeFunction((void*)ts_function_bind_native, (void*)target, "bind", 1);
             }
             // Object.prototype methods — nullptr ctx, ts_call_with_this sets
             // ts_call_this_value before the native runs, so ts_get_call_this()
@@ -5700,16 +5700,16 @@ TsValue* ts_value_make_int(int64_t i) {
                 const char* k = keyStr->ToUtf8();
                 if (k) {
                     if (strcmp(k, "bind") == 0) {
-                        return ts_value_make_native_function((void*)ts_function_bind_native, (void*)func);
+                        return makeNamedNativeFunction((void*)ts_function_bind_native, (void*)func, "bind", 1);
                     }
                     if (strcmp(k, "call") == 0) {
-                        return ts_value_make_native_function((void*)ts_function_call_native, (void*)func);
+                        return makeNamedNativeFunction((void*)ts_function_call_native, (void*)func, "call", 1);
                     }
                     if (strcmp(k, "apply") == 0) {
-                        return ts_value_make_native_function((void*)ts_function_apply_native, (void*)func);
+                        return makeNamedNativeFunction((void*)ts_function_apply_native, (void*)func, "apply", 2);
                     }
                     if (strcmp(k, "toString") == 0) {
-                        return ts_value_make_native_function((void*)ts_function_toString_native, (void*)func);
+                        return makeNamedNativeFunction((void*)ts_function_toString_native, (void*)func, "toString", 0);
                     }
                     if (strcmp(k, "length") == 0) {
                         return ts_value_make_int(func->arity >= 0 ? func->arity : 0);
@@ -5767,16 +5767,16 @@ TsValue* ts_value_make_int(int64_t i) {
                         return ts_value_make_string(TsString::Create(""));
                     }
                     if (strcmp(k, "bind") == 0) {
-                        return ts_value_make_native_function((void*)ts_function_bind_native, (void*)closure);
+                        return makeNamedNativeFunction((void*)ts_function_bind_native, (void*)closure, "bind", 1);
                     }
                     if (strcmp(k, "call") == 0) {
-                        return ts_value_make_native_function((void*)ts_function_call_native, (void*)closure);
+                        return makeNamedNativeFunction((void*)ts_function_call_native, (void*)closure, "call", 1);
                     }
                     if (strcmp(k, "apply") == 0) {
-                        return ts_value_make_native_function((void*)ts_function_apply_native, (void*)closure);
+                        return makeNamedNativeFunction((void*)ts_function_apply_native, (void*)closure, "apply", 2);
                     }
                     if (strcmp(k, "toString") == 0) {
-                        return ts_value_make_native_function((void*)ts_function_toString_native, (void*)closure);
+                        return makeNamedNativeFunction((void*)ts_function_toString_native, (void*)closure, "toString", 0);
                     }
                     if (strcmp(k, "length") == 0) {
                         return ts_value_make_int(closure->arity);
