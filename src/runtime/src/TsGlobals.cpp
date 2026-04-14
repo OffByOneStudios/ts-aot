@@ -77,6 +77,9 @@ TsValue* ts_array_with_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_array_findLast_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_array_findLastIndex_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_array_flatMap_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_entries_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_keys_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_values_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv);
 TsValue* ts_json_parse_native(void* context, int argc, TsValue** argv);
 // ts_error_create is declared in TsError.h (returns void*)
@@ -249,6 +252,9 @@ void* ts_get_global_Array() {
     addMethod(proto, "toSorted", (void*)ts_array_toSorted_native);
     addMethod(proto, "toSpliced", (void*)ts_array_toSpliced_native);
     addMethod(proto, "with", (void*)ts_array_with_native, 2);
+    addMethod(proto, "entries", (void*)ts_array_entries_native, 0);
+    addMethod(proto, "keys", (void*)ts_array_keys_native, 0);
+    addMethod(proto, "values", (void*)ts_array_values_native, 0);
 
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;
