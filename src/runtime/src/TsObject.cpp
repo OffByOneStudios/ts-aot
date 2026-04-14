@@ -1509,15 +1509,45 @@ TsValue* ts_value_make_int(int64_t i) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
             return nullptr;  // unreachable
         }
-        // Non-nullish but not a recognized TsArray (e.g. an object with
-        // .length used array-like style). The spec says: ToObject(this),
-        // len = LengthOfArrayLike(O), iterate. We don't yet implement that.
-        // Returning nullptr causes the caller to take its early-return path
-        // (vacuous true / -1 / undefined depending on method), which happens
-        // to match the spec result for the common case of len=0. Tests with
-        // len > 0 on non-array receivers (~2 in our sample) regress; the
-        // ~18 length-getter tests gain. Net +16 over the legacy raw cast.
-        return nullptr;
+        // Non-nullish but not a recognized TsArray. Per spec:
+        //   1. Let O be ToObject(this value).
+        //   2. Let len be LengthOfArrayLike(O).
+        //   3. For each index i in [0, len), read O[i].
+        // We materialize a temporary TsArray by reading .length and each
+        // indexed property. This makes existing Array method wrappers work
+        // on array-like objects (e.g., { 0: 'a', 1: 'b', length: 2 }).
+        void* ctxToRead = ctx;
+        // Prefer ts_get_call_this() when ctx is nullish but call_this is not —
+        // matches resolve_array_ctx fallback behavior.
+        if (ctxIsNullish) {
+            ctxToRead = ts_get_call_this();
+            if (!ctxToRead) return nullptr;
+        }
+        // Read .length
+        TsValue* lenVal = ts_object_get_property(ctxToRead, "length");
+        if (!lenVal) return nullptr;
+        // ToLength: convert to double, clamp to [0, 2^53-1].
+        double lenD = ts_value_get_double(lenVal);
+        if (lenD != lenD || lenD <= 0) {
+            // NaN or non-positive → empty array (matches spec ToLength → 0).
+            return TsArray::Create(0);
+        }
+        // Per spec, ToLength clamps at 2^53-1. Cap to a sensible iteration
+        // limit to avoid runaway allocations on pathological inputs.
+        const int64_t MAX_ITER = 1 << 20; // 1M
+        int64_t len = (lenD > (double)MAX_ITER) ? MAX_ITER : (int64_t)lenD;
+        // Build the temporary array by indexed reads.
+        TsArray* tmp = TsArray::Create(len);
+        for (int64_t i = 0; i < len; i++) {
+            char idxKey[24];
+            snprintf(idxKey, sizeof(idxKey), "%lld", (long long)i);
+            TsValue* elem = ts_object_get_property(ctxToRead, idxKey);
+            // ts_array_push takes a TsValue* (NaN-boxed). Push even if
+            // undefined so holes are preserved as undefined (spec behavior
+            // for non-sparse array-likes in the common case).
+            ts_array_push(tmp, elem ? elem : ts_value_make_undefined());
+        }
+        return tmp;
     }
 
     // P0: Extremely common methods
