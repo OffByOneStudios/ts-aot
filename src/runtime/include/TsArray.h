@@ -37,9 +37,9 @@ public:
     void PushDouble(double value);  // Push a double value
     int64_t Length();
     void Sort();
-    int64_t IndexOf(int64_t value);
-    int64_t LastIndexOf(int64_t value);
-    bool Includes(int64_t value);
+    int64_t IndexOf(int64_t value, size_t fromIndex = 0);
+    int64_t LastIndexOf(int64_t value, int64_t fromIndex = -1); // -1 == iterate from end
+    bool Includes(int64_t value, size_t fromIndex = 0);
     void Remove(int64_t value);
     int64_t At(int64_t index);
     void* Slice(int64_t start, int64_t end);
@@ -134,8 +134,11 @@ extern "C" {
     void* ts_array_flat(void* arr, int64_t depth);
     void* ts_array_flatMap(void* arr, void* callback, void* thisArg);
     int64_t ts_array_indexOf(void* arr, int64_t value);
+    int64_t ts_array_indexOf_from(void* arr, int64_t value, int64_t fromIndex);
     int64_t ts_array_lastIndexOf(void* arr, int64_t value);
+    int64_t ts_array_lastIndexOf_from(void* arr, int64_t value, int64_t fromIndex);
     bool ts_array_includes(void* arr, int64_t value);
+    bool ts_array_includes_from(void* arr, int64_t value, int64_t fromIndex);
     void* ts_array_at(void* arr, int64_t index);
     void* ts_array_join(void* arr, void* separator);
     void* ts_array_concat(void* arr, void* other);

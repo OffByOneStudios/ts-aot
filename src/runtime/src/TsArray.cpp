@@ -294,7 +294,8 @@ void TsArray::Sort() {
     std::sort((int64_t*)elements, ((int64_t*)elements) + length, jsDefaultSortComparator);
 }
 
-int64_t TsArray::IndexOf(int64_t value) {
+int64_t TsArray::IndexOf(int64_t value, size_t fromIndex) {
+    if (fromIndex >= length) return -1;
     // For PackedDouble arrays, codegen passes raw double bits directly (via bitcast).
     // Handle this FIRST to avoid trying to dereference double bits as a pointer.
     if (isSpecialized && isDouble) {
@@ -302,7 +303,7 @@ int64_t TsArray::IndexOf(int64_t value) {
         double searchVal;
         memcpy(&searchVal, &value, sizeof(double));
 
-        for (size_t i = 0; i < length; ++i) {
+        for (size_t i = fromIndex; i < length; ++i) {
             if (((double*)elements)[i] == searchVal) return (int64_t)i;
         }
         return -1;
@@ -319,7 +320,7 @@ int64_t TsArray::IndexOf(int64_t value) {
         } else {
             rawValue = value;  // raw int passed directly
         }
-        for (size_t i = 0; i < length; ++i) {
+        for (size_t i = fromIndex; i < length; ++i) {
             if (((int64_t*)elements)[i] == rawValue) return (int64_t)i;
         }
         return -1;
@@ -329,7 +330,7 @@ int64_t TsArray::IndexOf(int64_t value) {
     // The search value is also NaN-boxed. Compare using NaN-box decoding.
     uint64_t searchNB = (uint64_t)value;
 
-    for (size_t i = 0; i < length; ++i) {
+    for (size_t i = fromIndex; i < length; ++i) {
         uint64_t elemNB = (uint64_t)((int64_t*)elements)[i];
 
         // Fast path: exact bit-level match (handles ints, bools, null, undefined, same pointer)
@@ -358,7 +359,16 @@ int64_t TsArray::IndexOf(int64_t value) {
     return -1;
 }
 
-int64_t TsArray::LastIndexOf(int64_t value) {
+int64_t TsArray::LastIndexOf(int64_t value, int64_t fromIndex) {
+    if (length == 0) return -1;
+    // Clamp fromIndex: -1 (default) means "from end" i.e. length-1.
+    // Otherwise fromIndex is an upper-bound INCLUSIVE.
+    size_t startFrom;
+    if (fromIndex < 0 || fromIndex >= (int64_t)length) {
+        startFrom = length;  // iterate full [length..1], i.e. all indices
+    } else {
+        startFrom = (size_t)(fromIndex + 1);  // inclusive upper bound → i iterates [startFrom..1]
+    }
     // For PackedDouble arrays, codegen passes raw double bits directly (via bitcast).
     // Handle this FIRST to avoid trying to dereference double bits as a pointer.
     if (isSpecialized && isDouble) {
@@ -366,7 +376,7 @@ int64_t TsArray::LastIndexOf(int64_t value) {
         double searchVal;
         memcpy(&searchVal, &value, sizeof(double));
 
-        for (size_t i = length; i > 0; --i) {
+        for (size_t i = startFrom; i > 0; --i) {
             if (((double*)elements)[i - 1] == searchVal) return (int64_t)(i - 1);
         }
         return -1;
@@ -382,7 +392,7 @@ int64_t TsArray::LastIndexOf(int64_t value) {
         } else if (decoded.type == ValueType::NUMBER_DBL) {
             rawValue = (int64_t)decoded.d_val;
         }
-        for (size_t i = length; i > 0; --i) {
+        for (size_t i = startFrom; i > 0; --i) {
             if (((int64_t*)elements)[i - 1] == rawValue) return (int64_t)(i - 1);
         }
         return -1;
@@ -393,7 +403,7 @@ int64_t TsArray::LastIndexOf(int64_t value) {
     // For non-specialized (generic) arrays, use NaN-box comparison
     uint64_t searchNB = (uint64_t)value;
 
-    for (size_t i = length; i > 0; --i) {
+    for (size_t i = startFrom; i > 0; --i) {
         uint64_t elemNB = (uint64_t)((int64_t*)elements)[i - 1];
 
         // Fast path: exact bit-level match
@@ -422,8 +432,8 @@ int64_t TsArray::LastIndexOf(int64_t value) {
     return -1;
 }
 
-bool TsArray::Includes(int64_t value) {
-    return IndexOf(value) != -1;
+bool TsArray::Includes(int64_t value, size_t fromIndex) {
+    return IndexOf(value, fromIndex) != -1;
 }
 
 void TsArray::Remove(int64_t value) {
@@ -1864,8 +1874,27 @@ extern "C" {
         return ((TsArray*)arr)->IndexOf(value);
     }
 
+    int64_t ts_array_indexOf_from(void* arr, int64_t value, int64_t fromIndex) {
+        TsArray* a = (TsArray*)arr;
+        int64_t len = a->Length();
+        if (fromIndex < 0) fromIndex = len + fromIndex;
+        if (fromIndex < 0) fromIndex = 0;
+        if (fromIndex >= len) return -1;
+        return a->IndexOf(value, (size_t)fromIndex);
+    }
+
     int64_t ts_array_lastIndexOf(void* arr, int64_t value) {
         return ((TsArray*)arr)->LastIndexOf(value);
+    }
+
+    int64_t ts_array_lastIndexOf_from(void* arr, int64_t value, int64_t fromIndex) {
+        TsArray* a = (TsArray*)arr;
+        int64_t len = a->Length();
+        if (len == 0) return -1;
+        if (fromIndex < 0) fromIndex = len + fromIndex;
+        if (fromIndex < 0) return -1;
+        if (fromIndex >= len) fromIndex = len - 1;
+        return a->LastIndexOf(value, fromIndex);
     }
 
     void* ts_array_flat(void* arr, int64_t depth) {
@@ -1878,6 +1907,15 @@ extern "C" {
 
     bool ts_array_includes(void* arr, int64_t value) {
         return ((TsArray*)arr)->Includes(value);
+    }
+
+    bool ts_array_includes_from(void* arr, int64_t value, int64_t fromIndex) {
+        TsArray* a = (TsArray*)arr;
+        int64_t len = a->Length();
+        if (fromIndex < 0) fromIndex = len + fromIndex;
+        if (fromIndex < 0) fromIndex = 0;
+        if (fromIndex >= len) return false;
+        return a->Includes(value, (size_t)fromIndex);
     }
 
     void* ts_array_at(void* arr, int64_t index) {

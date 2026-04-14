@@ -608,6 +608,14 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .boxedArg()    // value
             .build());
 
+    reg.registerLowering("ts_array_includes_from",
+        lowering("ts_array_includes_from")
+            .returnsBool()
+            .ptrArg()      // array
+            .boxedArg()    // value
+            .i64Arg(ArgConversion::ToI64)  // fromIndex
+            .build());
+
     reg.registerLowering("ts_array_indexOf",
         lowering("ts_array_indexOf")
             .returnsI64()
@@ -615,11 +623,27 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .boxedArg()    // value
             .build());
 
+    reg.registerLowering("ts_array_indexOf_from",
+        lowering("ts_array_indexOf_from")
+            .returnsI64()
+            .ptrArg()      // array
+            .boxedArg()    // value
+            .i64Arg(ArgConversion::ToI64)  // fromIndex
+            .build());
+
     reg.registerLowering("ts_array_lastIndexOf",
         lowering("ts_array_lastIndexOf")
             .returnsI64()
             .ptrArg()      // array
             .boxedArg()    // value
+            .build());
+
+    reg.registerLowering("ts_array_lastIndexOf_from",
+        lowering("ts_array_lastIndexOf_from")
+            .returnsI64()
+            .ptrArg()      // array
+            .boxedArg()    // value
+            .i64Arg(ArgConversion::ToI64)  // fromIndex
             .build());
 
     reg.registerLowering("ts_array_find",

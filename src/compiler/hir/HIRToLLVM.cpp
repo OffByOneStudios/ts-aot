@@ -5079,6 +5079,21 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         }
     }
 
+    // Array.indexOf/lastIndexOf/includes with fromIndex: redirect to _from variant.
+    // Operand layout: [funcName, receiver, value, fromIndex]
+    if (inst->operands.size() >= 4 &&
+        (funcName == "ts_array_indexOf" || funcName == "ts_array_lastIndexOf" ||
+         funcName == "ts_array_includes")) {
+        auto* spec = ::hir::LoweringRegistry::instance().lookup(funcName + "_from");
+        if (spec) {
+            llvm::Value* result = lowerRegisteredCall(inst, *spec);
+            if (inst->result) {
+                setValue(inst->result, result);
+            }
+            return;
+        }
+    }
+
     // Try registry-based lowering for runtime functions
     if (auto* spec = ::hir::LoweringRegistry::instance().lookup(funcName)) {
         llvm::Value* result = lowerRegisteredCall(inst, *spec);

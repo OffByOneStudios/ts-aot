@@ -1648,17 +1648,42 @@ TsValue* ts_value_make_int(int64_t i) {
         void* result = ts_array_join(arr, separator);
         return result ? ts_value_make_string((TsString*)result) : ts_value_make_string(TsString::Create(""));
     }
+    // Parse optional fromIndex argument per ES spec:
+    //   ToIntegerOrInfinity then clamp. NaN -> 0. Negative -> length + idx.
+    //   For indexOf/includes the default is 0, for lastIndexOf it's length-1.
+    static int64_t parseFromIndex(int argc, TsValue** argv, int64_t length,
+                                   bool isLastIndex = false) {
+        if (argc < 2 || !argv || !argv[1]) {
+            return isLastIndex ? (length - 1) : 0;
+        }
+        double fd = ts_value_get_double(argv[1]);
+        if (fd != fd) return 0; // NaN -> 0
+        // truncate toward zero
+        int64_t fi = (int64_t)fd;
+        if (fi < 0) fi = length + fi;
+        if (!isLastIndex && fi < 0) fi = 0;
+        return fi;
+    }
+
     TsValue* ts_array_indexOf_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "indexOf");
         if (!arr) return ts_value_make_int(-1);
         int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
-        return ts_value_make_int(ts_array_indexOf(arr, value));
+        int64_t len = arr->Length();
+        int64_t fromIndex = parseFromIndex(argc, argv, len, false);
+        if (fromIndex < 0) fromIndex = 0;
+        if (fromIndex >= len) return ts_value_make_int(-1);
+        return ts_value_make_int(arr->IndexOf(value, (size_t)fromIndex));
     }
     TsValue* ts_array_includes_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "includes");
         if (!arr) return ts_value_make_bool(false);
         int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
-        return ts_value_make_bool(ts_array_includes(arr, value));
+        int64_t len = arr->Length();
+        int64_t fromIndex = parseFromIndex(argc, argv, len, false);
+        if (fromIndex < 0) fromIndex = 0;
+        if (fromIndex >= len) return ts_value_make_bool(false);
+        return ts_value_make_bool(arr->Includes(value, (size_t)fromIndex));
     }
     TsValue* ts_array_slice_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "slice");
@@ -1906,7 +1931,11 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "lastIndexOf");
         if (!arr) return ts_value_make_int(-1);
         int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
-        return ts_value_make_int(ts_array_lastIndexOf(arr, value));
+        int64_t len = arr->Length();
+        int64_t fromIndex = parseFromIndex(argc, argv, len, true);
+        // lastIndexOf: fromIndex < 0 means skip everything (no valid index).
+        if (fromIndex < 0) return ts_value_make_int(-1);
+        return ts_value_make_int(arr->LastIndexOf(value, fromIndex));
     }
 
     // P3: Less common methods
