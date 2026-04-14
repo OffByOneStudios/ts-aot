@@ -1550,11 +1550,48 @@ TsValue* ts_value_make_int(int64_t i) {
         return tmp;
     }
 
+    // Validate that `callback` is callable (function or closure).
+    // Throws TypeError if not callable, matching spec for Array callback
+    // methods (filter/map/forEach/every/some/find/findIndex/reduce/etc).
+    // Returns true on success, false if TypeError was thrown (caller should
+    // return a safe default — ts_throw longjmps so the false branch is rare).
+    static bool requireCallableOrThrow(void* callback, const char* methodName) {
+        auto throwTE = [methodName]() {
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "Array.prototype.%s callback is not a function", methodName);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        };
+        if (!callback) { throwTE(); return false; }
+        uint64_t nb = (uint64_t)(uintptr_t)callback;
+        if (nanbox_is_undefined(nb) || nanbox_is_null(nb) ||
+            nanbox_is_number(nb) || nanbox_is_bool(nb)) {
+            throwTE(); return false;
+        }
+        // Unbox to raw pointer and check magic for TsFunction/TsClosure.
+        void* raw = ts_value_get_object((TsValue*)callback);
+        if (!raw) raw = callback;
+        if (!is_safe_ptr_for_magic(raw)) { throwTE(); return false; }
+        // TsFunction::MAGIC = 0x46554E43 "FUNC", TsClosure::MAGIC = 0x434C5352 "CLSR"
+        constexpr uint32_t FUNC_MAGIC = 0x46554E43;
+        constexpr uint32_t CLSR_MAGIC = 0x434C5352;
+        uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+        uint32_t m20 = *(uint32_t*)((char*)raw + 20);
+        uint32_t m24 = *(uint32_t*)((char*)raw + 24);
+        auto isCallable = [&](uint32_t m) {
+            return m == FUNC_MAGIC || m == CLSR_MAGIC;
+        };
+        if (isCallable(m16) || isCallable(m20) || isCallable(m24)) return true;
+        throwTE();
+        return false;
+    }
+
     // P0: Extremely common methods
     TsValue* ts_array_map_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "map");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "map")) return ts_value_make_undefined();
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_map(arr, callback, thisArg);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
@@ -1563,6 +1600,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "filter");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "filter")) return ts_value_make_undefined();
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_filter(arr, callback, thisArg);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
@@ -1571,6 +1609,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "forEach");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "forEach")) return ts_value_make_undefined();
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         ts_array_forEach(arr, callback, thisArg);
         return ts_value_make_undefined();
@@ -1579,6 +1618,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "reduce");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "reduce")) return ts_value_make_undefined();
         void* initialValue = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_reduce(arr, callback, initialValue);
         return result ? (TsValue*)result : ts_value_make_undefined();
@@ -1709,6 +1749,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "some");
         if (!arr) return ts_value_make_bool(false);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "some")) return ts_value_make_bool(false);
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_bool(ts_array_some(arr, callback, thisArg));
     }
@@ -1716,6 +1757,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "every");
         if (!arr) return ts_value_make_bool(true);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "every")) return ts_value_make_bool(false);
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_bool(ts_array_every(arr, callback, thisArg));
     }
@@ -1723,6 +1765,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "find");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "find")) return ts_value_make_undefined();
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         struct TaggedValue* result = ts_array_find(arr, callback, thisArg);
         return result ? nanbox_from_tagged(*result) : ts_value_make_undefined();
@@ -1731,6 +1774,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "findIndex");
         if (!arr) return ts_value_make_int(-1);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "findIndex")) return ts_value_make_int(-1);
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_int(ts_array_findIndex(arr, callback, thisArg));
     }
