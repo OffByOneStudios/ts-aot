@@ -4501,9 +4501,26 @@ TsValue* ts_value_make_int(int64_t i) {
             return obj;
         }
 
-        // Convert flat object to TsMap
+        // For flat objects, use the overflow TsMap directly (creating if
+        // needed) rather than migrating. Migration creates a new TsMap that
+        // the caller's obj pointer doesn't reference, so the getter wasn't
+        // visible on subsequent reads. The overflow map is already checked
+        // by ts_flat_object_get_property (for value properties), and we
+        // teach it below to also invoke __getter_<key> from overflow.
         if (is_flat_object(rawPtr)) {
-            rawPtr = ts_flat_object_to_map(rawPtr);
+            uint32_t shapeId = flat_object_shape_id(rawPtr);
+            ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+            if (!desc) {
+                rawPtr = ts_flat_object_to_map(rawPtr);
+            } else {
+                void** overflowPtr = flat_object_overflow_ptr(rawPtr, desc->numSlots);
+                if (!*overflowPtr) {
+                    TsMap* newMap = TsMap::Create();
+                    *overflowPtr = newMap;
+                    ts_gc_write_barrier(overflowPtr, newMap);
+                }
+                rawPtr = *overflowPtr;
+            }
         }
 
         // Check if it's a TsMap (or extract properties map from function/closure)

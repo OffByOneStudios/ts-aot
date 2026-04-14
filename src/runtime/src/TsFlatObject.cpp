@@ -101,6 +101,24 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
     void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
     if (overflow) {
         TsMap* map = (TsMap*)overflow;
+        // First, check for an accessor descriptor stored as __getter_<key>.
+        // Object.defineProperty(o, key, {get}) stores here when o is flat.
+        {
+            std::string getterKey = std::string("__getter_") + key;
+            TsString* gkStr = TsString::Create(getterKey.c_str());
+            TsValue getterVal = map->Get(TsValue(gkStr));
+            if (getterVal.type != ValueType::UNDEFINED) {
+                extern TsValue* ts_function_call_with_this(TsValue*, TsValue*, int, TsValue**);
+                extern TsValue* nanbox_from_tagged_impl(TsValue);
+                TsValue* getterFunc = (TsValue*)(uintptr_t)((getterVal.type == ValueType::OBJECT_PTR ||
+                    getterVal.type == ValueType::FUNCTION_PTR) ?
+                    (uint64_t)(uintptr_t)getterVal.ptr_val : 0);
+                if (!getterFunc) getterFunc = (TsValue*)getterVal.ptr_val;
+                // obj is a NaN-boxed pointer already (caller passes raw flat-obj ptr)
+                TsValue* result = ts_function_call_with_this(getterFunc, (TsValue*)obj, 0, nullptr);
+                return (void*)result;
+            }
+        }
         TsString* keyStr = TsString::Create(key);
         TsValue result = map->Get(TsValue(keyStr));
         if (result.type != ValueType::UNDEFINED) {
