@@ -1881,7 +1881,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* result = ts_array_flat(arr, depth);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
-    static TsValue* ts_array_flatMap_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_flatMap_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "flatMap");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -1889,7 +1889,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* result = ts_array_flatMap(arr, callback, thisArg);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
-    static TsValue* ts_array_at_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_at_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "at");
         if (!arr) return ts_value_make_undefined();
         int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
@@ -1910,7 +1910,7 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         return ts_value_make_int(arr->Length());
     }
-    static TsValue* ts_array_fill_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_fill_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "fill");
         if (!arr) return ts_value_make_undefined();
         void* value = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -1919,7 +1919,7 @@ TsValue* ts_value_make_int(int64_t i) {
         ts_array_fill(arr, value, start, end);
         return ts_value_make_object(arr);
     }
-    static TsValue* ts_array_reduceRight_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_reduceRight_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "reduceRight");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -1927,7 +1927,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* result = ts_array_reduceRight(arr, callback, initialValue);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
-    static TsValue* ts_array_lastIndexOf_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_lastIndexOf_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "lastIndexOf");
         if (!arr) return ts_value_make_int(-1);
         int64_t value = (argc >= 1 && argv) ? (int64_t)argv[0] : 0;
@@ -1951,15 +1951,15 @@ TsValue* ts_value_make_int(int64_t i) {
         void* items = ts_array_values((TsArray*)ctx);
         return items ? (TsValue*)ts_create_array_iterator(items) : ts_value_make_object(ts_array_create());
     }
-    static TsValue* ts_array_toReversed_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_toReversed_native(void* ctx, int argc, TsValue** argv) {
         void* result = ts_array_toReversed((TsArray*)ctx);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
-    static TsValue* ts_array_toSorted_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_toSorted_native(void* ctx, int argc, TsValue** argv) {
         void* result = ts_array_toSorted((TsArray*)ctx);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
-    static TsValue* ts_array_toSpliced_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_toSpliced_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "toSpliced");
         if (!arr) return ts_value_make_undefined();
         int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
@@ -1975,7 +1975,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* result = ts_array_toSpliced(arr, start, deleteCount, items, items ? items->Length() : 0);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
-    static TsValue* ts_array_copyWithin_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_copyWithin_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "copyWithin");
         if (!arr) return ts_value_make_undefined();
         int64_t target = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
@@ -1984,7 +1984,7 @@ TsValue* ts_value_make_int(int64_t i) {
         ts_array_copyWithin(arr, target, start, end);
         return ts_value_make_object(arr);
     }
-    static TsValue* ts_array_with_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_with_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "with");
         if (!arr) return ts_value_make_undefined();
         int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
@@ -1992,7 +1992,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* result = ts_array_with(arr, index, value);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
-    static TsValue* ts_array_findLast_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_findLast_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "findLast");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -2000,7 +2000,7 @@ TsValue* ts_value_make_int(int64_t i) {
         struct TaggedValue* result = ts_array_findLast(arr, callback, thisArg);
         return result ? nanbox_from_tagged(*result) : ts_value_make_undefined();
     }
-    static TsValue* ts_array_findLastIndex_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_array_findLastIndex_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "findLastIndex");
         if (!arr) return ts_value_make_int(-1);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;

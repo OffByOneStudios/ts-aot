@@ -65,6 +65,18 @@ TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_array_flat_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_array_shift_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_at_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_fill_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_reduceRight_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_lastIndexOf_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_toReversed_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_toSorted_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_toSpliced_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_copyWithin_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_with_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_findLast_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_findLastIndex_native(void* ctx, int argc, TsValue** argv);
+TsValue* ts_array_flatMap_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_json_stringify_native(void* context, int argc, TsValue** argv);
 TsValue* ts_json_parse_native(void* context, int argc, TsValue** argv);
 // ts_error_create is declared in TsError.h (returns void*)
@@ -223,6 +235,20 @@ void* ts_get_global_Array() {
     addMethod(proto, "flat", (void*)ts_array_flat_native);
     addMethod(proto, "shift", (void*)ts_array_shift_native);
     addMethod(proto, "unshift", (void*)ts_array_unshift_native);
+    // ES2022+ methods
+    addMethod(proto, "at", (void*)ts_array_at_native);
+    addMethod(proto, "fill", (void*)ts_array_fill_native);
+    addMethod(proto, "reduceRight", (void*)ts_array_reduceRight_native, 2);
+    addMethod(proto, "lastIndexOf", (void*)ts_array_lastIndexOf_native);
+    addMethod(proto, "findLast", (void*)ts_array_findLast_native);
+    addMethod(proto, "findLastIndex", (void*)ts_array_findLastIndex_native);
+    addMethod(proto, "flatMap", (void*)ts_array_flatMap_native);
+    addMethod(proto, "copyWithin", (void*)ts_array_copyWithin_native);
+    // ES2023 mutation-free methods
+    addMethod(proto, "toReversed", (void*)ts_array_toReversed_native, 0);
+    addMethod(proto, "toSorted", (void*)ts_array_toSorted_native);
+    addMethod(proto, "toSpliced", (void*)ts_array_toSpliced_native);
+    addMethod(proto, "with", (void*)ts_array_with_native, 2);
 
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;
