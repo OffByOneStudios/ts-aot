@@ -613,7 +613,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsBool()
             .ptrArg()      // array
             .boxedArg()    // value
-            .i64Arg(ArgConversion::ToI64)  // fromIndex
+            .f64Arg(ArgConversion::ToF64)  // fromIndex (double to preserve Infinity)
             .build());
 
     reg.registerLowering("ts_array_indexOf",
@@ -628,7 +628,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsI64()
             .ptrArg()      // array
             .boxedArg()    // value
-            .i64Arg(ArgConversion::ToI64)  // fromIndex
+            .f64Arg(ArgConversion::ToF64)  // fromIndex (double to preserve Infinity)
             .build());
 
     reg.registerLowering("ts_array_lastIndexOf",
@@ -643,7 +643,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsI64()
             .ptrArg()      // array
             .boxedArg()    // value
-            .i64Arg(ArgConversion::ToI64)  // fromIndex
+            .f64Arg(ArgConversion::ToF64)  // fromIndex (double to preserve Infinity)
             .build());
 
     reg.registerLowering("ts_array_find",

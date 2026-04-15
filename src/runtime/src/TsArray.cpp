@@ -1874,27 +1874,41 @@ extern "C" {
         return ((TsArray*)arr)->IndexOf(value);
     }
 
-    int64_t ts_array_indexOf_from(void* arr, int64_t value, int64_t fromIndex) {
+    int64_t ts_array_indexOf_from(void* arr, int64_t value, double fromIndex) {
         TsArray* a = (TsArray*)arr;
         int64_t len = a->Length();
-        if (fromIndex < 0) fromIndex = len + fromIndex;
-        if (fromIndex < 0) fromIndex = 0;
-        if (fromIndex >= len) return -1;
-        return a->IndexOf(value, (size_t)fromIndex);
+        // Spec: NaN -> 0; +Infinity -> miss; -Infinity -> 0.
+        int64_t fi;
+        if (fromIndex != fromIndex) fi = 0; // NaN
+        else if (std::isinf(fromIndex)) { if (fromIndex > 0) return -1; fi = 0; }
+        else {
+            fi = (int64_t)fromIndex;
+            if (fi < 0) fi = len + fi;
+            if (fi < 0) fi = 0;
+        }
+        if (fi >= len) return -1;
+        return a->IndexOf(value, (size_t)fi);
     }
 
     int64_t ts_array_lastIndexOf(void* arr, int64_t value) {
         return ((TsArray*)arr)->LastIndexOf(value);
     }
 
-    int64_t ts_array_lastIndexOf_from(void* arr, int64_t value, int64_t fromIndex) {
+    int64_t ts_array_lastIndexOf_from(void* arr, int64_t value, double fromIndex) {
         TsArray* a = (TsArray*)arr;
         int64_t len = a->Length();
         if (len == 0) return -1;
-        if (fromIndex < 0) fromIndex = len + fromIndex;
-        if (fromIndex < 0) return -1;
-        if (fromIndex >= len) fromIndex = len - 1;
-        return a->LastIndexOf(value, fromIndex);
+        // Spec: NaN -> 0; +Infinity -> len-1; -Infinity -> miss.
+        int64_t fi;
+        if (fromIndex != fromIndex) fi = 0; // NaN
+        else if (std::isinf(fromIndex)) { if (fromIndex < 0) return -1; fi = len - 1; }
+        else {
+            fi = (int64_t)fromIndex;
+            if (fi < 0) fi = len + fi;
+            if (fi < 0) return -1;
+            if (fi >= len) fi = len - 1;
+        }
+        return a->LastIndexOf(value, fi);
     }
 
     void* ts_array_flat(void* arr, int64_t depth) {
@@ -1909,13 +1923,19 @@ extern "C" {
         return ((TsArray*)arr)->Includes(value);
     }
 
-    bool ts_array_includes_from(void* arr, int64_t value, int64_t fromIndex) {
+    bool ts_array_includes_from(void* arr, int64_t value, double fromIndex) {
         TsArray* a = (TsArray*)arr;
         int64_t len = a->Length();
-        if (fromIndex < 0) fromIndex = len + fromIndex;
-        if (fromIndex < 0) fromIndex = 0;
-        if (fromIndex >= len) return false;
-        return a->Includes(value, (size_t)fromIndex);
+        int64_t fi;
+        if (fromIndex != fromIndex) fi = 0; // NaN
+        else if (std::isinf(fromIndex)) { if (fromIndex > 0) return false; fi = 0; }
+        else {
+            fi = (int64_t)fromIndex;
+            if (fi < 0) fi = len + fi;
+            if (fi < 0) fi = 0;
+        }
+        if (fi >= len) return false;
+        return a->Includes(value, (size_t)fi);
     }
 
     void* ts_array_at(void* arr, int64_t index) {

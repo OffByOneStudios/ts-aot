@@ -1660,8 +1660,14 @@ TsValue* ts_value_make_int(int64_t i) {
         return result ? ts_value_make_string((TsString*)result) : ts_value_make_string(TsString::Create(""));
     }
     // Parse optional fromIndex argument per ES spec:
-    //   ToIntegerOrInfinity then clamp. NaN -> 0. Negative -> length + idx.
-    //   For indexOf/includes the default is 0, for lastIndexOf it's length-1.
+    //   ToIntegerOrInfinity then clamp.
+    //   For indexOf/includes: default 0.
+    //     +Infinity -> no iteration (return length, caller treats as miss)
+    //     -Infinity -> 0
+    //   For lastIndexOf: default length-1.
+    //     +Infinity -> length-1
+    //     -Infinity -> no iteration (return -1, caller treats as miss)
+    //   NaN -> 0 for both.
     static int64_t parseFromIndex(int argc, TsValue** argv, int64_t length,
                                    bool isLastIndex = false) {
         if (argc < 2 || !argv || !argv[1]) {
@@ -1669,6 +1675,10 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         double fd = ts_value_get_double(argv[1]);
         if (fd != fd) return 0; // NaN -> 0
+        if (std::isinf(fd)) {
+            if (fd > 0) return isLastIndex ? (length - 1) : length;
+            return isLastIndex ? -1 : 0;
+        }
         // truncate toward zero
         int64_t fi = (int64_t)fd;
         if (fi < 0) fi = length + fi;
