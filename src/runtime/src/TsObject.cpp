@@ -1523,6 +1523,16 @@ TsValue* ts_value_make_int(int64_t i) {
             ctxToRead = ts_get_call_this();
             if (!ctxToRead) return nullptr;
         }
+        // Primitive receivers (boolean, number). ToObject returns a wrapper
+        // that has no indexed properties and no .length, so the spec result
+        // is an empty iteration. String primitives have length + indices, but
+        // those arrive as TsString*'s so they hit the normal object path.
+        {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctxToRead);
+            if (nanbox_is_number(nb) || nanbox_is_bool(nb)) {
+                return TsArray::Create(0);
+            }
+        }
         // Read .length
         TsValue* lenVal = ts_object_get_property(ctxToRead, "length");
         if (!lenVal) return nullptr;
@@ -1640,8 +1650,9 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_array_join_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "join");
         if (!arr) return ts_value_make_string(TsString::Create(""));
+        // Per ES spec: if separator is undefined, use ",". Otherwise coerce to string.
         void* separator = nullptr;
-        if (argc >= 1 && argv && argv[0]) {
+        if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
             separator = ts_value_get_string(argv[0]);
             if (!separator) separator = (void*)argv[0];
         }

@@ -1934,6 +1934,15 @@ extern "C" {
         // Unbox if arr is a TsValue* (boxed array)
         void* rawArr = ts_nanbox_safe_unbox(arr);
         if (!rawArr) return TsString::Create("");
+        // Per ES spec: if separator is undefined, use default ",".
+        // Guard against boxed/raw undefined sentinels and NaN-boxed undefined.
+        if (separator) {
+            uint64_t sepBits = (uint64_t)separator;
+            if (sepBits == 10 /* raw undefined sentinel */ ||
+                nanbox_is_undefined(sepBits) || nanbox_is_null(sepBits)) {
+                separator = nullptr;
+            }
+        }
         return ((TsArray*)rawArr)->Join(separator);
     }
 
