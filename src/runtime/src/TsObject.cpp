@@ -2453,16 +2453,16 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             // Methods
             if (strcmp(keyStr, "slice") == 0) {
-                return ts_value_make_native_function((void*)ts_typed_array_slice_native, ta);
+                return makeNamedNativeFunction((void*)ts_typed_array_slice_native, ta, "slice", 2);
             }
             if (strcmp(keyStr, "set") == 0) {
-                return ts_value_make_native_function((void*)ts_typed_array_set_native, ta);
+                return makeNamedNativeFunction((void*)ts_typed_array_set_native, ta, "set", 1);
             }
             if (strcmp(keyStr, "subarray") == 0) {
-                return ts_value_make_native_function((void*)ts_typed_array_subarray_native, ta);
+                return makeNamedNativeFunction((void*)ts_typed_array_subarray_native, ta, "subarray", 2);
             }
             if (strcmp(keyStr, "fill") == 0) {
-                return ts_value_make_native_function((void*)ts_typed_array_fill_native, ta);
+                return makeNamedNativeFunction((void*)ts_typed_array_fill_native, ta, "fill", 1);
             }
             // Check for numeric index
             char* endptr;
@@ -2476,7 +2476,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for global constructor sentinels (e.g., Date.now(), Date.parse())
         // Global constructors from ts_get_global_Date() etc. are static strings like "Date"
         if (magic0 == 0x65746144 && *((char*)obj + 4) == '\0') { // "Date" (little-endian)
-            if (strcmp(keyStr, "now") == 0) return ts_value_make_native_function((void*)ts_date_now_native, nullptr);
+            if (strcmp(keyStr, "now") == 0) return makeNamedNativeFunction((void*)ts_date_now_native, nullptr, "now", 0);
             return ts_value_make_undefined();
         }
 
@@ -2553,46 +2553,46 @@ TsValue* ts_value_make_int(int64_t i) {
             TsArray* arr = (TsArray*)obj;
             if (strcmp(keyStr, "length") == 0) return ts_value_make_int(arr->Length());
             // P0: Extremely common methods
-            if (strcmp(keyStr, "map") == 0) return ts_value_make_native_function((void*)ts_array_map_native, arr);
-            if (strcmp(keyStr, "filter") == 0) return ts_value_make_native_function((void*)ts_array_filter_native, arr);
-            if (strcmp(keyStr, "forEach") == 0) return ts_value_make_native_function((void*)ts_array_forEach_native, arr);
-            if (strcmp(keyStr, "reduce") == 0) return ts_value_make_native_function((void*)ts_array_reduce_native, arr);
-            if (strcmp(keyStr, "push") == 0) return ts_value_make_native_function((void*)ts_array_push_native, arr);
-            if (strcmp(keyStr, "pop") == 0) return ts_value_make_native_function((void*)ts_array_pop_native, arr);
-            if (strcmp(keyStr, "join") == 0) return ts_value_make_native_function((void*)ts_array_join_native, arr);
-            if (strcmp(keyStr, "indexOf") == 0) return ts_value_make_native_function((void*)ts_array_indexOf_native, arr);
-            if (strcmp(keyStr, "includes") == 0) return ts_value_make_native_function((void*)ts_array_includes_native, arr);
-            if (strcmp(keyStr, "slice") == 0) return ts_value_make_native_function((void*)ts_array_slice_native, arr);
+            if (strcmp(keyStr, "map") == 0) return makeNamedNativeFunction((void*)ts_array_map_native, arr, "map", 1);
+            if (strcmp(keyStr, "filter") == 0) return makeNamedNativeFunction((void*)ts_array_filter_native, arr, "filter", 1);
+            if (strcmp(keyStr, "forEach") == 0) return makeNamedNativeFunction((void*)ts_array_forEach_native, arr, "forEach", 1);
+            if (strcmp(keyStr, "reduce") == 0) return makeNamedNativeFunction((void*)ts_array_reduce_native, arr, "reduce", 1);
+            if (strcmp(keyStr, "push") == 0) return makeNamedNativeFunction((void*)ts_array_push_native, arr, "push", 1);
+            if (strcmp(keyStr, "pop") == 0) return makeNamedNativeFunction((void*)ts_array_pop_native, arr, "pop", 0);
+            if (strcmp(keyStr, "join") == 0) return makeNamedNativeFunction((void*)ts_array_join_native, arr, "join", 1);
+            if (strcmp(keyStr, "indexOf") == 0) return makeNamedNativeFunction((void*)ts_array_indexOf_native, arr, "indexOf", 1);
+            if (strcmp(keyStr, "includes") == 0) return makeNamedNativeFunction((void*)ts_array_includes_native, arr, "includes", 1);
+            if (strcmp(keyStr, "slice") == 0) return makeNamedNativeFunction((void*)ts_array_slice_native, arr, "slice", 2);
             // P1: Common methods
-            if (strcmp(keyStr, "some") == 0) return ts_value_make_native_function((void*)ts_array_some_native, arr);
-            if (strcmp(keyStr, "every") == 0) return ts_value_make_native_function((void*)ts_array_every_native, arr);
-            if (strcmp(keyStr, "find") == 0) return ts_value_make_native_function((void*)ts_array_find_native, arr);
-            if (strcmp(keyStr, "findIndex") == 0) return ts_value_make_native_function((void*)ts_array_findIndex_native, arr);
-            if (strcmp(keyStr, "sort") == 0) return ts_value_make_native_function((void*)ts_array_sort_native, arr);
-            if (strcmp(keyStr, "reverse") == 0) return ts_value_make_native_function((void*)ts_array_reverse_native, arr);
-            if (strcmp(keyStr, "splice") == 0) return ts_value_make_native_function((void*)ts_array_splice_native, arr);
-            if (strcmp(keyStr, "concat") == 0) return ts_value_make_native_function((void*)ts_array_concat_native, arr);
+            if (strcmp(keyStr, "some") == 0) return makeNamedNativeFunction((void*)ts_array_some_native, arr, "some", 1);
+            if (strcmp(keyStr, "every") == 0) return makeNamedNativeFunction((void*)ts_array_every_native, arr, "every", 1);
+            if (strcmp(keyStr, "find") == 0) return makeNamedNativeFunction((void*)ts_array_find_native, arr, "find", 1);
+            if (strcmp(keyStr, "findIndex") == 0) return makeNamedNativeFunction((void*)ts_array_findIndex_native, arr, "findIndex", 1);
+            if (strcmp(keyStr, "sort") == 0) return makeNamedNativeFunction((void*)ts_array_sort_native, arr, "sort", 1);
+            if (strcmp(keyStr, "reverse") == 0) return makeNamedNativeFunction((void*)ts_array_reverse_native, arr, "reverse", 0);
+            if (strcmp(keyStr, "splice") == 0) return makeNamedNativeFunction((void*)ts_array_splice_native, arr, "splice", 2);
+            if (strcmp(keyStr, "concat") == 0) return makeNamedNativeFunction((void*)ts_array_concat_native, arr, "concat", 1);
             // P2: Moderate methods
-            if (strcmp(keyStr, "flat") == 0) return ts_value_make_native_function((void*)ts_array_flat_native, arr);
-            if (strcmp(keyStr, "flatMap") == 0) return ts_value_make_native_function((void*)ts_array_flatMap_native, arr);
-            if (strcmp(keyStr, "at") == 0) return ts_value_make_native_function((void*)ts_array_at_native, arr);
-            if (strcmp(keyStr, "shift") == 0) return ts_value_make_native_function((void*)ts_array_shift_native, arr);
-            if (strcmp(keyStr, "unshift") == 0) return ts_value_make_native_function((void*)ts_array_unshift_native, arr);
-            if (strcmp(keyStr, "fill") == 0) return ts_value_make_native_function((void*)ts_array_fill_native, arr);
-            if (strcmp(keyStr, "reduceRight") == 0) return ts_value_make_native_function((void*)ts_array_reduceRight_native, arr);
-            if (strcmp(keyStr, "lastIndexOf") == 0) return ts_value_make_native_function((void*)ts_array_lastIndexOf_native, arr);
+            if (strcmp(keyStr, "flat") == 0) return makeNamedNativeFunction((void*)ts_array_flat_native, arr, "flat", 0);
+            if (strcmp(keyStr, "flatMap") == 0) return makeNamedNativeFunction((void*)ts_array_flatMap_native, arr, "flatMap", 1);
+            if (strcmp(keyStr, "at") == 0) return makeNamedNativeFunction((void*)ts_array_at_native, arr, "at", 1);
+            if (strcmp(keyStr, "shift") == 0) return makeNamedNativeFunction((void*)ts_array_shift_native, arr, "shift", 0);
+            if (strcmp(keyStr, "unshift") == 0) return makeNamedNativeFunction((void*)ts_array_unshift_native, arr, "unshift", 1);
+            if (strcmp(keyStr, "fill") == 0) return makeNamedNativeFunction((void*)ts_array_fill_native, arr, "fill", 1);
+            if (strcmp(keyStr, "reduceRight") == 0) return makeNamedNativeFunction((void*)ts_array_reduceRight_native, arr, "reduceRight", 1);
+            if (strcmp(keyStr, "lastIndexOf") == 0) return makeNamedNativeFunction((void*)ts_array_lastIndexOf_native, arr, "lastIndexOf", 1);
             // P3: Less common methods
-            if (strcmp(keyStr, "entries") == 0) return ts_value_make_native_function((void*)ts_array_entries_native, arr);
-            if (strcmp(keyStr, "keys") == 0) return ts_value_make_native_function((void*)ts_array_keys_native, arr);
-            if (strcmp(keyStr, "values") == 0) return ts_value_make_native_function((void*)ts_array_values_native, arr);
-            if (strcmp(keyStr, "toReversed") == 0) return ts_value_make_native_function((void*)ts_array_toReversed_native, arr);
-            if (strcmp(keyStr, "toSorted") == 0) return ts_value_make_native_function((void*)ts_array_toSorted_native, arr);
-            if (strcmp(keyStr, "toSpliced") == 0) return ts_value_make_native_function((void*)ts_array_toSpliced_native, arr);
-            if (strcmp(keyStr, "copyWithin") == 0) return ts_value_make_native_function((void*)ts_array_copyWithin_native, arr);
-            if (strcmp(keyStr, "with") == 0) return ts_value_make_native_function((void*)ts_array_with_native, arr);
-            if (strcmp(keyStr, "findLast") == 0) return ts_value_make_native_function((void*)ts_array_findLast_native, arr);
-            if (strcmp(keyStr, "findLastIndex") == 0) return ts_value_make_native_function((void*)ts_array_findLastIndex_native, arr);
-            if (strcmp(keyStr, "toString") == 0) return ts_value_make_native_function((void*)ts_array_toString_native, arr);
+            if (strcmp(keyStr, "entries") == 0) return makeNamedNativeFunction((void*)ts_array_entries_native, arr, "entries", 0);
+            if (strcmp(keyStr, "keys") == 0) return makeNamedNativeFunction((void*)ts_array_keys_native, arr, "keys", 0);
+            if (strcmp(keyStr, "values") == 0) return makeNamedNativeFunction((void*)ts_array_values_native, arr, "values", 0);
+            if (strcmp(keyStr, "toReversed") == 0) return makeNamedNativeFunction((void*)ts_array_toReversed_native, arr, "toReversed", 0);
+            if (strcmp(keyStr, "toSorted") == 0) return makeNamedNativeFunction((void*)ts_array_toSorted_native, arr, "toSorted", 1);
+            if (strcmp(keyStr, "toSpliced") == 0) return makeNamedNativeFunction((void*)ts_array_toSpliced_native, arr, "toSpliced", 2);
+            if (strcmp(keyStr, "copyWithin") == 0) return makeNamedNativeFunction((void*)ts_array_copyWithin_native, arr, "copyWithin", 2);
+            if (strcmp(keyStr, "with") == 0) return makeNamedNativeFunction((void*)ts_array_with_native, arr, "with", 2);
+            if (strcmp(keyStr, "findLast") == 0) return makeNamedNativeFunction((void*)ts_array_findLast_native, arr, "findLast", 1);
+            if (strcmp(keyStr, "findLastIndex") == 0) return makeNamedNativeFunction((void*)ts_array_findLastIndex_native, arr, "findLastIndex", 1);
+            if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_array_toString_native, arr, "toString", 0);
             return ts_value_make_undefined();
         }
         if (magic0 == 0x53545247 || magic8 == 0x53545247 || magic16 == 0x53545247 || magic0 == TsConsString::MAGIC) { // TsString or TsConsString
@@ -2601,37 +2601,37 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_int(strObj->Length());
             }
             // Return native function wrappers for string methods
-            if (strcmp(keyStr, "startsWith") == 0) return ts_value_make_native_function((void*)ts_string_startsWith_native, strObj);
-            if (strcmp(keyStr, "endsWith") == 0) return ts_value_make_native_function((void*)ts_string_endsWith_native, strObj);
-            if (strcmp(keyStr, "includes") == 0) return ts_value_make_native_function((void*)ts_string_includes_native, strObj);
-            if (strcmp(keyStr, "indexOf") == 0) return ts_value_make_native_function((void*)ts_string_indexOf_native, strObj);
-            if (strcmp(keyStr, "substring") == 0) return ts_value_make_native_function((void*)ts_string_substring_native, strObj);
-            if (strcmp(keyStr, "slice") == 0) return ts_value_make_native_function((void*)ts_string_slice_native, strObj);
-            if (strcmp(keyStr, "toLowerCase") == 0) return ts_value_make_native_function((void*)ts_string_toLowerCase_native, strObj);
-            if (strcmp(keyStr, "toUpperCase") == 0) return ts_value_make_native_function((void*)ts_string_toUpperCase_native, strObj);
-            if (strcmp(keyStr, "trim") == 0) return ts_value_make_native_function((void*)ts_string_trim_native, strObj);
-            if (strcmp(keyStr, "split") == 0) return ts_value_make_native_function((void*)ts_string_split_native, strObj);
-            if (strcmp(keyStr, "replace") == 0) return ts_value_make_native_function((void*)ts_string_replace_native, strObj);
-            if (strcmp(keyStr, "repeat") == 0) return ts_value_make_native_function((void*)ts_string_repeat_native, strObj);
-            if (strcmp(keyStr, "charAt") == 0) return ts_value_make_native_function((void*)ts_string_charAt_native, strObj);
-            if (strcmp(keyStr, "charCodeAt") == 0) return ts_value_make_native_function((void*)ts_string_charCodeAt_native, strObj);
-            if (strcmp(keyStr, "padStart") == 0) return ts_value_make_native_function((void*)ts_string_padStart_native, strObj);
-            if (strcmp(keyStr, "padEnd") == 0) return ts_value_make_native_function((void*)ts_string_padEnd_native, strObj);
-            if (strcmp(keyStr, "toString") == 0) return ts_value_make_native_function((void*)ts_string_toString_native, strObj);
-            if (strcmp(keyStr, "valueOf") == 0) return ts_value_make_native_function((void*)ts_string_toString_native, strObj);
-            if (strcmp(keyStr, "lastIndexOf") == 0) return ts_value_make_native_function((void*)ts_string_lastIndexOf_native, strObj);
-            if (strcmp(keyStr, "trimStart") == 0) return ts_value_make_native_function((void*)ts_string_trimStart_native, strObj);
-            if (strcmp(keyStr, "trimEnd") == 0) return ts_value_make_native_function((void*)ts_string_trimEnd_native, strObj);
-            if (strcmp(keyStr, "trimLeft") == 0) return ts_value_make_native_function((void*)ts_string_trimStart_native, strObj);
-            if (strcmp(keyStr, "trimRight") == 0) return ts_value_make_native_function((void*)ts_string_trimEnd_native, strObj);
-            if (strcmp(keyStr, "replaceAll") == 0) return ts_value_make_native_function((void*)ts_string_replaceAll_native, strObj);
-            if (strcmp(keyStr, "at") == 0) return ts_value_make_native_function((void*)ts_string_at_native, strObj);
-            if (strcmp(keyStr, "concat") == 0) return ts_value_make_native_function((void*)ts_string_concat_native, strObj);
-            if (strcmp(keyStr, "match") == 0) return ts_value_make_native_function((void*)ts_string_match_native, strObj);
-            if (strcmp(keyStr, "search") == 0) return ts_value_make_native_function((void*)ts_string_search_native, strObj);
-            if (strcmp(keyStr, "matchAll") == 0) return ts_value_make_native_function((void*)ts_string_matchAll_native, strObj);
-            if (strcmp(keyStr, "codePointAt") == 0) return ts_value_make_native_function((void*)ts_string_codePointAt_native, strObj);
-            if (strcmp(keyStr, "normalize") == 0) return ts_value_make_native_function((void*)ts_string_normalize_native, strObj);
+            if (strcmp(keyStr, "startsWith") == 0) return makeNamedNativeFunction((void*)ts_string_startsWith_native, strObj, "startsWith", 1);
+            if (strcmp(keyStr, "endsWith") == 0) return makeNamedNativeFunction((void*)ts_string_endsWith_native, strObj, "endsWith", 1);
+            if (strcmp(keyStr, "includes") == 0) return makeNamedNativeFunction((void*)ts_string_includes_native, strObj, "includes", 1);
+            if (strcmp(keyStr, "indexOf") == 0) return makeNamedNativeFunction((void*)ts_string_indexOf_native, strObj, "indexOf", 1);
+            if (strcmp(keyStr, "substring") == 0) return makeNamedNativeFunction((void*)ts_string_substring_native, strObj, "substring", 2);
+            if (strcmp(keyStr, "slice") == 0) return makeNamedNativeFunction((void*)ts_string_slice_native, strObj, "slice", 2);
+            if (strcmp(keyStr, "toLowerCase") == 0) return makeNamedNativeFunction((void*)ts_string_toLowerCase_native, strObj, "toLowerCase", 0);
+            if (strcmp(keyStr, "toUpperCase") == 0) return makeNamedNativeFunction((void*)ts_string_toUpperCase_native, strObj, "toUpperCase", 0);
+            if (strcmp(keyStr, "trim") == 0) return makeNamedNativeFunction((void*)ts_string_trim_native, strObj, "trim", 0);
+            if (strcmp(keyStr, "split") == 0) return makeNamedNativeFunction((void*)ts_string_split_native, strObj, "split", 2);
+            if (strcmp(keyStr, "replace") == 0) return makeNamedNativeFunction((void*)ts_string_replace_native, strObj, "replace", 2);
+            if (strcmp(keyStr, "repeat") == 0) return makeNamedNativeFunction((void*)ts_string_repeat_native, strObj, "repeat", 1);
+            if (strcmp(keyStr, "charAt") == 0) return makeNamedNativeFunction((void*)ts_string_charAt_native, strObj, "charAt", 1);
+            if (strcmp(keyStr, "charCodeAt") == 0) return makeNamedNativeFunction((void*)ts_string_charCodeAt_native, strObj, "charCodeAt", 1);
+            if (strcmp(keyStr, "padStart") == 0) return makeNamedNativeFunction((void*)ts_string_padStart_native, strObj, "padStart", 1);
+            if (strcmp(keyStr, "padEnd") == 0) return makeNamedNativeFunction((void*)ts_string_padEnd_native, strObj, "padEnd", 1);
+            if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_string_toString_native, strObj, "toString", 0);
+            if (strcmp(keyStr, "valueOf") == 0) return makeNamedNativeFunction((void*)ts_string_toString_native, strObj, "valueOf", 0);
+            if (strcmp(keyStr, "lastIndexOf") == 0) return makeNamedNativeFunction((void*)ts_string_lastIndexOf_native, strObj, "lastIndexOf", 1);
+            if (strcmp(keyStr, "trimStart") == 0) return makeNamedNativeFunction((void*)ts_string_trimStart_native, strObj, "trimStart", 0);
+            if (strcmp(keyStr, "trimEnd") == 0) return makeNamedNativeFunction((void*)ts_string_trimEnd_native, strObj, "trimEnd", 0);
+            if (strcmp(keyStr, "trimLeft") == 0) return makeNamedNativeFunction((void*)ts_string_trimStart_native, strObj, "trimLeft", 0);
+            if (strcmp(keyStr, "trimRight") == 0) return makeNamedNativeFunction((void*)ts_string_trimEnd_native, strObj, "trimRight", 0);
+            if (strcmp(keyStr, "replaceAll") == 0) return makeNamedNativeFunction((void*)ts_string_replaceAll_native, strObj, "replaceAll", 2);
+            if (strcmp(keyStr, "at") == 0) return makeNamedNativeFunction((void*)ts_string_at_native, strObj, "at", 1);
+            if (strcmp(keyStr, "concat") == 0) return makeNamedNativeFunction((void*)ts_string_concat_native, strObj, "concat", 1);
+            if (strcmp(keyStr, "match") == 0) return makeNamedNativeFunction((void*)ts_string_match_native, strObj, "match", 1);
+            if (strcmp(keyStr, "search") == 0) return makeNamedNativeFunction((void*)ts_string_search_native, strObj, "search", 1);
+            if (strcmp(keyStr, "matchAll") == 0) return makeNamedNativeFunction((void*)ts_string_matchAll_native, strObj, "matchAll", 1);
+            if (strcmp(keyStr, "codePointAt") == 0) return makeNamedNativeFunction((void*)ts_string_codePointAt_native, strObj, "codePointAt", 1);
+            if (strcmp(keyStr, "normalize") == 0) return makeNamedNativeFunction((void*)ts_string_normalize_native, strObj, "normalize", 0);
             return ts_value_make_undefined();
         }
         // TsHeaders: handled via virtual dispatch (GetPropertyVirtual) below.
@@ -5947,16 +5947,16 @@ TsValue* ts_value_make_int(int64_t i) {
                     }
                     // Methods
                     if (strcmp(k, "slice") == 0) {
-                        return ts_value_make_native_function((void*)ts_typed_array_slice_native, ta);
+                        return makeNamedNativeFunction((void*)ts_typed_array_slice_native, ta, "slice", 2);
                     }
                     if (strcmp(k, "set") == 0) {
-                        return ts_value_make_native_function((void*)ts_typed_array_set_native, ta);
+                        return makeNamedNativeFunction((void*)ts_typed_array_set_native, ta, "set", 1);
                     }
                     if (strcmp(k, "subarray") == 0) {
-                        return ts_value_make_native_function((void*)ts_typed_array_subarray_native, ta);
+                        return makeNamedNativeFunction((void*)ts_typed_array_subarray_native, ta, "subarray", 2);
                     }
                     if (strcmp(k, "fill") == 0) {
-                        return ts_value_make_native_function((void*)ts_typed_array_fill_native, ta);
+                        return makeNamedNativeFunction((void*)ts_typed_array_fill_native, ta, "fill", 1);
                     }
                     // indexOf/includes/find/findIndex etc. could be added later
                 }
