@@ -4169,6 +4169,9 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             if (currentFunction_ && isModuleGlobalVar(ident->name)) {
                 size_t scopeIdx = 0;
                 if (isCapturedVariable(ident->name, &scopeIdx)) {
+                    // Mark as used-by-inner so reads in __module_init take the
+                    // global path instead of the stale local fast-path alloca.
+                    moduleGlobalsUsedByInnerByModule_[ident->name].insert(currentModulePath_);
                     builder_.createStoreGlobal(modVarName(ident->name), result);
                     lastValue_ = result;
                     return;
@@ -4292,6 +4295,9 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         if (currentFunction_ && isModuleGlobalVar(ident->name)) {
             size_t scopeIndex = 0;
             if (isCapturedVariable(ident->name, &scopeIndex)) {
+                // Mark as used-by-inner so reads in __module_init take the
+                // global path instead of the stale local fast-path alloca.
+                moduleGlobalsUsedByInnerByModule_[ident->name].insert(currentModulePath_);
                 builder_.createStoreGlobal(modVarName(ident->name), rhs);
                 lastValue_ = rhs;
                 return;
