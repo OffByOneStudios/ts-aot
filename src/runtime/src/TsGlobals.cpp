@@ -499,6 +499,12 @@ void* ts_get_global_JSON() {
     cached = TsMap::Create();
     addMethod(cached, "stringify", (void*)ts_json_stringify_native);
     addMethod(cached, "parse", (void*)ts_json_parse_native);
+    // Symbol.toStringTag so Object.prototype.toString.call(JSON) === "[object JSON]"
+    TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+    tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+    TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+    tagVal.ptr_val = TsString::Create("JSON");
+    cached->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
     return cached;
 }
 

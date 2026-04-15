@@ -7129,35 +7129,55 @@ TsValue* ts_value_make_int(int64_t i) {
         if (nanbox_is_int32(nb)) return ts_value_make_string(TsString::Create("[object Number]"));
         if (nanbox_is_double(nb)) return ts_value_make_string(TsString::Create("[object Number]"));
 
-        // Pointer types
+        // Compute brand tag first per spec (step 4-14 of Object.prototype.toString),
+        // then consult @@toStringTag (step 15-16) which overrides if a string.
+        const char* tag = "Object";
+        TsMap* mapForTag = nullptr;
         if (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) {
             void* ptr = nanbox_to_ptr(nb);
             if (!ptr) return ts_value_make_string(TsString::Create("[object Null]"));
 
             uint32_t magic0 = *(uint32_t*)ptr;
-            // TsString (magic at offset 0)
-            if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) return ts_value_make_string(TsString::Create("[object String]"));
-            // TsArray (magic at offset 0)
-            if (magic0 == 0x41525259) return ts_value_make_string(TsString::Create("[object Array]"));
-            // TsRegExp (magic at offset 0)
-            if (magic0 == 0x52454758) return ts_value_make_string(TsString::Create("[object RegExp]"));
-            // Flat object (FLAT_MAGIC at offset 0)
-            if (magic0 == 0x464C4154) return ts_value_make_string(TsString::Create("[object Object]"));
-
-            // Check magic at offset 16 for closures/functions
-            uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-            if (magic16 == 0x434C5352) return ts_value_make_string(TsString::Create("[object Function]"));
-
-            // TsFunction check
-            TsFunction* func = dynamic_cast<TsFunction*>((TsObject*)ptr);
-            if (func) return ts_value_make_string(TsString::Create("[object Function]"));
-
-            // TsMap (general object)
-            TsMap* map = dynamic_cast<TsMap*>((TsObject*)ptr);
-            if (map) return ts_value_make_string(TsString::Create("[object Object]"));
+            if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) tag = "String";
+            else if (magic0 == 0x41525259) tag = "Array";
+            else if (magic0 == 0x52454758) tag = "RegExp";
+            else if (magic0 == 0x464C4154) {
+                tag = "Object";
+                // TODO: flat objects could also hold toStringTag in overflow map
+            }
+            else {
+                uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+                if (magic16 == 0x434C5352) tag = "Function";
+                else {
+                    TsFunction* func = dynamic_cast<TsFunction*>((TsObject*)ptr);
+                    if (func) tag = "Function";
+                    else {
+                        TsMap* m = dynamic_cast<TsMap*>((TsObject*)ptr);
+                        if (m) { tag = "Object"; mapForTag = m; }
+                    }
+                }
+            }
         }
 
-        return ts_value_make_string(TsString::Create("[object Object]"));
+        // Per ES spec step 15: Let tag = Get(O, @@toStringTag). If String, override.
+        // Stored via the existing "[Symbol.toStringTag]" convention (see TsPromise).
+        if (mapForTag) {
+            TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+            tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+            TsValue tagVal = mapForTag->Get(tagKey);
+            if (tagVal.type == ValueType::STRING_PTR && tagVal.ptr_val) {
+                TsString* tagStr = (TsString*)tagVal.ptr_val;
+                std::string out = "[object ";
+                out += tagStr->ToUtf8();
+                out += "]";
+                return ts_value_make_string(TsString::Create(out.c_str()));
+            }
+        }
+
+        std::string out = "[object ";
+        out += tag;
+        out += "]";
+        return ts_value_make_string(TsString::Create(out.c_str()));
     }
     
     // Object.prototype.valueOf() - returns the object itself
@@ -7386,6 +7406,16 @@ TsValue* ts_value_make_int(int64_t i) {
         
         Array = arrayConstructor;
 
+        // Helper: set Symbol.toStringTag on a namespace-like object so
+        // Object.prototype.toString.call(X) returns "[object <tag>]" per spec.
+        auto setToStringTag = [](TsMap* m, const char* tag) {
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+            TsValue v; v.type = ValueType::STRING_PTR;
+            v.ptr_val = TsString::Create(tag);
+            m->SetWithAttrs(k, v, TsHashTable::ATTR_CONFIGURABLE);
+        };
+
         // Initialize Math with minimal functions used by common JS libs
         TsMap* mathMap = TsMap::Create();
         TsValue randomKey; randomKey.type = ValueType::STRING_PTR; randomKey.ptr_val = TsString::Create("random");
@@ -7400,6 +7430,7 @@ TsValue* ts_value_make_int(int64_t i) {
         mathMap->Set(absKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_abs_native, nullptr, "abs", 1)));
         mathMap->Set(maxKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_max_native, nullptr, "max", 2)));
         mathMap->Set(minKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_min_native, nullptr, "min", 2)));
+        setToStringTag(mathMap, "Math");
         Math = ts_value_make_object(mathMap);
 
         // Initialize JSON with parse/stringify
@@ -7408,6 +7439,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue stringifyKey; stringifyKey.type = ValueType::STRING_PTR; stringifyKey.ptr_val = TsString::Create("stringify");
         jsonMap->Set(parseKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_json_parse_native, nullptr, "parse", 2)));
         jsonMap->Set(stringifyKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_json_stringify_native, nullptr, "stringify", 3)));
+        setToStringTag(jsonMap, "JSON");
         JSON = ts_value_make_object(jsonMap);
         process = ts_value_make_object(TsMap::Create());
         Buffer = ts_value_make_object(TsMap::Create());
