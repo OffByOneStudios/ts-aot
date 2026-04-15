@@ -1582,6 +1582,25 @@ extern "C" {
             return;
         }
 
+        // If the receiver is not a TsArray, forward to the generic object
+        // property setter — `obj[0] = v` on a plain object or TsMap/TsFlatObject
+        // should install a string-keyed property, not silently no-op.
+        // Guard against NaN-boxed primitives / non-pointers: require arr to
+        // look like a heap pointer (>4K, <48-bit canonical).
+        {
+            uintptr_t p = (uintptr_t)arr;
+            bool looksPtr = p > 0x1000 && p < 0x0000800000000000ULL;
+            if (looksPtr) {
+                uint32_t m = *(uint32_t*)arr;
+                if (m != TsArray::MAGIC) {
+                    TsValue* keyBoxed = ts_value_make_int(index);
+                    TsValue* valBoxed = nanbox_from_tagged(value);
+                    ts_object_set_property(arr, keyBoxed, valBoxed);
+                    return;
+                }
+            }
+        }
+
         TsArray* array = (TsArray*)arr;
         ElementKind kind = array->GetElementKind();
 
@@ -1706,6 +1725,21 @@ extern "C" {
             else if (decoded.type == ValueType::NUMBER_INT) dval = (double)decoded.i_val;
             ta->Set((size_t)index, dval);
             return;
+        }
+
+        // Fall through to generic object-property set when receiver is not
+        // a TsArray — `obj[0] = v` on a plain object / TsMap / TsFlatObject
+        // should install a string-keyed property, not silently no-op.
+        {
+            uintptr_t p = (uintptr_t)raw;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                uint32_t m = *(uint32_t*)raw;
+                if (m != TsArray::MAGIC) {
+                    TsValue* keyBoxed = ts_value_make_int(index);
+                    ts_object_set_property(raw, keyBoxed, value);
+                    return;
+                }
+            }
         }
 
         TsArray* array = (TsArray*)raw;
