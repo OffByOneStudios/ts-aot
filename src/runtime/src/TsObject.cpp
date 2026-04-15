@@ -5507,7 +5507,8 @@ TsValue* ts_value_make_int(int64_t i) {
         b = ts_to_primitive(b, 1);
         double d1 = nanbox_extract_double(a);
         double d2 = nanbox_extract_double(b);
-        if (d2 == 0.0) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        // Per ES spec, IEEE 754 division: 1/+0 = +Inf, 1/-0 = -Inf, 0/0 = NaN.
+        // Let the FP unit produce the correct result rather than forcing NaN.
         return ts_value_make_double(d1 / d2);
     }
 
