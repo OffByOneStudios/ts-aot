@@ -1117,6 +1117,109 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsValue* ts_string_trim_native(void* ctx, int argc, TsValue** argv) {
         return ts_value_make_string((TsString*)ts_string_trim((TsString*)ctx));
     }
+
+    // Annex B.2.3: HTML wrapper methods on String.prototype. Each wraps the
+    // receiver's ToString with a fixed HTML tag. RequireObjectCoercible
+    // throws TypeError when `this` is null/undefined.
+    static TsValue* string_html_wrap(void* ctx, const char* tagOpen,
+                                     const char* tagClose, const char* methodName) {
+        void* self = ctx;
+        if (!self) self = ts_get_call_this();
+        uint64_t nb = (uint64_t)(uintptr_t)self;
+        if (!self || nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "String.prototype.%s called on null or undefined", methodName);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return ts_value_make_string(TsString::Create(""));  // unreachable
+        }
+        void* strPtr = ts_string_from_value((TsValue*)self);
+        TsString* s = strPtr ? ts_ensure_flat(strPtr) : TsString::Create("");
+        std::string out;
+        out.reserve(strlen(tagOpen) + strlen(tagClose) + (s ? strlen(s->ToUtf8()) : 0));
+        out += tagOpen;
+        if (s) out += s->ToUtf8();
+        out += tagClose;
+        return ts_value_make_string(TsString::Create(out.c_str()));
+    }
+
+    // Annex B.2.3: HTML wrapper with a single attribute. Per spec the attr
+    // value is NOT escaped — quotes in the arg appear literally (legacy behavior).
+    static TsValue* string_html_wrap_attr(void* ctx, int argc, TsValue** argv,
+                                          const char* tag, const char* attr,
+                                          const char* methodName) {
+        void* self = ctx;
+        if (!self) self = ts_get_call_this();
+        uint64_t nb = (uint64_t)(uintptr_t)self;
+        if (!self || nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "String.prototype.%s called on null or undefined", methodName);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return ts_value_make_string(TsString::Create(""));
+        }
+        void* strPtr = ts_string_from_value((TsValue*)self);
+        TsString* s = strPtr ? ts_ensure_flat(strPtr) : TsString::Create("");
+        // ToString on argument; default to "undefined" per spec when absent
+        TsString* argStr = nullptr;
+        if (argc >= 1 && argv && argv[0]) {
+            void* argPtr = ts_string_from_value(argv[0]);
+            if (argPtr) argStr = ts_ensure_flat(argPtr);
+        }
+        if (!argStr) argStr = TsString::Create("undefined");
+        std::string out = "<";
+        out += tag;
+        out += ' ';
+        out += attr;
+        out += "=\"";
+        out += argStr->ToUtf8();
+        out += "\">";
+        if (s) out += s->ToUtf8();
+        out += "</";
+        out += tag;
+        out += ">";
+        return ts_value_make_string(TsString::Create(out.c_str()));
+    }
+
+    static TsValue* ts_string_big_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap(ctx, "<big>", "</big>", "big");
+    }
+    static TsValue* ts_string_small_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap(ctx, "<small>", "</small>", "small");
+    }
+    static TsValue* ts_string_bold_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap(ctx, "<b>", "</b>", "bold");
+    }
+    static TsValue* ts_string_italics_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap(ctx, "<i>", "</i>", "italics");
+    }
+    static TsValue* ts_string_fixed_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap(ctx, "<tt>", "</tt>", "fixed");
+    }
+    static TsValue* ts_string_strike_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap(ctx, "<strike>", "</strike>", "strike");
+    }
+    static TsValue* ts_string_blink_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap(ctx, "<blink>", "</blink>", "blink");
+    }
+    static TsValue* ts_string_sub_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap(ctx, "<sub>", "</sub>", "sub");
+    }
+    static TsValue* ts_string_sup_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap(ctx, "<sup>", "</sup>", "sup");
+    }
+    static TsValue* ts_string_anchor_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap_attr(ctx, argc, argv, "a", "name", "anchor");
+    }
+    static TsValue* ts_string_link_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap_attr(ctx, argc, argv, "a", "href", "link");
+    }
+    static TsValue* ts_string_fontcolor_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap_attr(ctx, argc, argv, "font", "color", "fontcolor");
+    }
+    static TsValue* ts_string_fontsize_native(void* ctx, int argc, TsValue** argv) {
+        return string_html_wrap_attr(ctx, argc, argv, "font", "size", "fontsize");
+    }
     static TsValue* ts_string_split_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
         if (argc >= 1 && argv && argv[0]) {
@@ -2663,6 +2766,20 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "matchAll") == 0) return makeNamedNativeFunction((void*)ts_string_matchAll_native, strObj, "matchAll", 1);
             if (strcmp(keyStr, "codePointAt") == 0) return makeNamedNativeFunction((void*)ts_string_codePointAt_native, strObj, "codePointAt", 1);
             if (strcmp(keyStr, "normalize") == 0) return makeNamedNativeFunction((void*)ts_string_normalize_native, strObj, "normalize", 0);
+            // Annex B.2.3: HTML wrapper methods (deprecated but standardized)
+            if (strcmp(keyStr, "big") == 0) return makeNamedNativeFunction((void*)ts_string_big_native, strObj, "big", 0);
+            if (strcmp(keyStr, "small") == 0) return makeNamedNativeFunction((void*)ts_string_small_native, strObj, "small", 0);
+            if (strcmp(keyStr, "bold") == 0) return makeNamedNativeFunction((void*)ts_string_bold_native, strObj, "bold", 0);
+            if (strcmp(keyStr, "italics") == 0) return makeNamedNativeFunction((void*)ts_string_italics_native, strObj, "italics", 0);
+            if (strcmp(keyStr, "fixed") == 0) return makeNamedNativeFunction((void*)ts_string_fixed_native, strObj, "fixed", 0);
+            if (strcmp(keyStr, "strike") == 0) return makeNamedNativeFunction((void*)ts_string_strike_native, strObj, "strike", 0);
+            if (strcmp(keyStr, "blink") == 0) return makeNamedNativeFunction((void*)ts_string_blink_native, strObj, "blink", 0);
+            if (strcmp(keyStr, "sub") == 0) return makeNamedNativeFunction((void*)ts_string_sub_native, strObj, "sub", 0);
+            if (strcmp(keyStr, "sup") == 0) return makeNamedNativeFunction((void*)ts_string_sup_native, strObj, "sup", 0);
+            if (strcmp(keyStr, "anchor") == 0) return makeNamedNativeFunction((void*)ts_string_anchor_native, strObj, "anchor", 1);
+            if (strcmp(keyStr, "link") == 0) return makeNamedNativeFunction((void*)ts_string_link_native, strObj, "link", 1);
+            if (strcmp(keyStr, "fontcolor") == 0) return makeNamedNativeFunction((void*)ts_string_fontcolor_native, strObj, "fontcolor", 1);
+            if (strcmp(keyStr, "fontsize") == 0) return makeNamedNativeFunction((void*)ts_string_fontsize_native, strObj, "fontsize", 1);
             return ts_value_make_undefined();
         }
         // TsHeaders: handled via virtual dispatch (GetPropertyVirtual) below.
