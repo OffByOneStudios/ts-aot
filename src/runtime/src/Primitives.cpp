@@ -995,7 +995,18 @@ double ts_to_number(TsValue* v) {
             if (*end != '\0') return std::numeric_limits<double>::quiet_NaN();
             return d;
         }
-        // Objects: NaN
+        // Per ES spec: ToNumber(symbol) throws TypeError.
+        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+        if (magic16 == 0x53594D42) {  // "SYMB"
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a Symbol value to a number"));
+            return 0.0;  // unreachable
+        }
+        // Objects: coerce via ToPrimitive(hint: number), then retry as primitive.
+        // ts_to_primitive throws TypeError if neither valueOf nor toString
+        // returns a primitive (spec-correct after Part A of this batch).
+        TsValue* coerced = ts_to_primitive(v, 1);
+        if (coerced != v) return ts_to_number(coerced);
         return std::numeric_limits<double>::quiet_NaN();
     }
     return std::numeric_limits<double>::quiet_NaN();

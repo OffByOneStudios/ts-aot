@@ -371,6 +371,13 @@ static inline double nanbox_extract_double(TsValue* v) {
             try { return std::stod(s->ToUtf8()); }
             catch (...) { return std::numeric_limits<double>::quiet_NaN(); }
         }
+        // Per ES spec: ToNumber(symbol) throws TypeError.
+        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+        if (magic16 == 0x53594D42) {  // "SYMB"
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a Symbol value to a number"));
+            return 0.0;  // unreachable
+        }
     }
     if (nb == NANBOX_TRUE) return 1.0;
     if (nb == NANBOX_FALSE) return 0.0;
@@ -5418,20 +5425,32 @@ TsValue* ts_value_make_int(int64_t i) {
             return false;
         };
 
-        // Try first method
+        // Try each method. Track whether any method WAS reachable (existed
+        // AND was callable), so we can distinguish "user gave us an object
+        // with explicit broken hooks" (throw TypeError per spec) from
+        // "runtime gave us a boxed TsValue struct whose property chain is
+        // inaccessible" (legacy: return val to preserve behavior).
+        bool methodReached = false;
         TsValue* method = ts_object_get_property(obj, firstMethod);
         if (method && !ts_value_is_undefined(method)) {
+            methodReached = true;
             TsValue* result = ts_call_with_this_0(method, val);
             if (is_primitive_result(result)) return result;
         }
-        // Fall back to second method
         method = ts_object_get_property(obj, secondMethod);
         if (method && !ts_value_is_undefined(method)) {
+            methodReached = true;
             TsValue* result = ts_call_with_this_0(method, val);
             if (is_primitive_result(result)) return result;
         }
-        // Spec says TypeError here. Return input so existing numeric fallback
-        // (nanbox_extract_double → 0) gives a well-defined, non-crashing value.
+        if (methodReached) {
+            // Per ES spec, TypeError when methods exist but return non-primitives.
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert object to primitive value"));
+        }
+        // No methods reachable — preserve legacy fallback so weirdly-boxed
+        // TsValue structs and built-ins without a full prototype chain
+        // continue to work.
         return val;
     }
 
