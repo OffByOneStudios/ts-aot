@@ -128,7 +128,10 @@ static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 
     TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = func->name;
     func->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
     val.ptr_val = fn;
-    map->Set(key, val);
+    // Per ES spec, built-in prototype methods are {writable:true,
+    // enumerable:false, configurable:true}. SetWithAttrs omits ATTR_ENUMERABLE.
+    map->SetWithAttrs(key, val,
+        TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 }
 
 // Native wrappers for functions that take 2+ args and don't have _native variants
