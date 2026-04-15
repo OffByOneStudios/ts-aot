@@ -491,7 +491,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
             for (size_t i = 0; i < length; ++i) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
-                TsValue* arr = ts_value_make_object(this);
+                TsValue* arr = ts_value_make_object(CallbackReceiver());
                 ts_call_3((TsValue*)callback, v, idx, arr);
             }
         }
@@ -505,7 +505,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         ts_call_3(cbVal, v, idx, arr);
     }
 }
@@ -527,7 +527,7 @@ void* TsArray::Map(void* callback, void* thisArg) {
             for (size_t i = 0; i < length; ++i) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
-                TsValue* arr = ts_value_make_object(this);
+                TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
                 result->Push((int64_t)res);
             }
@@ -543,7 +543,7 @@ void* TsArray::Map(void* callback, void* thisArg) {
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
 
         // Always store the TsValue* pointer - let the print code handle type inspection
@@ -570,7 +570,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
             for (size_t i = 0; i < length; ++i) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
-                TsValue* arr = ts_value_make_object(this);
+                TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
                 if (ts_value_to_bool(res)) {
                     result->Push(((int64_t*)elements)[i]);
@@ -595,7 +595,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         // Use ts_call_with_arity to respect callback's declared parameter count
         TsValue* res = ts_call_with_arity(cbVal, v, idx, arr);
 
@@ -644,7 +644,7 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
     for (size_t i = startIdx; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
     }
     return accumulator;
@@ -682,7 +682,7 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
     for (size_t i = startIdx; i > 0; --i) {
         TsValue* v = GetElementBoxed(i - 1);
         TsValue* idx = ts_value_make_int(i - 1);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
     }
     return accumulator;
@@ -701,7 +701,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
             for (size_t i = 0; i < length; ++i) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
-                TsValue* arr = ts_value_make_object(this);
+                TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
                 if (ts_value_to_bool(res)) return true;
             }
@@ -716,7 +716,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) return true;
     }
@@ -736,7 +736,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
             for (size_t i = 0; i < length; ++i) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
-                TsValue* arr = ts_value_make_object(this);
+                TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
                 if (!ts_value_to_bool(res)) return false;
             }
@@ -751,7 +751,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
         if (!ts_value_to_bool(res)) return false;
     }
@@ -773,7 +773,7 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
             for (size_t i = 0; i < length; ++i) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
-                TsValue* arr = ts_value_make_object(this);
+                TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
                 if (ts_value_to_bool(res)) return GetElementBoxed(i);
             }
@@ -788,7 +788,7 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) {
             return GetElementBoxed(i);
@@ -810,7 +810,7 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
             for (size_t i = 0; i < length; ++i) {
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
-                TsValue* arr = ts_value_make_object(this);
+                TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = ts_call_3((TsValue*)callback, v, idx, arr);
                 if (ts_value_to_bool(res)) return (int64_t)i;
             }
@@ -825,7 +825,7 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) return (int64_t)i;
     }
@@ -848,7 +848,7 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
             for (size_t i = length; i > 0; --i) {
                 TsValue* v = GetElementBoxed(i - 1);
                 TsValue* idx_v = ts_value_make_int(i - 1);
-                TsValue* arr = ts_value_make_object(this);
+                TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = ts_call_3((TsValue*)callback, v, idx_v, arr);
                 if (ts_value_to_bool(res)) return GetElementBoxed(i - 1);
             }
@@ -864,7 +864,7 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
         size_t idx = i - 1;
         TsValue* v = GetElementBoxed(idx);
         TsValue* idxVal = ts_value_make_int(idx);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
         if (ts_value_to_bool(res)) {
             return GetElementBoxed(idx);
@@ -887,7 +887,7 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
             for (size_t i = length; i > 0; --i) {
                 TsValue* v = GetElementBoxed(i - 1);
                 TsValue* idx_v = ts_value_make_int(i - 1);
-                TsValue* arr = ts_value_make_object(this);
+                TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = ts_call_3((TsValue*)callback, v, idx_v, arr);
                 if (ts_value_to_bool(res)) return (int64_t)(i - 1);
             }
@@ -903,7 +903,7 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
         size_t idx = i - 1;
         TsValue* v = GetElementBoxed(idx);
         TsValue* idxVal = ts_value_make_int(idx);
-        TsValue* arr = ts_value_make_object(this);
+        TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
         if (ts_value_to_bool(res)) return (int64_t)idx;
     }

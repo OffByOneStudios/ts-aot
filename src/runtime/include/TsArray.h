@@ -96,6 +96,13 @@ public:
     // Init-in-place for stack allocation (escape analysis)
     static void InitInPlace(void* mem, size_t initialCapacity);
 
+    // Returns the receiver to pass as the 3rd callback argument.
+    // For temp arrays materialized from an array-like receiver, this is
+    // the original ToObject'd receiver; for real arrays, it is `this`.
+    inline void* CallbackReceiver() {
+        return originalReceiver ? originalReceiver : (void*)this;
+    }
+
 private:
     TsArray(size_t initialCapacity, size_t elementSize = 8);
 
@@ -107,6 +114,13 @@ private:
     bool isSpecialized = false;
     bool isDouble = false;
     ElementKind elementKind_ = ElementKind::PackedAny;  ///< V8-style element kind
+
+public:
+    // Set by require_array_or_throw when materializing a temp array from
+    // an array-like receiver, so callback methods can pass the original
+    // ToObject'd receiver as the 3rd callback argument (per ECMA-262).
+    // Placed at end to preserve sizeof/layout of prior private members.
+    void* originalReceiver = nullptr;
 };
 
 extern "C" {

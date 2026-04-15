@@ -1548,6 +1548,9 @@ TsValue* ts_value_make_int(int64_t i) {
         int64_t len = (lenD > (double)MAX_ITER) ? MAX_ITER : (int64_t)lenD;
         // Build the temporary array by indexed reads.
         TsArray* tmp = TsArray::Create(len);
+        // Remember the original receiver so callback methods can pass it
+        // as the 3rd callback argument (per ECMA-262).
+        tmp->originalReceiver = ctxToRead;
         for (int64_t i = 0; i < len; i++) {
             char idxKey[24];
             snprintf(idxKey, sizeof(idxKey), "%lld", (long long)i);
