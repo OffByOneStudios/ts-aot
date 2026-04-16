@@ -220,6 +220,8 @@ void* ts_get_global_Array() {
     // Array.prototype — populated with instance methods so
     // Array.prototype.slice.call(arr, ...) pattern works (used by Express)
     TsMap* proto = TsMap::Create();
+    extern TsMap* g_array_prototype_map;
+    g_array_prototype_map = proto;
     addMethod(proto, "slice", (void*)ts_array_slice_native);
     addMethod(proto, "map", (void*)ts_array_map_native);
     addMethod(proto, "filter", (void*)ts_array_filter_native);

@@ -4597,6 +4597,9 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Object.defineProperty(obj, prop, descriptor) - defines a property on an object
     // Supports: value, get, set, writable (partial), enumerable (partial), configurable (partial)
+    extern "C" void ts_array_prototype_bump_version();
+    extern "C" bool ts_array_is_prototype_map(void* maybeMap);
+
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
         // Spec step 1: If Type(O) is not Object, throw a TypeError exception.
         // We treat as a "definitive primitive" only NaN-boxed null/undefined/
@@ -4697,6 +4700,12 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         TsMap* map = (TsMap*)rawPtr;
+
+        // If the target is Array.prototype, bump the version counter so
+        // Array iteration methods switch to the spec-compliant slow path.
+        if (ts_array_is_prototype_map(map)) {
+            ts_array_prototype_bump_version();
+        }
 
         // Spec step 2: Property descriptor must itself be an object.
         // ToPropertyDescriptor: If Type(Obj) is not Object, throw TypeError.

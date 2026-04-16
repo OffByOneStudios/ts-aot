@@ -16,6 +16,88 @@
 #include <new>
 #include <algorithm>
 
+// Array.prototype observability: when user code mutates Array.prototype
+// via Object.defineProperty, iteration methods must walk the prototype
+// chain per spec. We gate on a module-level version counter that gets
+// bumped only when such a mutation happens. Common case stays fast.
+extern "C" {
+    TsMap* g_array_prototype_map = nullptr;
+    uint64_t g_array_prototype_version = 0;
+}
+
+extern "C" void ts_array_prototype_bump_version() {
+    g_array_prototype_version++;
+}
+
+extern "C" bool ts_array_is_prototype_map(void* maybeMap) {
+    return maybeMap && maybeMap == (void*)g_array_prototype_map;
+}
+
+// Helper: read property at numeric index from Array.prototype's TsMap.
+// Returns nullptr (NaN-boxed? no: raw nullptr) if not found. If an
+// accessor getter is found (__getter_<i> convention from TsObject.cpp),
+// invokes it with `recv` as `this` and returns the result.
+static TsValue* array_proto_get_at(void* recv, int64_t i) {
+    if (!g_array_prototype_map) return nullptr;
+    char idxKey[24];
+    snprintf(idxKey, sizeof(idxKey), "%lld", (long long)i);
+    // Check for accessor first (__getter_<N>)
+    std::string getterKey = std::string("__getter_") + idxKey;
+    TsValue gk; gk.type = ValueType::STRING_PTR;
+    gk.ptr_val = TsString::Create(getterKey.c_str());
+    TsValue gv = g_array_prototype_map->Get(gk);
+    if (gv.type != ValueType::UNDEFINED) {
+        TsValue* getterFn = nullptr;
+        if (gv.type == ValueType::FUNCTION_PTR || gv.type == ValueType::OBJECT_PTR) {
+            getterFn = ts_value_make_object(gv.ptr_val);
+        }
+        if (getterFn) {
+            TsValue* recvBoxed = ts_value_make_object(recv);
+            return ts_function_call_with_this(getterFn, recvBoxed, 0, nullptr);
+        }
+    }
+    // Direct data property at that index
+    TsValue dk; dk.type = ValueType::STRING_PTR;
+    dk.ptr_val = TsString::Create(idxKey);
+    TsValue dv = g_array_prototype_map->Get(dk);
+    if (dv.type != ValueType::UNDEFINED) {
+        return nanbox_from_tagged(dv);
+    }
+    return nullptr;
+}
+
+// Spec HasProperty(O, ToString(k)): own data-or-accessor OR inherited.
+// For the slow-path only.
+static bool ts_array_has_property_at(TsArray* arr, int64_t i) {
+    if (!arr) return false;
+    if (i >= 0 && (size_t)i < (size_t)arr->Length()) return true;
+    // Check Array.prototype
+    if (!g_array_prototype_map) return false;
+    char idxKey[24];
+    snprintf(idxKey, sizeof(idxKey), "%lld", (long long)i);
+    std::string getterKey = std::string("__getter_") + idxKey;
+    TsValue gk; gk.type = ValueType::STRING_PTR;
+    gk.ptr_val = TsString::Create(getterKey.c_str());
+    if (g_array_prototype_map->Has(gk)) return true;
+    TsValue dk; dk.type = ValueType::STRING_PTR;
+    dk.ptr_val = TsString::Create(idxKey);
+    return g_array_prototype_map->Has(dk);
+}
+
+// Spec Get(O, ToString(k)): if Array.prototype has an accessor for this
+// index, invoke it (inherited getter takes precedence over own when own
+// slot is absent). Otherwise fall back to own indexed slot.
+static TsValue* ts_array_get_property_at(TsArray* arr, int64_t i) {
+    if (!arr) return ts_value_make_undefined();
+    // Own indexed slot wins if present (not a hole).
+    if (i >= 0 && (size_t)i < (size_t)arr->Length()) {
+        return arr->GetElementBoxed((size_t)i);
+    }
+    // Inherited via Array.prototype.
+    TsValue* v = array_proto_get_at((void*)arr, i);
+    return v ? v : ts_value_make_undefined();
+}
+
 TsArray* TsArray::Create(size_t initialCapacity) {
     void* mem = ts_alloc(sizeof(TsArray));
     return new(mem) TsArray(initialCapacity, 8);
@@ -502,8 +584,15 @@ void TsArray::ForEach(void* callback, void* thisArg) {
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal) return;
 
+    bool slow = (g_array_prototype_version != 0);
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = GetElementBoxed(i);
+        TsValue* v;
+        if (slow) {
+            if (!ts_array_has_property_at(this, (int64_t)i)) continue;
+            v = ts_array_get_property_at(this, (int64_t)i);
+        } else {
+            v = GetElementBoxed(i);
+        }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         ts_call_3(cbVal, v, idx, arr);
@@ -540,8 +629,19 @@ void* TsArray::Map(void* callback, void* thisArg) {
     if (!cbVal) return nullptr;
 
     TsArray* result = TsArray::Create(length);
+    bool slow = (g_array_prototype_version != 0);
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = GetElementBoxed(i);
+        TsValue* v;
+        if (slow) {
+            if (!ts_array_has_property_at(this, (int64_t)i)) {
+                // Preserve hole: push undefined placeholder so length stays consistent
+                result->Push((int64_t)ts_value_make_undefined());
+                continue;
+            }
+            v = ts_array_get_property_at(this, (int64_t)i);
+        } else {
+            v = GetElementBoxed(i);
+        }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
@@ -592,8 +692,15 @@ void* TsArray::Filter(void* callback, void* thisArg) {
         result = TsArray::Create();
     }
 
+    bool slow = (g_array_prototype_version != 0);
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = GetElementBoxed(i);
+        TsValue* v;
+        if (slow) {
+            if (!ts_array_has_property_at(this, (int64_t)i)) continue;
+            v = ts_array_get_property_at(this, (int64_t)i);
+        } else {
+            v = GetElementBoxed(i);
+        }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         // Use ts_call_with_arity to respect callback's declared parameter count
@@ -601,8 +708,11 @@ void* TsArray::Filter(void* callback, void* thisArg) {
 
         // Use JavaScript truthiness, not strict boolean check
         if (ts_value_to_bool(res)) {
-            // Push the raw element value - use appropriate method based on array type
-            if (isSpecialized && isDouble) {
+            if (slow) {
+                // We don't know if `v` matches the raw elements slot when
+                // slow mode, so push the read value itself (NaN-boxed).
+                result->Push((int64_t)v);
+            } else if (isSpecialized && isDouble) {
                 result->PushDouble(((double*)elements)[i]);
             } else {
                 result->Push(((int64_t*)elements)[i]);
@@ -636,13 +746,33 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
 
     TsValue* accumulator = (TsValue*)initialValue;
     size_t startIdx = 0;
+    bool slow = (g_array_prototype_version != 0);
     if (!accumulator && length > 0) {
-        accumulator = GetElementBoxed(0);
-        startIdx = 1;
+        // Spec: initial accumulator is first present element. In slow mode
+        // honor HasProperty so accessors on Array.prototype supply the
+        // seed when the own slot is absent; then advance past that index.
+        if (slow) {
+            while (startIdx < (size_t)length && !ts_array_has_property_at(this, (int64_t)startIdx)) {
+                startIdx++;
+            }
+            if (startIdx < (size_t)length) {
+                accumulator = ts_array_get_property_at(this, (int64_t)startIdx);
+                startIdx++;
+            }
+        } else {
+            accumulator = GetElementBoxed(0);
+            startIdx = 1;
+        }
     }
 
     for (size_t i = startIdx; i < length; ++i) {
-        TsValue* v = GetElementBoxed(i);
+        TsValue* v;
+        if (slow) {
+            if (!ts_array_has_property_at(this, (int64_t)i)) continue;
+            v = ts_array_get_property_at(this, (int64_t)i);
+        } else {
+            v = GetElementBoxed(i);
+        }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
@@ -674,13 +804,32 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
 
     TsValue* accumulator = (TsValue*)initialValue;
     size_t startIdx = length;
+    bool slow = (g_array_prototype_version != 0);
     if (!accumulator && length > 0) {
-        accumulator = GetElementBoxed(length - 1);
-        startIdx = length - 1;
+        if (slow) {
+            // Find the last present element per HasProperty to seed.
+            int64_t k = (int64_t)length - 1;
+            while (k >= 0 && !ts_array_has_property_at(this, k)) k--;
+            if (k >= 0) {
+                accumulator = ts_array_get_property_at(this, k);
+                startIdx = (size_t)k;
+            } else {
+                startIdx = 0;
+            }
+        } else {
+            accumulator = GetElementBoxed(length - 1);
+            startIdx = length - 1;
+        }
     }
 
     for (size_t i = startIdx; i > 0; --i) {
-        TsValue* v = GetElementBoxed(i - 1);
+        TsValue* v;
+        if (slow) {
+            if (!ts_array_has_property_at(this, (int64_t)(i - 1))) continue;
+            v = ts_array_get_property_at(this, (int64_t)(i - 1));
+        } else {
+            v = GetElementBoxed(i - 1);
+        }
         TsValue* idx = ts_value_make_int(i - 1);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
@@ -713,8 +862,15 @@ bool TsArray::Some(void* callback, void* thisArg) {
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal) return false;
 
+    bool slow = (g_array_prototype_version != 0);
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = GetElementBoxed(i);
+        TsValue* v;
+        if (slow) {
+            if (!ts_array_has_property_at(this, (int64_t)i)) continue;
+            v = ts_array_get_property_at(this, (int64_t)i);
+        } else {
+            v = GetElementBoxed(i);
+        }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
@@ -748,8 +904,15 @@ bool TsArray::Every(void* callback, void* thisArg) {
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal) return false;
 
+    bool slow = (g_array_prototype_version != 0);
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = GetElementBoxed(i);
+        TsValue* v;
+        if (slow) {
+            if (!ts_array_has_property_at(this, (int64_t)i)) continue;
+            v = ts_array_get_property_at(this, (int64_t)i);
+        } else {
+            v = GetElementBoxed(i);
+        }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
@@ -785,13 +948,22 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal) return ts_value_make_undefined();
 
+    bool slow = (g_array_prototype_version != 0);
     for (size_t i = 0; i < length; ++i) {
-        TsValue* v = GetElementBoxed(i);
+        TsValue* v;
+        if (slow) {
+            // find doesn't skip holes — reads undefined for absent (per spec)
+            v = ts_array_has_property_at(this, (int64_t)i)
+                ? ts_array_get_property_at(this, (int64_t)i)
+                : ts_value_make_undefined();
+        } else {
+            v = GetElementBoxed(i);
+        }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = ts_call_3(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) {
-            return GetElementBoxed(i);
+            return v;
         }
     }
     return ts_value_make_undefined();
