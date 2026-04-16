@@ -1635,12 +1635,38 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         // Primitive receivers (boolean, number). ToObject returns a wrapper
         // that has no indexed properties and no .length, so the spec result
-        // is an empty iteration. String primitives have length + indices, but
-        // those arrive as TsString*'s so they hit the normal object path.
+        // is an empty iteration.
         {
             uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctxToRead);
             if (nanbox_is_number(nb) || nanbox_is_bool(nb)) {
                 return TsArray::Create(0);
+            }
+        }
+        // String primitives: expose characters as array-like elements via
+        // ts_string_charAt, since ts_object_get_property("0") on a TsString
+        // returns undefined (only integer keys hit the string fast path).
+        {
+            void* rawCtx = ts_value_get_object((TsValue*)ctxToRead);
+            if (!rawCtx) rawCtx = ctxToRead;
+            uintptr_t p = (uintptr_t)rawCtx;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                uint32_t m0 = *(uint32_t*)rawCtx;
+                if (m0 == 0x53545247 /* STRG */ || m0 == TsConsString::MAGIC) {
+                    TsString* str = ts_ensure_flat(rawCtx);
+                    if (str) {
+                        int64_t len = (int64_t)str->Length();
+                        const int64_t MAX_ITER = 1 << 20;
+                        if (len > MAX_ITER) len = MAX_ITER;
+                        TsArray* tmp = TsArray::Create((size_t)len);
+                        tmp->originalReceiver = ctxToRead;
+                        for (int64_t i = 0; i < len; i++) {
+                            TsString* ch = (TsString*)ts_string_charAt(str, i);
+                            TsValue* elem = ts_value_make_string(ch);
+                            ts_array_push(tmp, elem);
+                        }
+                        return tmp;
+                    }
+                }
             }
         }
         // Read .length
