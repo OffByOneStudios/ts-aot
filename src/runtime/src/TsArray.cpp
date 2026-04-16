@@ -586,6 +586,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
     if (!cbVal) return;
 
     bool slow = (g_array_prototype_version != 0);
+    TsValue* thisArgV = (TsValue*)thisArg;
     for (size_t i = 0; i < length; ++i) {
         TsValue* v;
         if (slow) {
@@ -596,7 +597,10 @@ void TsArray::ForEach(void* callback, void* thisArg) {
         }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        ts_call_3(cbVal, v, idx, arr);
+        if (thisArgV)
+            ts_call_with_this_3(cbVal, thisArgV, v, idx, arr);
+        else
+            ts_call_3(cbVal, v, idx, arr);
     }
 }
 
@@ -631,6 +635,7 @@ void* TsArray::Map(void* callback, void* thisArg) {
 
     TsArray* result = TsArray::Create(length);
     bool slow = (g_array_prototype_version != 0);
+    TsValue* thisArgV = (TsValue*)thisArg;
     for (size_t i = 0; i < length; ++i) {
         TsValue* v;
         if (slow) {
@@ -645,7 +650,9 @@ void* TsArray::Map(void* callback, void* thisArg) {
         }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = ts_call_3(cbVal, v, idx, arr);
+        TsValue* res = thisArgV
+            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
+            : ts_call_3(cbVal, v, idx, arr);
 
         // Always store the TsValue* pointer - let the print code handle type inspection
         result->Push((int64_t)res);
@@ -694,6 +701,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
     }
 
     bool slow = (g_array_prototype_version != 0);
+    TsValue* thisArgV = (TsValue*)thisArg;
     for (size_t i = 0; i < length; ++i) {
         TsValue* v;
         if (slow) {
@@ -704,8 +712,13 @@ void* TsArray::Filter(void* callback, void* thisArg) {
         }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        // Use ts_call_with_arity to respect callback's declared parameter count
-        TsValue* res = ts_call_with_arity(cbVal, v, idx, arr);
+        TsValue* res;
+        if (thisArgV) {
+            res = ts_call_with_this_3(cbVal, thisArgV, v, idx, arr);
+        } else {
+            // Use ts_call_with_arity to respect callback's declared parameter count
+            res = ts_call_with_arity(cbVal, v, idx, arr);
+        }
 
         // Use JavaScript truthiness, not strict boolean check
         if (ts_value_to_bool(res)) {
@@ -846,6 +859,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
     if (!cbVal) return false;
 
     bool slow = (g_array_prototype_version != 0);
+    TsValue* thisArgV = (TsValue*)thisArg;
     for (size_t i = 0; i < length; ++i) {
         TsValue* v;
         if (slow) {
@@ -856,7 +870,9 @@ bool TsArray::Some(void* callback, void* thisArg) {
         }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = ts_call_3(cbVal, v, idx, arr);
+        TsValue* res = thisArgV
+            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
+            : ts_call_3(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) return true;
     }
     return false;
@@ -888,6 +904,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
     if (!cbVal) return false;
 
     bool slow = (g_array_prototype_version != 0);
+    TsValue* thisArgV = (TsValue*)thisArg;
     for (size_t i = 0; i < length; ++i) {
         TsValue* v;
         if (slow) {
@@ -898,7 +915,9 @@ bool TsArray::Every(void* callback, void* thisArg) {
         }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = ts_call_3(cbVal, v, idx, arr);
+        TsValue* res = thisArgV
+            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
+            : ts_call_3(cbVal, v, idx, arr);
         if (!ts_value_to_bool(res)) return false;
     }
     return true;
@@ -932,6 +951,7 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
     if (!cbVal) return ts_value_make_undefined();
 
     bool slow = (g_array_prototype_version != 0);
+    TsValue* thisArgV = (TsValue*)thisArg;
     for (size_t i = 0; i < length; ++i) {
         TsValue* v;
         if (slow) {
@@ -944,7 +964,9 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
         }
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = ts_call_3(cbVal, v, idx, arr);
+        TsValue* res = thisArgV
+            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
+            : ts_call_3(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) {
             return v;
         }
