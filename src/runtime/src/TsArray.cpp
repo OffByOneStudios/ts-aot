@@ -2416,8 +2416,42 @@ extern "C" {
     }
 
     void* ts_array_from(void* arrayLike, void* mapFn, void* thisArg) {
-        if (!arrayLike) {
-            return ts_array_create();
+        // Spec: Array.from(null) or Array.from(undefined) must throw TypeError
+        // (can't create iterator from nullish). Do this check first before
+        // any other handling.
+        uint64_t preCheckNB = (uint64_t)(uintptr_t)arrayLike;
+        if (!arrayLike || nanbox_is_null(preCheckNB) || nanbox_is_undefined(preCheckNB)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Array.from requires an iterable or array-like object"));
+            return ts_array_create();  // unreachable
+        }
+
+        // Spec: if mapFn is defined, it must be callable.
+        if (mapFn) {
+            uint64_t mfNB = (uint64_t)(uintptr_t)mapFn;
+            if (!nanbox_is_undefined(mfNB) && !nanbox_is_null(mfNB)) {
+                bool isCallable = false;
+                if (nanbox_is_ptr(mfNB)) {
+                    void* rawMf = ts_nanbox_safe_unbox(mapFn);
+                    if (!rawMf) rawMf = mapFn;
+                    uintptr_t p = (uintptr_t)rawMf;
+                    if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                        uint32_t m16 = *(uint32_t*)((char*)rawMf + 16);
+                        if (m16 == 0x46554E43 /* FUNC */ ||
+                            m16 == 0x434C5352 /* CLSR */) {
+                            isCallable = true;
+                        }
+                    }
+                }
+                if (!isCallable) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Array.from: when provided, mapFn must be callable"));
+                    return ts_array_create();  // unreachable
+                }
+            } else {
+                // undefined/null mapFn is treated as no mapFn
+                mapFn = nullptr;
+            }
         }
 
         // Unbox if it's a TsValue*
