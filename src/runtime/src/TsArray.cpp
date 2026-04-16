@@ -2343,9 +2343,27 @@ extern "C" {
     void* ts_array_concat(void* arr, void* other) {
         // Unbox if arr is a TsValue* (boxed array)
         void* rawArr = ts_nanbox_safe_unbox(arr);
-        void* rawOther = ts_nanbox_safe_unbox(other);
-
         TsArray* first = (TsArray*)rawArr;
+
+        // Per spec: if `other` is not an Array (or spreadable), it's appended
+        // as a SINGLE element (not spread). Detect NaN-boxed primitives first
+        // — they can't be unboxed to a dereferenceable pointer.
+        {
+            uint64_t oNb = (uint64_t)(uintptr_t)other;
+            if (nanbox_is_undefined(oNb) || nanbox_is_null(oNb) ||
+                nanbox_is_int32(oNb) || nanbox_is_double(oNb) ||
+                nanbox_is_bool(oNb)) {
+                // Append as single element.
+                TsArray* result = TsArray::Create(first->Length() + 1);
+                for (size_t i = 0; i < first->Length(); ++i) {
+                    result->Push(first->Get(i));
+                }
+                result->Push((int64_t)other);
+                return result;
+            }
+        }
+
+        void* rawOther = ts_nanbox_safe_unbox(other);
 
         // Check if 'other' is a TsArray (magic 0x41525259 at offset 0)
         bool otherIsArray = rawOther && *(uint32_t*)rawOther == TsArray::MAGIC;

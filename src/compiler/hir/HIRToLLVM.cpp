@@ -4477,27 +4477,34 @@ void HIRToLLVM::lowerArrayLength(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerArrayPush(HIRInstruction* inst) {
+    // Variadic: arr.push(a, b, c) emits N sequential ts_array_push calls,
+    // where operands[0] is the array and operands[1..] are values to push.
     llvm::Value* arr = getOperandValue(inst->operands[0]);
-    llvm::Value* val = getOperandValue(inst->operands[1]);
-
-    // ts_array_push expects (ptr, ptr), so we need to box the value if it's not a pointer
-    if (!val->getType()->isPointerTy()) {
-        if (val->getType()->isIntegerTy(64)) {
-            auto boxFn = getTsValueMakeInt();
-            val = builder_->CreateCall(boxFn, {val});
-        } else if (val->getType()->isDoubleTy()) {
-            auto boxFn = getTsValueMakeDouble();
-            val = builder_->CreateCall(boxFn, {val});
-        } else if (val->getType()->isIntegerTy(1)) {
-            auto boxFn = getTsValueMakeBool();
-            llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
-            val = builder_->CreateCall(boxFn, {extended});
-        }
-    }
-
     auto fn = getTsArrayPush();
-    llvm::Value* result = builder_->CreateCall(fn, {arr, val});
-    if (inst->result) {
+    llvm::Value* result = nullptr;
+    for (size_t i = 1; i < inst->operands.size(); ++i) {
+        llvm::Value* val = getOperandValue(inst->operands[i]);
+        if (!val->getType()->isPointerTy()) {
+            if (val->getType()->isIntegerTy(1)) {
+                auto boxFn = getTsValueMakeBool();
+                llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
+                val = builder_->CreateCall(boxFn, {extended});
+            } else if (val->getType()->isIntegerTy()) {
+                llvm::Value* asI64 = builder_->CreateSExtOrTrunc(val, builder_->getInt64Ty());
+                auto boxFn = getTsValueMakeInt();
+                val = builder_->CreateCall(boxFn, {asI64});
+            } else if (val->getType()->isDoubleTy()) {
+                auto boxFn = getTsValueMakeDouble();
+                val = builder_->CreateCall(boxFn, {val});
+            } else if (val->getType()->isFloatTy()) {
+                llvm::Value* asDouble = builder_->CreateFPExt(val, builder_->getDoubleTy());
+                auto boxFn = getTsValueMakeDouble();
+                val = builder_->CreateCall(boxFn, {asDouble});
+            }
+        }
+        result = builder_->CreateCall(fn, {arr, val});
+    }
+    if (inst->result && result) {
         setValue(inst->result, result);
     }
 }
@@ -5969,6 +5976,16 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             return;
         }
 
+        // Array variadic methods (splice/push/concat/unshift) go through
+        // the explicit handlers below (line ~6153+), NOT the spec-driven
+        // lookup — they need the loop-of-calls / items-packing pattern
+        // which the generic specArgIdx truncation cannot express.
+        static const std::unordered_set<std::string> arrayVariadicMethods = {
+            "splice", "push", "concat", "unshift"
+        };
+        bool isArrayVariadic = (className == "Array" &&
+                                 arrayVariadicMethods.count(methodName));
+
         // Try extension type method from LoweringRegistry (e.g., ts_Cipher_update)
         // Skip types that use property dispatch (no standalone C functions):
         // fs extension's Dir, Dirent, Stats, FSWatcher, FsPromises types
@@ -5979,7 +5996,7 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             };
             std::string hirName = "ts_" + className + "_" + methodName;
             auto& registry = ::hir::LoweringRegistry::instance();
-            const auto* spec = (!propertyDispatchTypes.count(className))
+            const auto* spec = (!propertyDispatchTypes.count(className) && !isArrayVariadic)
                 ? registry.lookup(hirName)
                 : nullptr;
             if (spec) {
@@ -6152,31 +6169,186 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
 
     if (methodName == "push") {
         // ts_array_push(void* arr, void* value) -> int64_t (new length)
-        if (inst->operands.size() > 2) {
-            llvm::Value* val = getOperandValue(inst->operands[2]);
+        // Variadic: arr.push(a, b, c) emits N sequential calls and returns
+        // the length from the final call.
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt64Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_push", ft);
+        llvm::Value* result = nullptr;
+        for (size_t i = 2; i < inst->operands.size(); ++i) {
+            llvm::Value* val = getOperandValue(inst->operands[i]);
 
             // Box the value if needed
             if (!val->getType()->isPointerTy()) {
-                if (val->getType()->isIntegerTy(64)) {
-                    auto boxFn = getTsValueMakeInt();
-                    val = builder_->CreateCall(boxFn, {val});
-                } else if (val->getType()->isDoubleTy()) {
-                    auto boxFn = getTsValueMakeDouble();
-                    val = builder_->CreateCall(boxFn, {val});
-                } else if (val->getType()->isIntegerTy(1)) {
+                if (val->getType()->isIntegerTy(1)) {
                     auto boxFn = getTsValueMakeBool();
                     llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
                     val = builder_->CreateCall(boxFn, {extended});
+                } else if (val->getType()->isIntegerTy()) {
+                    llvm::Value* asI64 = builder_->CreateSExtOrTrunc(val, builder_->getInt64Ty());
+                    auto boxFn = getTsValueMakeInt();
+                    val = builder_->CreateCall(boxFn, {asI64});
+                } else if (val->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    val = builder_->CreateCall(boxFn, {val});
+                } else if (val->getType()->isFloatTy()) {
+                    llvm::Value* asDouble = builder_->CreateFPExt(val, builder_->getDoubleTy());
+                    auto boxFn = getTsValueMakeDouble();
+                    val = builder_->CreateCall(boxFn, {asDouble});
                 }
             }
 
-            llvm::FunctionType* ft = llvm::FunctionType::get(
-                builder_->getInt64Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
-            llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_push", ft);
-            llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { obj, val });
-            if (inst->result) {
-                setValue(inst->result, result);
+            result = builder_->CreateCall(ft, fn.getCallee(), { obj, val });
+        }
+        if (inst->result && result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (methodName == "unshift") {
+        // ts_array_unshift(void* arr, void* value) -> int64_t (new length)
+        // Per ES spec, arr.unshift(a, b, c) prepends so that a is at index 0.
+        // Each single-arg unshift prepends one element at index 0. To match
+        // spec ordering, iterate the args in REVERSE so that the first arg
+        // ends up at index 0 (the LAST call wins index 0).
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getInt64Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_unshift", ft);
+        llvm::Value* result = nullptr;
+        for (size_t i = inst->operands.size(); i > 2; --i) {
+            llvm::Value* val = getOperandValue(inst->operands[i - 1]);
+            if (!val->getType()->isPointerTy()) {
+                if (val->getType()->isIntegerTy(1)) {
+                    auto boxFn = getTsValueMakeBool();
+                    llvm::Value* extended = builder_->CreateZExt(val, builder_->getInt32Ty());
+                    val = builder_->CreateCall(boxFn, {extended});
+                } else if (val->getType()->isIntegerTy()) {
+                    llvm::Value* asI64 = builder_->CreateSExtOrTrunc(val, builder_->getInt64Ty());
+                    auto boxFn = getTsValueMakeInt();
+                    val = builder_->CreateCall(boxFn, {asI64});
+                } else if (val->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    val = builder_->CreateCall(boxFn, {val});
+                } else if (val->getType()->isFloatTy()) {
+                    llvm::Value* asDouble = builder_->CreateFPExt(val, builder_->getDoubleTy());
+                    auto boxFn = getTsValueMakeDouble();
+                    val = builder_->CreateCall(boxFn, {asDouble});
+                }
             }
+            result = builder_->CreateCall(ft, fn.getCallee(), { obj, val });
+        }
+        if (inst->result && result) {
+            setValue(inst->result, result);
+        }
+        return;
+    }
+
+    if (methodName == "concat") {
+        // ts_array_concat(void* arr, void* other) returns a new array.
+        // Variadic: arr.concat(a, b, c) iterates, chaining the result
+        // through each call. Each arg may itself be an array (spreadable)
+        // or a single value — the runtime distinguishes.
+        llvm::FunctionType* ft = llvm::FunctionType::get(
+            builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_concat", ft);
+        llvm::Value* acc = obj;
+        for (size_t i = 2; i < inst->operands.size(); ++i) {
+            llvm::Value* other = getOperandValue(inst->operands[i]);
+            if (!other->getType()->isPointerTy()) {
+                if (other->getType()->isIntegerTy(1)) {
+                    auto boxFn = getTsValueMakeBool();
+                    llvm::Value* extended = builder_->CreateZExt(other, builder_->getInt32Ty());
+                    other = builder_->CreateCall(boxFn, {extended});
+                } else if (other->getType()->isIntegerTy()) {
+                    // Handle i8, i16, i32, i64 by extending to i64 then boxing.
+                    llvm::Value* asI64 = builder_->CreateSExtOrTrunc(other, builder_->getInt64Ty());
+                    auto boxFn = getTsValueMakeInt();
+                    other = builder_->CreateCall(boxFn, {asI64});
+                } else if (other->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    other = builder_->CreateCall(boxFn, {other});
+                } else if (other->getType()->isFloatTy()) {
+                    llvm::Value* asDouble = builder_->CreateFPExt(other, builder_->getDoubleTy());
+                    auto boxFn = getTsValueMakeDouble();
+                    other = builder_->CreateCall(boxFn, {asDouble});
+                }
+            }
+            acc = builder_->CreateCall(ft, fn.getCallee(), { acc, other });
+        }
+        if (inst->result) {
+            setValue(inst->result, acc);
+        }
+        return;
+    }
+
+    if (methodName == "splice") {
+        // splice(start, deleteCount, ...items)
+        // ts_array_splice(arr, start, deleteCount, items) expects items
+        // as a TsArray*. Pack operands[4..] into a temp TsArray, then call.
+        auto getBoxed = [&](size_t opIdx) -> llvm::Value* {
+            llvm::Value* v = getOperandValue(inst->operands[opIdx]);
+            if (!v->getType()->isPointerTy()) {
+                if (v->getType()->isIntegerTy(64)) {
+                    auto boxFn = getTsValueMakeInt();
+                    v = builder_->CreateCall(boxFn, {v});
+                } else if (v->getType()->isDoubleTy()) {
+                    auto boxFn = getTsValueMakeDouble();
+                    v = builder_->CreateCall(boxFn, {v});
+                } else if (v->getType()->isIntegerTy(1)) {
+                    auto boxFn = getTsValueMakeBool();
+                    llvm::Value* extended = builder_->CreateZExt(v, builder_->getInt32Ty());
+                    v = builder_->CreateCall(boxFn, {extended});
+                }
+            }
+            return v;
+        };
+        auto toI64 = [&](llvm::Value* v) -> llvm::Value* {
+            if (v->getType()->isIntegerTy(64)) return v;
+            if (v->getType()->isDoubleTy()) return builder_->CreateFPToSI(v, builder_->getInt64Ty());
+            if (v->getType()->isPointerTy()) {
+                // Unbox via ts_value_get_int
+                auto ft = llvm::FunctionType::get(
+                    builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_get_int", ft);
+                return builder_->CreateCall(ft, fn.getCallee(), { v });
+            }
+            return builder_->CreateSExtOrTrunc(v, builder_->getInt64Ty());
+        };
+        llvm::Value* startV = inst->operands.size() > 2
+            ? toI64(getOperandValue(inst->operands[2]))
+            : llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
+        llvm::Value* delCnt = inst->operands.size() > 3
+            ? toI64(getOperandValue(inst->operands[3]))
+            : llvm::ConstantInt::get(builder_->getInt64Ty(), 0x7fffffffffffffffLL);
+
+        // Pack items (operands[4..]) into a temp TsArray.
+        llvm::Value* itemsArr = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        if (inst->operands.size() > 4) {
+            // arr = ts_array_create()
+            auto createFt = llvm::FunctionType::get(builder_->getPtrTy(), {}, false);
+            auto createFn = module_->getOrInsertFunction("ts_array_create", createFt);
+            itemsArr = builder_->CreateCall(createFt, createFn.getCallee(), {});
+            auto pushFt = llvm::FunctionType::get(
+                builder_->getInt64Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+            auto pushFn = module_->getOrInsertFunction("ts_array_push", pushFt);
+            for (size_t i = 4; i < inst->operands.size(); ++i) {
+                llvm::Value* item = getBoxed(i);
+                builder_->CreateCall(pushFt, pushFn.getCallee(), { itemsArr, item });
+            }
+        }
+
+        // ts_array_splice(arr, start, deleteCount, items) -> ptr (deleted elements)
+        auto spliceFt = llvm::FunctionType::get(
+            builder_->getPtrTy(),
+            { builder_->getPtrTy(), builder_->getInt64Ty(),
+              builder_->getInt64Ty(), builder_->getPtrTy() },
+            false);
+        auto spliceFn = module_->getOrInsertFunction("ts_array_splice", spliceFt);
+        llvm::Value* result = builder_->CreateCall(spliceFt, spliceFn.getCallee(),
+            { obj, startV, delCnt, itemsArr });
+        if (inst->result) {
+            setValue(inst->result, result);
         }
         return;
     }
