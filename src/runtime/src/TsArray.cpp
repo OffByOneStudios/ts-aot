@@ -8,6 +8,7 @@
 #include "TsClosure.h"
 #include "TsFlatObject.h"
 #include "TsBuffer.h"
+#include "TsError.h"
 #include "GC.h"
 #include "TsGC.h"
 #include <cstring>
@@ -736,15 +737,16 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
     TsValue* accumulator = (TsValue*)initialValue;
     size_t startIdx = 0;
     bool slow = (g_array_prototype_version != 0);
-    if (!accumulator && length > 0) {
-        // Spec: initial accumulator is first present element. In slow mode
-        // honor HasProperty so accessors on Array.prototype supply the
-        // seed when the own slot is absent; then advance past that index.
+    // Spec: capture initial length. The loop runs to initialLen regardless
+    // of length mutations triggered by callbacks/getters. Per-iteration
+    // HasProperty determines presence using the CURRENT state.
+    size_t initialLen = (size_t)length;
+    if (!accumulator && initialLen > 0) {
         if (slow) {
-            while (startIdx < (size_t)length && !ts_array_has_property_at(this, (int64_t)startIdx)) {
+            while (startIdx < initialLen && !ts_array_has_property_at(this, (int64_t)startIdx)) {
                 startIdx++;
             }
-            if (startIdx < (size_t)length) {
+            if (startIdx < initialLen) {
                 accumulator = ts_array_get_property_at(this, (int64_t)startIdx);
                 startIdx++;
             }
@@ -754,12 +756,14 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
         }
     }
 
-    for (size_t i = startIdx; i < length; ++i) {
+    for (size_t i = startIdx; i < initialLen; ++i) {
         TsValue* v;
         if (slow) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
             v = ts_array_get_property_at(this, (int64_t)i);
         } else {
+            // Fast path: respect current length for mid-iteration truncation.
+            if (i >= (size_t)length) break;
             v = GetElementBoxed(i);
         }
         TsValue* idx = ts_value_make_int(i);
@@ -779,12 +783,14 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
     if (!cbVal) return nullptr;
 
     TsValue* accumulator = (TsValue*)initialValue;
-    size_t startIdx = length;
     bool slow = (g_array_prototype_version != 0);
-    if (!accumulator && length > 0) {
+    // Spec: capture initial length at the outset.
+    size_t initialLen = (size_t)length;
+    size_t startIdx = initialLen;
+    if (!accumulator && initialLen > 0) {
         if (slow) {
             // Find the last present element per HasProperty to seed.
-            int64_t k = (int64_t)length - 1;
+            int64_t k = (int64_t)initialLen - 1;
             while (k >= 0 && !ts_array_has_property_at(this, k)) k--;
             if (k >= 0) {
                 accumulator = ts_array_get_property_at(this, k);
@@ -793,8 +799,8 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
                 startIdx = 0;
             }
         } else {
-            accumulator = GetElementBoxed(length - 1);
-            startIdx = length - 1;
+            accumulator = GetElementBoxed(initialLen - 1);
+            startIdx = initialLen - 1;
         }
     }
 
@@ -804,6 +810,7 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
             if (!ts_array_has_property_at(this, (int64_t)(i - 1))) continue;
             v = ts_array_get_property_at(this, (int64_t)(i - 1));
         } else {
+            if ((i - 1) >= (size_t)length) continue;
             v = GetElementBoxed(i - 1);
         }
         TsValue* idx = ts_value_make_int(i - 1);
@@ -2230,12 +2237,61 @@ extern "C" {
         return ((TsArray*)arr)->Filter(callback, thisArg);
     }
 
+    // Shared spec preamble for reduce/reduceRight:
+    // - callback must be callable (else TypeError)
+    // - if no initial value and array is empty, TypeError
+    // Returns true if preamble passed; caller proceeds. ts_throw uses
+    // longjmp so a false return is only reached when no handler is live.
+    static bool reduce_spec_preamble(TsArray* a, void* callback, void* initialValue,
+                                     const char* name) {
+        // Callable check: reuse the same magic pattern as requireCallableOrThrow
+        // in TsObject.cpp. Callback must point to a TsFunction/TsClosure.
+        bool callable = false;
+        if (callback) {
+            uint64_t nb = (uint64_t)(uintptr_t)callback;
+            if (!nanbox_is_undefined(nb) && !nanbox_is_null(nb) &&
+                !nanbox_is_number(nb) && !nanbox_is_bool(nb)) {
+                void* raw = ts_nanbox_safe_unbox(callback);
+                if (!raw) raw = callback;
+                uintptr_t p = (uintptr_t)raw;
+                if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+                    uint32_t m20 = *(uint32_t*)((char*)raw + 20);
+                    uint32_t m24 = *(uint32_t*)((char*)raw + 24);
+                    auto isCallable = [](uint32_t m) {
+                        return m == 0x46554E43 /* FUNC */ || m == 0x434C5352 /* CLSR */;
+                    };
+                    if (isCallable(m16) || isCallable(m20) || isCallable(m24)) {
+                        callable = true;
+                    }
+                }
+            }
+        }
+        if (!callable) {
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "Array.prototype.%s callback is not a function", name);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return false;  // unreachable
+        }
+        if (!initialValue && a->Length() == 0) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Reduce of empty array with no initial value"));
+            return false;  // unreachable
+        }
+        return true;
+    }
+
     void* ts_array_reduce(void* arr, void* callback, void* initialValue) {
-        return ((TsArray*)arr)->Reduce(callback, initialValue);
+        TsArray* a = (TsArray*)arr;
+        if (!reduce_spec_preamble(a, callback, initialValue, "reduce")) return nullptr;
+        return a->Reduce(callback, initialValue);
     }
 
     void* ts_array_reduceRight(void* arr, void* callback, void* initialValue) {
-        return ((TsArray*)arr)->ReduceRight(callback, initialValue);
+        TsArray* a = (TsArray*)arr;
+        if (!reduce_spec_preamble(a, callback, initialValue, "reduceRight")) return nullptr;
+        return a->ReduceRight(callback, initialValue);
     }
 
     bool ts_array_some(void* arr, void* callback, void* thisArg) {

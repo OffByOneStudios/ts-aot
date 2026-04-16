@@ -1743,6 +1743,12 @@ TsValue* ts_value_make_int(int64_t i) {
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         if (!requireCallableOrThrow(callback, "reduce")) return ts_value_make_undefined();
         void* initialValue = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+        // Spec: if len == 0 and no initial value, throw TypeError.
+        if (!initialValue && arr->Length() == 0) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Reduce of empty array with no initial value"));
+            return ts_value_make_undefined();
+        }
         void* result = ts_array_reduce(arr, callback, initialValue);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
@@ -2057,7 +2063,14 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "reduceRight");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "reduceRight")) return ts_value_make_undefined();
         void* initialValue = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+        // Spec: if len == 0 and no initial value, throw TypeError.
+        if (!initialValue && arr->Length() == 0) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Reduce of empty array with no initial value"));
+            return ts_value_make_undefined();
+        }
         void* result = ts_array_reduceRight(arr, callback, initialValue);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
