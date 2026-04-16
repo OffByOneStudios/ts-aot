@@ -764,6 +764,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // compareFn (optional, can be null)
             .build());
 
+    reg.registerLowering("ts_array_constructor",
+        lowering("ts_array_constructor")
+            .returnsPtr()
+            .boxedArg()    // arg (number → length; otherwise → single element)
+            .build());
+
     reg.registerLowering("ts_array_splice",
         lowering("ts_array_splice")
             .returnsPtr()

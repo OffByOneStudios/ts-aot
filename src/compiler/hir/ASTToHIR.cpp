@@ -5624,12 +5624,13 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                 auto lenVal = lowerExpression(arg.get());
                 lastValue_ = builder_.createNewArrayBoxed(lenVal, elemType);
             } else {
-                // new Array(elem) - create array with single element
-                auto zero = builder_.createConstInt(0);
-                auto arr = builder_.createNewArrayBoxed(zero, elemType);
-                auto elemVal = lowerExpression(arg.get());
-                builder_.createCall("ts_array_push", {arr, elemVal}, HIRType::makeInt64());
-                lastValue_ = arr;
+                // Unknown type — route through ts_array_constructor which
+                // does the JS-spec runtime dispatch: numeric arg → length,
+                // else → single element. This matches `new Array(x)` spec
+                // semantics in untyped JS mode where `x` might be either.
+                auto argVal = lowerExpression(arg.get());
+                lastValue_ = builder_.createCall("ts_array_constructor",
+                                                  {argVal}, HIRType::makeAny());
             }
         } else {
             // new Array(elem1, elem2, ...) - create array with elements
