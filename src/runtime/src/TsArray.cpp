@@ -723,22 +723,11 @@ void* TsArray::Filter(void* callback, void* thisArg) {
 }
 
 void* TsArray::Reduce(void* callback, void* initialValue) {
-    // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
-        TsClosure* closure = (TsClosure*)callback;
-        TsValue* accumulator = (TsValue*)initialValue;
-        size_t startIdx = 0;
-        if (!accumulator && length > 0) {
-            accumulator = GetElementBoxed(0);
-            startIdx = 1;
-        }
-        for (size_t i = startIdx; i < length; ++i) {
-            TsValue* v = GetElementBoxed(i);
-            // HIR reduce callback takes (acc, val), not (acc, val, idx, arr)
-            accumulator = ts_closure_invoke_2v(closure, accumulator, v);
-        }
-        return accumulator;
-    }
+    // Note: we do NOT special-case TsClosure here. The previous fast path
+    // used ts_closure_invoke_2v which only passed (acc, val), dropping idx
+    // and arr. Test262 callbacks that read idx/arr got register garbage.
+    // By always taking the standard ts_call_4 path below, all 4 callback
+    // arguments are delivered correctly.
 
     // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
@@ -782,24 +771,11 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
 
 void* TsArray::ReduceRight(void* callback, void* initialValue) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
-        TsClosure* closure = (TsClosure*)callback;
-        TsValue* accumulator = (TsValue*)initialValue;
-        size_t startIdx = length;
-        if (!accumulator && length > 0) {
-            accumulator = GetElementBoxed(length - 1);
-            startIdx = length - 1;
-        }
-        for (size_t i = startIdx; i > 0; --i) {
-            TsValue* v = GetElementBoxed(i - 1);
-            // HIR reduce callback takes (acc, val), not (acc, val, idx, arr)
-            accumulator = ts_closure_invoke_2v(closure, accumulator, v);
-        }
-        return accumulator;
-    }
+    // Skip TsClosure fast path — same reason as Reduce above.
 
     // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
+    if (!cbVal) cbVal = (TsValue*)callback;  // ensure non-null for closure dispatch
     if (!cbVal) return nullptr;
 
     TsValue* accumulator = (TsValue*)initialValue;
