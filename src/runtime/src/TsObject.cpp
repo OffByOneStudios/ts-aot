@@ -88,6 +88,7 @@ extern "C" void* ts_push_exception_handler();
 extern "C" void ts_pop_exception_handler();
 extern "C" void ts_set_exception(TsValue* exception);
 extern "C" TsValue* ts_get_exception();
+extern "C" double ts_to_number(TsValue* v);
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
@@ -2291,6 +2292,31 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsValue* ts_date_valueOf_native(void* ctx, int argc, TsValue** argv) {
         return ts_value_make_int(((TsDate*)ctx)->GetTime());
     }
+    // annexB: Date.prototype.toGMTString - alias for toUTCString
+    static TsValue* ts_date_toUTCString_native(void* ctx, int argc, TsValue** argv) {
+        return ts_value_make_string(((TsDate*)ctx)->ToUTCString());
+    }
+    // annexB: Date.prototype.getYear - returns getFullYear() - 1900
+    static TsValue* ts_date_getYear_native(void* ctx, int argc, TsValue** argv) {
+        int64_t year = ((TsDate*)ctx)->GetFullYear();
+        return ts_value_make_int(year - 1900);
+    }
+    // annexB: Date.prototype.setYear - years 0-99 map to 1900-1999; else absolute
+    static TsValue* ts_date_setYear_native(void* ctx, int argc, TsValue** argv) {
+        TsDate* d = (TsDate*)ctx;
+        if (argc < 1 || !argv || !argv[0]) {
+            // undefined -> NaN -> would be invalid date. For now leave unchanged.
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        }
+        double yNum = ts_to_number((TsValue*)argv[0]);
+        if (std::isnan(yNum)) {
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        }
+        int64_t y = (int64_t)yNum;
+        if (y >= 0 && y <= 99) y += 1900;
+        d->SetFullYear(y);
+        return ts_value_make_int(d->GetTime());
+    }
     // Date.now() static method
     static TsValue* ts_date_now_native(void* ctx, int argc, TsValue** argv) {
         return ts_value_make_int(TsDate::Now());
@@ -2603,6 +2629,11 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_date_toString_native, date, "toString", 0);
             if (strcmp(keyStr, "toDateString") == 0) return makeNamedNativeFunction((void*)ts_date_toDateString_native, date, "toDateString", 0);
             if (strcmp(keyStr, "valueOf") == 0) return makeNamedNativeFunction((void*)ts_date_valueOf_native, date, "valueOf", 0);
+            // annexB Date.prototype methods
+            if (strcmp(keyStr, "toUTCString") == 0) return makeNamedNativeFunction((void*)ts_date_toUTCString_native, date, "toUTCString", 0);
+            if (strcmp(keyStr, "toGMTString") == 0) return makeNamedNativeFunction((void*)ts_date_toUTCString_native, date, "toGMTString", 0);
+            if (strcmp(keyStr, "getYear") == 0) return makeNamedNativeFunction((void*)ts_date_getYear_native, date, "getYear", 0);
+            if (strcmp(keyStr, "setYear") == 0) return makeNamedNativeFunction((void*)ts_date_setYear_native, date, "setYear", 1);
             return ts_value_make_undefined();
         }
 

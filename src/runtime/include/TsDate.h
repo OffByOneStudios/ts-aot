@@ -45,6 +45,7 @@ public:
     class TsString* ToJSON();
     class TsString* ToString();
     class TsString* ToDateString();
+    class TsString* ToUTCString();
 
     static int64_t Now();
 
