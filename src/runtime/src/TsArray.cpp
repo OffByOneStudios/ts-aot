@@ -611,6 +611,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
         } else {
             // Generic path: string/mixed arrays with untyped closures (ptr calling convention)
             for (size_t i = 0; i < length; ++i) {
+                if (IsHole(i)) continue;  // spec: skip holes
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -632,6 +633,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
             v = ts_array_get_property_at(this, (int64_t)i);
         } else {
+            if (IsHole(i)) continue;  // spec: skip holes in fast path
             v = GetElementBoxed(i);
         }
         TsValue* idx = ts_value_make_int(i);
@@ -658,6 +660,13 @@ void* TsArray::Map(void* callback, void* thisArg) {
         } else {
             // Generic path: string/mixed arrays with untyped closures (ptr calling convention)
             for (size_t i = 0; i < length; ++i) {
+                if (IsHole(i)) {
+                    // Preserve hole in output (CreateSized would be cleaner,
+                    // but this path uses Push). Push a placeholder; close this
+                    // edge case with the full-correctness path below.
+                    result->Push((int64_t)ts_value_make_undefined());
+                    continue;
+                }
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -672,19 +681,17 @@ void* TsArray::Map(void* callback, void* thisArg) {
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal) return nullptr;
 
-    TsArray* result = TsArray::Create(length);
+    // Start result with `length` holes; we'll overwrite non-hole positions.
+    TsArray* result = TsArray::CreateSized(length);
     bool slow = (g_array_prototype_version != 0);
     TsValue* thisArgV = (TsValue*)thisArg;
     for (size_t i = 0; i < length; ++i) {
         TsValue* v;
         if (slow) {
-            if (!ts_array_has_property_at(this, (int64_t)i)) {
-                // Preserve hole: push undefined placeholder so length stays consistent
-                result->Push((int64_t)ts_value_make_undefined());
-                continue;
-            }
+            if (!ts_array_has_property_at(this, (int64_t)i)) continue;
             v = ts_array_get_property_at(this, (int64_t)i);
         } else {
+            if (IsHole(i)) continue;
             v = GetElementBoxed(i);
         }
         TsValue* idx = ts_value_make_int(i);
@@ -692,9 +699,7 @@ void* TsArray::Map(void* callback, void* thisArg) {
         TsValue* res = thisArgV
             ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
             : ts_call_3(cbVal, v, idx, arr);
-
-        // Always store the TsValue* pointer - let the print code handle type inspection
-        result->Push((int64_t)res);
+        result->SetUnchecked(i, (int64_t)res);
     }
     return result;
 }
@@ -715,6 +720,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
         } else {
             // Generic path: string/mixed arrays with untyped closures
             for (size_t i = 0; i < length; ++i) {
+                if (IsHole(i)) continue;  // spec: skip holes
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -747,6 +753,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
             v = ts_array_get_property_at(this, (int64_t)i);
         } else {
+            if (IsHole(i)) continue;  // spec: skip holes
             v = GetElementBoxed(i);
         }
         TsValue* idx = ts_value_make_int(i);
@@ -803,9 +810,19 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
                 startIdx++;
             }
         } else {
-            accumulator = GetElementBoxed(0);
-            startIdx = 1;
+            // Skip leading holes when seeding the accumulator.
+            while (startIdx < initialLen && IsHole(startIdx)) startIdx++;
+            if (startIdx < initialLen) {
+                accumulator = GetElementBoxed(startIdx);
+                startIdx++;
+            }
         }
+    }
+    // Spec: if the array has no present elements and no initialValue, throw.
+    if (!accumulator) {
+        ts_throw((TsValue*)ts_error_create_typed(
+            "TypeError", "Reduce of empty array with no initial value"));
+        return nullptr;
     }
 
     for (size_t i = startIdx; i < initialLen; ++i) {
@@ -816,6 +833,7 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
         } else {
             // Fast path: respect current length for mid-iteration truncation.
             if (i >= (size_t)length) break;
+            if (IsHole(i)) continue;  // spec: skip holes
             v = GetElementBoxed(i);
         }
         TsValue* idx = ts_value_make_int(i);
@@ -851,9 +869,21 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
                 startIdx = 0;
             }
         } else {
-            accumulator = GetElementBoxed(initialLen - 1);
-            startIdx = initialLen - 1;
+            // Scan from the right for the first non-hole slot.
+            int64_t k = (int64_t)initialLen - 1;
+            while (k >= 0 && IsHole((size_t)k)) k--;
+            if (k >= 0) {
+                accumulator = GetElementBoxed((size_t)k);
+                startIdx = (size_t)k;
+            } else {
+                startIdx = 0;
+            }
         }
+    }
+    if (!accumulator) {
+        ts_throw((TsValue*)ts_error_create_typed(
+            "TypeError", "Reduce of empty array with no initial value"));
+        return nullptr;
     }
 
     for (size_t i = startIdx; i > 0; --i) {
@@ -863,6 +893,7 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
             v = ts_array_get_property_at(this, (int64_t)(i - 1));
         } else {
             if ((i - 1) >= (size_t)length) continue;
+            if (IsHole(i - 1)) continue;  // spec: skip holes
             v = GetElementBoxed(i - 1);
         }
         TsValue* idx = ts_value_make_int(i - 1);
@@ -883,6 +914,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
             }
         } else {
             for (size_t i = 0; i < length; ++i) {
+                if (IsHole(i)) continue;  // spec: skip holes
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -905,6 +937,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
             v = ts_array_get_property_at(this, (int64_t)i);
         } else {
+            if (IsHole(i)) continue;  // spec: skip holes
             v = GetElementBoxed(i);
         }
         TsValue* idx = ts_value_make_int(i);
@@ -928,6 +961,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
             }
         } else {
             for (size_t i = 0; i < length; ++i) {
+                if (IsHole(i)) continue;  // spec: skip holes (vacuously true)
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -950,6 +984,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
             if (!ts_array_has_property_at(this, (int64_t)i)) continue;
             v = ts_array_get_property_at(this, (int64_t)i);
         } else {
+            if (IsHole(i)) continue;  // spec: skip holes
             v = GetElementBoxed(i);
         }
         TsValue* idx = ts_value_make_int(i);
