@@ -600,7 +600,7 @@ void* TsArray::FlatMap(void* callback, void* thisArg) {
 
 void TsArray::ForEach(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
+    if (ts_is_closure(callback) && g_array_prototype_version == 0) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
             // Fast path: numeric arrays with typed closures (double calling convention)
@@ -647,7 +647,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
 
 void* TsArray::Map(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
+    if (ts_is_closure(callback) && g_array_prototype_version == 0) {
         TsClosure* closure = (TsClosure*)callback;
         TsArray* result = TsArray::Create(length);
         if (IsDoubleArray() || IsSmiArray()) {
@@ -706,7 +706,7 @@ void* TsArray::Map(void* callback, void* thisArg) {
 
 void* TsArray::Filter(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
+    if (ts_is_closure(callback) && g_array_prototype_version == 0) {
         TsClosure* closure = (TsClosure*)callback;
         TsArray* result = TsArray::Create();
         if (IsDoubleArray() || IsSmiArray()) {
@@ -905,7 +905,7 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
 
 bool TsArray::Some(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
+    if (ts_is_closure(callback) && g_array_prototype_version == 0) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
             for (size_t i = 0; i < length; ++i) {
@@ -952,7 +952,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
 
 bool TsArray::Every(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
+    if (ts_is_closure(callback) && g_array_prototype_version == 0) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
             for (size_t i = 0; i < length; ++i) {
@@ -999,7 +999,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
 
 TsValue* TsArray::Find(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
+    if (ts_is_closure(callback) && g_array_prototype_version == 0) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
             for (size_t i = 0; i < length; ++i) {
@@ -1050,7 +1050,7 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
 
 int64_t TsArray::FindIndex(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
+    if (ts_is_closure(callback) && g_array_prototype_version == 0) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
             for (size_t i = 0; i < length; ++i) {
@@ -1085,7 +1085,7 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
 
 TsValue* TsArray::FindLast(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
+    if (ts_is_closure(callback) && g_array_prototype_version == 0) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
             for (size_t i = length; i > 0; --i) {
@@ -1126,7 +1126,7 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
 
 int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
     // Check if callback is a TsClosure (from HIR path)
-    if (ts_is_closure(callback)) {
+    if (ts_is_closure(callback) && g_array_prototype_version == 0) {
         TsClosure* closure = (TsClosure*)callback;
         if (IsDoubleArray() || IsSmiArray()) {
             for (size_t i = length; i > 0; --i) {
