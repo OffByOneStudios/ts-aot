@@ -59,6 +59,12 @@ public:
     bool IsDouble() { return isDouble; }
     struct TaggedValue* GetElementBoxed(size_t index);  // Get element as boxed TsValue*
 
+    // True if index >= length OR the slot holds the NANBOX_HOLE sentinel.
+    // Used by spec-compliant iteration methods to skip holes.
+    bool IsHole(size_t index) const;
+    // Write the NANBOX_HOLE sentinel at index (index must be < length).
+    void SetHole(size_t index);
+
     void ForEach(void* callback, void* thisArg = nullptr);
     void* Map(void* callback, void* thisArg = nullptr);
     void* Filter(void* callback, void* thisArg = nullptr);

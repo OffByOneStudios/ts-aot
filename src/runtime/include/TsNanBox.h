@@ -32,6 +32,12 @@ static constexpr uint64_t NANBOX_UNDEFINED     = 0x000000000000000AULL;
 static constexpr uint64_t NANBOX_NULL          = 0x0000000000000002ULL;
 static constexpr uint64_t NANBOX_TRUE          = 0x0000000000000007ULL;
 static constexpr uint64_t NANBOX_FALSE         = 0x0000000000000006ULL;
+// HOLE is an internal sentinel for sparse-array slots. It is below
+// NANBOX_UNDEFINED (so nanbox_is_special returns true) but does not match
+// any user-visible value. Reads of hole slots must be normalized to
+// undefined by the caller (spec: HasProperty(arr, i) is false; Get(arr, i)
+// consults prototype chain, default undefined).
+static constexpr uint64_t NANBOX_HOLE          = 0x0000000000000008ULL;
 
 // === Encoding functions ===
 
@@ -63,6 +69,7 @@ inline bool nanbox_is_null(uint64_t v)      { return v == NANBOX_NULL; }
 inline bool nanbox_is_true(uint64_t v)      { return v == NANBOX_TRUE; }
 inline bool nanbox_is_false(uint64_t v)     { return v == NANBOX_FALSE; }
 inline bool nanbox_is_bool(uint64_t v)      { return v == NANBOX_TRUE || v == NANBOX_FALSE; }
+inline bool nanbox_is_hole(uint64_t v)      { return v == NANBOX_HOLE; }
 
 // Special constants: undefined, null, true, false (all <= NANBOX_UNDEFINED)
 inline bool nanbox_is_special(uint64_t v)   { return v <= NANBOX_UNDEFINED; }

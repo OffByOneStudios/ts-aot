@@ -71,7 +71,9 @@ static TsValue* array_proto_get_at(void* recv, int64_t i) {
 // For the slow-path only.
 static bool ts_array_has_property_at(TsArray* arr, int64_t i) {
     if (!arr) return false;
-    if (i >= 0 && (size_t)i < (size_t)arr->Length()) return true;
+    if (i >= 0 && (size_t)i < (size_t)arr->Length() && !arr->IsHole((size_t)i)) {
+        return true;
+    }
     // Check Array.prototype
     if (!g_array_prototype_map) return false;
     char idxKey[24];
@@ -91,7 +93,7 @@ static bool ts_array_has_property_at(TsArray* arr, int64_t i) {
 static TsValue* ts_array_get_property_at(TsArray* arr, int64_t i) {
     if (!arr) return ts_value_make_undefined();
     // Own indexed slot wins if present (not a hole).
-    if (i >= 0 && (size_t)i < (size_t)arr->Length()) {
+    if (i >= 0 && (size_t)i < (size_t)arr->Length() && !arr->IsHole((size_t)i)) {
         return arr->GetElementBoxed((size_t)i);
     }
     // Inherited via Array.prototype.
@@ -113,8 +115,39 @@ TsArray* TsArray::CreateSized(size_t size) {
     void* mem = ts_alloc(sizeof(TsArray));
     TsArray* arr = new(mem) TsArray(size, 8);
     arr->length = size;
-    std::memset(arr->elements, 0, size * 8);
+    // Fill slots with the NANBOX_HOLE sentinel so HasProperty returns
+    // false for unwritten indices (spec: new Array(n) produces n holes).
+    int64_t* slots = (int64_t*)arr->elements;
+    const int64_t hole = (int64_t)NANBOX_HOLE;
+    for (size_t i = 0; i < size; ++i) slots[i] = hole;
+    arr->elementKind_ = ElementKind::HoleyAny;
     return arr;
+}
+
+bool TsArray::IsHole(size_t index) const {
+    if (index >= length) return true;
+    // Only the PackedAny / HoleyAny paths store NaN-box values directly.
+    // Specialized (double/int) and SMI / Double element kinds can't
+    // represent holes — the array would have been transitioned away from
+    // those kinds before any hole was introduced.
+    if (isSpecialized) return false;
+    if (elementKind_ == ElementKind::PackedSmi ||
+        elementKind_ == ElementKind::PackedDouble ||
+        elementKind_ == ElementKind::HoleySmi ||
+        elementKind_ == ElementKind::HoleyDouble) {
+        return false;
+    }
+    int64_t raw = ((int64_t*)elements)[index];
+    return (uint64_t)raw == NANBOX_HOLE;
+}
+
+void TsArray::SetHole(size_t index) {
+    if (index >= length) return;
+    // Transition to HoleyAny so future reads/iteration know holes exist.
+    if (elementKind_ != ElementKind::HoleyAny) {
+        elementKind_ = ElementKind::HoleyAny;
+    }
+    ((int64_t*)elements)[index] = (int64_t)NANBOX_HOLE;
 }
 
 TsArray* TsArray::CreateSpecialized(size_t size, size_t elementSize, bool isDouble) {
@@ -156,8 +189,14 @@ TsValue* TsArray::GetElementBoxed(size_t index) {
         return ts_value_make_double(d);
     }
 
-    // PackedAny / generic: stored values are NaN-boxed uint64_t
-    // Return as-is (the stored value IS the NaN-boxed representation)
+    // PackedAny / HoleyAny: stored values are NaN-boxed uint64_t.
+    // Hole sentinel reads as undefined (spec: Get(arr, i) for a missing
+    // index returns undefined after the prototype chain is consulted —
+    // no accessors fire in the version-0 fast path).
+    if ((uint64_t)val == NANBOX_HOLE) {
+        return ts_value_make_undefined();
+    }
+    // Otherwise the stored value IS the NaN-boxed representation.
     return (TsValue*)(uintptr_t)(uint64_t)val;
 }
 
