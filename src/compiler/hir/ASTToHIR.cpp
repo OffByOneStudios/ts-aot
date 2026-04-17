@@ -6139,12 +6139,20 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
 
         lastValue_ = arr;
     } else {
-        // No spread elements - use efficient pre-allocated array
+        // No spread elements - use efficient pre-allocated array. Pre-allocation
+        // via createNewArrayBoxed goes through ts_array_create_sized which fills
+        // slots with NANBOX_HOLE. Regular elements overwrite those slots; elided
+        // positions (OmittedExpression, i.e. `[, 1, 2]`) stay as holes per spec.
         auto lenVal = builder_.createConstInt(static_cast<int64_t>(node->elements.size()));
         auto arr = builder_.createNewArrayBoxed(lenVal, elemType);
 
         int64_t idx = 0;
         for (auto& elem : node->elements) {
+            if (dynamic_cast<ast::OmittedExpression*>(elem.get())) {
+                // Leave hole sentinel in place; increment index only.
+                idx++;
+                continue;
+            }
             auto elemVal = lowerExpression(elem.get());
             auto idxVal = builder_.createConstInt(idx++);
             builder_.createSetElem(arr, idxVal, elemVal);
