@@ -55,7 +55,7 @@ static int64_t getField(int64_t ms, UCalendarDateFields field, bool utc) {
     return val;
 }
 
-int64_t TsDate::GetFullYear() { return getField(ms, UCAL_YEAR, false); }
+int64_t TsDate::GetFullYear() { return getField(ms, UCAL_EXTENDED_YEAR, false); }
 int64_t TsDate::GetMonth() { return getField(ms, UCAL_MONTH, false); }
 int64_t TsDate::GetDate() { return getField(ms, UCAL_DATE, false); }
 int64_t TsDate::GetHours() { return getField(ms, UCAL_HOUR_OF_DAY, false); }
@@ -63,7 +63,7 @@ int64_t TsDate::GetMinutes() { return getField(ms, UCAL_MINUTE, false); }
 int64_t TsDate::GetSeconds() { return getField(ms, UCAL_SECOND, false); }
 int64_t TsDate::GetMilliseconds() { return getField(ms, UCAL_MILLISECOND, false); }
 
-int64_t TsDate::GetUTCFullYear() { return getField(ms, UCAL_YEAR, true); }
+int64_t TsDate::GetUTCFullYear() { return getField(ms, UCAL_EXTENDED_YEAR, true); }
 int64_t TsDate::GetUTCMonth() { return getField(ms, UCAL_MONTH, true); }
 int64_t TsDate::GetUTCDate() { return getField(ms, UCAL_DATE, true); }
 int64_t TsDate::GetUTCHours() { return getField(ms, UCAL_HOUR_OF_DAY, true); }
@@ -75,7 +75,15 @@ void TsDate::SetFullYear(int64_t year) {
     UErrorCode status = U_ZERO_ERROR;
     std::unique_ptr<icu::Calendar> cal(icu::Calendar::createInstance(status));
     cal->setTime((UDate)ms, status);
-    cal->set(UCAL_YEAR, (int32_t)year);
+    // ICU GregorianCalendar uses ERA+YEAR for writes (kDatePrecedence puts YEAR first).
+    // Translate signed JS year: y>=1 → AD year=y; y<=0 → BC year=(1-y).
+    if (year >= 1) {
+        cal->set(UCAL_ERA, 1);
+        cal->set(UCAL_YEAR, (int32_t)year);
+    } else {
+        cal->set(UCAL_ERA, 0);
+        cal->set(UCAL_YEAR, (int32_t)(1 - year));
+    }
     ms = (int64_t)cal->getTime(status);
 }
 
@@ -131,7 +139,13 @@ void TsDate::SetUTCFullYear(int64_t year) {
     UErrorCode status = U_ZERO_ERROR;
     std::unique_ptr<icu::Calendar> cal(icu::Calendar::createInstance(icu::TimeZone::createTimeZone("UTC"), status));
     cal->setTime((UDate)ms, status);
-    cal->set(UCAL_YEAR, (int32_t)year);
+    if (year >= 1) {
+        cal->set(UCAL_ERA, 1);
+        cal->set(UCAL_YEAR, (int32_t)year);
+    } else {
+        cal->set(UCAL_ERA, 0);
+        cal->set(UCAL_YEAR, (int32_t)(1 - year));
+    }
     ms = (int64_t)cal->getTime(status);
 }
 
