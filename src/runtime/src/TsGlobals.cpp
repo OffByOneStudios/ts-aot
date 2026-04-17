@@ -636,9 +636,37 @@ void* ts_get_global_Function() {
     return cached;
 }
 
+extern "C" void* ts_date_prototype_build_map();
+extern "C" void ts_date_constructor_populate(void* ctor);
+
 void* ts_get_global_Date() {
     static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("Date");
+    if (!cached) {
+        TsMap* ctor = TsMap::Create();
+        // Set .name
+        TsValue nameKey;
+        nameKey.type = ValueType::STRING_PTR;
+        nameKey.ptr_val = TsString::GetInterned("name");
+        TsValue nameVal;
+        nameVal.type = ValueType::STRING_PTR;
+        nameVal.ptr_val = TsString::Create("Date");
+        ctor->Set(nameKey, nameVal);
+
+        // Attach pre-populated prototype with all instance methods
+        TsMap* proto = (TsMap*)ts_date_prototype_build_map();
+        TsValue protoKey;
+        protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoVal;
+        protoVal.type = ValueType::OBJECT_PTR;
+        protoVal.ptr_val = proto;
+        ctor->Set(protoKey, protoVal);
+
+        // Attach constructor static methods (Date.now)
+        ts_date_constructor_populate(ctor);
+
+        cached = ctor;
+    }
     return cached;
 }
 

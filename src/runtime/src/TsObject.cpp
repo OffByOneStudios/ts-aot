@@ -2234,8 +2234,24 @@ TsValue* ts_value_make_int(int64_t i) {
     // Helper: require a TsDate receiver, else throw TypeError. Returns the
     // TsDate* on success, nullptr after throw.
     static inline TsDate* requireDateOrThrow(void* ctx, const char* methodName) {
-        if (ctx && *(uint32_t*)ctx == TsDate::MAGIC) {
-            return (TsDate*)ctx;
+        // ctx may be a raw pointer OR a NaN-boxed TsValue* for null/undefined/
+        // primitive. Only a real heap pointer with TsDate::MAGIC at offset 0
+        // counts as a Date. Check the NaN-box tag first to avoid derefing
+        // small integer-tagged values.
+        uint64_t nb = (uint64_t)(uintptr_t)ctx;
+        if (ctx && nanbox_is_ptr(nb)) {
+            void* p = nanbox_to_ptr(nb);
+            if (p && *(uint32_t*)p == TsDate::MAGIC) {
+                return (TsDate*)p;
+            }
+        } else if (ctx && !nanbox_is_null(nb) && !nanbox_is_undefined(nb) &&
+                   !nanbox_is_int32(nb) && !nanbox_is_double(nb) &&
+                   !nanbox_is_bool(nb)) {
+            // Plain (non-NaN-boxed) pointer — likely from direct instance
+            // access path. Safe to probe magic.
+            if (*(uint32_t*)ctx == TsDate::MAGIC) {
+                return (TsDate*)ctx;
+            }
         }
         char buf[128];
         snprintf(buf, sizeof(buf),
@@ -2396,6 +2412,89 @@ TsValue* ts_value_make_int(int64_t i) {
     // Date.now() static method
     static TsValue* ts_date_now_native(void* ctx, int argc, TsValue** argv) {
         return ts_value_make_int(TsDate::Now());
+    }
+
+    // Register a native on a TsMap with correct .name / .length metadata
+    // and ATTR_CONFIGURABLE|ATTR_WRITABLE (method default).
+    static void dateRegisterMethod(TsMap* proto, const char* name,
+                                   void* nativeFn, int arity) {
+        TsValue* fn = ts_value_make_native_function(nativeFn, nullptr);
+        TsFunction* func = (TsFunction*)fn;
+        func->name = TsString::Create(name);
+        func->arity = arity;
+        if (!func->properties) func->properties = TsMap::Create();
+        TsValue lk; lk.type = ValueType::STRING_PTR;
+        lk.ptr_val = TsString::GetInterned("length");
+        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = arity;
+        func->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+        TsValue nk; nk.type = ValueType::STRING_PTR;
+        nk.ptr_val = TsString::GetInterned("name");
+        TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = func->name;
+        func->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+
+        TsValue key;
+        key.type = ValueType::STRING_PTR;
+        key.ptr_val = TsString::GetInterned(name);
+        TsValue val;
+        val.type = ValueType::FUNCTION_PTR;
+        val.ptr_val = fn;
+        proto->SetWithAttrs(key, val,
+                            TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+    }
+
+    // Populate a freshly-created TsMap with all Date.prototype methods.
+    // Called from TsGlobals.cpp at Date-constructor init time.
+    extern "C" void* ts_date_prototype_build_map() {
+        TsMap* proto = TsMap::Create();
+        // Getters (arity 0)
+        dateRegisterMethod(proto, "getTime", (void*)ts_date_getTime_native, 0);
+        dateRegisterMethod(proto, "getFullYear", (void*)ts_date_getFullYear_native, 0);
+        dateRegisterMethod(proto, "getMonth", (void*)ts_date_getMonth_native, 0);
+        dateRegisterMethod(proto, "getDate", (void*)ts_date_getDate_native, 0);
+        dateRegisterMethod(proto, "getHours", (void*)ts_date_getHours_native, 0);
+        dateRegisterMethod(proto, "getMinutes", (void*)ts_date_getMinutes_native, 0);
+        dateRegisterMethod(proto, "getSeconds", (void*)ts_date_getSeconds_native, 0);
+        dateRegisterMethod(proto, "getMilliseconds", (void*)ts_date_getMilliseconds_native, 0);
+        dateRegisterMethod(proto, "getUTCFullYear", (void*)ts_date_getUTCFullYear_native, 0);
+        dateRegisterMethod(proto, "getUTCMonth", (void*)ts_date_getUTCMonth_native, 0);
+        dateRegisterMethod(proto, "getUTCDate", (void*)ts_date_getUTCDate_native, 0);
+        dateRegisterMethod(proto, "getUTCHours", (void*)ts_date_getUTCHours_native, 0);
+        dateRegisterMethod(proto, "getUTCMinutes", (void*)ts_date_getUTCMinutes_native, 0);
+        dateRegisterMethod(proto, "getUTCSeconds", (void*)ts_date_getUTCSeconds_native, 0);
+        dateRegisterMethod(proto, "getUTCMilliseconds", (void*)ts_date_getUTCMilliseconds_native, 0);
+        // String outputs (arity 0)
+        dateRegisterMethod(proto, "toISOString", (void*)ts_date_toISOString_native, 0);
+        dateRegisterMethod(proto, "toJSON", (void*)ts_date_toJSON_native, 1);
+        dateRegisterMethod(proto, "toString", (void*)ts_date_toString_native, 0);
+        dateRegisterMethod(proto, "toDateString", (void*)ts_date_toDateString_native, 0);
+        dateRegisterMethod(proto, "valueOf", (void*)ts_date_valueOf_native, 0);
+        // annexB
+        dateRegisterMethod(proto, "toUTCString", (void*)ts_date_toUTCString_native, 0);
+        dateRegisterMethod(proto, "toGMTString", (void*)ts_date_toUTCString_native, 0);
+        dateRegisterMethod(proto, "getYear", (void*)ts_date_getYear_native, 0);
+        dateRegisterMethod(proto, "setYear", (void*)ts_date_setYear_native, 1);
+        // Setters — spec arities per ECMA-262 §21.4.4
+        dateRegisterMethod(proto, "setTime", (void*)ts_date_setTime_native, 1);
+        dateRegisterMethod(proto, "setFullYear", (void*)ts_date_setFullYear_native, 3);
+        dateRegisterMethod(proto, "setMonth", (void*)ts_date_setMonth_native, 2);
+        dateRegisterMethod(proto, "setDate", (void*)ts_date_setDate_native, 1);
+        dateRegisterMethod(proto, "setHours", (void*)ts_date_setHours_native, 4);
+        dateRegisterMethod(proto, "setMinutes", (void*)ts_date_setMinutes_native, 3);
+        dateRegisterMethod(proto, "setSeconds", (void*)ts_date_setSeconds_native, 2);
+        dateRegisterMethod(proto, "setMilliseconds", (void*)ts_date_setMilliseconds_native, 1);
+        dateRegisterMethod(proto, "setUTCFullYear", (void*)ts_date_setUTCFullYear_native, 3);
+        dateRegisterMethod(proto, "setUTCMonth", (void*)ts_date_setUTCMonth_native, 2);
+        dateRegisterMethod(proto, "setUTCDate", (void*)ts_date_setUTCDate_native, 1);
+        dateRegisterMethod(proto, "setUTCHours", (void*)ts_date_setUTCHours_native, 4);
+        dateRegisterMethod(proto, "setUTCMinutes", (void*)ts_date_setUTCMinutes_native, 3);
+        dateRegisterMethod(proto, "setUTCSeconds", (void*)ts_date_setUTCSeconds_native, 2);
+        dateRegisterMethod(proto, "setUTCMilliseconds", (void*)ts_date_setUTCMilliseconds_native, 1);
+        return proto;
+    }
+    // Populate a TsMap with Date constructor static methods (Date.now, etc.)
+    extern "C" void ts_date_constructor_populate(void* ctorMap) {
+        TsMap* ctor = (TsMap*)ctorMap;
+        dateRegisterMethod(ctor, "now", (void*)ts_date_now_native, 0);
     }
 
     // Native wrappers for RegExp instance methods (.test() and .exec())
