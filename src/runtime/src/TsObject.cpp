@@ -4953,53 +4953,7 @@ TsValue* ts_value_make_int(int64_t i) {
             magic = 0x4D415053;
         }
         if (magic != 0x4D415053) {  // TsMap::MAGIC
-            // Before rejecting: handle Object.defineProperty on a TsArray
-            // with a canonical numeric key. Spec requires the slot at that
-            // index to become HasProperty-true after the call — so that
-            // iteration methods (reduce/forEach/...) see the index as
-            // present even if the underlying storage was a hole.
-            //
-            // Minimal behavior: if the index is in [0, length) and the slot
-            // is a hole, promote it to "present with value undefined".
-            // Full accessor invocation (get returns non-undefined, set with
-            // side effects) would require a per-array (index → descriptor)
-            // side-map — deferred. The tests in the regressed cluster all
-            // use set-only accessors, which spec-correctly read as undefined.
-            // TsArray has magic at offset 0 (not offset 16 like TsMap), so the
-            // `magic` read above doesn't catch it — check offset 0 explicitly.
-            uint32_t magic0 = *(uint32_t*)rawPtr;
-            if (magic0 == 0x41525259) {  // TsArray::MAGIC ("ARRY")
-                TsArray* arr = (TsArray*)rawPtr;
-                // Extract the property name as a C string. Accept numeric
-                // int32 keys directly; for pointer/string keys, go through
-                // TsString.
-                const char* keyStr = nullptr;
-                char intBuf[32];
-                uint64_t propNb = nanbox_from_tsvalue_ptr(prop);
-                if (nanbox_is_int32(propNb)) {
-                    snprintf(intBuf, sizeof(intBuf), "%d", nanbox_to_int32(propNb));
-                    keyStr = intBuf;
-                } else if (nanbox_is_ptr(propNb)) {
-                    TsString* ps = (TsString*)ts_value_get_string(prop);
-                    if (ps) {
-                        TsString* flat = ts_ensure_flat(ps);
-                        if (flat) keyStr = flat->ToUtf8();
-                    }
-                }
-                if (keyStr && keyStr[0] != '\0') {
-                    char* endp = nullptr;
-                    unsigned long idx = strtoul(keyStr, &endp, 10);
-                    if (endp && *endp == '\0' &&
-                        idx < (unsigned long)arr->Length()) {
-                        if (arr->IsHole((size_t)idx)) {
-                            arr->SetUnchecked((size_t)idx,
-                                (int64_t)(uintptr_t)ts_value_make_undefined());
-                        }
-                    }
-                }
-                return obj;
-            }
-            // Receiver isn't a map-like object — TsString, etc. all
+            // Receiver isn't a map-like object — TsArray, TsString, etc. all
             // currently fall through to no-op. Spec-strictly this should still
             // throw for primitives, but we already gated that above. For
             // exotic objects we leave the existing no-op (separate gap).
