@@ -1,5 +1,6 @@
 #include "TsDate.h"
 #include "TsString.h"
+#include "TsNanBox.h"
 #include "GC.h"
 #include <chrono>
 #include <cmath>
@@ -23,11 +24,9 @@ TsDate* TsDate::Create(int64_t milliseconds) {
 TsDate* TsDate::CreateFromParts(double y, double mo, double d,
                                 double h, double mi, double s, double ms) {
     // Per ECMA-262 §21.4.2.1: if any arg is NaN, produce an invalid Date.
-    // TsDate has no invalid-Date representation yet (commit 3); for now,
-    // fall through to epoch+0 (spec-wrong but safe, will be fixed).
     if (std::isnan(y) || std::isnan(mo) || std::isnan(d) ||
         std::isnan(h) || std::isnan(mi) || std::isnan(s) || std::isnan(ms)) {
-        return Create((int64_t)0);
+        return Create(INVALID);
     }
     // Year 0-99 maps to 1900-1999 (legacy annexB semantics, spec §21.4.2.1 step 3d).
     int32_t year = (int32_t)y;
@@ -58,12 +57,16 @@ TsDate* TsDate::Create(const char* dateStr) {
     // Use ISO 8601 as a primary format, but ICU can handle more
     icu::SimpleDateFormat fmt(icu::UnicodeString("yyyy-MM-dd'T'HH:mm:ss.SSSX"), status);
     UDate date = fmt.parse(icu::UnicodeString(dateStr), status);
-    
+
     if (U_FAILURE(status)) {
-        // Fallback to other formats or just current time
-        return Create();
+        // Invalid date string → Invalid Date per spec.
+        return Create(INVALID);
     }
     return Create((int64_t)date);
+}
+
+bool TsDate::IsValid() const {
+    return ms != INVALID;
 }
 
 TsDate::TsDate() {
@@ -79,9 +82,10 @@ int64_t TsDate::GetTime() {
 }
 
 static int64_t getField(int64_t ms, UCalendarDateFields field, bool utc) {
+    if (ms == TsDate::INVALID) return TsDate::INVALID;  // NaN propagation
     UErrorCode status = U_ZERO_ERROR;
     std::unique_ptr<icu::Calendar> cal(icu::Calendar::createInstance(
-        utc ? icu::TimeZone::createTimeZone("UTC") : icu::TimeZone::createDefault(), 
+        utc ? icu::TimeZone::createTimeZone("UTC") : icu::TimeZone::createDefault(),
         status));
     cal->setTime((UDate)ms, status);
     int32_t val = cal->get(field, status);
@@ -89,7 +93,14 @@ static int64_t getField(int64_t ms, UCalendarDateFields field, bool utc) {
     return val;
 }
 
-int64_t TsDate::GetFullYear() { return getField(ms, UCAL_EXTENDED_YEAR, false); }
+int64_t TsDate::GetFullYear() {
+    if (ms == INVALID) return INVALID;
+    // UCAL_EXTENDED_YEAR is signed; special-case to honor era (BC years go negative).
+    UErrorCode status = U_ZERO_ERROR;
+    std::unique_ptr<icu::Calendar> cal(icu::Calendar::createInstance(status));
+    cal->setTime((UDate)ms, status);
+    return cal->get(UCAL_EXTENDED_YEAR, status);
+}
 int64_t TsDate::GetMonth() { return getField(ms, UCAL_MONTH, false); }
 int64_t TsDate::GetDate() { return getField(ms, UCAL_DATE, false); }
 int64_t TsDate::GetHours() { return getField(ms, UCAL_HOUR_OF_DAY, false); }
@@ -97,7 +108,14 @@ int64_t TsDate::GetMinutes() { return getField(ms, UCAL_MINUTE, false); }
 int64_t TsDate::GetSeconds() { return getField(ms, UCAL_SECOND, false); }
 int64_t TsDate::GetMilliseconds() { return getField(ms, UCAL_MILLISECOND, false); }
 
-int64_t TsDate::GetUTCFullYear() { return getField(ms, UCAL_EXTENDED_YEAR, true); }
+int64_t TsDate::GetUTCFullYear() {
+    if (ms == INVALID) return INVALID;
+    UErrorCode status = U_ZERO_ERROR;
+    std::unique_ptr<icu::Calendar> cal(icu::Calendar::createInstance(
+        icu::TimeZone::createTimeZone("UTC"), status));
+    cal->setTime((UDate)ms, status);
+    return cal->get(UCAL_EXTENDED_YEAR, status);
+}
 int64_t TsDate::GetUTCMonth() { return getField(ms, UCAL_MONTH, true); }
 int64_t TsDate::GetUTCDate() { return getField(ms, UCAL_DATE, true); }
 int64_t TsDate::GetUTCHours() { return getField(ms, UCAL_HOUR_OF_DAY, true); }
@@ -287,7 +305,22 @@ int64_t TsDate::Now() {
 extern "C" {
     void* ts_date_create() { return TsDate::Create(); }
     void* ts_date_create_ms(int64_t ms) { return TsDate::Create(ms); }
-    void* ts_date_create_str(void* str) { return TsDate::Create(((TsString*)str)->ToUtf8()); }
+    void* ts_date_create_str(void* str) {
+        // Single-arg path may receive a non-string (NaN-boxed number, null, etc.)
+        // when inferredType fell through to string. Dispatch by NaN-box tag.
+        uint64_t nb = (uint64_t)(uintptr_t)str;
+        if (nanbox_is_double(nb) || nanbox_is_int32(nb)) {
+            double d = nanbox_is_double(nb) ? nanbox_to_double(nb)
+                                            : (double)nanbox_to_int32(nb);
+            if (std::isnan(d)) return TsDate::Create(TsDate::INVALID);
+            return TsDate::Create((int64_t)d);
+        }
+        if (nanbox_is_null(nb) || nanbox_is_undefined(nb) || !str) {
+            return TsDate::Create(TsDate::INVALID);
+        }
+        // Treat as string and parse.
+        return TsDate::Create(((TsString*)str)->ToUtf8());
+    }
     void* ts_date_create_parts(double y, double mo, double d,
                                double h, double mi, double s, double ms) {
         return TsDate::CreateFromParts(y, mo, d, h, mi, s, ms);

@@ -4,6 +4,10 @@
 class TsDate {
 public:
     static constexpr uint32_t MAGIC = 0x44415445; // "DATE"
+    // Sentinel for Invalid Date (NaN time value). Chosen as INT64_MIN so it
+    // can't collide with any real spec-range time value (|t| <= 8.64e15 ms).
+    static constexpr int64_t INVALID = INT64_MIN;
+    bool IsValid() const;
     static TsDate* Create();
     static TsDate* Create(int64_t milliseconds);
     static TsDate* Create(const char* dateStr);
@@ -11,6 +15,7 @@ public:
                                    double h, double mi, double s, double ms);
 
     int64_t GetTime();
+    void SetTime(int64_t t) { ms = t; }
     int64_t GetFullYear();
     int64_t GetMonth();
     int64_t GetDate();

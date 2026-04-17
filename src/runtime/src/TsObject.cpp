@@ -2231,91 +2231,119 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)ctx; // Return the NaN-boxed boolean as-is
     }
 
+    // Helper: return boxed int from a Date-field value, or NaN double if the
+    // Date is invalid (sentinel INT64_MIN / TsDate::INVALID).
+    static inline TsValue* dateFieldToValue(int64_t v) {
+        if (v == TsDate::INVALID) {
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        }
+        return ts_value_make_int(v);
+    }
+
     // Native wrappers for Date instance methods
     static TsValue* ts_date_getTime_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetTime());
+        return dateFieldToValue(((TsDate*)ctx)->GetTime());
     }
     static TsValue* ts_date_getFullYear_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetFullYear());
+        return dateFieldToValue(((TsDate*)ctx)->GetFullYear());
     }
     static TsValue* ts_date_getMonth_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetMonth());
+        return dateFieldToValue(((TsDate*)ctx)->GetMonth());
     }
     static TsValue* ts_date_getDate_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetDate());
+        return dateFieldToValue(((TsDate*)ctx)->GetDate());
     }
     static TsValue* ts_date_getHours_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetHours());
+        return dateFieldToValue(((TsDate*)ctx)->GetHours());
     }
     static TsValue* ts_date_getMinutes_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetMinutes());
+        return dateFieldToValue(((TsDate*)ctx)->GetMinutes());
     }
     static TsValue* ts_date_getSeconds_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetSeconds());
+        return dateFieldToValue(((TsDate*)ctx)->GetSeconds());
     }
     static TsValue* ts_date_getMilliseconds_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetMilliseconds());
+        return dateFieldToValue(((TsDate*)ctx)->GetMilliseconds());
     }
     static TsValue* ts_date_getUTCFullYear_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetUTCFullYear());
+        return dateFieldToValue(((TsDate*)ctx)->GetUTCFullYear());
     }
     static TsValue* ts_date_getUTCMonth_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetUTCMonth());
+        return dateFieldToValue(((TsDate*)ctx)->GetUTCMonth());
     }
     static TsValue* ts_date_getUTCDate_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetUTCDate());
+        return dateFieldToValue(((TsDate*)ctx)->GetUTCDate());
     }
     static TsValue* ts_date_getUTCHours_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetUTCHours());
+        return dateFieldToValue(((TsDate*)ctx)->GetUTCHours());
     }
     static TsValue* ts_date_getUTCMinutes_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetUTCMinutes());
+        return dateFieldToValue(((TsDate*)ctx)->GetUTCMinutes());
     }
     static TsValue* ts_date_getUTCSeconds_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetUTCSeconds());
+        return dateFieldToValue(((TsDate*)ctx)->GetUTCSeconds());
     }
     static TsValue* ts_date_getUTCMilliseconds_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetUTCMilliseconds());
+        return dateFieldToValue(((TsDate*)ctx)->GetUTCMilliseconds());
     }
     static TsValue* ts_date_toISOString_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_string(((TsDate*)ctx)->ToISOString());
+        TsDate* d = (TsDate*)ctx;
+        if (!d->IsValid()) {
+            ts_throw((TsValue*)ts_error_create_typed(
+                "RangeError", "Invalid time value"));
+            return ts_value_make_undefined();
+        }
+        return ts_value_make_string(d->ToISOString());
     }
     static TsValue* ts_date_toJSON_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_string(((TsDate*)ctx)->ToJSON());
+        TsDate* d = (TsDate*)ctx;
+        // Per spec, toJSON returns null for invalid Date.
+        if (!d->IsValid()) return ts_value_make_null();
+        return ts_value_make_string(d->ToJSON());
     }
     static TsValue* ts_date_toString_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_string(((TsDate*)ctx)->ToString());
+        TsDate* d = (TsDate*)ctx;
+        if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
+        return ts_value_make_string(d->ToString());
     }
     static TsValue* ts_date_toDateString_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_string(((TsDate*)ctx)->ToDateString());
+        TsDate* d = (TsDate*)ctx;
+        if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
+        return ts_value_make_string(d->ToDateString());
     }
     static TsValue* ts_date_valueOf_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_int(((TsDate*)ctx)->GetTime());
+        return dateFieldToValue(((TsDate*)ctx)->GetTime());
     }
     // annexB: Date.prototype.toGMTString - alias for toUTCString
     static TsValue* ts_date_toUTCString_native(void* ctx, int argc, TsValue** argv) {
-        return ts_value_make_string(((TsDate*)ctx)->ToUTCString());
+        TsDate* d = (TsDate*)ctx;
+        if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
+        return ts_value_make_string(d->ToUTCString());
     }
-    // annexB: Date.prototype.getYear - returns getFullYear() - 1900
+    // annexB: Date.prototype.getYear - returns getFullYear() - 1900; NaN if invalid
     static TsValue* ts_date_getYear_native(void* ctx, int argc, TsValue** argv) {
         int64_t year = ((TsDate*)ctx)->GetFullYear();
-        return ts_value_make_int(year - 1900);
-    }
-    // annexB: Date.prototype.setYear - years 0-99 map to 1900-1999; else absolute
-    static TsValue* ts_date_setYear_native(void* ctx, int argc, TsValue** argv) {
-        TsDate* d = (TsDate*)ctx;
-        if (argc < 1 || !argv || !argv[0]) {
-            // undefined -> NaN -> would be invalid date. For now leave unchanged.
+        if (year == TsDate::INVALID) {
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         }
-        double yNum = ts_to_number((TsValue*)argv[0]);
+        return ts_value_make_int(year - 1900);
+    }
+    // annexB: Date.prototype.setYear - years 0-99 map to 1900-1999; else absolute.
+    // NaN argument invalidates the Date.
+    static TsValue* ts_date_setYear_native(void* ctx, int argc, TsValue** argv) {
+        TsDate* d = (TsDate*)ctx;
+        double yNum = std::numeric_limits<double>::quiet_NaN();
+        if (argc >= 1 && argv && argv[0]) {
+            yNum = ts_to_number((TsValue*)argv[0]);
+        }
         if (std::isnan(yNum)) {
+            d->SetTime(TsDate::INVALID);
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         }
         int64_t y = (int64_t)yNum;
         if (y >= 0 && y <= 99) y += 1900;
         d->SetFullYear(y);
-        return ts_value_make_int(d->GetTime());
+        return dateFieldToValue(d->GetTime());
     }
     // Date.now() static method
     static TsValue* ts_date_now_native(void* ctx, int argc, TsValue** argv) {
