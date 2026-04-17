@@ -721,6 +721,35 @@ bool ts_value_is_nullish(TsValue* v) {
 // Checks: is constructor.prototype in obj's prototype chain?
 // Used when the compiler doesn't know the class vtable at compile time
 // (e.g., `this instanceof Layer` where Layer is loaded via require()).
+// Table of (magic, offset, global-getter) for built-in class instances
+// that need `x instanceof Ctor` to succeed. For each entry, if the LHS has
+// `magic` at `offset`, compare the target prototype (from Ctor.prototype)
+// against the global's `.prototype`. This avoids setting up a TsMap-style
+// prototype chain on each built-in instance at construction time.
+extern "C" void* ts_get_global_Date();
+extern "C" void* ts_get_global_RegExp();
+extern "C" void* ts_get_global_Map();
+extern "C" void* ts_get_global_Set();
+extern "C" void* ts_get_global_WeakMap();
+extern "C" void* ts_get_global_WeakSet();
+extern "C" void* ts_get_global_Promise();
+
+namespace {
+struct BuiltinInstanceCheck {
+    uint32_t magic;
+    int offset;
+    void* (*get_global)();
+};
+static const BuiltinInstanceCheck g_builtin_checks[] = {
+    { 0x44415445, 0,  ts_get_global_Date    },   // TsDate     "DATE"
+    { 0x52454758, 0,  ts_get_global_RegExp  },   // TsRegExp   "REGX"
+    { 0x50524F4D, 0,  ts_get_global_Promise },   // TsPromise  "PROM"
+    { 0x53455453, 16, ts_get_global_Set     },   // TsSet      "SETS"
+    { 0x574D4150, 16, ts_get_global_WeakMap },   // TsWeakMap  "WMAP"
+    { 0x57534554, 16, ts_get_global_WeakSet },   // TsWeakSet  "WSET"
+};
+} // namespace
+
 bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
     if (!obj || !constructor) return false;
 
@@ -746,7 +775,7 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
 
     // Check magic to find prototype chain
     uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
-    if (magic16 == 0x4D415053) { // TsMap
+    if (magic16 == 0x4D415053) { // TsMap (user class, JS Map, error instance)
         TsMap* map = (TsMap*)rawObj;
         TsMap* proto = map->GetPrototype();
         int depth = 0;
@@ -755,6 +784,21 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
             proto = proto->GetPrototype();
             depth++;
         }
+    }
+
+    // Built-in class instance (TsDate, TsRegExp, TsPromise, TsSet, etc.).
+    // They don't carry TsMap-style prototype chains; check magic and
+    // compare against the corresponding global's .prototype.
+    for (const auto& entry : g_builtin_checks) {
+        uint32_t m = *(uint32_t*)((char*)rawObj + entry.offset);
+        if (m != entry.magic) continue;
+        void* g = entry.get_global();
+        if (!g) return false;
+        TsValue* gproto = ts_object_get_property(g, "prototype");
+        if (!gproto) return false;
+        uint64_t pnb = nanbox_from_tsvalue_ptr(gproto);
+        if (!nanbox_is_ptr(pnb)) return false;
+        return nanbox_to_ptr(pnb) == targetProto;
     }
 
     return false;
