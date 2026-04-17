@@ -2319,6 +2319,52 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
         return ts_value_make_string(d->ToUTCString());
     }
+
+    // Date setter native wrappers. Each coerces arg[0] via ts_to_number,
+    // invalidates Date if NaN, otherwise calls the TsDate setter and
+    // returns the resulting time as an int.
+    #define DATE_SETTER(NAME, METHOD) \
+    static TsValue* ts_date_##NAME##_native(void* ctx, int argc, TsValue** argv) { \
+        TsDate* d = requireDateOrThrow(ctx, #NAME); \
+        if (!d) return ts_value_make_undefined(); \
+        double v = std::numeric_limits<double>::quiet_NaN(); \
+        if (argc >= 1 && argv && argv[0]) v = ts_to_number((TsValue*)argv[0]); \
+        if (std::isnan(v)) { \
+            d->SetTime(TsDate::INVALID); \
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); \
+        } \
+        d->METHOD((int64_t)v); \
+        return dateFieldToValue(d->GetTime()); \
+    }
+    DATE_SETTER(setFullYear, SetFullYear)
+    DATE_SETTER(setMonth, SetMonth)
+    DATE_SETTER(setDate, SetDate)
+    DATE_SETTER(setHours, SetHours)
+    DATE_SETTER(setMinutes, SetMinutes)
+    DATE_SETTER(setSeconds, SetSeconds)
+    DATE_SETTER(setMilliseconds, SetMilliseconds)
+    DATE_SETTER(setUTCFullYear, SetUTCFullYear)
+    DATE_SETTER(setUTCMonth, SetUTCMonth)
+    DATE_SETTER(setUTCDate, SetUTCDate)
+    DATE_SETTER(setUTCHours, SetUTCHours)
+    DATE_SETTER(setUTCMinutes, SetUTCMinutes)
+    DATE_SETTER(setUTCSeconds, SetUTCSeconds)
+    DATE_SETTER(setUTCMilliseconds, SetUTCMilliseconds)
+    #undef DATE_SETTER
+
+    // setTime: sets the time value directly from ms arg. NaN → Invalid Date.
+    static TsValue* ts_date_setTime_native(void* ctx, int argc, TsValue** argv) {
+        TsDate* d = requireDateOrThrow(ctx, "setTime");
+        if (!d) return ts_value_make_undefined();
+        double v = std::numeric_limits<double>::quiet_NaN();
+        if (argc >= 1 && argv && argv[0]) v = ts_to_number((TsValue*)argv[0]);
+        if (std::isnan(v)) {
+            d->SetTime(TsDate::INVALID);
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        }
+        d->SetTime((int64_t)v);
+        return dateFieldToValue(d->GetTime());
+    }
     // annexB: Date.prototype.getYear - returns getFullYear() - 1900; NaN if invalid
     static TsValue* ts_date_getYear_native(void* ctx, int argc, TsValue** argv) {
         TsDate* d = requireDateOrThrow(ctx, "getYear");
@@ -2664,6 +2710,22 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "toGMTString") == 0) return makeNamedNativeFunction((void*)ts_date_toUTCString_native, date, "toGMTString", 0);
             if (strcmp(keyStr, "getYear") == 0) return makeNamedNativeFunction((void*)ts_date_getYear_native, date, "getYear", 0);
             if (strcmp(keyStr, "setYear") == 0) return makeNamedNativeFunction((void*)ts_date_setYear_native, date, "setYear", 1);
+            // setTime and setXxx setters
+            if (strcmp(keyStr, "setTime") == 0) return makeNamedNativeFunction((void*)ts_date_setTime_native, date, "setTime", 1);
+            if (strcmp(keyStr, "setFullYear") == 0) return makeNamedNativeFunction((void*)ts_date_setFullYear_native, date, "setFullYear", 3);
+            if (strcmp(keyStr, "setMonth") == 0) return makeNamedNativeFunction((void*)ts_date_setMonth_native, date, "setMonth", 2);
+            if (strcmp(keyStr, "setDate") == 0) return makeNamedNativeFunction((void*)ts_date_setDate_native, date, "setDate", 1);
+            if (strcmp(keyStr, "setHours") == 0) return makeNamedNativeFunction((void*)ts_date_setHours_native, date, "setHours", 4);
+            if (strcmp(keyStr, "setMinutes") == 0) return makeNamedNativeFunction((void*)ts_date_setMinutes_native, date, "setMinutes", 3);
+            if (strcmp(keyStr, "setSeconds") == 0) return makeNamedNativeFunction((void*)ts_date_setSeconds_native, date, "setSeconds", 2);
+            if (strcmp(keyStr, "setMilliseconds") == 0) return makeNamedNativeFunction((void*)ts_date_setMilliseconds_native, date, "setMilliseconds", 1);
+            if (strcmp(keyStr, "setUTCFullYear") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCFullYear_native, date, "setUTCFullYear", 3);
+            if (strcmp(keyStr, "setUTCMonth") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCMonth_native, date, "setUTCMonth", 2);
+            if (strcmp(keyStr, "setUTCDate") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCDate_native, date, "setUTCDate", 1);
+            if (strcmp(keyStr, "setUTCHours") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCHours_native, date, "setUTCHours", 4);
+            if (strcmp(keyStr, "setUTCMinutes") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCMinutes_native, date, "setUTCMinutes", 3);
+            if (strcmp(keyStr, "setUTCSeconds") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCSeconds_native, date, "setUTCSeconds", 2);
+            if (strcmp(keyStr, "setUTCMilliseconds") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCMilliseconds_native, date, "setUTCMilliseconds", 1);
             return ts_value_make_undefined();
         }
 
