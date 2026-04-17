@@ -74,7 +74,7 @@ static bool ts_array_has_property_at(TsArray* arr, int64_t i) {
     if (i >= 0 && (size_t)i < (size_t)arr->Length() && !arr->IsHole((size_t)i)) {
         return true;
     }
-    // Check Array.prototype
+    // Check Array.prototype for own data property or accessor (get or set).
     if (!g_array_prototype_map) return false;
     char idxKey[24];
     snprintf(idxKey, sizeof(idxKey), "%lld", (long long)i);
@@ -82,6 +82,11 @@ static bool ts_array_has_property_at(TsArray* arr, int64_t i) {
     TsValue gk; gk.type = ValueType::STRING_PTR;
     gk.ptr_val = TsString::Create(getterKey.c_str());
     if (g_array_prototype_map->Has(gk)) return true;
+    // A set-only accessor still makes HasProperty true.
+    std::string setterKey = std::string("__setter_") + idxKey;
+    TsValue sk; sk.type = ValueType::STRING_PTR;
+    sk.ptr_val = TsString::Create(setterKey.c_str());
+    if (g_array_prototype_map->Has(sk)) return true;
     TsValue dk; dk.type = ValueType::STRING_PTR;
     dk.ptr_val = TsString::Create(idxKey);
     return g_array_prototype_map->Has(dk);
