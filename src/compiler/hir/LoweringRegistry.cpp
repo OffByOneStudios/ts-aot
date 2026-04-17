@@ -1552,6 +1552,18 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()        // date string
             .build());
 
+    reg.registerLowering("ts_date_create_parts",
+        lowering("ts_date_create_parts")
+            .returnsPtr()
+            .f64Arg(ArgConversion::ToF64)   // year
+            .f64Arg(ArgConversion::ToF64)   // month
+            .f64Arg(ArgConversion::ToF64)   // day
+            .f64Arg(ArgConversion::ToF64)   // hours
+            .f64Arg(ArgConversion::ToF64)   // minutes
+            .f64Arg(ArgConversion::ToF64)   // seconds
+            .f64Arg(ArgConversion::ToF64)   // ms
+            .build());
+
     // ========================================
     // Crypto functions
     // ========================================

@@ -7,6 +7,8 @@ public:
     static TsDate* Create();
     static TsDate* Create(int64_t milliseconds);
     static TsDate* Create(const char* dateStr);
+    static TsDate* CreateFromParts(double y, double mo, double d,
+                                   double h, double mi, double s, double ms);
 
     int64_t GetTime();
     int64_t GetFullYear();
@@ -61,6 +63,8 @@ extern "C" {
     void* ts_date_create();
     void* ts_date_create_ms(int64_t ms);
     void* ts_date_create_str(void* str);
+    void* ts_date_create_parts(double y, double mo, double d,
+                               double h, double mi, double s, double ms);
     int64_t Date_getTime(void* date);
     int64_t Date_getFullYear(void* date);
     int64_t Date_getMonth(void* date);

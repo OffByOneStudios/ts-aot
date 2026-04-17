@@ -2,6 +2,7 @@
 #include "TsString.h"
 #include "GC.h"
 #include <chrono>
+#include <cmath>
 #include <new>
 #include <unicode/calendar.h>
 #include <unicode/gregocal.h>
@@ -17,6 +18,39 @@ TsDate* TsDate::Create() {
 TsDate* TsDate::Create(int64_t milliseconds) {
     void* mem = ts_alloc(sizeof(TsDate));
     return new(mem) TsDate(milliseconds);
+}
+
+TsDate* TsDate::CreateFromParts(double y, double mo, double d,
+                                double h, double mi, double s, double ms) {
+    // Per ECMA-262 §21.4.2.1: if any arg is NaN, produce an invalid Date.
+    // TsDate has no invalid-Date representation yet (commit 3); for now,
+    // fall through to epoch+0 (spec-wrong but safe, will be fixed).
+    if (std::isnan(y) || std::isnan(mo) || std::isnan(d) ||
+        std::isnan(h) || std::isnan(mi) || std::isnan(s) || std::isnan(ms)) {
+        return Create((int64_t)0);
+    }
+    // Year 0-99 maps to 1900-1999 (legacy annexB semantics, spec §21.4.2.1 step 3d).
+    int32_t year = (int32_t)y;
+    if (year >= 0 && year <= 99) year += 1900;
+
+    UErrorCode status = U_ZERO_ERROR;
+    std::unique_ptr<icu::Calendar> cal(icu::Calendar::createInstance(status));
+    cal->clear();
+    if (year >= 1) {
+        cal->set(UCAL_ERA, 1);
+        cal->set(UCAL_YEAR, year);
+    } else {
+        cal->set(UCAL_ERA, 0);
+        cal->set(UCAL_YEAR, 1 - year);
+    }
+    cal->set(UCAL_MONTH, (int32_t)mo);
+    cal->set(UCAL_DATE, (int32_t)d);
+    cal->set(UCAL_HOUR_OF_DAY, (int32_t)h);
+    cal->set(UCAL_MINUTE, (int32_t)mi);
+    cal->set(UCAL_SECOND, (int32_t)s);
+    cal->set(UCAL_MILLISECOND, (int32_t)ms);
+    int64_t t = (int64_t)cal->getTime(status);
+    return Create(t);
 }
 
 TsDate* TsDate::Create(const char* dateStr) {
@@ -254,6 +288,10 @@ extern "C" {
     void* ts_date_create() { return TsDate::Create(); }
     void* ts_date_create_ms(int64_t ms) { return TsDate::Create(ms); }
     void* ts_date_create_str(void* str) { return TsDate::Create(((TsString*)str)->ToUtf8()); }
+    void* ts_date_create_parts(double y, double mo, double d,
+                               double h, double mi, double s, double ms) {
+        return TsDate::CreateFromParts(y, mo, d, h, mi, s, ms);
+    }
     
     int64_t Date_getTime(void* date) { return ((TsDate*)date)->GetTime(); }
     int64_t Date_getFullYear(void* date) { return ((TsDate*)date)->GetFullYear(); }

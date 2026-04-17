@@ -5781,8 +5781,19 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                 lastValue_ = builder_.createCall("ts_date_create_str", {arg}, HIRType::makeClass("Date", 0));
             }
         } else {
-            // new Date() with multiple args - just use current time for now
-            lastValue_ = builder_.createCall("ts_date_create", {}, HIRType::makeClass("Date", 0));
+            // new Date(y, m [, d, h, mi, s, ms]) - ECMA-262 §21.4.2.1 step 3.
+            // Missing d defaults to 1, others default to 0.
+            std::vector<std::shared_ptr<HIRValue>> partsArgs;
+            partsArgs.reserve(7);
+            for (size_t i = 0; i < 7; ++i) {
+                if (i < node->arguments.size()) {
+                    partsArgs.push_back(lowerExpression(node->arguments[i].get()));
+                } else {
+                    partsArgs.push_back(builder_.createConstFloat(i == 2 ? 1.0 : 0.0));
+                }
+            }
+            lastValue_ = builder_.createCall("ts_date_create_parts", partsArgs,
+                                             HIRType::makeClass("Date", 0));
         }
         return;
     }
