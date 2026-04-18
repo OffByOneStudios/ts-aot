@@ -2,11 +2,9 @@
 // Test: Error construction (JS slow path)
 // CHECK: define
 // OUTPUT: hello
-// OUTPUT: false
+// OUTPUT: true
 // OUTPUT: type error
-// OUTPUT: false
-// NOTE: instanceof returns false because Error/TypeError are not in the
-//       class registry. Error construction works but prototype chain is incomplete.
+// OUTPUT: true
 
 var err = new Error("hello");
 console.log(err.message);

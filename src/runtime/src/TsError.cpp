@@ -18,6 +18,13 @@
 #include <cxxabi.h>
 #endif
 
+#include "TsMap.h"
+#include "TsObject.h"  // for ts_object_get_property, ts_value_get_object
+
+// Forward declarations — defined later in this file.
+static void* getErrorConstructorByName(const char* name);
+static void errSetProto(TsMap* err, const char* name);
+
 // Helper to build stack trace and create error object
 static TsValue* buildErrorObject(TsString* msgStr, void* options) {
     TsMap* err = TsMap::Create();
@@ -152,14 +159,14 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
 
     err->Set(TsString::Create("stack"), nanbox_to_tagged(ts_value_make_string(TsString::Create(ss.str().c_str()))));
 
+    // Link to Error.prototype for `e instanceof Error`.
+    errSetProto(err, "Error");
+
     // Return NaN-boxed pointer to the error map
     return (TsValue*)err;
 }
 
 // Build error object with a specific name (TypeError, RangeError, etc.)
-// Forward declaration for getErrorConstructorByName (defined later)
-static void* getErrorConstructorByName(const char* name);
-
 static TsValue* buildTypedErrorObject(const char* name, TsString* msgStr) {
     TsMap* err = TsMap::Create();
     err->Set(TsString::Create("message"), nanbox_to_tagged(ts_value_make_string(msgStr)));
@@ -206,6 +213,10 @@ static TsValue* buildTypedErrorObject(const char* name, TsString* msgStr) {
 #endif
 
     err->Set(TsString::Create("stack"), nanbox_to_tagged(ts_value_make_string(TsString::Create(ss.str().c_str()))));
+
+    // Link to <name>.prototype for `e instanceof TypeError` etc.
+    errSetProto(err, name);
+
     return (TsValue*)err;
 }
 
@@ -228,6 +239,21 @@ static void* getErrorConstructorByName(const char* name) {
     if (strcmp(name, "URIError") == 0) return ts_get_global_URIError();
     if (strcmp(name, "EvalError") == 0) return ts_get_global_EvalError();
     return ts_get_global_Error();
+}
+
+static void errSetProto(TsMap* err, const char* name) {
+    void* ctor = getErrorConstructorByName(name);
+    if (!ctor) return;
+    void* ctorRaw = ts_value_get_object((TsValue*)ctor);
+    if (!ctorRaw) return;
+    TsValue* protoVal = ts_object_get_property(ctorRaw, "prototype");
+    if (!protoVal) return;
+    void* protoRaw = ts_value_get_object(protoVal);
+    if (!protoRaw) return;
+    // Only set prototype if it's a TsMap (magic at offset 16).
+    uint32_t m16 = *(uint32_t*)((char*)protoRaw + 16);
+    if (m16 != 0x4D415053) return;
+    err->SetPrototype((TsMap*)protoRaw);
 }
 
 extern "C" {

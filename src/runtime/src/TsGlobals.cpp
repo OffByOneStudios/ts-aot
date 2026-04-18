@@ -420,6 +420,10 @@ void* ts_get_global_String() {
 // Error constructors — callable native functions with .prototype
 // ========================================
 
+// Forward declaration: Error global used for prototype inheritance in typed
+// error constructors (TypeError.prototype → Error.prototype, etc.).
+void* ts_get_global_Error();
+
 // Helper: create a callable error constructor global
 // Returns a TsFunction that, when called via `new`, creates an error TsMap
 // with .message, .name, and .stack properties.
@@ -470,6 +474,33 @@ static void* makeErrorConstructor(const char* errorName) {
     TsValue nameVal; nameVal.type = ValueType::STRING_PTR;
     nameVal.ptr_val = TsString::Create(errorName);
     proto->Set(nameKey, nameVal);
+
+    // Per spec: TypeError.prototype / RangeError.prototype / etc.
+    // inherit from Error.prototype. Link via the TsMap prototype chain
+    // so `e instanceof Error` walks one step past `e.__proto__`
+    // (TypeError.prototype) to find Error.prototype.
+    // Skip for "Error" itself — that would recurse infinitely.
+    if (strcmp(errorName, "Error") != 0) {
+        void* errorCtor = ts_get_global_Error();  // lazy + cached
+        if (errorCtor) {
+            void* errorCtorRaw = ts_value_get_object((TsValue*)errorCtor);
+            if (errorCtorRaw) {
+                TsFunction* errFn = (TsFunction*)errorCtorRaw;
+                if (errFn->properties) {
+                    TsValue pkey; pkey.type = ValueType::STRING_PTR;
+                    pkey.ptr_val = TsString::GetInterned("prototype");
+                    TsValue pval = errFn->properties->Get(pkey);
+                    if (pval.type != ValueType::UNDEFINED && pval.ptr_val) {
+                        // pval is a tagged value; its ptr_val is the raw TsMap.
+                        uint32_t m16 = *(uint32_t*)((char*)pval.ptr_val + 16);
+                        if (m16 == 0x4D415053) {
+                            proto->SetPrototype((TsMap*)pval.ptr_val);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Set .prototype on the constructor function's properties map
     if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
