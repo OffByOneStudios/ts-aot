@@ -2240,6 +2240,10 @@ extern "C" {
         return a->GetElementBoxed(index);
     }
 
+    // Forward decl for non-TsArray receiver fallback (plain objects,
+    // primitives, etc. — Array.prototype.join.call(x) semantics).
+    extern TsValue* ts_array_join_native(void* ctx, int argc, TsValue** argv);
+
     void* ts_array_join(void* arr, void* separator) {
         // Unbox if arr is a TsValue* (boxed array)
         void* rawArr = ts_nanbox_safe_unbox(arr);
@@ -2251,6 +2255,28 @@ extern "C" {
             if (sepBits == 10 /* raw undefined sentinel */ ||
                 nanbox_is_undefined(sepBits) || nanbox_is_null(sepBits)) {
                 separator = nullptr;
+            }
+        }
+        // Guard: only a real TsArray is safe to cast. The compiler's
+        // Any-typed method-call fast path lowers `obj.join()` to this
+        // extern regardless of obj's actual type (HIRToLLVM.cpp:6152).
+        // For non-Array receivers (plain TsMap, primitive, TsString),
+        // delegate to the native wrapper which routes through
+        // require_array_or_throw for spec-compliant array-like handling.
+        {
+            uintptr_t p = (uintptr_t)rawArr;
+            uint32_t magic = 0;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                magic = *(uint32_t*)rawArr;
+            }
+            if (magic != TsArray::MAGIC) {
+                TsValue* argvBuf[1] = { (TsValue*)separator };
+                int argc = separator ? 1 : 0;
+                TsValue* res = ts_array_join_native(arr, argc, argvBuf);
+                if (!res) return TsString::Create("");
+                // res is a boxed string; unwrap to raw TsString*.
+                void* s = ts_value_get_string(res);
+                return s ? s : (void*)TsString::Create("");
             }
         }
         return ((TsArray*)rawArr)->Join(separator);
