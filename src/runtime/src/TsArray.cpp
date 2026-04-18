@@ -1587,6 +1587,12 @@ extern "C" {
         return ((TsArray*)arr)->IsSpecialized();
     }
 
+    // Forward decls for non-Array receiver fallback (compiler Any-path
+    // lowers obj.method() to these externs regardless of obj's real type;
+    // guard magic and delegate to the spec-compliant native wrappers).
+    extern TsValue* ts_array_push_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv);
+
     void ts_array_push(void* arr, void* value) {
         // Unbox arr if it's a NaN-boxed TsValue* pointing to an array
         void* rawArr = arr;
@@ -1600,6 +1606,21 @@ extern "C" {
         if (!rawArr) {
             std::cerr << "ts_array_push: null array pointer" << std::endl;
             return;
+        }
+
+        // Guard non-TsArray receivers (compiler Any-typed lowering bug
+        // workaround; see ts_array_join for details).
+        {
+            uintptr_t p = (uintptr_t)rawArr;
+            uint32_t magic = 0;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                magic = *(uint32_t*)rawArr;
+            }
+            if (magic != TsArray::MAGIC) {
+                TsValue* argvBuf[1] = { (TsValue*)value };
+                ts_array_push_native(arr, 1, argvBuf);
+                return;
+            }
         }
 
         TsArray* array = (TsArray*)rawArr;
@@ -2448,6 +2469,20 @@ extern "C" {
     void* ts_array_concat(void* arr, void* other) {
         // Unbox if arr is a TsValue* (boxed array)
         void* rawArr = ts_nanbox_safe_unbox(arr);
+        // Guard non-TsArray receivers — delegate to the native wrapper
+        // which handles spec-compliant array-like materialization.
+        if (rawArr) {
+            uintptr_t p = (uintptr_t)rawArr;
+            uint32_t magic = 0;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                magic = *(uint32_t*)rawArr;
+            }
+            if (magic != TsArray::MAGIC) {
+                TsValue* argvBuf[1] = { (TsValue*)other };
+                TsValue* res = ts_array_concat_native(arr, 1, argvBuf);
+                return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+            }
+        }
         TsArray* first = (TsArray*)rawArr;
 
         // Per spec: if `other` is not an Array (or spreadable), it's appended
