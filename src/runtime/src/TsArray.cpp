@@ -1729,7 +1729,24 @@ extern "C" {
         return (void*)((TsArray*)arr)->Pop();
     }
 
+    extern TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv);
+
     void ts_array_unshift(void* arr, void* value) {
+        // Guard non-TsArray receivers (same lowering bug as join/push/concat;
+        // see HIRToLLVM.cpp:6209). Plain TsMap / primitive receivers would
+        // read garbage fields if cast to TsArray*.
+        if (arr) {
+            uintptr_t p = (uintptr_t)arr;
+            uint32_t magic = 0;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                magic = *(uint32_t*)arr;
+            }
+            if (magic != TsArray::MAGIC) {
+                TsValue* argvBuf[1] = { (TsValue*)value };
+                ts_array_unshift_native(arr, 1, argvBuf);
+                return;
+            }
+        }
         ((TsArray*)arr)->Unshift((int64_t)value);
     }
 
@@ -2308,8 +2325,43 @@ extern "C" {
         return arr;
     }
 
+    extern TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv);
+
     void* ts_array_splice(void* arr, int64_t start, int64_t deleteCount, void* items) {
         if (!arr) return ts_array_create();
+        // Guard non-TsArray receivers (compiler Any-path lowering bug;
+        // see HIRToLLVM.cpp:6285). Delegate to native wrapper which
+        // correctly handles array-like via require_array_or_throw.
+        {
+            uintptr_t p = (uintptr_t)arr;
+            uint32_t magic = 0;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                magic = *(uint32_t*)arr;
+            }
+            if (magic != TsArray::MAGIC) {
+                // splice native takes argv = [start, deleteCount, ...items].
+                // `items` here is already packed as a TsArray by the compiler
+                // (see ArrayHandler::lowerArraySplice). Extract and forward.
+                TsValue* startV = ts_value_make_int(start);
+                TsValue* countV = ts_value_make_int(deleteCount);
+                std::vector<TsValue*> argvBuf;
+                argvBuf.push_back(startV);
+                argvBuf.push_back(countV);
+                if (items) {
+                    TsArray* itemsArr = (TsArray*)items;
+                    // Verify items is actually a TsArray before iterating
+                    uint32_t im = *(uint32_t*)items;
+                    if (im == TsArray::MAGIC) {
+                        for (size_t i = 0; i < (size_t)itemsArr->Length(); ++i) {
+                            argvBuf.push_back(itemsArr->GetElementBoxed(i));
+                        }
+                    }
+                }
+                TsValue* res = ts_array_splice_native(arr, (int)argvBuf.size(),
+                                                     argvBuf.data());
+                return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+            }
+        }
         TsArray* a = (TsArray*)arr;
         int64_t len = a->Length();
 
