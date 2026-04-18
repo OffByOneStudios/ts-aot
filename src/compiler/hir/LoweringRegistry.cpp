@@ -693,6 +693,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_map",
@@ -700,6 +701,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_forEach",
@@ -707,6 +709,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsVoid()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_reduce",
@@ -737,6 +740,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_fill",
