@@ -3061,6 +3061,17 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "findLast") == 0) return makeNamedNativeFunction((void*)ts_array_findLast_native, arr, "findLast", 1);
             if (strcmp(keyStr, "findLastIndex") == 0) return makeNamedNativeFunction((void*)ts_array_findLastIndex_native, arr, "findLastIndex", 1);
             if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_array_toString_native, arr, "toString", 0);
+            // User-defined string-keyed property — look up the lazy side map.
+            // Per ES spec, arrays are exotic objects with both indexed elements
+            // and arbitrary string-keyed properties (e.g. `arr.foo = 'bar'`).
+            if (arr->properties) {
+                TsValue k; k.type = ValueType::STRING_PTR;
+                k.ptr_val = TsString::GetInterned(keyStr);
+                TsValue v = arr->properties->Get(k);
+                if (v.type != ValueType::UNDEFINED) {
+                    return nanbox_from_tagged(v);
+                }
+            }
             return ts_value_make_undefined();
         }
         if (magic0 == 0x53545247 || magic8 == 0x53545247 || magic16 == 0x53545247 || magic0 == TsConsString::MAGIC) { // TsString or TsConsString
@@ -6910,6 +6921,19 @@ TsValue* ts_value_make_int(int64_t i) {
                 ts_gc_write_barrier(&func->properties, func->properties);
             }
             func->properties->Set(key, value);
+            return value;
+        }
+
+        // Check for TsArray (can have arbitrary string-keyed properties per
+        // ES spec — arrays are exotic objects, not just indexed storage).
+        // Numeric keys were already handled at the top via ts_array_set_v.
+        if (magic0 == 0x41525259) { // TsArray::MAGIC ("ARRY")
+            TsArray* arr = (TsArray*)rawObj;
+            if (!arr->properties) {
+                arr->properties = TsMap::Create();
+                ts_gc_write_barrier(&arr->properties, arr->properties);
+            }
+            arr->properties->Set(key, value);
             return value;
         }
 

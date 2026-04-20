@@ -185,7 +185,7 @@ private:
     static constexpr int kMaxStackAllocObjects = 4;
     static constexpr int kMaxStackAllocBytes = 512;
     static constexpr int kSizeOfTsMap = 64;
-    static constexpr int kSizeOfTsArray = 56;
+    static constexpr int kSizeOfTsArray = 64;  // bumped to fit `properties` field
 
     // For async functions
     bool isAsyncFunction_ = false;

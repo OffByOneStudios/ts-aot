@@ -127,6 +127,13 @@ public:
     // ToObject'd receiver as the 3rd callback argument (per ECMA-262).
     // Placed at end to preserve sizeof/layout of prior private members.
     void* originalReceiver = nullptr;
+
+    // Named (string-keyed) properties side map. Allocated lazily on first
+    // string-key write — `arr.foo = bar` stores into properties->Set("foo", bar).
+    // Required for spec-compliant arrays since arrays are exotic objects with
+    // both indexed elements AND arbitrary string-keyed properties.
+    // Boehm-GC scans this conservatively (no explicit barrier needed).
+    TsMap* properties = nullptr;
 };
 
 extern "C" {
