@@ -1040,8 +1040,8 @@ double ts_to_number(TsValue* v) {
             return d;
         }
         // Per ES spec: ToNumber(symbol) throws TypeError.
-        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-        if (magic16 == 0x53594D42) {  // "SYMB"
+        // TsSymbol has MAGIC=0x53594D42 at offset 0 (see TsSymbol.h).
+        if (magic == 0x53594D42) {  // "SYMB"
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Cannot convert a Symbol value to a number"));
             return 0.0;  // unreachable

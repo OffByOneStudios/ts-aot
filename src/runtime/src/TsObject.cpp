@@ -1714,8 +1714,9 @@ TsValue* ts_value_make_int(int64_t i) {
         // Read .length
         TsValue* lenVal = ts_object_get_property(ctxToRead, "length");
         if (!lenVal) return nullptr;
-        // ToLength: convert to double, clamp to [0, 2^53-1].
-        double lenD = ts_value_get_double(lenVal);
+        // ToLength: ToNumber → clamp to [0, 2^53-1]. ts_to_number throws
+        // TypeError for Symbol (per ES spec), which must propagate up.
+        double lenD = ts_to_number(lenVal);
         if (lenD != lenD || lenD <= 0) {
             // NaN or non-positive → empty array (matches spec ToLength → 0).
             return TsArray::Create(0);
