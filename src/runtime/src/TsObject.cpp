@@ -2000,8 +2000,10 @@ TsValue* ts_value_make_int(int64_t i) {
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         if (!requireCallableOrThrow(callback, "find")) return ts_value_make_undefined();
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-        struct TaggedValue* result = ts_array_find(arr, callback, thisArg);
-        return result ? nanbox_from_tagged(*result) : ts_value_make_undefined();
+        // ts_array_find returns a NaN-boxed TsValue* (not a heap TaggedValue*).
+        // Must not dereference — 0x0A (undefined) would fault.
+        TsValue* result = ts_array_find(arr, callback, thisArg);
+        return result ? result : ts_value_make_undefined();
     }
     TsValue* ts_array_findIndex_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "findIndex");
@@ -2222,8 +2224,10 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-        struct TaggedValue* result = ts_array_findLast(arr, callback, thisArg);
-        return result ? nanbox_from_tagged(*result) : ts_value_make_undefined();
+        // ts_array_findLast returns a NaN-boxed TsValue* (not a heap TaggedValue*).
+        // Must not dereference — 0x0A (undefined) would fault.
+        TsValue* result = ts_array_findLast(arr, callback, thisArg);
+        return result ? result : ts_value_make_undefined();
     }
     TsValue* ts_array_findLastIndex_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "findLastIndex");
