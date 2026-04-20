@@ -651,6 +651,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsBoxed()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_findIndex",
@@ -658,6 +659,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsI64()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_findLast",
@@ -665,6 +667,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsBoxed()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_findLastIndex",
@@ -672,6 +675,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsI64()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_every",
@@ -679,6 +683,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsBool()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_some",
@@ -686,6 +691,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsBool()
             .ptrArg()      // array
             .ptrArg()      // callback
+            .ptrArg()      // thisArg
             .build());
 
     reg.registerLowering("ts_array_filter",

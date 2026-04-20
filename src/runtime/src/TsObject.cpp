@@ -2155,23 +2155,33 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // P3: Less common methods
     TsValue* ts_array_entries_native(void* ctx, int argc, TsValue** argv) {
-        void* items = ts_array_entries((TsArray*)ctx);
+        TsArray* arr = require_array_or_throw(ctx, "entries");
+        if (!arr) return ts_value_make_undefined();
+        void* items = ts_array_entries(arr);
         return items ? (TsValue*)ts_create_array_iterator(items) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_keys_native(void* ctx, int argc, TsValue** argv) {
-        void* items = ts_array_keys((TsArray*)ctx);
+        TsArray* arr = require_array_or_throw(ctx, "keys");
+        if (!arr) return ts_value_make_undefined();
+        void* items = ts_array_keys(arr);
         return items ? (TsValue*)ts_create_array_iterator(items) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_values_native(void* ctx, int argc, TsValue** argv) {
-        void* items = ts_array_values((TsArray*)ctx);
+        TsArray* arr = require_array_or_throw(ctx, "values");
+        if (!arr) return ts_value_make_undefined();
+        void* items = ts_array_values(arr);
         return items ? (TsValue*)ts_create_array_iterator(items) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_toReversed_native(void* ctx, int argc, TsValue** argv) {
-        void* result = ts_array_toReversed((TsArray*)ctx);
+        TsArray* arr = require_array_or_throw(ctx, "toReversed");
+        if (!arr) return ts_value_make_undefined();
+        void* result = ts_array_toReversed(arr);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_toSorted_native(void* ctx, int argc, TsValue** argv) {
-        void* result = ts_array_toSorted((TsArray*)ctx);
+        TsArray* arr = require_array_or_throw(ctx, "toSorted");
+        if (!arr) return ts_value_make_undefined();
+        void* result = ts_array_toSorted(arr);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_toSpliced_native(void* ctx, int argc, TsValue** argv) {

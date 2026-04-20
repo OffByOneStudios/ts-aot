@@ -2156,9 +2156,23 @@ extern "C" {
         return cmp < 0;
     }
 
+    extern TsValue* ts_array_sort_native(void* ctx, int argc, TsValue** argv);
+
     // ts_array_sort - HIR calls this with (array, comparator) and expects array to be returned
     void* ts_array_sort(void* arr, void* comparator) {
-        TsArray* array = (TsArray*)arr;
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (rawArr) {
+            uintptr_t p = (uintptr_t)rawArr;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                uint32_t magic = *(uint32_t*)rawArr;
+                if (magic != TsArray::MAGIC) {
+                    TsValue* argvBuf[1] = { (TsValue*)comparator };
+                    TsValue* res = ts_array_sort_native(arr, 1, argvBuf);
+                    return res ? (void*)ts_value_get_object(res) : nullptr;
+                }
+            }
+        }
+        TsArray* array = (TsArray*)rawArr;
 
         if (!comparator) {
             array->Sort();
@@ -2422,18 +2436,57 @@ extern "C" {
         return result;
     }
 
+    extern TsValue* ts_array_toReversed_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_toSorted_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_toSpliced_native(void* ctx, int argc, TsValue** argv);
+
+    // Helper: true when `arr` is safely dereferenceable and has TsArray magic.
+    static inline bool arr_is_tsarray(void* rawArr) {
+        if (!rawArr) return false;
+        uintptr_t p = (uintptr_t)rawArr;
+        if (p <= 0x1000 || p >= 0x0000800000000000ULL) return false;
+        return *(uint32_t*)rawArr == TsArray::MAGIC;
+    }
+
     // ES2023 "change array by copy" methods
     void* ts_array_toReversed(void* arr) {
-        return ((TsArray*)arr)->ToReversed();
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* res = ts_array_toReversed_native(arr, 0, nullptr);
+            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+        }
+        return ((TsArray*)rawArr)->ToReversed();
     }
 
     void* ts_array_toSorted(void* arr) {
-        return ((TsArray*)arr)->ToSorted();
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* res = ts_array_toSorted_native(arr, 0, nullptr);
+            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+        }
+        return ((TsArray*)rawArr)->ToSorted();
     }
 
     void* ts_array_toSpliced(void* arr, int64_t start, int64_t deleteCount, void* items, int64_t itemCount) {
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            // Pack (start, deleteCount, ...items) for the native signature.
+            // items is a TsArray* of spread elements; we rebuild argv inline.
+            TsArray* itemsArr = (TsArray*)items;
+            int itemsN = (itemsArr && arr_is_tsarray(itemsArr)) ? (int)itemsArr->Length() : 0;
+            int argc = 2 + itemsN;
+            std::vector<TsValue*> argvBuf;
+            argvBuf.reserve(argc);
+            argvBuf.push_back(ts_value_make_int(start));
+            argvBuf.push_back(ts_value_make_int(deleteCount));
+            for (int i = 0; i < itemsN; i++) {
+                argvBuf.push_back((TsValue*)itemsArr->Get(i));
+            }
+            TsValue* res = ts_array_toSpliced_native(arr, argc, argvBuf.data());
+            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+        }
         // items is a TsArray*, we need to pass it as-is so ToSpliced can properly extract values
-        return ((TsArray*)arr)->ToSpliced(start, deleteCount, items, itemCount);
+        return ((TsArray*)rawArr)->ToSpliced(start, deleteCount, items, itemCount);
     }
 
     void* ts_array_with(void* arr, int64_t index, void* value) {
@@ -2509,28 +2562,69 @@ extern "C" {
         return a->ReduceRight(callback, initialValue);
     }
 
+    extern TsValue* ts_array_some_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_every_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_find_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_findIndex_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_findLast_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_findLastIndex_native(void* ctx, int argc, TsValue** argv);
+
     bool ts_array_some(void* arr, void* callback, void* thisArg) {
-        return ((TsArray*)arr)->Some(callback, thisArg);
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
+            TsValue* res = ts_array_some_native(arr, 2, argvBuf);
+            return res ? ts_value_to_bool(res) : false;
+        }
+        return ((TsArray*)rawArr)->Some(callback, thisArg);
     }
 
     bool ts_array_every(void* arr, void* callback, void* thisArg) {
-        return ((TsArray*)arr)->Every(callback, thisArg);
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
+            TsValue* res = ts_array_every_native(arr, 2, argvBuf);
+            return res ? ts_value_to_bool(res) : true;
+        }
+        return ((TsArray*)rawArr)->Every(callback, thisArg);
     }
 
     TsValue* ts_array_find(void* arr, void* callback, void* thisArg) {
-        return ((TsArray*)arr)->Find(callback, thisArg);
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
+            return ts_array_find_native(arr, 2, argvBuf);
+        }
+        return ((TsArray*)rawArr)->Find(callback, thisArg);
     }
 
     int64_t ts_array_findIndex(void* arr, void* callback, void* thisArg) {
-        return ((TsArray*)arr)->FindIndex(callback, thisArg);
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
+            TsValue* res = ts_array_findIndex_native(arr, 2, argvBuf);
+            return res ? ts_value_get_int(res) : -1;
+        }
+        return ((TsArray*)rawArr)->FindIndex(callback, thisArg);
     }
 
     TsValue* ts_array_findLast(void* arr, void* callback, void* thisArg) {
-        return ((TsArray*)arr)->FindLast(callback, thisArg);
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
+            return ts_array_findLast_native(arr, 2, argvBuf);
+        }
+        return ((TsArray*)rawArr)->FindLast(callback, thisArg);
     }
 
     int64_t ts_array_findLastIndex(void* arr, void* callback, void* thisArg) {
-        return ((TsArray*)arr)->FindLastIndex(callback, thisArg);
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
+            TsValue* res = ts_array_findLastIndex_native(arr, 2, argvBuf);
+            return res ? ts_value_get_int(res) : -1;
+        }
+        return ((TsArray*)rawArr)->FindLastIndex(callback, thisArg);
     }
 
     void* ts_array_concat(void* arr, void* other) {
@@ -3106,11 +3200,19 @@ extern "C" {
         return arr;
     }
 
+    extern TsValue* ts_array_entries_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_keys_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_values_native(void* ctx, int argc, TsValue** argv);
+
     // Returns an array of [index, value] pairs (iterator-like behavior)
     void* ts_array_entries(void* arr) {
-        if (!arr) return nullptr;
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* res = ts_array_entries_native(arr, 0, nullptr);
+            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+        }
 
-        TsArray* array = (TsArray*)arr;
+        TsArray* array = (TsArray*)rawArr;
         int64_t len = (int64_t)array->Length();
         TsArray* entries = TsArray::Create(len);
 
@@ -3134,9 +3236,13 @@ extern "C" {
 
     // Returns an array of indices (iterator-like behavior)
     void* ts_array_keys(void* arr) {
-        if (!arr) return nullptr;
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* res = ts_array_keys_native(arr, 0, nullptr);
+            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+        }
 
-        TsArray* array = (TsArray*)arr;
+        TsArray* array = (TsArray*)rawArr;
         int64_t len = (int64_t)array->Length();
         TsArray* keys = TsArray::Create(len);
 
@@ -3150,9 +3256,13 @@ extern "C" {
 
     // Returns an array of values (iterator-like behavior)
     void* ts_array_values(void* arr) {
-        if (!arr) return nullptr;
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!arr_is_tsarray(rawArr)) {
+            TsValue* res = ts_array_values_native(arr, 0, nullptr);
+            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+        }
 
-        TsArray* array = (TsArray*)arr;
+        TsArray* array = (TsArray*)rawArr;
         int64_t len = (int64_t)array->Length();
         TsArray* values = TsArray::Create(len);
 
