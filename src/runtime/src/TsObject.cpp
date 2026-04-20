@@ -89,6 +89,11 @@ extern "C" void ts_pop_exception_handler();
 extern "C" void ts_set_exception(TsValue* exception);
 extern "C" TsValue* ts_get_exception();
 extern "C" double ts_to_number(TsValue* v);
+
+// Wrapper globals used for ToObject-style primitive receivers in
+// require_array_or_throw. Defined in TsGlobals.cpp.
+extern "C" void* ts_get_global_Boolean();
+extern "C" void* ts_get_global_Number();
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
@@ -1635,12 +1640,48 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!ctxToRead) return nullptr;
         }
         // Primitive receivers (boolean, number). ToObject returns a wrapper
-        // that has no indexed properties and no .length, so the spec result
-        // is an empty iteration.
+        // whose [[Prototype]] is Boolean.prototype / Number.prototype. The
+        // spec iteration reads .length and each O[i] through that chain —
+        // tests (and real code) plant props on those prototypes.
         {
             uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctxToRead);
             if (nanbox_is_number(nb) || nanbox_is_bool(nb)) {
-                return TsArray::Create(0);
+                // Helper: treat nullptr + NaN-boxed undefined/null as "missing".
+                auto notPresent = [](TsValue* v) -> bool {
+                    if (!v) return true;
+                    uint64_t u = nanbox_from_tsvalue_ptr(v);
+                    return nanbox_is_undefined(u) || nanbox_is_null(u);
+                };
+
+                void* protoGlobal = nanbox_is_bool(nb)
+                    ? ts_get_global_Boolean()
+                    : ts_get_global_Number();
+                if (!protoGlobal) return TsArray::Create(0);
+                void* protoCtor = ts_value_get_object((TsValue*)protoGlobal);
+                if (!protoCtor) protoCtor = protoGlobal;
+                TsValue* protoVal = ts_object_get_property(protoCtor, "prototype");
+                if (notPresent(protoVal)) return TsArray::Create(0);
+                void* protoRaw = ts_value_get_object(protoVal);
+                if (!protoRaw) return TsArray::Create(0);
+
+                TsValue* lenVal = ts_object_get_property(protoRaw, "length");
+                if (notPresent(lenVal)) return TsArray::Create(0);
+                double lenD = ts_value_get_double(lenVal);
+                if (lenD != lenD || lenD <= 0) return TsArray::Create(0);
+                int64_t len = (int64_t)lenD;
+                const int64_t MAX_ITER = 1 << 20;
+                if (len > MAX_ITER) len = MAX_ITER;
+
+                TsArray* tmp = TsArray::Create((size_t)len);
+                tmp->originalReceiver = ctxToRead;
+                for (int64_t i = 0; i < len; i++) {
+                    char key[32];
+                    snprintf(key, sizeof(key), "%lld", (long long)i);
+                    TsValue* elem = ts_object_get_property(protoRaw, key);
+                    if (notPresent(elem)) elem = ts_value_make_undefined();
+                    ts_array_push(tmp, elem);
+                }
+                return tmp;
             }
         }
         // String primitives: expose characters as array-like elements via
