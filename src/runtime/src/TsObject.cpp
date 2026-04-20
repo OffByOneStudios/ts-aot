@@ -1856,12 +1856,26 @@ TsValue* ts_value_make_int(int64_t i) {
     //     +Infinity -> length-1
     //     -Infinity -> no iteration (return -1, caller treats as miss)
     //   NaN -> 0 for both.
+    // ToInteger per ES spec: ToNumber + truncate toward zero. ts_to_number
+    // throws TypeError on Symbol, which propagates up. Used for index/count
+    // args in Array.prototype.X where Symbol must throw (per spec).
+    static int64_t toInteger(TsValue* v, int64_t deflt) {
+        if (!v) return deflt;
+        uint64_t nb = nanbox_from_tsvalue_ptr(v);
+        if (nanbox_is_undefined(nb)) return deflt;
+        double d = ts_to_number(v);  // throws TypeError on Symbol
+        if (d != d || d == 0) return 0;  // NaN / ±0 → 0
+        if (std::isinf(d)) return d > 0 ? INT64_MAX : INT64_MIN;
+        return (int64_t)d;  // truncate toward zero
+    }
+
     static int64_t parseFromIndex(int argc, TsValue** argv, int64_t length,
                                    bool isLastIndex = false) {
         if (argc < 2 || !argv || !argv[1]) {
             return isLastIndex ? (length - 1) : 0;
         }
-        double fd = ts_value_get_double(argv[1]);
+        // Use ts_to_number so Symbol fromIndex throws TypeError per spec.
+        double fd = ts_to_number(argv[1]);
         if (fd != fd) return 0; // NaN -> 0
         if (std::isinf(fd)) {
             if (fd > 0) return isLastIndex ? (length - 1) : length;
@@ -1897,13 +1911,9 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_array_slice_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "slice");
         if (!arr) return ts_value_make_object(ts_array_create());
-        int64_t start = 0, end = arr->Length();
-        if (argc >= 1 && argv && argv[0]) {
-            start = ts_value_get_int(argv[0]);
-        }
-        if (argc >= 2 && argv && argv[1]) {
-            end = ts_value_get_int(argv[1]);
-        }
+        // Use toInteger so Symbol args throw TypeError per spec.
+        int64_t start = (argc >= 1 && argv) ? toInteger(argv[0], 0) : 0;
+        int64_t end   = (argc >= 2 && argv) ? toInteger(argv[1], arr->Length()) : arr->Length();
         void* result = ts_array_slice(arr, start, end);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
@@ -2030,8 +2040,9 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_array_splice_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "splice");
         if (!arr) return ts_value_make_undefined();
-        int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
-        int64_t deleteCount = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : arr->Length() - start;
+        // Use toInteger so Symbol args throw TypeError per spec.
+        int64_t start = (argc >= 1 && argv) ? toInteger(argv[0], 0) : 0;
+        int64_t deleteCount = (argc >= 2 && argv) ? toInteger(argv[1], arr->Length() - start) : arr->Length() - start;
         if (start < 0) start = arr->Length() + start;
         if (start < 0) start = 0;
         if (start > arr->Length()) start = arr->Length();
@@ -2125,8 +2136,9 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "fill");
         if (!arr) return ts_value_make_undefined();
         void* value = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-        int64_t start = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : 0;
-        int64_t end = (argc >= 3 && argv && argv[2]) ? ts_value_get_int(argv[2]) : arr->Length();
+        // Use toInteger so Symbol args throw TypeError per spec.
+        int64_t start = (argc >= 2 && argv) ? toInteger(argv[1], 0) : 0;
+        int64_t end = (argc >= 3 && argv) ? toInteger(argv[2], arr->Length()) : arr->Length();
         ts_array_fill(arr, value, start, end);
         return ts_value_make_object(arr);
     }
@@ -2190,8 +2202,9 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_array_toSpliced_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "toSpliced");
         if (!arr) return ts_value_make_undefined();
-        int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
-        int64_t deleteCount = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : arr->Length() - start;
+        // Use toInteger so Symbol args throw TypeError per spec.
+        int64_t start = (argc >= 1 && argv) ? toInteger(argv[0], 0) : 0;
+        int64_t deleteCount = (argc >= 2 && argv) ? toInteger(argv[1], arr->Length() - start) : arr->Length() - start;
         // Collect items as an array
         TsArray* items = nullptr;
         if (argc > 2) {
@@ -2206,9 +2219,10 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_array_copyWithin_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "copyWithin");
         if (!arr) return ts_value_make_undefined();
-        int64_t target = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
-        int64_t start = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : 0;
-        int64_t end = (argc >= 3 && argv && argv[2]) ? ts_value_get_int(argv[2]) : arr->Length();
+        // Use toInteger so Symbol args throw TypeError per spec.
+        int64_t target = (argc >= 1 && argv) ? toInteger(argv[0], 0) : 0;
+        int64_t start  = (argc >= 2 && argv) ? toInteger(argv[1], 0) : 0;
+        int64_t end    = (argc >= 3 && argv) ? toInteger(argv[2], arr->Length()) : arr->Length();
         ts_array_copyWithin(arr, target, start, end);
         return ts_value_make_object(arr);
     }
