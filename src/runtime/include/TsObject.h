@@ -159,6 +159,10 @@ public:
     int arity = -1;  // Number of parameters (excluding context). -1 = unknown/vararg
     TsMap* properties = nullptr;  // For storing properties like _.chunk
     TsString* name = nullptr;  // Function name for .name and .toString()
+    // Per ES spec, built-in prototype methods (Array.prototype.X etc.) have
+    // no [[Construct]] internal method — `new fn()` must throw TypeError.
+    // User functions and class constructors default to true.
+    bool is_constructor = true;
     TsFunction(void* fp, void* ctx = nullptr, FunctionType t = FunctionType::COMPILED, int a = -1)
         : funcPtr(fp), context(ctx), type(t), arity(a) {
         magic = MAGIC;

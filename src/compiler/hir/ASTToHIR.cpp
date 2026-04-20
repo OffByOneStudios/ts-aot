@@ -5938,24 +5938,20 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     } else if (hirClass && hirClass->shape) {
         // Class with shape but no properties (no flat object)
         newObj = builder_.createNewObject(hirClass->shape.get());
-    } else if (!hirClass && ident) {
-        // Unknown class - treat as a constructor function call
-        // (e.g., function EventEmitter() {...} from an imported JS module)
-        // Use lowerExpression on the identifier to get the function value.
-        //
-        // Phase 9c-ii: this path is also reached when the identifier is
-        // genuinely undefined (typo, missing import). The runtime function
-        // ts_new_from_constructor_N has an Error-like fallback that silently
-        // creates `{message: arg}` instead of erroring. Surface a WARN here
-        // so the cause is visible in build output. We can't make this an
-        // error yet because reportError is muzzled (see Phase 8a) and
-        // legitimate JS-style constructors (imported function-as-class)
-        // also hit this path.
-        SPDLOG_WARN("visitNewExpression: receiver '{}' has no registered HIRClass — "
-                    "lowering to ts_new_from_constructor_N. If '{}' is undefined "
-                    "at runtime, the constructed object will be {{message: arg}} "
-                    "instead of running an actual constructor body.",
-                    ident->name, ident->name);
+    } else if (!hirClass && (ident || dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get()))) {
+        // Unknown class OR property-access expression - treat as a constructor
+        // function call.  Examples:
+        //   - `new Foo()` where Foo is `function Foo() {...}` from imported JS
+        //   - `new Array.prototype.concat([])` (property-access into a built-in
+        //     prototype method, which is a non-constructor and must throw via
+        //     the runtime `is_constructor` check).
+        // ts_new_from_constructor_N performs the [[Construct]] dispatch and
+        // throws TypeError if the target's is_constructor flag is false.
+        if (ident) {
+            SPDLOG_WARN("visitNewExpression: receiver '{}' has no registered HIRClass — "
+                        "lowering to ts_new_from_constructor_N.",
+                        ident->name);
+        }
         auto constructorVal = lowerExpression(node->expression.get());
         if (constructorVal) {
             // Use ts_new_from_constructor to properly set up prototype chain

@@ -88,6 +88,16 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
                 "Reflect.construct: newTarget is not a constructor"));
             return ts_value_make_undefined();
         }
+        // Per ES spec, newTarget must also have [[Construct]]. Built-in
+        // prototype methods (Array.prototype.X) have is_constructor=false.
+        if (ntMagic == TsFunction::MAGIC) {
+            TsFunction* ntf = (TsFunction*)rawNt;
+            if (!ntf->is_constructor) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Reflect.construct: newTarget is not a constructor"));
+                return ts_value_make_undefined();
+            }
+        }
     }
 
     // Check if target is a callable function or closure (magic at offset 16)
@@ -99,6 +109,18 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Reflect.construct: target is not a constructor"));
         return ts_value_make_undefined();
+    }
+
+    // Per ES spec, built-in prototype methods (Array.prototype.X etc.) have
+    // no [[Construct]] — Reflect.construct must throw TypeError. The
+    // is_constructor flag is set on TsFunction at registration time.
+    if (isTargetFunction) {
+        TsFunction* tf = (TsFunction*)target;
+        if (!tf->is_constructor) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Reflect.construct: target is not a constructor"));
+            return ts_value_make_undefined();
+        }
     }
 
     // Get arguments array — TsArray is NOT a TsObject subclass,

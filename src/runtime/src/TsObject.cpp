@@ -712,6 +712,9 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = (TsFunction*)fn;
         func->name = TsString::Create(name);
         func->arity = arity;
+        // Per ES spec, built-in prototype methods have no [[Construct]].
+        // `new Array.prototype.filter()` must throw TypeError.
+        func->is_constructor = false;
         // Store in properties TsMap with correct attributes
         if (!func->properties) {
             func->properties = TsMap::Create();
@@ -4248,6 +4251,24 @@ TsValue* ts_value_make_int(int64_t i) {
                 obj->Set(msgKey, nanbox_to_tagged(argv[0]));
             }
             return ts_value_make_object(obj);
+        }
+
+        // Per ES spec, built-in prototype methods (Array.prototype.X etc.)
+        // have no [[Construct]] — `new fn()` must throw TypeError. Check the
+        // is_constructor flag set by makeNamedNativeFunction / addMethod.
+        {
+            void* raw = ts_value_get_object(constructorFn);
+            if (raw) {
+                uint32_t magic16 = *(uint32_t*)((char*)raw + 16);
+                if (magic16 == TsFunction::MAGIC) {
+                    TsFunction* tf = (TsFunction*)raw;
+                    if (!tf->is_constructor) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "is not a constructor"));
+                        return ts_value_make_undefined();  // unreachable
+                    }
+                }
+            }
         }
 
         // 1. Create a new TsMap object

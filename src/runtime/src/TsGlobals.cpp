@@ -116,6 +116,9 @@ static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 
     TsFunction* func = (TsFunction*)fn;
     func->name = TsString::Create(name);
     func->arity = arity;
+    // Per ES spec, built-in prototype methods have no [[Construct]].
+    // `new <Constructor>.prototype.X()` must throw TypeError.
+    func->is_constructor = false;
     // Store .length/.name in properties TsMap with correct attributes
     // so hasOwnProperty/getOwnPropertyDescriptor work per ES spec
     if (!func->properties) func->properties = TsMap::Create();
