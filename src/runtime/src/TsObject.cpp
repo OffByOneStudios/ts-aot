@@ -7226,6 +7226,15 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue keyVal;
             keyVal.type = ValueType::STRING_PTR;
             keyVal.ptr_val = keyStr;
+            // Per ES spec: [[Delete]] on a non-configurable property
+            // returns false (and throws TypeError in strict mode, handled
+            // by the compiler wrapper).
+            if (map->Has(keyVal)) {
+                uint8_t attrs = map->GetPropertyAttrs(keyVal);
+                if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) {
+                    return false;
+                }
+            }
             return map->Delete(keyVal);
         }
 
@@ -7315,6 +7324,15 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue keyVal;
         keyVal.type = ValueType::STRING_PTR;
         keyVal.ptr_val = keyStr;
+
+        // Per ES spec: [[Delete]] on a non-configurable property returns
+        // false. Strict-mode throws TypeError at the compiler wrapper.
+        if (map->Has(keyVal)) {
+            uint8_t attrs = map->GetPropertyAttrs(keyVal);
+            if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) {
+                return 0;
+            }
+        }
 
         return map->Delete(keyVal) ? 1 : 0;
     }
