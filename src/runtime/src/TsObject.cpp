@@ -5368,9 +5368,17 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue value = descMap->Get(valueKey);
             map->SetWithAttrs(propKey, value, attrs);
         } else if (!descMap->Has(getKey) && !descMap->Has(setKey)) {
-            // No value, getter, or setter — just update attributes on existing property
+            // No value, getter, or setter — spec treats this as a data
+            // descriptor with value=undefined. For a NEW property create it
+            // with the specified attributes; for an existing property just
+            // update the attributes.
             if (propertyExists) {
                 map->SetPropertyAttrs(propKey, attrs);
+            } else {
+                TsValue undef;
+                undef.type = ValueType::UNDEFINED;
+                undef.i_val = 0;
+                map->SetWithAttrs(propKey, undef, attrs);
             }
         }
 

@@ -24,6 +24,7 @@
 extern "C" {
     TsMap* g_array_prototype_map = nullptr;
     uint64_t g_array_prototype_version = 0;
+    double ts_to_number(TsValue* v);  // defined in Primitives.cpp
 }
 
 extern "C" void ts_array_prototype_bump_version() {
