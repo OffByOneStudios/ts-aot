@@ -4843,7 +4843,28 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) {  // TsMap::MAGIC
             TsMap* map = (TsMap*)rawPtr;
+            // Per ES spec, Object.freeze:
+            //   1. SetIntegrityLevel(O, "frozen") which iterates own keys
+            //   2. For each, set [[Configurable]]:false; for data props
+            //      also set [[Writable]]:false.
+            //   3. SetExtensible(false).
+            void* keysPtr = map->GetKeys();
+            if (keysPtr) {
+                TsArray* keys = (TsArray*)keysPtr;
+                int64_t len = keys->Length();
+                for (int64_t i = 0; i < len; i++) {
+                    int64_t kRaw = keys->Get(i);
+                    TsValue keyVal = nanbox_to_tagged((TsValue*)(uintptr_t)kRaw);
+                    if (keyVal.type != ValueType::STRING_PTR) continue;
+                    uint8_t a = map->GetPropertyAttrs(keyVal);
+                    // Clear ATTR_CONFIGURABLE (0x04) and ATTR_WRITABLE (0x02);
+                    // preserve ATTR_ENUMERABLE (0x01).
+                    a &= ~(uint8_t)(0x04 | 0x02);
+                    map->SetPropertyAttrs(keyVal, a);
+                }
+            }
             map->Freeze();
+            map->PreventExtensions();
         }
 
         return obj;  // Return the same object (frozen)
@@ -4865,7 +4886,25 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) {  // TsMap::MAGIC
             TsMap* map = (TsMap*)rawPtr;
+            // Per ES spec, Object.seal:
+            //   1. SetIntegrityLevel(O, "sealed") — clear [[Configurable]]
+            //      on all own properties (writable preserved).
+            //   2. SetExtensible(false).
+            void* keysPtr = map->GetKeys();
+            if (keysPtr) {
+                TsArray* keys = (TsArray*)keysPtr;
+                int64_t len = keys->Length();
+                for (int64_t i = 0; i < len; i++) {
+                    int64_t kRaw = keys->Get(i);
+                    TsValue keyVal = nanbox_to_tagged((TsValue*)(uintptr_t)kRaw);
+                    if (keyVal.type != ValueType::STRING_PTR) continue;
+                    uint8_t a = map->GetPropertyAttrs(keyVal);
+                    a &= ~(uint8_t)0x04;  // clear ATTR_CONFIGURABLE only
+                    map->SetPropertyAttrs(keyVal, a);
+                }
+            }
             map->Seal();
+            map->PreventExtensions();
         }
 
         return obj;  // Return the same object (sealed)
