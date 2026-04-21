@@ -5367,19 +5367,20 @@ TsValue* ts_value_make_int(int64_t i) {
         if (descMap->Has(valueKey)) {
             TsValue value = descMap->Get(valueKey);
             map->SetWithAttrs(propKey, value, attrs);
-        } else if (!descMap->Has(getKey) && !descMap->Has(setKey)) {
-            // No value, getter, or setter — spec treats this as a data
-            // descriptor with value=undefined. For a NEW property create it
-            // with the specified attributes; for an existing property just
-            // update the attributes.
-            if (propertyExists) {
-                map->SetPropertyAttrs(propKey, attrs);
-            } else {
-                TsValue undef;
-                undef.type = ValueType::UNDEFINED;
-                undef.i_val = 0;
-                map->SetWithAttrs(propKey, undef, attrs);
-            }
+        } else if (!propertyExists) {
+            // Property doesn't exist and no value was provided. Per spec,
+            // still create the property — as a data property with
+            // value=undefined (if no getter/setter) or as an accessor
+            // property (handled above by the __getter_/__setter_ storage).
+            // In either case, materialize the "outward-facing" property key
+            // so hasOwnProperty / getOwnPropertyDescriptor / `in` see it.
+            TsValue undef;
+            undef.type = ValueType::UNDEFINED;
+            undef.i_val = 0;
+            map->SetWithAttrs(propKey, undef, attrs);
+        } else {
+            // Property exists, descriptor has no value — update attributes.
+            map->SetPropertyAttrs(propKey, attrs);
         }
 
         return obj;
