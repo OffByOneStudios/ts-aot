@@ -5342,6 +5342,62 @@ TsValue* ts_value_make_int(int64_t i) {
             attrs |= (existingAttrs & ATTR_CONFIGURABLE);
         }
 
+        // Spec [[DefineOwnProperty]] validation: if the existing property is
+        // non-configurable, most descriptor changes must be rejected with
+        // TypeError. Applies when property exists and was non-configurable.
+        if (propertyExists && !(existingAttrs & ATTR_CONFIGURABLE)) {
+            // 1. Cannot go non-configurable → configurable.
+            if (descMap->Has(configKey)) {
+                TsValue cv = descMap->Get(configKey);
+                bool newConfig = (cv.type == ValueType::BOOLEAN ? cv.i_val :
+                    (cv.type != ValueType::UNDEFINED && cv.ptr_val));
+                if (newConfig) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Cannot redefine property: non-configurable"));
+                    return ts_value_make_undefined();
+                }
+            }
+            // 2. Cannot change enumerable.
+            if (descMap->Has(enumKey)) {
+                TsValue ev = descMap->Get(enumKey);
+                bool newEnum = (ev.type == ValueType::BOOLEAN ? ev.i_val :
+                    (ev.type != ValueType::UNDEFINED && ev.ptr_val));
+                bool oldEnum = (existingAttrs & ATTR_ENUMERABLE) != 0;
+                if (newEnum != oldEnum) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Cannot redefine property: non-configurable (enumerable)"));
+                    return ts_value_make_undefined();
+                }
+            }
+            // 3. If data descriptor with writable:false, cannot go writable:true
+            //    and cannot change value.
+            if (!(existingAttrs & ATTR_WRITABLE)) {
+                if (descMap->Has(writableKey)) {
+                    TsValue wv = descMap->Get(writableKey);
+                    bool newWritable = (wv.type == ValueType::BOOLEAN ? wv.i_val :
+                        (wv.type != ValueType::UNDEFINED && wv.ptr_val));
+                    if (newWritable) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Cannot redefine property: non-configurable (writable)"));
+                        return ts_value_make_undefined();
+                    }
+                }
+                if (descMap->Has(valueKeyChk)) {
+                    TsValue newV = descMap->Get(valueKeyChk);
+                    TsValue oldV = map->Get(propKey);
+                    // Simple inequality check — SameValue is over-engineered
+                    // for this. If either pointer/int/double differs, reject.
+                    bool sameType = (newV.type == oldV.type);
+                    bool sameBits = (newV.i_val == oldV.i_val);
+                    if (!(sameType && sameBits)) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Cannot redefine property: non-configurable (value)"));
+                        return ts_value_make_undefined();
+                    }
+                }
+            }
+        }
+
         // Store getters/setters with non-enumerable attrs (they're synthetic)
         // (getter/setter code above already stored them — mark them non-enumerable)
         if (descMap->Has(getKey)) {
