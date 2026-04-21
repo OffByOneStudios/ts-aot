@@ -5591,6 +5591,73 @@ TsValue* ts_value_make_int(int64_t i) {
             rawPtr = clos->properties;
             magic = 0x4D415053;
         }
+        // TsArray: synthesize descriptors for length, numeric indices, and
+        // user-set named properties. Spec: arr.length is
+        // {value: arr.length, writable: true, enumerable: false, configurable: false}.
+        // Indexed reads return {value, writable: true, enumerable: true,
+        // configurable: true}.
+        {
+            uint32_t magic0 = *(uint32_t*)rawPtr;
+            if (magic0 == 0x41525259) {  // TsArray::MAGIC
+                TsArray* arr = (TsArray*)rawPtr;
+                // Resolve key string
+                TsString* keyStr = nullptr;
+                {
+                    uint64_t propNb = nanbox_from_tsvalue_ptr(prop);
+                    if (nanbox_is_int32(propNb)) {
+                        char buf[32];
+                        snprintf(buf, sizeof(buf), "%d", nanbox_to_int32(propNb));
+                        keyStr = TsString::Create(buf);
+                    } else if (nanbox_is_ptr(propNb)) {
+                        keyStr = (TsString*)ts_value_get_string(prop);
+                    }
+                }
+                if (!keyStr) return ts_value_make_object(nullptr);
+                const char* keyCStr = ts_ensure_flat(keyStr)->ToUtf8();
+                if (!keyCStr) return ts_value_make_object(nullptr);
+
+                auto buildDataDesc = [](TsValue val, bool writable, bool enumerable, bool configurable) -> TsValue* {
+                    TsMap* d = TsMap::Create();
+                    TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::GetInterned("value");
+                    d->Set(vk, val);
+                    TsValue wk; wk.type = ValueType::STRING_PTR; wk.ptr_val = TsString::GetInterned("writable");
+                    TsValue wv; wv.type = ValueType::BOOLEAN; wv.i_val = writable ? 1 : 0;
+                    d->Set(wk, wv);
+                    TsValue ek; ek.type = ValueType::STRING_PTR; ek.ptr_val = TsString::GetInterned("enumerable");
+                    TsValue ev; ev.type = ValueType::BOOLEAN; ev.i_val = enumerable ? 1 : 0;
+                    d->Set(ek, ev);
+                    TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("configurable");
+                    TsValue cv; cv.type = ValueType::BOOLEAN; cv.i_val = configurable ? 1 : 0;
+                    d->Set(ck, cv);
+                    return ts_value_make_object(d);
+                };
+
+                if (strcmp(keyCStr, "length") == 0) {
+                    TsValue lenVal; lenVal.type = ValueType::NUMBER_INT;
+                    lenVal.i_val = (int64_t)arr->Length();
+                    return buildDataDesc(lenVal, true, false, false);
+                }
+                // Numeric index
+                char* endp = nullptr;
+                unsigned long idx = strtoul(keyCStr, &endp, 10);
+                if (endp && *endp == '\0' && idx < (unsigned long)arr->Length()) {
+                    int64_t raw = arr->Get((size_t)idx);
+                    TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)raw);
+                    return buildDataDesc(v, true, true, true);
+                }
+                // Named property in side map
+                if (arr->properties) {
+                    TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = keyStr;
+                    if (arr->properties->Has(k)) {
+                        TsValue v = arr->properties->Get(k);
+                        uint8_t a = arr->properties->GetPropertyAttrs(k);
+                        return buildDataDesc(v, (a & 0x02) != 0, (a & 0x01) != 0, (a & 0x04) != 0);
+                    }
+                }
+                return ts_value_make_object(nullptr);
+            }
+        }
+
         if (magic != 0x4D415053) {
             return ts_value_make_object(nullptr);  // undefined for non-objects
         }
