@@ -14,6 +14,7 @@
 #include "TsNanBox.h"
 #include "TsError.h"
 #include "TsSymbol.h"
+#include "TsBuffer.h"  // for TsTypedArray
 #include <unordered_map>
 #include <string>
 #include <limits>
@@ -1083,6 +1084,78 @@ extern "C" void* ts_typed_array_create_f64(int64_t length);
 // ToNumber abstract op — defined in Primitives.cpp
 extern "C" double ts_to_number(TsValue* v);
 
+// Forward decls for TypedArray.from / .of runtime helpers.
+extern "C" void* ts_typed_array_create_i8(int64_t length);
+
+// TypedArray.from(source, mapFn?, thisArg?) — iterate source by length
+// indexed reads, map each value, return a new typed array (Int8Array for
+// now; full spec would dispatch on ctx receiver kind).
+static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 1 || !argv || !argv[0]) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "TypedArray.from: source is required"));
+        return ts_value_make_undefined();
+    }
+    void* source = ts_value_get_object(argv[0]);
+    if (!source) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "TypedArray.from: source must be object-like"));
+        return ts_value_make_undefined();
+    }
+
+    TsValue* lenVal = ts_object_get_property(source, "length");
+    double lenD = lenVal ? ts_to_number(lenVal) : 0;
+    if (lenD != lenD || lenD <= 0) lenD = 0;
+    const double MAX_LEN = (double)(1LL << 20);
+    if (lenD > MAX_LEN) lenD = MAX_LEN;
+    int64_t len = (int64_t)lenD;
+
+    void* result = ts_typed_array_create_i8(len);
+    if (!result) return ts_value_make_undefined();
+
+    TsValue* mapFn = (argc >= 2 && argv) ? argv[1] : nullptr;
+    if (mapFn && !ts_value_is_nullish(mapFn)) {
+        // Must be callable — if not a Function/Closure, throw.
+        uint64_t mfNb = nanbox_from_tsvalue_ptr(mapFn);
+        void* mfRaw = nanbox_is_ptr(mfNb) ? nanbox_to_ptr(mfNb) : nullptr;
+        uint32_t mfMagic = mfRaw ? *(uint32_t*)((char*)mfRaw + 16) : 0;
+        if (mfMagic != TsFunction::MAGIC && mfMagic != 0x434C5352) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "TypedArray.from: mapFn is not callable"));
+            return ts_value_make_undefined();
+        }
+    } else {
+        mapFn = nullptr;
+    }
+    TsValue* thisArg = (argc >= 3 && argv) ? argv[2] : nullptr;
+    if (!thisArg) thisArg = ts_value_make_undefined();
+
+    for (int64_t i = 0; i < len; i++) {
+        char key[32]; snprintf(key, sizeof(key), "%lld", (long long)i);
+        TsValue* v = ts_object_get_property(source, key);
+        if (!v) v = ts_value_make_undefined();
+        if (mapFn) {
+            TsValue* idx = ts_value_make_int(i);
+            TsValue* args[2] = { v, idx };
+            v = ts_function_call_with_this(mapFn, thisArg, 2, args);
+        }
+        double d = ts_to_number(v);
+        ((TsTypedArray*)result)->Set((size_t)i, d);
+    }
+    return ts_value_make_object(result);
+}
+
+// TypedArray.of(...items) — create a typed array from variadic args.
+static TsValue* ts_typed_array_of_native(void* ctx, int argc, TsValue** argv) {
+    void* result = ts_typed_array_create_i8(argc);
+    if (!result) return ts_value_make_undefined();
+    for (int i = 0; i < argc; i++) {
+        double d = ts_to_number(argv[i]);
+        ((TsTypedArray*)result)->Set((size_t)i, d);
+    }
+    return ts_value_make_object(result);
+}
+
 // Helper: build a constructor function with name + .prototype + optional [[Prototype]] link.
 // `nativeFn` is the native callable. If `parentProto` is non-null, sets the constructor's
 // [[Prototype]] (used to wire all per-class TypedArrays to %TypedArray%).
@@ -1105,6 +1178,12 @@ static void* makeTypedArrayCtor(const char* name,
 
     // .name = constructor name
     ctorFunc->name = TsString::Create(name);
+
+    // TypedArray spec: each constructor has `from` (arity 1) and `of`
+    // (arity 0) static methods. Attach them via addMethod so they get
+    // proper name/length metadata and [[Construct]]=false.
+    addMethod(ctorFunc->properties, "from", (void*)ts_typed_array_from_native, 1);
+    addMethod(ctorFunc->properties, "of",   (void*)ts_typed_array_of_native,   0);
 
     // Link [[Prototype]] (the __proto__ slot, NOT .prototype) to %TypedArray%.
     // This is what Object.getPrototypeOf(Int8Array) returns.
