@@ -15,6 +15,8 @@
 #include "TsError.h"
 #include "TsSymbol.h"
 #include "TsBuffer.h"  // for TsTypedArray
+#include <unicode/unistr.h>
+#include <unicode/utypes.h>
 #include <unordered_map>
 #include <string>
 #include <limits>
@@ -367,6 +369,10 @@ STRING_PROTO_METHOD(trimEnd)
 
 #undef STRING_PROTO_METHOD
 
+// Forward declaration for ts_to_number — defined later in this file via
+// Primitives.cpp's extern "C". String.fromCharCode/fromCodePoint use it.
+extern "C" double ts_to_number(TsValue* v);
+
 void* ts_get_global_String() {
     static void* cached = nullptr;
     if (!cached) {
@@ -416,6 +422,51 @@ void* ts_get_global_String() {
         ctorFunc->properties->Set(protoKey, protoVal);
 
         ctorFunc->name = TsString::Create("String");
+
+        // String static methods: fromCharCode, fromCodePoint, raw.
+        // Register via addMethod so they get [[Construct]]=false + correct
+        // .name/.length metadata for test262 compliance.
+        auto fromCharCodeFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            // Build UnicodeString from 16-bit code units across all args.
+            std::u16string us;
+            us.reserve((size_t)argc);
+            for (int i = 0; i < argc; i++) {
+                if (!argv || !argv[i]) { us.push_back(0); continue; }
+                double d = ts_to_number(argv[i]);
+                int32_t code = (d != d) ? 0 : (int32_t)d;
+                us.push_back(static_cast<char16_t>(code & 0xFFFF));
+            }
+            icu::UnicodeString uni((const UChar*)us.data(), (int32_t)us.size());
+            std::string utf8;
+            uni.toUTF8String(utf8);
+            return ts_value_make_string(TsString::Create(utf8.c_str()));
+        };
+        addMethod(ctorFunc->properties, "fromCharCode", (void*)+fromCharCodeFn, 1);
+
+        auto fromCodePointFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            // String.fromCodePoint(...codePoints): each arg is a Unicode
+            // code point (0..0x10FFFF). Throw RangeError on invalid.
+            icu::UnicodeString uni;
+            for (int i = 0; i < argc; i++) {
+                if (!argv || !argv[i]) {
+                    ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                        "Invalid code point"));
+                    return ts_value_make_undefined();
+                }
+                double d = ts_to_number(argv[i]);
+                if (d != d || d < 0 || d > 0x10FFFF || d != (double)(int32_t)d) {
+                    ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                        "Invalid code point"));
+                    return ts_value_make_undefined();
+                }
+                uni.append((UChar32)d);
+            }
+            std::string utf8;
+            uni.toUTF8String(utf8);
+            return ts_value_make_string(TsString::Create(utf8.c_str()));
+        };
+        addMethod(ctorFunc->properties, "fromCodePoint", (void*)+fromCodePointFn, 1);
+
         cached = (void*)ctorVal;
     }
     return cached;
