@@ -366,6 +366,18 @@ STRING_PROTO_METHOD(search)
 STRING_PROTO_METHOD(concat)
 STRING_PROTO_METHOD(trimStart)
 STRING_PROTO_METHOD(trimEnd)
+STRING_PROTO_METHOD(at)
+STRING_PROTO_METHOD(codePointAt)
+STRING_PROTO_METHOD(normalize)
+STRING_PROTO_METHOD(replaceAll)
+STRING_PROTO_METHOD(matchAll)
+STRING_PROTO_METHOD(localeCompare)
+STRING_PROTO_METHOD(isWellFormed)
+STRING_PROTO_METHOD(toWellFormed)
+STRING_PROTO_METHOD(toLocaleLowerCase)
+STRING_PROTO_METHOD(toLocaleUpperCase)
+STRING_PROTO_METHOD(toString)
+STRING_PROTO_METHOD(valueOf)
 
 #undef STRING_PROTO_METHOD
 
@@ -413,6 +425,18 @@ void* ts_get_global_String() {
         addMethod(proto, "concat", (void*)ts_string_proto_concat);
         addMethod(proto, "trimStart", (void*)ts_string_proto_trimStart);
         addMethod(proto, "trimEnd", (void*)ts_string_proto_trimEnd);
+        addMethod(proto, "at", (void*)ts_string_proto_at);
+        addMethod(proto, "codePointAt", (void*)ts_string_proto_codePointAt);
+        addMethod(proto, "normalize", (void*)ts_string_proto_normalize);
+        addMethod(proto, "replaceAll", (void*)ts_string_proto_replaceAll, 2);
+        addMethod(proto, "matchAll", (void*)ts_string_proto_matchAll);
+        addMethod(proto, "localeCompare", (void*)ts_string_proto_localeCompare);
+        addMethod(proto, "isWellFormed", (void*)ts_string_proto_isWellFormed, 0);
+        addMethod(proto, "toWellFormed", (void*)ts_string_proto_toWellFormed, 0);
+        addMethod(proto, "toLocaleLowerCase", (void*)ts_string_proto_toLocaleLowerCase, 0);
+        addMethod(proto, "toLocaleUpperCase", (void*)ts_string_proto_toLocaleUpperCase, 0);
+        addMethod(proto, "toString", (void*)ts_string_proto_toString, 0);
+        addMethod(proto, "valueOf", (void*)ts_string_proto_valueOf, 0);
 
         if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
         TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
