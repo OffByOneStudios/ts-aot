@@ -1992,6 +1992,144 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(ta);
     }
 
+    // TypedArray.prototype.at(index) — supports negative indices
+    static TsValue* ts_typed_array_at_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        int64_t len = (int64_t)ta->GetLength();
+        int64_t idx = 0;
+        if (argc >= 1 && argv && argv[0]) idx = (int64_t)ts_to_number(argv[0]);
+        if (idx < 0) idx = len + idx;
+        if (idx < 0 || idx >= len) return ts_value_make_undefined();
+        return ts_value_make_double(ta->Get((size_t)idx));
+    }
+
+    // TypedArray.prototype.includes(searchElement, fromIndex?)
+    static TsValue* ts_typed_array_includes_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        int64_t len = (int64_t)ta->GetLength();
+        if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
+        double search = ts_to_number(argv[0]);
+        int64_t from = 0;
+        if (argc >= 2 && argv[1]) from = (int64_t)ts_to_number(argv[1]);
+        if (from < 0) from = std::max((int64_t)0, len + from);
+        bool searchNaN = (search != search);
+        for (int64_t i = from; i < len; i++) {
+            double v = ta->Get((size_t)i);
+            if (searchNaN) { if (v != v) return ts_value_make_bool(true); }
+            else if (v == search) return ts_value_make_bool(true);
+        }
+        return ts_value_make_bool(false);
+    }
+
+    // TypedArray.prototype.indexOf(searchElement, fromIndex?)
+    static TsValue* ts_typed_array_indexOf_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        int64_t len = (int64_t)ta->GetLength();
+        if (argc < 1 || !argv || !argv[0]) return ts_value_make_int(-1);
+        double search = ts_to_number(argv[0]);
+        if (search != search) return ts_value_make_int(-1);  // NaN never matches via ===
+        int64_t from = 0;
+        if (argc >= 2 && argv[1]) from = (int64_t)ts_to_number(argv[1]);
+        if (from < 0) from = std::max((int64_t)0, len + from);
+        for (int64_t i = from; i < len; i++) {
+            if (ta->Get((size_t)i) == search) return ts_value_make_int(i);
+        }
+        return ts_value_make_int(-1);
+    }
+
+    // TypedArray.prototype.lastIndexOf(searchElement, fromIndex?)
+    static TsValue* ts_typed_array_lastIndexOf_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        int64_t len = (int64_t)ta->GetLength();
+        if (argc < 1 || !argv || !argv[0]) return ts_value_make_int(-1);
+        double search = ts_to_number(argv[0]);
+        if (search != search) return ts_value_make_int(-1);
+        int64_t from = len - 1;
+        if (argc >= 2 && argv[1]) {
+            from = (int64_t)ts_to_number(argv[1]);
+            if (from < 0) from = len + from;
+        }
+        if (from >= len) from = len - 1;
+        for (int64_t i = from; i >= 0; i--) {
+            if (ta->Get((size_t)i) == search) return ts_value_make_int(i);
+        }
+        return ts_value_make_int(-1);
+    }
+
+    // TypedArray.prototype.reverse() — mutates in place, returns self
+    static TsValue* ts_typed_array_reverse_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        size_t len = ta->GetLength();
+        for (size_t i = 0, j = (len == 0 ? 0 : len - 1); i < j; i++, j--) {
+            double a = ta->Get(i), b = ta->Get(j);
+            ta->Set(i, b);
+            ta->Set(j, a);
+        }
+        return ts_value_make_object(ta);
+    }
+
+    // TypedArray.prototype.join(separator?)
+    static TsValue* ts_typed_array_join_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        size_t len = ta->GetLength();
+        std::string sep = ",";
+        if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+            TsString* s = (TsString*)ts_value_get_string(argv[0]);
+            if (s) {
+                const char* u = s->ToUtf8();
+                if (u) sep = u;
+            }
+        }
+        std::string out;
+        char buf[64];
+        for (size_t i = 0; i < len; i++) {
+            if (i > 0) out += sep;
+            double v = ta->Get(i);
+            if (v != v) out += "NaN";
+            else if (v == (int64_t)v && std::abs(v) < 1e16) {
+                snprintf(buf, sizeof(buf), "%lld", (long long)v);
+                out += buf;
+            } else {
+                snprintf(buf, sizeof(buf), "%g", v);
+                out += buf;
+            }
+        }
+        return ts_value_make_string(TsString::Create(out.c_str()));
+    }
+
+    // TypedArray.prototype.toString() — equivalent to join(",") per spec
+    static TsValue* ts_typed_array_toString_native(void* ctx, int argc, TsValue** argv) {
+        return ts_typed_array_join_native(ctx, 0, nullptr);
+    }
+
+    // TypedArray.prototype.toLocaleString() — approximate: same as toString
+    static TsValue* ts_typed_array_toLocaleString_native(void* ctx, int argc, TsValue** argv) {
+        return ts_typed_array_join_native(ctx, 0, nullptr);
+    }
+
+    // TypedArray.prototype.copyWithin(target, start, end?) — mutates in place
+    static TsValue* ts_typed_array_copyWithin_native(void* ctx, int argc, TsValue** argv) {
+        TsTypedArray* ta = (TsTypedArray*)ctx;
+        int64_t len = (int64_t)ta->GetLength();
+        int64_t target = 0, start = 0, end = len;
+        if (argc >= 1 && argv && argv[0]) target = (int64_t)ts_to_number(argv[0]);
+        if (argc >= 2 && argv && argv[1]) start = (int64_t)ts_to_number(argv[1]);
+        if (argc >= 3 && argv && argv[2] && !ts_value_is_undefined(argv[2])) end = (int64_t)ts_to_number(argv[2]);
+        if (target < 0) target = std::max((int64_t)0, len + target);
+        if (start < 0) start = std::max((int64_t)0, len + start);
+        if (end < 0) end = std::max((int64_t)0, len + end);
+        if (target > len) target = len;
+        if (start > len) start = len;
+        if (end > len) end = len;
+        int64_t count = std::min(end - start, len - target);
+        if (count <= 0) return ts_value_make_object(ta);
+        // Use temp buffer to handle overlap correctly
+        std::vector<double> tmp((size_t)count);
+        for (int64_t i = 0; i < count; i++) tmp[(size_t)i] = ta->Get((size_t)(start + i));
+        for (int64_t i = 0; i < count; i++) ta->Set((size_t)(target + i), tmp[(size_t)i]);
+        return ts_value_make_object(ta);
+    }
+
     // P1: Common methods
     TsValue* ts_array_some_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "some");
@@ -2932,6 +3070,33 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "fill") == 0) {
                 return makeNamedNativeFunction((void*)ts_typed_array_fill_native, ta, "fill", 1);
+            }
+            if (strcmp(keyStr, "at") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_at_native, ta, "at", 1);
+            }
+            if (strcmp(keyStr, "includes") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_includes_native, ta, "includes", 1);
+            }
+            if (strcmp(keyStr, "indexOf") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_indexOf_native, ta, "indexOf", 1);
+            }
+            if (strcmp(keyStr, "lastIndexOf") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_lastIndexOf_native, ta, "lastIndexOf", 1);
+            }
+            if (strcmp(keyStr, "reverse") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_reverse_native, ta, "reverse", 0);
+            }
+            if (strcmp(keyStr, "join") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_join_native, ta, "join", 1);
+            }
+            if (strcmp(keyStr, "toString") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_toString_native, ta, "toString", 0);
+            }
+            if (strcmp(keyStr, "toLocaleString") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_toLocaleString_native, ta, "toLocaleString", 0);
+            }
+            if (strcmp(keyStr, "copyWithin") == 0) {
+                return makeNamedNativeFunction((void*)ts_typed_array_copyWithin_native, ta, "copyWithin", 2);
             }
             // Check for numeric index
             char* endptr;

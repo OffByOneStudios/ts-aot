@@ -13,6 +13,7 @@
 #include "TsGC.h"
 #include <cstring>
 #include <cmath>
+#include <climits>
 #include <iostream>
 #include <new>
 #include <algorithm>
@@ -2228,7 +2229,32 @@ extern "C" {
         return ((TsArray*)arr)->Slice(start, end);
     }
 
+    // Small helper: if receiver is a TsTypedArray, return it; else nullptr.
+    static TsTypedArray* try_as_typed_array(void* arr) {
+        if (!arr) return nullptr;
+        void* raw = ts_nanbox_safe_unbox(arr);
+        if (!raw) raw = arr;
+        uintptr_t p = (uintptr_t)raw;
+        if (p <= 0x1000 || p >= 0x0000800000000000ULL) return nullptr;
+        uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+        if (m16 != TsTypedArray::MAGIC) return nullptr;
+        return (TsTypedArray*)raw;
+    }
+
     int64_t ts_array_indexOf(void* arr, int64_t value) {
+        if (TsTypedArray* ta = try_as_typed_array(arr)) {
+            // `value` is the raw bit pattern of a boxed TsValue* or small int.
+            // Decode to a double for element comparison.
+            uint64_t nb = (uint64_t)value;
+            double target;
+            if (nanbox_is_number(nb)) target = nanbox_to_number(nb);
+            else target = ts_value_get_double((TsValue*)value);
+            int64_t len = (int64_t)ta->GetLength();
+            for (int64_t i = 0; i < len; i++) {
+                if (ta->Get((size_t)i) == target) return i;
+            }
+            return -1;
+        }
         return ((TsArray*)arr)->IndexOf(value);
     }
 
@@ -2249,6 +2275,17 @@ extern "C" {
     }
 
     int64_t ts_array_lastIndexOf(void* arr, int64_t value) {
+        if (TsTypedArray* ta = try_as_typed_array(arr)) {
+            uint64_t nb = (uint64_t)value;
+            double target;
+            if (nanbox_is_number(nb)) target = nanbox_to_number(nb);
+            else target = ts_value_get_double((TsValue*)value);
+            int64_t len = (int64_t)ta->GetLength();
+            for (int64_t i = len - 1; i >= 0; i--) {
+                if (ta->Get((size_t)i) == target) return i;
+            }
+            return -1;
+        }
         return ((TsArray*)arr)->LastIndexOf(value);
     }
 
@@ -2278,6 +2315,20 @@ extern "C" {
     }
 
     bool ts_array_includes(void* arr, int64_t value) {
+        if (TsTypedArray* ta = try_as_typed_array(arr)) {
+            uint64_t nb = (uint64_t)value;
+            double target;
+            if (nanbox_is_number(nb)) target = nanbox_to_number(nb);
+            else target = ts_value_get_double((TsValue*)value);
+            bool targetNaN = (target != target);
+            int64_t len = (int64_t)ta->GetLength();
+            for (int64_t i = 0; i < len; i++) {
+                double v = ta->Get((size_t)i);
+                if (targetNaN) { if (v != v) return true; }
+                else if (v == target) return true;
+            }
+            return false;
+        }
         return ((TsArray*)arr)->Includes(value);
     }
 
@@ -2297,7 +2348,27 @@ extern "C" {
     }
 
     void* ts_array_at(void* arr, int64_t index) {
-        TsArray* a = (TsArray*)arr;
+        if (!arr) return ts_value_make_undefined();
+        // Unbox if the receiver is a boxed TsValue*
+        void* raw = ts_nanbox_safe_unbox(arr);
+        if (!raw) raw = arr;
+        // Guard: TypedArray receivers are also compiled as .at() calls, but
+        // TsTypedArray is not a TsArray. Delegate to its Get() + negative-index
+        // semantics.
+        {
+            uintptr_t p = (uintptr_t)raw;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+                if (m16 == TsTypedArray::MAGIC) {
+                    TsTypedArray* ta = (TsTypedArray*)raw;
+                    int64_t len = (int64_t)ta->GetLength();
+                    if (index < 0) index = len + index;
+                    if (index < 0 || index >= len) return ts_value_make_undefined();
+                    return ts_value_make_double(ta->Get((size_t)index));
+                }
+            }
+        }
+        TsArray* a = (TsArray*)raw;
         int64_t len = a->Length();
         // Handle negative indices
         if (index < 0) index = len + index;
@@ -2325,6 +2396,34 @@ extern "C" {
                 separator = nullptr;
             }
         }
+        // TypedArray receiver: format elements as numbers.
+        if (TsTypedArray* ta = try_as_typed_array(rawArr)) {
+            std::string sep = ",";
+            if (separator) {
+                TsString* sepStr = (TsString*)ts_value_get_string((TsValue*)separator);
+                if (!sepStr) sepStr = (TsString*)separator;
+                if (sepStr) {
+                    const char* u = sepStr->ToUtf8();
+                    if (u) sep = u;
+                }
+            }
+            std::string out;
+            char buf[64];
+            size_t len = ta->GetLength();
+            for (size_t i = 0; i < len; i++) {
+                if (i > 0) out += sep;
+                double v = ta->Get(i);
+                if (v != v) out += "NaN";
+                else if (v == (int64_t)v && std::abs(v) < 1e16) {
+                    snprintf(buf, sizeof(buf), "%lld", (long long)v);
+                    out += buf;
+                } else {
+                    snprintf(buf, sizeof(buf), "%g", v);
+                    out += buf;
+                }
+            }
+            return TsString::Create(out.c_str());
+        }
         // Guard: only a real TsArray is safe to cast. The compiler's
         // Any-typed method-call fast path lowers `obj.join()` to this
         // extern regardless of obj's actual type (HIRToLLVM.cpp:6152).
@@ -2351,6 +2450,15 @@ extern "C" {
     }
 
     void* ts_array_reverse(void* arr) {
+        if (TsTypedArray* ta = try_as_typed_array(arr)) {
+            size_t len = ta->GetLength();
+            for (size_t i = 0, j = (len == 0 ? 0 : len - 1); i < j; i++, j--) {
+                double a = ta->Get(i), b = ta->Get(j);
+                ta->Set(i, b);
+                ta->Set(j, a);
+            }
+            return arr;
+        }
         ((TsArray*)arr)->Reverse();
         return arr;
     }
@@ -3162,6 +3270,26 @@ extern "C" {
     void* ts_array_fill(void* arr, void* value, int64_t start, int64_t end) {
         if (!arr) return arr;
 
+        if (TsTypedArray* ta = try_as_typed_array(arr)) {
+            int64_t len = (int64_t)ta->GetLength();
+            // INT_MIN sentinel = "argument not provided"
+            if (start == INT64_MIN) start = 0;
+            if (end == INT64_MIN) end = len;
+            if (start < 0) start = std::max((int64_t)0, len + start);
+            if (end < 0) end = std::max((int64_t)0, len + end);
+            if (start >= len) return arr;
+            if (end > len) end = len;
+            if (start >= end) return arr;
+            double v = 0;
+            if (value) {
+                uint64_t nb = (uint64_t)value;
+                if (nanbox_is_number(nb)) v = nanbox_to_number(nb);
+                else v = ts_value_get_double((TsValue*)value);
+            }
+            for (int64_t i = start; i < end; i++) ta->Set((size_t)i, v);
+            return arr;
+        }
+
         TsArray* array = (TsArray*)arr;
         int64_t len = (int64_t)array->Length();
 
@@ -3184,6 +3312,25 @@ extern "C" {
     // Returns the modified array (for chaining)
     void* ts_array_copyWithin(void* arr, int64_t target, int64_t start, int64_t end) {
         if (!arr) return arr;
+
+        if (TsTypedArray* ta = try_as_typed_array(arr)) {
+            int64_t len = (int64_t)ta->GetLength();
+            if (target == INT64_MIN) target = 0;
+            if (start == INT64_MIN) start = 0;
+            if (end == INT64_MIN) end = len;
+            if (target < 0) target = std::max((int64_t)0, len + target);
+            if (start < 0) start = std::max((int64_t)0, len + start);
+            if (end < 0) end = std::max((int64_t)0, len + end);
+            if (target > len) target = len;
+            if (start > len) start = len;
+            if (end > len) end = len;
+            int64_t count = std::min(end - start, len - target);
+            if (count <= 0) return arr;
+            std::vector<double> tmp((size_t)count);
+            for (int64_t i = 0; i < count; i++) tmp[(size_t)i] = ta->Get((size_t)(start + i));
+            for (int64_t i = 0; i < count; i++) ta->Set((size_t)(target + i), tmp[(size_t)i]);
+            return arr;
+        }
 
         TsArray* array = (TsArray*)arr;
         int64_t len = (int64_t)array->Length();
