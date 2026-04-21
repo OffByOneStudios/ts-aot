@@ -7358,7 +7358,13 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_object_create_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_object_create(nullptr);
-        return ts_object_create(argv[0]);
+        TsValue* newObj = ts_object_create(argv[0]);
+        // Per ES spec: Object.create(proto, propertiesObject) applies the
+        // second-arg descriptors to the new object via ObjectDefineProperties.
+        if (argc >= 2 && argv[1] && !ts_value_is_undefined(argv[1])) {
+            ts_object_defineProperties(newObj, argv[1]);
+        }
+        return newObj;
     }
 
     TsValue* ts_object_freeze_native(void* context, int argc, TsValue** argv) {
