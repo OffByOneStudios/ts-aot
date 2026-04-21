@@ -2602,15 +2602,36 @@ extern "C" {
         return ((TsArray*)arr)->With(index, (int64_t)value);
     }
 
+    // Forward decls for delegating TypedArray receivers to native wrappers
+    // that route through require_array_or_throw (array-like materialization).
+    extern TsValue* ts_array_forEach_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_map_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_filter_native(void* ctx, int argc, TsValue** argv);
+
     void ts_array_forEach(void* arr, void* callback, void* thisArg) {
+        if (try_as_typed_array(arr)) {
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
+            ts_array_forEach_native(arr, 2, argvBuf);
+            return;
+        }
         ((TsArray*)arr)->ForEach(callback, thisArg);
     }
 
     void* ts_array_map(void* arr, void* callback, void* thisArg) {
+        if (try_as_typed_array(arr)) {
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
+            TsValue* res = ts_array_map_native(arr, 2, argvBuf);
+            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+        }
         return ((TsArray*)arr)->Map(callback, thisArg);
     }
 
     void* ts_array_filter(void* arr, void* callback, void* thisArg) {
+        if (try_as_typed_array(arr)) {
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
+            TsValue* res = ts_array_filter_native(arr, 2, argvBuf);
+            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+        }
         return ((TsArray*)arr)->Filter(callback, thisArg);
     }
 
@@ -2659,13 +2680,26 @@ extern "C" {
         return true;
     }
 
+    extern TsValue* ts_array_reduce_native(void* ctx, int argc, TsValue** argv);
+    extern TsValue* ts_array_reduceRight_native(void* ctx, int argc, TsValue** argv);
+
     void* ts_array_reduce(void* arr, void* callback, void* initialValue) {
+        if (try_as_typed_array(arr)) {
+            int argc = initialValue ? 2 : 1;
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)initialValue };
+            return (void*)ts_array_reduce_native(arr, argc, argvBuf);
+        }
         TsArray* a = (TsArray*)arr;
         if (!reduce_spec_preamble(a, callback, initialValue, "reduce")) return nullptr;
         return a->Reduce(callback, initialValue);
     }
 
     void* ts_array_reduceRight(void* arr, void* callback, void* initialValue) {
+        if (try_as_typed_array(arr)) {
+            int argc = initialValue ? 2 : 1;
+            TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)initialValue };
+            return (void*)ts_array_reduceRight_native(arr, argc, argvBuf);
+        }
         TsArray* a = (TsArray*)arr;
         if (!reduce_spec_preamble(a, callback, initialValue, "reduceRight")) return nullptr;
         return a->ReduceRight(callback, initialValue);
