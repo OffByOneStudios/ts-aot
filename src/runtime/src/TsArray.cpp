@@ -2683,34 +2683,54 @@ extern "C" {
             return result;
         }
 
-        // Slow path: 'other' might be an iterator (has .next() method)
-        TsArray* result = TsArray::Create(first->Length());
-        for (size_t i = 0; i < first->Length(); ++i) {
-            result->Push(first->Get(i));
+        // Per ES spec IsConcatSpreadable(O):
+        //   1. If O has Symbol.isConcatSpreadable, use ToBoolean of that value.
+        //   2. Else if Array.isArray(O), spread.
+        //   3. Otherwise, NOT spreadable — append as single element.
+        // Well-known symbols are registered as canonical string keys like
+        // "[Symbol.isConcatSpreadable]" (see ts_get_global_Symbol).
+        bool isSpreadable = false;
+        bool spreadableExplicit = false;
+        if (rawOther) {
+            TsValue* sval = ts_object_get_property(rawOther, "[Symbol.isConcatSpreadable]");
+            if (sval) {
+                uint64_t snb = nanbox_from_tsvalue_ptr(sval);
+                if (!nanbox_is_undefined(snb)) {
+                    spreadableExplicit = true;
+                    isSpreadable = ts_value_to_bool(sval);
+                }
+            }
         }
 
-        if (!rawOther) return result;
-
-        // Try to get 'next' from the object (iterator protocol)
-        TsValue* nextFn = ts_object_get_property(rawOther, "next");
-        if (!nextFn || ts_value_is_nullish(nextFn)) {
+        if (spreadableExplicit && isSpreadable) {
+            // Spread via length + indexed reads.
+            TsValue* lenVal = ts_object_get_property(rawOther, "length");
+            double lenD = lenVal ? ts_to_number(lenVal) : 0;
+            int64_t len = 0;
+            if (lenD == lenD && lenD > 0) {
+                if (lenD > (double)(1LL << 20)) lenD = (double)(1LL << 20);
+                len = (int64_t)lenD;
+            }
+            TsArray* result = TsArray::Create(first->Length() + len);
+            for (size_t i = 0; i < first->Length(); ++i) {
+                result->Push(first->Get(i));
+            }
+            for (int64_t i = 0; i < len; i++) {
+                char key[32];
+                snprintf(key, sizeof(key), "%lld", (long long)i);
+                TsValue* elem = ts_object_get_property(rawOther, key);
+                if (!elem) elem = ts_value_make_undefined();
+                result->Push((int64_t)(uintptr_t)elem);
+            }
             return result;
         }
 
-        // Consume iterator: call next() repeatedly until done
-        for (int safety = 0; safety < 100000; safety++) {
-            TsValue* iterResult = ts_call_0(nextFn);
-            if (!iterResult) break;
-
-            // Get 'done' from result
-            TsValue* doneVal = ts_object_get_property(iterResult, "done");
-            if (doneVal && ts_value_to_bool(doneVal)) break;
-
-            // Get 'value' from result
-            TsValue* valueVal = ts_object_get_property(iterResult, "value");
-            result->Push((int64_t)(uintptr_t)valueVal);
+        // Default: not spreadable — append as single element.
+        TsArray* result = TsArray::Create(first->Length() + 1);
+        for (size_t i = 0; i < first->Length(); ++i) {
+            result->Push(first->Get(i));
         }
-
+        result->Push((int64_t)(uintptr_t)other);
         return result;
     }
 

@@ -13,6 +13,7 @@
 #include "TsConsString.h"
 #include "TsNanBox.h"
 #include "TsError.h"
+#include "TsSymbol.h"
 #include <unordered_map>
 #include <string>
 #include <limits>
@@ -754,7 +755,33 @@ void* ts_get_global_EvalError() {
 
 void* ts_get_global_Symbol() {
     static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("Symbol");
+    if (!cached) {
+        cached = makeSimpleConstructorGlobal("Symbol");
+
+        // Register well-known symbols. Pragmatic shim: store each as a
+        // canonical string "[Symbol.<name>]" instead of a real TsSymbol.
+        // This matches the existing convention used for Symbol.toStringTag
+        // on JSON/Math (see ts_get_global_JSON) and avoids the compiler
+        // coercing Symbol values to strings on typed Symbol return.
+        // Downstream `obj[Symbol.X] = val` then uses that string as the key,
+        // which is stored and looked up consistently.
+        static const char* kWellKnown[] = {
+            "iterator",       "asyncIterator",  "hasInstance",
+            "isConcatSpreadable", "match",     "matchAll",
+            "replace",        "search",         "split",
+            "species",        "toPrimitive",    "toStringTag",
+            "unscopables",    nullptr
+        };
+        for (int i = 0; kWellKnown[i]; i++) {
+            char canonical[64];
+            snprintf(canonical, sizeof(canonical), "[Symbol.%s]", kWellKnown[i]);
+            TsValue k; k.type = ValueType::STRING_PTR;
+            k.ptr_val = TsString::GetInterned(kWellKnown[i]);
+            TsValue v; v.type = ValueType::STRING_PTR;
+            v.ptr_val = TsString::GetInterned(canonical);
+            cached->Set(k, v);
+        }
+    }
     return cached;
 }
 

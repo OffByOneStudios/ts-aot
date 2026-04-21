@@ -26,6 +26,7 @@
 #include "TsFlatObject.h"
 #include "TsNanBox.h"
 #include "TsDate.h"
+#include "TsSymbol.h"
 #include "TsRuntime.h"
 
 // Virtual-inheritance HTTP class dispatch, registered by TsHttp.cpp at startup.
@@ -6793,7 +6794,33 @@ TsValue* ts_value_make_int(int64_t i) {
         // non-array objects (TsMap, flat objects, etc.).
         TsString* keyStr = nullptr;
         if (key.type == ValueType::STRING_PTR) {
-            keyStr = (TsString*)key.ptr_val;
+            // Detect TsSymbol masquerading as STRING_PTR — canonicalize to
+            // "[Symbol.<desc>]" form. See ts_object_set_prop_v for details.
+            void* ptr = key.ptr_val;
+            if (ptr) {
+                uint32_t pmagic = *(uint32_t*)ptr;
+                if (pmagic == 0x53594D42) {  // TsSymbol::MAGIC "SYMB"
+                    TsSymbol* sym = (TsSymbol*)ptr;
+                    const char* desc = sym->description ? sym->description->ToUtf8() : "";
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
+                    keyStr = TsString::GetInterned(buf);
+                } else {
+                    keyStr = (TsString*)ptr;
+                }
+            }
+        } else if (key.type == ValueType::OBJECT_PTR) {
+            void* ptr = key.ptr_val;
+            if (ptr) {
+                uint32_t pmagic = *(uint32_t*)ptr;
+                if (pmagic == 0x53594D42) {
+                    TsSymbol* sym = (TsSymbol*)ptr;
+                    const char* desc = sym->description ? sym->description->ToUtf8() : "";
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
+                    keyStr = TsString::GetInterned(buf);
+                }
+            }
         } else if (key.type == ValueType::NUMBER_INT) {
             keyStr = TsString::Create(std::to_string(key.i_val).c_str());
         } else if (key.type == ValueType::NUMBER_DBL) {
@@ -6858,7 +6885,36 @@ TsValue* ts_value_make_int(int64_t i) {
         // obj["1"] = val. Convert non-string keys to their string representation.
         TsString* keyStr = nullptr;
         if (key.type == ValueType::STRING_PTR) {
-            keyStr = (TsString*)key.ptr_val;
+            // Detect TsSymbol masquerading as STRING_PTR (compiler boxes
+            // `obj[Symbol.X]` keys via ts_value_make_string which mis-tags
+            // a TsSymbol pointer). Canonicalize to "[Symbol.<desc>]" — the
+            // convention used in Map/Set iterator setup.
+            void* ptr = key.ptr_val;
+            if (ptr) {
+                uint32_t pmagic = *(uint32_t*)ptr;
+                if (pmagic == 0x53594D42) {  // TsSymbol::MAGIC "SYMB"
+                    TsSymbol* sym = (TsSymbol*)ptr;
+                    const char* desc = sym->description ? sym->description->ToUtf8() : "";
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
+                    keyStr = TsString::GetInterned(buf);
+                } else {
+                    keyStr = (TsString*)ptr;
+                }
+            }
+        } else if (key.type == ValueType::OBJECT_PTR) {
+            // Symbol keys boxed as OBJECT_PTR (alternative path).
+            void* ptr = key.ptr_val;
+            if (ptr) {
+                uint32_t pmagic = *(uint32_t*)ptr;
+                if (pmagic == 0x53594D42) {  // TsSymbol::MAGIC
+                    TsSymbol* sym = (TsSymbol*)ptr;
+                    const char* desc = sym->description ? sym->description->ToUtf8() : "";
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
+                    keyStr = TsString::GetInterned(buf);
+                }
+            }
         } else if (key.type == ValueType::NUMBER_INT) {
             keyStr = TsString::Create(std::to_string(key.i_val).c_str());
         } else if (key.type == ValueType::NUMBER_DBL) {
