@@ -8,6 +8,7 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsSet.h"
+#include "TsBuffer.h"  // for TsTypedArray instanceof dispatch
 #include "TsNanBox.h"
 #include <cstdio>
 #include <cmath>
@@ -733,6 +734,16 @@ extern "C" void* ts_get_global_Set();
 extern "C" void* ts_get_global_WeakMap();
 extern "C" void* ts_get_global_WeakSet();
 extern "C" void* ts_get_global_Promise();
+extern "C" void* ts_get_global_TypedArray();
+extern "C" void* ts_get_global_Int8Array();
+extern "C" void* ts_get_global_Uint8Array();
+extern "C" void* ts_get_global_Uint8ClampedArray();
+extern "C" void* ts_get_global_Int16Array();
+extern "C" void* ts_get_global_Uint16Array();
+extern "C" void* ts_get_global_Int32Array();
+extern "C" void* ts_get_global_Uint32Array();
+extern "C" void* ts_get_global_Float32Array();
+extern "C" void* ts_get_global_Float64Array();
 
 namespace {
 struct BuiltinInstanceCheck {
@@ -799,6 +810,51 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
         uint64_t pnb = nanbox_from_tsvalue_ptr(gproto);
         if (!nanbox_is_ptr(pnb)) return false;
         return nanbox_to_ptr(pnb) == targetProto;
+    }
+
+    // TsTypedArray instance: single magic for all nine TA kinds. `x instanceof
+    // %TypedArray%` is true for any TA; `x instanceof Int8Array` is true only
+    // if x's element type matches Int8. Dispatch on GetType().
+    if (*(uint32_t*)((char*)rawObj + 16) == TsTypedArray::MAGIC) {
+        // Accept %TypedArray% as parent of all kinds.
+        void* ta_parent = ts_get_global_TypedArray();
+        if (ta_parent) {
+            TsValue* p = ts_object_get_property(ta_parent, "prototype");
+            if (p) {
+                uint64_t pnb = nanbox_from_tsvalue_ptr(p);
+                if (nanbox_is_ptr(pnb) && nanbox_to_ptr(pnb) == targetProto) {
+                    return true;
+                }
+            }
+        }
+        // Match the specific per-kind constructor.
+        TsTypedArray* ta = (TsTypedArray*)rawObj;
+        void* (*kindGlobal)() = nullptr;
+        switch (ta->GetType()) {
+            case TypedArrayType::Int8:         kindGlobal = ts_get_global_Int8Array;         break;
+            case TypedArrayType::Uint8:        kindGlobal = ts_get_global_Uint8Array;        break;
+            case TypedArrayType::Uint8Clamped: kindGlobal = ts_get_global_Uint8ClampedArray; break;
+            case TypedArrayType::Int16:        kindGlobal = ts_get_global_Int16Array;        break;
+            case TypedArrayType::Uint16:       kindGlobal = ts_get_global_Uint16Array;       break;
+            case TypedArrayType::Int32:        kindGlobal = ts_get_global_Int32Array;        break;
+            case TypedArrayType::Uint32:       kindGlobal = ts_get_global_Uint32Array;       break;
+            case TypedArrayType::Float32:      kindGlobal = ts_get_global_Float32Array;      break;
+            case TypedArrayType::Float64:      kindGlobal = ts_get_global_Float64Array;      break;
+            default: return false;
+        }
+        if (kindGlobal) {
+            void* g = kindGlobal();
+            if (g) {
+                TsValue* p = ts_object_get_property(g, "prototype");
+                if (p) {
+                    uint64_t pnb = nanbox_from_tsvalue_ptr(p);
+                    if (nanbox_is_ptr(pnb) && nanbox_to_ptr(pnb) == targetProto) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     return false;
