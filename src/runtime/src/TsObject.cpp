@@ -8140,6 +8140,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) tag = "String";
             else if (magic0 == 0x41525259) tag = "Array";
             else if (magic0 == 0x52454758) tag = "RegExp";
+            else if (magic0 == 0x42494749) tag = "BigInt";  // TsBigInt 'BIGI' — not a TsObject, must check before dynamic_cast
             else if (magic0 == 0x464C4154) {
                 tag = "Object";
                 // TODO: flat objects could also hold toStringTag in overflow map
