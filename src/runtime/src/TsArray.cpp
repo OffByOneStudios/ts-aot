@@ -2617,20 +2617,39 @@ extern "C" {
         ((TsArray*)arr)->ForEach(callback, thisArg);
     }
 
+    // Helper: given a TsArray result from map/filter on a TypedArray receiver,
+    // allocate a TypedArray of the same kind and copy the elements in.
+    // Per spec, map/filter on a TypedArray should return `new this.constructor(...)`
+    // — a pragmatic approximation is to preserve the receiver's kind.
+    static void* rematerialize_ta_from_array(TsTypedArray* receiver, TsArray* resultArr) {
+        if (!receiver) return (void*)resultArr;
+        if (!resultArr) return (void*)TsTypedArray::Create(0,
+            receiver->GetElementSize(), receiver->IsClamped(), receiver->GetType());
+        size_t n = (size_t)resultArr->Length();
+        TsTypedArray* ta = TsTypedArray::Create(n,
+            receiver->GetElementSize(), receiver->IsClamped(), receiver->GetType());
+        for (size_t i = 0; i < n; i++) {
+            ta->Set(i, resultArr->GetElementDouble(i));
+        }
+        return (void*)ta;
+    }
+
     void* ts_array_map(void* arr, void* callback, void* thisArg) {
-        if (try_as_typed_array(arr)) {
+        if (TsTypedArray* ta = try_as_typed_array(arr)) {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             TsValue* res = ts_array_map_native(arr, 2, argvBuf);
-            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+            void* raw = res ? ts_value_get_object(res) : nullptr;
+            return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
         return ((TsArray*)arr)->Map(callback, thisArg);
     }
 
     void* ts_array_filter(void* arr, void* callback, void* thisArg) {
-        if (try_as_typed_array(arr)) {
+        if (TsTypedArray* ta = try_as_typed_array(arr)) {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             TsValue* res = ts_array_filter_native(arr, 2, argvBuf);
-            return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();
+            void* raw = res ? ts_value_get_object(res) : nullptr;
+            return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
         return ((TsArray*)arr)->Filter(callback, thisArg);
     }
