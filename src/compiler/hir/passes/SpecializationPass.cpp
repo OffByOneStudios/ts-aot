@@ -147,7 +147,11 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeArithmetic(HIRInst
     // Combine result-type and operand-type evidence. If EITHER source says
     // "this is type X", treat it as X.
     bool useString = isString(resType) || isString(lhs) || isString(rhs);
-    bool useBigInt = isBigInt(resType) || isBigInt(lhs) || isBigInt(rhs);
+    // BigInt arithmetic: require BOTH operands BigInt (or the result type to
+    // be BigInt, which ASTToHIR already sets only when both sides are BigInt).
+    // Mixed BigInt+Number is a spec TypeError; we must not silently lower
+    // it to ts_bigint_add(ptr, double) which fails LLVM verification.
+    bool useBigInt = isBigInt(resType) || (isBigInt(lhs) && isBigInt(rhs));
     bool useFloat  = isFloat64(resType) || isFloat64(lhs) || isFloat64(rhs);
     bool useInt    = isInt64(resType) || (isInt64(lhs) && isInt64(rhs));
     bool resultIsAny = isAny(resType);
@@ -281,7 +285,11 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeComparison(HIRInst
     // BUG WAS: comparing Int64 with Any fell into useInt and emitted
     // CmpEqI64 with one i64 and one ptr operand → LLVM verification failed.
     // The Any check must be OR, not AND, to catch mixed-type cases.
-    bool useBigInt = isBigInt(lhs) || isBigInt(rhs);
+    // Require BOTH operands to be BigInt to pick the bigint runtime — mixed
+    // BigInt/Number comparison is spec-defined (value comparison) and also
+    // can't go through ts_bigint_* which expects two BigInt pointers; route
+    // mixed cases through the dynamic/ts_value_* path instead.
+    bool useBigInt = isBigInt(lhs) && isBigInt(rhs);
     bool eitherAny = isAny(lhs) || isAny(rhs);
     bool useFloat  = !eitherAny && (isFloat64(lhs) || isFloat64(rhs));
     bool useInt    = !eitherAny && !useFloat && isInt64(lhs) && isInt64(rhs);
@@ -298,6 +306,14 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeComparison(HIRInst
             default: return nullptr;
         }
         return makeCall(fn, inst, HIRType::makeBool());
+    }
+
+    // Mixed-type case (one BigInt, one non-BigInt and non-Any): if neither
+    // of the typed fast paths below matches, force the Any/dynamic path so
+    // the value-comparison happens at runtime. This avoids type-mismatched
+    // calls like ts_bigint_lt(ptr, double).
+    if ((isBigInt(lhs) || isBigInt(rhs)) && !useInt && !useFloat) {
+        eitherAny = true;
     }
 
     if (eitherAny) {
