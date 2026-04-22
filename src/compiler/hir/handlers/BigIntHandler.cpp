@@ -22,6 +22,7 @@ public:
         static const std::unordered_set<std::string> bigintFuncs = {
             "ts_bigint_create_str",
             "ts_bigint_add", "ts_bigint_sub", "ts_bigint_mul", "ts_bigint_div", "ts_bigint_mod",
+            "ts_bigint_pow",
             "ts_bigint_lt", "ts_bigint_le", "ts_bigint_gt", "ts_bigint_ge",
             "ts_bigint_eq", "ts_bigint_ne"
         };
@@ -50,7 +51,7 @@ private:
     static bool isArithmeticOp(const std::string& funcName) {
         return funcName == "ts_bigint_add" || funcName == "ts_bigint_sub" ||
                funcName == "ts_bigint_mul" || funcName == "ts_bigint_div" ||
-               funcName == "ts_bigint_mod";
+               funcName == "ts_bigint_mod" || funcName == "ts_bigint_pow";
     }
 
     static bool isComparisonOp(const std::string& funcName) {

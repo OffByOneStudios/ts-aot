@@ -6429,6 +6429,16 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_double(std::fmod(d1, d2));
     }
 
+    // Helper: extract TsBigInt* if value is a BigInt, else nullptr.
+    static TsBigInt* try_as_bigint(uint64_t nb) {
+        if (!nanbox_is_ptr(nb) || nb <= NANBOX_UNDEFINED) return nullptr;
+        void* ptr = nanbox_to_ptr(nb);
+        if (!ptr) return nullptr;
+        uint32_t m0 = *(uint32_t*)ptr;
+        if (m0 != 0x42494749) return nullptr;  // TsBigInt::MAGIC 'BIGI'
+        return (TsBigInt*)ptr;
+    }
+
     TsValue* ts_value_eq(TsValue* a, TsValue* b) {
         if (!a) a = ts_value_make_undefined();
         if (!b) b = ts_value_make_undefined();
@@ -6456,6 +6466,32 @@ TsValue* ts_value_make_int(int64_t i) {
             TsString* s1 = (TsString*)nanbox_to_ptr(nba);
             TsString* s2 = (TsString*)nanbox_to_ptr(nbb);
             return ts_value_make_bool(s1->Equals(s2));
+        }
+
+        // BigInt vs Number / Number vs BigInt: per ES spec, loose equality
+        // does value comparison. Coerce the Number side to BigInt and use
+        // ts_bigint_eq. (Spec-precise handling of non-integer / non-finite
+        // Numbers would require BigInt(n).valueOf() comparison; we
+        // approximate by truncating via ts_bigint_from_value.)
+        TsBigInt* abi = try_as_bigint(nba);
+        TsBigInt* bbi = try_as_bigint(nbb);
+        if (abi && nanbox_is_number(nbb)) {
+            void* nb_as_bi = ts_bigint_from_value(b);
+            return ts_value_make_bool(ts_bigint_eq((void*)abi, nb_as_bi));
+        }
+        if (bbi && nanbox_is_number(nba)) {
+            void* na_as_bi = ts_bigint_from_value(a);
+            return ts_value_make_bool(ts_bigint_eq(na_as_bi, (void*)bbi));
+        }
+        // BigInt vs String: ES spec uses StringToBigInt; approximate by
+        // parsing the string as BigInt and comparing.
+        if (abi && nanbox_is_string_ptr(nbb)) {
+            void* nb_as_bi = ts_bigint_from_value(b);
+            return ts_value_make_bool(ts_bigint_eq((void*)abi, nb_as_bi));
+        }
+        if (bbi && nanbox_is_string_ptr(nba)) {
+            void* na_as_bi = ts_bigint_from_value(a);
+            return ts_value_make_bool(ts_bigint_eq(na_as_bi, (void*)bbi));
         }
 
         // ES5.1 §11.9.3 steps 8-9: asymmetric loose equality between an

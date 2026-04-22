@@ -3900,11 +3900,15 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
     bool useFloat = isFloat64(lhs, node->left.get()) || isFloat64(rhs, node->right.get());
     // BigInt: check HIRValue type (set by visitBigIntLiteral and propagated
     // through variable references) first, then fall back to the ast-level tag.
+    // Require BOTH operands to be known BigInt — mixed BigInt/Number is a
+    // TypeError per spec and must not hit the bigint-only fast path
+    // (which would type-mismatch ts_bigint_add/gt against a raw double).
     auto hirIsBigInt = [](const std::shared_ptr<HIRValue>& v) {
         return v && v->type && v->type->kind == HIRTypeKind::BigInt;
     };
-    bool useBigInt = hirIsBigInt(lhs) || hirIsBigInt(rhs)
-                  || isBigInt(node->left.get()) || isBigInt(node->right.get());
+    bool lhsIsBigInt = hirIsBigInt(lhs) || isBigInt(node->left.get());
+    bool rhsIsBigInt = hirIsBigInt(rhs) || isBigInt(node->right.get());
+    bool useBigInt = lhsIsBigInt && rhsIsBigInt;
 
     if (op == "+") {
         // Strategy B Phase 3: emit generic Add. SpecializationPass (which
@@ -3949,6 +3953,28 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         else if (op == "*") lastValue_ = builder_.createMul(lhs, rhs, resultType);
         else if (op == "/") lastValue_ = builder_.createDiv(lhs, rhs, resultType);
         else                lastValue_ = builder_.createMod(lhs, rhs, resultType);
+    } else if (op == "**") {
+        // Exponentiation. No specialized HIR opcode; dispatch directly:
+        // - BigInt ** BigInt → ts_bigint_pow (arbitrary-precision integer).
+        // - Numeric           → ts_math_pow (double, matches Math.pow).
+        // Mixed BigInt/Number is a TypeError per spec; we route through
+        // ts_math_pow which will coerce the BigInt to NaN (approximate).
+        if (useBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_pow", {lhs, rhs}, HIRType::makeBigInt());
+        } else {
+            // Ensure both operands are Float64 for ts_math_pow.
+            auto castToF64 = [this](std::shared_ptr<HIRValue> v) {
+                if (v && v->type) {
+                    if (v->type->kind == HIRTypeKind::Int64) return builder_.createCastI64ToF64(v);
+                    if (v->type->kind == HIRTypeKind::Float64) return v;
+                }
+                // Any / object: let the runtime coerce via ts_value_get_double on the call site.
+                return v;
+            };
+            auto lhsF = castToF64(lhs);
+            auto rhsF = castToF64(rhs);
+            lastValue_ = builder_.createCall("ts_math_pow", {lhsF, rhsF}, HIRType::makeFloat64());
+        }
     } else if (op == "<" || op == "<=" || op == ">" || op == ">=") {
         // Strategy B Phase 4d: emit generic ordering comparison.
         // After Phase 4a+4c, operand types are reliable in HIR, so
@@ -3977,6 +4003,11 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Loose equality - use coercing comparison
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_eq", {lhs, rhs}, HIRType::makeBool());
+        } else if (lhsIsBigInt || rhsIsBigInt) {
+            // Mixed BigInt/Number/String: route through ts_value_eq which
+            // handles BigInt↔Number/String value comparison per spec.
+            // Emitting CmpEqF64 here would unbox the BigInt ptr as double → garbage.
+            lastValue_ = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());
         } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
             lastValue_ = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());
         } else {
@@ -4023,6 +4054,10 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Loose inequality - use coercing comparison
         if (useBigInt) {
             lastValue_ = builder_.createCall("ts_bigint_ne", {lhs, rhs}, HIRType::makeBool());
+        } else if (lhsIsBigInt || rhsIsBigInt) {
+            // Mixed: route through ts_value_eq + negate (same reasoning as ==).
+            auto eq = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());
+            lastValue_ = builder_.createLogicalNot(eq);
         } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
             // Use ts_value_eq and negate for != with any operands
             auto eq = builder_.createCall("ts_value_eq", {lhs, rhs}, HIRType::makeAny());

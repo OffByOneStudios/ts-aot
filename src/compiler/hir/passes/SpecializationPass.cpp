@@ -290,7 +290,12 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeComparison(HIRInst
     // can't go through ts_bigint_* which expects two BigInt pointers; route
     // mixed cases through the dynamic/ts_value_* path instead.
     bool useBigInt = isBigInt(lhs) && isBigInt(rhs);
-    bool eitherAny = isAny(lhs) || isAny(rhs);
+    bool eitherBigInt = isBigInt(lhs) || isBigInt(rhs);
+    // If either side is BigInt, force the dynamic path — a raw Float64
+    // fast path would unbox the BigInt pointer as a double (→ 0) and
+    // compare garbage. The runtime ts_value_* helpers do spec-compliant
+    // BigInt↔Number value comparison.
+    bool eitherAny = isAny(lhs) || isAny(rhs) || (eitherBigInt && !useBigInt);
     bool useFloat  = !eitherAny && (isFloat64(lhs) || isFloat64(rhs));
     bool useInt    = !eitherAny && !useFloat && isInt64(lhs) && isInt64(rhs);
 
@@ -308,13 +313,6 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeComparison(HIRInst
         return makeCall(fn, inst, HIRType::makeBool());
     }
 
-    // Mixed-type case (one BigInt, one non-BigInt and non-Any): if neither
-    // of the typed fast paths below matches, force the Any/dynamic path so
-    // the value-comparison happens at runtime. This avoids type-mismatched
-    // calls like ts_bigint_lt(ptr, double).
-    if ((isBigInt(lhs) || isBigInt(rhs)) && !useInt && !useFloat) {
-        eitherAny = true;
-    }
 
     if (eitherAny) {
         const char* fn = nullptr;
