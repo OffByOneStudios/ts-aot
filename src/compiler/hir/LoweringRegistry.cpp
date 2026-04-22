@@ -458,6 +458,30 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .i64Arg(ArgConversion::ToI64)
             .build());
+    reg.registerLowering("ts_typed_array_create_clamped",
+        lowering("ts_typed_array_create_clamped")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+    // `new TypedArray(arg)` with arg possibly Any/Array/Object: takes ptr.
+    reg.registerLowering("ts_typed_array_new_i8",
+        lowering("ts_typed_array_new_i8").returnsPtr().ptrArg().build());
+    reg.registerLowering("ts_typed_array_new_u8",
+        lowering("ts_typed_array_new_u8").returnsPtr().ptrArg().build());
+    reg.registerLowering("ts_typed_array_new_clamped",
+        lowering("ts_typed_array_new_clamped").returnsPtr().ptrArg().build());
+    reg.registerLowering("ts_typed_array_new_i16",
+        lowering("ts_typed_array_new_i16").returnsPtr().ptrArg().build());
+    reg.registerLowering("ts_typed_array_new_u16",
+        lowering("ts_typed_array_new_u16").returnsPtr().ptrArg().build());
+    reg.registerLowering("ts_typed_array_new_i32",
+        lowering("ts_typed_array_new_i32").returnsPtr().ptrArg().build());
+    reg.registerLowering("ts_typed_array_new_u32",
+        lowering("ts_typed_array_new_u32").returnsPtr().ptrArg().build());
+    reg.registerLowering("ts_typed_array_new_f32",
+        lowering("ts_typed_array_new_f32").returnsPtr().ptrArg().build());
+    reg.registerLowering("ts_typed_array_new_f64",
+        lowering("ts_typed_array_new_f64").returnsPtr().ptrArg().build());
     reg.registerLowering("ts_typed_array_create_i16",
         lowering("ts_typed_array_create_i16")
             .returnsPtr()

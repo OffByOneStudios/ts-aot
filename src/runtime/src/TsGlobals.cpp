@@ -15,6 +15,7 @@
 #include "TsError.h"
 #include "TsSymbol.h"
 #include "TsBuffer.h"  // for TsTypedArray
+#include "TsArray.h"   // for TsArray source in typed array constructors
 #include <unicode/unistr.h>
 #include <unicode/utypes.h>
 #include <unordered_map>
@@ -1358,15 +1359,131 @@ void* ts_get_global_TypedArray() {
     return cached;
 }
 
+// ts_typed_array_new_<kind>(TsValue* arg) — constructor wrapper for
+// `new TypedArray(arg)` when arg is potentially an array-like or typed
+// array rather than a plain length. If arg has a numeric .length, allocate
+// that many elements and copy via indexed reads. Otherwise fall back to
+// ToLength(arg) for the length form.
+#define DEFINE_TYPED_ARRAY_NEW(Suffix, CreateFn)                                         \
+extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg) {                             \
+    if (arg) {                                                                           \
+        void* rawSrc = ts_value_get_object(arg);                                         \
+        bool srcIsObject = false;                                                        \
+        if (rawSrc) {                                                                    \
+            uintptr_t p = (uintptr_t)rawSrc;                                             \
+            if (p > 0x1000 && p < 0x0000800000000000ULL) srcIsObject = true;             \
+        }                                                                                \
+        if (srcIsObject) {                                                               \
+            /* TsArray fast path: use GetElementDouble for indexed reads. */             \
+            uint32_t srcMagic0 = *(uint32_t*)rawSrc;                                     \
+            if (srcMagic0 == 0x41525259) { /* TsArray::MAGIC "ARRY" */                   \
+                TsArray* srcArr = (TsArray*)rawSrc;                                      \
+                int64_t n = (int64_t)srcArr->Length();                                   \
+                void* result = CreateFn(n);                                              \
+                for (int64_t i = 0; i < n; i++) {                                        \
+                    double d = srcArr->GetElementDouble((size_t)i);                      \
+                    ((TsTypedArray*)result)->Set((size_t)i, d);                          \
+                }                                                                        \
+                return result;                                                           \
+            }                                                                            \
+            /* TsTypedArray source: copy via Get/Set. */                                 \
+            uint32_t srcMagic16 = *(uint32_t*)((char*)rawSrc + 16);                      \
+            if (srcMagic16 == TsTypedArray::MAGIC) {                                     \
+                TsTypedArray* srcTa = (TsTypedArray*)rawSrc;                             \
+                int64_t n = (int64_t)srcTa->GetLength();                                 \
+                void* result = CreateFn(n);                                              \
+                for (int64_t i = 0; i < n; i++) {                                        \
+                    ((TsTypedArray*)result)->Set((size_t)i, srcTa->Get((size_t)i));      \
+                }                                                                        \
+                return result;                                                           \
+            }                                                                            \
+            /* Generic array-like: iterate via .length + indexed reads. */               \
+            TsValue* lenVal = ts_object_get_property(rawSrc, "length");                  \
+            if (lenVal && !ts_value_is_undefined(lenVal)) {                              \
+                double lenD = ts_to_number(lenVal);                                      \
+                int64_t n = (lenD == lenD && lenD >= 0) ? (int64_t)lenD : 0;             \
+                void* result = CreateFn(n);                                              \
+                for (int64_t i = 0; i < n; i++) {                                        \
+                    char key[32]; snprintf(key, sizeof(key), "%lld", (long long)i);      \
+                    TsValue* v = ts_object_get_property(rawSrc, key);                    \
+                    double d = (v && !ts_value_is_undefined(v)) ? ts_to_number(v) : 0;   \
+                    ((TsTypedArray*)result)->Set((size_t)i, d);                          \
+                }                                                                        \
+                return result;                                                           \
+            }                                                                            \
+        }                                                                                \
+    }                                                                                    \
+    double lenD = arg ? ts_to_number(arg) : 0;                                           \
+    int64_t length = (lenD == lenD && lenD >= 0) ? (int64_t)lenD : 0;                    \
+    return CreateFn(length);                                                             \
+}
+
+DEFINE_TYPED_ARRAY_NEW(i8,      ts_typed_array_create_i8)
+DEFINE_TYPED_ARRAY_NEW(u8,      ts_typed_array_create_u8)
+DEFINE_TYPED_ARRAY_NEW(clamped, ts_typed_array_create_clamped)
+DEFINE_TYPED_ARRAY_NEW(i16,     ts_typed_array_create_i16)
+DEFINE_TYPED_ARRAY_NEW(u16,     ts_typed_array_create_u16)
+DEFINE_TYPED_ARRAY_NEW(i32,     ts_typed_array_create_i32)
+DEFINE_TYPED_ARRAY_NEW(u32,     ts_typed_array_create_u32)
+DEFINE_TYPED_ARRAY_NEW(f32,     ts_typed_array_create_f32)
+DEFINE_TYPED_ARRAY_NEW(f64,     ts_typed_array_create_f64)
+
+#undef DEFINE_TYPED_ARRAY_NEW
+
+// Populate a freshly-allocated TypedArray from an array-like source
+// (iterable .length + indexed property reads). Returns true if the source
+// was actually array-like and values were copied; false otherwise.
+static bool populate_ta_from_array_like(void* result, TsValue* source) {
+    if (!result || !source) return false;
+    void* rawSrc = ts_value_get_object(source);
+    if (!rawSrc) return false;
+    uintptr_t p = (uintptr_t)rawSrc;
+    if (p <= 0x1000 || p >= 0x0000800000000000ULL) return false;
+    // Array-like detection: has a readable .length
+    TsValue* lenVal = ts_object_get_property(rawSrc, "length");
+    if (!lenVal || ts_value_is_undefined(lenVal)) return false;
+    double lenD = ts_to_number(lenVal);
+    if (lenD != lenD || lenD < 0) return false;
+    int64_t srcLen = (int64_t)lenD;
+    int64_t taLen = (int64_t)((TsTypedArray*)result)->GetLength();
+    int64_t n = std::min(srcLen, taLen);
+    for (int64_t i = 0; i < n; i++) {
+        char key[32]; snprintf(key, sizeof(key), "%lld", (long long)i);
+        TsValue* v = ts_object_get_property(rawSrc, key);
+        double d = (v && !ts_value_is_undefined(v)) ? ts_to_number(v) : 0;
+        ((TsTypedArray*)result)->Set((size_t)i, d);
+    }
+    return true;
+}
+
 #define DEFINE_TYPED_ARRAY_CTOR(JsName, CName, RuntimeFn)                              \
 void* ts_get_global_##CName() {                                                         \
     static void* cached = nullptr;                                                      \
     if (!cached) {                                                                      \
         auto fn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {                 \
+            /* Array-like / typed-array source: first read its .length and  */          \
+            /* then initialize each element. Fall back to length-form when   */          \
+            /* the arg is a plain number (or absent).                        */          \
+            if (argc >= 1 && argv && argv[0]) {                                         \
+                void* rawSrc = ts_value_get_object(argv[0]);                            \
+                bool srcIsObject = false;                                               \
+                if (rawSrc) {                                                           \
+                    uintptr_t p = (uintptr_t)rawSrc;                                    \
+                    if (p > 0x1000 && p < 0x0000800000000000ULL) srcIsObject = true;    \
+                }                                                                       \
+                if (srcIsObject) {                                                      \
+                    TsValue* lenVal = ts_object_get_property(rawSrc, "length");         \
+                    if (lenVal && !ts_value_is_undefined(lenVal)) {                     \
+                        double lenD = ts_to_number(lenVal);                             \
+                        int64_t n = (lenD == lenD && lenD >= 0) ? (int64_t)lenD : 0;    \
+                        void* result = RuntimeFn(n);                                    \
+                        populate_ta_from_array_like(result, argv[0]);                   \
+                        return (TsValue*)result;                                        \
+                    }                                                                   \
+                }                                                                       \
+            }                                                                           \
             int64_t length = 0;                                                         \
             if (argc >= 1 && argv && argv[0]) {                                         \
-                /* Argument may be a number (length) or array/typedarray (copy). */     \
-                /* For now we just handle the length form — the most common case. */   \
                 length = (int64_t)ts_to_number(argv[0]);                                \
                 if (length < 0) length = 0;                                             \
             }                                                                           \

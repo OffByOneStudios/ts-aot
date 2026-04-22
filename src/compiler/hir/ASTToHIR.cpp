@@ -5653,39 +5653,40 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         className == "Float64Array" || className == "BigInt64Array" ||
         className == "BigUint64Array") {
         std::shared_ptr<HIRValue> lenVal;
+        bool argIsNonInt = false;  // arg is Any/Array/Object pointer, not a number
         if (!node->arguments.empty()) {
             lenVal = lowerExpression(node->arguments[0].get());
-            // Ensure length is i64 (may be f64 from numeric literal)
-            if (lenVal && lenVal->type && lenVal->type->kind == HIRTypeKind::Float64) {
-                lenVal = builder_.createCastF64ToI64(lenVal);
+            if (lenVal && lenVal->type) {
+                if (lenVal->type->kind == HIRTypeKind::Float64) {
+                    lenVal = builder_.createCastF64ToI64(lenVal);
+                } else if (lenVal->type->kind == HIRTypeKind::Any ||
+                           lenVal->type->kind == HIRTypeKind::Array ||
+                           lenVal->type->kind == HIRTypeKind::Object) {
+                    argIsNonInt = true;
+                }
             }
         } else {
             lenVal = builder_.createConstInt(0);
         }
         auto arrType = HIRType::makeArray(HIRType::makeInt64(), true); // typed array
-        // Route to appropriate runtime create function
-        if (className == "Uint8Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_u8", {lenVal}, arrType);
-        } else if (className == "Uint32Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_u32", {lenVal}, arrType);
-        } else if (className == "Float64Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_f64", {lenVal}, arrType);
-        } else if (className == "Uint8ClampedArray") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_u8c", {lenVal}, arrType);
-        } else if (className == "Int8Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_i8", {lenVal}, arrType);
-        } else if (className == "Int16Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_i16", {lenVal}, arrType);
-        } else if (className == "Uint16Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_u16", {lenVal}, arrType);
-        } else if (className == "Int32Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_i32", {lenVal}, arrType);
-        } else if (className == "Float32Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_f32", {lenVal}, arrType);
-        } else if (className == "BigInt64Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_i64", {lenVal}, arrType);
-        } else if (className == "BigUint64Array") {
-            lastValue_ = builder_.createCall("ts_typed_array_create_u64", {lenVal}, arrType);
+        // If the argument might be an array-like (Any/Array/Object), route through
+        // a wrapper that inspects the value and either treats it as length or
+        // iterates its indexed properties.
+        const char* fn = nullptr;
+        const char* wrapperFn = nullptr;
+        if (className == "Uint8Array")             { fn = "ts_typed_array_create_u8";      wrapperFn = "ts_typed_array_new_u8"; }
+        else if (className == "Uint32Array")       { fn = "ts_typed_array_create_u32";     wrapperFn = "ts_typed_array_new_u32"; }
+        else if (className == "Float64Array")      { fn = "ts_typed_array_create_f64";     wrapperFn = "ts_typed_array_new_f64"; }
+        else if (className == "Uint8ClampedArray") { fn = "ts_typed_array_create_clamped"; wrapperFn = "ts_typed_array_new_clamped"; }
+        else if (className == "Int8Array")         { fn = "ts_typed_array_create_i8";      wrapperFn = "ts_typed_array_new_i8"; }
+        else if (className == "Int16Array")        { fn = "ts_typed_array_create_i16";     wrapperFn = "ts_typed_array_new_i16"; }
+        else if (className == "Uint16Array")       { fn = "ts_typed_array_create_u16";     wrapperFn = "ts_typed_array_new_u16"; }
+        else if (className == "Int32Array")        { fn = "ts_typed_array_create_i32";     wrapperFn = "ts_typed_array_new_i32"; }
+        else if (className == "Float32Array")      { fn = "ts_typed_array_create_f32";     wrapperFn = "ts_typed_array_new_f32"; }
+        if (argIsNonInt && wrapperFn) {
+            lastValue_ = builder_.createCall(wrapperFn, {lenVal}, arrType);
+        } else if (fn) {
+            lastValue_ = builder_.createCall(fn, {lenVal}, arrType);
         }
         return;
     }
