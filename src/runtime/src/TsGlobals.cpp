@@ -624,8 +624,16 @@ void* ts_get_global_JSON() {
 
 // ========================================
 // Other constructor globals — minimal stubs
-// These return TsMap objects so typeof returns "object" and
-// property access (.prototype) doesn't crash.
+// Historically returned a TsMap so property access (.prototype) worked,
+// but this made typeof report "object" instead of "function" and broke
+// isConstructor / Reflect.construct / Function.prototype tests.
+//
+// New design: return a TsMap as before (used internally to hold
+// prototype/name/static methods), but `wrapAsCallable` promotes it into a
+// TsFunction whose .properties IS this TsMap. get_global_X functions
+// return the wrapped TsFunction so typeof is "function" and the value
+// has [[Construct]]. Spec-strict callers (new Set() etc.) still use the
+// compiler's fast paths (ts_set_create, ts_map_create_explicit, ...).
 // ========================================
 
 static TsMap* makeSimpleConstructorGlobal(const char* name) {
@@ -648,6 +656,36 @@ static TsMap* makeSimpleConstructorGlobal(const char* name) {
     protoVal.ptr_val = proto;
     ctor->Set(protoKey, protoVal);
     return ctor;
+}
+
+// Wrap a TsMap-shaped constructor as a TsFunction so `typeof X` is
+// "function" and isConstructor(X) returns true. Preserves property
+// access: func.properties points at the same TsMap caller populated, so
+// ts_object_get_property(func, "prototype") finds it.
+static void* wrapAsCallable(TsMap* ctor, const char* name) {
+    if (!ctor) return nullptr;
+    // Stub body: return undefined. The spec says `Set()` without `new`
+    // should throw TypeError, but we can't distinguish construct-context
+    // calls (from Reflect.construct) from plain-call here, and most
+    // test262 harness tests check isConstructor(X) which calls
+    // Reflect.construct and expects NOT to throw. Runtime `new X()` goes
+    // through compiler fast paths (ts_set_create, ts_map_create_explicit,
+    // etc.) that bypass this body entirely.
+    auto body = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        return ts_value_make_undefined();
+    };
+    TsValue* fnVal = ts_value_make_native_function((void*)+body, nullptr);
+    void* rawFn = ts_value_get_object(fnVal);
+    if (!rawFn) return (void*)ctor;
+    TsFunction* func = (TsFunction*)rawFn;
+    func->name = TsString::Create(name);
+    func->is_constructor = true;  // [[Construct]] slot
+    // Point the function's property bag at the TsMap ctor so existing
+    // setup (prototype, name, static methods) is visible via
+    // ts_object_get_property(func, key).
+    func->properties = ctor;
+    ts_gc_write_barrier(&func->properties, ctor);
+    return (void*)func;
 }
 
 void* ts_get_global_Number() {
@@ -783,14 +821,14 @@ void* ts_get_global_Date() {
 }
 
 void* ts_get_global_RegExp() {
-    static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("RegExp");
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("RegExp"), "RegExp");
     return cached;
 }
 
 void* ts_get_global_Promise() {
-    static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("Promise");
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("Promise"), "Promise");
     return cached;
 }
 
@@ -831,9 +869,9 @@ void* ts_get_global_EvalError() {
 }
 
 void* ts_get_global_Symbol() {
-    static TsMap* cached = nullptr;
+    static void* cached = nullptr;
     if (!cached) {
-        cached = makeSimpleConstructorGlobal("Symbol");
+        TsMap* ctor = makeSimpleConstructorGlobal("Symbol");
 
         // Register well-known symbols. Pragmatic shim: store each as a
         // canonical string "[Symbol.<name>]" instead of a real TsSymbol.
@@ -856,8 +894,9 @@ void* ts_get_global_Symbol() {
             k.ptr_val = TsString::GetInterned(kWellKnown[i]);
             TsValue v; v.type = ValueType::STRING_PTR;
             v.ptr_val = TsString::GetInterned(canonical);
-            cached->Set(k, v);
+            ctor->Set(k, v);
         }
+        cached = wrapAsCallable(ctor, "Symbol");
     }
     return cached;
 }
@@ -911,7 +950,7 @@ void* ts_get_global_Map() {
             return ts_map_clear_wrapper(ctx);
         }, 0);
 
-        cached = (void*)ctor;
+        cached = wrapAsCallable(ctor, "Map");
     }
     return cached;
 }
@@ -923,8 +962,6 @@ void* ts_get_global_Set() {
         // Get the prototype TsMap from the constructor
         TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
         protoKey.ptr_val = TsString::GetInterned("prototype");
-        TsFunction* ctorFunc = (TsFunction*)(void*)ctor;
-        // ctor is a TsMap, get its "prototype" value
         TsValue protoVal = ctor->Get(protoKey);
         TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
             ? (TsMap*)protoVal.ptr_val : TsMap::Create();
@@ -954,19 +991,19 @@ void* ts_get_global_Set() {
             return ts_value_make_undefined();
         });
 
-        cached = (void*)ctor;
+        cached = wrapAsCallable(ctor, "Set");
     }
     return cached;
 }
 
 void* ts_get_global_WeakMap() {
-    static TsMap* cached = nullptr;
+    static void* cached = nullptr;
     if (!cached) {
-        cached = makeSimpleConstructorGlobal("WeakMap");
+        TsMap* ctor = makeSimpleConstructorGlobal("WeakMap");
         // Get the prototype TsMap from the constructor
         TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
         protoKey.ptr_val = TsString::GetInterned("prototype");
-        TsValue protoVal = cached->Get(protoKey);
+        TsValue protoVal = ctor->Get(protoKey);
         TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
             ? (TsMap*)protoVal.ptr_val : TsMap::Create();
 
@@ -990,17 +1027,18 @@ void* ts_get_global_WeakMap() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_map_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
+        cached = wrapAsCallable(ctor, "WeakMap");
     }
     return cached;
 }
 
 void* ts_get_global_WeakSet() {
-    static TsMap* cached = nullptr;
+    static void* cached = nullptr;
     if (!cached) {
-        cached = makeSimpleConstructorGlobal("WeakSet");
+        TsMap* ctor = makeSimpleConstructorGlobal("WeakSet");
         TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
         protoKey.ptr_val = TsString::GetInterned("prototype");
-        TsValue protoVal = cached->Get(protoKey);
+        TsValue protoVal = ctor->Get(protoKey);
         TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
             ? (TsMap*)protoVal.ptr_val : TsMap::Create();
 
@@ -1017,6 +1055,7 @@ void* ts_get_global_WeakSet() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_set_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
+        cached = wrapAsCallable(ctor, "WeakSet");
     }
     return cached;
 }
