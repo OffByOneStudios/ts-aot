@@ -5100,6 +5100,12 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.isFrozen(obj) - returns true if object is frozen
     TsValue* ts_object_isFrozen(TsValue* obj) {
         if (!obj) return ts_value_make_bool(true);  // null/undefined considered frozen
+        // ES2015+: non-object args return true (don't throw).
+        uint64_t nb = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_undefined(nb) || nanbox_is_null(nb) ||
+            nanbox_is_int32(nb) || nanbox_is_double(nb) || nanbox_is_bool(nb)) {
+            return ts_value_make_bool(true);
+        }
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
@@ -5122,6 +5128,12 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.isSealed(obj) - returns true if object is sealed
     TsValue* ts_object_isSealed(TsValue* obj) {
         if (!obj) return ts_value_make_bool(true);  // null/undefined considered sealed
+        // ES2015+: non-object args return true (don't throw).
+        uint64_t nb = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_undefined(nb) || nanbox_is_null(nb) ||
+            nanbox_is_int32(nb) || nanbox_is_double(nb) || nanbox_is_bool(nb)) {
+            return ts_value_make_bool(true);
+        }
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
@@ -5144,6 +5156,13 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.isExtensible(obj) - returns true if object is extensible
     TsValue* ts_object_isExtensible(TsValue* obj) {
         if (!obj) return ts_value_make_bool(false);  // null/undefined not extensible
+        // Per ES2015+ spec: non-object arguments return false (don't throw).
+        // NaN-boxed undefined/null/numbers/bools are not objects.
+        uint64_t nb = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_undefined(nb) || nanbox_is_null(nb) ||
+            nanbox_is_int32(nb) || nanbox_is_double(nb) || nanbox_is_bool(nb)) {
+            return ts_value_make_bool(false);
+        }
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
