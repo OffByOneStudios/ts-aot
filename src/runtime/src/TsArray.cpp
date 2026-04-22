@@ -2248,7 +2248,7 @@ extern "C" {
             uint64_t nb = (uint64_t)value;
             double target;
             if (nanbox_is_number(nb)) target = nanbox_to_number(nb);
-            else target = ts_value_get_double((TsValue*)value);
+            else target = ts_to_number((TsValue*)value);  // throws TypeError on Symbol
             int64_t len = (int64_t)ta->GetLength();
             for (int64_t i = 0; i < len; i++) {
                 if (ta->Get((size_t)i) == target) return i;
@@ -2279,7 +2279,7 @@ extern "C" {
             uint64_t nb = (uint64_t)value;
             double target;
             if (nanbox_is_number(nb)) target = nanbox_to_number(nb);
-            else target = ts_value_get_double((TsValue*)value);
+            else target = ts_to_number((TsValue*)value);  // throws TypeError on Symbol
             int64_t len = (int64_t)ta->GetLength();
             for (int64_t i = len - 1; i >= 0; i--) {
                 if (ta->Get((size_t)i) == target) return i;
@@ -2319,7 +2319,7 @@ extern "C" {
             uint64_t nb = (uint64_t)value;
             double target;
             if (nanbox_is_number(nb)) target = nanbox_to_number(nb);
-            else target = ts_value_get_double((TsValue*)value);
+            else target = ts_to_number((TsValue*)value);  // throws TypeError on Symbol
             bool targetNaN = (target != target);
             int64_t len = (int64_t)ta->GetLength();
             for (int64_t i = 0; i < len; i++) {
@@ -3314,11 +3314,12 @@ extern "C" {
             if (start >= len) return arr;
             if (end > len) end = len;
             if (start >= end) return arr;
+            // Spec: ToNumber(value) first (throws TypeError on Symbol).
             double v = 0;
             if (value) {
                 uint64_t nb = (uint64_t)value;
                 if (nanbox_is_number(nb)) v = nanbox_to_number(nb);
-                else v = ts_value_get_double((TsValue*)value);
+                else v = ts_to_number((TsValue*)value);
             }
             for (int64_t i = start; i < end; i++) ta->Set((size_t)i, v);
             return arr;
