@@ -3814,9 +3814,12 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
     };
 
     auto isBigInt = [](ast::Expression* astNode) {
-        // TODO: HIRTypeKind::BigInt exists but isn't propagated through
-        // value flow. Migrate when value-creation sites set it consistently.
-        return astNode && astNode->inferredType &&
+        if (!astNode) return false;
+        // BigInt literal (e.g. `1n`) — trust the syntactic tag even if the
+        // analyzer didn't run (untyped JS relaxed mode).
+        if (dynamic_cast<ast::BigIntLiteral*>(astNode)) return true;
+        // Otherwise rely on inferredType from the analyzer.
+        return astNode->inferredType &&
                astNode->inferredType->kind == ts::TypeKind::BigInt;
     };
 
@@ -3895,7 +3898,13 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
     // Determine if we should use Float64 operations (if either operand is Float64)
     bool useFloat = isFloat64(lhs, node->left.get()) || isFloat64(rhs, node->right.get());
-    bool useBigInt = isBigInt(node->left.get()) || isBigInt(node->right.get());
+    // BigInt: check HIRValue type (set by visitBigIntLiteral and propagated
+    // through variable references) first, then fall back to the ast-level tag.
+    auto hirIsBigInt = [](const std::shared_ptr<HIRValue>& v) {
+        return v && v->type && v->type->kind == HIRTypeKind::BigInt;
+    };
+    bool useBigInt = hirIsBigInt(lhs) || hirIsBigInt(rhs)
+                  || isBigInt(node->left.get()) || isBigInt(node->right.get());
 
     if (op == "+") {
         // Strategy B Phase 3: emit generic Add. SpecializationPass (which
@@ -7179,19 +7188,31 @@ void ASTToHIR::visitNumericLiteral(ast::NumericLiteral* node) {
 
 void ASTToHIR::visitBigIntLiteral(ast::BigIntLiteral* node) {
     setSourceLine(node);
-    // Create a BigInt from the literal string value (e.g., "123n" -> "123")
-    // The value in the AST includes the 'n' suffix, so we need to strip it
+    // Strip the 'n' suffix. Input is one of: "123", "0x1F", "0o17", "0b11",
+    // each followed by 'n' in the AST token.
     std::string valueStr = node->value;
     if (!valueStr.empty() && valueStr.back() == 'n') {
         valueStr.pop_back();
+    }
+    // Detect prefix and select the right radix for ts_bigint_create_str.
+    // Without this, `0xFEDCBA9876543210n` parses as base 10 and silently
+    // clamps / returns 0.
+    int radixInt = 10;
+    if (valueStr.size() >= 2 && valueStr[0] == '0') {
+        char p = valueStr[1];
+        if (p == 'x' || p == 'X')      { radixInt = 16; valueStr = valueStr.substr(2); }
+        else if (p == 'o' || p == 'O') { radixInt = 8;  valueStr = valueStr.substr(2); }
+        else if (p == 'b' || p == 'B') { radixInt = 2;  valueStr = valueStr.substr(2); }
     }
 
     // Create the string constant for the BigInt value
     auto strVal = builder_.createConstString(valueStr);
 
-    // Call ts_bigint_create_str with base 10
-    auto radix = builder_.createConstInt(10);
-    lastValue_ = builder_.createCall("ts_bigint_create_str", {strVal, radix}, HIRType::makeObject());
+    // Call ts_bigint_create_str. Emit with BigInt type so that downstream
+    // binary-op lowering can detect BigInt operands via HIRValue::type,
+    // enabling `var a = 1n; var b = 2n; a + b` to pick the BigInt add path.
+    auto radix = builder_.createConstInt(radixInt);
+    lastValue_ = builder_.createCall("ts_bigint_create_str", {strVal, radix}, HIRType::makeBigInt());
 }
 
 void ASTToHIR::visitBooleanLiteral(ast::BooleanLiteral* node) {
