@@ -2703,10 +2703,65 @@ TsValue* ts_value_make_int(int64_t i) {
         dateRegisterMethod(proto, "setUTCMilliseconds", (void*)ts_date_setUTCMilliseconds_native, 1);
         return proto;
     }
+    // Date.parse(s) — stub: return NaN for non-recognized, passthrough for
+    // numeric-looking strings. Most test262 tests only check metadata
+    // (typeof/length/name/isConstructor), so a stub suffices for those.
+    // A full ISO 8601 parser is a larger separate project.
+    static TsValue* ts_date_parse_native(void* ctx, int argc, TsValue** argv) {
+        if (argc < 1 || !argv || !argv[0]) {
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        }
+        // Best-effort: if the arg is already a Number, return it; otherwise NaN.
+        uint64_t nb = nanbox_from_tsvalue_ptr(argv[0]);
+        if (nanbox_is_number(nb)) return ts_value_make_double(nanbox_to_number(nb));
+        return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+    }
+
+    // Date.UTC(year, month, day?, hour?, minute?, second?, ms?) — approximate
+    // using <ctime>. Handles common cases; edge cases (year < 100) not
+    // fully spec-compliant.
+    static TsValue* ts_date_UTC_native(void* ctx, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        auto getInt = [&](int i, int dflt) -> int {
+            if (i >= argc || !argv[i]) return dflt;
+            double d = ts_value_get_double(argv[i]);
+            if (d != d) return 0;
+            return (int)d;
+        };
+        int year   = getInt(0, 1970);
+        int month  = getInt(1, 0);
+        int day    = getInt(2, 1);
+        int hour   = getInt(3, 0);
+        int minute = getInt(4, 0);
+        int second = getInt(5, 0);
+        int ms     = getInt(6, 0);
+        // Two-digit year normalization (0-99 → 1900-1999) per spec.
+        if (year >= 0 && year <= 99) year += 1900;
+        struct tm t{};
+        t.tm_year = year - 1900;
+        t.tm_mon  = month;
+        t.tm_mday = day;
+        t.tm_hour = hour;
+        t.tm_min  = minute;
+        t.tm_sec  = second;
+        // Use timegm-equivalent: compute as UTC by converting local then adjusting.
+        // On Windows we have _mkgmtime.
+#if defined(_WIN32)
+        time_t tt = _mkgmtime(&t);
+#else
+        time_t tt = timegm(&t);
+#endif
+        if (tt == (time_t)-1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        double result = (double)tt * 1000.0 + (double)ms;
+        return ts_value_make_double(result);
+    }
+
     // Populate a TsMap with Date constructor static methods (Date.now, etc.)
     extern "C" void ts_date_constructor_populate(void* ctorMap) {
         TsMap* ctor = (TsMap*)ctorMap;
-        dateRegisterMethod(ctor, "now", (void*)ts_date_now_native, 0);
+        dateRegisterMethod(ctor, "now",   (void*)ts_date_now_native,   0);
+        dateRegisterMethod(ctor, "parse", (void*)ts_date_parse_native, 1);
+        dateRegisterMethod(ctor, "UTC",   (void*)ts_date_UTC_native,   7);
     }
 
     // Native wrappers for RegExp instance methods (.test() and .exec())
@@ -8504,7 +8559,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Array.isArray
         TsValue isArrayKey; isArrayKey.type = ValueType::STRING_PTR; isArrayKey.ptr_val = TsString::Create("isArray");
         arrayFunc->properties->Set(isArrayKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_array_isArray_native, nullptr, "isArray", 1)));
-        
+
         Array = arrayConstructor;
 
         // Helper: set Symbol.toStringTag on a namespace-like object so

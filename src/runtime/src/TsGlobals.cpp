@@ -218,12 +218,39 @@ void* ts_get_global_Object() {
 // ========================================
 // Array global
 // ========================================
+// Forward decls for Array.from/of runtime entry points. Defined in TsArray.cpp.
+extern "C" {
+    void* ts_array_from(void* arrayLike, void* mapFn, void* thisArg);
+    void* ts_array_create();
+    void ts_array_push(void* arr, void* value);
+}
+
+// Forward decl: wrapAsCallable is defined below (next to makeSimpleConstructorGlobal).
+// Declared here so ts_get_global_Array can use it before its definition.
+static void* wrapAsCallable(TsMap* ctor, const char* name);
+
+static TsValue* array_from_native_wrap(void* ctx, int argc, TsValue** argv) {
+    void* arg0 = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+    void* arg1 = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+    void* arg2 = (argc >= 3 && argv) ? (void*)argv[2] : nullptr;
+    void* result = ts_array_from(arg0, arg1, arg2);
+    return result ? (TsValue*)ts_value_make_object(result) : ts_value_make_object(ts_array_create());
+}
+
+static TsValue* array_of_native_wrap(void* ctx, int argc, TsValue** argv) {
+    void* arr = ts_array_create();
+    for (int i = 0; i < argc; i++) ts_array_push(arr, (void*)argv[i]);
+    return (TsValue*)ts_value_make_object(arr);
+}
+
 void* ts_get_global_Array() {
-    static TsMap* cached = nullptr;
+    static void* cached = nullptr;
     if (cached) return cached;
 
-    cached = TsMap::Create();
-    addMethod(cached, "isArray", (void*)ts_array_isArray_native);
+    TsMap* ctorMap = TsMap::Create();
+    addMethod(ctorMap, "isArray", (void*)ts_array_isArray_native);
+    addMethod(ctorMap, "from",    (void*)array_from_native_wrap, 1);
+    addMethod(ctorMap, "of",      (void*)array_of_native_wrap, 0);
 
     // Array.prototype — populated with instance methods so
     // Array.prototype.slice.call(arr, ...) pattern works (used by Express)
@@ -275,8 +302,11 @@ void* ts_get_global_Array() {
     TsValue protoVal;
     protoVal.type = ValueType::OBJECT_PTR;
     protoVal.ptr_val = proto;
-    cached->Set(protoKey, protoVal);
+    ctorMap->Set(protoKey, protoVal);
 
+    // Promote to TsFunction so typeof Array === "function" and
+    // isConstructor(Array) returns true.
+    cached = wrapAsCallable(ctorMap, "Array");
     return cached;
 }
 
@@ -688,6 +718,47 @@ static void* wrapAsCallable(TsMap* ctor, const char* name) {
     return (void*)func;
 }
 
+// Strict Number.isFinite (per spec, no coercion — returns false for
+// non-Numbers including string "42"). Differs from global isFinite.
+static TsValue* ts_number_isFinite_strict_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
+    uint64_t nb = nanbox_from_tsvalue_ptr(argv[0]);
+    if (!nanbox_is_number(nb)) return ts_value_make_bool(false);
+    double d = nanbox_to_number(nb);
+    return ts_value_make_bool(std::isfinite(d));
+}
+
+// Strict Number.isNaN (per spec, no coercion).
+static TsValue* ts_number_isNaN_strict_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
+    uint64_t nb = nanbox_from_tsvalue_ptr(argv[0]);
+    if (!nanbox_is_number(nb)) return ts_value_make_bool(false);
+    double d = nanbox_to_number(nb);
+    return ts_value_make_bool(d != d);
+}
+
+// Number.isInteger: true iff finite integer-valued Number.
+static TsValue* ts_number_isInteger_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
+    uint64_t nb = nanbox_from_tsvalue_ptr(argv[0]);
+    if (nanbox_is_int32(nb)) return ts_value_make_bool(true);
+    if (!nanbox_is_double(nb)) return ts_value_make_bool(false);
+    double d = nanbox_to_double(nb);
+    if (!std::isfinite(d)) return ts_value_make_bool(false);
+    return ts_value_make_bool(d == std::floor(d));
+}
+
+// Number.isSafeInteger: integer && |x| <= 2^53-1.
+static TsValue* ts_number_isSafeInteger_native(void* ctx, int argc, TsValue** argv) {
+    if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
+    uint64_t nb = nanbox_from_tsvalue_ptr(argv[0]);
+    if (nanbox_is_int32(nb)) return ts_value_make_bool(true);
+    if (!nanbox_is_double(nb)) return ts_value_make_bool(false);
+    double d = nanbox_to_double(nb);
+    if (!std::isfinite(d) || d != std::floor(d)) return ts_value_make_bool(false);
+    return ts_value_make_bool(std::abs(d) <= 9007199254740991.0);
+}
+
 void* ts_get_global_Number() {
     static void* cached = nullptr;
     if (!cached) {
@@ -728,6 +799,12 @@ void* ts_get_global_Number() {
         setDouble("EPSILON", 2.220446049250313e-16);
         setDouble("MAX_VALUE", 1.7976931348623157e+308);
         setDouble("MIN_VALUE", 5e-324);
+
+        // Static methods on Number constructor (spec ES2015+)
+        addMethod(ctorFunc->properties, "isFinite",      (void*)ts_number_isFinite_strict_native, 1);
+        addMethod(ctorFunc->properties, "isNaN",         (void*)ts_number_isNaN_strict_native,    1);
+        addMethod(ctorFunc->properties, "isInteger",     (void*)ts_number_isInteger_native,       1);
+        addMethod(ctorFunc->properties, "isSafeInteger", (void*)ts_number_isSafeInteger_native,   1);
 
         cached = (void*)ctorVal;
     }
