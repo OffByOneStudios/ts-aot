@@ -166,35 +166,64 @@ static TsValue* ts_object_hasOwn_native(void* ctx, int argc, TsValue** argv) {
     return ts_value_make_bool(desc != nullptr && !ts_value_is_undefined(desc));
 }
 
+// Forward decl — defined later near makeSimpleConstructorGlobal.
+// ts_get_global_Object (below) uses wrapAsCallable to promote its TsMap
+// ctor to a TsFunction so typeof Object === "function".
+static void* wrapAsCallable(TsMap* ctor, const char* name);
+
 // ========================================
 // Object global
 // ========================================
+// Object.fromEntries(iterable) — inverse of Object.entries. Builds a TsMap
+// from a list of [key, value] pairs.
+static TsValue* object_fromEntries_native(void* ctx, int argc, TsValue** argv) {
+    TsMap* out = TsMap::Create();
+    if (argc < 1 || !argv || !argv[0]) return ts_value_make_object(out);
+    void* raw = ts_value_get_object(argv[0]);
+    if (!raw) return ts_value_make_object(out);
+    uint32_t magic0 = *(uint32_t*)raw;
+    if (magic0 != 0x41525259) return ts_value_make_object(out);  // Only TsArray source for now.
+    TsArray* arr = (TsArray*)raw;
+    size_t len = (size_t)arr->Length();
+    for (size_t i = 0; i < len; i++) {
+        TsValue entry = nanbox_to_tagged((TsValue*)arr->GetElementBoxed(i));
+        if (entry.type != ValueType::ARRAY_PTR || !entry.ptr_val) continue;
+        TsArray* pair = (TsArray*)entry.ptr_val;
+        if (pair->Length() < 2) continue;
+        TsValue k = nanbox_to_tagged((TsValue*)pair->GetElementBoxed(0));
+        TsValue v = nanbox_to_tagged((TsValue*)pair->GetElementBoxed(1));
+        out->Set(k, v);
+    }
+    return ts_value_make_object(out);
+}
+
 void* ts_get_global_Object() {
-    static TsMap* cached = nullptr;
+    static void* cached = nullptr;
     if (cached) return cached;
 
-    cached = TsMap::Create();
+    TsMap* ctor = TsMap::Create();
     // Static methods
-    addMethod(cached, "keys", (void*)ts_object_keys_native);
-    addMethod(cached, "values", (void*)ts_object_values_native);
-    addMethod(cached, "entries", (void*)ts_object_entries_native);
-    addMethod(cached, "assign", (void*)ts_object_assign_native);
-    addMethod(cached, "create", (void*)ts_object_create_native);
-    addMethod(cached, "defineProperty", (void*)ts_object_defineProperty_native);
-    addMethod(cached, "defineProperties", (void*)ts_object_defineProperties_native);
-    addMethod(cached, "getOwnPropertyDescriptor", (void*)ts_object_getOwnPropertyDescriptor_native);
-    addMethod(cached, "getOwnPropertyDescriptors", (void*)ts_object_getOwnPropertyDescriptors_native);
-    addMethod(cached, "getOwnPropertyNames", (void*)ts_object_getOwnPropertyNames_native);
-    addMethod(cached, "getPrototypeOf", (void*)ts_object_getPrototypeOf_native);
-    addMethod(cached, "setPrototypeOf", (void*)ts_object_setPrototypeOf_native);
-    addMethod(cached, "freeze", (void*)ts_object_freeze_native);
-    addMethod(cached, "seal", (void*)ts_object_seal_native);
-    addMethod(cached, "preventExtensions", (void*)ts_object_preventExtensions_native);
-    addMethod(cached, "isFrozen", (void*)ts_object_isFrozen_native);
-    addMethod(cached, "isSealed", (void*)ts_object_isSealed_native);
-    addMethod(cached, "isExtensible", (void*)ts_object_isExtensible_native);
-    addMethod(cached, "is", (void*)ts_object_is_native);
-    addMethod(cached, "hasOwn", (void*)ts_object_hasOwn_native);
+    addMethod(ctor, "keys", (void*)ts_object_keys_native);
+    addMethod(ctor, "values", (void*)ts_object_values_native);
+    addMethod(ctor, "entries", (void*)ts_object_entries_native);
+    addMethod(ctor, "fromEntries", (void*)object_fromEntries_native, 1);
+    addMethod(ctor, "assign", (void*)ts_object_assign_native);
+    addMethod(ctor, "create", (void*)ts_object_create_native);
+    addMethod(ctor, "defineProperty", (void*)ts_object_defineProperty_native);
+    addMethod(ctor, "defineProperties", (void*)ts_object_defineProperties_native);
+    addMethod(ctor, "getOwnPropertyDescriptor", (void*)ts_object_getOwnPropertyDescriptor_native);
+    addMethod(ctor, "getOwnPropertyDescriptors", (void*)ts_object_getOwnPropertyDescriptors_native);
+    addMethod(ctor, "getOwnPropertyNames", (void*)ts_object_getOwnPropertyNames_native);
+    addMethod(ctor, "getPrototypeOf", (void*)ts_object_getPrototypeOf_native);
+    addMethod(ctor, "setPrototypeOf", (void*)ts_object_setPrototypeOf_native);
+    addMethod(ctor, "freeze", (void*)ts_object_freeze_native);
+    addMethod(ctor, "seal", (void*)ts_object_seal_native);
+    addMethod(ctor, "preventExtensions", (void*)ts_object_preventExtensions_native);
+    addMethod(ctor, "isFrozen", (void*)ts_object_isFrozen_native);
+    addMethod(ctor, "isSealed", (void*)ts_object_isSealed_native);
+    addMethod(ctor, "isExtensible", (void*)ts_object_isExtensible_native);
+    addMethod(ctor, "is", (void*)ts_object_is_native);
+    addMethod(ctor, "hasOwn", (void*)ts_object_hasOwn_native);
 
     // Object.prototype — a TsMap that serves as the base prototype
     TsMap* proto = TsMap::Create();
@@ -210,8 +239,11 @@ void* ts_get_global_Object() {
     TsValue protoVal;
     protoVal.type = ValueType::OBJECT_PTR;
     protoVal.ptr_val = proto;
-    cached->Set(protoKey, protoVal);
+    ctor->Set(protoKey, protoVal);
 
+    // Promote to TsFunction so `typeof Object === "function"` and
+    // `isConstructor(Object)` returns true.
+    cached = wrapAsCallable(ctor, "Object");
     return cached;
 }
 
@@ -903,9 +935,43 @@ void* ts_get_global_RegExp() {
     return cached;
 }
 
+// Native wrappers for Promise statics. The runtime provides the logic
+// (ts_promise_resolve/reject/all/race), these just adapt the native
+// calling convention.
+extern "C" {
+    TsValue* ts_promise_resolve(void* context, TsValue* value);
+    TsValue* ts_promise_reject(void* context, TsValue* reason);
+    TsValue* ts_promise_all(TsValue* iterable);
+    TsValue* ts_promise_race(TsValue* iterable);
+}
+
+static TsValue* promise_resolve_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    return ts_promise_resolve(nullptr, v);
+}
+static TsValue* promise_reject_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    return ts_promise_reject(nullptr, v);
+}
+static TsValue* promise_all_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    return ts_promise_all(v);
+}
+static TsValue* promise_race_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    return ts_promise_race(v);
+}
+
 void* ts_get_global_Promise() {
     static void* cached = nullptr;
-    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("Promise"), "Promise");
+    if (!cached) {
+        TsMap* ctor = makeSimpleConstructorGlobal("Promise");
+        addMethod(ctor, "resolve", (void*)promise_resolve_native, 1);
+        addMethod(ctor, "reject",  (void*)promise_reject_native,  1);
+        addMethod(ctor, "all",     (void*)promise_all_native,     1);
+        addMethod(ctor, "race",    (void*)promise_race_native,    1);
+        cached = wrapAsCallable(ctor, "Promise");
+    }
     return cached;
 }
 
@@ -1149,11 +1215,91 @@ static TsValue* ts_reflect_construct_native(void* ctx, int argc, TsValue** argv)
     return ts_reflect_construct(target, args, newTarget);
 }
 
+extern "C" {
+    int64_t ts_reflect_set(void* target, void* prop, void* value, void* receiver);
+    int64_t ts_reflect_has(void* target, void* prop);
+    int64_t ts_reflect_deleteProperty(void* target, void* prop);
+    TsValue* ts_reflect_ownKeys(void* target);
+    TsValue* ts_reflect_getPrototypeOf(void* target);
+    int64_t ts_reflect_setPrototypeOf(void* target, void* proto);
+    TsValue* ts_reflect_getOwnPropertyDescriptor(void* target, void* prop);
+    int64_t ts_reflect_defineProperty(void* target, void* prop, void* descriptor);
+    int64_t ts_reflect_isExtensible(void* target);
+    int64_t ts_reflect_preventExtensions(void* target);
+}
+
+static TsValue* reflect_get_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    void* p = (argc >= 2 && argv) ? argv[1] : nullptr;
+    void* r = (argc >= 3 && argv) ? argv[2] : nullptr;
+    return ts_reflect_get(t, p, r);
+}
+static TsValue* reflect_set_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    void* p = (argc >= 2 && argv) ? argv[1] : nullptr;
+    void* v = (argc >= 3 && argv) ? argv[2] : nullptr;
+    void* r = (argc >= 4 && argv) ? argv[3] : nullptr;
+    return ts_value_make_bool(ts_reflect_set(t, p, v, r) != 0);
+}
+static TsValue* reflect_has_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    void* p = (argc >= 2 && argv) ? argv[1] : nullptr;
+    return ts_value_make_bool(ts_reflect_has(t, p) != 0);
+}
+static TsValue* reflect_deleteProperty_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    void* p = (argc >= 2 && argv) ? argv[1] : nullptr;
+    return ts_value_make_bool(ts_reflect_deleteProperty(t, p) != 0);
+}
+static TsValue* reflect_ownKeys_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    return ts_reflect_ownKeys(t);
+}
+static TsValue* reflect_getPrototypeOf_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    return ts_reflect_getPrototypeOf(t);
+}
+static TsValue* reflect_setPrototypeOf_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    void* p = (argc >= 2 && argv) ? argv[1] : nullptr;
+    return ts_value_make_bool(ts_reflect_setPrototypeOf(t, p) != 0);
+}
+static TsValue* reflect_getOwnPropertyDescriptor_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    void* p = (argc >= 2 && argv) ? argv[1] : nullptr;
+    return ts_reflect_getOwnPropertyDescriptor(t, p);
+}
+static TsValue* reflect_defineProperty_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    void* p = (argc >= 2 && argv) ? argv[1] : nullptr;
+    void* d = (argc >= 3 && argv) ? argv[2] : nullptr;
+    return ts_value_make_bool(ts_reflect_defineProperty(t, p, d) != 0);
+}
+static TsValue* reflect_isExtensible_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    return ts_value_make_bool(ts_reflect_isExtensible(t) != 0);
+}
+static TsValue* reflect_preventExtensions_native(void* ctx, int argc, TsValue** argv) {
+    void* t = (argc >= 1 && argv) ? argv[0] : nullptr;
+    return ts_value_make_bool(ts_reflect_preventExtensions(t) != 0);
+}
+
 void* ts_get_global_Reflect() {
     static TsMap* cached = nullptr;
     if (!cached) {
         cached = makeSimpleConstructorGlobal("Reflect");
-        addMethod(cached, "construct", (void*)ts_reflect_construct_native, 2);
+        addMethod(cached, "construct",    (void*)ts_reflect_construct_native, 2);
+        addMethod(cached, "get",          (void*)reflect_get_native, 2);
+        addMethod(cached, "set",          (void*)reflect_set_native, 3);
+        addMethod(cached, "has",          (void*)reflect_has_native, 2);
+        addMethod(cached, "deleteProperty", (void*)reflect_deleteProperty_native, 2);
+        addMethod(cached, "ownKeys",      (void*)reflect_ownKeys_native, 1);
+        addMethod(cached, "getPrototypeOf", (void*)reflect_getPrototypeOf_native, 1);
+        addMethod(cached, "setPrototypeOf", (void*)reflect_setPrototypeOf_native, 2);
+        addMethod(cached, "getOwnPropertyDescriptor", (void*)reflect_getOwnPropertyDescriptor_native, 2);
+        addMethod(cached, "defineProperty", (void*)reflect_defineProperty_native, 3);
+        addMethod(cached, "isExtensible", (void*)reflect_isExtensible_native, 1);
+        addMethod(cached, "preventExtensions", (void*)reflect_preventExtensions_native, 1);
     }
     return cached;
 }
