@@ -596,20 +596,148 @@ static TsValue* ts_iterator_next(void* context, int argc, TsValue** argv) {
     return ts_value_make_object(result);
 }
 
-static TsValue* ts_create_iterator(TsArray* items) {
-    void* mem = ts_alloc(sizeof(IteratorState));
-    IteratorState* state = new(mem) IteratorState();
-    state->items = items;
-    state->index = 0;
+// ============================================================================
+// ArrayIteratorPrototype — per ES spec, all array iterators share this object
+// as their [[Prototype]]. Tests check `Object.getPrototypeOf(iter) ===
+// Object.getPrototypeOf([][Symbol.iterator]())` for prototype identity.
+//
+// Iterators carry their state (items array + index) as hidden own properties
+// under the keys "__iter_items" and "__iter_index". `.next()` on the
+// prototype reads this-iterator's own props via ts_get_call_this() and
+// advances the index in place.
+// ============================================================================
 
-    // Create iterator object as a TsMap with 'next' as a native function
+extern "C" void* ts_get_call_this();
+
+static TsValue* ts_array_iterator_proto_next(void* ctx, int argc, TsValue** argv);
+static TsValue* ts_array_iterator_proto_iter_self(void* ctx, int argc, TsValue** argv);
+
+// Local copy of TsGlobals.cpp's addMethod (it is static there).
+static void ts_map_addMethod_local(TsMap* map, const char* name, void* nativeFn, int arity) {
+    TsValue key; key.type = ValueType::STRING_PTR;
+    key.ptr_val = TsString::GetInterned(name);
+    TsValue* fn = ts_value_make_native_function(nativeFn, nullptr);
+    TsFunction* func = (TsFunction*)fn;
+    func->name = TsString::Create(name);
+    func->arity = arity;
+    func->is_constructor = false;
+    if (!func->properties) func->properties = TsMap::Create();
+    TsValue lk; lk.type = ValueType::STRING_PTR;
+    lk.ptr_val = TsString::GetInterned("length");
+    TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = arity;
+    func->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+    TsValue nk; nk.type = ValueType::STRING_PTR;
+    nk.ptr_val = TsString::GetInterned("name");
+    TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = func->name;
+    func->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+    TsValue val; val.type = ValueType::FUNCTION_PTR; val.ptr_val = fn;
+    map->SetWithAttrs(key, val,
+        TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+}
+
+static TsMap* g_array_iterator_prototype = nullptr;
+TsMap* getArrayIteratorPrototype() {
+    if (!g_array_iterator_prototype) {
+        TsMap* proto = TsMap::Create();
+        ts_map_addMethod_local(proto, "next", (void*)ts_array_iterator_proto_next, 0);
+        ts_map_addMethod_local(proto, "[Symbol.iterator]", (void*)ts_array_iterator_proto_iter_self, 0);
+        // .[[@@toStringTag]] — makes Object.prototype.toString.call(iter)
+        // return "[object Array Iterator]" per spec.
+        TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+        tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+        TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+        tagVal.ptr_val = TsString::Create("Array Iterator");
+        proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+        g_array_iterator_prototype = proto;
+    }
+    return g_array_iterator_prototype;
+}
+
+// Called via prototype dispatch with `this` bound to the iterator TsMap.
+static TsValue* ts_array_iterator_proto_next(void* ctx, int argc, TsValue** argv) {
+    // `ctx` is typically null for prototype-dispatched methods; use
+    // ts_get_call_this() to retrieve `this` (the iterator).
+    if (!ctx) ctx = ts_get_call_this();
+    if (!ctx) {
+        // No receiver — return {done: true, value: undefined}.
+        TsMap* r = TsMap::Create();
+        TsValue dk; dk.type = ValueType::STRING_PTR; dk.ptr_val = TsString::Create("done");
+        TsValue dv; dv.type = ValueType::BOOLEAN; dv.i_val = 1;
+        r->Set(dk, dv);
+        TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::Create("value");
+        TsValue vv; vv.type = ValueType::UNDEFINED; vv.i_val = 0;
+        r->Set(vk, vv);
+        return ts_value_make_object(r);
+    }
+
+    void* rawCtx = ts_value_get_object((TsValue*)ctx);
+    if (!rawCtx) rawCtx = ctx;
+    TsMap* iter = (TsMap*)rawCtx;
+
+    // Read state: items TsArray, index, kind (0=keys, 1=values, 2=entries).
+    TsValue itemsKey; itemsKey.type = ValueType::STRING_PTR;
+    itemsKey.ptr_val = TsString::GetInterned("__iter_items");
+    TsValue itemsVal = iter->Get(itemsKey);
+    TsArray* items = (itemsVal.type == ValueType::OBJECT_PTR || itemsVal.type == ValueType::ARRAY_PTR)
+                        ? (TsArray*)itemsVal.ptr_val : nullptr;
+
+    TsValue indexKey; indexKey.type = ValueType::STRING_PTR;
+    indexKey.ptr_val = TsString::GetInterned("__iter_index");
+    TsValue indexVal = iter->Get(indexKey);
+    int64_t index = (indexVal.type == ValueType::NUMBER_INT) ? indexVal.i_val : 0;
+
+    // Build {done, value} result.
+    TsMap* result = TsMap::Create();
+    TsValue doneKey; doneKey.type = ValueType::STRING_PTR; doneKey.ptr_val = TsString::Create("done");
+    TsValue valueKey; valueKey.type = ValueType::STRING_PTR; valueKey.ptr_val = TsString::Create("value");
+
+    int64_t len = items ? items->Length() : 0;
+    if (!items || index >= len) {
+        TsValue dv; dv.type = ValueType::BOOLEAN; dv.i_val = 1;
+        result->Set(doneKey, dv);
+        TsValue vv; vv.type = ValueType::UNDEFINED; vv.i_val = 0;
+        result->Set(valueKey, vv);
+    } else {
+        TsValue dv; dv.type = ValueType::BOOLEAN; dv.i_val = 0;
+        result->Set(doneKey, dv);
+
+        int64_t raw = items->Get(index);
+        TsValue vv;
+        vv.type = ValueType::OBJECT_PTR;
+        vv.i_val = raw;
+        result->Set(valueKey, vv);
+
+        // Advance index.
+        TsValue newIndex; newIndex.type = ValueType::NUMBER_INT; newIndex.i_val = index + 1;
+        iter->Set(indexKey, newIndex);
+    }
+
+    return ts_value_make_object(result);
+}
+
+// Iterators are themselves iterable: `[Symbol.iterator]()` returns self.
+static TsValue* ts_array_iterator_proto_iter_self(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    if (!ctx) return ts_value_make_undefined();
+    return (TsValue*)ctx;
+}
+
+static TsValue* ts_create_iterator(TsArray* items) {
+    // Create iterator object as a TsMap with state as hidden own properties
+    // and prototype chain set to ArrayIteratorPrototype (for .next / Symbol.iterator).
     TsMap* iter = TsMap::Create();
-    TsValue keyNext; keyNext.type = ValueType::STRING_PTR;
-    keyNext.ptr_val = TsString::Create("next");
-    TsValue valNext; valNext.type = ValueType::OBJECT_PTR;
-    valNext.i_val = (int64_t)(uintptr_t)ts_value_make_native_function(
-        (void*)ts_iterator_next, (void*)state);
-    iter->Set(keyNext, valNext);
+    iter->SetPrototype(getArrayIteratorPrototype());
+
+    TsValue itemsKey; itemsKey.type = ValueType::STRING_PTR;
+    itemsKey.ptr_val = TsString::GetInterned("__iter_items");
+    TsValue itemsVal; itemsVal.type = ValueType::OBJECT_PTR;
+    itemsVal.ptr_val = items;
+    iter->Set(itemsKey, itemsVal);
+
+    TsValue indexKey; indexKey.type = ValueType::STRING_PTR;
+    indexKey.ptr_val = TsString::GetInterned("__iter_index");
+    TsValue indexVal; indexVal.type = ValueType::NUMBER_INT; indexVal.i_val = 0;
+    iter->Set(indexKey, indexVal);
 
     return ts_value_make_object(iter);
 }

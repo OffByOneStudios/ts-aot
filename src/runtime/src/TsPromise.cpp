@@ -145,11 +145,16 @@ TsValue* Generator_next(TsValue* genVal, TsValue* value) {
     // rather than a real TsGenerator
     uint32_t magic = *(uint32_t*)((char*)raw + 16);
     if (magic == 0x4D415053) { // TsMap::MAGIC = "MAPS"
-        // It's a Map object acting as an iterator - look up "next" and call it
-        TsString* nextKey = TsString::Create("next");
-        TsValue* nextFn = ts_map_get_property(raw, nextKey);
+        // It's a Map-based iterator — look up "next" via prototype chain
+        // (ts_map_get_property only checks own properties, which misses
+        // shared ArrayIteratorPrototype). ts_object_get_dynamic walks the
+        // prototype chain and accepts NaN-boxed TsValue*s.
+        TsValue* nextKey = ts_value_make_string(TsString::Create("next"));
+        TsValue* nextFn = ts_object_get_dynamic(genVal, nextKey);
         if (nextFn && !ts_value_is_undefined(nextFn)) {
-            return ts_call_0(nextFn);
+            // Preserve `this` so native methods that read ts_get_call_this()
+            // (e.g., ArrayIteratorPrototype.next) find the receiver.
+            return ts_call_with_this_0(nextFn, genVal);
         }
         return ts_value_make_undefined();
     }
