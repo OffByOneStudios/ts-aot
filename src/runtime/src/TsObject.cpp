@@ -7893,6 +7893,71 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_double(m);
     }
 
+    // Macro for single-arg double→double Math methods. The compiler has
+    // typed fast-path for these (ts_math_<name>(double)→double), but they
+    // also need to be exposed as first-class TsFunctions so that
+    // \`typeof Math.sqrt === "function"\`, \`Math.sqrt.length\`, and
+    // \`Math.sqrt.name\` work for test262 metadata tests and for general
+    // first-class-value usage.
+    #define TS_MATH_D_NATIVE(name)                                                        \
+        extern "C" double ts_math_##name(double);                                         \
+        static TsValue* ts_math_##name##_native(void* context, int argc, TsValue** argv) { \
+            if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); \
+            return ts_value_make_double(ts_math_##name(ts_value_get_double(argv[0])));    \
+        }
+    // Single-arg Math methods that already have C implementations.
+    TS_MATH_D_NATIVE(sqrt)
+    TS_MATH_D_NATIVE(cbrt)
+    TS_MATH_D_NATIVE(log10)
+    TS_MATH_D_NATIVE(log2)
+    TS_MATH_D_NATIVE(log1p)
+    TS_MATH_D_NATIVE(expm1)
+    TS_MATH_D_NATIVE(cosh)
+    TS_MATH_D_NATIVE(sinh)
+    TS_MATH_D_NATIVE(tanh)
+    TS_MATH_D_NATIVE(acosh)
+    TS_MATH_D_NATIVE(asinh)
+    TS_MATH_D_NATIVE(atanh)
+    TS_MATH_D_NATIVE(trunc)
+    TS_MATH_D_NATIVE(sign)
+    #undef TS_MATH_D_NATIVE
+
+    // Single-arg standard-library Math functions without a ts_math_ wrapper.
+    #define TS_MATH_STD_NATIVE(name, stdcall)                                             \
+        static TsValue* ts_math_##name##_native(void* context, int argc, TsValue** argv) { \
+            if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); \
+            return ts_value_make_double(stdcall(ts_value_get_double(argv[0])));           \
+        }
+    TS_MATH_STD_NATIVE(log,    std::log)
+    TS_MATH_STD_NATIVE(exp,    std::exp)
+    TS_MATH_STD_NATIVE(sin,    std::sin)
+    TS_MATH_STD_NATIVE(cos,    std::cos)
+    TS_MATH_STD_NATIVE(tan,    std::tan)
+    TS_MATH_STD_NATIVE(asin,   std::asin)
+    TS_MATH_STD_NATIVE(acos,   std::acos)
+    TS_MATH_STD_NATIVE(atan,   std::atan)
+    TS_MATH_STD_NATIVE(round,  std::round)
+    #undef TS_MATH_STD_NATIVE
+
+    // Two-arg Math methods.
+    static TsValue* ts_math_pow_native(void* context, int argc, TsValue** argv) {
+        if (argc < 2) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        return ts_value_make_double(std::pow(ts_value_get_double(argv[0]), ts_value_get_double(argv[1])));
+    }
+    static TsValue* ts_math_atan2_native(void* context, int argc, TsValue** argv) {
+        if (argc < 2) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        return ts_value_make_double(std::atan2(ts_value_get_double(argv[0]), ts_value_get_double(argv[1])));
+    }
+    static TsValue* ts_math_hypot_native(void* context, int argc, TsValue** argv) {
+        if (argc == 0) return ts_value_make_double(0.0);
+        double acc = 0;
+        for (int i = 0; i < argc; i++) {
+            double v = ts_value_get_double(argv[i]);
+            acc += v*v;
+        }
+        return ts_value_make_double(std::sqrt(acc));
+    }
+
     extern "C" int64_t ts_parseInt(void* value);
 
     TsValue* ts_parseInt_native(void* context, int argc, TsValue** argv) {
@@ -8466,6 +8531,45 @@ TsValue* ts_value_make_int(int64_t i) {
         mathMap->Set(absKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_abs_native, nullptr, "abs", 1)));
         mathMap->Set(maxKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_max_native, nullptr, "max", 2)));
         mathMap->Set(minKey, nanbox_to_tagged(makeNamedNativeFunction((void*)ts_math_min_native, nullptr, "min", 2)));
+        // Expand Math surface: register the rest of the spec methods as
+        // first-class TsFunction values with correct length/name. Enables
+        // \`typeof Math.sqrt === "function"\`, Math.sqrt.length/name,
+        // isConstructor(Math.sqrt) === false, and Reflect.apply(Math.sqrt, ...).
+        #define ADD_MATH(NAME, ARITY)                                                      \
+            do {                                                                           \
+                TsValue k; k.type = ValueType::STRING_PTR;                                 \
+                k.ptr_val = TsString::Create(#NAME);                                       \
+                mathMap->Set(k, nanbox_to_tagged(                                          \
+                    makeNamedNativeFunction((void*)ts_math_##NAME##_native,                \
+                                            nullptr, #NAME, ARITY)));                      \
+            } while (0)
+        ADD_MATH(sqrt, 1);
+        ADD_MATH(cbrt, 1);
+        ADD_MATH(log, 1);
+        ADD_MATH(log2, 1);
+        ADD_MATH(log10, 1);
+        ADD_MATH(log1p, 1);
+        ADD_MATH(exp, 1);
+        ADD_MATH(expm1, 1);
+        ADD_MATH(sin, 1);
+        ADD_MATH(cos, 1);
+        ADD_MATH(tan, 1);
+        ADD_MATH(asin, 1);
+        ADD_MATH(acos, 1);
+        ADD_MATH(atan, 1);
+        ADD_MATH(sinh, 1);
+        ADD_MATH(cosh, 1);
+        ADD_MATH(tanh, 1);
+        ADD_MATH(asinh, 1);
+        ADD_MATH(acosh, 1);
+        ADD_MATH(atanh, 1);
+        ADD_MATH(round, 1);
+        ADD_MATH(trunc, 1);
+        ADD_MATH(sign, 1);
+        ADD_MATH(pow, 2);
+        ADD_MATH(atan2, 2);
+        ADD_MATH(hypot, 2);
+        #undef ADD_MATH
         setToStringTag(mathMap, "Math");
         Math = ts_value_make_object(mathMap);
 
