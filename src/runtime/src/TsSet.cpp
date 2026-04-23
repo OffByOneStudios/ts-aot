@@ -196,6 +196,54 @@ TsValue* ts_set_size_wrapper(void* context) {
     return ts_value_make_int(ts_set_size(rawCtx));
 }
 
+// Iterators: values() and keys() are identical for Set; entries() yields
+// [v, v] pairs per spec. All return a SetIteratorPrototype-backed iterator.
+extern "C" void* ts_create_set_iterator(void* items);
+
+// ts_set_entries — runtime symbol referenced by typed TS lowering
+// (BuiltinRegistry.cpp:508). Returns a TsArray of [v, v] pair arrays so
+// the typed path can iterate it directly as an array. The untyped-JS path
+// goes through ts_set_entries_iter_wrapper (below) which builds a real
+// iterator using SetIteratorPrototype.
+extern "C" void* ts_set_entries(void* set) {
+    if (!set) return ts_array_create();
+    TsArray* vals = (TsArray*)((TsSet*)set)->GetValues();
+    TsArray* pairs = (TsArray*)ts_array_create();
+    int64_t n = vals ? vals->Length() : 0;
+    for (int64_t i = 0; i < n; i++) {
+        TsArray* pair = (TsArray*)ts_array_create();
+        int64_t raw = vals->Get(i);
+        pair->Push(raw);
+        pair->Push(raw);
+        pairs->Push((int64_t)(uintptr_t)pair);
+    }
+    return pairs;
+}
+
+TsValue* ts_set_values_iter_wrapper(void* context, int argc, TsValue** argv) {
+    void* rawCtx = requireSet(context, "values");
+    if (!rawCtx) return ts_value_make_undefined();
+    void* items = ts_set_values(rawCtx);
+    return (TsValue*)ts_create_set_iterator(items);
+}
+
+TsValue* ts_set_entries_iter_wrapper(void* context, int argc, TsValue** argv) {
+    void* rawCtx = requireSet(context, "entries");
+    if (!rawCtx) return ts_value_make_undefined();
+    // Build [[v,v], [v,v], ...] pairs.
+    TsArray* vals = (TsArray*)ts_set_values(rawCtx);
+    TsArray* pairs = (TsArray*)ts_array_create();
+    int64_t n = vals ? vals->Length() : 0;
+    for (int64_t i = 0; i < n; i++) {
+        TsArray* pair = (TsArray*)ts_array_create();
+        int64_t raw = vals->Get(i);
+        pair->Push(raw);
+        pair->Push(raw);
+        pairs->Push((int64_t)(uintptr_t)pair);
+    }
+    return (TsValue*)ts_create_set_iterator(pairs);
+}
+
 // Helper: create a TsFunction with name, arity, and properties TsMap
 static TsValue* makeSetMethod(void* funcPtr, void* ctx, const char* methodName, int arity) {
     TsValue* val = ts_value_make_function(funcPtr, ctx);
@@ -228,6 +276,13 @@ TsValue* ts_set_get_property(void* obj, void* propName) {
         return makeSetMethod((void*)ts_set_clear_wrapper, obj, "clear", 0);
     } else if (strcmp(name, "size") == 0) {
         return ts_value_make_int(ts_set_size(obj));
+    } else if (strcmp(name, "values") == 0 || strcmp(name, "keys") == 0 ||
+               strcmp(name, "[Symbol.iterator]") == 0) {
+        // Per spec, Set.prototype.keys === Set.prototype.values, and
+        // Set.prototype[@@iterator] === Set.prototype.values.
+        return makeSetMethod((void*)ts_set_values_iter_wrapper, obj, name, 0);
+    } else if (strcmp(name, "entries") == 0) {
+        return makeSetMethod((void*)ts_set_entries_iter_wrapper, obj, "entries", 0);
     }
 
     return ts_value_make_undefined();

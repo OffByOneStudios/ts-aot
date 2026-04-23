@@ -340,26 +340,29 @@ void* ts_map_entries(void* map) {
     return ((TsMap*)map)->GetEntries();
 }
 
-// Forward declaration for iterator creation (defined later)
+// Forward declarations for iterator creation (defined later)
 static TsValue* ts_create_iterator(TsArray* items);
+TsMap* getMapIteratorPrototype();
+static TsValue* ts_create_iterator_with_proto(TsArray* items, TsMap* proto);
 
-// Iterator-returning versions (return TsMap with .next() method)
+// Iterator-returning versions (return TsMap-based iterator with
+// MapIteratorPrototype so toStringTag reads "Map Iterator" per spec).
 void* ts_map_keys_iter(void* map) {
     if (!map) return nullptr;
     TsArray* keys = (TsArray*)((TsMap*)map)->GetKeys();
-    return (void*)ts_create_iterator(keys);
+    return (void*)ts_create_iterator_with_proto(keys, getMapIteratorPrototype());
 }
 
 void* ts_map_values_iter(void* map) {
     if (!map) return nullptr;
     TsArray* values = (TsArray*)((TsMap*)map)->GetValues();
-    return (void*)ts_create_iterator(values);
+    return (void*)ts_create_iterator_with_proto(values, getMapIteratorPrototype());
 }
 
 void* ts_map_entries_iter(void* map) {
     if (!map) return nullptr;
     TsArray* entries = (TsArray*)((TsMap*)map)->GetEntries();
-    return (void*)ts_create_iterator(entries);
+    return (void*)ts_create_iterator_with_proto(entries, getMapIteratorPrototype());
 }
 
 void ts_map_forEach(void* map, void* callback, void* thisArg) {
@@ -635,22 +638,37 @@ static void ts_map_addMethod_local(TsMap* map, const char* name, void* nativeFn,
         TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 }
 
+// All iterator prototypes share next()/[Symbol.iterator]() bodies — the only
+// per-kind difference is @@toStringTag and identity. Build the singleton
+// lazily; callers pick which prototype via ts_create_iterator_with_proto.
+static TsMap* buildIteratorPrototype(const char* tagStr) {
+    TsMap* proto = TsMap::Create();
+    ts_map_addMethod_local(proto, "next", (void*)ts_array_iterator_proto_next, 0);
+    ts_map_addMethod_local(proto, "[Symbol.iterator]", (void*)ts_array_iterator_proto_iter_self, 0);
+    TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+    tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+    TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+    tagVal.ptr_val = TsString::Create(tagStr);
+    proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+    return proto;
+}
+
 static TsMap* g_array_iterator_prototype = nullptr;
 TsMap* getArrayIteratorPrototype() {
-    if (!g_array_iterator_prototype) {
-        TsMap* proto = TsMap::Create();
-        ts_map_addMethod_local(proto, "next", (void*)ts_array_iterator_proto_next, 0);
-        ts_map_addMethod_local(proto, "[Symbol.iterator]", (void*)ts_array_iterator_proto_iter_self, 0);
-        // .[[@@toStringTag]] — makes Object.prototype.toString.call(iter)
-        // return "[object Array Iterator]" per spec.
-        TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
-        tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
-        TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
-        tagVal.ptr_val = TsString::Create("Array Iterator");
-        proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
-        g_array_iterator_prototype = proto;
-    }
+    if (!g_array_iterator_prototype) g_array_iterator_prototype = buildIteratorPrototype("Array Iterator");
     return g_array_iterator_prototype;
+}
+
+static TsMap* g_map_iterator_prototype = nullptr;
+TsMap* getMapIteratorPrototype() {
+    if (!g_map_iterator_prototype) g_map_iterator_prototype = buildIteratorPrototype("Map Iterator");
+    return g_map_iterator_prototype;
+}
+
+static TsMap* g_set_iterator_prototype = nullptr;
+TsMap* getSetIteratorPrototype() {
+    if (!g_set_iterator_prototype) g_set_iterator_prototype = buildIteratorPrototype("Set Iterator");
+    return g_set_iterator_prototype;
 }
 
 // Called via prototype dispatch with `this` bound to the iterator TsMap.
@@ -722,11 +740,11 @@ static TsValue* ts_array_iterator_proto_iter_self(void* ctx, int argc, TsValue**
     return (TsValue*)ctx;
 }
 
-static TsValue* ts_create_iterator(TsArray* items) {
+static TsValue* ts_create_iterator_with_proto(TsArray* items, TsMap* proto) {
     // Create iterator object as a TsMap with state as hidden own properties
-    // and prototype chain set to ArrayIteratorPrototype (for .next / Symbol.iterator).
+    // and prototype chain set to the caller-chosen iterator prototype.
     TsMap* iter = TsMap::Create();
-    iter->SetPrototype(getArrayIteratorPrototype());
+    iter->SetPrototype(proto);
 
     TsValue itemsKey; itemsKey.type = ValueType::STRING_PTR;
     itemsKey.ptr_val = TsString::GetInterned("__iter_items");
@@ -742,25 +760,37 @@ static TsValue* ts_create_iterator(TsArray* items) {
     return ts_value_make_object(iter);
 }
 
+static TsValue* ts_create_iterator(TsArray* items) {
+    return ts_create_iterator_with_proto(items, getArrayIteratorPrototype());
+}
+
 // Extern C wrapper for creating iterators (used by TsObject.cpp for Array)
 void* ts_create_array_iterator(void* items) {
     return (void*)ts_create_iterator((TsArray*)items);
 }
 
+void* ts_create_map_iterator(void* items) {
+    return (void*)ts_create_iterator_with_proto((TsArray*)items, getMapIteratorPrototype());
+}
+
+void* ts_create_set_iterator(void* items) {
+    return (void*)ts_create_iterator_with_proto((TsArray*)items, getSetIteratorPrototype());
+}
+
 // Map method wrappers that return iterators
 static TsValue* ts_map_keys_iter_wrapper(void* context, int argc, TsValue** argv) {
     TsArray* keys = (TsArray*)ts_map_keys(context);
-    return ts_create_iterator(keys);
+    return ts_create_iterator_with_proto(keys, getMapIteratorPrototype());
 }
 
 static TsValue* ts_map_values_iter_wrapper(void* context, int argc, TsValue** argv) {
     TsArray* values = (TsArray*)ts_map_values(context);
-    return ts_create_iterator(values);
+    return ts_create_iterator_with_proto(values, getMapIteratorPrototype());
 }
 
 static TsValue* ts_map_entries_iter_wrapper(void* context, int argc, TsValue** argv) {
     TsArray* entries = (TsArray*)ts_map_entries(context);
-    return ts_create_iterator(entries);
+    return ts_create_iterator_with_proto(entries, getMapIteratorPrototype());
 }
 
 // Map forEach wrapper

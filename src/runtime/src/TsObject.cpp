@@ -8338,16 +8338,22 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Per ES spec step 15: Let tag = Get(O, @@toStringTag). If String, override.
         // Stored via the existing "[Symbol.toStringTag]" convention (see TsPromise).
+        // Walk the prototype chain — iterators inherit the tag from
+        // ArrayIteratorPrototype, not as their own property.
         if (mapForTag) {
             TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
             tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
-            TsValue tagVal = mapForTag->Get(tagKey);
-            if (tagVal.type == ValueType::STRING_PTR && tagVal.ptr_val) {
-                TsString* tagStr = (TsString*)tagVal.ptr_val;
-                std::string out = "[object ";
-                out += tagStr->ToUtf8();
-                out += "]";
-                return ts_value_make_string(TsString::Create(out.c_str()));
+            TsMap* cur = mapForTag;
+            while (cur) {
+                TsValue tagVal = cur->Get(tagKey);
+                if (tagVal.type == ValueType::STRING_PTR && tagVal.ptr_val) {
+                    TsString* tagStr = (TsString*)tagVal.ptr_val;
+                    std::string out = "[object ";
+                    out += tagStr->ToUtf8();
+                    out += "]";
+                    return ts_value_make_string(TsString::Create(out.c_str()));
+                }
+                cur = cur->GetPrototype();
             }
         }
 
