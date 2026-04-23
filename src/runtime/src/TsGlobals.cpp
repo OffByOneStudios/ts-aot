@@ -747,6 +747,29 @@ static void* wrapAsCallable(TsMap* ctor, const char* name) {
     // ts_object_get_property(func, key).
     func->properties = ctor;
     ts_gc_write_barrier(&func->properties, ctor);
+    // Per ES spec, built-in function objects have "name" as an own data
+    // property with {writable:false, enumerable:false, configurable:true}.
+    // Tests use Object.prototype.hasOwnProperty.call(X, "name") + descriptor
+    // inspection, so it must live on the properties TsMap, not just in
+    // func->name. Install "length" similarly (default 0; callers that want
+    // a non-zero arity can overwrite afterwards).
+    {
+        TsValue nk; nk.type = ValueType::STRING_PTR;
+        nk.ptr_val = TsString::GetInterned("name");
+        TsValue nv; nv.type = ValueType::STRING_PTR;
+        nv.ptr_val = func->name;
+        ctor->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+        TsValue lk; lk.type = ValueType::STRING_PTR;
+        lk.ptr_val = TsString::GetInterned("length");
+        // Only install "length" if caller hasn't already set one — some
+        // ctors (Array, Set, etc.) pre-populate static methods via addMethod
+        // and the ctor's own length is spec-specific.
+        TsValue existing = ctor->Get(lk);
+        if (existing.type == ValueType::UNDEFINED) {
+            TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 0;
+            ctor->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+        }
+    }
     return (void*)func;
 }
 
@@ -1041,6 +1064,25 @@ void* ts_get_global_Symbol() {
             v.ptr_val = TsString::GetInterned(canonical);
             ctor->Set(k, v);
         }
+
+        // Static methods: Symbol.for(key), Symbol.keyFor(sym).
+        extern void* ts_symbol_for(void* key);
+        extern void* ts_symbol_key_for(void* sym);
+        addMethod(ctor, "for", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            void* key = (argc >= 1 && argv) ? (void*)ts_value_get_string(argv[0]) : nullptr;
+            if (!key && argc >= 1 && argv) key = (void*)argv[0];
+            void* sym = ts_symbol_for(key);
+            return ts_value_make_object(sym);
+        }, 1);
+        addMethod(ctor, "keyFor", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (argc < 1 || !argv || !argv[0]) return ts_value_make_undefined();
+            void* sym = ts_value_get_object(argv[0]);
+            if (!sym) sym = argv[0];
+            void* key = ts_symbol_key_for(sym);
+            if (!key) return ts_value_make_undefined();
+            return ts_value_make_string(key);
+        }, 1);
+
         cached = wrapAsCallable(ctor, "Symbol");
     }
     return cached;
@@ -1208,6 +1250,7 @@ void* ts_get_global_WeakSet() {
 // Forward declarations for Reflect methods (TsReflect.cpp)
 extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* newTargetArg);
 extern "C" TsValue* ts_reflect_get(void* targetArg, void* propArg, void* receiverArg);
+extern "C" TsValue* ts_reflect_apply(void* target, void* thisArg, void* args);
 
 // Native wrapper for Reflect.construct callable from JS
 static TsValue* ts_reflect_construct_native(void* ctx, int argc, TsValue** argv) {
@@ -1215,6 +1258,13 @@ static TsValue* ts_reflect_construct_native(void* ctx, int argc, TsValue** argv)
     void* args = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
     void* newTarget = (argc >= 3 && argv) ? (void*)argv[2] : nullptr;
     return ts_reflect_construct(target, args, newTarget);
+}
+
+static TsValue* ts_reflect_apply_native(void* ctx, int argc, TsValue** argv) {
+    void* target = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+    void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+    void* args = (argc >= 3 && argv) ? (void*)argv[2] : nullptr;
+    return ts_reflect_apply(target, thisArg, args);
 }
 
 extern "C" {
@@ -1290,6 +1340,7 @@ void* ts_get_global_Reflect() {
     static TsMap* cached = nullptr;
     if (!cached) {
         cached = makeSimpleConstructorGlobal("Reflect");
+        addMethod(cached, "apply",        (void*)ts_reflect_apply_native, 3);
         addMethod(cached, "construct",    (void*)ts_reflect_construct_native, 2);
         addMethod(cached, "get",          (void*)reflect_get_native, 2);
         addMethod(cached, "set",          (void*)reflect_set_native, 3);
