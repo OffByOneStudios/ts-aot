@@ -3293,6 +3293,8 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "entries") == 0) return makeNamedNativeFunction((void*)ts_array_entries_native, arr, "entries", 0);
             if (strcmp(keyStr, "keys") == 0) return makeNamedNativeFunction((void*)ts_array_keys_native, arr, "keys", 0);
             if (strcmp(keyStr, "values") == 0) return makeNamedNativeFunction((void*)ts_array_values_native, arr, "values", 0);
+            // Array.prototype[@@iterator] === Array.prototype.values per spec.
+            if (strcmp(keyStr, "[Symbol.iterator]") == 0) return makeNamedNativeFunction((void*)ts_array_values_native, arr, "[Symbol.iterator]", 0);
             if (strcmp(keyStr, "toReversed") == 0) return makeNamedNativeFunction((void*)ts_array_toReversed_native, arr, "toReversed", 0);
             if (strcmp(keyStr, "toSorted") == 0) return makeNamedNativeFunction((void*)ts_array_toSorted_native, arr, "toSorted", 1);
             if (strcmp(keyStr, "toSpliced") == 0) return makeNamedNativeFunction((void*)ts_array_toSpliced_native, arr, "toSpliced", 2);
