@@ -169,7 +169,7 @@ static TsValue* ts_object_hasOwn_native(void* ctx, int argc, TsValue** argv) {
 // Forward decl — defined later near makeSimpleConstructorGlobal.
 // ts_get_global_Object (below) uses wrapAsCallable to promote its TsMap
 // ctor to a TsFunction so typeof Object === "function".
-static void* wrapAsCallable(TsMap* ctor, const char* name);
+static void* wrapAsCallable(TsMap* ctor, const char* name, int length = 0);
 
 // ========================================
 // Object global
@@ -243,7 +243,7 @@ void* ts_get_global_Object() {
 
     // Promote to TsFunction so `typeof Object === "function"` and
     // `isConstructor(Object)` returns true.
-    cached = wrapAsCallable(ctor, "Object");
+    cached = wrapAsCallable(ctor, "Object", 1);
     return cached;
 }
 
@@ -259,7 +259,7 @@ extern "C" {
 
 // Forward decl: wrapAsCallable is defined below (next to makeSimpleConstructorGlobal).
 // Declared here so ts_get_global_Array can use it before its definition.
-static void* wrapAsCallable(TsMap* ctor, const char* name);
+static void* wrapAsCallable(TsMap* ctor, const char* name, int length = 0);
 
 static TsValue* array_from_native_wrap(void* ctx, int argc, TsValue** argv) {
     void* arg0 = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -338,7 +338,7 @@ void* ts_get_global_Array() {
 
     // Promote to TsFunction so typeof Array === "function" and
     // isConstructor(Array) returns true.
-    cached = wrapAsCallable(ctorMap, "Array");
+    cached = wrapAsCallable(ctorMap, "Array", 1);
     return cached;
 }
 
@@ -724,7 +724,7 @@ static TsMap* makeSimpleConstructorGlobal(const char* name) {
 // "function" and isConstructor(X) returns true. Preserves property
 // access: func.properties points at the same TsMap caller populated, so
 // ts_object_get_property(func, "prototype") finds it.
-static void* wrapAsCallable(TsMap* ctor, const char* name) {
+static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
     if (!ctor) return nullptr;
     // Stub body: return undefined. The spec says `Set()` without `new`
     // should throw TypeError, but we can't distinguish construct-context
@@ -741,18 +741,17 @@ static void* wrapAsCallable(TsMap* ctor, const char* name) {
     if (!rawFn) return (void*)ctor;
     TsFunction* func = (TsFunction*)rawFn;
     func->name = TsString::Create(name);
+    func->arity = length;
     func->is_constructor = true;  // [[Construct]] slot
     // Point the function's property bag at the TsMap ctor so existing
     // setup (prototype, name, static methods) is visible via
     // ts_object_get_property(func, key).
     func->properties = ctor;
     ts_gc_write_barrier(&func->properties, ctor);
-    // Per ES spec, built-in function objects have "name" as an own data
-    // property with {writable:false, enumerable:false, configurable:true}.
-    // Tests use Object.prototype.hasOwnProperty.call(X, "name") + descriptor
-    // inspection, so it must live on the properties TsMap, not just in
-    // func->name. Install "length" similarly (default 0; callers that want
-    // a non-zero arity can overwrite afterwards).
+    // Per ES spec, built-in function objects have "name" and "length" as
+    // own data properties with {writable:false, enumerable:false,
+    // configurable:true}. Tests use hasOwnProperty + verifyProperty, so
+    // these must live on the properties TsMap, not just in func->name/arity.
     {
         TsValue nk; nk.type = ValueType::STRING_PTR;
         nk.ptr_val = TsString::GetInterned("name");
@@ -761,14 +760,8 @@ static void* wrapAsCallable(TsMap* ctor, const char* name) {
         ctor->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
         TsValue lk; lk.type = ValueType::STRING_PTR;
         lk.ptr_val = TsString::GetInterned("length");
-        // Only install "length" if caller hasn't already set one — some
-        // ctors (Array, Set, etc.) pre-populate static methods via addMethod
-        // and the ctor's own length is spec-specific.
-        TsValue existing = ctor->Get(lk);
-        if (existing.type == ValueType::UNDEFINED) {
-            TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 0;
-            ctor->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
-        }
+        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = length;
+        ctor->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
     }
     return (void*)func;
 }
@@ -915,7 +908,7 @@ void* ts_get_global_Function() {
         protoVal.ptr_val = proto;
         ctor->Set(protoKey, protoVal);
 
-        cached = wrapAsCallable(ctor, "Function");
+        cached = wrapAsCallable(ctor, "Function", 1);
     }
     return cached;
 }
@@ -949,14 +942,14 @@ void* ts_get_global_Date() {
         // Attach constructor static methods (Date.now/parse/UTC)
         ts_date_constructor_populate(ctor);
 
-        cached = wrapAsCallable(ctor, "Date");
+        cached = wrapAsCallable(ctor, "Date", 7);
     }
     return cached;
 }
 
 void* ts_get_global_RegExp() {
     static void* cached = nullptr;
-    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("RegExp"), "RegExp");
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("RegExp"), "RegExp", 2);
     return cached;
 }
 
@@ -995,7 +988,7 @@ void* ts_get_global_Promise() {
         addMethod(ctor, "reject",  (void*)promise_reject_native,  1);
         addMethod(ctor, "all",     (void*)promise_all_native,     1);
         addMethod(ctor, "race",    (void*)promise_race_native,    1);
-        cached = wrapAsCallable(ctor, "Promise");
+        cached = wrapAsCallable(ctor, "Promise", 1);
     }
     return cached;
 }
@@ -1083,7 +1076,7 @@ void* ts_get_global_Symbol() {
             return ts_value_make_string(key);
         }, 1);
 
-        cached = wrapAsCallable(ctor, "Symbol");
+        cached = wrapAsCallable(ctor, "Symbol", 0);
     }
     return cached;
 }
@@ -1137,7 +1130,7 @@ void* ts_get_global_Map() {
             return ts_map_clear_wrapper(ctx);
         }, 0);
 
-        cached = wrapAsCallable(ctor, "Map");
+        cached = wrapAsCallable(ctor, "Map", 0);
     }
     return cached;
 }
@@ -1178,7 +1171,7 @@ void* ts_get_global_Set() {
             return ts_value_make_undefined();
         });
 
-        cached = wrapAsCallable(ctor, "Set");
+        cached = wrapAsCallable(ctor, "Set", 0);
     }
     return cached;
 }
@@ -1214,7 +1207,7 @@ void* ts_get_global_WeakMap() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_map_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
-        cached = wrapAsCallable(ctor, "WeakMap");
+        cached = wrapAsCallable(ctor, "WeakMap", 0);
     }
     return cached;
 }
@@ -1242,7 +1235,7 @@ void* ts_get_global_WeakSet() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_set_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
-        cached = wrapAsCallable(ctor, "WeakSet");
+        cached = wrapAsCallable(ctor, "WeakSet", 0);
     }
     return cached;
 }
@@ -1359,7 +1352,7 @@ void* ts_get_global_Reflect() {
 
 void* ts_get_global_Proxy() {
     static void* cached = nullptr;
-    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("Proxy"), "Proxy");
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("Proxy"), "Proxy", 2);
     return cached;
 }
 
