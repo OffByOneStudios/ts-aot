@@ -6724,6 +6724,14 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_TypeError";
     } else if (globalName == "RangeError") {
         funcName = "ts_get_global_RangeError";
+    } else if (globalName == "ReferenceError") {
+        funcName = "ts_get_global_ReferenceError";
+    } else if (globalName == "SyntaxError") {
+        funcName = "ts_get_global_SyntaxError";
+    } else if (globalName == "URIError") {
+        funcName = "ts_get_global_URIError";
+    } else if (globalName == "EvalError") {
+        funcName = "ts_get_global_EvalError";
     } else if (globalName == "Symbol") {
         funcName = "ts_get_global_Symbol";
     } else if (globalName == "Map") {
