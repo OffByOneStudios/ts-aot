@@ -759,6 +759,18 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
         return (TsValue*)ts_value_make_double(ts_number_parseFloat(arg));
     }
+    // Global isNaN: spec — coerce argument to Number, return NaN-check.
+    static TsValue* builtin_isNaN_native(void* ctx, int argc, TsValue** argv) {
+        if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(true);
+        double d = ts_value_get_double(argv[0]);
+        return ts_value_make_bool(d != d);
+    }
+    // Global isFinite: spec — coerce to Number, check isFinite.
+    static TsValue* builtin_isFinite_native(void* ctx, int argc, TsValue** argv) {
+        if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
+        double d = ts_value_get_double(argv[0]);
+        return ts_value_make_bool(std::isfinite(d));
+    }
 
     void* ts_get_builtin_function(void* nameStr) {
         TsString* name = ts_ensure_flat(nameStr);
@@ -771,6 +783,8 @@ TsValue* ts_value_make_int(int64_t i) {
         if (strcmp(n, "decodeURI") == 0) return makeNamedNativeFunction((void*)builtin_decodeURI_native, nullptr, "decodeURI", 1);
         if (strcmp(n, "parseInt") == 0) return makeNamedNativeFunction((void*)builtin_parseInt_native, nullptr, "parseInt", 2);
         if (strcmp(n, "parseFloat") == 0) return makeNamedNativeFunction((void*)builtin_parseFloat_native, nullptr, "parseFloat", 1);
+        if (strcmp(n, "isNaN") == 0) return makeNamedNativeFunction((void*)builtin_isNaN_native, nullptr, "isNaN", 1);
+        if (strcmp(n, "isFinite") == 0) return makeNamedNativeFunction((void*)builtin_isFinite_native, nullptr, "isFinite", 1);
         return nullptr;
     }
 
