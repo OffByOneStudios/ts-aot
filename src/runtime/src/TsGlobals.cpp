@@ -873,9 +873,9 @@ void* ts_get_global_Boolean() {
 }
 
 void* ts_get_global_Function() {
-    static TsMap* cached = nullptr;
+    static void* cached = nullptr;
     if (!cached) {
-        cached = TsMap::Create();
+        TsMap* ctor = TsMap::Create();
         TsMap* proto = TsMap::Create();
 
         // Function.prototype.call / apply / bind
@@ -890,7 +890,9 @@ void* ts_get_global_Function() {
         TsValue protoVal;
         protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
-        cached->Set(protoKey, protoVal);
+        ctor->Set(protoKey, protoVal);
+
+        cached = wrapAsCallable(ctor, "Function");
     }
     return cached;
 }
@@ -899,7 +901,7 @@ extern "C" void* ts_date_prototype_build_map();
 extern "C" void ts_date_constructor_populate(void* ctor);
 
 void* ts_get_global_Date() {
-    static TsMap* cached = nullptr;
+    static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = TsMap::Create();
         // Set .name
@@ -921,10 +923,10 @@ void* ts_get_global_Date() {
         protoVal.ptr_val = proto;
         ctor->Set(protoKey, protoVal);
 
-        // Attach constructor static methods (Date.now)
+        // Attach constructor static methods (Date.now/parse/UTC)
         ts_date_constructor_populate(ctor);
 
-        cached = ctor;
+        cached = wrapAsCallable(ctor, "Date");
     }
     return cached;
 }
@@ -1305,8 +1307,8 @@ void* ts_get_global_Reflect() {
 }
 
 void* ts_get_global_Proxy() {
-    static TsMap* cached = nullptr;
-    if (!cached) cached = makeSimpleConstructorGlobal("Proxy");
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("Proxy"), "Proxy");
     return cached;
 }
 
