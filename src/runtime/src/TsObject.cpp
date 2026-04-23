@@ -7521,6 +7521,27 @@ TsValue* ts_value_make_int(int64_t i) {
                 return value;
             }
 
+            // Per ES spec §9.1.9.2 (OrdinarySet): walk the prototype chain for
+            // an existing data descriptor. If any ancestor has it with
+            // writable:false, the assignment silently fails (non-strict mode;
+            // we don't distinguish strict here). Enumerate/configurable are
+            // orthogonal to this block. Only inspect data props — accessor
+            // setters are handled above via __setter_.
+            {
+                constexpr uint8_t ATTR_WRITABLE = 0x02;
+                TsMap* chain = map;
+                while (chain) {
+                    if (chain->Has(key)) {
+                        uint8_t attrs = chain->GetPropertyAttrs(key);
+                        if (!(attrs & ATTR_WRITABLE)) {
+                            return value;  // silent fail (non-strict)
+                        }
+                        break;  // writable: fall through to set
+                    }
+                    chain = chain->GetPrototype();
+                }
+            }
+
             // No setter - set property directly
             ts_map_set_v(rawObj, key, value);
             return value;
