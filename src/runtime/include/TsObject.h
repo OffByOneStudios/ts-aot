@@ -65,14 +65,15 @@ inline TsValue nanbox_to_tagged(TsValue* v) {
     if (nanbox_is_bool(nb)) { tv.type = ValueType::BOOLEAN; tv.i_val = nanbox_to_bool(nb) ? 1 : 0; return tv; }
     if (nanbox_is_ptr(nb)) {
         void* ptr = nanbox_to_ptr(nb);
-        // Read magic at offset 0 for TsString/TsArray, offset 16 for TsObject subclasses
+        // Read magic at offset 0 for TsString/TsArray/TsBigInt (which don't
+        // inherit from TsObject), offset 16 for TsObject subclasses.
         uint32_t magic0 = *(uint32_t*)ptr;
         if (magic0 == 0x53545247 || magic0 == 0x434F4E53) { tv.type = ValueType::STRING_PTR; tv.ptr_val = ptr; return tv; } // TsString or TsConsString
         if (magic0 == 0x41525259) { tv.type = ValueType::ARRAY_PTR; tv.ptr_val = ptr; return tv; }
+        if (magic0 == 0x42494749) { tv.type = ValueType::BIGINT_PTR; tv.ptr_val = ptr; return tv; } // TsBigInt 'BIGI' (magic at offset 0; no vtable)
         if (magic0 == 0x464C4154) { tv.type = ValueType::OBJECT_PTR; tv.ptr_val = ptr; return tv; } // FLAT_MAGIC
         uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
         if (magic16 == 0x50524F4D) { tv.type = ValueType::PROMISE_PTR; tv.ptr_val = ptr; return tv; }
-        if (magic16 == 0x42494749) { tv.type = ValueType::BIGINT_PTR; tv.ptr_val = ptr; return tv; }
         if (magic16 == 0x53594D42) { tv.type = ValueType::SYMBOL_PTR; tv.ptr_val = ptr; return tv; }
         if (magic16 == 0x46554E43) { tv.type = ValueType::FUNCTION_PTR; tv.ptr_val = ptr; return tv; }
         if (magic16 == 0x434C5352) { tv.type = ValueType::FUNCTION_PTR; tv.ptr_val = ptr; return tv; } // TsClosure
