@@ -3183,8 +3183,13 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
-        // Check for TsMap (magic at offset 16 after vtables) - also try offset 20 and 24
-        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC ("MAPS")
+        // Check for TsMap (magic at offset 16 after vtables) - also try offset 20 and 24.
+        // TsGenerator ('GENR') and TsAsyncGenerator ('AGEN') inherit from TsMap and
+        // store their iterator methods (.next, [Symbol.iterator]) via the map; include
+        // their magics here so property access routes through the map path.
+        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053 ||   // TsMap "MAPS"
+            magic16 == 0x47454E52 || magic20 == 0x47454E52 || magic24 == 0x47454E52 ||   // TsGenerator "GENR"
+            magic16 == 0x4147454E || magic20 == 0x4147454E || magic24 == 0x4147454E) {   // TsAsyncGenerator "AGEN"
             TsMap* map = (TsMap*)obj;
 
             // Handle Map .size property (computed, not stored as key-value)

@@ -2973,6 +2973,24 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         }
     }
 
+    // Any-typed iterables: route through the iterator protocol.
+    bool isAnyIterable = !isGenerator && !isIteratorObject && iterable->type &&
+        iterable->type->kind == HIRTypeKind::Any;
+    if (isAnyIterable) {
+        isIteratorObject = true;
+    }
+
+    // For every iterator-protocol path, coerce to the actual iterator via
+    // ts_iterator_get. Handles three cases:
+    //   1. Value is already an iterator (has .next) → return as-is.
+    //   2. Value is iterable (has [Symbol.iterator]) → call it, return result.
+    //   3. Neither → return iterable unchanged; subsequent .next() returns
+    //      undefined, .done is truthy, loop exits. Safe for non-iterables.
+    // Generators/Map.keys()/custom iterables all go through this path uniformly.
+    if (isGenerator || isIteratorObject) {
+        iterable = builder_.createCall("ts_iterator_get", {iterable}, HIRType::makeAny());
+    }
+
     isGenerator = isGenerator || isIteratorObject;
 
     if (isGenerator) {

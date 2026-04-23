@@ -391,11 +391,13 @@ TsValue* ts_iterator_get(TsValue* iterable) {
             TsValue iterMethod = obj->Get(keyVal);
             // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
             if ((iterMethod.type == ValueType::OBJECT_PTR || iterMethod.type == ValueType::FUNCTION_PTR) && iterMethod.ptr_val) {
-                TsFunction* func = (TsFunction*)iterMethod.ptr_val;
-                if (func && func->funcPtr) {
-                    typedef TsValue* (*IterFunc)(void*);
-                    return ((IterFunc)func->funcPtr)(func->context);
-                }
+                // Call via the proper ts_call_0 dispatcher so user-written
+                // [Symbol.iterator]() native functions (which expect
+                // (ctx, argc, argv)) are invoked correctly. Direct
+                // `funcPtr(context)` only worked for functions that ignore
+                // argc/argv like TsGenerator's identity [Symbol.iterator].
+                TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
+                return ts_call_0(boxedFn);
             }
 
             // Check if it already has a next method (is already an iterator)
@@ -423,11 +425,13 @@ TsValue* ts_iterator_get(TsValue* iterable) {
             keyVal.ptr_val = iterKey;
             TsValue iterMethod = obj->Get(keyVal);
             if ((iterMethod.type == ValueType::OBJECT_PTR || iterMethod.type == ValueType::FUNCTION_PTR) && iterMethod.ptr_val) {
-                TsFunction* func = (TsFunction*)iterMethod.ptr_val;
-                if (func && func->funcPtr) {
-                    typedef TsValue* (*IterFunc)(void*);
-                    return ((IterFunc)func->funcPtr)(func->context);
-                }
+                // Call via the proper ts_call_0 dispatcher so user-written
+                // [Symbol.iterator]() native functions (which expect
+                // (ctx, argc, argv)) are invoked correctly. Direct
+                // `funcPtr(context)` only worked for functions that ignore
+                // argc/argv like TsGenerator's identity [Symbol.iterator].
+                TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
+                return ts_call_0(boxedFn);
             }
 
             // Check if it already has a next method (is already an iterator)
