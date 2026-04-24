@@ -224,6 +224,13 @@ void* ts_get_global_Object() {
     addMethod(ctor, "isExtensible", (void*)ts_object_isExtensible_native);
     addMethod(ctor, "is", (void*)ts_object_is_native);
     addMethod(ctor, "hasOwn", (void*)ts_object_hasOwn_native);
+    // Object.groupBy(items, keyFn) — ES2024.
+    extern TsValue* ts_object_groupBy(TsValue* iterable, TsValue* callbackFn);
+    addMethod(ctor, "groupBy", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        TsValue* it = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+        TsValue* fn = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+        return ts_object_groupBy(it, fn);
+    }, 2);
 
     // Object.prototype — a TsMap that serves as the base prototype
     TsMap* proto = TsMap::Create();
@@ -259,7 +266,7 @@ extern "C" {
 
 // Forward decl: wrapAsCallable is defined below (next to makeSimpleConstructorGlobal).
 // Declared here so ts_get_global_Array can use it before its definition.
-static void* wrapAsCallable(TsMap* ctor, const char* name, int length = 0);
+static void* wrapAsCallable(TsMap* ctor, const char* name, int length);
 
 static TsValue* array_from_native_wrap(void* ctx, int argc, TsValue** argv) {
     void* arg0 = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
@@ -554,6 +561,24 @@ void* ts_get_global_String() {
         };
         addMethod(ctorFunc->properties, "fromCodePoint", (void*)+fromCodePointFn, 1);
 
+        // String.raw(template, ...substitutions) — tagged template helper.
+        extern void* ts_string_raw(void* templateObj, void* substitutionsArray);
+        auto stringRawFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (argc < 1 || !argv || !argv[0]) return ts_value_make_string(TsString::Create(""));
+            // Build a TsArray from argv[1..argc-1] so ts_string_raw can
+            // iterate substitutions by index. ts_string_raw expects an
+            // array-like wrapper for substitutions.
+            TsArray* subs = (TsArray*)ts_array_create();
+            for (int i = 1; i < argc; i++) {
+                subs->Push((int64_t)(uintptr_t)argv[i]);
+            }
+            void* tmpl = ts_value_get_object(argv[0]);
+            if (!tmpl) tmpl = argv[0];
+            void* result = ts_string_raw(tmpl, subs);
+            return ts_value_make_string(result);
+        };
+        addMethod(ctorFunc->properties, "raw", (void*)+stringRawFn, 1);
+
         cached = (void*)ctorVal;
     }
     return cached;
@@ -656,12 +681,159 @@ static void* makeErrorConstructor(const char* errorName) {
     // Set .name on the constructor
     ctorFunc->name = TsString::Create(errorName);
 
+    // Install name/length as own properties per ES spec:
+    // {writable:false, enumerable:false, configurable:true}. Tests use
+    // hasOwnProperty / getOwnPropertyDescriptor to verify these exist.
+    ctorFunc->arity = 1;  // Error(message) arity is 1
+    {
+        TsValue nk; nk.type = ValueType::STRING_PTR;
+        nk.ptr_val = TsString::GetInterned("name");
+        TsValue nv; nv.type = ValueType::STRING_PTR;
+        nv.ptr_val = ctorFunc->name;
+        ctorFunc->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+        TsValue lk; lk.type = ValueType::STRING_PTR;
+        lk.ptr_val = TsString::GetInterned("length");
+        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 1;
+        ctorFunc->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+    }
+
     return (void*)ctorVal;
 }
 
 void* ts_get_global_Error() {
     static void* cached = nullptr;
-    if (!cached) cached = makeErrorConstructor("Error");
+    if (!cached) {
+        cached = makeErrorConstructor("Error");
+        // ES2024: Error.isError(x) — true iff x is an Error instance.
+        // Accept objects whose prototype chain contains Error.prototype.
+        void* ctorRaw = ts_value_get_object((TsValue*)cached);
+        if (ctorRaw) {
+            TsFunction* ctorFunc = (TsFunction*)ctorRaw;
+            if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
+            auto isErrorFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
+                void* raw = ts_value_get_object(argv[0]);
+                if (!raw) return ts_value_make_bool(false);
+                // Check if raw has a "message" property OR its prototype chain
+                // reaches an Error.prototype. Pragmatic: inspect magic and
+                // property-map presence.
+                uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+                uint32_t m20 = *(uint32_t*)((char*)raw + 20);
+                if (m16 != 0x4D415053 && m20 != 0x4D415053) return ts_value_make_bool(false);
+                TsMap* m = (TsMap*)raw;
+                TsValue msgKey; msgKey.type = ValueType::STRING_PTR;
+                msgKey.ptr_val = TsString::GetInterned("message");
+                TsValue stackKey; stackKey.type = ValueType::STRING_PTR;
+                stackKey.ptr_val = TsString::GetInterned("stack");
+                // Walk the chain looking for an Error-shaped prototype (has
+                // both "message" and "name" properties).
+                TsMap* cur = m;
+                while (cur) {
+                    TsValue nameKey; nameKey.type = ValueType::STRING_PTR;
+                    nameKey.ptr_val = TsString::GetInterned("name");
+                    if (cur->Has(nameKey)) {
+                        TsValue nv = cur->Get(nameKey);
+                        if (nv.type == ValueType::STRING_PTR && nv.ptr_val) {
+                            const char* n = ((TsString*)nv.ptr_val)->ToUtf8();
+                            if (n && (strstr(n, "Error") || !strcmp(n, "AggregateError"))) {
+                                return ts_value_make_bool(true);
+                            }
+                        }
+                    }
+                    cur = cur->GetPrototype();
+                }
+                return ts_value_make_bool(false);
+            };
+            addMethod(ctorFunc->properties, "isError", (void*)+isErrorFn, 1);
+        }
+    }
+    return cached;
+}
+
+void* ts_get_global_AggregateError() {
+    static void* cached = nullptr;
+    if (!cached) {
+        // AggregateError(errors, message?) — subclass of Error with
+        // an additional .errors array. Follow the makeErrorConstructor
+        // pattern but accept (errors, message) args.
+        auto aggFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            void* thisVal = ts_get_call_this();
+            void* raw = thisVal ? ts_value_get_object((TsValue*)thisVal) : nullptr;
+            if (!raw) return ts_value_make_undefined();
+            uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+            uint32_t m20 = *(uint32_t*)((char*)raw + 20);
+            if (m16 != 0x4D415053 && m20 != 0x4D415053) return (TsValue*)thisVal;
+            TsMap* obj = (TsMap*)raw;
+            // .errors: iterate `errors` iterable into an array. Simplified:
+            // if it's already an array, copy it; else leave empty.
+            TsArray* errs = (TsArray*)ts_array_create();
+            if (argc >= 1 && argv && argv[0]) {
+                void* arg0 = ts_value_get_object(argv[0]);
+                if (arg0 && *(uint32_t*)arg0 == 0x41525259) {  // TsArray
+                    TsArray* src = (TsArray*)arg0;
+                    int64_t n = src->Length();
+                    for (int64_t i = 0; i < n; i++) errs->Push(src->Get(i));
+                }
+            }
+            TsValue errsKey; errsKey.type = ValueType::STRING_PTR;
+            errsKey.ptr_val = TsString::GetInterned("errors");
+            TsValue errsVal; errsVal.type = ValueType::OBJECT_PTR;
+            errsVal.ptr_val = errs;
+            obj->Set(errsKey, errsVal);
+            // .message
+            if (argc >= 2 && argv && argv[1]) {
+                TsValue msgKey; msgKey.type = ValueType::STRING_PTR;
+                msgKey.ptr_val = TsString::GetInterned("message");
+                TsValue msgVal = nanbox_to_tagged(argv[1]);
+                obj->Set(msgKey, msgVal);
+            }
+            return (TsValue*)thisVal;
+        };
+        TsValue* ctorVal = ts_value_make_native_function((void*)+aggFn, nullptr);
+        TsFunction* ctorFunc = (TsFunction*)ts_value_get_object(ctorVal);
+        ctorFunc->name = TsString::Create("AggregateError");
+        ctorFunc->arity = 2;
+        ctorFunc->is_constructor = true;
+        if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
+
+        // Prototype inherits from Error.prototype so (aggErr instanceof Error).
+        TsMap* proto = TsMap::Create();
+        TsValue pNameKey; pNameKey.type = ValueType::STRING_PTR;
+        pNameKey.ptr_val = TsString::GetInterned("name");
+        TsValue pNameVal; pNameVal.type = ValueType::STRING_PTR;
+        pNameVal.ptr_val = TsString::Create("AggregateError");
+        proto->Set(pNameKey, pNameVal);
+        void* errorCtor = ts_get_global_Error();
+        if (errorCtor) {
+            TsFunction* ef = (TsFunction*)ts_value_get_object((TsValue*)errorCtor);
+            if (ef && ef->properties) {
+                TsValue pk; pk.type = ValueType::STRING_PTR;
+                pk.ptr_val = TsString::GetInterned("prototype");
+                TsValue pv = ef->properties->Get(pk);
+                if (pv.type != ValueType::UNDEFINED && pv.ptr_val) {
+                    uint32_t mm = *(uint32_t*)((char*)pv.ptr_val + 16);
+                    if (mm == 0x4D415053) proto->SetPrototype((TsMap*)pv.ptr_val);
+                }
+            }
+        }
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoValFn; protoValFn.type = ValueType::OBJECT_PTR;
+        protoValFn.ptr_val = proto;
+        ctorFunc->properties->Set(protoKey, protoValFn);
+
+        TsValue nk; nk.type = ValueType::STRING_PTR;
+        nk.ptr_val = TsString::GetInterned("name");
+        TsValue nv; nv.type = ValueType::STRING_PTR;
+        nv.ptr_val = ctorFunc->name;
+        ctorFunc->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+        TsValue lk; lk.type = ValueType::STRING_PTR;
+        lk.ptr_val = TsString::GetInterned("length");
+        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 2;
+        ctorFunc->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+
+        cached = (void*)ctorVal;
+    }
     return cached;
 }
 
@@ -961,6 +1133,8 @@ extern "C" {
     TsValue* ts_promise_reject(void* context, TsValue* reason);
     TsValue* ts_promise_all(TsValue* iterable);
     TsValue* ts_promise_race(TsValue* iterable);
+    TsValue* ts_promise_allSettled(TsValue* iterable);
+    TsValue* ts_promise_any(TsValue* iterable);
 }
 
 static TsValue* promise_resolve_native(void* ctx, int argc, TsValue** argv) {
@@ -979,15 +1153,25 @@ static TsValue* promise_race_native(void* ctx, int argc, TsValue** argv) {
     TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
     return ts_promise_race(v);
 }
+static TsValue* promise_allSettled_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    return ts_promise_allSettled(v);
+}
+static TsValue* promise_any_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* v = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    return ts_promise_any(v);
+}
 
 void* ts_get_global_Promise() {
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("Promise");
-        addMethod(ctor, "resolve", (void*)promise_resolve_native, 1);
-        addMethod(ctor, "reject",  (void*)promise_reject_native,  1);
-        addMethod(ctor, "all",     (void*)promise_all_native,     1);
-        addMethod(ctor, "race",    (void*)promise_race_native,    1);
+        addMethod(ctor, "resolve",    (void*)promise_resolve_native, 1);
+        addMethod(ctor, "reject",     (void*)promise_reject_native,  1);
+        addMethod(ctor, "all",        (void*)promise_all_native,     1);
+        addMethod(ctor, "race",       (void*)promise_race_native,    1);
+        addMethod(ctor, "allSettled", (void*)promise_allSettled_native, 1);
+        addMethod(ctor, "any",        (void*)promise_any_native,     1);
         cached = wrapAsCallable(ctor, "Promise", 1);
     }
     return cached;
@@ -1129,6 +1313,14 @@ void* ts_get_global_Map() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_map_clear_wrapper(ctx);
         }, 0);
+
+        // Static Map.groupBy(items, keyFn) — ES2024.
+        extern TsValue* ts_map_groupBy(TsValue* iterable, TsValue* callbackFn);
+        addMethod(ctor, "groupBy", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            TsValue* it = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+            TsValue* fn = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+            return ts_map_groupBy(it, fn);
+        }, 2);
 
         cached = wrapAsCallable(ctor, "Map", 0);
     }

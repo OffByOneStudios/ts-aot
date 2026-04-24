@@ -227,6 +227,7 @@ Analyzer::Analyzer() {
         makeErrorCtor("ReferenceError");
         makeErrorCtor("EvalError");
         makeErrorCtor("URIError");
+        makeErrorCtor("AggregateError");
     }
 
     // Register ts_aot intrinsic namespace
