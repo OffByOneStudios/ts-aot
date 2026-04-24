@@ -5753,11 +5753,11 @@ TsValue* ts_value_make_int(int64_t i) {
             rawPtr = ts_flat_object_to_map(rawPtr);
         }
 
-        // Check if target is a TsMap
-        uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
-        if (magic != 0x4D415053) {
-            return obj;
-        }
+        // Accept any pointer-shaped target — ts_object_defineProperty (called
+        // below per-descriptor) handles TsMap / TsFunction / TsClosure paths
+        // and throws TypeError for primitives. Previously this silently
+        // no-op'd on non-TsMap targets, which regressed spec tests like
+        // Object.defineProperties(fun, {...}) where fun is a TsFunction.
 
         // Get the descriptors object
         void* descRaw = ts_value_get_object(descriptors);
@@ -7443,6 +7443,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 func->properties = TsMap::Create();
                 ts_gc_write_barrier(&func->properties, func->properties);
             }
+            // OrdinarySet: honor writable:false on the properties map.
+            if (func->properties->Has(key)) {
+                uint8_t a = func->properties->GetPropertyAttrs(key);
+                constexpr uint8_t ATTR_WRITABLE = 0x02;
+                if (!(a & ATTR_WRITABLE)) return value;  // silent fail (non-strict)
+            }
             func->properties->Set(key, value);
             return value;
         }
@@ -7466,6 +7472,12 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!closure->properties) {
                 closure->properties = TsMap::Create();
                 ts_gc_write_barrier(&closure->properties, closure->properties);
+            }
+            // OrdinarySet: honor writable:false on the properties map.
+            if (closure->properties->Has(key)) {
+                uint8_t a = closure->properties->GetPropertyAttrs(key);
+                constexpr uint8_t ATTR_WRITABLE = 0x02;
+                if (!(a & ATTR_WRITABLE)) return value;
             }
             closure->properties->Set(key, value);
             return value;
@@ -7717,6 +7729,24 @@ TsValue* ts_value_make_int(int64_t i) {
             return map->Delete(keyVal);
         }
 
+        // TsFunction / TsClosure: delete from their properties TsMap with
+        // the same configurable-attribute enforcement as the TsMap branch.
+        if (magic16 == 0x46554E43 || magic16 == 0x434C5352) {
+            TsMap* props = (magic16 == 0x46554E43)
+                ? ((TsFunction*)rawObj)->properties
+                : ((TsClosure*)rawObj)->properties;
+            if (!props) return true;  // nothing to delete, treat as success
+            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            if (!keyStr) return false;
+            TsValue keyVal; keyVal.type = ValueType::STRING_PTR;
+            keyVal.ptr_val = keyStr;
+            if (props->Has(keyVal)) {
+                uint8_t attrs = props->GetPropertyAttrs(keyVal);
+                if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return false;
+            }
+            return props->Delete(keyVal);
+        }
+
         // Catch-all: non-TsObject types (strings, arrays, sentinels, etc.) — no dynamic_cast
         return false;
     }
@@ -7777,17 +7807,26 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check magic to determine object type
         uint32_t magic = *(uint32_t*)((char*)rawMap + 16);
 
-        // TsFunction/TsClosure: delete from their properties TsMap
+        // TsFunction/TsClosure: delete from their properties TsMap,
+        // honoring the configurable attribute per ES spec.
         if (magic == TsFunction::MAGIC) {
             TsFunction* func = (TsFunction*)rawMap;
             if (!func->properties) return 1; // non-existent = true
             TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
+            if (func->properties->Has(kv)) {
+                uint8_t attrs = func->properties->GetPropertyAttrs(kv);
+                if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+            }
             return func->properties->Delete(kv) ? 1 : 0;
         }
         if (magic == 0x434C5352) { // TsClosure
             TsClosure* cl = (TsClosure*)rawMap;
             if (!cl->properties) return 1;
             TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
+            if (cl->properties->Has(kv)) {
+                uint8_t attrs = cl->properties->GetPropertyAttrs(kv);
+                if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+            }
             return cl->properties->Delete(kv) ? 1 : 0;
         }
 
