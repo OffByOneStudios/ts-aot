@@ -5386,6 +5386,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         if (flat) keyStr = flat->ToUtf8();
                     }
                 }
+                bool routedToProps = false;
                 if (keyStr && keyStr[0] != '\0') {
                     char* endp = nullptr;
                     unsigned long idx = strtoul(keyStr, &endp, 10);
@@ -5395,14 +5396,29 @@ TsValue* ts_value_make_int(int64_t i) {
                         arr->SetUnchecked((size_t)idx,
                             (int64_t)(uintptr_t)ts_value_make_undefined());
                     }
+                    // For string-keyed (non-numeric) properties on arrays,
+                    // route through the array's properties TsMap so the
+                    // TsMap branch below enforces descriptor validation
+                    // (TypeError on non-configurable redefinitions, etc).
+                    if (endp && *endp != '\0') {
+                        if (!arr->properties) {
+                            arr->properties = TsMap::Create();
+                            ts_gc_write_barrier(&arr->properties, arr->properties);
+                        }
+                        rawPtr = arr->properties;
+                        magic = 0x4D415053;
+                        routedToProps = true;
+                    }
                 }
+                if (!routedToProps) return obj;
+                // else: fall through to TsMap branch below with rawPtr reassigned.
+            } else {
+                // Receiver isn't a map-like object — TsString, etc. all
+                // currently fall through to no-op. Spec-strictly this should
+                // still throw for primitives, but we already gated that above.
+                // For exotic objects we leave the existing no-op (separate gap).
                 return obj;
             }
-            // Receiver isn't a map-like object — TsString, etc. all
-            // currently fall through to no-op. Spec-strictly this should still
-            // throw for primitives, but we already gated that above. For
-            // exotic objects we leave the existing no-op (separate gap).
-            return obj;
         }
 
         TsMap* map = (TsMap*)rawPtr;
@@ -7462,6 +7478,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 arr->properties = TsMap::Create();
                 ts_gc_write_barrier(&arr->properties, arr->properties);
             }
+            // OrdinarySet: honor writable:false on the side-map.
+            if (arr->properties->Has(key)) {
+                uint8_t a = arr->properties->GetPropertyAttrs(key);
+                constexpr uint8_t ATTR_WRITABLE = 0x02;
+                if (!(a & ATTR_WRITABLE)) return value;
+            }
             arr->properties->Set(key, value);
             return value;
         }
@@ -7828,6 +7850,19 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
             }
             return cl->properties->Delete(kv) ? 1 : 0;
+        }
+
+        // TsArray string-keyed side-map: magic is at offset 0.
+        uint32_t magic0 = *(uint32_t*)rawMap;
+        if (magic0 == 0x41525259) { // TsArray::MAGIC ("ARRY")
+            TsArray* arr = (TsArray*)rawMap;
+            if (!arr->properties) return 1; // non-existent
+            TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
+            if (arr->properties->Has(kv)) {
+                uint8_t attrs = arr->properties->GetPropertyAttrs(kv);
+                if (!(attrs & TsHashTable::ATTR_CONFIGURABLE)) return 0;
+            }
+            return arr->properties->Delete(kv) ? 1 : 0;
         }
 
         if (magic != 0x4D415053) return 0; // Not a TsMap ("MAPS")
@@ -8333,6 +8368,38 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
                 return ts_value_make_bool(false);
             }
+            // TsArray: magic at offset 0. Arrays are exotic objects with
+            // both indexed slots and a side-map for string keys. dynamic_cast
+            // below would read a non-TsObject vtable and UB; intercept here.
+            uint32_t m0 = *(uint32_t*)obj;
+            if (m0 == 0x41525259) { // TsArray::MAGIC "ARRY"
+                TsArray* arr = (TsArray*)obj;
+                TsValue* keyVal = argv[0];
+                TsValue keyTV = nanbox_to_tagged(keyVal);
+                // Numeric index: check indexed slot for hole.
+                if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+                    TsString* ks = (TsString*)keyTV.ptr_val;
+                    const char* kc = ks->ToUtf8();
+                    if (kc) {
+                        char* endp = nullptr;
+                        unsigned long idx = strtoul(kc, &endp, 10);
+                        if (endp && *endp == '\0' && kc[0] != '\0') {
+                            return ts_value_make_bool(
+                                idx < (unsigned long)arr->Length() &&
+                                !arr->IsHole((size_t)idx));
+                        }
+                        // "length" is always present as an own property.
+                        if (!strcmp(kc, "length")) return ts_value_make_bool(true);
+                    }
+                }
+                // String-keyed property — check side-map.
+                if (arr->properties) {
+                    return ts_value_make_bool(arr->properties->Has(keyTV));
+                }
+                return ts_value_make_bool(false);
+            }
+            // TsString: magic 0x53545247. dynamic_cast below would also UB.
+            if (m0 == 0x53545247) return ts_value_make_bool(false);
         }
 
         // Check if it's a TsMap
