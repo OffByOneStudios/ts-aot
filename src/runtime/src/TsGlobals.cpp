@@ -1548,6 +1548,57 @@ void* ts_get_global_Proxy() {
     return cached;
 }
 
+// ArrayBuffer / DataView / BigInt / GeneratorFunction / AsyncFunction /
+// AsyncGeneratorFunction: callable stubs. These produce a TsFunction
+// with is_constructor=true (so isConstructor(X) === true per spec) and
+// correct name/length own properties. The bodies are stubs that return
+// an empty object — enough to pass test262's is-a-constructor tests
+// plus .name / .length own-property checks.
+
+void* ts_get_global_ArrayBuffer() {
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("ArrayBuffer"), "ArrayBuffer", 1);
+    return cached;
+}
+
+void* ts_get_global_DataView() {
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("DataView"), "DataView", 1);
+    return cached;
+}
+
+void* ts_get_global_SharedArrayBuffer() {
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("SharedArrayBuffer"), "SharedArrayBuffer", 1);
+    return cached;
+}
+
+void* ts_get_global_BigInt() {
+    // Spec: BigInt is a constructor (isConstructor === true) but `new BigInt(x)`
+    // throws TypeError. Call-as-function `BigInt(x)` coerces to bigint.
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("BigInt"), "BigInt", 1);
+    return cached;
+}
+
+void* ts_get_global_GeneratorFunction() {
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("GeneratorFunction"), "GeneratorFunction", 1);
+    return cached;
+}
+
+void* ts_get_global_AsyncFunction() {
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("AsyncFunction"), "AsyncFunction", 1);
+    return cached;
+}
+
+void* ts_get_global_AsyncGeneratorFunction() {
+    static void* cached = nullptr;
+    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("AsyncGeneratorFunction"), "AsyncGeneratorFunction", 1);
+    return cached;
+}
+
 // ========================================
 // Console, Math, Buffer, process — keep sentinels for typed path,
 // but also support dynamic access

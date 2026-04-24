@@ -177,6 +177,12 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
         ensureAny("SyntaxError");
         ensureAny("EvalError");
         ensureAny("URIError");
+        ensureAny("ArrayBuffer");
+        ensureAny("DataView");
+        ensureAny("SharedArrayBuffer");
+        ensureAny("GeneratorFunction");
+        ensureAny("AsyncFunction");
+        ensureAny("AsyncGeneratorFunction");
         ensureAny("Math");
         ensureAny("JSON");
         ensureAny("Buffer");

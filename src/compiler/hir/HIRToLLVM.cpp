@@ -6732,6 +6732,20 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_URIError";
     } else if (globalName == "EvalError") {
         funcName = "ts_get_global_EvalError";
+    } else if (globalName == "ArrayBuffer") {
+        funcName = "ts_get_global_ArrayBuffer";
+    } else if (globalName == "DataView") {
+        funcName = "ts_get_global_DataView";
+    } else if (globalName == "SharedArrayBuffer") {
+        funcName = "ts_get_global_SharedArrayBuffer";
+    } else if (globalName == "BigInt") {
+        funcName = "ts_get_global_BigInt";
+    } else if (globalName == "GeneratorFunction") {
+        funcName = "ts_get_global_GeneratorFunction";
+    } else if (globalName == "AsyncFunction") {
+        funcName = "ts_get_global_AsyncFunction";
+    } else if (globalName == "AsyncGeneratorFunction") {
+        funcName = "ts_get_global_AsyncGeneratorFunction";
     } else if (globalName == "Symbol") {
         funcName = "ts_get_global_Symbol";
     } else if (globalName == "Map") {
