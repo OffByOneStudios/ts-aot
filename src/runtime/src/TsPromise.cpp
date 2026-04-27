@@ -188,6 +188,80 @@ TsValue* ts_generator_yield(TsValue* value) {
     return ts_value_make_undefined();
 }
 
+// gen.return(value) per spec §27.5.1.4: completes the generator, optionally
+// running pending finally clauses with `value` as the return value. We
+// don't yet support the finally-clause unwinding (would require compiler
+// state-machine support), so this is the simplified semantics: mark done
+// and produce {value, done:true}. For TsMap-based iterators (custom
+// iterables), forward to their .return method if present.
+TsValue* Generator_return(TsValue* genVal, TsValue* value) {
+    if (!genVal) return create_generator_result(TsValue(), true);
+    void* raw = ts_value_get_object(genVal);
+    if (!raw) return create_generator_result(TsValue(), true);
+
+    uint32_t magic = *(uint32_t*)((char*)raw + 16);
+    if (magic == TsGenerator::MAGIC) {
+        TsGenerator* gen = (TsGenerator*)raw;
+        gen->done = true;
+        TsValue v = value ? nanbox_to_tagged(value) : TsValue();
+        return create_generator_result(v, true);
+    }
+
+    // TsMap-based iterator: look up .return via prototype chain.
+    if (magic == 0x4D415053) {
+        TsValue* retKey = ts_value_make_string(TsString::Create("return"));
+        TsValue* retFn = ts_object_get_dynamic(genVal, retKey);
+        if (retFn && !ts_value_is_undefined(retFn)) {
+            return ts_call_with_this_1(retFn, genVal,
+                value ? value : ts_value_make_undefined());
+        }
+        TsValue v = value ? nanbox_to_tagged(value) : TsValue();
+        return create_generator_result(v, true);
+    }
+
+    return create_generator_result(TsValue(), true);
+}
+
+// gen.throw(exception) per spec §27.5.1.3. For our simplified state
+// machine, we don't yet support resuming into a try/catch that handles
+// the injected exception — that needs compiler-side cooperation. So:
+// mark the generator done and re-throw the exception, matching the
+// behavior when no try/catch in the generator catches it.
+TsValue* Generator_throw(TsValue* genVal, TsValue* exception) {
+    if (!genVal) {
+        ts_throw(exception);
+        return ts_value_make_undefined();
+    }
+    void* raw = ts_value_get_object(genVal);
+    if (!raw) {
+        ts_throw(exception);
+        return ts_value_make_undefined();
+    }
+
+    uint32_t magic = *(uint32_t*)((char*)raw + 16);
+    if (magic == TsGenerator::MAGIC) {
+        TsGenerator* gen = (TsGenerator*)raw;
+        gen->done = true;
+        ts_throw(exception);
+        return ts_value_make_undefined();
+    }
+
+    // TsMap-based iterator: forward to .throw if present, else re-throw.
+    if (magic == 0x4D415053) {
+        TsValue* throwKey = ts_value_make_string(TsString::Create("throw"));
+        TsValue* throwFn = ts_object_get_dynamic(genVal, throwKey);
+        if (throwFn && !ts_value_is_undefined(throwFn)) {
+            return ts_call_with_this_1(throwFn, genVal,
+                exception ? exception : ts_value_make_undefined());
+        }
+        ts_throw(exception);
+        return ts_value_make_undefined();
+    }
+
+    ts_throw(exception);
+    return ts_value_make_undefined();
+}
+
 TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx) {
     void* mem = ts_alloc(sizeof(TsAsyncGenerator));
     TsAsyncGenerator* gen = new (mem) TsAsyncGenerator(ctx);
