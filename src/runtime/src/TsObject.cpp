@@ -2902,8 +2902,8 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Forward declarations for Object.prototype methods (defined later in this file)
-    static TsValue* ts_object_isPrototypeOf_native(void* ctx, int argc, TsValue** argv);
-    static TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_object_isPrototypeOf_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv);
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
         if (!obj) {
@@ -8555,7 +8555,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Object.prototype.isPrototypeOf(obj) - checks if this is in obj's prototype chain
-    static TsValue* ts_object_isPrototypeOf_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_object_isPrototypeOf_native(void* ctx, int argc, TsValue** argv) {
         // Basic implementation: check if ctx is in the prototype chain of argv[0]
         if (!ctx || argc == 0 || !argv[0]) return ts_value_make_bool(false);
 
@@ -8577,7 +8577,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Object.prototype.propertyIsEnumerable(propName) - checks if property is enumerable
-    static TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv) {
         if (!ctx) ctx = ts_get_call_this();
         if (!ctx || argc == 0) return ts_value_make_bool(false);
         void* obj = ts_nanbox_safe_unbox(ctx);

@@ -240,6 +240,57 @@ void* ts_get_global_Object() {
     // doesn't check function property maps.
     extern TsValue* ts_object_hasOwnProperty_native(void*, int, TsValue**);
     addMethod(proto, "hasOwnProperty", (void*)ts_object_hasOwnProperty_native);
+    // Other Object.prototype methods. Without these, accessing
+    // `Object.prototype.X` directly returns undefined — the
+    // ts_object_get_property fallbacks at TsObject.cpp:3231+ only fire
+    // when the prototype-chain walk reaches the Object.prototype
+    // sentinel via an instance, not when it IS the receiver. The harness
+    // pattern `Function.prototype.call.bind(Object.prototype.X)` needs
+    // X to be a real own-property function on the proto map.
+    {
+        struct M { const char* name; void* fn; int arity; };
+        // Forward-declare statics from TsObject.cpp.
+        extern TsValue* ts_object_isPrototypeOf_native(void*, int, TsValue**);
+        extern TsValue* ts_object_propertyIsEnumerable_native(void*, int, TsValue**);
+        // toString/valueOf live as `static` in TsObject.cpp so we can't
+        // link to them directly; install lambda wrappers that produce
+        // spec-shaped output here.
+        addMethod(proto, "isPrototypeOf",       (void*)ts_object_isPrototypeOf_native, 1);
+        addMethod(proto, "propertyIsEnumerable",(void*)ts_object_propertyIsEnumerable_native, 1);
+        // Object.prototype.toString — call the same shared implementation
+        // by going through the public symbol that lives in TsObject.cpp.
+        // It's a `static` C++ function, not externally linkable, so use
+        // a thin lambda that mimics the expected behavior.
+        auto protoToString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            if (!ctx) return ts_value_make_string(TsString::Create("[object Undefined]"));
+            // Defer to Object.prototype.toString invoked via the runtime
+            // dispatch on the receiver. The simplest: just produce the
+            // brand tag like the canonical impl. Brand detection via magic.
+            uint64_t nb = (uint64_t)(uintptr_t)ctx;
+            if (nb == NANBOX_UNDEFINED) return ts_value_make_string(TsString::Create("[object Undefined]"));
+            if (nb == NANBOX_NULL) return ts_value_make_string(TsString::Create("[object Null]"));
+            if (nb == NANBOX_TRUE || nb == NANBOX_FALSE) return ts_value_make_string(TsString::Create("[object Boolean]"));
+            if (nanbox_is_int32(nb) || nanbox_is_double(nb)) return ts_value_make_string(TsString::Create("[object Number]"));
+            if (nanbox_is_ptr(nb)) {
+                void* ptr = nanbox_to_ptr(nb);
+                if (!ptr) return ts_value_make_string(TsString::Create("[object Null]"));
+                uint32_t magic0 = *(uint32_t*)ptr;
+                if (magic0 == 0x53545247) return ts_value_make_string(TsString::Create("[object String]"));
+                if (magic0 == 0x41525259) return ts_value_make_string(TsString::Create("[object Array]"));
+                uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+                if (magic16 == 0x434C5352 || magic16 == 0x46554E43)
+                    return ts_value_make_string(TsString::Create("[object Function]"));
+            }
+            return ts_value_make_string(TsString::Create("[object Object]"));
+        };
+        auto protoValueOf = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return (TsValue*)(ctx ? ctx : ts_value_make_undefined());
+        };
+        addMethod(proto, "toString", (void*)+protoToString, 0);
+        addMethod(proto, "valueOf",  (void*)+protoValueOf,  0);
+    }
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;
     protoKey.ptr_val = TsString::GetInterned("prototype");
