@@ -463,6 +463,38 @@ ast::NodePtr Parser::parseBindingNameOrPattern() {
     if (check(TokenKind::OpenBracket)) {
         return parseArrayBindingPattern();
     }
+    // Per ES spec, BindingIdentifier cannot be a reserved word. While
+    // identifierName() accepts any keyword (necessary for member access
+    // like `obj.class`), a binding context (e.g. `var class = ...`) must
+    // reject reserved words with a SyntaxError.
+    {
+        TokenKind k = current_.kind;
+        bool isReservedBinding =
+            k == TokenKind::KW_break || k == TokenKind::KW_case ||
+            k == TokenKind::KW_catch || k == TokenKind::KW_class ||
+            k == TokenKind::KW_const || k == TokenKind::KW_continue ||
+            k == TokenKind::KW_debugger || k == TokenKind::KW_default ||
+            k == TokenKind::KW_delete || k == TokenKind::KW_do ||
+            k == TokenKind::KW_else || k == TokenKind::KW_enum ||
+            k == TokenKind::KW_export || k == TokenKind::KW_extends ||
+            k == TokenKind::KW_false || k == TokenKind::KW_finally ||
+            k == TokenKind::KW_for || k == TokenKind::KW_function ||
+            k == TokenKind::KW_if || k == TokenKind::KW_import ||
+            k == TokenKind::KW_in || k == TokenKind::KW_instanceof ||
+            k == TokenKind::KW_new || k == TokenKind::KW_null ||
+            k == TokenKind::KW_return || k == TokenKind::KW_super ||
+            k == TokenKind::KW_switch || k == TokenKind::KW_this ||
+            k == TokenKind::KW_throw || k == TokenKind::KW_true ||
+            k == TokenKind::KW_try || k == TokenKind::KW_typeof ||
+            k == TokenKind::KW_var || k == TokenKind::KW_void ||
+            k == TokenKind::KW_while || k == TokenKind::KW_with;
+        if (isReservedBinding) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: '{}' is a reserved word and cannot be "
+                "used as a binding identifier",
+                fileName_, current_.line, std::string(current_.text)));
+        }
+    }
     // Simple identifier
     auto id = std::make_unique<ast::Identifier>();
     setLocation(id.get(), current_);
