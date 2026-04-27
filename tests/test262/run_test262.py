@@ -371,6 +371,33 @@ def interleave_tests(tests: List[Path], base_dir: Path) -> List[Path]:
     return merged
 
 
+HOST_262_SETUP = r"""// $262: minimal host hook surface for test262 harness files.
+// Real spec hosts expose a richer object; we provide the methods that
+// detachArrayBuffer.js and IsHTMLDDA-feature tests require.
+var $262 = {
+    // Detach an ArrayBuffer. ArrayBuffer.prototype.transfer() detaches
+    // the receiver per spec, so we just call it and discard the new
+    // buffer.
+    detachArrayBuffer: function(buffer) {
+        if (buffer && typeof buffer.transfer === "function") {
+            buffer.transfer();
+        }
+    },
+    // [[IsHTMLDDA]]: a callable whose [[Call]] returns undefined.
+    // Per Annex B, `IsHTMLDDA == null` is also true (legacy DOM
+    // document.all semantics) — we don't model that here, but tests
+    // that just check `Call(IsHTMLDDA)` returning a non-Object pass.
+    IsHTMLDDA: function() {},
+    // Reference to the global object. test262 occasionally uses
+    // $262.global for indirect property access.
+    global: globalThis,
+    // evalScript: not supported in AOT — return undefined so tests
+    // that probe for its existence don't crash.
+    evalScript: function(_) {},
+};
+"""
+
+
 def build_test_source(test_path: Path, meta: TestMetadata) -> str:
     """Concatenate harness files + test body into a single source string."""
     parts = []
@@ -381,6 +408,10 @@ def build_test_source(test_path: Path, meta: TestMetadata) -> str:
             p = HARNESS_DIR / harness_file
             if p.exists():
                 parts.append(p.read_text(encoding='utf-8'))
+
+        # Inject the $262 host-hook stub before any test/include code
+        # runs. detachArrayBuffer.js and IsHTMLDDA tests need this.
+        parts.append(HOST_262_SETUP)
 
         # Include any additional harness files
         for inc in meta.includes:
