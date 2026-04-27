@@ -149,10 +149,15 @@ public:
     // (Phase 3 of ArrayBuffer project — `new Uint8Array(ab)` etc.).
     static TsTypedArray* CreateOnBuffer(TsBuffer* buffer, size_t byteOffset, size_t length,
                                         size_t elementSize, bool clamped, TypedArrayType type);
-    uint8_t* GetData() { return buffer ? buffer->GetData() + byteOffset : nullptr; }
-    size_t GetLength() { return length; }
-    size_t GetByteLength() { return length * elementSize; }
-    size_t GetByteOffset() { return byteOffset; }
+    // Per ES spec, when the underlying ArrayBuffer is detached, a
+    // TypedArray reports length / byteLength / byteOffset as 0 and
+    // indexed access returns undefined. We honor that here so callers
+    // that bounds-check via GetLength() naturally bail out.
+    bool IsDetachedBuffer() { return !buffer || buffer->IsDetached(); }
+    uint8_t* GetData() { return IsDetachedBuffer() ? nullptr : buffer->GetData() + byteOffset; }
+    size_t GetLength() { return IsDetachedBuffer() ? 0 : length; }
+    size_t GetByteLength() { return IsDetachedBuffer() ? 0 : length * elementSize; }
+    size_t GetByteOffset() { return IsDetachedBuffer() ? 0 : byteOffset; }
     size_t GetElementSize() { return elementSize; }
     bool IsClamped() { return clamped; }
     TypedArrayType GetType() { return arrayType; }

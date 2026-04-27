@@ -2397,8 +2397,9 @@ TsTypedArray::TsTypedArray(TsBuffer* buffer, size_t byteOffset, size_t length,
 
 double TsTypedArray::Get(size_t index) {
     if (index >= length) return 0;
-    if (!buffer) return 0;
+    if (!buffer || buffer->IsDetached()) return 0;
     uint8_t* data = buffer->GetData() + byteOffset;
+    if (!data) return 0;
     switch (arrayType) {
         case TypedArrayType::Uint8:
         case TypedArrayType::Uint8Clamped:
@@ -2427,8 +2428,9 @@ double TsTypedArray::Get(size_t index) {
 
 void TsTypedArray::Set(size_t index, double value) {
     if (index >= length) return;
-    if (!buffer) return;
+    if (!buffer || buffer->IsDetached()) return;
     uint8_t* data = buffer->GetData() + byteOffset;
+    if (!data) return;
     switch (arrayType) {
         case TypedArrayType::Uint8Clamped:
             if (value < 0) value = 0;

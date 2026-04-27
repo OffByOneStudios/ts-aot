@@ -2005,19 +2005,26 @@ extern "C" {
 
     void* ts_array_get_unchecked(void* arr, int64_t index) {
         void* raw = unboxRaw(arr);
-        if (!raw) return nullptr;
+        if (!raw) return (void*)ts_value_make_undefined();
 
-        // Check for TsTypedArray
+        // Check for TsTypedArray. After detach, GetLength returns 0 so
+        // any access falls into the out-of-range branch; return undefined
+        // (per spec — IntegerIndexedElementGet on detached returns
+        // undefined, not throws).
         TsTypedArray* ta = asTypedArray(raw);
         if (ta) {
-            if (index < 0 || (size_t)index >= ta->GetLength()) return nullptr;
+            if (index < 0 || (size_t)index >= ta->GetLength()) {
+                return (void*)ts_value_make_undefined();
+            }
             double val = ta->Get((size_t)index);
             // Return as NaN-boxed double
             return (void*)ts_value_make_double(val);
         }
 
         TsArray* array = (TsArray*)raw;
-        if (index < 0 || (size_t)index >= (size_t)array->Length()) return nullptr;
+        if (index < 0 || (size_t)index >= (size_t)array->Length()) {
+            return (void*)ts_value_make_undefined();
+        }
         return (void*)array->GetUnchecked(index);
     }
 
