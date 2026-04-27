@@ -3245,7 +3245,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_native_function((void*)ts_object_isPrototypeOf_native, nullptr);
             }
             if (strcmp(keyStr, "propertyIsEnumerable") == 0) {
-                return ts_value_make_native_function((void*)ts_object_propertyIsEnumerable_native, nullptr);
+                return makeNamedNativeFunction((void*)ts_object_propertyIsEnumerable_native, nullptr, "propertyIsEnumerable", 1);
             }
             // Check for EventEmitter methods on TsMap-backed objects extending EventEmitter
             {
@@ -5943,6 +5943,61 @@ TsValue* ts_value_make_int(int64_t i) {
         // Get property key via NaN-box decode
         TsValue propKey = nanbox_to_tagged(prop);
 
+        // Per spec, accessor properties yield {get, set, enumerable,
+        // configurable} — no value/writable. We store accessors via
+        // __getter_<name> / __setter_<name> keys in the same map, so
+        // detect them via the property's string name and synthesize an
+        // accessor descriptor.
+        TsString* propStr = (propKey.type == ValueType::STRING_PTR)
+            ? (TsString*)propKey.ptr_val : nullptr;
+        if (propStr) {
+            const char* propC = propStr->ToUtf8();
+            if (propC) {
+                std::string getterName = std::string("__getter_") + propC;
+                std::string setterName = std::string("__setter_") + propC;
+                TsValue gk; gk.type = ValueType::STRING_PTR;
+                gk.ptr_val = TsString::GetInterned(getterName.c_str());
+                TsValue sk; sk.type = ValueType::STRING_PTR;
+                sk.ptr_val = TsString::GetInterned(setterName.c_str());
+                bool hasGetter = map->Has(gk);
+                bool hasSetter = map->Has(sk);
+                if (hasGetter || hasSetter) {
+                    TsMap* desc = TsMap::Create();
+                    TsValue getKey; getKey.type = ValueType::STRING_PTR;
+                    getKey.ptr_val = TsString::GetInterned("get");
+                    TsValue setKey; setKey.type = ValueType::STRING_PTR;
+                    setKey.ptr_val = TsString::GetInterned("set");
+                    if (hasGetter) {
+                        desc->Set(getKey, map->Get(gk));
+                    } else {
+                        TsValue u; u.type = ValueType::UNDEFINED; u.i_val = 0;
+                        desc->Set(getKey, u);
+                    }
+                    if (hasSetter) {
+                        desc->Set(setKey, map->Get(sk));
+                    } else {
+                        TsValue u; u.type = ValueType::UNDEFINED; u.i_val = 0;
+                        desc->Set(setKey, u);
+                    }
+                    // Read attrs from the named property slot (the data
+                    // slot under the same name carries the descriptor flags).
+                    uint8_t attrs = map->Has(propKey)
+                        ? map->GetPropertyAttrs(propKey) : 0;
+                    TsValue enumKey; enumKey.type = ValueType::STRING_PTR;
+                    enumKey.ptr_val = TsString::GetInterned("enumerable");
+                    TsValue enumVal; enumVal.type = ValueType::BOOLEAN;
+                    enumVal.i_val = (attrs & 0x01) ? 1 : 0;
+                    desc->Set(enumKey, enumVal);
+                    TsValue configKey; configKey.type = ValueType::STRING_PTR;
+                    configKey.ptr_val = TsString::GetInterned("configurable");
+                    TsValue configVal; configVal.type = ValueType::BOOLEAN;
+                    configVal.i_val = (attrs & 0x04) ? 1 : 0;
+                    desc->Set(configKey, configVal);
+                    return ts_value_make_object(desc);
+                }
+            }
+        }
+
         // Check if property exists
         if (!map->Has(propKey)) {
             return ts_value_make_object(nullptr);  // undefined if not found
@@ -7853,8 +7908,8 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         // TsArray string-keyed side-map: magic is at offset 0.
-        uint32_t magic0 = *(uint32_t*)rawMap;
-        if (magic0 == 0x41525259) { // TsArray::MAGIC ("ARRY")
+        uint32_t arrMagic = *(uint32_t*)rawMap;
+        if (arrMagic == 0x41525259) { // TsArray::MAGIC ("ARRY")
             TsArray* arr = (TsArray*)rawMap;
             if (!arr->properties) return 1; // non-existent
             TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
@@ -8523,18 +8578,40 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Object.prototype.propertyIsEnumerable(propName) - checks if property is enumerable
     static TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv) {
-        // For TsMap objects, all own properties are enumerable
+        if (!ctx) ctx = ts_get_call_this();
         if (!ctx || argc == 0) return ts_value_make_bool(false);
         void* obj = ts_nanbox_safe_unbox(ctx);
         if (!obj) return ts_value_make_bool(false);
 
-        TsMap* map = dynamic_cast<TsMap*>((TsObject*)obj);
-        if (!map) return ts_value_make_bool(false);
-
         TsValue* keyVal = argv[0];
         if (!keyVal) return ts_value_make_bool(false);
         TsValue keyTV = nanbox_to_tagged(keyVal);
-        return ts_value_make_bool(map->Has(keyTV));
+
+        // Resolve the underlying TsMap. TsFunction / TsClosure / TsArray
+        // store user-defined props on a side `properties` TsMap; otherwise
+        // the receiver is itself a TsMap. dynamic_cast on a non-TsObject
+        // (TsArray) is UB, so check magic first.
+        TsMap* map = nullptr;
+        uint32_t m0 = *(uint32_t*)obj;
+        uint32_t m16 = *(uint32_t*)((char*)obj + 16);
+        if (m16 == TsFunction::MAGIC) {
+            map = ((TsFunction*)obj)->properties;
+        } else if (m16 == 0x434C5352) {  // TsClosure
+            map = ((TsClosure*)obj)->properties;
+        } else if (m0 == 0x41525259) {  // TsArray
+            map = ((TsArray*)obj)->properties;
+        } else if (m16 == 0x4D415053) {  // TsMap
+            map = (TsMap*)obj;
+        }
+        if (!map) return ts_value_make_bool(false);
+        if (!map->Has(keyTV)) return ts_value_make_bool(false);
+
+        // Check the actual ATTR_ENUMERABLE bit — owning the property is
+        // necessary but not sufficient. defineProperty without
+        // {enumerable:true} produces a non-enumerable property.
+        uint8_t attrs = map->GetPropertyAttrs(keyTV);
+        constexpr uint8_t ATTR_ENUMERABLE = 0x01;
+        return ts_value_make_bool((attrs & ATTR_ENUMERABLE) != 0);
     }
 
     // Object constructor function - converts value to object
