@@ -1095,15 +1095,49 @@ void* ts_get_global_Number() {
     return cached;
 }
 
+// Same pattern as Number wrapper: extract underlying bool from a wrapper
+// receiver (TsMap with hidden __BooleanData) or a primitive boolean.
+static bool ts_boolean_data_of(void* ctx) {
+    if (!ctx) return false;
+    uint64_t nb = (uint64_t)(uintptr_t)ctx;
+    if (nb == NANBOX_TRUE) return true;
+    if (nb == NANBOX_FALSE) return false;
+    void* raw = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : ctx;
+    if (!raw) return false;
+    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+    if (m16 == 0x4D415053) {  // TsMap
+        TsMap* obj = (TsMap*)raw;
+        TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+        ndKey.ptr_val = TsString::GetInterned("__BooleanData");
+        TsValue v = obj->Get(ndKey);
+        if (v.type == ValueType::BOOLEAN) return v.i_val != 0;
+    }
+    return false;
+}
+
 void* ts_get_global_Boolean() {
     static void* cached = nullptr;
     if (!cached) {
         auto boolFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            if (argc >= 1 && argv && argv[0]) {
-                bool b = ts_value_to_bool(argv[0]);
-                return ts_value_make_bool(b);
+            bool b = (argc >= 1 && argv && argv[0]) ? ts_value_to_bool(argv[0]) : false;
+            // `new Boolean(x)`: store in wrapper TsMap and return it.
+            void* thisVal = ts_get_call_this();
+            if (thisVal) {
+                void* raw = ts_value_get_object((TsValue*)thisVal);
+                if (raw) {
+                    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+                    if (m16 == 0x4D415053) {  // TsMap
+                        TsMap* obj = (TsMap*)raw;
+                        TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+                        ndKey.ptr_val = TsString::GetInterned("__BooleanData");
+                        TsValue ndVal; ndVal.type = ValueType::BOOLEAN;
+                        ndVal.i_val = b ? 1 : 0;
+                        obj->Set(ndKey, ndVal);
+                        return (TsValue*)thisVal;
+                    }
+                }
             }
-            return ts_value_make_bool(false);
+            return ts_value_make_bool(b);
         };
 
         TsValue* ctorVal = ts_value_make_native_function((void*)+boolFn, nullptr);
@@ -1117,6 +1151,25 @@ void* ts_get_global_Boolean() {
         TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
         ctorFunc->properties->Set(protoKey, protoVal);
+
+        // Boolean.prototype seeds [[BooleanData]] = false per spec, so
+        // Boolean.prototype.toString() === "false".
+        TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+        ndKey.ptr_val = TsString::GetInterned("__BooleanData");
+        TsValue ndFalse; ndFalse.type = ValueType::BOOLEAN; ndFalse.i_val = 0;
+        proto->Set(ndKey, ndFalse);
+
+        auto boolProtoToString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_value_make_string(TsString::Create(
+                ts_boolean_data_of(ctx) ? "true" : "false"));
+        };
+        auto boolProtoValueOf = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_value_make_bool(ts_boolean_data_of(ctx));
+        };
+        addMethod(proto, "toString", (void*)+boolProtoToString, 0);
+        addMethod(proto, "valueOf",  (void*)+boolProtoValueOf,  0);
 
         ctorFunc->name = TsString::Create("Boolean");
         cached = (void*)ctorVal;
