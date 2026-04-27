@@ -5870,6 +5870,23 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // ArrayBuffer: `new ArrayBuffer(byteLength)` allocates a real
+    // TsBuffer of the requested size. Without this dedicated path, the
+    // generic ctor route allocated an empty TsMap and ignored the
+    // length, leaving .byteLength undefined and downstream TypedArray
+    // operations broken.
+    if (className == "ArrayBuffer") {
+        std::shared_ptr<HIRValue> length;
+        if (!node->arguments.empty()) {
+            length = lowerExpression(node->arguments[0].get());
+        } else {
+            length = builder_.createConstInt(0);
+        }
+        lastValue_ = builder_.createCall("ts_arraybuffer_create",
+            {length}, HIRType::makeAny());
+        return;
+    }
+
     // AggregateError has signature (errors, message?), unlike the (message)
     // signature of all other built-in Error subclasses. Route to a dedicated
     // runtime that builds the .errors array.

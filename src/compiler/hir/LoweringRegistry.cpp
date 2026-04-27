@@ -442,6 +442,13 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .i64Arg()      // size (auto-converts f64 → i64)
             .build());
 
+    // ArrayBuffer ctor: takes byteLength as i64 (auto-converts f64 → i64).
+    reg.registerLowering("ts_arraybuffer_create",
+        lowering("ts_arraybuffer_create")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+
     // TypedArray constructors - take raw i64 length argument
     reg.registerLowering("ts_typed_array_create_u8",
         lowering("ts_typed_array_create_u8")
