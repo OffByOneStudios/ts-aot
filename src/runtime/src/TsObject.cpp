@@ -2867,7 +2867,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 magic16 == 0x48454144 ||  // TsHeaders::MAGIC "HEAD"
                 magic16 == 0x48415348 ||  // TsCryptoHash::MAGIC "HASH"
                 magic16 == 0x484D4143 ||  // TsCryptoHmac::MAGIC "HMAC"
-                magic16 == 0x42554646) {  // TsBuffer::MAGIC "BUFF"
+                magic16 == 0x42554646 ||  // TsBuffer::MAGIC "BUFF"
+                magic16 == 0x44564945) {  // TsDataView::MAGIC "DVIE"
                 TsObject* tsObj = (TsObject*)obj;
                 TsValue result = tsObj->GetPropertyVirtual(keyStr);
                 if (result.type != ValueType::UNDEFINED) {

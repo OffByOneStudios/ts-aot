@@ -33,6 +33,13 @@ TsValue TsBuffer::GetPropertyVirtual(const char* key) {
         v.i_val = IsResizable() ? (int64_t)GetMaxByteLength() : (int64_t)GetLength();
         return v;
     }
+    // ArrayBuffer.prototype.detached (ES2024) — true after detach/transfer.
+    if (strcmp(key, "detached") == 0) {
+        TsValue v;
+        v.type = ValueType::BOOLEAN;
+        v.i_val = IsDetached() ? 1 : 0;
+        return v;
+    }
     // ArrayBuffer.prototype.slice(start, end) — returns a new ArrayBuffer
     // containing a copy of the byte range. ctx is the receiver buffer.
     if (strcmp(key, "slice") == 0) {
@@ -43,6 +50,11 @@ TsValue TsBuffer::GetPropertyVirtual(const char* key) {
             (void*)+[](void* ctx, TsValue* startV, TsValue* endV) -> TsValue* {
                 TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)ctx);
                 if (!buf) return ts_value_make_undefined();
+                if (buf->IsDetached()) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: ArrayBuffer is detached")));
+                    return ts_value_make_undefined();
+                }
                 int64_t len = (int64_t)buf->GetLength();
                 int64_t start = 0, end = len;
                 if (startV && !ts_value_is_undefined(startV)) start = (int64_t)ts_to_number(startV);
@@ -51,6 +63,36 @@ TsValue TsBuffer::GetPropertyVirtual(const char* key) {
                 return ts_value_make_object(sliced);
             },
             this, FunctionType::COMPILED, 2);
+        return v;
+    }
+    // ArrayBuffer.prototype.transfer([newLength]) (ES2024) —
+    // returns a new ArrayBuffer with the bytes, detaches receiver.
+    if (strcmp(key, "transfer") == 0 || strcmp(key, "transferToFixedLength") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        void* mem = ts_alloc(sizeof(TsFunction));
+        v.ptr_val = new (mem) TsFunction(
+            (void*)+[](void* ctx, TsValue* newLenV) -> TsValue* {
+                TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)ctx);
+                if (!buf) return ts_value_make_undefined();
+                if (buf->IsDetached()) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: ArrayBuffer is detached")));
+                    return ts_value_make_undefined();
+                }
+                int64_t oldLen = (int64_t)buf->GetLength();
+                int64_t newLen = oldLen;
+                if (newLenV && !ts_value_is_undefined(newLenV)) {
+                    newLen = (int64_t)ts_to_number(newLenV);
+                    if (newLen < 0) newLen = 0;
+                }
+                TsBuffer* out = TsBuffer::Create((size_t)newLen);
+                int64_t copyLen = newLen < oldLen ? newLen : oldLen;
+                if (copyLen > 0) std::memcpy(out->GetData(), buf->GetData(), (size_t)copyLen);
+                buf->Detach();
+                return ts_value_make_object(out);
+            },
+            this, FunctionType::COMPILED, 1);
         return v;
     }
     return TsObject::GetPropertyVirtual(key);
@@ -1967,6 +2009,40 @@ extern "C" {
         return TsDataView::Create((TsBuffer*)buffer);
     }
 
+    // Full DataView ctor: new DataView(buffer, byteOffset, byteLength)
+    // Called by ASTToHIR's special case for `new DataView(...)`. The
+    // buffer arg is unboxed via ts_value_get_object so we accept either
+    // a NaN-boxed pointer or a raw TsBuffer pointer.
+    void* ts_dataview_create_full(void* bufferArg, int64_t byteOffset, int64_t byteLength) {
+        void* raw = ts_value_get_object((TsValue*)bufferArg);
+        if (!raw) raw = bufferArg;
+        TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)raw);
+        if (!buf) {
+            ts_throw((TsValue*)ts_error_create(TsString::Create(
+                "TypeError: First argument to DataView constructor must be an ArrayBuffer")));
+            return nullptr;
+        }
+        size_t bufLen = buf->GetLength();
+        size_t off = (byteOffset > 0) ? (size_t)byteOffset : 0;
+        if (off > bufLen) {
+            ts_throw((TsValue*)ts_error_create(TsString::Create(
+                "RangeError: Start offset is outside the bounds of the buffer")));
+            return nullptr;
+        }
+        size_t len;
+        if (byteLength < 0) {
+            len = bufLen - off;  // Default: rest of buffer
+        } else {
+            len = (size_t)byteLength;
+            if (off + len > bufLen) {
+                ts_throw((TsValue*)ts_error_create(TsString::Create(
+                    "RangeError: Invalid DataView length")));
+                return nullptr;
+            }
+        }
+        return TsDataView::Create(buf, off, len);
+    }
+
     int64_t DataView_getUint32(void* context, void* dv, int64_t offset, bool littleEndian) {
         if (!dv) return 0;
         TsDataView* view = (TsDataView*)dv;
@@ -2376,7 +2452,176 @@ TsDataView* TsDataView::Create(TsBuffer* buffer) {
     return new(mem) TsDataView(buffer);
 }
 
+TsDataView* TsDataView::Create(TsBuffer* buffer, size_t byteOffset, size_t byteLength) {
+    void* mem = ts_alloc(sizeof(TsDataView));
+    return new(mem) TsDataView(buffer, byteOffset, byteLength);
+}
+
 TsDataView::TsDataView(TsBuffer* buffer) {
     this->magic = MAGIC;  // Set inherited magic from TsObject
     this->buffer = buffer;
+    this->byteOffset = 0;
+    this->byteLength = buffer ? buffer->GetLength() : 0;
+}
+
+TsDataView::TsDataView(TsBuffer* buffer, size_t byteOffset, size_t byteLength) {
+    this->magic = MAGIC;
+    this->buffer = buffer;
+    this->byteOffset = byteOffset;
+    this->byteLength = byteLength;
+}
+
+// Virtual dispatch — buffer / byteLength / byteOffset + get/set methods.
+// Reached via the magic16 whitelist in ts_try_virtual_property_dispatch.
+TsValue TsDataView::GetPropertyVirtual(const char* key) {
+    if (strcmp(key, "buffer") == 0) {
+        TsValue v;
+        v.type = ValueType::OBJECT_PTR;
+        v.ptr_val = buffer;
+        return v;
+    }
+    if (strcmp(key, "byteLength") == 0) {
+        TsValue v;
+        v.type = ValueType::NUMBER_INT;
+        v.i_val = (int64_t)byteLength;
+        return v;
+    }
+    if (strcmp(key, "byteOffset") == 0) {
+        TsValue v;
+        v.type = ValueType::NUMBER_INT;
+        v.i_val = (int64_t)byteOffset;
+        return v;
+    }
+    // Helper that builds a TsFunction wrapping a getter lambda. ctx is
+    // the receiver DataView; offV is the byte offset; leV is the
+    // littleEndian flag (defaults false for big-endian per spec).
+    #define DV_GET(name, width, body) \
+        if (strcmp(key, name) == 0) { \
+            TsValue v; v.type = ValueType::FUNCTION_PTR; \
+            void* mem = ts_alloc(sizeof(TsFunction)); \
+            v.ptr_val = new (mem) TsFunction( \
+                (void*)+[](void* ctx, TsValue* offV, TsValue* leV) -> TsValue* { \
+                    TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx); \
+                    if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
+                    int64_t off = (offV && !ts_value_is_undefined(offV)) ? (int64_t)ts_to_number(offV) : 0; \
+                    bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV); \
+                    if (off < 0 || (size_t)off + (width) > dv->GetByteLength()) { \
+                        ts_throw((TsValue*)ts_error_create(TsString::Create( \
+                            "RangeError: Offset is outside the bounds of the DataView"))); \
+                        return ts_value_make_undefined(); \
+                    } \
+                    uint8_t* p = dv->GetBuffer()->GetData() + dv->GetByteOffset() + off; \
+                    body \
+                }, \
+                this, FunctionType::COMPILED, 1); \
+            return v; \
+        }
+    #define DV_SET(name, width, body) \
+        if (strcmp(key, name) == 0) { \
+            TsValue v; v.type = ValueType::FUNCTION_PTR; \
+            void* mem = ts_alloc(sizeof(TsFunction)); \
+            v.ptr_val = new (mem) TsFunction( \
+                (void*)+[](void* ctx, TsValue* offV, TsValue* valV, TsValue* leV) -> TsValue* { \
+                    TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx); \
+                    if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
+                    int64_t off = (offV && !ts_value_is_undefined(offV)) ? (int64_t)ts_to_number(offV) : 0; \
+                    double dval = (valV && !ts_value_is_undefined(valV)) ? ts_to_number(valV) : 0.0; \
+                    bool le = leV && !ts_value_is_undefined(leV) && ts_value_to_bool(leV); \
+                    if (off < 0 || (size_t)off + (width) > dv->GetByteLength()) { \
+                        ts_throw((TsValue*)ts_error_create(TsString::Create( \
+                            "RangeError: Offset is outside the bounds of the DataView"))); \
+                        return ts_value_make_undefined(); \
+                    } \
+                    uint8_t* p = dv->GetBuffer()->GetData() + dv->GetByteOffset() + off; \
+                    body \
+                    return ts_value_make_undefined(); \
+                }, \
+                this, FunctionType::COMPILED, 2); \
+            return v; \
+        }
+
+    DV_GET("getInt8", 1, { (void)le; return ts_value_make_int((int64_t)(int8_t)*p); });
+    DV_GET("getUint8", 1, { (void)le; return ts_value_make_int((int64_t)*p); });
+    DV_SET("setInt8", 1, { (void)le; *p = (uint8_t)(int8_t)dval; });
+    DV_SET("setUint8", 1, { (void)le; *p = (uint8_t)dval; });
+
+    DV_GET("getInt16", 2, {
+        uint16_t u; std::memcpy(&u, p, 2);
+        if (!le) u = (uint16_t)((u >> 8) | (u << 8));
+        return ts_value_make_int((int64_t)(int16_t)u);
+    });
+    DV_GET("getUint16", 2, {
+        uint16_t u; std::memcpy(&u, p, 2);
+        if (!le) u = (uint16_t)((u >> 8) | (u << 8));
+        return ts_value_make_int((int64_t)u);
+    });
+    DV_SET("setInt16", 2, {
+        uint16_t u = (uint16_t)(int16_t)dval;
+        if (!le) u = (uint16_t)((u >> 8) | (u << 8));
+        std::memcpy(p, &u, 2);
+    });
+    DV_SET("setUint16", 2, {
+        uint16_t u = (uint16_t)dval;
+        if (!le) u = (uint16_t)((u >> 8) | (u << 8));
+        std::memcpy(p, &u, 2);
+    });
+
+    DV_GET("getInt32", 4, {
+        uint32_t u; std::memcpy(&u, p, 4);
+        if (!le) u = ((u >> 24) | ((u & 0x00FF0000) >> 8) | ((u & 0x0000FF00) << 8) | (u << 24));
+        return ts_value_make_int((int64_t)(int32_t)u);
+    });
+    DV_GET("getUint32", 4, {
+        uint32_t u; std::memcpy(&u, p, 4);
+        if (!le) u = ((u >> 24) | ((u & 0x00FF0000) >> 8) | ((u & 0x0000FF00) << 8) | (u << 24));
+        return ts_value_make_int((int64_t)u);
+    });
+    DV_SET("setInt32", 4, {
+        uint32_t u = (uint32_t)(int32_t)dval;
+        if (!le) u = ((u >> 24) | ((u & 0x00FF0000) >> 8) | ((u & 0x0000FF00) << 8) | (u << 24));
+        std::memcpy(p, &u, 4);
+    });
+    DV_SET("setUint32", 4, {
+        uint32_t u = (uint32_t)dval;
+        if (!le) u = ((u >> 24) | ((u & 0x00FF0000) >> 8) | ((u & 0x0000FF00) << 8) | (u << 24));
+        std::memcpy(p, &u, 4);
+    });
+
+    DV_GET("getFloat32", 4, {
+        uint32_t u; std::memcpy(&u, p, 4);
+        if (!le) u = ((u >> 24) | ((u & 0x00FF0000) >> 8) | ((u & 0x0000FF00) << 8) | (u << 24));
+        float f; std::memcpy(&f, &u, 4);
+        return ts_value_make_double((double)f);
+    });
+    DV_GET("getFloat64", 8, {
+        uint64_t u; std::memcpy(&u, p, 8);
+        if (!le) {
+            u = ((u >> 56) & 0xFF) | (((u >> 48) & 0xFF) << 8) |
+                (((u >> 40) & 0xFF) << 16) | (((u >> 32) & 0xFF) << 24) |
+                (((u >> 24) & 0xFF) << 32) | (((u >> 16) & 0xFF) << 40) |
+                (((u >> 8) & 0xFF) << 48) | ((u & 0xFF) << 56);
+        }
+        double d; std::memcpy(&d, &u, 8);
+        return ts_value_make_double(d);
+    });
+    DV_SET("setFloat32", 4, {
+        float f = (float)dval;
+        uint32_t u; std::memcpy(&u, &f, 4);
+        if (!le) u = ((u >> 24) | ((u & 0x00FF0000) >> 8) | ((u & 0x0000FF00) << 8) | (u << 24));
+        std::memcpy(p, &u, 4);
+    });
+    DV_SET("setFloat64", 8, {
+        uint64_t u; std::memcpy(&u, &dval, 8);
+        if (!le) {
+            u = ((u >> 56) & 0xFF) | (((u >> 48) & 0xFF) << 8) |
+                (((u >> 40) & 0xFF) << 16) | (((u >> 32) & 0xFF) << 24) |
+                (((u >> 24) & 0xFF) << 32) | (((u >> 16) & 0xFF) << 40) |
+                (((u >> 8) & 0xFF) << 48) | ((u & 0xFF) << 56);
+        }
+        std::memcpy(p, &u, 8);
+    });
+
+    #undef DV_GET
+    #undef DV_SET
+    return TsObject::GetPropertyVirtual(key);
 }

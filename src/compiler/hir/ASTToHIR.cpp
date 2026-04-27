@@ -5887,6 +5887,25 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // DataView: `new DataView(buffer, byteOffset?, byteLength?)` wraps
+    // an existing ArrayBuffer with a byte-typed view. If no buffer
+    // argument is given, the runtime call throws TypeError.
+    if (className == "DataView") {
+        std::shared_ptr<HIRValue> buf = !node->arguments.empty()
+            ? lowerExpression(node->arguments[0].get())
+            : builder_.createConstNull();
+        std::shared_ptr<HIRValue> byteOffset = (node->arguments.size() > 1)
+            ? lowerExpression(node->arguments[1].get())
+            : builder_.createConstInt(0);
+        // -1 sentinel = "rest of buffer" in ts_dataview_create_full.
+        std::shared_ptr<HIRValue> byteLength = (node->arguments.size() > 2)
+            ? lowerExpression(node->arguments[2].get())
+            : builder_.createConstInt(-1);
+        lastValue_ = builder_.createCall("ts_dataview_create_full",
+            {buf, byteOffset, byteLength}, HIRType::makeAny());
+        return;
+    }
+
     // AggregateError has signature (errors, message?), unlike the (message)
     // signature of all other built-in Error subclasses. Route to a dedicated
     // runtime that builds the .errors array.

@@ -113,12 +113,17 @@ public:
     bool IsResizable() { return maxByteLength > 0; }
     void Resize(size_t newByteLength);
 
+    // Detach (ES2024 transfer / test262 $262.detachArrayBuffer)
+    bool IsDetached() { return detached; }
+    void Detach() { detached = true; data = nullptr; length = 0; }
+
 private:
     TsBuffer(size_t length);
     TsBuffer(size_t length, size_t maxByteLength);
     uint8_t* data;
     size_t length;
     size_t maxByteLength = 0;  // 0 = not resizable
+    bool detached = false;     // Set by Detach() / transfer()
 };
 
 // TypedArray element type enum
@@ -167,11 +172,21 @@ class TsDataView : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x44564945; // "DVIE" (DataVIEw)
     static TsDataView* Create(TsBuffer* buffer);
+    static TsDataView* Create(TsBuffer* buffer, size_t byteOffset, size_t byteLength);
     TsBuffer* GetBuffer() { return buffer; }
+    size_t GetByteOffset() { return byteOffset; }
+    size_t GetByteLength() { return byteLength; }
+
+    // Virtual property dispatch for DataView (buffer / byteOffset /
+    // byteLength getters + get/set methods).
+    TsValue GetPropertyVirtual(const char* key) override;
 
 private:
     TsDataView(TsBuffer* buffer);
+    TsDataView(TsBuffer* buffer, size_t byteOffset, size_t byteLength);
     TsBuffer* buffer;
+    size_t byteOffset = 0;
+    size_t byteLength = 0;
 };
 
 extern "C" {

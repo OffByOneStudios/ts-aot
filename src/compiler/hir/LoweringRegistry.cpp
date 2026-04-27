@@ -449,6 +449,15 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .i64Arg(ArgConversion::ToI64)
             .build());
 
+    // DataView ctor: (buffer, byteOffset i64, byteLength i64).
+    reg.registerLowering("ts_dataview_create_full",
+        lowering("ts_dataview_create_full")
+            .returnsPtr()
+            .ptrArg()
+            .i64Arg(ArgConversion::ToI64)
+            .i64Arg(ArgConversion::ToI64)
+            .build());
+
     // TypedArray constructors - take raw i64 length argument
     reg.registerLowering("ts_typed_array_create_u8",
         lowering("ts_typed_array_create_u8")
