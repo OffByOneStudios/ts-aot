@@ -432,6 +432,9 @@ static TsValue* string_proto_method(const char* methodName, void* ctx, int argc,
     // Spec step 2: ToString — coerce non-string primitives (number, bool, etc.)
     // to a TsString. ts_string_from_value implements JS-spec ToString and throws
     // TypeError for Symbol (handled by the existing Symbol coercion code path).
+    // For String wrapper objects (`new String(x)`), we store the original
+    // string under __StringData on a TsMap; unwrap it here so prototype
+    // methods see the underlying string instead of "[object Object]".
     {
         uint64_t nb = nanbox_from_tsvalue_ptr(target);
         bool isAlreadyString = false;
@@ -441,6 +444,18 @@ static TsValue* string_proto_method(const char* methodName, void* ctx, int argc,
                 uint32_t magic = *(uint32_t*)ptr;
                 if (magic == TsString::MAGIC || magic == TsConsString::MAGIC) {
                     isAlreadyString = true;
+                } else {
+                    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+                    if (magic16 == 0x4D415053) {  // TsMap (potential String wrapper)
+                        TsMap* m = (TsMap*)ptr;
+                        TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+                        ndKey.ptr_val = TsString::GetInterned("__StringData");
+                        TsValue v = m->Get(ndKey);
+                        if (v.type == ValueType::STRING_PTR && v.ptr_val) {
+                            target = ts_value_make_string(v.ptr_val);
+                            isAlreadyString = true;
+                        }
+                    }
                 }
             }
         }
@@ -509,13 +524,30 @@ extern "C" double ts_to_number(TsValue* v);
 void* ts_get_global_String() {
     static void* cached = nullptr;
     if (!cached) {
-        // String() as a callable function: converts argument to string
+        // String() as a callable function: converts argument to string.
+        // `new String(x)` stores [[StringData]] on the wrapper TsMap so
+        // String.prototype.toString/valueOf can return the original.
         auto stringFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            if (argc >= 1 && argv && argv[0]) {
-                void* result = ts_string_from_value(argv[0]);
-                return ts_value_make_string(result);
+            void* result = (argc >= 1 && argv && argv[0])
+                ? ts_string_from_value(argv[0])
+                : (void*)TsString::Create("");
+            void* thisVal = ts_get_call_this();
+            if (thisVal) {
+                void* raw = ts_value_get_object((TsValue*)thisVal);
+                if (raw) {
+                    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+                    if (m16 == 0x4D415053) {  // TsMap
+                        TsMap* obj = (TsMap*)raw;
+                        TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+                        ndKey.ptr_val = TsString::GetInterned("__StringData");
+                        TsValue ndVal; ndVal.type = ValueType::STRING_PTR;
+                        ndVal.ptr_val = (TsString*)result;
+                        obj->Set(ndKey, ndVal);
+                        return (TsValue*)thisVal;
+                    }
+                }
             }
-            return ts_value_make_string(TsString::Create(""));
+            return ts_value_make_string(result);
         };
 
         TsValue* ctorVal = ts_value_make_native_function((void*)+stringFn, nullptr);
