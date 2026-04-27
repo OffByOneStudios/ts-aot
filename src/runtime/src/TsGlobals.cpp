@@ -2125,13 +2125,18 @@ void* ts_get_global_TypedArray() {
     return cached;
 }
 
-// ts_typed_array_new_<kind>(TsValue* arg) — constructor wrapper for
-// `new TypedArray(arg)` when arg is potentially an array-like or typed
-// array rather than a plain length. If arg has a numeric .length, allocate
-// that many elements and copy via indexed reads. Otherwise fall back to
-// ToLength(arg) for the length form.
-#define DEFINE_TYPED_ARRAY_NEW(Suffix, CreateFn)                                         \
-extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg) {                             \
+// ts_typed_array_new_<kind>(arg, byteOffset, byteLength) — constructor
+// wrapper for `new TypedArray(arg, ...)` covering all four spec forms:
+//   - new TA(length)               — allocate fresh buffer
+//   - new TA(arrayBuffer, off, n)  — share buffer (Phase 3)
+//   - new TA(typedArray)           — copy values
+//   - new TA(arrayLike)            — copy via .length + indexed reads
+// byteOffset/byteLength are honored only for the ArrayBuffer form; -1
+// byteLength means "rest of buffer".
+#define DEFINE_TYPED_ARRAY_NEW(Suffix, CreateFn, ElemSize, Clamped, TypeEnum)            \
+extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                               \
+                                             int64_t byteOffset,                         \
+                                             int64_t byteLength) {                       \
     if (arg) {                                                                           \
         void* rawSrc = ts_value_get_object(arg);                                         \
         bool srcIsObject = false;                                                        \
@@ -2140,8 +2145,39 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg) {                    
             if (p > 0x1000 && p < 0x0000800000000000ULL) srcIsObject = true;             \
         }                                                                                \
         if (srcIsObject) {                                                               \
-            /* TsArray fast path: use GetElementDouble for indexed reads. */             \
             uint32_t srcMagic0 = *(uint32_t*)rawSrc;                                     \
+            uint32_t srcMagic16 = *(uint32_t*)((char*)rawSrc + 16);                      \
+            /* TsBuffer (ArrayBuffer): share backing — Phase 3. */                       \
+            if (srcMagic16 == 0x42554646) {                                              \
+                TsBuffer* buf = (TsBuffer*)rawSrc;                                       \
+                size_t bufLen = buf->GetLength();                                        \
+                size_t off = (byteOffset > 0) ? (size_t)byteOffset : 0;                  \
+                if (off > bufLen || (off % (ElemSize)) != 0) {                           \
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(                 \
+                        "RangeError: byteOffset out of range or not aligned")));         \
+                    return nullptr;                                                      \
+                }                                                                        \
+                size_t bytesAvail = bufLen - off;                                        \
+                size_t bytes;                                                            \
+                if (byteLength < 0) {                                                    \
+                    if (bytesAvail % (ElemSize) != 0) {                                  \
+                        ts_throw((TsValue*)ts_error_create(TsString::Create(             \
+                            "RangeError: buffer length not divisible by element size")));\
+                        return nullptr;                                                  \
+                    }                                                                    \
+                    bytes = bytesAvail;                                                  \
+                } else {                                                                 \
+                    bytes = (size_t)byteLength * (ElemSize);                             \
+                    if (off + bytes > bufLen) {                                          \
+                        ts_throw((TsValue*)ts_error_create(TsString::Create(             \
+                            "RangeError: TypedArray length out of range")));             \
+                        return nullptr;                                                  \
+                    }                                                                    \
+                }                                                                        \
+                return TsTypedArray::CreateOnBuffer(buf, off, bytes / (ElemSize),        \
+                    (ElemSize), (Clamped), (TypeEnum));                                  \
+            }                                                                            \
+            /* TsArray fast path: use GetElementDouble for indexed reads. */             \
             if (srcMagic0 == 0x41525259) { /* TsArray::MAGIC "ARRY" */                   \
                 TsArray* srcArr = (TsArray*)rawSrc;                                      \
                 int64_t n = (int64_t)srcArr->Length();                                   \
@@ -2153,7 +2189,6 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg) {                    
                 return result;                                                           \
             }                                                                            \
             /* TsTypedArray source: copy via Get/Set. */                                 \
-            uint32_t srcMagic16 = *(uint32_t*)((char*)rawSrc + 16);                      \
             if (srcMagic16 == TsTypedArray::MAGIC) {                                     \
                 TsTypedArray* srcTa = (TsTypedArray*)rawSrc;                             \
                 int64_t n = (int64_t)srcTa->GetLength();                                 \
@@ -2184,15 +2219,15 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg) {                    
     return CreateFn(length);                                                             \
 }
 
-DEFINE_TYPED_ARRAY_NEW(i8,      ts_typed_array_create_i8)
-DEFINE_TYPED_ARRAY_NEW(u8,      ts_typed_array_create_u8)
-DEFINE_TYPED_ARRAY_NEW(clamped, ts_typed_array_create_clamped)
-DEFINE_TYPED_ARRAY_NEW(i16,     ts_typed_array_create_i16)
-DEFINE_TYPED_ARRAY_NEW(u16,     ts_typed_array_create_u16)
-DEFINE_TYPED_ARRAY_NEW(i32,     ts_typed_array_create_i32)
-DEFINE_TYPED_ARRAY_NEW(u32,     ts_typed_array_create_u32)
-DEFINE_TYPED_ARRAY_NEW(f32,     ts_typed_array_create_f32)
-DEFINE_TYPED_ARRAY_NEW(f64,     ts_typed_array_create_f64)
+DEFINE_TYPED_ARRAY_NEW(i8,      ts_typed_array_create_i8,      1, false, TypedArrayType::Int8)
+DEFINE_TYPED_ARRAY_NEW(u8,      ts_typed_array_create_u8,      1, false, TypedArrayType::Uint8)
+DEFINE_TYPED_ARRAY_NEW(clamped, ts_typed_array_create_clamped, 1, true,  TypedArrayType::Uint8Clamped)
+DEFINE_TYPED_ARRAY_NEW(i16,     ts_typed_array_create_i16,     2, false, TypedArrayType::Int16)
+DEFINE_TYPED_ARRAY_NEW(u16,     ts_typed_array_create_u16,     2, false, TypedArrayType::Uint16)
+DEFINE_TYPED_ARRAY_NEW(i32,     ts_typed_array_create_i32,     4, false, TypedArrayType::Int32)
+DEFINE_TYPED_ARRAY_NEW(u32,     ts_typed_array_create_u32,     4, false, TypedArrayType::Uint32)
+DEFINE_TYPED_ARRAY_NEW(f32,     ts_typed_array_create_f32,     4, false, TypedArrayType::Float32)
+DEFINE_TYPED_ARRAY_NEW(f64,     ts_typed_array_create_f64,     8, false, TypedArrayType::Float64)
 
 #undef DEFINE_TYPED_ARRAY_NEW
 

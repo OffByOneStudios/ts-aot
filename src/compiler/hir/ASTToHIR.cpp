@@ -5723,26 +5723,31 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         className == "Uint32Array" || className == "Float32Array" ||
         className == "Float64Array" || className == "BigInt64Array" ||
         className == "BigUint64Array") {
-        std::shared_ptr<HIRValue> lenVal;
-        bool argIsNonInt = false;  // arg is Any/Array/Object pointer, not a number
+        std::shared_ptr<HIRValue> argVal;
+        bool argIsNonInt = false;  // arg is Any/Array/Object pointer, not a known number
         if (!node->arguments.empty()) {
-            lenVal = lowerExpression(node->arguments[0].get());
-            if (lenVal && lenVal->type) {
-                if (lenVal->type->kind == HIRTypeKind::Float64) {
-                    lenVal = builder_.createCastF64ToI64(lenVal);
-                } else if (lenVal->type->kind == HIRTypeKind::Any ||
-                           lenVal->type->kind == HIRTypeKind::Array ||
-                           lenVal->type->kind == HIRTypeKind::Object) {
+            argVal = lowerExpression(node->arguments[0].get());
+            if (argVal && argVal->type) {
+                if (argVal->type->kind == HIRTypeKind::Float64) {
+                    argVal = builder_.createCastF64ToI64(argVal);
+                } else if (argVal->type->kind == HIRTypeKind::Any ||
+                           argVal->type->kind == HIRTypeKind::Array ||
+                           argVal->type->kind == HIRTypeKind::Object) {
                     argIsNonInt = true;
                 }
             }
         } else {
-            lenVal = builder_.createConstInt(0);
+            argVal = builder_.createConstInt(0);
         }
+        // byteOffset (default 0) and byteLength (default -1 = "rest of buffer")
+        // are honored only by the dispatcher when arg is an ArrayBuffer.
+        std::shared_ptr<HIRValue> byteOffset = (node->arguments.size() > 1)
+            ? lowerExpression(node->arguments[1].get())
+            : builder_.createConstInt(0);
+        std::shared_ptr<HIRValue> byteLength = (node->arguments.size() > 2)
+            ? lowerExpression(node->arguments[2].get())
+            : builder_.createConstInt(-1);
         auto arrType = HIRType::makeArray(HIRType::makeInt64(), true); // typed array
-        // If the argument might be an array-like (Any/Array/Object), route through
-        // a wrapper that inspects the value and either treats it as length or
-        // iterates its indexed properties.
         const char* fn = nullptr;
         const char* wrapperFn = nullptr;
         if (className == "Uint8Array")             { fn = "ts_typed_array_create_u8";      wrapperFn = "ts_typed_array_new_u8"; }
@@ -5755,9 +5760,12 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         else if (className == "Int32Array")        { fn = "ts_typed_array_create_i32";     wrapperFn = "ts_typed_array_new_i32"; }
         else if (className == "Float32Array")      { fn = "ts_typed_array_create_f32";     wrapperFn = "ts_typed_array_new_f32"; }
         if (argIsNonInt && wrapperFn) {
-            lastValue_ = builder_.createCall(wrapperFn, {lenVal}, arrType);
+            // Dispatcher: arg might be an ArrayBuffer (share buffer),
+            // a TypedArray (copy), an Array (copy), or a number (length-only).
+            lastValue_ = builder_.createCall(wrapperFn,
+                {argVal, byteOffset, byteLength}, arrType);
         } else if (fn) {
-            lastValue_ = builder_.createCall(fn, {lenVal}, arrType);
+            lastValue_ = builder_.createCall(fn, {argVal}, arrType);
         }
         return;
     }

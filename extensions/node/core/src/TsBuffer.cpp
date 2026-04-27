@@ -1756,6 +1756,7 @@ extern "C" {
         return TsTypedArray::Create((size_t)length, 8, false, TypedArrayType::BigUint64);
     }
 
+
     void* ts_typed_array_from_array_u8(void* array) {
         if (!array) return nullptr;
         TsArray* arr = (TsArray*)array;
@@ -2367,6 +2368,12 @@ TsTypedArray* TsTypedArray::Create(size_t length, size_t elementSize, bool clamp
     return new(mem) TsTypedArray(length, elementSize, clamped, type);
 }
 
+TsTypedArray* TsTypedArray::CreateOnBuffer(TsBuffer* buffer, size_t byteOffset, size_t length,
+                                            size_t elementSize, bool clamped, TypedArrayType type) {
+    void* mem = ts_alloc(sizeof(TsTypedArray));
+    return new(mem) TsTypedArray(buffer, byteOffset, length, elementSize, clamped, type);
+}
+
 TsTypedArray::TsTypedArray(size_t length, size_t elementSize, bool clamped, TypedArrayType type) {
     this->magic = MAGIC;  // Set inherited magic from TsObject
     this->length = length;
@@ -2374,11 +2381,24 @@ TsTypedArray::TsTypedArray(size_t length, size_t elementSize, bool clamped, Type
     this->clamped = clamped;
     this->arrayType = type;
     this->buffer = TsBuffer::Create(length * elementSize);
+    this->byteOffset = 0;
+}
+
+TsTypedArray::TsTypedArray(TsBuffer* buffer, size_t byteOffset, size_t length,
+                           size_t elementSize, bool clamped, TypedArrayType type) {
+    this->magic = MAGIC;
+    this->buffer = buffer;
+    this->byteOffset = byteOffset;
+    this->length = length;
+    this->elementSize = elementSize;
+    this->clamped = clamped;
+    this->arrayType = type;
 }
 
 double TsTypedArray::Get(size_t index) {
     if (index >= length) return 0;
-    uint8_t* data = buffer->GetData();
+    if (!buffer) return 0;
+    uint8_t* data = buffer->GetData() + byteOffset;
     switch (arrayType) {
         case TypedArrayType::Uint8:
         case TypedArrayType::Uint8Clamped:
@@ -2407,7 +2427,8 @@ double TsTypedArray::Get(size_t index) {
 
 void TsTypedArray::Set(size_t index, double value) {
     if (index >= length) return;
-    uint8_t* data = buffer->GetData();
+    if (!buffer) return;
+    uint8_t* data = buffer->GetData() + byteOffset;
     switch (arrayType) {
         case TypedArrayType::Uint8Clamped:
             if (value < 0) value = 0;

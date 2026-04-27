@@ -479,25 +479,28 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .returnsPtr()
             .i64Arg(ArgConversion::ToI64)
             .build());
-    // `new TypedArray(arg)` with arg possibly Any/Array/Object: takes ptr.
-    reg.registerLowering("ts_typed_array_new_i8",
-        lowering("ts_typed_array_new_i8").returnsPtr().ptrArg().build());
-    reg.registerLowering("ts_typed_array_new_u8",
-        lowering("ts_typed_array_new_u8").returnsPtr().ptrArg().build());
-    reg.registerLowering("ts_typed_array_new_clamped",
-        lowering("ts_typed_array_new_clamped").returnsPtr().ptrArg().build());
-    reg.registerLowering("ts_typed_array_new_i16",
-        lowering("ts_typed_array_new_i16").returnsPtr().ptrArg().build());
-    reg.registerLowering("ts_typed_array_new_u16",
-        lowering("ts_typed_array_new_u16").returnsPtr().ptrArg().build());
-    reg.registerLowering("ts_typed_array_new_i32",
-        lowering("ts_typed_array_new_i32").returnsPtr().ptrArg().build());
-    reg.registerLowering("ts_typed_array_new_u32",
-        lowering("ts_typed_array_new_u32").returnsPtr().ptrArg().build());
-    reg.registerLowering("ts_typed_array_new_f32",
-        lowering("ts_typed_array_new_f32").returnsPtr().ptrArg().build());
-    reg.registerLowering("ts_typed_array_new_f64",
-        lowering("ts_typed_array_new_f64").returnsPtr().ptrArg().build());
+    // `new TypedArray(arg [, byteOffset [, byteLength]])` —
+    // dispatcher detects ArrayBuffer / TypedArray / Array / number arg
+    // and routes appropriately. byteOffset and byteLength are i64;
+    // -1 byteLength = "rest of buffer".
+    auto regTypedArrayNew = [&](const char* name) {
+        reg.registerLowering(name,
+            lowering(name)
+                .returnsPtr()
+                .ptrArg()
+                .i64Arg(ArgConversion::ToI64)
+                .i64Arg(ArgConversion::ToI64)
+                .build());
+    };
+    regTypedArrayNew("ts_typed_array_new_i8");
+    regTypedArrayNew("ts_typed_array_new_u8");
+    regTypedArrayNew("ts_typed_array_new_clamped");
+    regTypedArrayNew("ts_typed_array_new_i16");
+    regTypedArrayNew("ts_typed_array_new_u16");
+    regTypedArrayNew("ts_typed_array_new_i32");
+    regTypedArrayNew("ts_typed_array_new_u32");
+    regTypedArrayNew("ts_typed_array_new_f32");
+    regTypedArrayNew("ts_typed_array_new_f64");
     reg.registerLowering("ts_typed_array_create_i16",
         lowering("ts_typed_array_create_i16")
             .returnsPtr()

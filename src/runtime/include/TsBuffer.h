@@ -145,10 +145,14 @@ class TsTypedArray : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x54415252; // "TARR"
     static TsTypedArray* Create(size_t length, size_t elementSize, bool clamped = false, TypedArrayType type = TypedArrayType::Uint8);
-    uint8_t* GetData() { return buffer->GetData(); }
+    // Create a TypedArray that shares an existing buffer's bytes
+    // (Phase 3 of ArrayBuffer project — `new Uint8Array(ab)` etc.).
+    static TsTypedArray* CreateOnBuffer(TsBuffer* buffer, size_t byteOffset, size_t length,
+                                        size_t elementSize, bool clamped, TypedArrayType type);
+    uint8_t* GetData() { return buffer ? buffer->GetData() + byteOffset : nullptr; }
     size_t GetLength() { return length; }
     size_t GetByteLength() { return length * elementSize; }
-    size_t GetByteOffset() { return 0; }  // TypedArrays start at offset 0
+    size_t GetByteOffset() { return byteOffset; }
     size_t GetElementSize() { return elementSize; }
     bool IsClamped() { return clamped; }
     TypedArrayType GetType() { return arrayType; }
@@ -160,12 +164,15 @@ public:
 
 private:
     TsTypedArray(size_t length, size_t elementSize, bool clamped, TypedArrayType type);
+    TsTypedArray(TsBuffer* buffer, size_t byteOffset, size_t length,
+                 size_t elementSize, bool clamped, TypedArrayType type);
     // Note: magic is inherited from TsObject and set in constructor
     TsBuffer* buffer;
     size_t length;
     size_t elementSize;
     bool clamped;
     TypedArrayType arrayType;
+    size_t byteOffset = 0;
 };
 
 class TsDataView : public TsObject {
