@@ -979,15 +979,57 @@ static TsValue* ts_number_isSafeInteger_native(void* ctx, int argc, TsValue** ar
     return ts_value_make_bool(std::abs(d) <= 9007199254740991.0);
 }
 
+// Helper for Number wrapper objects: extract the underlying double from a
+// receiver. Handles primitive numbers and TsMap wrappers that store the
+// hidden "__NumberData" slot. Returns 0 for any other receiver.
+static double ts_number_data_of(void* ctx) {
+    if (!ctx) return 0.0;
+    uint64_t nb = (uint64_t)(uintptr_t)ctx;
+    if (nanbox_is_int32(nb)) return (double)nanbox_to_int32(nb);
+    if (nanbox_is_double(nb)) return nanbox_to_double(nb);
+    void* raw = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : ctx;
+    if (!raw) return 0.0;
+    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+    if (m16 == 0x4D415053) {  // TsMap
+        TsMap* obj = (TsMap*)raw;
+        TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+        ndKey.ptr_val = TsString::GetInterned("__NumberData");
+        TsValue v = obj->Get(ndKey);
+        if (v.type == ValueType::NUMBER_DBL) return v.d_val;
+        if (v.type == ValueType::NUMBER_INT) return (double)v.i_val;
+    }
+    return 0.0;
+}
+
+extern "C" void* ts_number_to_string(double value, int64_t radix);
+
 void* ts_get_global_Number() {
     static void* cached = nullptr;
     if (!cached) {
         auto numberFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            if (argc >= 1 && argv && argv[0]) {
-                double d = ts_value_get_double(argv[0]);
-                return ts_value_make_double(d);
+            double d = (argc >= 1 && argv && argv[0])
+                ? ts_value_get_double(argv[0]) : 0.0;
+            // `new Number(x)`: ts_get_call_this() returns the allocated
+            // wrapper TsMap. Set hidden [[NumberData]] slot and return it
+            // so the caller observes a real wrapper object. Plain
+            // `Number(x)` calls return a primitive double.
+            void* thisVal = ts_get_call_this();
+            if (thisVal) {
+                void* raw = ts_value_get_object((TsValue*)thisVal);
+                if (raw) {
+                    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+                    if (m16 == 0x4D415053) {  // TsMap
+                        TsMap* obj = (TsMap*)raw;
+                        TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+                        ndKey.ptr_val = TsString::GetInterned("__NumberData");
+                        TsValue ndVal; ndVal.type = ValueType::NUMBER_DBL;
+                        ndVal.d_val = d;
+                        obj->Set(ndKey, ndVal);
+                        return (TsValue*)thisVal;
+                    }
+                }
             }
-            return ts_value_make_double(0.0);
+            return ts_value_make_double(d);
         };
 
         TsValue* ctorVal = ts_value_make_native_function((void*)+numberFn, nullptr);
@@ -1001,6 +1043,28 @@ void* ts_get_global_Number() {
         TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
         ctorFunc->properties->Set(protoKey, protoVal);
+
+        // Number.prototype itself has [[NumberData]] = +0 per spec, so
+        // Number.prototype.toString(10) returns "0". Stash it on proto.
+        TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+        ndKey.ptr_val = TsString::GetInterned("__NumberData");
+        TsValue ndZero; ndZero.type = ValueType::NUMBER_DBL; ndZero.d_val = 0.0;
+        proto->Set(ndKey, ndZero);
+
+        // Number.prototype methods that read [[NumberData]] from receiver.
+        auto numProtoToString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            double d = ts_number_data_of(ctx);
+            int64_t radix = (argc >= 1 && argv && argv[0])
+                ? ts_value_get_int(argv[0]) : 10;
+            return ts_value_make_string((TsString*)ts_number_to_string(d, radix));
+        };
+        auto numProtoValueOf = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_value_make_double(ts_number_data_of(ctx));
+        };
+        addMethod(proto, "toString", (void*)+numProtoToString, 1);
+        addMethod(proto, "valueOf",  (void*)+numProtoValueOf,  0);
 
         ctorFunc->name = TsString::Create("Number");
 
