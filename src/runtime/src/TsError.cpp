@@ -1,6 +1,8 @@
 #include "TsError.h"
 #include "TsString.h"
 #include "TsRuntime.h"
+#include "TsArray.h"
+#include "TsMap.h"
 #include "GC.h"
 #include "TsNanBox.h"
 #include <new>
@@ -305,6 +307,58 @@ extern "C" {
             }
         }
 
+        return err;
+    }
+
+    // AggregateError(errors, message?) — ES2021. Constructs an Error-shaped
+    // object with name="AggregateError", optional .message, and .errors set
+    // to a fresh array containing each item from the iterable `errorsVal`.
+    // Differs from ts_error_create_typed_js, which treats arg0 as message.
+    void* ts_error_create_aggregate(void* errorsVal, void* messageVal) {
+        TsString* msg = nullptr;
+        if (messageVal) {
+            void* raw = ts_value_get_string((TsValue*)messageVal);
+            if (raw) msg = (TsString*)raw;
+        }
+        TsValue* err = buildTypedErrorObject("AggregateError",
+            msg ? msg : TsString::Create(""));
+
+        // Build .errors array. If errorsVal is already a TsArray, copy its
+        // contents element-by-element. Other iterables would need full
+        // iterator-protocol walking; we accept arrays as the common case.
+        TsArray* errs = (TsArray*)ts_array_create();
+        if (errorsVal) {
+            void* rawSrc = ts_value_get_object((TsValue*)errorsVal);
+            if (!rawSrc) rawSrc = errorsVal;
+            if (rawSrc && *(uint32_t*)rawSrc == 0x41525259) {  // ARRY
+                TsArray* src = (TsArray*)rawSrc;
+                int64_t n = src->Length();
+                for (int64_t i = 0; i < n; i++) errs->Push(src->Get(i));
+            }
+        }
+        if (err) {
+            void* errRaw = ts_value_get_object(err);
+            if (errRaw) {
+                uint32_t m16 = *(uint32_t*)((char*)errRaw + 16);
+                if (m16 == 0x4D415053) {  // TsMap
+                    TsMap* errMap = (TsMap*)errRaw;
+                    TsValue errsKey; errsKey.type = ValueType::STRING_PTR;
+                    errsKey.ptr_val = TsString::GetInterned("errors");
+                    TsValue errsValOut; errsValOut.type = ValueType::OBJECT_PTR;
+                    errsValOut.ptr_val = errs;
+                    errMap->Set(errsKey, errsValOut);
+                    // .constructor → AggregateError ctor.
+                    void* ctor = getErrorConstructorByName("AggregateError");
+                    if (ctor) {
+                        TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
+                        ctorKey.ptr_val = TsString::GetInterned("constructor");
+                        TsValue ctorValOut; ctorValOut.type = ValueType::OBJECT_PTR;
+                        ctorValOut.ptr_val = ctor;
+                        errMap->Set(ctorKey, ctorValOut);
+                    }
+                }
+            }
+        }
         return err;
     }
 }

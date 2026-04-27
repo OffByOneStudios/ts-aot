@@ -5870,10 +5870,31 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // AggregateError has signature (errors, message?), unlike the (message)
+    // signature of all other built-in Error subclasses. Route to a dedicated
+    // runtime that builds the .errors array.
+    if (className == "AggregateError") {
+        std::shared_ptr<HIRValue> errors;
+        std::shared_ptr<HIRValue> message;
+        if (!node->arguments.empty()) {
+            errors = lowerExpression(node->arguments[0].get());
+        } else {
+            errors = builder_.createConstString("");  // will be ignored runtime-side
+        }
+        if (node->arguments.size() >= 2) {
+            message = lowerExpression(node->arguments[1].get());
+        } else {
+            message = builder_.createConstString("");
+        }
+        lastValue_ = builder_.createCall("ts_error_create_aggregate",
+            {errors, message}, HIRType::makeAny());
+        return;
+    }
+
     // Handle built-in Error classes
     if (className == "Error" || className == "TypeError" || className == "RangeError" ||
         className == "ReferenceError" || className == "SyntaxError" || className == "URIError" ||
-        className == "EvalError" || className == "AggregateError") {
+        className == "EvalError") {
         // new Error(message) or new Error(message, { cause: ... })
         std::shared_ptr<HIRValue> message;
         if (!node->arguments.empty()) {
