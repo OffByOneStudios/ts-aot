@@ -378,6 +378,16 @@ TsValue* ts_iterator_get(TsValue* iterable) {
     // First, try to extract the raw object pointer using ts_value_get_object
     // This handles both boxed TsValue* and raw object pointers
     void* rawObj = ts_value_get_object(iterable);
+    // ts_value_get_object returns nullptr for primitive strings (which are
+    // valid iterables per spec). Fall back to extracting the string pointer
+    // directly so the TsString branch below can fire.
+    if (!rawObj) {
+        void* maybeStr = ts_value_get_string(iterable);
+        if (maybeStr) {
+            uint32_t m = *(uint32_t*)maybeStr;
+            if (m == 0x53545247) rawObj = maybeStr;  // TsString::MAGIC
+        }
+    }
 
     // Check if we have a TsMap-based object (TsMap, TsGenerator, TsAsyncGenerator)
     if (rawObj) {
@@ -461,6 +471,31 @@ TsValue* ts_iterator_get(TsValue* iterable) {
             iterDecoded.type = ValueType::ARRAY_PTR;
             iterDecoded.ptr_val = arr;
             // Fall through to ARRAY_PTR check below
+        }
+        // TsString: per spec, String.prototype[@@iterator] yields each
+        // Unicode code point as a one-character string. We decode the
+        // string into a TsArray of one-codepoint strings up-front, then
+        // reuse the array-iterator path below. This is O(n) memory but
+        // correct for surrogate pairs (e.g. "a😀b" yields "a","😀","b").
+        // Without this branch, for-of on a string previously fell through
+        // to `return iterable` and the resulting non-iterator caused an
+        // infinite alloc loop in the for-of next() polling.
+        if (magic0 == 0x53545247) { // TsString::MAGIC "STRG"
+            TsString* s = (TsString*)rawObj;
+            int64_t len = s->Length();  // code-unit length
+            TsArray* arr = (TsArray*)ts_array_create();
+            int64_t i = 0;
+            while (i < len) {
+                int64_t cp = s->CodePointAt(i);
+                int64_t cps[1] = {cp};
+                TsString* part = TsString::FromCodePoint(cps, 1);
+                TsValue v; v.type = ValueType::STRING_PTR; v.ptr_val = part;
+                arr->Push((int64_t)(uintptr_t)nanbox_from_tagged(v));
+                // Advance past surrogate pair if needed.
+                i += (cp > 0xFFFF) ? 2 : 1;
+            }
+            iterDecoded.type = ValueType::ARRAY_PTR;
+            iterDecoded.ptr_val = arr;
         }
     }
 

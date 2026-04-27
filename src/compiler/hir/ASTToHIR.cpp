@@ -2979,6 +2979,15 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     if (isAnyIterable) {
         isIteratorObject = true;
     }
+    // String-typed iterables: also route through the iterator protocol so
+    // ts_iterator_get can return a proper code-point iterator. Without this,
+    // we fell into the array fast path (createArrayLength + getElem) which
+    // reads garbage from TsString and infinite-loops.
+    bool isStringIterable = !isGenerator && !isIteratorObject && iterable->type &&
+        iterable->type->kind == HIRTypeKind::String;
+    if (isStringIterable) {
+        isIteratorObject = true;
+    }
 
     // For every iterator-protocol path, coerce to the actual iterator via
     // ts_iterator_get. Handles three cases:
