@@ -8508,6 +8508,7 @@ TsValue* ts_value_make_int(int64_t i) {
             else {
                 uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
                 if (magic16 == 0x434C5352) tag = "Function";
+                else if (magic16 == 0x42554646) tag = "ArrayBuffer";  // TsBuffer "BUFF"
                 else {
                     TsFunction* func = dynamic_cast<TsFunction*>((TsObject*)ptr);
                     if (func) tag = "Function";

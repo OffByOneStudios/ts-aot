@@ -1757,7 +1757,22 @@ void* ts_get_global_Proxy() {
 
 void* ts_get_global_ArrayBuffer() {
     static void* cached = nullptr;
-    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("ArrayBuffer"), "ArrayBuffer", 1);
+    if (!cached) {
+        TsMap* ctor = makeSimpleConstructorGlobal("ArrayBuffer");
+        // Static: ArrayBuffer.isView(arg) — true iff arg is a TypedArray
+        // or DataView (per spec). Detected by magic16: TARR/DVIE.
+        addMethod(ctor, "isView", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
+            void* raw = ts_value_get_object(argv[0]);
+            if (!raw) return ts_value_make_bool(false);
+            uint32_t magic16 = *(uint32_t*)((uint8_t*)raw + 16);
+            if (magic16 == 0x54415252 || magic16 == 0x44564945) {  // TARR, DVIE
+                return ts_value_make_bool(true);
+            }
+            return ts_value_make_bool(false);
+        }, 1);
+        cached = wrapAsCallable(ctor, "ArrayBuffer", 1);
+    }
     return cached;
 }
 

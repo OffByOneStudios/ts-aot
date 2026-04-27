@@ -6,8 +6,11 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsBigInt.h"
+#include "TsObject.h"  // for TsFunction (used by GetPropertyVirtual returning slice)
 #include <cstring>
 #include <new>
+
+extern "C" double ts_to_number(TsValue* v);
 #include <unicode/unistr.h>
 #include <cstdio>
 
@@ -28,6 +31,26 @@ TsValue TsBuffer::GetPropertyVirtual(const char* key) {
         TsValue v;
         v.type = ValueType::NUMBER_INT;
         v.i_val = IsResizable() ? (int64_t)GetMaxByteLength() : (int64_t)GetLength();
+        return v;
+    }
+    // ArrayBuffer.prototype.slice(start, end) — returns a new ArrayBuffer
+    // containing a copy of the byte range. ctx is the receiver buffer.
+    if (strcmp(key, "slice") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        void* mem = ts_alloc(sizeof(TsFunction));
+        v.ptr_val = new (mem) TsFunction(
+            (void*)+[](void* ctx, TsValue* startV, TsValue* endV) -> TsValue* {
+                TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)ctx);
+                if (!buf) return ts_value_make_undefined();
+                int64_t len = (int64_t)buf->GetLength();
+                int64_t start = 0, end = len;
+                if (startV && !ts_value_is_undefined(startV)) start = (int64_t)ts_to_number(startV);
+                if (endV && !ts_value_is_undefined(endV)) end = (int64_t)ts_to_number(endV);
+                TsBuffer* sliced = buf->Slice(start, end);
+                return ts_value_make_object(sliced);
+            },
+            this, FunctionType::COMPILED, 2);
         return v;
     }
     return TsObject::GetPropertyVirtual(key);
