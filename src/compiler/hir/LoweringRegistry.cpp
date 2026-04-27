@@ -1483,6 +1483,12 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // b
             .build());
 
+    reg.registerLowering("ts_bigint_neg",
+        lowering("ts_bigint_neg")
+            .returnsPtr()
+            .ptrArg()
+            .build());
+
     // ========================================
     // Symbol
     // ========================================

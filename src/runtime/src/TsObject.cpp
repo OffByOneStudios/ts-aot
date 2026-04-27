@@ -970,7 +970,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 return std::strcmp(ls->ToUtf8(), rs->ToUtf8()) == 0;
             }
             if (lmagic == 0x42494749 && rmagic == 0x42494749) { // BigInt
-                return std::strcmp(((TsBigInt*)lp)->ToString(), ((TsBigInt*)rp)->ToString()) == 0;
+                // Use ts_bigint_eq (mp_cmp + zero-canonicalization) instead
+                // of comparing string representations — `-0n` may stringify
+                // to "-0" while `0n` stringifies to "0", making strcmp
+                // wrongly report inequality even though they are the same
+                // numeric value (BigInt has no negative zero).
+                return ts_bigint_eq(lp, rp);
             }
             // Check for TsFunction comparison - compare funcPtr
             uint32_t lm16 = *(uint32_t*)((char*)lp + 16);
@@ -6624,6 +6629,12 @@ TsValue* ts_value_make_int(int64_t i) {
         // approximate by truncating via ts_bigint_from_value.)
         TsBigInt* abi = try_as_bigint(nba);
         TsBigInt* bbi = try_as_bigint(nbb);
+        // BigInt vs BigInt: compare values (different TsBigInt instances
+        // representing the same numeric value, e.g. 0n and -0n, must
+        // compare equal — fixed in ts_bigint_eq).
+        if (abi && bbi) {
+            return ts_value_make_bool(ts_bigint_eq((void*)abi, (void*)bbi));
+        }
         if (abi && nanbox_is_number(nbb)) {
             void* nb_as_bi = ts_bigint_from_value(b);
             return ts_value_make_bool(ts_bigint_eq((void*)abi, nb_as_bi));

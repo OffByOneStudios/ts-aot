@@ -8425,17 +8425,32 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
 
     const std::string& op = node->op;
     if (op == "-") {
-        // Strategy B Phase 3: emit generic Neg. SpecializationPass will
-        // rewrite to NegF64 or NegI64 based on the result type. Keeps the
-        // AST-fallback helper logic local to ASTToHIR until Phase 4.
-        bool isFloat = false;
-        if (operand && operand->type && operand->type->kind == HIRTypeKind::Float64) {
-            isFloat = true;
-        } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
-            isFloat = true;
+        // BigInt operand: route through ts_bigint_neg. Otherwise the
+        // generic Neg op below would treat the NaN-boxed pointer as an
+        // i64 and produce nonsense (e.g. `-(0n)` becomes a number with
+        // value INT64_MIN as a double).
+        bool isBigInt = false;
+        if (operand && operand->type && operand->type->kind == HIRTypeKind::BigInt) {
+            isBigInt = true;
+        } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::BigInt) {
+            isBigInt = true;
         }
-        auto resultType = isFloat ? HIRType::makeFloat64() : HIRType::makeInt64();
-        lastValue_ = builder_.createNeg(operand, resultType);
+        if (isBigInt) {
+            lastValue_ = builder_.createCall("ts_bigint_neg", {operand},
+                HIRType::makeBigInt());
+        } else {
+            // Strategy B Phase 3: emit generic Neg. SpecializationPass will
+            // rewrite to NegF64 or NegI64 based on the result type. Keeps the
+            // AST-fallback helper logic local to ASTToHIR until Phase 4.
+            bool isFloat = false;
+            if (operand && operand->type && operand->type->kind == HIRTypeKind::Float64) {
+                isFloat = true;
+            } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
+                isFloat = true;
+            }
+            auto resultType = isFloat ? HIRType::makeFloat64() : HIRType::makeInt64();
+            lastValue_ = builder_.createNeg(operand, resultType);
+        }
     } else if (op == "!") {
         lastValue_ = builder_.createLogicalNot(operand);
     } else if (op == "~") {

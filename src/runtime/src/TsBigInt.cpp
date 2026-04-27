@@ -175,7 +175,14 @@ void* ts_bigint_pow(void* base, void* exp) {
 bool ts_bigint_eq(void* a, void* b) {
     if (!a && !b) return true;
     if (!a || !b) return false;
-    return mp_cmp(&((TsBigInt*)a)->value, &((TsBigInt*)b)->value) == MP_EQ;
+    // Per ES spec, BigInt has no negative zero — both 0n and -0n are
+    // the same value. libtommath's mp_cmp can return MP_GT/MP_LT for
+    // a "+0 vs -0" pair if the sign bits differ, so check for zero
+    // first and treat both zeros as equal.
+    mp_int* av = &((TsBigInt*)a)->value;
+    mp_int* bv = &((TsBigInt*)b)->value;
+    if (mp_iszero(av) && mp_iszero(bv)) return true;
+    return mp_cmp(av, bv) == MP_EQ;
 }
 
 bool ts_bigint_ne(void* a, void* b) {

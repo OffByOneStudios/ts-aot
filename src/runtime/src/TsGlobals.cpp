@@ -16,6 +16,7 @@
 #include "TsSymbol.h"
 #include "TsBuffer.h"  // for TsTypedArray
 #include "TsArray.h"   // for TsArray source in typed array constructors
+#include "TsBigInt.h"  // for BigInt.asIntN / asUintN
 #include <unicode/unistr.h>
 #include <unicode/utypes.h>
 #include <unordered_map>
@@ -1792,7 +1793,84 @@ void* ts_get_global_BigInt() {
     // Spec: BigInt is a constructor (isConstructor === true) but `new BigInt(x)`
     // throws TypeError. Call-as-function `BigInt(x)` coerces to bigint.
     static void* cached = nullptr;
-    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("BigInt"), "BigInt", 1);
+    if (!cached) {
+        TsMap* ctor = makeSimpleConstructorGlobal("BigInt");
+        // BigInt.asIntN(bits, bigint) — wrap to a signed two's-complement
+        // value with `bits` bits. Implementation: out = bigint mod 2^bits;
+        // if the high bit is set, subtract 2^bits.
+        addMethod(ctor, "asIntN", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (argc < 2) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "BigInt.asIntN requires bits and bigint arguments"));
+                return ts_value_make_undefined();
+            }
+            double bitsD = ts_to_number(argv[0]);
+            if (!(bitsD >= 0)) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "BigInt.asIntN: bits must be a non-negative integer"));
+                return ts_value_make_undefined();
+            }
+            int bits = (int)bitsD;
+            void* raw = ts_value_get_object(argv[1]);
+            if (!raw) raw = argv[1];
+            TsBigInt* src = (raw && *(uint32_t*)raw == 0x42494749) ? (TsBigInt*)raw : nullptr;
+            if (!src) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "BigInt.asIntN: second argument must be a BigInt"));
+                return ts_value_make_undefined();
+            }
+            if (bits == 0) {
+                return (TsValue*)ts_bigint_create_int(0);
+            }
+            // out = src mod 2^bits  (positive result)
+            mp_int mod, modulus, half;
+            mp_init(&mod); mp_init(&modulus); mp_init(&half);
+            mp_2expt(&modulus, bits);          // modulus = 2^bits
+            mp_2expt(&half, bits - 1);         // half    = 2^(bits-1)
+            mp_mod(&src->value, &modulus, &mod);
+            // If mod >= 2^(bits-1), subtract 2^bits to make it negative.
+            if (mp_cmp(&mod, &half) != MP_LT) {
+                mp_sub(&mod, &modulus, &mod);
+            }
+            TsBigInt* out = TsBigInt::Create((int64_t)0);
+            mp_copy(&mod, &out->value);
+            mp_clear(&mod); mp_clear(&modulus); mp_clear(&half);
+            return (TsValue*)out;
+        }, 2);
+        // BigInt.asUintN(bits, bigint) — wrap to an unsigned bits-bit value.
+        addMethod(ctor, "asUintN", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (argc < 2) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "BigInt.asUintN requires bits and bigint arguments"));
+                return ts_value_make_undefined();
+            }
+            double bitsD = ts_to_number(argv[0]);
+            if (!(bitsD >= 0)) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "BigInt.asUintN: bits must be a non-negative integer"));
+                return ts_value_make_undefined();
+            }
+            int bits = (int)bitsD;
+            void* raw = ts_value_get_object(argv[1]);
+            if (!raw) raw = argv[1];
+            TsBigInt* src = (raw && *(uint32_t*)raw == 0x42494749) ? (TsBigInt*)raw : nullptr;
+            if (!src) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "BigInt.asUintN: second argument must be a BigInt"));
+                return ts_value_make_undefined();
+            }
+            if (bits == 0) return (TsValue*)ts_bigint_create_int(0);
+            mp_int mod, modulus;
+            mp_init(&mod); mp_init(&modulus);
+            mp_2expt(&modulus, bits);
+            mp_mod(&src->value, &modulus, &mod);
+            TsBigInt* out = TsBigInt::Create((int64_t)0);
+            mp_copy(&mod, &out->value);
+            mp_clear(&mod); mp_clear(&modulus);
+            return (TsValue*)out;
+        }, 2);
+        cached = wrapAsCallable(ctor, "BigInt", 1);
+    }
     return cached;
 }
 
