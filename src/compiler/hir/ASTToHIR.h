@@ -204,6 +204,13 @@ private:
     // Deferred static blocks (to be emitted at the start of user_main)
     std::vector<ast::StaticBlock*> deferredStaticBlocks_;
 
+    // Deferred class prototype installs. Class declarations are processed
+    // in a pre-pass with currentFunction_ == null, so we cannot emit IR
+    // for the `E.prototype = {__getter_<key>: ..., method: ...}` setup
+    // at the declaration site. Push the HIRClass here and emit the
+    // trailer IR at the start of user_main / __synthetic_user_main.
+    std::vector<HIRClass*> deferredClassPrototypes_;
+
     // Deferred decorator invocations - classes with decorators need static init functions
     struct DeferredDecorator {
         std::string className;                      // Name of the class being decorated
