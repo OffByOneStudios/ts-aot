@@ -997,17 +997,6 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
 
-            // If this is the entry-point function (user_main or its
-            // synthetic equivalent for top-level scripts), flush deferred
-            // class-prototype installs and static-property initializers
-            // at the very start of the body so that subsequent statements
-            // see `E.prototype.<key>` populated. This is the path most
-            // top-level code goes through (the visitor-based
-            // visitFunctionDeclaration is not used for spec functions).
-            if (funcNode->name == "user_main" || funcNode->name == "__synthetic_user_main") {
-                emitDeferredStaticInits();
-            }
-
             // Lower function body in two passes for proper JavaScript function hoisting:
             // FIRST PASS: Process FunctionDeclarations to create closures
             // This ensures nested functions are available before any other code runs.
@@ -1737,29 +1726,6 @@ void ASTToHIR::emitDeferredStaticInits() {
     }
     deferredStaticInits_.clear();  // Only emit once
 
-    // Install class prototypes. For each class with instance methods or
-    // accessors, build a real prototype object holding `__getter_<key>`,
-    // `__setter_<key>`, and method names, then assign it to the
-    // constructor's `prototype` property. This makes
-    // `E.prototype['<key>']` find the installed function and supports
-    // test262 accessor-name probes that read directly from the
-    // prototype.
-    for (auto* hirClass : deferredClassPrototypes_) {
-        if (!hirClass || hirClass->methods.empty()) continue;
-        std::string ctorName = hirClass->constructor
-            ? hirClass->constructor->name
-            : hirClass->name + "_constructor";
-        auto ctorVal = builder_.createLoadFunction(ctorName);
-        auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
-        for (auto& [methodKey, methodFunc] : hirClass->methods) {
-            if (!methodFunc) continue;
-            auto methodClosure = builder_.createLoadFunction(methodFunc->name);
-            builder_.createSetPropStatic(proto, methodKey, methodClosure);
-        }
-        builder_.createSetPropStatic(ctorVal, "prototype", proto);
-    }
-    deferredClassPrototypes_.clear();
-
     // Emit static blocks
     for (auto* staticBlock : deferredStaticBlocks_) {
         for (auto& stmt : staticBlock->body) {
@@ -2203,11 +2169,8 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         }
     }
 
-    // If this is user_main (or the synthetic equivalent for top-level
-    // scripts), emit deferred static property initializations and class
-    // prototype installs at the very start of the function body.
-    SPDLOG_WARN("[FD-deferred-check] name='{}' funcName='{}'", node->name, funcName);
-    if (node->name == "user_main" || node->name == "__synthetic_user_main") {
+    // If this is user_main, emit deferred static property initializations
+    if (node->name == "user_main") {
         emitDeferredStaticInits();
     }
 
@@ -7322,35 +7285,6 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         }
     }
 
-    // Class declaration name: in untyped JS mode `class E { foo(){...} }`
-    // registers a `<E>_constructor` function but no function literally
-    // named `E`, so the loops above don't find a binding. Without this
-    // branch, `typeof E === "undefined"` and `E.prototype` returns
-    // undefined, breaking direct prototype access patterns
-    // (`C.prototype['key']` accessor-name probes). With Step 1 in place,
-    // every class has a constructor function emitted, so this lookup
-    // always succeeds for declared classes.
-    for (const auto& cls : module_->classes) {
-        if (cls->name != node->name) continue;
-        std::string ctorName = cls->constructor
-            ? cls->constructor->name
-            : cls->name + "_constructor";
-        bool hasFn = false;
-        for (const auto& f : module_->functions) {
-            if (f->name == ctorName) { hasFn = true; break; }
-        }
-        if (!hasFn && specializations_) {
-            for (const auto& spec : *specializations_) {
-                if (spec.specializedName == ctorName) { hasFn = true; break; }
-            }
-        }
-        if (hasFn) {
-            lastValue_ = builder_.createLoadFunction(ctorName);
-            return;
-        }
-        break;
-    }
-
     // Unknown variable - create undefined
     lastValue_ = createValue(HIRType::makeAny());
     builder_.createConstUndefined(lastValue_);
@@ -9036,14 +8970,8 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             }
         }
 
-        // Always emit a default constructor so the class identifier
-        // resolves to a real function value in untyped JS mode. Without
-        // a constructor function, `typeof E` and `E.prototype` collapse
-        // to undefined because visitIdentifier has nothing to load.
-        // The body still calls super() when there is a base class and
-        // initializes property defaults when present.
-        bool needsDefaultConstructor = true;
-        (void)hasPropertyInitializers;
+        // Also need constructor if we have a base class (to call super())
+        bool needsDefaultConstructor = hasPropertyInitializers || hirClass->baseClass;
 
         if (needsDefaultConstructor) {
             std::string ctorName = node->name + "_constructor";
@@ -9102,17 +9030,6 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // Generate decorator static init function if class has any decorators
     // (class decorators, method decorators, property decorators, or parameter decorators)
     generateClassDecoratorStaticInit(node->name, node->decorators, node->members);
-
-    // Defer class-prototype install: emitDeferredStaticInits at user_main
-    // entry will create a real prototype object holding all instance
-    // methods (and `__getter_<key>` / `__setter_<key>` for accessors)
-    // and assign it to `E.prototype`. Without this, `E.prototype` reads
-    // the function's default `prototype` slot (an empty object) and
-    // direct accessor probes like `E.prototype['<key>']` return
-    // undefined.
-    if (!hirClass->methods.empty()) {
-        deferredClassPrototypes_.push_back(hirClass);
-    }
 
     // Restore class context
     currentClass_ = savedClass;
@@ -9432,14 +9349,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             }
         }
 
-        // Always emit a default constructor so the class identifier
-        // resolves to a real function value in untyped JS mode. Without
-        // a constructor function, `typeof E` and `E.prototype` collapse
-        // to undefined because visitIdentifier has nothing to load.
-        // The body still calls super() when there is a base class and
-        // initializes property defaults when present.
-        bool needsDefaultConstructor = true;
-        (void)hasPropertyInitializers;
+        // Also need constructor if we have a base class (to call super())
+        bool needsDefaultConstructor = hasPropertyInitializers || hirClass->baseClass;
 
         if (needsDefaultConstructor) {
             std::string ctorName = className + "_constructor";
