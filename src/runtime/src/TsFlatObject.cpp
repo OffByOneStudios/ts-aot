@@ -135,12 +135,21 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
         }
     }
 
-    // Check vtable methods (class instances have methods in their vtable)
+    // Check vtable methods (class instances have methods in their vtable).
+    // The vtable is keyed by the original class method name. For accessor
+    // declarations the compiler stores the entry with a `__getter_` /
+    // `__setter_` prefix, so we need to probe both keys: a plain method
+    // name match returns a bound method; a `__getter_<key>` match calls
+    // the getter and returns its result.
     if (desc->numMethods > 0 && desc->methodNames) {
         void** vtable = *(void***)((char*)obj + 8); // vtable pointer at offset 8
         if (vtable) {
+            // Build the getter-prefixed key once for the loop.
+            std::string getterKey = std::string("__getter_") + key;
             for (uint32_t i = 0; i < desc->numMethods; i++) {
-                if (strcmp(desc->methodNames[i], key) == 0) {
+                const char* mname = desc->methodNames[i];
+                if (!mname) continue;
+                if (strcmp(mname, key) == 0) {
                     void* methodPtr = vtable[i + 1]; // +1 to skip parent vtable pointer
                     if (methodPtr) {
                         // Create a bound method: native function that calls methodPtr(this, args...)
@@ -148,6 +157,16 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
                         BoundMethodCtx* ctx = new (mem) BoundMethodCtx{obj, methodPtr};
                         return ts_value_make_native_function(
                             (void*)flat_bound_method_trampoline, ctx);
+                    }
+                }
+                if (strcmp(mname, getterKey.c_str()) == 0) {
+                    void* methodPtr = vtable[i + 1];
+                    if (methodPtr) {
+                        // Call the getter directly with `obj` as `this` and
+                        // no further arguments. The lowered getter has the
+                        // signature: TsValue* getter(TsValue* this).
+                        using GetterFn = void* (*)(void*);
+                        return ((GetterFn)methodPtr)(obj);
                     }
                 }
             }
@@ -171,6 +190,29 @@ extern "C" void ts_flat_object_set_property(void* obj, const char* key, void* va
         *slotPtr = (uint64_t)(uintptr_t)value;
         ts_gc_write_barrier(slotPtr, value);
         return;
+    }
+
+    // Check the vtable for a `__setter_<key>` entry. Class accessor
+    // declarations register their setters under this prefixed key in the
+    // class's vtable; per spec, an assignment to such a property must
+    // dispatch to the setter rather than installing a same-named data
+    // property in the overflow map.
+    if (desc->numMethods > 0 && desc->methodNames) {
+        void** vtable = *(void***)((char*)obj + 8);
+        if (vtable) {
+            std::string setterKey = std::string("__setter_") + key;
+            for (uint32_t i = 0; i < desc->numMethods; i++) {
+                const char* mname = desc->methodNames[i];
+                if (mname && strcmp(mname, setterKey.c_str()) == 0) {
+                    void* methodPtr = vtable[i + 1];
+                    if (methodPtr) {
+                        using SetterFn = void (*)(void*, void*);
+                        ((SetterFn)methodPtr)(obj, value);
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     // Property not in shape - use overflow map
