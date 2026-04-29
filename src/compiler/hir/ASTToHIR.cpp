@@ -2206,7 +2206,6 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // If this is user_main (or the synthetic equivalent for top-level
     // scripts), emit deferred static property initializations and class
     // prototype installs at the very start of the function body.
-    SPDLOG_WARN("[FD-deferred-check] name='{}' funcName='{}'", node->name, funcName);
     if (node->name == "user_main" || node->name == "__synthetic_user_main") {
         emitDeferredStaticInits();
     }
@@ -7322,33 +7321,49 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         }
     }
 
-    // Class declaration name: in untyped JS mode `class E { foo(){...} }`
-    // registers a `<E>_constructor` function but no function literally
-    // named `E`, so the loops above don't find a binding. Without this
-    // branch, `typeof E === "undefined"` and `E.prototype` returns
-    // undefined, breaking direct prototype access patterns
-    // (`C.prototype['key']` accessor-name probes). With Step 1 in place,
-    // every class has a constructor function emitted, so this lookup
-    // always succeeds for declared classes.
-    for (const auto& cls : module_->classes) {
-        if (cls->name != node->name) continue;
-        std::string ctorName = cls->constructor
-            ? cls->constructor->name
-            : cls->name + "_constructor";
-        bool hasFn = false;
-        for (const auto& f : module_->functions) {
-            if (f->name == ctorName) { hasFn = true; break; }
-        }
-        if (!hasFn && specializations_) {
-            for (const auto& spec : *specializations_) {
-                if (spec.specializedName == ctorName) { hasFn = true; break; }
+    // Class binding lookup. Two paths reach here:
+    //
+    // 1. `class E { ... }` (declaration): visitClassDeclaration registers
+    //    the class in module_->classes under its name `E`. visitIdentifier
+    //    has nothing to load because the constructor function is named
+    //    `E_constructor`, not `E`. Find the class by name and load its
+    //    constructor.
+    //
+    // 2. `let B = class { ... }` (expression assigned to a binding):
+    //    visitClassExpression registers the class as `__anon_class_N` and
+    //    populates `variableToClassName_["B"] = "__anon_class_N"`. The
+    //    let-decl statement lives in `module->ast->body` after the
+    //    Monomorphizer's keep-class-expr-decls pass, but no later pass
+    //    iterates that body to emit the binding store. Resolve `B` via
+    //    the map so the binding is virtually present even without an
+    //    actual store.
+    auto resolveClassByName = [&](const std::string& className) -> bool {
+        for (const auto& cls : module_->classes) {
+            if (cls->name != className) continue;
+            std::string ctorName = cls->constructor
+                ? cls->constructor->name
+                : cls->name + "_constructor";
+            bool hasFn = false;
+            for (const auto& f : module_->functions) {
+                if (f->name == ctorName) { hasFn = true; break; }
             }
+            if (!hasFn && specializations_) {
+                for (const auto& spec : *specializations_) {
+                    if (spec.specializedName == ctorName) { hasFn = true; break; }
+                }
+            }
+            if (hasFn) {
+                lastValue_ = builder_.createLoadFunction(ctorName);
+                return true;
+            }
+            break;
         }
-        if (hasFn) {
-            lastValue_ = builder_.createLoadFunction(ctorName);
-            return;
-        }
-        break;
+        return false;
+    };
+    if (resolveClassByName(node->name)) return;
+    auto vtcIt = variableToClassName_.find(node->name);
+    if (vtcIt != variableToClassName_.end()) {
+        if (resolveClassByName(vtcIt->second)) return;
     }
 
     // Unknown variable - create undefined
