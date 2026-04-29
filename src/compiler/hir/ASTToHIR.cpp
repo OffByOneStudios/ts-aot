@@ -9145,7 +9145,20 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     if (cacheIt != astClassExprToHIRClass_.end()) {
         HIRClass* hirClass = cacheIt->second;
         lastGeneratedClassName_ = hirClass->name;
-        if (!currentFunction_) return;  // still in pass 1, nothing to emit yet
+        if (!currentFunction_) {
+            // Pre-pass: also queue the prototype install so that
+            // top-level `let B = class { foo(){} }` gets `B.prototype.foo`
+            // populated at user_main entry (the inline trailer below
+            // never runs for top-level class expressions because the
+            // node is not re-visited from a function context — the
+            // let-decl statement lives in `module->ast->body` only).
+            if (!hirClass->methods.empty()) {
+                bool already = false;
+                for (auto* c : deferredClassPrototypes_) if (c == hirClass) { already = true; break; }
+                if (!already) deferredClassPrototypes_.push_back(hirClass);
+            }
+            return;
+        }
         // Emit the value: a reference to the constructor function.
         if (hirClass->constructor) {
             lastValue_ = builder_.createLoadFunction(hirClass->constructor->name);
@@ -9525,10 +9538,19 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
     // Phase 9c-i: if invoked from the pre-scan in pass 1 of lower() — when
     // currentFunction_ is null — there's no insert point to emit the value
-    // setup into. Skip the trailer; the second (real) invocation from
-    // visitVariableDeclaration will hit the cache fast path above and emit
-    // the trailer with a valid current function.
-    if (!currentFunction_) return;
+    // setup into. Defer prototype install to user_main entry instead;
+    // visitVariableDeclaration is NOT guaranteed to re-visit the node
+    // because the Monomorphizer drops top-level let-decl statements
+    // from the spec body when they have a class-expression initializer,
+    // so the cache-fast-path's IR emission never happens.
+    if (!currentFunction_) {
+        if (!hirClass->methods.empty()) {
+            bool already = false;
+            for (auto* c : deferredClassPrototypes_) if (c == hirClass) { already = true; break; }
+            if (!already) deferredClassPrototypes_.push_back(hirClass);
+        }
+        return;
+    }
 
     // The result of a class expression is a reference to the class constructor
     // We use LoadFunction to get the constructor pointer
