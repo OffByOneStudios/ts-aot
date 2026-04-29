@@ -1941,9 +1941,27 @@ TsValue* ts_value_make_int(int64_t i) {
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
 
+    // Per spec ValidateTypedArray: throw TypeError if the receiver's
+    // underlying ArrayBuffer is detached. Returns true (and throws) if
+    // the buffer is detached; the caller should bail. Argument coercion
+    // (e.g., obj.valueOf throwing) must happen AFTER this check per
+    // 22.2.3.* algorithms in ECMA-262.
+    static bool throwIfDetached(TsTypedArray* ta, const char* methodName) {
+        if (!ta || ta->IsDetachedBuffer()) {
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                "TypedArray.prototype.%s called on a TypedArray with a "
+                "detached buffer", methodName);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return true;
+        }
+        return false;
+    }
+
     // TypedArray native methods
     static TsValue* ts_typed_array_slice_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "slice")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
         int64_t start = 0, end = len;
         if (argc >= 1 && argv && argv[0]) {
@@ -1966,6 +1984,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_typed_array_set_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "set")) return ts_value_make_undefined();
         // set(source, offset?) - copy elements from source array
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_undefined();
         void* src = ts_value_get_object(argv[0]);
@@ -1995,6 +2014,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_typed_array_fill_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "fill")) return ts_value_make_undefined();
         double fillVal = 0;
         if (argc >= 1 && argv && argv[0]) fillVal = ts_value_get_double(argv[0]);
         int64_t len = (int64_t)ta->GetLength();
@@ -2014,6 +2034,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // TypedArray.prototype.at(index) — supports negative indices
     static TsValue* ts_typed_array_at_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "at")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
         int64_t idx = 0;
         if (argc >= 1 && argv && argv[0]) idx = (int64_t)ts_to_number(argv[0]);
@@ -2025,6 +2046,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // TypedArray.prototype.includes(searchElement, fromIndex?)
     static TsValue* ts_typed_array_includes_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "includes")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
         double search = ts_to_number(argv[0]);
@@ -2043,6 +2065,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // TypedArray.prototype.indexOf(searchElement, fromIndex?)
     static TsValue* ts_typed_array_indexOf_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "indexOf")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_int(-1);
         double search = ts_to_number(argv[0]);
@@ -2059,6 +2082,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // TypedArray.prototype.lastIndexOf(searchElement, fromIndex?)
     static TsValue* ts_typed_array_lastIndexOf_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "lastIndexOf")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_int(-1);
         double search = ts_to_number(argv[0]);
@@ -2078,6 +2102,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // TypedArray.prototype.reverse() — mutates in place, returns self
     static TsValue* ts_typed_array_reverse_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "reverse")) return ts_value_make_undefined();
         size_t len = ta->GetLength();
         for (size_t i = 0, j = (len == 0 ? 0 : len - 1); i < j; i++, j--) {
             double a = ta->Get(i), b = ta->Get(j);
@@ -2090,6 +2115,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // TypedArray.prototype.join(separator?)
     static TsValue* ts_typed_array_join_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "join")) return ts_value_make_undefined();
         size_t len = ta->GetLength();
         std::string sep = ",";
         if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
@@ -2129,6 +2155,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // TypedArray.prototype.copyWithin(target, start, end?) — mutates in place
     static TsValue* ts_typed_array_copyWithin_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (throwIfDetached(ta, "copyWithin")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
         int64_t target = 0, start = 0, end = len;
         if (argc >= 1 && argv && argv[0]) target = (int64_t)ts_to_number(argv[0]);

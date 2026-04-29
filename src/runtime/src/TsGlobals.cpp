@@ -2136,7 +2136,9 @@ static void* makeTypedArrayCtor(const char* name,
 // Per spec, %TypedArray% itself throws when called as a constructor, but tests typically
 // just use it for introspection (Object.getPrototypeOf(Int8Array) === TypedArray).
 // Helper: check that `ctx` is a TsTypedArray; if not, throw TypeError.
-// Returns the validated pointer or nullptr after throw.
+// Returns the validated pointer or nullptr after throw. Also performs
+// the spec-required IsDetachedBuffer check (ValidateTypedArray step 5):
+// if the underlying ArrayBuffer is detached, throw TypeError.
 static TsTypedArray* requireTypedArrayOrThrow(void* ctx, const char* methodName) {
     void* raw = ctx ? ts_value_get_object((TsValue*)ctx) : nullptr;
     if (!raw) raw = ctx;
@@ -2144,7 +2146,18 @@ static TsTypedArray* requireTypedArrayOrThrow(void* ctx, const char* methodName)
         uintptr_t p = (uintptr_t)raw;
         if (p > 0x1000 && p < 0x0000800000000000ULL) {
             uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-            if (m16 == TsTypedArray::MAGIC) return (TsTypedArray*)raw;
+            if (m16 == TsTypedArray::MAGIC) {
+                TsTypedArray* ta = (TsTypedArray*)raw;
+                if (ta->IsDetachedBuffer()) {
+                    char msg[160];
+                    snprintf(msg, sizeof(msg),
+                        "TypedArray.prototype.%s called on a TypedArray with "
+                        "a detached buffer", methodName);
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+                    return nullptr;
+                }
+                return ta;
+            }
         }
     }
     char msg[160];
