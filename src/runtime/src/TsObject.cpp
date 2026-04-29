@@ -3201,6 +3201,33 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "copyWithin") == 0) {
                 return makeNamedNativeFunction((void*)ts_typed_array_copyWithin_native, ta, "copyWithin", 2);
             }
+            // .constructor — return the per-class TypedArray constructor
+            // matching this instance's element type. Required by
+            // SpeciesConstructor's default-fallback path
+            // (`O.constructor[@@species] ?? O.constructor`).
+            if (strcmp(keyStr, "constructor") == 0) {
+                extern void* ts_get_global_Int8Array();
+                extern void* ts_get_global_Uint8Array();
+                extern void* ts_get_global_Uint8ClampedArray();
+                extern void* ts_get_global_Int16Array();
+                extern void* ts_get_global_Uint16Array();
+                extern void* ts_get_global_Int32Array();
+                extern void* ts_get_global_Uint32Array();
+                extern void* ts_get_global_Float32Array();
+                extern void* ts_get_global_Float64Array();
+                switch (ta->GetType()) {
+                    case TypedArrayType::Int8:    return (TsValue*)ts_get_global_Int8Array();
+                    case TypedArrayType::Uint8:   return (TsValue*)ts_get_global_Uint8Array();
+                    case TypedArrayType::Uint8Clamped: return (TsValue*)ts_get_global_Uint8ClampedArray();
+                    case TypedArrayType::Int16:   return (TsValue*)ts_get_global_Int16Array();
+                    case TypedArrayType::Uint16:  return (TsValue*)ts_get_global_Uint16Array();
+                    case TypedArrayType::Int32:   return (TsValue*)ts_get_global_Int32Array();
+                    case TypedArrayType::Uint32:  return (TsValue*)ts_get_global_Uint32Array();
+                    case TypedArrayType::Float32: return (TsValue*)ts_get_global_Float32Array();
+                    case TypedArrayType::Float64: return (TsValue*)ts_get_global_Float64Array();
+                    default: break;
+                }
+            }
             // Check for numeric index
             char* endptr;
             long index = strtol(keyStr, &endptr, 10);

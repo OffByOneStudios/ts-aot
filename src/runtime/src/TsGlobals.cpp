@@ -2096,6 +2096,15 @@ static void* makeTypedArrayCtor(const char* name,
     protoVal.ptr_val = proto;
     ctorFunc->properties->Set(protoKey, protoVal);
 
+    // .prototype.constructor = ctor (per spec — instance.constructor walks
+    // the prototype chain and finds this; required for SpeciesConstructor's
+    // default-fallback path).
+    TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
+    ctorKey.ptr_val = TsString::GetInterned("constructor");
+    TsValue ctorRefVal; ctorRefVal.type = ValueType::FUNCTION_PTR;
+    ctorRefVal.ptr_val = ctorFunc;
+    proto->Set(ctorKey, ctorRefVal);
+
     // .name = constructor name
     ctorFunc->name = TsString::Create(name);
 
