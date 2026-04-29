@@ -3180,6 +3180,30 @@ TsValue* ts_value_make_int(int64_t i) {
             if (*endptr == '\0' && index >= 0) {
                 return ts_value_make_double(ta->Get((size_t)index));
             }
+            // Fallback: walk to %TypedArray%.prototype for methods registered
+            // there (entries/keys/values/at/etc). Without this, dynamic
+            // dispatch on TypedArray instances via `constructors[i]` returns
+            // undefined for prototype methods. The compile-time call intercept
+            // handles direct `s.method()` syntax but not property reads.
+            extern void* ts_get_global_TypedArray();
+            void* taCtorVal = ts_get_global_TypedArray();
+            if (taCtorVal) {
+                TsFunction* taCtor = (TsFunction*)ts_value_get_object((TsValue*)taCtorVal);
+                if (taCtor && taCtor->properties) {
+                    TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+                    protoKey.ptr_val = TsString::GetInterned("prototype");
+                    TsValue protoVal = taCtor->properties->Get(protoKey);
+                    if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+                        TsMap* taProto = (TsMap*)protoVal.ptr_val;
+                        TsValue methodKey; methodKey.type = ValueType::STRING_PTR;
+                        methodKey.ptr_val = TsString::Create(keyStr);
+                        TsValue methodVal = taProto->Get(methodKey);
+                        if (methodVal.type != ValueType::UNDEFINED) {
+                            return nanbox_from_tagged(methodVal);
+                        }
+                    }
+                }
+            }
             return ts_value_make_undefined();
         }
 

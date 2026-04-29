@@ -2107,8 +2107,26 @@ static void* makeTypedArrayCtor(const char* name,
 
     // Link [[Prototype]] (the __proto__ slot, NOT .prototype) to %TypedArray%.
     // This is what Object.getPrototypeOf(Int8Array) returns.
+    //
+    // Also link the per-class .prototype's [[Prototype]] to
+    // %TypedArray%.prototype, so dynamic lookups like
+    // `Float64Array.prototype.entries` and `someFloat64.entries` walk the
+    // chain and find the methods registered on %TypedArray%.prototype.
+    // Without this, only compile-time-intercepted method calls work, and
+    // any access via dynamic constructor (`constructors[i]`) returns
+    // undefined.
     if (parentProto) {
         ts_object_setPrototypeOf(ctorVal, (TsValue*)parentProto);
+
+        TsFunction* parentFn = (TsFunction*)ts_value_get_object((TsValue*)parentProto);
+        if (parentFn && parentFn->properties) {
+            TsValue parentProtoKey; parentProtoKey.type = ValueType::STRING_PTR;
+            parentProtoKey.ptr_val = TsString::GetInterned("prototype");
+            TsValue parentProtoVal = parentFn->properties->Get(parentProtoKey);
+            if (parentProtoVal.type == ValueType::OBJECT_PTR && parentProtoVal.ptr_val) {
+                proto->SetPrototype((TsMap*)parentProtoVal.ptr_val);
+            }
+        }
     }
 
     return (void*)ctorVal;
@@ -2168,6 +2186,30 @@ void* ts_get_global_TypedArray() {
                     if (!ta) return ts_value_make_undefined(); \
                     return ts_value_make_undefined(); \
                 })
+
+            // entries/keys/values: delegate to the array iterator helpers.
+            // ts_array_entries/keys/values fall through to a generic
+            // length-walking path when the receiver isn't a TsArray, so
+            // passing a TsTypedArray works.
+            addMethod(tproto, "entries", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "entries");
+                if (!ta) return ts_value_make_undefined();
+                void* result = ts_array_entries((void*)ta);
+                return ts_value_make_object(result);
+            });
+            addMethod(tproto, "keys", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "keys");
+                if (!ta) return ts_value_make_undefined();
+                void* result = ts_array_keys((void*)ta);
+                return ts_value_make_object(result);
+            });
+            addMethod(tproto, "values", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "values");
+                if (!ta) return ts_value_make_undefined();
+                void* result = ts_array_values((void*)ta);
+                return ts_value_make_object(result);
+            });
+
             TA_PROTO_STUB(copyWithin);
             TA_PROTO_STUB(every);
             TA_PROTO_STUB(fill);
@@ -2180,7 +2222,6 @@ void* ts_get_global_TypedArray() {
             TA_PROTO_STUB(includes);
             TA_PROTO_STUB(indexOf);
             TA_PROTO_STUB(join);
-            TA_PROTO_STUB(keys);
             TA_PROTO_STUB(lastIndexOf);
             TA_PROTO_STUB(map);
             TA_PROTO_STUB(reduce);
@@ -2194,8 +2235,6 @@ void* ts_get_global_TypedArray() {
             TA_PROTO_STUB(toLocaleString);
             TA_PROTO_STUB(toReversed);
             TA_PROTO_STUB(toSorted);
-            TA_PROTO_STUB(values);
-            TA_PROTO_STUB(entries);
             TA_PROTO_STUB(at);
             #undef TA_PROTO_STUB
         }
