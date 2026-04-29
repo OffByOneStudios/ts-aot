@@ -4919,7 +4919,15 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Object.getPrototypeOf(obj) - returns the prototype of an object
     TsValue* ts_object_getPrototypeOf(TsValue* obj) {
-        if (!obj) return ts_value_make_undefined();
+        // Per spec 19.1.2.12: ToObject(O) is performed first, which
+        // throws TypeError on null/undefined. Without this guard, the
+        // magic-check below dereferences a tagged primitive and crashes.
+        if (!obj || ts_value_is_nullish(obj)) {
+            ts_throw((TsValue*)ts_error_create(
+                (void*)TsString::Create(
+                    "Object.getPrototypeOf called on null or undefined")));
+            return ts_value_make_undefined();
+        }
 
         // Unbox obj if needed
         void* objRaw = ts_value_get_object(obj);
