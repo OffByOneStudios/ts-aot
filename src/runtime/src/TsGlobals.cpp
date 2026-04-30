@@ -2123,6 +2123,19 @@ static void* makeTypedArrayCtor(const char* name,
     addMethod(ctorFunc->properties, "from", (void*)ts_typed_array_from_native, 1);
     addMethod(ctorFunc->properties, "of",   (void*)ts_typed_array_of_native,   0);
 
+    // [Symbol.species] = ctor itself (per ECMA-262 22.2.5.4). The well-known
+    // symbol "species" is registered as the canonical string
+    // "[Symbol.species]" — we store the constructor as a data property under
+    // that key. SpeciesConstructor(O, default) looks up Get(C, @@species)
+    // and falls back to default if undefined/null; storing self matches the
+    // spec-default behavior and lets tests that override Symbol.species on
+    // a subclass take effect.
+    TsValue speciesKey; speciesKey.type = ValueType::STRING_PTR;
+    speciesKey.ptr_val = TsString::GetInterned("[Symbol.species]");
+    TsValue speciesVal; speciesVal.type = ValueType::FUNCTION_PTR;
+    speciesVal.ptr_val = ctorFunc;
+    ctorFunc->properties->Set(speciesKey, speciesVal);
+
     // Link [[Prototype]] (the __proto__ slot, NOT .prototype) to %TypedArray%.
     // This is what Object.getPrototypeOf(Int8Array) returns.
     //

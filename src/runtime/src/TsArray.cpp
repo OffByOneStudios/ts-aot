@@ -2633,15 +2633,119 @@ extern "C" {
         ((TsArray*)arr)->ForEach(callback, thisArg);
     }
 
+    // Get the per-class TypedArray constructor matching a TsTypedArray's
+    // element type (the spec's "default constructor" for SpeciesConstructor).
+    extern "C" {
+        void* ts_get_global_Int8Array();
+        void* ts_get_global_Uint8Array();
+        void* ts_get_global_Uint8ClampedArray();
+        void* ts_get_global_Int16Array();
+        void* ts_get_global_Uint16Array();
+        void* ts_get_global_Int32Array();
+        void* ts_get_global_Uint32Array();
+        void* ts_get_global_Float32Array();
+        void* ts_get_global_Float64Array();
+    }
+    static void* default_ta_ctor_for(TsTypedArray* ta) {
+        if (!ta) return nullptr;
+        switch (ta->GetType()) {
+            case TypedArrayType::Int8:    return ts_get_global_Int8Array();
+            case TypedArrayType::Uint8:   return ts_get_global_Uint8Array();
+            case TypedArrayType::Uint8Clamped: return ts_get_global_Uint8ClampedArray();
+            case TypedArrayType::Int16:   return ts_get_global_Int16Array();
+            case TypedArrayType::Uint16:  return ts_get_global_Uint16Array();
+            case TypedArrayType::Int32:   return ts_get_global_Int32Array();
+            case TypedArrayType::Uint32:  return ts_get_global_Uint32Array();
+            case TypedArrayType::Float32: return ts_get_global_Float32Array();
+            case TypedArrayType::Float64: return ts_get_global_Float64Array();
+            default: return nullptr;
+        }
+    }
+
+    // SpeciesConstructor(O, defaultCtor) per ECMA-262 7.3.20:
+    //   1. Let C = Get(O, "constructor"). If undefined, return defaultCtor.
+    //   2. If Type(C) is not Object, throw TypeError.
+    //   3. Let S = Get(C, @@species). If undefined or null, return defaultCtor.
+    //   4. If IsConstructor(S), return S; else throw TypeError.
+    // Returns a TsValue* boxing the constructor, or null on TypeError-throw.
+    static TsValue* species_constructor(void* exemplar, void* defaultCtor) {
+        if (!exemplar || !defaultCtor) return (TsValue*)defaultCtor;
+        TsValue* ctorVal = ts_object_get_property(exemplar, "constructor");
+        if (!ctorVal || ts_value_is_undefined(ctorVal)) return (TsValue*)defaultCtor;
+        // Step 2: ToObject check — for primitives, throw.
+        uint64_t nb = nanbox_from_tsvalue_ptr(ctorVal);
+        if (nanbox_is_int32(nb) || nanbox_is_double(nb) ||
+            nanbox_is_true(nb)  || nanbox_is_false(nb) ||
+            nanbox_is_null(nb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "SpeciesConstructor: 'constructor' is not an Object"));
+            return nullptr;
+        }
+        void* ctorRaw = ts_value_get_object(ctorVal);
+        if (!ctorRaw) return (TsValue*)defaultCtor;
+        // Get(C, @@species)
+        TsValue* speciesVal = ts_object_get_property(ctorRaw, "[Symbol.species]");
+        if (!speciesVal || ts_value_is_undefined(speciesVal) ||
+            ts_value_is_null(speciesVal)) {
+            return (TsValue*)defaultCtor;
+        }
+        // IsConstructor check: must be a TsFunction.
+        void* spRaw = ts_value_get_object(speciesVal);
+        if (!spRaw) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "SpeciesConstructor: @@species is not a constructor"));
+            return nullptr;
+        }
+        // TsFunction has magic 0x46554E43 ("FUNC") at offset 16, or
+        // TsClosure has 0x434C5352 ("RSCL") at offset 16.
+        uint32_t m16 = *(uint32_t*)((char*)spRaw + 16);
+        if (m16 != 0x46554E43 && m16 != 0x434C5352) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "SpeciesConstructor: @@species is not a constructor"));
+            return nullptr;
+        }
+        return speciesVal;
+    }
+
     // Helper: given a TsArray result from map/filter on a TypedArray receiver,
-    // allocate a TypedArray of the same kind and copy the elements in.
-    // Per spec, map/filter on a TypedArray should return `new this.constructor(...)`
-    // — a pragmatic approximation is to preserve the receiver's kind.
+    // allocate a TypedArray (via SpeciesConstructor) and copy the elements in.
+    // Per ECMA-262 22.2.4.7 TypedArraySpeciesCreate.
     static void* rematerialize_ta_from_array(TsTypedArray* receiver, TsArray* resultArr) {
         if (!receiver) return (void*)resultArr;
+        size_t n = resultArr ? (size_t)resultArr->Length() : 0;
+
+        // Try species constructor; fall back to direct TsTypedArray::Create
+        // on null or wrong shape.
+        void* defaultCtor = default_ta_ctor_for(receiver);
+        TsValue* ctorVal = species_constructor((void*)receiver, defaultCtor);
+        if (ctorVal && ctorVal != (TsValue*)defaultCtor) {
+            // Allocate via `new ctor(n)`
+            TsValue* lenArg = ts_value_make_int((int64_t)n);
+            TsValue* result = ts_new_from_constructor_1(ctorVal, lenArg);
+            if (result) {
+                void* resRaw = ts_value_get_object(result);
+                if (resRaw) {
+                    uint32_t m16 = *(uint32_t*)((char*)resRaw + 16);
+                    if (m16 == TsTypedArray::MAGIC) {
+                        TsTypedArray* ta = (TsTypedArray*)resRaw;
+                        size_t copyN = std::min(n, ta->GetLength());
+                        for (size_t i = 0; i < copyN; i++) {
+                            ta->Set(i, resultArr->GetElementDouble(i));
+                        }
+                        return (void*)ta;
+                    }
+                }
+                // Result not a TypedArray — per spec ValidateTypedArray throws.
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "TypedArraySpeciesCreate: result is not a TypedArray"));
+                return nullptr;
+            }
+        }
+
+        // Default path (no custom species, or species was the default ctor):
+        // allocate same kind directly.
         if (!resultArr) return (void*)TsTypedArray::Create(0,
             receiver->GetElementSize(), receiver->IsClamped(), receiver->GetType());
-        size_t n = (size_t)resultArr->Length();
         TsTypedArray* ta = TsTypedArray::Create(n,
             receiver->GetElementSize(), receiver->IsClamped(), receiver->GetType());
         for (size_t i = 0; i < n; i++) {
