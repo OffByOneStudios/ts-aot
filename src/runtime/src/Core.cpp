@@ -1633,7 +1633,18 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     }
     process_argv = ts_value_make_array(argvArray);
 
-    // 4. Run User Code (which might schedule async work)
+    // 4. Run User Code (which might schedule async work).
+    //
+    // Set the call-this slot to globalThis so that top-level
+    // `var T = this;` evaluates to globalThis in non-strict mode (per
+    // ECMA-262 9.4.1 ScriptEvaluation: the realm's [[GlobalEnv]]
+    // becomes the binding for `this` in module/script scope). Without
+    // this, the slot is null at startup and tests like
+    // predicate-call-this-non-strict that compare callback `this` to
+    // module-level `this` see (null, globalThis) instead of matching.
+    extern TsValue* globalThis;
+    if (globalThis) ts_set_call_this((void*)globalThis);
+
     if (user_main) {
 
 #ifdef _MSC_VER
