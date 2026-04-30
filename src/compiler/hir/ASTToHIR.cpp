@@ -5795,6 +5795,8 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         else if (className == "Uint16Array")       { fn = "ts_typed_array_create_u16";     wrapperFn = "ts_typed_array_new_u16"; }
         else if (className == "Int32Array")        { fn = "ts_typed_array_create_i32";     wrapperFn = "ts_typed_array_new_i32"; }
         else if (className == "Float32Array")      { fn = "ts_typed_array_create_f32";     wrapperFn = "ts_typed_array_new_f32"; }
+        else if (className == "BigInt64Array")     { fn = "ts_typed_array_create_i64";     wrapperFn = nullptr; }
+        else if (className == "BigUint64Array")    { fn = "ts_typed_array_create_u64";     wrapperFn = nullptr; }
         if (argIsNonInt && wrapperFn) {
             // Dispatcher: arg might be an ArrayBuffer (share buffer),
             // a TypedArray (copy), an Array (copy), or a number (length-only).
@@ -7065,6 +7067,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "Int16Array", "Uint16Array",
             "Int32Array", "Uint32Array",
             "Float32Array", "Float64Array",
+            "BigInt64Array", "BigUint64Array",
             // Buffer-backed + BigInt + generator-family constructor stubs.
             "ArrayBuffer", "DataView", "SharedArrayBuffer", "BigInt",
             "GeneratorFunction", "AsyncFunction", "AsyncGeneratorFunction",

@@ -6780,6 +6780,10 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_Float32Array";
     } else if (globalName == "Float64Array") {
         funcName = "ts_get_global_Float64Array";
+    } else if (globalName == "BigInt64Array") {
+        funcName = "ts_get_global_BigInt64Array";
+    } else if (globalName == "BigUint64Array") {
+        funcName = "ts_get_global_BigUint64Array";
     } else if (globalName == "process") {
         funcName = "ts_get_global_process";
     } else if (globalName == "global" || globalName == "globalThis") {

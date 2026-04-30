@@ -3227,6 +3227,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 extern void* ts_get_global_Uint32Array();
                 extern void* ts_get_global_Float32Array();
                 extern void* ts_get_global_Float64Array();
+                extern void* ts_get_global_BigInt64Array();
+                extern void* ts_get_global_BigUint64Array();
                 switch (ta->GetType()) {
                     case TypedArrayType::Int8:    return (TsValue*)ts_get_global_Int8Array();
                     case TypedArrayType::Uint8:   return (TsValue*)ts_get_global_Uint8Array();
@@ -3237,6 +3239,8 @@ TsValue* ts_value_make_int(int64_t i) {
                     case TypedArrayType::Uint32:  return (TsValue*)ts_get_global_Uint32Array();
                     case TypedArrayType::Float32: return (TsValue*)ts_get_global_Float32Array();
                     case TypedArrayType::Float64: return (TsValue*)ts_get_global_Float64Array();
+                    case TypedArrayType::BigInt64:  return (TsValue*)ts_get_global_BigInt64Array();
+                    case TypedArrayType::BigUint64: return (TsValue*)ts_get_global_BigUint64Array();
                     default: break;
                 }
             }

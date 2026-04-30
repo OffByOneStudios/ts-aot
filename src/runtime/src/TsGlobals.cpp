@@ -2533,6 +2533,16 @@ void* ts_get_global_##CName() {                                                 
     return cached;                                                                      \
 }
 
+// BigInt typed array allocators (ts_typed_array_create_i64/u64) live
+// in extensions/node/core/src/TsBuffer.cpp; declared as extern below
+// so DEFINE_TYPED_ARRAY_CTOR can reference them. Values are currently
+// lossy double-roundtrip in TsTypedArray::Set/Get — a separate Tier-2
+// follow-up will plumb real TsBigInt ↔ i64 conversion. Registering
+// the constructors globally is what unblocks ~200 tests that just
+// need testWithBigIntTypedArrayConstructors to actually iterate.
+extern "C" void* ts_typed_array_create_i64(int64_t length);
+extern "C" void* ts_typed_array_create_u64(int64_t length);
+
 DEFINE_TYPED_ARRAY_CTOR(Int8Array,         Int8Array,         ts_typed_array_create_i8)
 DEFINE_TYPED_ARRAY_CTOR(Uint8Array,        Uint8Array,        ts_typed_array_create_u8)
 DEFINE_TYPED_ARRAY_CTOR(Uint8ClampedArray, Uint8ClampedArray, ts_typed_array_create_clamped)
@@ -2542,6 +2552,8 @@ DEFINE_TYPED_ARRAY_CTOR(Int32Array,        Int32Array,        ts_typed_array_cre
 DEFINE_TYPED_ARRAY_CTOR(Uint32Array,       Uint32Array,       ts_typed_array_create_u32)
 DEFINE_TYPED_ARRAY_CTOR(Float32Array,      Float32Array,      ts_typed_array_create_f32)
 DEFINE_TYPED_ARRAY_CTOR(Float64Array,      Float64Array,      ts_typed_array_create_f64)
+DEFINE_TYPED_ARRAY_CTOR(BigInt64Array,     BigInt64Array,     ts_typed_array_create_i64)
+DEFINE_TYPED_ARRAY_CTOR(BigUint64Array,    BigUint64Array,    ts_typed_array_create_u64)
 
 #undef DEFINE_TYPED_ARRAY_CTOR
 

@@ -2645,6 +2645,8 @@ extern "C" {
         void* ts_get_global_Uint32Array();
         void* ts_get_global_Float32Array();
         void* ts_get_global_Float64Array();
+        void* ts_get_global_BigInt64Array();
+        void* ts_get_global_BigUint64Array();
     }
     static void* default_ta_ctor_for(TsTypedArray* ta) {
         if (!ta) return nullptr;
@@ -2658,6 +2660,8 @@ extern "C" {
             case TypedArrayType::Uint32:  return ts_get_global_Uint32Array();
             case TypedArrayType::Float32: return ts_get_global_Float32Array();
             case TypedArrayType::Float64: return ts_get_global_Float64Array();
+            case TypedArrayType::BigInt64:  return ts_get_global_BigInt64Array();
+            case TypedArrayType::BigUint64: return ts_get_global_BigUint64Array();
             default: return nullptr;
         }
     }
