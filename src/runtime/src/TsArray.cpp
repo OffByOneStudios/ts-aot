@@ -1094,12 +1094,15 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
     // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal) return -1;
+    TsValue* thisArgV = (TsValue*)thisArg;
 
     for (size_t i = 0; i < length; ++i) {
         TsValue* v = GetElementBoxed(i);
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = ts_call_3(cbVal, v, idx, arr);
+        TsValue* res = thisArgV
+            ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
+            : ts_call_3(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) return (int64_t)i;
     }
     return -1;
@@ -1132,13 +1135,16 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
     // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal) return ts_value_make_undefined();
+    TsValue* thisArgV = (TsValue*)thisArg;
 
     for (size_t i = length; i > 0; --i) {
         size_t idx = i - 1;
         TsValue* v = GetElementBoxed(idx);
         TsValue* idxVal = ts_value_make_int(idx);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
+        TsValue* res = thisArgV
+            ? ts_call_with_this_3(cbVal, thisArgV, v, idxVal, arr)
+            : ts_call_3(cbVal, v, idxVal, arr);
         if (ts_value_to_bool(res)) {
             return GetElementBoxed(idx);
         }
@@ -1171,13 +1177,16 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
     // Standard TsValue/TsFunction path (NaN-boxed callback pointer)
     TsValue* cbVal = (TsValue*)callback;
     if (!cbVal) return -1;
+    TsValue* thisArgV = (TsValue*)thisArg;
 
     for (size_t i = length; i > 0; --i) {
         size_t idx = i - 1;
         TsValue* v = GetElementBoxed(idx);
         TsValue* idxVal = ts_value_make_int(idx);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        TsValue* res = ts_call_3(cbVal, v, idxVal, arr);
+        TsValue* res = thisArgV
+            ? ts_call_with_this_3(cbVal, thisArgV, v, idxVal, arr)
+            : ts_call_3(cbVal, v, idxVal, arr);
         if (ts_value_to_bool(res)) return (int64_t)idx;
     }
     return -1;

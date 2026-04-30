@@ -3395,6 +3395,18 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "findLast") == 0) return makeNamedNativeFunction((void*)ts_array_findLast_native, arr, "findLast", 1);
             if (strcmp(keyStr, "findLastIndex") == 0) return makeNamedNativeFunction((void*)ts_array_findLastIndex_native, arr, "findLastIndex", 1);
             if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_array_toString_native, arr, "toString", 0);
+            // Numeric index → indexed element. Required for Array.prototype.X
+            // delegations that use `ts_object_get_property(arr, "0")` to read
+            // values via the spec algorithm (LengthOfArrayLike + Get(O, Pk)),
+            // e.g., populate_ta_from_array_like in TsGlobals.cpp when called
+            // through dynamic dispatch (`new TA([1,2,3])` via `constructors[i]`).
+            {
+                char* endptr;
+                long index = strtol(keyStr, &endptr, 10);
+                if (*endptr == '\0' && index >= 0 && (size_t)index < arr->Length()) {
+                    return (TsValue*)(uintptr_t)arr->Get((size_t)index);
+                }
+            }
             // User-defined string-keyed property — look up the lazy side map.
             // Per ES spec, arrays are exotic objects with both indexed elements
             // and arbitrary string-keyed properties (e.g. `arr.foo = 'bar'`).
