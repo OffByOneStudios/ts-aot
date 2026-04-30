@@ -884,6 +884,61 @@ std::string Lexer::getStringValue(std::string_view rawToken) {
     return result;
 }
 
+void Lexer::validateLegacyOctalEscapes(
+    std::string_view rawToken, bool isStrict, bool isTemplate,
+    int line, int column) {
+    // Walk the raw lexeme. Quotes (if any) are skipped over by the
+    // generic char loop. ECMA-262 12.8.4.1 + Annex B.1.2:
+    //   - Strict-mode string literals must reject \1..\7, \0<digit>,
+    //     \8, \9.
+    //   - Template literals must reject the same in any mode.
+    auto fail = [&](const std::string& msg) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%d:%d: SyntaxError: %s",
+                 line, column, msg.c_str());
+        throw std::runtime_error(buf);
+    };
+    bool reject = isStrict || isTemplate;
+    if (!reject) return;
+    for (size_t i = 0; i < rawToken.size(); i++) {
+        if (rawToken[i] != '\\') continue;
+        if (i + 1 >= rawToken.size()) break;
+        char nxt = rawToken[i + 1];
+        // \xHH — skip 2 hex digits, no octal concern.
+        if (nxt == 'x') { i += 1; continue; }
+        // \u — skip the unicode escape; either \u{...} or \uXXXX.
+        if (nxt == 'u') { i += 1; continue; }
+        // \0 alone is the NUL escape (allowed). \0 followed by a
+        // decimal digit is a LegacyOctalEscapeSequence.
+        if (nxt == '0') {
+            if (i + 2 < rawToken.size()) {
+                char after = rawToken[i + 2];
+                if (after >= '0' && after <= '9') {
+                    fail("Octal escape sequences are not allowed in "
+                         + std::string(isTemplate ? "template literals"
+                                                  : "strict-mode strings"));
+                }
+            }
+            i += 1;
+            continue;
+        }
+        // \1..\7 — LegacyOctalEscapeSequence.
+        if (nxt >= '1' && nxt <= '7') {
+            fail("Octal escape sequences are not allowed in "
+                 + std::string(isTemplate ? "template literals"
+                                          : "strict-mode strings"));
+        }
+        // \8, \9 — NonOctalDecimalEscapeSequence.
+        if (nxt == '8' || nxt == '9') {
+            fail("\\8 and \\9 are not allowed in "
+                 + std::string(isTemplate ? "template literals"
+                                          : "strict-mode strings"));
+        }
+        // Other escapes (e.g., \n, \t, \\) are fine; advance past them.
+        i += 1;
+    }
+}
+
 std::string Lexer::processTemplateEscapes(std::string_view text) {
     std::string result;
     result.reserve(text.size());

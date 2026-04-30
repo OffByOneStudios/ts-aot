@@ -161,6 +161,7 @@ private:
     bool inAsync_ = false;      // Inside async function?
     bool inGenerator_ = false;  // Inside generator function?
     bool noIn_ = false;         // Suppress 'in' as binary operator (for-loop initializers)
+    bool strictMode_ = false;   // Effective strict mode (set after "use strict" prologue)
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
     int errorCount_ = 0;       // Parse-time errors (redeclaration, etc.)
 public:

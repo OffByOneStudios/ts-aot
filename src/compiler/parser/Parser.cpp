@@ -24,11 +24,29 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     // Parse triple-slash references from comments at the start
     program->tripleSlashReferences = parseTripleSlashReferences();
 
+    // Directive prologue handling. ECMA-262: leading
+    // ExpressionStatements wrapping a single string literal form a
+    // directive prologue. If `"use strict"` appears among them, the
+    // body is strict from then on. Prologue strings themselves are
+    // parsed in the outer (typically sloppy) mode and are not
+    // subject to legacy-octal rejection.
+    bool inPrologue = true;
     while (!isAtEnd()) {
-        auto stmts = parseDeclarationOrStatement();
-        if (stmts) {
-            program->body.push_back(std::move(stmts));
+        auto stmt = parseDeclarationOrStatement();
+        if (!stmt) continue;
+        if (inPrologue) {
+            if (auto* exprStmt = dynamic_cast<ast::ExpressionStatement*>(stmt.get())) {
+                if (auto* strLit = dynamic_cast<ast::StringLiteral*>(exprStmt->expression.get())) {
+                    if (strLit->value == "use strict") {
+                        strictMode_ = true;
+                    }
+                    program->body.push_back(std::move(stmt));
+                    continue;
+                }
+            }
+            inPrologue = false;
         }
+        program->body.push_back(std::move(stmt));
     }
 
     return program;

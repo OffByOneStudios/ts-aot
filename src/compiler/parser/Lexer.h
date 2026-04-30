@@ -178,6 +178,18 @@ public:
     /// Process escape sequences in template literal text (no quotes to strip)
     static std::string processTemplateEscapes(std::string_view text);
 
+    /// Validate legacy-octal and NonOctalDecimal escape sequences per
+    /// ECMA-262 12.8.4.1 + Annex B.1.2. Throws std::runtime_error on
+    /// violation:
+    ///   - in strict mode: reject \1-\7, \0 followed by decimal digit,
+    ///     \8, \9 in string literals
+    ///   - in template literals: reject the same in any mode
+    /// `rawToken` is the raw lexeme; quotes (if any) are skipped over.
+    /// `line`/`column` are used in the diagnostic message.
+    static void validateLegacyOctalEscapes(
+        std::string_view rawToken, bool isStrict, bool isTemplate,
+        int line, int column);
+
     /// Check if a token kind is a keyword
     static bool isKeyword(TokenKind kind);
 
