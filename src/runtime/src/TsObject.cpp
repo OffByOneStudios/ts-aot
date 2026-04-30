@@ -5365,23 +5365,16 @@ TsValue* ts_value_make_int(int64_t i) {
 
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
         // Spec step 1: If Type(O) is not Object, throw a TypeError exception.
-        // We treat as a "definitive primitive" only NaN-boxed null/undefined/
-        // int/double/bool/string. Unknown raw pointers (e.g. native HTTP req
-        // objects passed by body-parser) are kept as the legacy silent no-op
-        // path so we don't break existing Express integrations.
-        // Spec step 1 partial: throw TypeError on definitively-non-object
-        // primitives (number/bool/string). We do NOT throw on nullish here
-        // even though the spec requires it, because Express's body-parser
-        // and similar code call Object.defineProperty(exports, ...) where
-        // `exports` evaluates to `undefined` due to a separate pre-existing
-        // module system bug. Throwing here would crash every Express test.
-        // The nullish-throw spec wins (~2 test262 passes) are sacrificed
-        // to keep the Express integration working until that bug is fixed.
+        // Throws on null/undefined/number/bool/string/symbol — anything
+        // that isn't an object reference. Unknown raw pointers (e.g.
+        // native HTTP req objects) are kept as the legacy silent no-op
+        // path so existing integrations don't break.
         if (!obj) return ts_value_make_undefined();  // C-null: ignore silently
         {
             uint64_t objNb = nanbox_from_tsvalue_ptr(obj);
             if (nanbox_is_int32(objNb) || nanbox_is_double(objNb) ||
-                nanbox_is_true(objNb)  || nanbox_is_false(objNb)) {
+                nanbox_is_true(objNb)  || nanbox_is_false(objNb) ||
+                nanbox_is_undefined(objNb) || nanbox_is_null(objNb)) {
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
                     "Object.defineProperty called on non-object"));
                 return ts_value_make_undefined();
@@ -5397,10 +5390,6 @@ TsValue* ts_value_make_int(int64_t i) {
                         return ts_value_make_undefined();
                     }
                 }
-            }
-            // nullish (null/undefined) and unknown ptr shapes silently no-op.
-            if (nanbox_is_undefined(objNb) || nanbox_is_null(objNb)) {
-                return obj;
             }
         }
         if (!prop) {
