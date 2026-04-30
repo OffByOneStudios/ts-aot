@@ -629,6 +629,13 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             advance();
             auto node = std::make_unique<ast::StringLiteral>();
             setLocation(node.get(), tok);
+            // ECMA-262 12.8.4.1: in strict mode, reject \1-\7,
+            // \0<digit>, \8, \9. Throws std::runtime_error on
+            // violation, which propagates as a parse-phase
+            // SyntaxError per test262 negative.phase: parse.
+            Lexer::validateLegacyOctalEscapes(
+                tok.text, strictMode_, /*isTemplate=*/false,
+                tok.line, tok.column);
             node->value = Lexer::getStringValue(tok.text);
             return node;
         }
@@ -650,6 +657,10 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             if (text.size() >= 2) {
                 text = text.substr(1, text.size() - 2);
             }
+            // Templates always reject legacy octals + \8/\9 per spec.
+            Lexer::validateLegacyOctalEscapes(
+                text, strictMode_, /*isTemplate=*/true,
+                tok.line, tok.column);
             node->head = Lexer::processTemplateEscapes(text);
             return node;
         }
@@ -1094,6 +1105,9 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
     if (headText.size() >= 3) {
         headText = headText.substr(1, headText.size() - 3);
     }
+    Lexer::validateLegacyOctalEscapes(
+        headText, strictMode_, /*isTemplate=*/true,
+        startTok.line, startTok.column);
     node->head = Lexer::processTemplateEscapes(headText);
     advance();
 
@@ -1112,6 +1126,9 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
             if (litText.size() >= 2) {
                 litText = litText.substr(1, litText.size() - 2);
             }
+            Lexer::validateLegacyOctalEscapes(
+                litText, strictMode_, /*isTemplate=*/true,
+                contTok.line, contTok.column);
             span.literal = Lexer::processTemplateEscapes(litText);
             node->spans.push_back(std::move(span));
             advance();
@@ -1122,6 +1139,9 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
             if (litText.size() >= 3) {
                 litText = litText.substr(1, litText.size() - 3);
             }
+            Lexer::validateLegacyOctalEscapes(
+                litText, strictMode_, /*isTemplate=*/true,
+                contTok.line, contTok.column);
             span.literal = Lexer::processTemplateEscapes(litText);
             node->spans.push_back(std::move(span));
             advance();
@@ -1133,12 +1153,18 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
             std::string litText(manualTok.text);
             if (manualTok.kind == TokenKind::TemplateTail) {
                 if (litText.size() >= 2) litText = litText.substr(1, litText.size() - 2);
+                Lexer::validateLegacyOctalEscapes(
+                    litText, strictMode_, /*isTemplate=*/true,
+                    manualTok.line, manualTok.column);
                 span.literal = Lexer::processTemplateEscapes(litText);
                 node->spans.push_back(std::move(span));
                 advance();
                 break;
             } else if (manualTok.kind == TokenKind::TemplateMiddle) {
                 if (litText.size() >= 3) litText = litText.substr(1, litText.size() - 3);
+                Lexer::validateLegacyOctalEscapes(
+                    litText, strictMode_, /*isTemplate=*/true,
+                    manualTok.line, manualTok.column);
                 span.literal = Lexer::processTemplateEscapes(litText);
                 node->spans.push_back(std::move(span));
                 advance();
