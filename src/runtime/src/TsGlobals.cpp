@@ -1820,9 +1820,43 @@ void* ts_get_global_BigInt() {
                 return ts_value_make_undefined();
             }
             int bits = (int)bitsD;
-            void* raw = ts_value_get_object(argv[1]);
-            if (!raw) raw = argv[1];
-            TsBigInt* src = (raw && *(uint32_t*)raw == 0x42494749) ? (TsBigInt*)raw : nullptr;
+            // ToBigInt(argv[1]) per ECMA-262 7.1.13:
+            //   undefined/null/Number/Symbol → TypeError
+            //   true → 1n, false → 0n
+            //   BigInt → as-is
+            //   String → parse as BigInt (NaN → SyntaxError)
+            //   Object → ToPrimitive then recursive ToBigInt
+            uint64_t nb = nanbox_from_tsvalue_ptr(argv[1]);
+            TsBigInt* src = nullptr;
+            if (nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert undefined or null to BigInt"));
+                return ts_value_make_undefined();
+            }
+            if (nanbox_is_true(nb))  src = (TsBigInt*)ts_bigint_create_int(1);
+            else if (nanbox_is_false(nb)) src = (TsBigInt*)ts_bigint_create_int(0);
+            else if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert a Number to a BigInt"));
+                return ts_value_make_undefined();
+            } else if (nanbox_is_ptr(nb)) {
+                void* raw = nanbox_to_ptr(nb);
+                if (raw) {
+                    uint32_t magic = *(uint32_t*)raw;
+                    if (magic == 0x42494749) {  // TsBigInt
+                        src = (TsBigInt*)raw;
+                    } else if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+                        // Parse string as BigInt (radix 10)
+                        TsString* s = ts_ensure_flat(raw);
+                        src = (TsBigInt*)ts_bigint_create_str(s, 10);
+                    } else if (magic == 0x53594D42) {  // TsSymbol
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Cannot convert a Symbol value to a BigInt"));
+                        return ts_value_make_undefined();
+                    }
+                    // Other objects: leave src=nullptr → throw below
+                }
+            }
             if (!src) {
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
                     "BigInt.asIntN: second argument must be a BigInt"));
@@ -1860,9 +1894,36 @@ void* ts_get_global_BigInt() {
                 return ts_value_make_undefined();
             }
             int bits = (int)bitsD;
-            void* raw = ts_value_get_object(argv[1]);
-            if (!raw) raw = argv[1];
-            TsBigInt* src = (raw && *(uint32_t*)raw == 0x42494749) ? (TsBigInt*)raw : nullptr;
+            // ToBigInt(argv[1]) per ECMA-262 7.1.13 — see asIntN above.
+            uint64_t nb = nanbox_from_tsvalue_ptr(argv[1]);
+            TsBigInt* src = nullptr;
+            if (nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert undefined or null to BigInt"));
+                return ts_value_make_undefined();
+            }
+            if (nanbox_is_true(nb))  src = (TsBigInt*)ts_bigint_create_int(1);
+            else if (nanbox_is_false(nb)) src = (TsBigInt*)ts_bigint_create_int(0);
+            else if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert a Number to a BigInt"));
+                return ts_value_make_undefined();
+            } else if (nanbox_is_ptr(nb)) {
+                void* raw = nanbox_to_ptr(nb);
+                if (raw) {
+                    uint32_t magic = *(uint32_t*)raw;
+                    if (magic == 0x42494749) {
+                        src = (TsBigInt*)raw;
+                    } else if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+                        TsString* s = ts_ensure_flat(raw);
+                        src = (TsBigInt*)ts_bigint_create_str(s, 10);
+                    } else if (magic == 0x53594D42) {
+                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                            "Cannot convert a Symbol value to a BigInt"));
+                        return ts_value_make_undefined();
+                    }
+                }
+            }
             if (!src) {
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
                     "BigInt.asUintN: second argument must be a BigInt"));
