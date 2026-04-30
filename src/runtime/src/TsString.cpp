@@ -1886,6 +1886,15 @@ extern "C" {
                 // BigInt toString would need special handling
                 return TsString::GetInterned("[object BigInt]");
             }
+            // ECMA-262: ToString(Symbol) throws TypeError. Without this
+            // guard, Symbol receivers fell through to "[object Object]"
+            // and downstream null-deref crashes ensued in callers like
+            // parseInt/parseFloat/escape that expected a real string.
+            if (magic == 0x53594D42) { // TsSymbol "SYMB"
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Cannot convert a Symbol value to a string"));
+                return TsString::Create("");  // unreachable
+            }
             // Check magic at offset 16 for TsObject subclasses (TsBuffer, etc.)
             uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
             if (magic16 == 0x42554646) { // TsBuffer::MAGIC "BUFF"
