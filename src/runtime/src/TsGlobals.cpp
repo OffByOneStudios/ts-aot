@@ -2232,26 +2232,103 @@ void* ts_get_global_TypedArray() {
                 return ts_value_make_object(result);
             });
 
+            // Callback-based iteration methods: delegate to ts_array_*
+            // which already routes TypedArray receivers through the native
+            // path (try_as_typed_array → ts_array_X_native).
+            addMethod(tproto, "forEach", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "forEach");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                ts_array_forEach((void*)ta, cb, thisArg);
+                return ts_value_make_undefined();
+            });
+            addMethod(tproto, "map", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "map");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                void* result = ts_array_map((void*)ta, cb, thisArg);
+                return ts_value_make_object(result);
+            });
+            addMethod(tproto, "filter", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "filter");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                void* result = ts_array_filter((void*)ta, cb, thisArg);
+                return ts_value_make_object(result);
+            });
+            addMethod(tproto, "every", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "every");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                return ts_value_make_bool(ts_array_every((void*)ta, cb, thisArg));
+            });
+            addMethod(tproto, "some", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "some");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                return ts_value_make_bool(ts_array_some((void*)ta, cb, thisArg));
+            });
+            addMethod(tproto, "find", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "find");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                struct TaggedValue* res = ts_array_find((void*)ta, cb, thisArg);
+                return res ? nanbox_from_tagged(*(TsValue*)res) : ts_value_make_undefined();
+            });
+            addMethod(tproto, "findIndex", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "findIndex");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                return ts_value_make_int(ts_array_findIndex((void*)ta, cb, thisArg));
+            });
+            addMethod(tproto, "findLast", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "findLast");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                struct TaggedValue* res = ts_array_findLast((void*)ta, cb, thisArg);
+                return res ? nanbox_from_tagged(*(TsValue*)res) : ts_value_make_undefined();
+            });
+            addMethod(tproto, "findLastIndex", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "findLastIndex");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                return ts_value_make_int(ts_array_findLastIndex((void*)ta, cb, thisArg));
+            });
+            addMethod(tproto, "reduce", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "reduce");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* init = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                void* result = ts_array_reduce((void*)ta, cb, init);
+                return (TsValue*)result;
+            });
+            addMethod(tproto, "reduceRight", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                TsTypedArray* ta = requireTypedArrayOrThrow(ctx, "reduceRight");
+                if (!ta) return ts_value_make_undefined();
+                void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+                void* init = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+                void* result = ts_array_reduceRight((void*)ta, cb, init);
+                return (TsValue*)result;
+            });
+
             TA_PROTO_STUB(copyWithin);
-            TA_PROTO_STUB(every);
             TA_PROTO_STUB(fill);
-            TA_PROTO_STUB(filter);
-            TA_PROTO_STUB(find);
-            TA_PROTO_STUB(findIndex);
-            TA_PROTO_STUB(findLast);
-            TA_PROTO_STUB(findLastIndex);
-            TA_PROTO_STUB(forEach);
             TA_PROTO_STUB(includes);
             TA_PROTO_STUB(indexOf);
             TA_PROTO_STUB(join);
             TA_PROTO_STUB(lastIndexOf);
-            TA_PROTO_STUB(map);
-            TA_PROTO_STUB(reduce);
-            TA_PROTO_STUB(reduceRight);
             TA_PROTO_STUB(reverse);
             TA_PROTO_STUB(set);
             TA_PROTO_STUB(slice);
-            TA_PROTO_STUB(some);
             TA_PROTO_STUB(sort);
             TA_PROTO_STUB(subarray);
             TA_PROTO_STUB(toLocaleString);
