@@ -1964,12 +1964,13 @@ TsValue* ts_value_make_int(int64_t i) {
         if (throwIfDetached(ta, "slice")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
         int64_t start = 0, end = len;
+        // Use ts_to_number for Symbol→TypeError per spec.
         if (argc >= 1 && argv && argv[0]) {
-            start = ts_value_get_int(argv[0]);
+            start = (int64_t)ts_to_number(argv[0]);
             if (start < 0) start = std::max((int64_t)0, len + start);
         }
-        if (argc >= 2 && argv && argv[1]) {
-            end = ts_value_get_int(argv[1]);
+        if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1])) {
+            end = (int64_t)ts_to_number(argv[1]);
             if (end < 0) end = std::max((int64_t)0, len + end);
         }
         if (start > len) start = len;
@@ -2015,12 +2016,18 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsValue* ts_typed_array_fill_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (throwIfDetached(ta, "fill")) return ts_value_make_undefined();
+        // Use ts_to_number — Symbol/object args must throw TypeError per spec
+        // (Symbol→Number throws, object falls through ToPrimitive). The
+        // earlier ts_value_get_double/ts_value_get_int didn't throw and
+        // silently produced garbage for these inputs.
         double fillVal = 0;
-        if (argc >= 1 && argv && argv[0]) fillVal = ts_value_get_double(argv[0]);
+        if (argc >= 1 && argv && argv[0]) fillVal = ts_to_number(argv[0]);
         int64_t len = (int64_t)ta->GetLength();
         int64_t start = 0, end = len;
-        if (argc >= 2 && argv && argv[1]) start = ts_value_get_int(argv[1]);
-        if (argc >= 3 && argv && argv[2]) end = ts_value_get_int(argv[2]);
+        if (argc >= 2 && argv && argv[1]) start = (int64_t)ts_to_number(argv[1]);
+        if (argc >= 3 && argv && argv[2] && !ts_value_is_undefined(argv[2])) {
+            end = (int64_t)ts_to_number(argv[2]);
+        }
         if (start < 0) start = std::max((int64_t)0, len + start);
         if (end < 0) end = std::max((int64_t)0, len + end);
         if (start > len) start = len;
