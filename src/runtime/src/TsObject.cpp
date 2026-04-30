@@ -1959,6 +1959,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // TypedArray native methods
+    extern "C" void* ts_typed_array_species_alloc(void* receiver, int64_t length);
     static TsValue* ts_typed_array_slice_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (throwIfDetached(ta, "slice")) return ts_value_make_undefined();
@@ -1976,9 +1977,13 @@ TsValue* ts_value_make_int(int64_t i) {
         if (start > len) start = len;
         if (end > len) end = len;
         if (end < start) end = start;
-        size_t newLen = (size_t)(end - start);
-        TsTypedArray* result = TsTypedArray::Create(newLen, ta->GetElementSize(), ta->IsClamped(), ta->GetType());
-        for (size_t i = 0; i < newLen; i++) {
+        int64_t newLen = end - start;
+        // TypedArraySpeciesCreate(this, newLen) — honors @@species ctor.
+        void* resRaw = ts_typed_array_species_alloc((void*)ta, newLen);
+        if (!resRaw) return ts_value_make_undefined();  // TypeError thrown
+        TsTypedArray* result = (TsTypedArray*)resRaw;
+        size_t copyN = std::min((size_t)newLen, result->GetLength());
+        for (size_t i = 0; i < copyN; i++) {
             result->Set(i, ta->Get((size_t)start + i));
         }
         return ts_value_make_object(result);

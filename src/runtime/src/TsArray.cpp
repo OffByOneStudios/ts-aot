@@ -2707,6 +2707,35 @@ extern "C" {
         return speciesVal;
     }
 
+    // Public helper: TypedArraySpeciesCreate(exemplar, length) per ECMA-262
+    // 22.2.4.7 — returns a TsTypedArray of the right kind (via the species
+    // constructor or default), or nullptr if a TypeError was thrown.
+    extern "C" void* ts_typed_array_species_alloc(void* receiver, int64_t length) {
+        TsTypedArray* ta = (TsTypedArray*)receiver;
+        if (!ta) return nullptr;
+        void* defaultCtor = default_ta_ctor_for(ta);
+        TsValue* ctorVal = species_constructor((void*)ta, defaultCtor);
+        if (!ctorVal) return nullptr;  // TypeError already thrown
+        if (ctorVal != (TsValue*)defaultCtor) {
+            // Custom species — `new ctor(length)`
+            TsValue* lenArg = ts_value_make_int(length);
+            TsValue* result = ts_new_from_constructor_1(ctorVal, lenArg);
+            if (result) {
+                void* resRaw = ts_value_get_object(result);
+                if (resRaw) {
+                    uint32_t m16 = *(uint32_t*)((char*)resRaw + 16);
+                    if (m16 == TsTypedArray::MAGIC) return resRaw;
+                }
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "TypedArraySpeciesCreate: result is not a TypedArray"));
+                return nullptr;
+            }
+        }
+        // Default path
+        return TsTypedArray::Create((size_t)length, ta->GetElementSize(),
+                                    ta->IsClamped(), ta->GetType());
+    }
+
     // Helper: given a TsArray result from map/filter on a TypedArray receiver,
     // allocate a TypedArray (via SpeciesConstructor) and copy the elements in.
     // Per ECMA-262 22.2.4.7 TypedArraySpeciesCreate.
