@@ -398,6 +398,15 @@ void* ts_get_global_Array() {
     // Promote to TsFunction so typeof Array === "function" and
     // isConstructor(Array) returns true.
     cached = wrapAsCallable(ctorMap, "Array", 1);
+
+    // proto.constructor = Array (per spec — Array.prototype.constructor === Array).
+    // Must be done after wrapAsCallable so we have the TsFunction reference.
+    TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
+    ctorKey.ptr_val = TsString::GetInterned("constructor");
+    TsValue ctorRefVal; ctorRefVal.type = ValueType::FUNCTION_PTR;
+    ctorRefVal.ptr_val = ts_value_get_object((TsValue*)cached);
+    proto->Set(ctorKey, ctorRefVal);
+
     return cached;
 }
 
