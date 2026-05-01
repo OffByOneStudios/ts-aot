@@ -4201,6 +4201,34 @@ void HIRToLLVM::lowerDeleteProp(HIRInstruction* inst) {
     llvm::Value* obj = getOperandValue(inst->operands[0]);
     llvm::Value* key = getOperandValue(inst->operands[1]);
 
+    // Box key to ptr if needed — `delete obj[N]` may use numeric/bool keys
+    // (e.g., `delete arr[0]`, `delete obj[true]`). Mirrors the pattern in
+    // lowerHasProp; without this, ts_object_delete_property's signature
+    // (ptr, ptr) is violated and LLVM verification fails.
+    if (key->getType()->isDoubleTy()) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getDoubleTy()}, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_double", ft);
+        key = builder_->CreateCall(ft, boxFn.getCallee(), {key});
+    } else if (key->getType()->isIntegerTy(64)) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt64Ty()}, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_int", ft);
+        key = builder_->CreateCall(ft, boxFn.getCallee(), {key});
+    } else if (key->getType()->isIntegerTy(1)) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+        key = builder_->CreateCall(ft, boxFn.getCallee(), {key});
+    }
+    // Box obj if needed (same pattern as lowerHasProp).
+    if (obj->getType()->isDoubleTy()) {
+        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getDoubleTy()}, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_double", ft);
+        obj = builder_->CreateCall(ft, boxFn.getCallee(), {obj});
+    } else if (obj->getType()->isIntegerTy(64)) {
+        obj = emitInlineBoxInt(obj);
+    } else if (obj->getType()->isIntegerTy(1)) {
+        obj = emitInlineBoxBool(obj);
+    }
+
     auto fn = getTsObjectDeleteProperty();
     llvm::Value* result = builder_->CreateCall(fn, {obj, key});
     result = builder_->CreateTrunc(result, builder_->getInt1Ty());
