@@ -53,35 +53,35 @@ public:
     }
 
     void visitExpressionStatement(ast::ExpressionStatement* node) override {
-        node->expression->accept(this);
+        if (node->expression) node->expression->accept(this);
     }
 
     void visitIfStatement(ast::IfStatement* node) override {
-        node->condition->accept(this);
-        node->thenStatement->accept(this);
+        if (node->condition) node->condition->accept(this);
+        if (node->thenStatement) node->thenStatement->accept(this);
         if (node->elseStatement) node->elseStatement->accept(this);
     }
 
     void visitWhileStatement(ast::WhileStatement* node) override {
-        node->condition->accept(this);
-        node->body->accept(this);
+        if (node->condition) node->condition->accept(this);
+        if (node->body) node->body->accept(this);
     }
 
     void visitForStatement(ast::ForStatement* node) override {
         if (node->initializer) node->initializer->accept(this);
         if (node->condition) node->condition->accept(this);
         if (node->incrementor) node->incrementor->accept(this);
-        node->body->accept(this);
+        if (node->body) node->body->accept(this);
     }
 
     void visitForOfStatement(ast::ForOfStatement* node) override {
-        node->expression->accept(this);
-        node->body->accept(this);
+        if (node->expression) node->expression->accept(this);
+        if (node->body) node->body->accept(this);
     }
 
     void visitForInStatement(ast::ForInStatement* node) override {
-        node->expression->accept(this);
-        node->body->accept(this);
+        if (node->expression) node->expression->accept(this);
+        if (node->body) node->body->accept(this);
     }
 
     void visitReturnStatement(ast::ReturnStatement* node) override {
