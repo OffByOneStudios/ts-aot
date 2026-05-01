@@ -153,7 +153,16 @@ bool Lexer::isHexDigit(char c) {
 }
 
 bool Lexer::isIdentStart(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$';
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$') {
+        return true;
+    }
+    // Accept any non-ASCII byte as part of an identifier. UTF-8 leading and
+    // continuation bytes both have the high bit set, so the lexer will eat
+    // a full multibyte sequence without decoding it. This is permissive
+    // (we don't actually validate the code point against Unicode ID_Start)
+    // but matches what real-world code and test262 expect, including
+    // identifiers like ℘ and ZW‌NJ.
+    return ((unsigned char)c) >= 0x80;
 }
 
 bool Lexer::isIdentPart(char c) {

@@ -1565,6 +1565,14 @@ extern "C" {
         return s->ToUpperCase();
     }
 
+    void* ts_string_toLocaleLowerCase(void* str) {
+        return ts_string_toLowerCase(str);
+    }
+
+    void* ts_string_toLocaleUpperCase(void* str) {
+        return ts_string_toUpperCase(str);
+    }
+
     void* ts_string_normalize(void* str, void* form) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return str;

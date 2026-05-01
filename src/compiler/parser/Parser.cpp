@@ -586,6 +586,16 @@ ast::NodePtr Parser::parseArrayBindingPattern() {
             if (match(TokenKind::DotDotDot)) {
                 elem->isSpread = true;
                 elem->name = parseBindingNameOrPattern();
+                pat->elements.push_back(std::move(elem));
+                // ECMA-262 ArrayBindingPattern: a BindingRestElement must
+                // be the last element. Anything other than `]` after the
+                // rest binding is a SyntaxError.
+                if (!check(TokenKind::CloseBracket)) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: Rest element must be the last element in array destructuring pattern",
+                        fileName_, current_.line));
+                }
+                break;
             } else {
                 elem->name = parseBindingNameOrPattern();
                 if (match(TokenKind::Equals)) {
