@@ -3043,12 +3043,21 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         // Store result in an alloca so we can access it in both cond and body blocks
         auto resultAlloca = builder_.createAlloca(HIRType::makeObject(), "forof.result");
 
+        // Store the iterator object in an alloca so it survives across yield
+        // resume points. In a generator/async function the cond block can be
+        // re-entered from a yield_resume path that doesn't dominate the SSA
+        // value produced by ts_iterator_get above. Allocas are hoisted to the
+        // function entry, so the stored value is visible from every block.
+        auto iterAlloca = builder_.createAlloca(HIRType::makeObject(), "forof.iter");
+        builder_.createStore(iterable, iterAlloca);
+
         builder_.createBranch(condBlock);
 
         // Condition: call gen.next(), check if result.done is true
         builder_.setInsertPoint(condBlock);
         currentBlock_ = condBlock;
-        auto nextResult = builder_.createCallMethod(iterable, "next", {}, HIRType::makeObject());
+        auto iterReload = builder_.createLoad(HIRType::makeObject(), iterAlloca);
+        auto nextResult = builder_.createCallMethod(iterReload, "next", {}, HIRType::makeObject());
         builder_.createStore(nextResult, resultAlloca);
         auto doneVal = builder_.createGetPropStatic(nextResult, "done", HIRType::makeAny());
         // condBranch handles boxed value -> bool conversion via ts_value_to_bool
