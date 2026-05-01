@@ -615,6 +615,10 @@ public:
         return createUnaryOp(HIROpcode::CastF64ToI64, val, HIRType::makeInt64());
     }
 
+    std::shared_ptr<HIRValue> createCastBoolToI64(std::shared_ptr<HIRValue> val) {
+        return createUnaryOp(HIROpcode::CastBoolToI64, val, HIRType::makeInt64());
+    }
+
     //==========================================================================
     // Boxing/Unboxing
     //==========================================================================

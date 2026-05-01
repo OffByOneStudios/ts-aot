@@ -1566,20 +1566,35 @@ void HIRToLLVM::lowerConstUndefined(HIRInstruction* inst) {
 // Integer Arithmetic
 //==============================================================================
 
+// Coerce a value to i64 for an i64 arithmetic op. Handles three off-type
+// inputs that the SpecializationPass can hand us: NaN-boxed pointers (unbox),
+// i1 bools (ZExt to i64; matches ToNumber semantics where false=0, true=1),
+// and doubles (FPToSI). Anything else passes through unchanged.
+static llvm::Value* coerceToI64Operand(
+    llvm::IRBuilder<>* builder,
+    llvm::Value* val,
+    llvm::FunctionCallee unboxFn,
+    const char* unboxName)
+{
+    auto* ty = val->getType();
+    if (ty->isPointerTy()) {
+        return builder->CreateCall(unboxFn, {val}, unboxName);
+    }
+    if (ty->isIntegerTy(1)) {
+        return builder->CreateZExt(val, builder->getInt64Ty(), "bool_to_i64");
+    }
+    if (ty->isDoubleTy()) {
+        return builder->CreateFPToSI(val, builder->getInt64Ty(), "f64_to_i64");
+    }
+    return val;
+}
+
 void HIRToLLVM::lowerAddI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (lhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
-    }
-    if (rhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
-    }
-
+    auto unboxFn = getTsValueGetInt();
+    lhs = coerceToI64Operand(builder_.get(), lhs, unboxFn, "unbox_lhs");
+    rhs = coerceToI64Operand(builder_.get(), rhs, unboxFn, "unbox_rhs");
     llvm::Value* result = builder_->CreateAdd(lhs, rhs, "add");
     setValue(inst->result, result);
 }
@@ -1587,17 +1602,9 @@ void HIRToLLVM::lowerAddI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerSubI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (lhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
-    }
-    if (rhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
-    }
-
+    auto unboxFn = getTsValueGetInt();
+    lhs = coerceToI64Operand(builder_.get(), lhs, unboxFn, "unbox_lhs");
+    rhs = coerceToI64Operand(builder_.get(), rhs, unboxFn, "unbox_rhs");
     llvm::Value* result = builder_->CreateSub(lhs, rhs, "sub");
     setValue(inst->result, result);
 }
@@ -1605,17 +1612,9 @@ void HIRToLLVM::lowerSubI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerMulI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (lhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
-    }
-    if (rhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
-    }
-
+    auto unboxFn = getTsValueGetInt();
+    lhs = coerceToI64Operand(builder_.get(), lhs, unboxFn, "unbox_lhs");
+    rhs = coerceToI64Operand(builder_.get(), rhs, unboxFn, "unbox_rhs");
     llvm::Value* result = builder_->CreateMul(lhs, rhs, "mul");
     setValue(inst->result, result);
 }
@@ -1623,17 +1622,9 @@ void HIRToLLVM::lowerMulI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerDivI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (lhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
-    }
-    if (rhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
-    }
-
+    auto unboxFn = getTsValueGetInt();
+    lhs = coerceToI64Operand(builder_.get(), lhs, unboxFn, "unbox_lhs");
+    rhs = coerceToI64Operand(builder_.get(), rhs, unboxFn, "unbox_rhs");
     llvm::Value* result = builder_->CreateSDiv(lhs, rhs, "div");
     setValue(inst->result, result);
 }
@@ -1641,17 +1632,9 @@ void HIRToLLVM::lowerDivI64(HIRInstruction* inst) {
 void HIRToLLVM::lowerModI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (lhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
-    }
-    if (rhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
-    }
-
+    auto unboxFn = getTsValueGetInt();
+    lhs = coerceToI64Operand(builder_.get(), lhs, unboxFn, "unbox_lhs");
+    rhs = coerceToI64Operand(builder_.get(), rhs, unboxFn, "unbox_rhs");
     llvm::Value* result = builder_->CreateSRem(lhs, rhs, "mod");
     setValue(inst->result, result);
 }

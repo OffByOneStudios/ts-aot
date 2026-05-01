@@ -4956,6 +4956,26 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     auto it = cls->staticMethods.find(propAccess->name);
                     if (it != cls->staticMethods.end()) {
                         HIRFunction* method = it->second;
+                        // Static getter: invoke the getter with the class as `this`,
+                        // then call the returned value with the user's args. Direct-
+                        // calling the getter with `args` produces an arity mismatch
+                        // and an LLVM verifier failure. Save/restore call-this to
+                        // avoid leaking the receiver into subsequent calls.
+                        if (method && method->name.find("___getter_") != std::string::npos) {
+                            auto classObj = lowerExpression(propAccess->expression.get());
+                            auto boxedClass = boxValueIfNeeded(classObj);
+                            auto savedThis = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+                            builder_.createCall("ts_set_call_this", {boxedClass}, HIRType::makeVoid());
+                            auto returnedFn = builder_.createCall(method->name, {},
+                                method->returnType ? method->returnType : HIRType::makeAny());
+                            builder_.createCall("ts_set_call_this", {savedThis}, HIRType::makeVoid());
+                            std::vector<std::shared_ptr<HIRValue>> callArgs;
+                            callArgs.push_back(boxValueIfNeeded(returnedFn));
+                            for (auto& a : args) callArgs.push_back(boxValueIfNeeded(a));
+                            std::string callFn = "ts_call_" + std::to_string(args.size());
+                            lastValue_ = builder_.createCall(callFn, callArgs, HIRType::makeAny());
+                            return;
+                        }
                         // Static methods don't need 'this' parameter
                         lastValue_ = builder_.createCall(method->name, args, method->returnType);
                         return;
@@ -8589,6 +8609,11 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             result = (op == "++") ? builder_.createAddF64(operand, one)
                                   : builder_.createSubF64(operand, one);
         } else {
+            // Coerce bool operand to i64 (ToNumber: false=0, true=1) so the
+            // i64 add/sub doesn't get a type-mismatched i1 LHS.
+            if (operand && operand->type && operand->type->kind == HIRTypeKind::Bool) {
+                operand = builder_.createCastBoolToI64(operand);
+            }
             auto one = builder_.createConstInt(1);
             result = (op == "++") ? builder_.createAddI64(operand, one)
                                   : builder_.createSubI64(operand, one);
@@ -8706,6 +8731,12 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
             result = (op == "++") ? builder_.createAddF64(operand, one)
                                   : builder_.createSubF64(operand, one);
         } else {
+            // Coerce bool operand to i64 (ToNumber: false=0, true=1) so the
+            // i64 add/sub doesn't get a type-mismatched i1 LHS.
+            if (operand && operand->type && operand->type->kind == HIRTypeKind::Bool) {
+                operand = builder_.createCastBoolToI64(operand);
+                oldValue = operand;
+            }
             auto one = builder_.createConstInt(1);
             result = (op == "++") ? builder_.createAddI64(operand, one)
                                   : builder_.createSubI64(operand, one);
