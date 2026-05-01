@@ -195,7 +195,30 @@ void Lexer::skipWhitespaceAndComments() {
         } else if (c == '\r') {
             hadNewline_ = true;
             advance();
-        } else if (c == '/' && peekAt(1) == '/') {
+        }
+        // Unicode line / paragraph separator (U+2028 = E2 80 A8, U+2029 =
+        // E2 80 A9). Per ES262 these are line terminators and must trigger
+        // ASI when between tokens. Without this branch the permissive
+        // isIdentStart in scanIdentifierOrKeyword would absorb the bytes
+        // into the preceding identifier and break ASI.
+        else if ((unsigned char)c == 0xE2 && (unsigned char)peekAt(1) == 0x80
+              && ((unsigned char)peekAt(2) == 0xA8 || (unsigned char)peekAt(2) == 0xA9)) {
+            hadNewline_ = true;
+            advance(); advance(); advance();
+        }
+        // Mongolian vowel separator U+180E (E1 A0 8E) — historically lexed
+        // as white space; modern ES262 reclassifies it but enough of the
+        // test262 suite still expects it to be skippable that we keep it.
+        else if ((unsigned char)c == 0xE1 && (unsigned char)peekAt(1) == 0xA0
+              && (unsigned char)peekAt(2) == 0x8E) {
+            advance(); advance(); advance();
+        }
+        // Byte-order mark U+FEFF (EF BB BF) — always lexed as whitespace.
+        else if ((unsigned char)c == 0xEF && (unsigned char)peekAt(1) == 0xBB
+              && (unsigned char)peekAt(2) == 0xBF) {
+            advance(); advance(); advance();
+        }
+        else if (c == '/' && peekAt(1) == '/') {
             // Single-line comment
             advance(); advance(); // skip //
             while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
@@ -283,8 +306,26 @@ Token Lexer::scanIdentifierOrKeyword() {
     tokenStartLine_ = line_;
     tokenStartColumn_ = column_;
 
+    // Helper: detect the multibyte UTF-8 sequences for code points that
+    // must NOT be absorbed into an identifier even though the leading byte
+    // has the high bit set: line/paragraph separators (U+2028 / U+2029),
+    // mongolian vowel separator (U+180E), BOM (U+FEFF). Returns the byte
+    // length of the matched sequence (3) or 0.
+    auto isNonIdentMultiByte = [&]() -> int {
+        unsigned char b0 = (unsigned char)peek();
+        unsigned char b1 = (unsigned char)peekAt(1);
+        unsigned char b2 = (unsigned char)peekAt(2);
+        if (b0 == 0xE2 && b1 == 0x80 && (b2 == 0xA8 || b2 == 0xA9)) return 3;
+        if (b0 == 0xE1 && b1 == 0xA0 && b2 == 0x8E) return 3;
+        if (b0 == 0xEF && b1 == 0xBB && b2 == 0xBF) return 3;
+        return 0;
+    };
+
     while (!isAtEnd()) {
         char c = peek();
+        if (((unsigned char)c) >= 0x80 && isNonIdentMultiByte()) {
+            break;
+        }
         if (isIdentPart(c)) {
             advance();
         } else if (c == '\\' && peekAt(1) == 'u') {
