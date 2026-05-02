@@ -1641,13 +1641,8 @@ void HIRToLLVM::lowerModI64(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerNegI64(HIRInstruction* inst) {
     llvm::Value* val = getOperandValue(inst->operands[0]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (val->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        val = builder_->CreateCall(unboxFn, {val}, "unbox_val");
-    }
-
+    auto unboxFn = getTsValueGetInt();
+    val = coerceToI64Operand(builder_.get(), val, unboxFn, "unbox_val");
     llvm::Value* result = builder_->CreateNeg(val, "neg");
     setValue(inst->result, result);
 }

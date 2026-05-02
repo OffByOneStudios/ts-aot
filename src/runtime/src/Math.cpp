@@ -47,10 +47,19 @@ double ts_math_PI() {
     return 3.14159265358979323846;
 }
 
+double ts_math_log(double a) { return std::log(a); }
 double ts_math_log10(double a) { return std::log10(a); }
 double ts_math_log2(double a) { return std::log2(a); }
 double ts_math_log1p(double a) { return std::log1p(a); }
+double ts_math_exp(double a) { return std::exp(a); }
 double ts_math_expm1(double a) { return std::expm1(a); }
+double ts_math_sin(double a) { return std::sin(a); }
+double ts_math_cos(double a) { return std::cos(a); }
+double ts_math_tan(double a) { return std::tan(a); }
+double ts_math_asin(double a) { return std::asin(a); }
+double ts_math_acos(double a) { return std::acos(a); }
+double ts_math_atan(double a) { return std::atan(a); }
+double ts_math_atan2(double a, double b) { return std::atan2(a, b); }
 double ts_math_cosh(double a) { return std::cosh(a); }
 double ts_math_sinh(double a) { return std::sinh(a); }
 double ts_math_tanh(double a) { return std::tanh(a); }
