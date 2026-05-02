@@ -245,7 +245,7 @@ int Lexer::isUnicodeWhitespaceAt(bool* isLineTerm) const {
         if (isLineTerm) *isLineTerm = true;
         return consumed;
     }
-    if (u_isUWhiteSpace(cp) || cp == 0xFEFF /* BOM */ || cp == 0x180E /* MVS */) {
+    if (u_isUWhiteSpace(cp) || cp == 0xFEFF /* BOM */) {
         if (isLineTerm) *isLineTerm = false;
         return consumed;
     }
