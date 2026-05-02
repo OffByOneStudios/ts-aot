@@ -3,6 +3,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(cxxopts CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(ICU COMPONENTS uc data REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -125,6 +126,8 @@ target_link_libraries(tscompiler_lib PUBLIC
     fmt::fmt
     cxxopts::cxxopts
     spdlog::spdlog
+    ICU::uc
+    ICU::data
 )
 
 target_compile_definitions(tscompiler_lib PUBLIC ${LLVM_DEFINITIONS})
@@ -164,7 +167,6 @@ endif()
 # Extract/copy ICU data file next to the compiler binary.
 # On Windows: parse COFF archive to extract from static lib.
 # On Linux: find the .dat file from vcpkg or system ICU.
-find_package(ICU COMPONENTS data REQUIRED)
 get_target_property(ICU_DATA_LIB ICU::data IMPORTED_LOCATION_RELEASE)
 if (NOT ICU_DATA_LIB)
     get_target_property(ICU_DATA_LIB ICU::data IMPORTED_LOCATION)

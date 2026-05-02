@@ -2,8 +2,46 @@
 #include <stdexcept>
 #include <cstring>
 #include <sstream>
+#include <unicode/uchar.h>
 
 namespace ts::parser {
+
+namespace {
+// Decode the UTF-8 sequence starting at p (must have at least len bytes
+// available). Returns the code point and writes the consumed byte count
+// to *consumed. On invalid input returns -1 and sets *consumed to 1.
+static int32_t decodeUtf8(const char* p, int len, int* consumed) {
+    if (len <= 0) { *consumed = 0; return -1; }
+    unsigned char b0 = (unsigned char)p[0];
+    if (b0 < 0x80) { *consumed = 1; return b0; }
+    auto follow = [&](int idx) -> int {
+        if (idx >= len) return -1;
+        unsigned char b = (unsigned char)p[idx];
+        if ((b & 0xC0) != 0x80) return -1;
+        return b & 0x3F;
+    };
+    if ((b0 & 0xE0) == 0xC0) {
+        int b1 = follow(1);
+        if (b1 < 0) { *consumed = 1; return -1; }
+        *consumed = 2;
+        return ((b0 & 0x1F) << 6) | b1;
+    }
+    if ((b0 & 0xF0) == 0xE0) {
+        int b1 = follow(1), b2 = follow(2);
+        if (b1 < 0 || b2 < 0) { *consumed = 1; return -1; }
+        *consumed = 3;
+        return ((b0 & 0x0F) << 12) | (b1 << 6) | b2;
+    }
+    if ((b0 & 0xF8) == 0xF0) {
+        int b1 = follow(1), b2 = follow(2), b3 = follow(3);
+        if (b1 < 0 || b2 < 0 || b3 < 0) { *consumed = 1; return -1; }
+        *consumed = 4;
+        return ((b0 & 0x07) << 18) | (b1 << 12) | (b2 << 6) | b3;
+    }
+    *consumed = 1;
+    return -1;
+}
+} // namespace
 
 const std::unordered_map<std::string_view, TokenKind> Lexer::keywords_ = {
     {"break", TokenKind::KW_break},
@@ -152,21 +190,66 @@ bool Lexer::isHexDigit(char c) {
     return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
+// ASCII fast path. For non-ASCII identifier chars the lexer must decode
+// the UTF-8 sequence at the cursor and consult ICU (u_isIDStart /
+// u_isIDPart) — see scanIdentifierOrKeyword and isUnicodeIdentStartAt.
 bool Lexer::isIdentStart(char c) {
-    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$') {
-        return true;
-    }
-    // Accept any non-ASCII byte as part of an identifier. UTF-8 leading and
-    // continuation bytes both have the high bit set, so the lexer will eat
-    // a full multibyte sequence without decoding it. This is permissive
-    // (we don't actually validate the code point against Unicode ID_Start)
-    // but matches what real-world code and test262 expect, including
-    // identifiers like ℘ and ZW‌NJ.
-    return ((unsigned char)c) >= 0x80;
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$';
 }
 
 bool Lexer::isIdentPart(char c) {
     return isIdentStart(c) || isDigit(c);
+}
+
+// Decode UTF-8 at the cursor and check Unicode ID_Start. Returns the
+// length in bytes of the matching sequence, or 0 if the cursor is not
+// at an ID_Start code point.
+int Lexer::isUnicodeIdentStartAt() const {
+    if (pos_ >= (int)source_.size()) return 0;
+    if (((unsigned char)source_[pos_]) < 0x80) return 0;
+    int consumed = 0;
+    int32_t cp = decodeUtf8(source_.data() + pos_,
+                            (int)source_.size() - pos_, &consumed);
+    if (cp < 0) return 0;
+    return u_isIDStart(cp) ? consumed : 0;
+}
+
+// As above, but for ID_Continue. ZWJ (U+200D) and ZWNJ (U+200C) are
+// allowed in IdentifierPart per ES262 in addition to whatever ICU
+// classifies as ID_Continue.
+int Lexer::isUnicodeIdentPartAt() const {
+    if (pos_ >= (int)source_.size()) return 0;
+    if (((unsigned char)source_[pos_]) < 0x80) return 0;
+    int consumed = 0;
+    int32_t cp = decodeUtf8(source_.data() + pos_,
+                            (int)source_.size() - pos_, &consumed);
+    if (cp < 0) return 0;
+    if (u_isIDPart(cp)) return consumed;
+    if (cp == 0x200C || cp == 0x200D) return consumed;
+    return 0;
+}
+
+// Returns the byte length of any non-ASCII whitespace or line terminator
+// at the cursor and writes whether it counts as a line terminator
+// (sets *isLineTerm). U+2028 / U+2029 are line terminators per ES262.
+// Non-line whitespace covers everything ICU's u_isUWhiteSpace recognises
+// (NBSP, NEL, OGHAM-SPACE, MVS, EM-SPACE, BOM, etc.).
+int Lexer::isUnicodeWhitespaceAt(bool* isLineTerm) const {
+    if (pos_ >= (int)source_.size()) return 0;
+    if (((unsigned char)source_[pos_]) < 0x80) return 0;
+    int consumed = 0;
+    int32_t cp = decodeUtf8(source_.data() + pos_,
+                            (int)source_.size() - pos_, &consumed);
+    if (cp < 0) return 0;
+    if (cp == 0x2028 || cp == 0x2029) {
+        if (isLineTerm) *isLineTerm = true;
+        return consumed;
+    }
+    if (u_isUWhiteSpace(cp) || cp == 0xFEFF /* BOM */ || cp == 0x180E /* MVS */) {
+        if (isLineTerm) *isLineTerm = false;
+        return consumed;
+    }
+    return 0;
 }
 
 Token Lexer::makeToken(TokenKind kind, int start, int length) {
@@ -196,27 +279,19 @@ void Lexer::skipWhitespaceAndComments() {
             hadNewline_ = true;
             advance();
         }
-        // Unicode line / paragraph separator (U+2028 = E2 80 A8, U+2029 =
-        // E2 80 A9). Per ES262 these are line terminators and must trigger
-        // ASI when between tokens. Without this branch the permissive
-        // isIdentStart in scanIdentifierOrKeyword would absorb the bytes
-        // into the preceding identifier and break ASI.
-        else if ((unsigned char)c == 0xE2 && (unsigned char)peekAt(1) == 0x80
-              && ((unsigned char)peekAt(2) == 0xA8 || (unsigned char)peekAt(2) == 0xA9)) {
-            hadNewline_ = true;
-            advance(); advance(); advance();
-        }
-        // Mongolian vowel separator U+180E (E1 A0 8E) — historically lexed
-        // as white space; modern ES262 reclassifies it but enough of the
-        // test262 suite still expects it to be skippable that we keep it.
-        else if ((unsigned char)c == 0xE1 && (unsigned char)peekAt(1) == 0xA0
-              && (unsigned char)peekAt(2) == 0x8E) {
-            advance(); advance(); advance();
-        }
-        // Byte-order mark U+FEFF (EF BB BF) — always lexed as whitespace.
-        else if ((unsigned char)c == 0xEF && (unsigned char)peekAt(1) == 0xBB
-              && (unsigned char)peekAt(2) == 0xBF) {
-            advance(); advance(); advance();
+        // Non-ASCII whitespace / line terminator. ICU recognises the full
+        // Unicode White_Space set (NBSP, NEL, OGHAM-SPACE, EM-SPACE, etc.)
+        // and we add U+2028/U+2029 (line terminators), U+FEFF (BOM) and
+        // U+180E (MVS, kept for back-compat).
+        else if (((unsigned char)c) >= 0x80) {
+            bool isLineTerm = false;
+            int n = isUnicodeWhitespaceAt(&isLineTerm);
+            if (n == 0) {
+                break;  // Non-ASCII byte that isn't whitespace — leave it for the
+                        // identifier scanner / dispatcher.
+            }
+            if (isLineTerm) hadNewline_ = true;
+            for (int i = 0; i < n; i++) advance();
         }
         else if (c == '/' && peekAt(1) == '/') {
             // Single-line comment
@@ -271,7 +346,9 @@ Token Lexer::nextToken() {
 
     // Identifiers and keywords
     // Also allow \uXXXX Unicode escape at identifier start (ES §12.6)
-    if (isIdentStart(c) || (c == '\\' && peekAt(1) == 'u')) {
+    // and any non-ASCII code point with Unicode ID_Start.
+    if (isIdentStart(c) || (c == '\\' && peekAt(1) == 'u')
+        || (((unsigned char)c) >= 0x80 && isUnicodeIdentStartAt() > 0)) {
         return scanIdentifierOrKeyword();
     }
 
@@ -306,25 +383,15 @@ Token Lexer::scanIdentifierOrKeyword() {
     tokenStartLine_ = line_;
     tokenStartColumn_ = column_;
 
-    // Helper: detect the multibyte UTF-8 sequences for code points that
-    // must NOT be absorbed into an identifier even though the leading byte
-    // has the high bit set: line/paragraph separators (U+2028 / U+2029),
-    // mongolian vowel separator (U+180E), BOM (U+FEFF). Returns the byte
-    // length of the matched sequence (3) or 0.
-    auto isNonIdentMultiByte = [&]() -> int {
-        unsigned char b0 = (unsigned char)peek();
-        unsigned char b1 = (unsigned char)peekAt(1);
-        unsigned char b2 = (unsigned char)peekAt(2);
-        if (b0 == 0xE2 && b1 == 0x80 && (b2 == 0xA8 || b2 == 0xA9)) return 3;
-        if (b0 == 0xE1 && b1 == 0xA0 && b2 == 0x8E) return 3;
-        if (b0 == 0xEF && b1 == 0xBB && b2 == 0xBF) return 3;
-        return 0;
-    };
-
     while (!isAtEnd()) {
         char c = peek();
-        if (((unsigned char)c) >= 0x80 && isNonIdentMultiByte()) {
-            break;
+        if (((unsigned char)c) >= 0x80) {
+            // Decode the multibyte sequence and check Unicode ID_Continue.
+            // ZWJ / ZWNJ are explicitly allowed by isUnicodeIdentPartAt.
+            int n = isUnicodeIdentPartAt();
+            if (n == 0) break;  // not an identifier code point — stop here
+            for (int i = 0; i < n; i++) advance();
+            continue;
         }
         if (isIdentPart(c)) {
             advance();

@@ -222,6 +222,12 @@ private:
     static bool isIdentStart(char c);
     static bool isIdentPart(char c);
 
+    // ICU-backed multibyte helpers — decode UTF-8 at the cursor and
+    // consult Unicode properties. Return matched byte length or 0.
+    int isUnicodeIdentStartAt() const;
+    int isUnicodeIdentPartAt() const;
+    int isUnicodeWhitespaceAt(bool* isLineTerm) const;
+
     const std::string& source_;
     std::string fileName_;
     int pos_ = 0;
