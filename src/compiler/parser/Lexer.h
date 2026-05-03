@@ -237,6 +237,7 @@ private:
     int tokenStartColumn_ = 1;
     bool regexAllowed_ = true;  // At start of file, regex is allowed
     bool hadNewline_ = false;   // Track newlines between tokens for ASI
+    bool hasEmittedToken_ = false;  // True after first non-trivial token; used by HTMLCloseComment guard
 
 public:
     // Lexer error tracking (SyntaxError at lex/parse time)

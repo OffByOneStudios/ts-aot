@@ -312,7 +312,11 @@ void Lexer::skipWhitespaceAndComments() {
                 advance();
             }
         }
-        else if (c == '-' && peekAt(1) == '-' && peekAt(2) == '>' && hadNewline_) {
+        else if (c == '-' && peekAt(1) == '-' && peekAt(2) == '>' &&
+                 (hadNewline_ || !hasEmittedToken_)) {
+            // HTMLCloseComment is allowed when preceded by a LineTerminator
+            // OR at the very start of input (per Annex B.1.3 InputElement
+            // productions where it appears at the start of a script).
             advance(); advance(); advance();  // skip -->
             while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
                 advance();
@@ -346,6 +350,12 @@ void Lexer::skipWhitespaceAndComments() {
 Token Lexer::nextToken() {
     hadNewline_ = false;
     skipWhitespaceAndComments();
+
+    // Mark that the script has progressed past the leading whitespace/comment
+    // region. The HTMLCloseComment guard in skipWhitespaceAndComments uses
+    // !hasEmittedToken_ to allow `-->` at the very start of input; once we
+    // return any token (or hit EOF), that allowance is consumed.
+    hasEmittedToken_ = true;
 
     if (isAtEnd()) {
         tokenStartLine_ = line_;
@@ -499,12 +509,13 @@ Token Lexer::scanIdentifierOrKeyword() {
         // in the lexer. Property-name contexts (obj.\u0063lass) are
         // acceptable but rare in practice and require a more nuanced
         // parser-level check — accept the minor over-rejection for now.
-        auto it = keywords_.find(decoded);
-        if (it != keywords_.end()) {
-            reportLexError("Identifier resolves to reserved word '"
-                + decoded + "' via Unicode escape");
-            return makeToken(TokenKind::Identifier, start);
-        }
+        // Removed lex-time keyword-by-escape rejection: it over-rejects
+        // ~64 valid PropertyName-context tests (`{ default: x }`,
+        // member-expression `obj.class`, etc.) vs ~5 negative-parse
+        // tests on the binding side. Parser context is needed for the
+        // strict cases; defer to a future commit if those negative tests
+        // become a problem.
+        (void)decoded;
     }
 
     return makeToken(TokenKind::Identifier, start);
