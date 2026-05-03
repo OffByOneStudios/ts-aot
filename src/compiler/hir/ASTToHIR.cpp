@@ -5656,6 +5656,11 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 ident->name == "hasProp" ||
                 ident->name == "disassemble" ||
                 ident->name == "returns" ||
+                ident->name == "assertThrowsInstanceOfWithMessage" ||
+                ident->name == "assertThrowsInstanceOfWithMessageContains" ||
+                ident->name == "completesNormally" ||
+                ident->name == "Permutations" ||
+                ident->name == "makeIterator" ||
                 ident->name == "fetch" ||
                 ident->name == "require") {
                 callName = ident->name;  // Keep original name for runtime functions
@@ -6190,9 +6195,9 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         // ts_new_from_constructor_N performs the [[Construct]] dispatch and
         // throws TypeError if the target's is_constructor flag is false.
         if (ident) {
-            SPDLOG_WARN("visitNewExpression: receiver '{}' has no registered HIRClass — "
-                        "lowering to ts_new_from_constructor_N.",
-                        ident->name);
+            SPDLOG_DEBUG("visitNewExpression: receiver '{}' has no registered HIRClass — "
+                         "lowering to ts_new_from_constructor_N.",
+                         ident->name);
         }
         auto constructorVal = lowerExpression(node->expression.get());
         if (constructorVal) {

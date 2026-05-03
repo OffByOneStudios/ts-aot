@@ -4529,7 +4529,7 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     std::string funcName = getOperandString(inst->operands[0]);
 
     if (funcName.find("_constructor") != std::string::npos) {
-        SPDLOG_WARN("lowerCall: constructor call '{}' in func '{}'",
+        SPDLOG_DEBUG("lowerCall: constructor call '{}' in func '{}'",
             funcName, currentFunction_ ? currentFunction_->getName().str() : "null");
     }
 
