@@ -5661,6 +5661,9 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 ident->name == "completesNormally" ||
                 ident->name == "Permutations" ||
                 ident->name == "makeIterator" ||
+                ident->name == "setTimeZone" ||
+                ident->name == "parseRaisesException" ||
+                ident->name == "parsesSuccessfully" ||
                 ident->name == "fetch" ||
                 ident->name == "require") {
                 callName = ident->name;  // Keep original name for runtime functions

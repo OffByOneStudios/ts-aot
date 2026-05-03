@@ -1614,6 +1614,14 @@ extern "C" {
         return s->Search(unboxRegExp(regexp));
     }
 
+    // Untyped String.prototype.search dispatch — receiver is raw, the
+    // arg may be a regex or a string (which the spec coerces to a regex).
+    // Mirrors ts_string_match's untyped wrapper.
+    void* ts_string_search(void* str, void* arg) {
+        int64_t idx = ts_string_search_regexp(str, arg);
+        return ts_value_make_int(idx);
+    }
+
     // Callback-based regex replacement: call function for each match
     static void* ts_string_replace_callback_regex(TsString* str, TsRegExp* regexp, TsValue* callback) {
         icu::RegexMatcher* matcher = (icu::RegexMatcher*)regexp->GetMatcher();
