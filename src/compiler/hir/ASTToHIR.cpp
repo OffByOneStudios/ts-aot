@@ -5549,6 +5549,30 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     }
                 }
             }
+            // Counter-form fallback: visitFunctionDeclaration (line ~2044)
+            // appends `_<counter>` to nested function declarations, producing
+            // names like `verifyProperty_3`. The call site computed the
+            // type-mangled name (`verifyProperty_any_any_any`) which doesn't
+            // match. If neither lookup found a target, scan for an exact
+            // base-name match against names of the form `<name>_<digits>$`
+            // and use that.
+            if (!targetFunc) {
+                for (auto& f : module_->functions) {
+                    const std::string& fn = f->name;
+                    if (fn.size() <= ident->name.size() + 1) continue;
+                    if (fn.compare(0, ident->name.size(), ident->name) != 0) continue;
+                    if (fn[ident->name.size()] != '_') continue;
+                    bool allDigits = true;
+                    for (size_t i = ident->name.size() + 1; i < fn.size(); ++i) {
+                        if (fn[i] < '0' || fn[i] > '9') { allDigits = false; break; }
+                    }
+                    if (allDigits) {
+                        targetFunc = f.get();
+                        callName = fn;
+                        break;
+                    }
+                }
+            }
         }
         // If still not found, determine if this is a runtime function or user function
         if (!targetFunc) {
