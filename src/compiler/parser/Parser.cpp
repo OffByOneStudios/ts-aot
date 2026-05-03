@@ -1007,10 +1007,25 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
             }
         }
         if (!simple) {
-            // Complex LHS — parse a full call expression. Best-effort
-            // baseClass: leave empty so analyzer treats this as no
-            // user-defined base; downstream can still register the class.
-            (void)parseCallExpression();
+            // Complex LHS path. Per ECMA-262 ClassHeritage : extends
+            // LeftHandSideExpression — only valid LHS starts are Identifier,
+            // `new`, `super`, `this`. Anything else (paren expression,
+            // arrow function, array/object/function/class expression
+            // literal) is NOT a valid heritage and we fall through so the
+            // OpenBrace expect below raises a parse error. This keeps the
+            // negative-parse tests (`class C extends () => {}`,
+            // `class C extends [] {}`, `class C extends function(){} {}`)
+            // correctly rejected.
+            bool lhsStart = current_.kind == TokenKind::Identifier ||
+                            check(TokenKind::KW_new) ||
+                            check(TokenKind::KW_super) ||
+                            check(TokenKind::KW_this);
+            if (lhsStart) {
+                // Best-effort baseClass: leave empty so analyzer treats
+                // this as no user-defined base; downstream still registers
+                // the class. Parse the full LHS expression to consume tokens.
+                (void)parseCallExpression();
+            }
         }
     }
 
