@@ -461,4 +461,16 @@ extern "C" {
     int32_t RegExp_get_hasIndices(void* re) {
         return ((TsRegExp*)re)->HasIndices() ? 1 : 0;
     }
+
+    // Mangled-name aliases for `RegExp(pattern)` and `RegExp(pattern, flags)`
+    // call expressions in untyped JS. The analyzer mangles to
+    // `RegExp_any` / `RegExp_any_any`. Forward to ts_regexp_create which
+    // accepts NaN-boxed pattern/flags args. Per ECMA-262 §22.2.3.1,
+    // RegExp(pat) is equivalent to new RegExp(pat).
+    void* RegExp_any(void* pattern) {
+        return ts_value_make_object(ts_regexp_create(pattern, nullptr));
+    }
+    void* RegExp_any_any(void* pattern, void* flags) {
+        return ts_value_make_object(ts_regexp_create(pattern, flags));
+    }
 }

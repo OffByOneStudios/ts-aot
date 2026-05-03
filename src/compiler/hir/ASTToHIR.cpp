@@ -5649,9 +5649,13 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 ident->name == "raisesException" ||
                 ident->name == "assertDeepEq" ||
                 ident->name == "serialize" ||
+                ident->name == "deserialize" ||
                 ident->name == "testLenientAndStrict" ||
                 ident->name == "createNewGlobal" ||
                 ident->name == "getTimeZone" ||
+                ident->name == "hasProp" ||
+                ident->name == "disassemble" ||
+                ident->name == "returns" ||
                 ident->name == "fetch" ||
                 ident->name == "require") {
                 callName = ident->name;  // Keep original name for runtime functions
