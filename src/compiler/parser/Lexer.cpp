@@ -299,7 +299,26 @@ void Lexer::skipWhitespaceAndComments() {
             while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
                 advance();
             }
-        } else if (c == '/' && peekAt(1) == '*') {
+        }
+        // ECMA-262 Annex B.1.3: HTML-like comments. Web reality.
+        // `<!--` starts a SingleLineHTMLOpenComment anywhere — treat as `//`.
+        // `-->` starts a SingleLineHTMLCloseComment, but ONLY when preceded by a
+        // LineTerminator (directly, or with intervening whitespace / multi-line
+        // comments since the last regular token). hadNewline_ tracks exactly
+        // that condition within this skipWhitespaceAndComments call.
+        else if (c == '<' && peekAt(1) == '!' && peekAt(2) == '-' && peekAt(3) == '-') {
+            advance(); advance(); advance(); advance();  // skip <!--
+            while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
+                advance();
+            }
+        }
+        else if (c == '-' && peekAt(1) == '-' && peekAt(2) == '>' && hadNewline_) {
+            advance(); advance(); advance();  // skip -->
+            while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
+                advance();
+            }
+        }
+        else if (c == '/' && peekAt(1) == '*') {
             // Multi-line comment
             advance(); advance(); // skip /*
             while (!isAtEnd()) {
