@@ -2329,11 +2329,32 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         builder_.createReturnVoid();
     }
 
-    // Copy pending captures to the function's captures list
-    for (const auto& cap : pendingCaptures_) {
-        func->captures.push_back({cap.name, cap.type});
+    // Copy pending captures to the function's captures list. Skip captures
+    // that resolve to MODULE-INIT scope variables — those are accessed via
+    // __modvar_ globals at runtime, not via the closure mechanism. Functions
+    // like sta.js's verifyProperty (defined at module top-level alongside
+    // helpers like __hasOwnProperty) would otherwise be compiled in closure
+    // form (with __closure as first arg) and break call-site signature
+    // compatibility. Vars defined inside regular user functions (including
+    // `user_main`) are real local captures and stay.
+    {
+        auto isModuleInitScopeVar = [&](const std::string& name) -> bool {
+            for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                if (it->variables.count(name)) {
+                    if (!it->owningFunction) return true;
+                    const std::string& owner = it->owningFunction->name;
+                    return owner.find("__module_init_") == 0 ||
+                           owner == "__synthetic_user_main";
+                }
+            }
+            return false;
+        };
+        for (const auto& cap : pendingCaptures_) {
+            if (isModuleInitScopeVar(cap.name)) continue;
+            func->captures.push_back({cap.name, cap.type});
+        }
     }
-    bool hasClosure = !pendingCaptures_.empty();
+    bool hasClosure = !func->captures.empty();
 
     // Save the captures list for later use (after we restore context)
     std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> innerCaptures = func->captures;
@@ -7754,11 +7775,32 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         builder_.createReturnVoid();
     }
 
-    // Copy pending captures to the function's captures list
-    for (const auto& cap : pendingCaptures_) {
-        func->captures.push_back({cap.name, cap.type});
+    // Copy pending captures to the function's captures list. Skip captures
+    // that resolve to MODULE-INIT scope variables — those are accessed via
+    // __modvar_ globals at runtime, not via the closure mechanism. Functions
+    // like sta.js's verifyProperty (defined at module top-level alongside
+    // helpers like __hasOwnProperty) would otherwise be compiled in closure
+    // form (with __closure as first arg) and break call-site signature
+    // compatibility. Vars defined inside regular user functions (including
+    // `user_main`) are real local captures and stay.
+    {
+        auto isModuleInitScopeVar = [&](const std::string& name) -> bool {
+            for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                if (it->variables.count(name)) {
+                    if (!it->owningFunction) return true;
+                    const std::string& owner = it->owningFunction->name;
+                    return owner.find("__module_init_") == 0 ||
+                           owner == "__synthetic_user_main";
+                }
+            }
+            return false;
+        };
+        for (const auto& cap : pendingCaptures_) {
+            if (isModuleInitScopeVar(cap.name)) continue;
+            func->captures.push_back({cap.name, cap.type});
+        }
     }
-    bool hasClosure = !pendingCaptures_.empty();
+    bool hasClosure = !func->captures.empty();
 
     // Save the captures list for later use (after we restore context)
     std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> innerCaptures = func->captures;
@@ -8144,11 +8186,32 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         builder_.createReturnVoid();
     }
 
-    // Copy pending captures to the function's captures list
-    for (const auto& cap : pendingCaptures_) {
-        func->captures.push_back({cap.name, cap.type});
+    // Copy pending captures to the function's captures list. Skip captures
+    // that resolve to MODULE-INIT scope variables — those are accessed via
+    // __modvar_ globals at runtime, not via the closure mechanism. Functions
+    // like sta.js's verifyProperty (defined at module top-level alongside
+    // helpers like __hasOwnProperty) would otherwise be compiled in closure
+    // form (with __closure as first arg) and break call-site signature
+    // compatibility. Vars defined inside regular user functions (including
+    // `user_main`) are real local captures and stay.
+    {
+        auto isModuleInitScopeVar = [&](const std::string& name) -> bool {
+            for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                if (it->variables.count(name)) {
+                    if (!it->owningFunction) return true;
+                    const std::string& owner = it->owningFunction->name;
+                    return owner.find("__module_init_") == 0 ||
+                           owner == "__synthetic_user_main";
+                }
+            }
+            return false;
+        };
+        for (const auto& cap : pendingCaptures_) {
+            if (isModuleInitScopeVar(cap.name)) continue;
+            func->captures.push_back({cap.name, cap.type});
+        }
     }
-    bool hasClosure = !pendingCaptures_.empty();
+    bool hasClosure = !func->captures.empty();
 
     // Save the captures list for later use (after we restore context)
     std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> innerCaptures = func->captures;
@@ -8351,11 +8414,32 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         builder_.createReturnVoid();
     }
 
-    // Copy pending captures to the function's captures list
-    for (const auto& cap : pendingCaptures_) {
-        func->captures.push_back({cap.name, cap.type});
+    // Copy pending captures to the function's captures list. Skip captures
+    // that resolve to MODULE-INIT scope variables — those are accessed via
+    // __modvar_ globals at runtime, not via the closure mechanism. Functions
+    // like sta.js's verifyProperty (defined at module top-level alongside
+    // helpers like __hasOwnProperty) would otherwise be compiled in closure
+    // form (with __closure as first arg) and break call-site signature
+    // compatibility. Vars defined inside regular user functions (including
+    // `user_main`) are real local captures and stay.
+    {
+        auto isModuleInitScopeVar = [&](const std::string& name) -> bool {
+            for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+                if (it->variables.count(name)) {
+                    if (!it->owningFunction) return true;
+                    const std::string& owner = it->owningFunction->name;
+                    return owner.find("__module_init_") == 0 ||
+                           owner == "__synthetic_user_main";
+                }
+            }
+            return false;
+        };
+        for (const auto& cap : pendingCaptures_) {
+            if (isModuleInitScopeVar(cap.name)) continue;
+            func->captures.push_back({cap.name, cap.type});
+        }
     }
-    bool hasClosure = !pendingCaptures_.empty();
+    bool hasClosure = !func->captures.empty();
 
     // Save the captures list for later use
     std::vector<std::pair<std::string, std::shared_ptr<HIRType>>> innerCaptures = func->captures;
