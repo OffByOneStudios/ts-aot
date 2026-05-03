@@ -1922,6 +1922,23 @@ extern "C" {
         }
 
         TsArray* array = (TsArray*)arr;
+
+        // ECMA-262 array-index range guard. Indices outside [0, 2^32-2]
+        // (including negative values, NaN/Infinity lowered to poison i64,
+        // and out-of-range numeric literals) must be installed as
+        // string-keyed properties — not as array elements — to avoid
+        // unbounded growth and OOM crashes. We pass the index as a STRING
+        // key so ts_object_set_prop_v doesn't take its numeric-key
+        // fast-path back into us (would recurse → stack overflow).
+        constexpr int64_t kMaxArrayIndex = 0xFFFFFFFELL;
+        if (index < 0 || index > kMaxArrayIndex) {
+            void* keyStr = ts_int_to_string(index, 10);
+            TsValue* keyBoxed = ts_value_make_string(keyStr);
+            TsValue* valBoxed = nanbox_from_tagged(value);
+            ts_object_set_property(arr, keyBoxed, valBoxed);
+            return;
+        }
+
         ElementKind kind = array->GetElementKind();
 
         // ==== V8-style element kind fast paths ====
@@ -2071,6 +2088,22 @@ extern "C" {
 
         TsArray* array = (TsArray*)raw;
         if (index < 0) return;
+
+        // ECMA-262: A property name P is an array index iff
+        // ToString(ToUint32(P)) === P AND ToUint32(P) !== 2^32-1.
+        // Anything outside [0, 2^32-2] must be installed as a string-keyed
+        // property, not as an array element. Without this guard, indices
+        // like NaN/Infinity (lowered to poison i64 by FPToSI) or huge
+        // numeric literals trigger a runaway growth loop that OOMs.
+        // String key avoids recursion through ts_object_set_prop_v's
+        // numeric-key fast-path back into ts_array_set_v.
+        constexpr int64_t kMaxArrayIndex = 0xFFFFFFFELL;  // 2^32 - 2
+        if (index > kMaxArrayIndex) {
+            void* keyStr = ts_int_to_string(index, 10);
+            TsValue* keyBoxed = ts_value_make_string(keyStr);
+            ts_object_set_property(raw, keyBoxed, value);
+            return;
+        }
 
         size_t idx = (size_t)index;
         size_t len = (size_t)array->Length();
