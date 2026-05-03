@@ -284,3 +284,52 @@ extern "C" TsValue* ts_reflect_ownKeys(void* targetArg) {
     // Use ts_object_keys which returns an array
     return ts_object_keys(ts_value_box_any(target));
 }
+
+// ============================================================================
+// Mangled-name aliases for `Reflect.X(...)` call expressions in untyped JS.
+// The analyzer mangles `Reflect.construct(target, args)` to the symbol
+// `Reflect_construct_any_any`. Rather than teaching the analyzer to route
+// these to ts_reflect_X, we expose the exact mangled symbols that forward
+// to the underlying helpers. Each variant matches one or more arg-count
+// shapes (e.g., construct/3 supports the optional newTarget parameter).
+// ============================================================================
+
+extern "C" TsValue* Reflect_construct_any_any(void* target, void* args) {
+    return ts_reflect_construct(target, args, /*newTarget=*/target);
+}
+
+extern "C" TsValue* Reflect_construct_any_any_any(void* target, void* args, void* newTarget) {
+    return ts_reflect_construct(target, args, newTarget);
+}
+
+extern "C" TsValue* Reflect_apply_any_any_any(void* target, void* thisArg, void* args) {
+    return ts_reflect_apply(target, thisArg, args);
+}
+
+extern "C" TsValue* Reflect_get_any_any(void* target, void* prop) {
+    return ts_reflect_get(target, prop, /*receiver=*/target);
+}
+
+extern "C" TsValue* Reflect_get_any_any_any(void* target, void* prop, void* receiver) {
+    return ts_reflect_get(target, prop, receiver);
+}
+
+extern "C" TsValue* Reflect_has_any_any(void* target, void* prop) {
+    return ts_value_make_bool(ts_reflect_has(target, prop) != 0);
+}
+
+extern "C" TsValue* Reflect_ownKeys_any(void* target) {
+    return ts_reflect_ownKeys(target);
+}
+
+extern "C" TsValue* Reflect_getPrototypeOf_any(void* target) {
+    return ts_reflect_getPrototypeOf(target);
+}
+
+extern "C" TsValue* Reflect_isExtensible_any(void* target) {
+    return ts_value_make_bool(ts_reflect_isExtensible(target) != 0);
+}
+
+extern "C" TsValue* Reflect_preventExtensions_any(void* target) {
+    return ts_value_make_bool(ts_reflect_preventExtensions(target) != 0);
+}
