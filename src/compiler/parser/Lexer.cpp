@@ -602,8 +602,14 @@ Token Lexer::scanNumericLiteral() {
     bool hasExponent = false;
     consumeDigitsWithSeparators([](char ch) { return isDigit(ch); }, "decimal literal");
 
-    // Decimal point
-    if (!isAtEnd() && peek() == '.' && isDigit(peekAt(1))) {
+    // Decimal point. Per ES262 DecimalLiteral grammar, the fractional part
+    // is optional after the dot — so `0.`, `1.`, `2.` are all valid number
+    // literals on their own (and idiomatically used like `0..toString(2)`
+    // for property access on an integer). Consume the dot whenever the
+    // preceding chars formed an integer; if no fractional digit follows
+    // the literal is just the integer with a trailing dot.
+    if (!isAtEnd() && peek() == '.' &&
+        (isDigit(peekAt(1)) || peekAt(1) == '.' || !isIdentStart(peekAt(1)))) {
         advance(); // .
         hasDecimalPoint = true;
         consumeDigitsWithSeparators([](char ch) { return isDigit(ch); }, "decimal fraction");
