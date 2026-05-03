@@ -8435,6 +8435,17 @@ TsValue* ts_value_make_int(int64_t i) {
         return 0;
     }
 
+    // SpiderMonkey's `isProxy(value)` shell function — non-standard but
+    // used by many test262 staging/sm tests. Returns true if the value
+    // is a Proxy instance.
+    extern "C" TsValue* isProxy(TsValue* arg) {
+        if (!arg) return ts_value_make_bool(false);
+        uint64_t nb = nanbox_from_tsvalue_ptr(arg);
+        // Only object/heap pointers can be a Proxy; primitives never are.
+        if (!nanbox_is_ptr(nb)) return ts_value_make_bool(false);
+        return ts_value_make_bool(ts_is_proxy((void*)arg) != 0);
+    }
+
     // Direct eval is not supported in AOT — there is no JS source-level
     // interpreter to invoke at runtime. Per ECMA-262 §19.2.1, indirect
     // eval of a non-string returns its argument unchanged; for any other

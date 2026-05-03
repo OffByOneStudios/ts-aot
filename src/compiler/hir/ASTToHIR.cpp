@@ -5619,6 +5619,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 ident->name == "isNaN" ||
                 ident->name == "isFinite" ||
                 ident->name == "eval" ||
+                ident->name == "isProxy" ||
                 ident->name == "fetch" ||
                 ident->name == "require") {
                 callName = ident->name;  // Keep original name for runtime functions
