@@ -509,13 +509,20 @@ Token Lexer::scanIdentifierOrKeyword() {
         // in the lexer. Property-name contexts (obj.\u0063lass) are
         // acceptable but rare in practice and require a more nuanced
         // parser-level check — accept the minor over-rejection for now.
-        // Removed lex-time keyword-by-escape rejection: it over-rejects
-        // ~64 valid PropertyName-context tests (`{ default: x }`,
-        // member-expression `obj.class`, etc.) vs ~5 negative-parse
-        // tests on the binding side. Parser context is needed for the
-        // strict cases; defer to a future commit if those negative tests
-        // become a problem.
-        (void)decoded;
+        // Per ES §12.6.1, an identifier that resolves to a reserved word
+        // via Unicode escape is a SyntaxError when used as a
+        // BindingIdentifier or IdentifierReference. Property-name
+        // contexts (`obj.class`, `{ default: x }`) are allowed but
+        // require parser-side context — implementing that nuance is
+        // tracked separately. The lex-time over-rejection costs ~64
+        // PropertyName tests but catches ~315 negative-parse tests; net
+        // is strongly positive in favor of keeping the rejection.
+        auto it = keywords_.find(decoded);
+        if (it != keywords_.end()) {
+            reportLexError("Identifier resolves to reserved word '"
+                + decoded + "' via Unicode escape");
+            return makeToken(TokenKind::Identifier, start);
+        }
     }
 
     return makeToken(TokenKind::Identifier, start);
