@@ -8435,6 +8435,28 @@ TsValue* ts_value_make_int(int64_t i) {
         return 0;
     }
 
+    // Direct eval is not supported in AOT — there is no JS source-level
+    // interpreter to invoke at runtime. Per ECMA-262 §19.2.1, indirect
+    // eval of a non-string returns its argument unchanged; for any other
+    // input we throw a TypeError so callers get a clean exception instead
+    // of an "undefined symbol: eval_any" linker error.
+    extern "C" TsValue* eval(TsValue* arg) {
+        if (arg) {
+            uint64_t nb = nanbox_from_tsvalue_ptr(arg);
+            // Non-string primitives: return arg unchanged (indirect eval
+            // semantics). Strings and objects fall through to the throw.
+            if (nanbox_is_int32(nb) || nanbox_is_double(nb) ||
+                nanbox_is_bool(nb) || nanbox_is_null(nb) ||
+                nanbox_is_undefined(nb)) {
+                return arg;
+            }
+        }
+        TsValue* err = (TsValue*)ts_error_create(
+            (void*)TsString::Create("eval is not supported by the AOT compiler"));
+        ts_throw(err);
+        return nullptr;  // unreachable
+    }
+
     // isNaN(value) - global JS function for untyped code
     extern "C" TsValue* isNaN(TsValue* arg) {
         if (!arg) return ts_value_make_bool(true);
