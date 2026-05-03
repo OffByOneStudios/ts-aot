@@ -983,10 +983,34 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
 
     // extends
     if (match(TokenKind::KW_extends)) {
-        node->baseClass = identifierName();
-        // Skip generic type args on base class
-        if (check(TokenKind::LessThan)) {
-            skipTypeExpression();
+        // ECMA-262 ClassHeritage : extends LeftHandSideExpression. The AST
+        // currently stores baseClass as a plain identifier string. For the
+        // simple `Identifier (<TypeArgs>)?` shape we keep the legacy fast
+        // path. For more complex heritage (e.g. `extends Object.getPrototypeOf(X)`)
+        // we parse the whole expression to consume tokens and best-effort
+        // record the leading identifier as baseClass for analyzer lookups.
+        bool simple = false;
+        if (isIdentifierOrKeyword()) {
+            auto saved = saveState();
+            std::string firstName(current_.text);
+            advance();
+            if (check(TokenKind::OpenBrace) ||
+                check(TokenKind::KW_implements) ||
+                check(TokenKind::LessThan)) {
+                node->baseClass = firstName;
+                if (check(TokenKind::LessThan)) {
+                    skipTypeExpression();
+                }
+                simple = true;
+            } else {
+                restoreState(saved);
+            }
+        }
+        if (!simple) {
+            // Complex LHS — parse a full call expression. Best-effort
+            // baseClass: leave empty so analyzer treats this as no
+            // user-defined base; downstream can still register the class.
+            (void)parseCallExpression();
         }
     }
 
