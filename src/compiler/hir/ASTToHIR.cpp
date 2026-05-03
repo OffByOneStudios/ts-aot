@@ -6359,23 +6359,43 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
     }
 
     if (hasSpread) {
-        // With spread elements, use ts_array_create and dynamic push/concat
-        auto arr = builder_.createCall("ts_array_create", {}, HIRType::makeArray(elemType, false));
+        // With spread elements, use ts_array_create and dynamic push/concat.
+        // Inside a generator/async function, sub-expressions can yield —
+        // splitting the body across resume-blocks where the SSA value of
+        // `arr` no longer dominates the next concat/push site. Spill the
+        // accumulator to an alloca so reloads work across resume boundaries.
+        bool inGenerator = currentFunction_ && (currentFunction_->isGenerator || currentFunction_->isAsync);
+        auto arrType = HIRType::makeArray(elemType, false);
+        auto initial = builder_.createCall("ts_array_create", {}, arrType);
+        std::shared_ptr<HIRValue> arrSlot;
+        std::shared_ptr<HIRValue> arr = initial;
+        if (inGenerator) {
+            arrSlot = builder_.createAlloca(arrType, "arrlit.acc");
+            builder_.createStore(initial, arrSlot);
+        }
+        auto reload = [&]() {
+            return inGenerator ? builder_.createLoad(arrType, arrSlot) : arr;
+        };
+        auto store = [&](std::shared_ptr<HIRValue> v) {
+            if (inGenerator) builder_.createStore(v, arrSlot);
+            arr = v;
+        };
 
         for (auto& elem : node->elements) {
             if (auto* spread = dynamic_cast<ast::SpreadElement*>(elem.get())) {
-                // Spread element: concatenate the spread array
-                // ts_array_concat returns a NEW array, so we must capture it
+                // Spread element: concatenate the spread array.
+                // ts_array_concat returns a NEW array, so we must capture it.
                 auto spreadArr = lowerExpression(spread->expression.get());
-                arr = builder_.createCall("ts_array_concat", {arr, spreadArr}, HIRType::makeArray(elemType, false));
+                auto concat = builder_.createCall("ts_array_concat", {reload(), spreadArr}, arrType);
+                store(concat);
             } else {
-                // Regular element: push it
+                // Regular element: push it.
                 auto elemVal = lowerExpression(elem.get());
-                builder_.createCall("ts_array_push", {arr, elemVal}, HIRType::makeInt64());
+                builder_.createCall("ts_array_push", {reload(), elemVal}, HIRType::makeInt64());
             }
         }
 
-        lastValue_ = arr;
+        lastValue_ = reload();
     } else {
         // No spread elements - use efficient pre-allocated array.
         // createNewArrayBoxed lowers to ts_array_create_sized which fills
@@ -6895,12 +6915,37 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
 
     auto obj = builder_.createNewObjectDynamic(flatShape);
 
+    // Inside a generator/async function, sub-expressions of properties can
+    // yield. The SSA value of `obj` won't dominate later uses across resume
+    // boundaries, so spill to an alloca and reload before each property
+    // operation. Same pattern as the array-literal-with-spread fix above.
+    bool inGenerator = currentFunction_ && (currentFunction_->isGenerator || currentFunction_->isAsync);
+    bool hasYieldableProp = false;
+    if (inGenerator) {
+        for (auto& prop : node->properties) {
+            if (dynamic_cast<ast::SpreadElement*>(prop.get()) ||
+                dynamic_cast<ast::PropertyAssignment*>(prop.get()) ||
+                dynamic_cast<ast::ComputedPropertyName*>(prop.get())) {
+                hasYieldableProp = true;
+                break;
+            }
+        }
+    }
+    std::shared_ptr<HIRValue> objSlot;
+    if (inGenerator && hasYieldableProp) {
+        objSlot = builder_.createAlloca(HIRType::makeAny(), "objlit.acc");
+        builder_.createStore(obj, objSlot);
+    }
+    auto reloadObj = [&]() {
+        return objSlot ? builder_.createLoad(HIRType::makeAny(), objSlot) : obj;
+    };
+
     for (auto& prop : node->properties) {
         // Handle spread element: {...other}
         if (auto* spread = dynamic_cast<ast::SpreadElement*>(prop.get())) {
             auto spreadObj = lowerExpression(spread->expression.get());
             // Use ts_object_assign to copy properties from spreadObj to obj
-            builder_.createCall("ts_object_assign", {obj, spreadObj}, HIRType::makeAny());
+            builder_.createCall("ts_object_assign", {reloadObj(), spreadObj}, HIRType::makeAny());
             continue;
         }
 
@@ -6917,7 +6962,7 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
                     // which isn't supported. Fall back to a plain dynamic set —
                     // the getter/setter semantics won't fire but the property
                     // will at least exist on the object, preventing crashes.
-                    builder_.createSetPropDynamic(obj, keyVal, funcValue);
+                    builder_.createSetPropDynamic(reloadObj(), keyVal, funcValue);
                 }
             } else {
                 // Determine the property key from Identifier or name string
@@ -6941,18 +6986,18 @@ void ASTToHIR::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
                 }
 
                 if (!keyName.empty() && funcValue) {
-                    builder_.createSetPropStatic(obj, keyName, funcValue);
+                    builder_.createSetPropStatic(reloadObj(), keyName, funcValue);
                 }
             }
         } else {
             // Save the object before visiting property (which may overwrite lastValue_)
-            lastValue_ = obj;
+            lastValue_ = reloadObj();
             prop->accept(this);
         }
     }
 
     // Ensure lastValue_ is the object after all properties are set
-    lastValue_ = obj;
+    lastValue_ = reloadObj();
 }
 
 void ASTToHIR::visitPropertyAssignment(ast::PropertyAssignment* node) {

@@ -1998,6 +1998,12 @@ llvm::Value* HIRToLLVM::ensureI64ForBitwise(llvm::Value* val) {
         auto unboxFn = getTsValueGetInt();
         return builder_->CreateCall(unboxFn, {val});
     }
+    if (val->getType()->isIntegerTy(1)) {
+        // Bool: ToNumber gives 0/1 — widen to i64 via ZExt before bitwise.
+        // Without this the subsequent CreateTrunc(i1, i32) fails LLVM
+        // verification ("DestTy too big for Trunc").
+        return builder_->CreateZExt(val, builder_->getInt64Ty(), "bool_to_i64");
+    }
     return val;
 }
 
