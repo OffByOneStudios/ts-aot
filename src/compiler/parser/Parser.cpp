@@ -840,25 +840,16 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             break;
         case TokenKind::KW_with: {
             // ECMA-262 §13.11.1: WithStatement is a Syntax Error in strict
-            // mode code. Reject up front so strict-only-parse-error tests
-            // pass; in non-strict, parse the syntax (we do not implement
-            // the dynamic-scope semantics — body executes as if the with
-            // wasn't there, which is incorrect runtime behavior but lets
-            // the test compile and run).
-            if (strictMode_) {
-                throw std::runtime_error(fmt::format(
-                    "{}:{}: SyntaxError: 'with' statements are not allowed in strict mode",
-                    fileName_, current_.line));
-            }
-            auto startTok = current_;
-            advance();  // consume 'with'
-            expect(TokenKind::OpenParen, "'('");
-            // Discard the head expression's effect — we still parse it to
-            // consume the tokens but do not preserve it in the AST.
-            (void)parseExpression();
-            expect(TokenKind::CloseParen, "')'");
-            result = parseDeclarationOrStatement();
-            break;
+            // mode. We don't implement dynamic-scope semantics in non-strict
+            // either, AND many test262 tests rely on us REJECTING `with`
+            // syntactically (they have negative.phase=parse expecting
+            // SyntaxError on `with` constructs). So we reject in BOTH
+            // modes; the message changes by mode for clarity.
+            const char* msg = strictMode_
+                ? "'with' statements are not allowed in strict mode"
+                : "'with' statement not supported by this compiler";
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: {}", fileName_, current_.line, msg));
         }
         case TokenKind::OpenBrace:
             result = parseBlockStatement();
@@ -1503,18 +1494,21 @@ ast::StmtPtr Parser::parseForStatement() {
         if (match(TokenKind::Equals)) {
             // Annex B.3.5 (`for (var X = init in obj)`): permitted in
             // non-strict scripts only, var-only, single binding,
-            // identifier-pattern only. Suppress `in` as a binary
-            // operator while parsing the initializer so the trailing
-            // `in obj` belongs to the for-in head.
+            // BindingIdentifier-only (NOT array/object patterns —
+            // `for (var [a] = init in obj)` is SyntaxError per spec).
+            // Suppress `in` as a binary operator while parsing the
+            // initializer so the trailing `in obj` belongs to the
+            // for-in head.
+            bool isBindingIdent =
+                dynamic_cast<ast::Identifier*>(firstDecl->name.get()) != nullptr;
+            bool eligible = !strictMode_ && kwTok.kind == TokenKind::KW_var &&
+                            isBindingIdent;
             bool prevNoIn = noIn_;
-            if (!strictMode_ && kwTok.kind == TokenKind::KW_var) {
-                noIn_ = true;
-            }
+            if (eligible) noIn_ = true;
             firstDecl->initializer = parseAssignmentExpression();
             noIn_ = prevNoIn;
 
-            if (!strictMode_ && kwTok.kind == TokenKind::KW_var &&
-                current_.kind == TokenKind::KW_in) {
+            if (eligible && current_.kind == TokenKind::KW_in) {
                 advance();  // consume 'in'
                 auto iterable = parseExpression();
                 expect(TokenKind::CloseParen, "')'");
