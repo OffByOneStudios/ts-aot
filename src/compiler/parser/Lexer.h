@@ -125,13 +125,6 @@ struct Token {
     int column = 1;          // 1-based
     int offset = 0;          // Byte offset in source
     bool hadNewlineBefore = false;  // For ASI: was there a newline before this token?
-    // True iff the identifier text contained a Unicode escape (\uXXXX or
-    // \u{...}) AND the decoded form happens to be an ECMA-262 reserved
-    // word. The lexer no longer rejects these outright; it lets the
-    // parser decide based on context (PropertyName-positions accept any
-    // IdentifierName including reserved words; BindingIdentifier and
-    // IdentifierReference positions reject — see Parser uses).
-    bool escapedReservedWord = false;
 };
 
 /// Snapshot of lexer state for save/restore during speculative parsing

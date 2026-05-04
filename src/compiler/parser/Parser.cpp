@@ -518,17 +518,6 @@ ast::NodePtr Parser::parseBindingNameOrPattern() {
                 "used as a binding identifier",
                 fileName_, current_.line, std::string(current_.text)));
         }
-        // Same restriction applies to identifiers whose decoded form is
-        // a reserved word via Unicode escape (`var`, `class`).
-        // The lexer marks these via Token::escapedReservedWord so we can
-        // accept them in PropertyName positions and reject here in
-        // BindingIdentifier positions.
-        if (current_.escapedReservedWord) {
-            throw std::runtime_error(fmt::format(
-                "{}:{}: SyntaxError: identifier resolves to reserved word "
-                "via Unicode escape and cannot be used as a binding",
-                fileName_, current_.line));
-        }
     }
     // Simple identifier
     auto id = std::make_unique<ast::Identifier>();
