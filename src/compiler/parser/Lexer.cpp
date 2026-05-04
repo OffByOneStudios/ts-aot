@@ -270,7 +270,13 @@ Token Lexer::makeToken(TokenKind kind, int start) {
 void Lexer::skipWhitespaceAndComments() {
     while (!isAtEnd()) {
         char c = peek();
-        if (c == ' ' || c == '\t') {
+        // ECMA-262 §11.2 WhiteSpace: TAB, VT, FF, SP, NBSP, ZWNBSP/BOM,
+        // and the Unicode "White_Space" category. The non-ASCII branch
+        // below handles NBSP/BOM/etc via ICU; here we cover the ASCII
+        // whitespace set including \v (U+000B) and \f (U+000C) which
+        // were previously missed (treated as token-starters → spurious
+        // parse errors on tests that probe whitespace-tolerance).
+        if (c == ' ' || c == '\t' || c == '\v' || c == '\f') {
             advance();
         } else if (c == '\n') {
             hadNewline_ = true;
