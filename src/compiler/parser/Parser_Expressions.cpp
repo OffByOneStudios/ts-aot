@@ -1326,9 +1326,17 @@ ast::ExprPtr Parser::parseClassExpression() {
     auto node = std::make_unique<ast::ClassExpression>();
     setLocation(node.get(), startTok);
 
-    // Optional name
+    // Optional name. Class body is strict (ES262 10.2.1) so escape-
+    // encoded reserved words including contextual-strict ones (let,
+    // static, yield) must be rejected.
     if (isIdentifierOrKeyword() && !check(TokenKind::KW_extends) &&
         !check(TokenKind::KW_implements) && !check(TokenKind::OpenBrace)) {
+        if (current_.escapedReservedWord) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: identifier resolves to reserved word "
+                "via Unicode escape and cannot be used as a class name",
+                fileName_, current_.line));
+        }
         node->name = identifierName();
     }
 

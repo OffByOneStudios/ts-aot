@@ -1020,8 +1020,17 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
     node->isExported = isExported;
     node->isDefaultExport = isDefaultExport;
 
-    // Name (optional for expressions)
+    // Name (optional for expressions). Class names are BindingIdentifier
+    // and the class body is always strict (ES262 10.2.1), so escape-
+    // encoded reserved words including contextual-strict ones (let,
+    // static, yield) must be rejected here.
     if (isIdentifierOrKeyword() && !check(TokenKind::KW_extends) && !check(TokenKind::KW_implements) && !check(TokenKind::OpenBrace)) {
+        if (current_.escapedReservedWord) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: identifier resolves to reserved word "
+                "via Unicode escape and cannot be used as a class name",
+                fileName_, current_.line));
+        }
         node->name = identifierName();
     }
 
