@@ -4828,6 +4828,25 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         // Object.assign can have multiple sources: Object.assign(target, src1, src2, ...)
         // We need to call ts_object_assign for each source in sequence
         llvm::Value* target = getOperandValue(inst->operands[1]);
+        // Object.assign(true, src) / Object.assign(0, src) — primitive
+        // targets reach here as i1/i64/double. Box them so the runtime
+        // signature ((ptr, ptr) → ptr) is honored.
+        if (target->getType()->isIntegerTy(1)) {
+            auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                                {builder_->getInt1Ty()}, false);
+            auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", fnTy);
+            target = builder_->CreateCall(fnTy, boxFn.getCallee(), {target});
+        } else if (target->getType()->isIntegerTy(64)) {
+            auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                                {builder_->getInt64Ty()}, false);
+            auto boxFn = module_->getOrInsertFunction("ts_value_make_int", fnTy);
+            target = builder_->CreateCall(fnTy, boxFn.getCallee(), {target});
+        } else if (target->getType()->isDoubleTy()) {
+            auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                                {builder_->getDoubleTy()}, false);
+            auto boxFn = module_->getOrInsertFunction("ts_value_make_double", fnTy);
+            target = builder_->CreateCall(fnTy, boxFn.getCallee(), {target});
+        }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_object_assign", ft);
@@ -4835,6 +4854,23 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         // Loop through all sources (operands[2] onward)
         for (size_t i = 2; i < inst->operands.size(); ++i) {
             llvm::Value* source = getOperandValue(inst->operands[i]);
+            // Same boxing for source operands.
+            if (source->getType()->isIntegerTy(1)) {
+                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                                    {builder_->getInt1Ty()}, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", fnTy);
+                source = builder_->CreateCall(fnTy, boxFn.getCallee(), {source});
+            } else if (source->getType()->isIntegerTy(64)) {
+                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                                    {builder_->getInt64Ty()}, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_int", fnTy);
+                source = builder_->CreateCall(fnTy, boxFn.getCallee(), {source});
+            } else if (source->getType()->isDoubleTy()) {
+                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                                    {builder_->getDoubleTy()}, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_double", fnTy);
+                source = builder_->CreateCall(fnTy, boxFn.getCallee(), {source});
+            }
             target = builder_->CreateCall(ft, fn.getCallee(), { target, source });
         }
 
