@@ -591,6 +591,18 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
 
     switch (tok.kind) {
         case TokenKind::Identifier: {
+            // ES262 12.6.1: an Identifier whose decoded form matches a
+            // reserved word is a SyntaxError as IdentifierReference.
+            // PropertyName / member-expression positions reach the
+            // identifier through identifierName(), which doesn't consult
+            // this flag, so they accept silently. Object-literal shorthand
+            // is handled separately in parseObjectLiteral.
+            if (tok.escapedReservedWord) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: identifier resolves to reserved word "
+                    "via Unicode escape and cannot be used as a reference",
+                    fileName_, tok.line));
+            }
             advance();
             auto node = std::make_unique<ast::Identifier>();
             setLocation(node.get(), tok);
@@ -1031,6 +1043,13 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             // Property name
             std::string name;
             ast::NodePtr nameNode;
+            // Capture before identifierName() advances past the token —
+            // shorthand `{ break }` (where break is an escape-encoded
+            // reserved word) is a SyntaxError because the shorthand value
+            // is an IdentifierReference, but `{ break: x }` is fine
+            // because the property name is an IdentifierName position.
+            bool nameEscapedReserved = false;
+            int nameLine = current_.line;
 
             if (check(TokenKind::OpenBracket)) {
                 // Computed property name
@@ -1052,6 +1071,7 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                 name = std::string(current_.text);
                 advance();
             } else {
+                nameEscapedReserved = current_.escapedReservedWord;
                 name = identifierName();
             }
 
@@ -1073,6 +1093,17 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             }
             // Shorthand property: { name }
             else {
+                // Shorthand acts as IdentifierReference. An escape-encoded
+                // reserved word here is a SyntaxError per ES262 12.6.1
+                // (e.g. `({ break }) => {}` — the value side of `break` is
+                // a reference, not a property name).
+                if (nameEscapedReserved) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: identifier resolves to reserved "
+                        "word via Unicode escape and cannot be used as a "
+                        "shorthand property reference",
+                        fileName_, nameLine));
+                }
                 auto prop = std::make_unique<ast::ShorthandPropertyAssignment>();
                 setLocation(prop.get(), previous_);
                 prop->name = name;

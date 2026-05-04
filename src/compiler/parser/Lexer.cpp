@@ -537,11 +537,18 @@ Token Lexer::scanIdentifierOrKeyword() {
         // tracked separately. The lex-time over-rejection costs ~64
         // PropertyName tests but catches ~315 negative-parse tests; net
         // is strongly positive in favor of keeping the rejection.
+        // Per ECMA-262 12.6.1: an Identifier whose decoded form matches
+        // a reserved word is a SyntaxError as a BindingIdentifier or
+        // IdentifierReference, but is fine as an IdentifierName in
+        // PropertyName / MemberExpression contexts. Mark the token; the
+        // parser checks the flag at every binding/reference site
+        // (parseBindingNameOrPattern, parsePrimaryExpression, and
+        // parseObjectLiteral's shorthand-property branch).
         auto it = keywords_.find(decoded);
         if (it != keywords_.end()) {
-            reportLexError("Identifier resolves to reserved word '"
-                + decoded + "' via Unicode escape");
-            return makeToken(TokenKind::Identifier, start);
+            Token tok = makeToken(TokenKind::Identifier, start);
+            tok.escapedReservedWord = true;
+            return tok;
         }
     }
 

@@ -518,6 +518,14 @@ ast::NodePtr Parser::parseBindingNameOrPattern() {
                 "used as a binding identifier",
                 fileName_, current_.line, std::string(current_.text)));
         }
+        // Same restriction for identifiers whose decoded form matches a
+        // reserved word via Unicode escape (`var for = 1`).
+        if (current_.escapedReservedWord) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: identifier resolves to reserved word "
+                "via Unicode escape and cannot be used as a binding",
+                fileName_, current_.line));
+        }
     }
     // Simple identifier
     auto id = std::make_unique<ast::Identifier>();
@@ -548,12 +556,25 @@ ast::NodePtr Parser::parseObjectBindingPattern() {
         } else {
             // propertyName: binding or just binding
             // We need to look ahead: if there's a ':', it's propertyName: binding
+            // Capture escapedReservedWord before identifierName() advances —
+            // shorthand `{ break }` (escape-encoded reserved word) is a
+            // SyntaxError as a BindingIdentifier, but `{ break: x }` is
+            // fine (PropertyName position).
+            bool propEscapedReserved = current_.escapedReservedWord;
+            int propLine = current_.line;
             std::string propName = identifierName();
 
             if (match(TokenKind::Colon)) {
                 elem->propertyName = propName;
                 elem->name = parseBindingNameOrPattern();
             } else {
+                if (propEscapedReserved) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: identifier resolves to reserved "
+                        "word via Unicode escape and cannot be used as a "
+                        "shorthand binding",
+                        fileName_, propLine));
+                }
                 auto id = std::make_unique<ast::Identifier>();
                 id->name = propName;
                 elem->name = std::move(id);
