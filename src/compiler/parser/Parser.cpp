@@ -1501,7 +1501,30 @@ ast::StmtPtr Parser::parseForStatement() {
 
         // Regular for loop: for (let i = 0; ...) or for (let i = 0, j = 0; ...)
         if (match(TokenKind::Equals)) {
+            // Annex B.3.5 (`for (var X = init in obj)`): permitted in
+            // non-strict scripts only, var-only, single binding,
+            // identifier-pattern only. Suppress `in` as a binary
+            // operator while parsing the initializer so the trailing
+            // `in obj` belongs to the for-in head.
+            bool prevNoIn = noIn_;
+            if (!strictMode_ && kwTok.kind == TokenKind::KW_var) {
+                noIn_ = true;
+            }
             firstDecl->initializer = parseAssignmentExpression();
+            noIn_ = prevNoIn;
+
+            if (!strictMode_ && kwTok.kind == TokenKind::KW_var &&
+                current_.kind == TokenKind::KW_in) {
+                advance();  // consume 'in'
+                auto iterable = parseExpression();
+                expect(TokenKind::CloseParen, "')'");
+                auto node = std::make_unique<ast::ForInStatement>();
+                setLocation(node.get(), startTok);
+                node->initializer = std::move(firstDecl);
+                node->expression = std::move(iterable);
+                node->body = parseDeclarationOrStatement();
+                return node;
+            }
         }
 
         // Collect into a list (may have multiple: for (let i = 0, j = 10; ...))
