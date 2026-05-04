@@ -581,6 +581,16 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
 
     switch (tok.kind) {
         case TokenKind::Identifier: {
+            // ECMA-262 12.6.1: an Identifier whose decoded form matches a
+            // reserved word is a SyntaxError as an IdentifierReference.
+            // Lexer marks via Token::escapedReservedWord; PropertyName /
+            // member-access positions accept them via identifierName().
+            if (tok.escapedReservedWord) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: identifier resolves to reserved word "
+                    "via Unicode escape and cannot be used as a reference",
+                    fileName_, tok.line));
+            }
             advance();
             auto node = std::make_unique<ast::Identifier>();
             setLocation(node.get(), tok);
