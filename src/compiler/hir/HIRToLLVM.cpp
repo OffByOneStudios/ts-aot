@@ -4463,9 +4463,28 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
             auto fn = module_->getOrInsertFunction("ts_buffer_write_uint8", ft);
             builder_->CreateCall(ft, fn.getCallee(), {arr, rawVal, idx});
         } else {
-            // Array index set
+            // Array index set. ts_array_set_unchecked signature is
+            // (ptr, i64, ptr) — we must box primitive values (i1/i64/
+            // double) before passing or LLVM verifier rejects.
+            llvm::Value* boxedVal = val;
+            if (val->getType()->isIntegerTy(1)) {
+                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                                    {builder_->getInt1Ty()}, false);
+                auto bf = module_->getOrInsertFunction("ts_value_make_bool", fnTy);
+                boxedVal = builder_->CreateCall(fnTy, bf.getCallee(), {val});
+            } else if (val->getType()->isIntegerTy(64)) {
+                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                                    {builder_->getInt64Ty()}, false);
+                auto bf = module_->getOrInsertFunction("ts_value_make_int", fnTy);
+                boxedVal = builder_->CreateCall(fnTy, bf.getCallee(), {val});
+            } else if (val->getType()->isDoubleTy()) {
+                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                                    {builder_->getDoubleTy()}, false);
+                auto bf = module_->getOrInsertFunction("ts_value_make_double", fnTy);
+                boxedVal = builder_->CreateCall(fnTy, bf.getCallee(), {val});
+            }
             auto fn = getTsArraySet();
-            builder_->CreateCall(fn, {arr, idx, val});
+            builder_->CreateCall(fn, {arr, idx, boxedVal});
         }
     }
 }
