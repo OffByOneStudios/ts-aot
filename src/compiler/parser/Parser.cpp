@@ -1846,8 +1846,19 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
         std::string name(current_.text);
         int line = current_.line;
         int col = current_.column;
+        // Capture before advance(): label identifiers are
+        // BindingIdentifier-form per spec, so escape-encoded reserved
+        // words must be rejected. Without this, e.g. \`\\u0061wait:\` as
+        // a label inside async would slip through.
+        bool labelEscapedReserved = current_.escapedReservedWord;
         advance();
         if (match(TokenKind::Colon)) {
+            if (labelEscapedReserved) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: identifier resolves to reserved "
+                    "word via Unicode escape and cannot be used as a label",
+                    fileName_, line));
+            }
             // It's a labeled statement
             auto node = std::make_unique<ast::LabeledStatement>();
             setLocation(node.get(), line, col);
