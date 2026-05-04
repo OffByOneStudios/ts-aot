@@ -1116,6 +1116,16 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                 // downstream catch misuse. Most test262 tests use it as a
                 // destructuring assignment target.
                 if (match(TokenKind::Equals)) {
+                    // ES262 12.6.1.1: `eval` and `arguments` are not valid
+                    // BindingIdentifiers in strict mode. CoverInitializedName
+                    // is destructuring-target-only, and the shorthand acts as
+                    // a binding target there, so reject in strict.
+                    if (strictMode_ && (name == "eval" || name == "arguments")) {
+                        throw std::runtime_error(fmt::format(
+                            "{}:{}: SyntaxError: '{}' may not be used as a "
+                            "binding identifier in strict mode",
+                            fileName_, nameLine, name));
+                    }
                     prop->initializer = parseAssignmentExpression();
                 }
                 node->properties.push_back(std::move(prop));
