@@ -5662,6 +5662,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 ident->name == "Permutations" ||
                 ident->name == "makeIterator" ||
                 ident->name == "setTimeZone" ||
+                ident->name == "setDefaultLocale" ||
                 ident->name == "parseRaisesException" ||
                 ident->name == "parsesSuccessfully" ||
                 ident->name == "fetch" ||
