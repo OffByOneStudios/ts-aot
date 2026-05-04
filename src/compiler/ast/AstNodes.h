@@ -699,6 +699,12 @@ struct PropertyAssignment : Node {
 struct ShorthandPropertyAssignment : Node {
     std::string name;
     NodePtr nameNode;
+    // Optional initializer for the CoverInitializedName form
+    // (`{ a = init }`). Set when parsing a destructuring-assignment
+    // target — null for plain `{ a }` shorthand. The value-side semantics
+    // are: if the source value at this key is undefined, use this
+    // initializer instead (per ES262 destructuring assignment rules).
+    ExprPtr initializer;
     std::string getKind() const override { return "ShorthandPropertyAssignment"; }
     void accept(Visitor* visitor) override { visitor->visitShorthandPropertyAssignment(this); }
 };

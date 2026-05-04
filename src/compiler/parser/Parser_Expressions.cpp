@@ -1091,7 +1091,7 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                 prop->initializer = parseAssignmentExpression();
                 node->properties.push_back(std::move(prop));
             }
-            // Shorthand property: { name }
+            // Shorthand property: { name }  or CoverInitializedName: { name = init }
             else {
                 // Shorthand acts as IdentifierReference. An escape-encoded
                 // reserved word here is a SyntaxError per ES262 12.6.1
@@ -1107,6 +1107,17 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                 auto prop = std::make_unique<ast::ShorthandPropertyAssignment>();
                 setLocation(prop.get(), previous_);
                 prop->name = name;
+                // CoverInitializedName: `{ a = expr }`. Per ES262 13.2.5,
+                // this form is part of the AssignmentPattern grammar (used
+                // when the object literal is the LHS of an assignment).
+                // A bare ObjectLiteral with this form is a Syntax Error,
+                // but our parser doesn't know yet whether the literal will
+                // become an assignment target — so accept it here and let
+                // downstream catch misuse. Most test262 tests use it as a
+                // destructuring assignment target.
+                if (match(TokenKind::Equals)) {
+                    prop->initializer = parseAssignmentExpression();
+                }
                 node->properties.push_back(std::move(prop));
             }
         }
