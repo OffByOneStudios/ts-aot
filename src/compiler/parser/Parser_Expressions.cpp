@@ -776,19 +776,35 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
                 return meta;
             }
             if (check(TokenKind::OpenParen)) {
-                // Dynamic import
+                // Dynamic import. ImportCall : import(AssignmentExpression).
+                // Empty `import()` and spread `import(...x)` are SyntaxErrors
+                // per the grammar. This also covers import.defer() and
+                // import.defer(...x) when reached via the property-access
+                // path (handled in parseCallExpression — see member-access
+                // -> call sequencing).
                 advance(); // (
+                if (check(TokenKind::CloseParen)) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: 'import()' requires a module specifier argument",
+                        fileName_, tok.line));
+                }
+                if (check(TokenKind::DotDotDot)) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: rest/spread is not allowed in import()",
+                        fileName_, tok.line));
+                }
                 auto node = std::make_unique<ast::DynamicImport>();
                 setLocation(node.get(), tok);
                 node->moduleSpecifier = parseAssignmentExpression();
                 expect(TokenKind::CloseParen, "')'");
                 return node;
             }
-            // Fallback
-            auto id = std::make_unique<ast::Identifier>();
-            id->name = "import";
-            setLocation(id.get(), tok);
-            return id;
+            // Bare `import` outside import-statement / import.meta /
+            // import(...) is a SyntaxError per the grammar (covers
+            // `typeof import` and similar).
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'import' must be followed by '.', '(', or used as an import statement",
+                fileName_, tok.line));
         }
 
         case TokenKind::DotDotDot: {
