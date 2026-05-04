@@ -979,7 +979,7 @@ def main():
     parser.add_argument("--interleave", action="store_true",
                         help="Round-robin tests across categories for representative early-termination")
     parser.add_argument("--fast", action="store_true",
-                        help="Preset: -j 12 --time-budget-min 20 --timeout 8 --resume --interleave")
+                        help="Preset: -j 24 --time-budget-min 20 --timeout 8 --resume --interleave")
     parser.add_argument("--consolidate-baseline", action="store_true",
                         help="Build baseline JSON from existing results log and exit")
     args = parser.parse_args()
@@ -999,7 +999,7 @@ def main():
     # --fast preset: set reasonable defaults for a full-run
     if args.fast:
         if args.jobs == 1:
-            args.jobs = 12
+            args.jobs = 24  # Default for 12C/24T machines; adjust per host.
         if args.time_budget_min is None:
             args.time_budget_min = 20
         if args.timeout == 10:
