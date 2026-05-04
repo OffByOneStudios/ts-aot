@@ -329,7 +329,10 @@ void Lexer::skipWhitespaceAndComments() {
             }
         }
         else if (c == '/' && peekAt(1) == '*') {
-            // Multi-line comment
+            // Multi-line comment. ECMA-262 11.4: if a MultiLineComment
+            // contains a LineTerminator, the whole comment is treated as
+            // a LineTerminator for ASI purposes — set hadNewline_ on
+            // \n, \r, AND U+2028/U+2029 (the non-ASCII line terminators).
             advance(); advance(); // skip /*
             while (!isAtEnd()) {
                 if (peek() == '*' && peekAt(1) == '/') {
@@ -338,6 +341,17 @@ void Lexer::skipWhitespaceAndComments() {
                 }
                 if (peek() == '\n' || peek() == '\r') {
                     hadNewline_ = true;
+                    advance();
+                    continue;
+                }
+                if (((unsigned char)peek()) >= 0x80) {
+                    bool isLineTerm = false;
+                    int n = isUnicodeWhitespaceAt(&isLineTerm);
+                    if (n > 0) {
+                        if (isLineTerm) hadNewline_ = true;
+                        for (int i = 0; i < n; i++) advance();
+                        continue;
+                    }
                 }
                 advance();
             }
