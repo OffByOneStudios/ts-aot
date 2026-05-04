@@ -2767,6 +2767,16 @@ void HIRToLLVM::lowerLogicalNot(HIRInstruction* inst) {
         llvm::Value* boolVal = builder_->CreateICmpNE(
             val, llvm::ConstantInt::get(val->getType(), 0), "tobool");
         result = builder_->CreateNot(boolVal, "lnot");
+    } else if (val->getType()->isDoubleTy()) {
+        // Double type - !x is true when x is 0 or NaN. Use FCmpUNE
+        // (NaN comparisons unordered → true → fail truthy → !val=true).
+        // Actually use FCmpONE so NaN compares not-equal: NaN!=0 ordered
+        // is FALSE, so the truthy result becomes false, then Not → true.
+        // Match JS ToBoolean: NaN is falsy, so !NaN = true. FCmpONE(NaN,0)=false
+        // → Not = true. Correct.
+        llvm::Value* boolVal = builder_->CreateFCmpONE(
+            val, llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0), "tobool");
+        result = builder_->CreateNot(boolVal, "lnot");
     } else {
         // Fall back to CreateNot (may fail for unsupported types)
         result = builder_->CreateNot(val, "lnot");
