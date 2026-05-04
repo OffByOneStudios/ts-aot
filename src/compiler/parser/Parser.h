@@ -164,6 +164,26 @@ private:
     bool strictMode_ = false;   // Effective strict mode (set after "use strict" prologue)
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
     int errorCount_ = 0;       // Parse-time errors (redeclaration, etc.)
+
+    // Strict-mode helpers. Function/class bodies push the parent's
+    // strictMode_ via StrictModeGuard; class bodies always force-elevate
+    // to true; function bodies start at the parent value and may elevate
+    // when their directive prologue contains "use strict". Class
+    // bodies are always strict per ECMA-262 §10.2.1; modules are always
+    // strict per §16.1; arrow function bodies inherit the surrounding
+    // strict-mode and may further elevate via prologue (in their
+    // FunctionBody form).
+    struct StrictModeGuard {
+        Parser* p_;
+        bool prev_;
+        explicit StrictModeGuard(Parser* p) : p_(p), prev_(p->strictMode_) {}
+        ~StrictModeGuard() { p_->strictMode_ = prev_; }
+    };
+    // Returns true iff the just-parsed statement is part of a directive
+    // prologue (i.e., an ExpressionStatement wrapping a single
+    // StringLiteral). Side effect: if the literal text is "use strict",
+    // sets strictMode_ = true.
+    bool processPrologueDirective(const ast::StmtPtr& stmt);
 public:
     int getErrorCount() const {
         // Include lexer errors if lexer exists

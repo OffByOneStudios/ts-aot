@@ -211,6 +211,7 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
             arrow->parameters.push_back(std::move(param));
 
             bool prevAsync = inAsync_;
+            StrictModeGuard sg(this);
             inAsync_ = false;
             functionDepth_++;
 
@@ -887,6 +888,7 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
         arrow->parameters = std::move(params);
 
         bool prevAsync = inAsync_;
+        StrictModeGuard sg(this);
         inAsync_ = isAsync;
         functionDepth_++;
 
@@ -919,6 +921,7 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
             arrow->isAsync = isAsync;
 
             bool prevAsync = inAsync_;
+            StrictModeGuard sg(this);
             inAsync_ = isAsync;
             functionDepth_++;
 
@@ -1233,14 +1236,21 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     // Body
     bool prevAsync = inAsync_;
     bool prevGen = inGenerator_;
+    StrictModeGuard sg(this);
     inAsync_ = node->isAsync;
     inGenerator_ = node->isGenerator;
     functionDepth_++;
 
     expect(TokenKind::OpenBrace, "'{'");
+    bool inPrologue = true;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();
-        if (stmt) node->body.push_back(std::move(stmt));
+        if (stmt) {
+            if (inPrologue && !processPrologueDirective(stmt)) {
+                inPrologue = false;
+            }
+            node->body.push_back(std::move(stmt));
+        }
     }
     expect(TokenKind::CloseBrace, "'}'");
 
@@ -1283,7 +1293,9 @@ ast::ExprPtr Parser::parseClassExpression() {
         } while (match(TokenKind::Comma));
     }
 
-    // Body
+    // Body. ECMA-262 §10.2.1: ClassBody is always strict-mode code.
+    StrictModeGuard csg(this);
+    strictMode_ = true;
     expect(TokenKind::OpenBrace, "'{'");
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto member = parseClassMember();

@@ -7,6 +7,21 @@
 namespace ts::parser {
 
 // ============================================================================
+// Strict-mode helpers
+// ============================================================================
+
+bool Parser::processPrologueDirective(const ast::StmtPtr& stmt) {
+    auto* exprStmt = dynamic_cast<ast::ExpressionStatement*>(stmt.get());
+    if (!exprStmt) return false;
+    auto* strLit = dynamic_cast<ast::StringLiteral*>(exprStmt->expression.get());
+    if (!strLit) return false;
+    if (strLit->value == "use strict") {
+        strictMode_ = true;
+    }
+    return true;
+}
+
+// ============================================================================
 // Public API
 // ============================================================================
 
@@ -34,16 +49,7 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     while (!isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();
         if (!stmt) continue;
-        if (inPrologue) {
-            if (auto* exprStmt = dynamic_cast<ast::ExpressionStatement*>(stmt.get())) {
-                if (auto* strLit = dynamic_cast<ast::StringLiteral*>(exprStmt->expression.get())) {
-                    if (strLit->value == "use strict") {
-                        strictMode_ = true;
-                    }
-                    program->body.push_back(std::move(stmt));
-                    continue;
-                }
-            }
+        if (inPrologue && !processPrologueDirective(stmt)) {
             inPrologue = false;
         }
         program->body.push_back(std::move(stmt));
@@ -899,14 +905,21 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
     if (check(TokenKind::OpenBrace)) {
         bool prevAsync = inAsync_;
         bool prevGen = inGenerator_;
+        StrictModeGuard sg(this);  // Save strictMode_; restore on exit.
         inAsync_ = node->isAsync;
         inGenerator_ = node->isGenerator;
         functionDepth_++;
 
         expect(TokenKind::OpenBrace, "'{'");
+        bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();
-            if (stmt) node->body.push_back(std::move(stmt));
+            if (stmt) {
+                if (inPrologue && !processPrologueDirective(stmt)) {
+                    inPrologue = false;
+                }
+                node->body.push_back(std::move(stmt));
+            }
         }
         expect(TokenKind::CloseBrace, "'}'");
 
@@ -1041,7 +1054,9 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
         } while (match(TokenKind::Comma));
     }
 
-    // Body
+    // Body. ECMA-262 §10.2.1: ClassBody is always strict-mode code.
+    StrictModeGuard sg(this);
+    strictMode_ = true;
     expect(TokenKind::OpenBrace, "'{'");
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto member = parseClassMember();
@@ -1288,19 +1303,29 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         method->returnType = parseReturnTypeAnnotation();
     }
 
-    // Body (or abstract/declaration without body)
+    // Body (or abstract/declaration without body). Methods are nested
+    // inside class bodies which are already strict; the guard simply
+    // preserves the parent's mode while still allowing a redundant
+    // "use strict" directive in the method body itself.
     if (check(TokenKind::OpenBrace)) {
         method->hasBody = true;
         bool prevAsync = inAsync_;
         bool prevGen = inGenerator_;
+        StrictModeGuard sg(this);
         inAsync_ = method->isAsync;
         inGenerator_ = method->isGenerator;
         functionDepth_++;
 
         expect(TokenKind::OpenBrace, "'{'");
+        bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();
-            if (stmt) method->body.push_back(std::move(stmt));
+            if (stmt) {
+                if (inPrologue && !processPrologueDirective(stmt)) {
+                    inPrologue = false;
+                }
+                method->body.push_back(std::move(stmt));
+            }
         }
         expect(TokenKind::CloseBrace, "'}'");
 
