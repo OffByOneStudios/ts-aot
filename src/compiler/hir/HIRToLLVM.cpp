@@ -57,6 +57,41 @@ bool HIRToLLVM::isGCManagedType(HIRTypeKind kind) {
     }
 }
 
+llvm::Value* HIRToLLVM::boxPrimitiveToPtr(llvm::Value* val) {
+    if (!val) return val;
+    auto* ty = val->getType();
+    if (ty->isPointerTy()) return val;
+    if (ty->isIntegerTy(1)) {
+        auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                            {builder_->getInt1Ty()}, false);
+        auto bf = module_->getOrInsertFunction("ts_value_make_bool", fnTy);
+        return builder_->CreateCall(fnTy, bf.getCallee(), {val});
+    }
+    if (ty->isIntegerTy(64)) {
+        auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                            {builder_->getInt64Ty()}, false);
+        auto bf = module_->getOrInsertFunction("ts_value_make_int", fnTy);
+        return builder_->CreateCall(fnTy, bf.getCallee(), {val});
+    }
+    if (ty->isDoubleTy()) {
+        auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
+                                            {builder_->getDoubleTy()}, false);
+        auto bf = module_->getOrInsertFunction("ts_value_make_double", fnTy);
+        return builder_->CreateCall(fnTy, bf.getCallee(), {val});
+    }
+    // Other integer widths (i8, i32, etc.) widen to i64 first.
+    if (ty->isIntegerTy()) {
+        auto widened = builder_->CreateSExt(val, builder_->getInt64Ty(), "widen.i64");
+        return boxPrimitiveToPtr(widened);
+    }
+    // Float widens to double.
+    if (ty->isFloatTy()) {
+        auto widened = builder_->CreateFPExt(val, builder_->getDoubleTy(), "widen.f64");
+        return boxPrimitiveToPtr(widened);
+    }
+    return val;  // Unknown type — caller will hit verifier and we'll diagnose.
+}
+
 llvm::Value* HIRToLLVM::gcPtrToRaw(llvm::Value* val) {
     if (!enableGCStatepoints_ || !val->getType()->isPointerTy()) return val;
     if (val->getType()->getPointerAddressSpace() == 0) return val;
@@ -4464,27 +4499,9 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
             builder_->CreateCall(ft, fn.getCallee(), {arr, rawVal, idx});
         } else {
             // Array index set. ts_array_set_unchecked signature is
-            // (ptr, i64, ptr) — we must box primitive values (i1/i64/
-            // double) before passing or LLVM verifier rejects.
-            llvm::Value* boxedVal = val;
-            if (val->getType()->isIntegerTy(1)) {
-                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                                    {builder_->getInt1Ty()}, false);
-                auto bf = module_->getOrInsertFunction("ts_value_make_bool", fnTy);
-                boxedVal = builder_->CreateCall(fnTy, bf.getCallee(), {val});
-            } else if (val->getType()->isIntegerTy(64)) {
-                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                                    {builder_->getInt64Ty()}, false);
-                auto bf = module_->getOrInsertFunction("ts_value_make_int", fnTy);
-                boxedVal = builder_->CreateCall(fnTy, bf.getCallee(), {val});
-            } else if (val->getType()->isDoubleTy()) {
-                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                                    {builder_->getDoubleTy()}, false);
-                auto bf = module_->getOrInsertFunction("ts_value_make_double", fnTy);
-                boxedVal = builder_->CreateCall(fnTy, bf.getCallee(), {val});
-            }
+            // (ptr, i64, ptr) — primitive values box via boxPrimitiveToPtr.
             auto fn = getTsArraySet();
-            builder_->CreateCall(fn, {arr, idx, boxedVal});
+            builder_->CreateCall(fn, {arr, idx, boxPrimitiveToPtr(val)});
         }
     }
 }
@@ -4845,51 +4862,17 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     if (funcName == "ts_object_assign") {
         // ts_object_assign(TsValue* target, TsValue* source) - returns TsValue*
         // Object.assign can have multiple sources: Object.assign(target, src1, src2, ...)
-        // We need to call ts_object_assign for each source in sequence
-        llvm::Value* target = getOperandValue(inst->operands[1]);
-        // Object.assign(true, src) / Object.assign(0, src) — primitive
-        // targets reach here as i1/i64/double. Box them so the runtime
-        // signature ((ptr, ptr) → ptr) is honored.
-        if (target->getType()->isIntegerTy(1)) {
-            auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                                {builder_->getInt1Ty()}, false);
-            auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", fnTy);
-            target = builder_->CreateCall(fnTy, boxFn.getCallee(), {target});
-        } else if (target->getType()->isIntegerTy(64)) {
-            auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                                {builder_->getInt64Ty()}, false);
-            auto boxFn = module_->getOrInsertFunction("ts_value_make_int", fnTy);
-            target = builder_->CreateCall(fnTy, boxFn.getCallee(), {target});
-        } else if (target->getType()->isDoubleTy()) {
-            auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                                {builder_->getDoubleTy()}, false);
-            auto boxFn = module_->getOrInsertFunction("ts_value_make_double", fnTy);
-            target = builder_->CreateCall(fnTy, boxFn.getCallee(), {target});
-        }
+        // We need to call ts_object_assign for each source in sequence.
+        // Primitive target/source operands (i1/i64/double) are boxed via
+        // boxPrimitiveToPtr so the runtime signature ((ptr, ptr) -> ptr)
+        // is honored — Object.assign(true, src) etc.
+        llvm::Value* target = boxPrimitiveToPtr(getOperandValue(inst->operands[1]));
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_object_assign", ft);
 
-        // Loop through all sources (operands[2] onward)
         for (size_t i = 2; i < inst->operands.size(); ++i) {
-            llvm::Value* source = getOperandValue(inst->operands[i]);
-            // Same boxing for source operands.
-            if (source->getType()->isIntegerTy(1)) {
-                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                                    {builder_->getInt1Ty()}, false);
-                auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", fnTy);
-                source = builder_->CreateCall(fnTy, boxFn.getCallee(), {source});
-            } else if (source->getType()->isIntegerTy(64)) {
-                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                                    {builder_->getInt64Ty()}, false);
-                auto boxFn = module_->getOrInsertFunction("ts_value_make_int", fnTy);
-                source = builder_->CreateCall(fnTy, boxFn.getCallee(), {source});
-            } else if (source->getType()->isDoubleTy()) {
-                auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                                    {builder_->getDoubleTy()}, false);
-                auto boxFn = module_->getOrInsertFunction("ts_value_make_double", fnTy);
-                source = builder_->CreateCall(fnTy, boxFn.getCallee(), {source});
-            }
+            llvm::Value* source = boxPrimitiveToPtr(getOperandValue(inst->operands[i]));
             target = builder_->CreateCall(ft, fn.getCallee(), { target, source });
         }
 

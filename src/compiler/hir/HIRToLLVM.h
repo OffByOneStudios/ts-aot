@@ -142,6 +142,13 @@ private:
     // Cast GC pointer (addrspace 1) to raw pointer (addrspace 0) for runtime calls
     llvm::Value* gcPtrToRaw(llvm::Value* val);
 
+    // Box a primitive LLVM value (i1 / i64 / double) into a TsValue* via
+    // the appropriate ts_value_make_* runtime function, returning a ptr.
+    // If the input is already a pointer, returns it unchanged. Used at
+    // runtime call sites where the runtime signature expects ptr but
+    // the caller may have a primitive (e.g., Object.assign(true, src)).
+    llvm::Value* boxPrimitiveToPtr(llvm::Value* val);
+
     // Cast raw pointer (addrspace 0) to GC pointer (addrspace 1) for internal use
     llvm::Value* rawToGCPtr(llvm::Value* val);
 
