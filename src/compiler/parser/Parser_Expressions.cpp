@@ -1333,6 +1333,18 @@ ast::ExprPtr Parser::parseNewExpression() {
         return prop;
     }
 
+    // ECMA-262: ImportCall is a CallExpression, not a NewExpression.
+    // `new import(x)` is a SyntaxError per the spec grammar — same for
+    // `new import.meta` (import.meta is not a constructor) — but we
+    // permit `new import.meta.X(...)` style expressions through the
+    // member-expression chain below; only `new import(...)` directly
+    // is invalid. The check here covers the direct-call case.
+    if (current_.kind == TokenKind::KW_import) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: 'new import(...)' is not allowed",
+            fileName_, current_.line));
+    }
+
     auto node = std::make_unique<ast::NewExpression>();
     setLocation(node.get(), startTok);
 
