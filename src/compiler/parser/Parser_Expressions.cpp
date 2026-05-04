@@ -377,6 +377,16 @@ ast::ExprPtr Parser::parseUnaryExpression() {
             auto node = std::make_unique<ast::DeleteExpression>();
             setLocation(node.get(), tok);
             node->expression = parseUnaryExpression();
+            // ECMA-262 §13.5.1.1: in strict mode, the operand of `delete`
+            // must not be a plain Identifier reference. `delete obj.prop`
+            // and `delete obj[key]` are fine; `delete x` where x is just
+            // an Identifier is a SyntaxError.
+            if (strictMode_ && dynamic_cast<ast::Identifier*>(node->expression.get())) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'delete' of an unqualified "
+                    "identifier is not allowed in strict mode",
+                    fileName_, tok.line));
+            }
             return node;
         }
         case TokenKind::KW_await: {
