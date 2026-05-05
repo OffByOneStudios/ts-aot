@@ -4,6 +4,8 @@
 #include "TsGC.h"
 #include "GC.h"
 #include <cstring>
+#include <string>
+#include <cstring>
 
 static bool tommath_initialized = false;
 
@@ -68,12 +70,56 @@ void* ts_bigint_create_int(int64_t val) {
     return TsBigInt::Create(val);
 }
 
+// Per ECMA-262 7.1.14 StringToBigInt / 6.1.6.2.3 StringIntegerLiteral:
+// skip leading/trailing whitespace, detect 0x/0X/0o/0O/0b/0B radix
+// prefixes (in those cases the radix is forced and signs are not
+// permitted), and otherwise parse a decimal with optional `+`/`-`.
+// `defaultRadix` (typically 10) is used when no prefix is present.
+static TsBigInt* bigintFromTrimmedString(const char* cstr, int defaultRadix) {
+    if (!cstr) return TsBigInt::Create((int64_t)0);
+    auto isWs = [](unsigned char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+               c == '\v' || c == '\f' || c == 0xA0;
+    };
+    const char* p = cstr;
+    while (*p && isWs(static_cast<unsigned char>(*p))) ++p;
+    const char* end = p + std::strlen(p);
+    while (end > p && isWs(static_cast<unsigned char>(end[-1]))) --end;
+    if (p == end) return TsBigInt::Create((int64_t)0);
+
+    int parseRadix = defaultRadix > 0 ? defaultRadix : 10;
+    bool negative = false;
+    bool prefixed = false;
+    if ((end - p) >= 2 && p[0] == '0') {
+        char ch = p[1];
+        if (ch == 'x' || ch == 'X') { parseRadix = 16; p += 2; prefixed = true; }
+        else if (ch == 'o' || ch == 'O') { parseRadix = 8;  p += 2; prefixed = true; }
+        else if (ch == 'b' || ch == 'B') { parseRadix = 2;  p += 2; prefixed = true; }
+    }
+    if (!prefixed && p < end && (*p == '+' || *p == '-')) {
+        negative = (*p == '-');
+        ++p;
+    }
+    if (p == end) return TsBigInt::Create((int64_t)0);
+
+    size_t n = static_cast<size_t>(end - p);
+    std::string digits(p, n);
+
+    TsBigInt* bi = (TsBigInt*)ts_alloc(sizeof(TsBigInt));
+    new (bi) TsBigInt();
+    if (mp_read_radix(&bi->value, digits.c_str(), parseRadix) != MP_OKAY) {
+        mp_set_i32(&bi->value, 0);
+    }
+    if (negative) {
+        mp_neg(&bi->value, &bi->value);
+    }
+    return bi;
+}
+
 void* ts_bigint_create_str(void* strArg, int32_t radix) {
-    // strArg is a TsString* from the HIR const.string
     TsString* tsStr = (TsString*)strArg;
     if (!tsStr) return TsBigInt::Create((int64_t)0);
-    const char* cstr = tsStr->ToUtf8();
-    return TsBigInt::Create(cstr, radix);
+    return bigintFromTrimmedString(tsStr->ToUtf8(), radix);
 }
 
 void* ts_bigint_to_string(void* bi, int32_t radix) {
@@ -90,7 +136,11 @@ void* ts_bigint_from_value(TsValue* val) {
     } else if (decoded.type == ValueType::NUMBER_DBL) {
         return TsBigInt::Create((int64_t)decoded.d_val);
     } else if (decoded.type == ValueType::STRING_PTR) {
-        return TsBigInt::Create(((TsString*)decoded.ptr_val)->ToUtf8());
+        // Delegate to the trimming/prefix-detecting helper so that
+        // BigInt("0xa"), BigInt(" 10 "), BigInt("-5"), etc. follow
+        // ECMA-262 StringToBigInt rather than passing the raw string
+        // straight to mp_read_radix(_, _, 10).
+        return bigintFromTrimmedString(((TsString*)decoded.ptr_val)->ToUtf8(), 10);
     } else if (decoded.type == ValueType::BIGINT_PTR) {
         return decoded.ptr_val;
     }
