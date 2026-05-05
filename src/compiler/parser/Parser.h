@@ -190,6 +190,15 @@ private:
     // destructuring, no optional `?`).
     bool isParameterListSimple(
         const std::vector<std::unique_ptr<ast::Parameter>>& params) const;
+
+    // Validate that `expr` is a valid AssignmentTarget per ECMA-262
+    // 12.15.5 (IsValidSimpleAssignmentTarget). Throws SyntaxError when
+    // the expression cannot legally appear on the LHS of `=`/`+=`/etc.
+    // `forCompoundAssign` excludes destructuring patterns
+    // (Array/ObjectLiteralExpression), which are only permitted with
+    // plain `=`.
+    void validateAssignmentTarget(const ast::Node* expr,
+                                  bool forCompoundAssign) const;
 public:
     int getErrorCount() const {
         // Include lexer errors if lexer exists

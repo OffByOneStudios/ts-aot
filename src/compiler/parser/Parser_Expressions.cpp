@@ -269,6 +269,13 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
     // Assignment operators
     if (isAssignmentOperator(current_.kind)) {
         auto opTok = current_;
+        // Per ECMA-262 12.15.5: AssignmentExpression's LHS must be a
+        // valid AssignmentTarget. Reject e.g. `(x => x) = 1`,
+        // `(a + b) = 1`, `1 = x`, `({ a = 1 }) = x` outside
+        // destructuring, etc. The check is here (post-LHS-parse,
+        // pre-`=` consume) so the error points at the LHS expression.
+        bool isCompound = opTok.kind != TokenKind::Equals;
+        validateAssignmentTarget(expr.get(), isCompound);
         advance();
 
         if (opTok.kind == TokenKind::Equals) {

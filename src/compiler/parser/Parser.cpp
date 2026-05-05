@@ -23,6 +23,74 @@ bool Parser::processPrologueDirective(const ast::StmtPtr& stmt) {
     return true;
 }
 
+// Per ECMA-262 12.15.5 IsValidSimpleAssignmentTarget. Returns silently
+// on valid targets, throws SyntaxError on invalid ones.
+void Parser::validateAssignmentTarget(const ast::Node* expr,
+                                      bool forCompoundAssign) const {
+    if (!expr) return;
+    // Unwrap parenthesized / TS type-only wrappers.
+    if (auto* paren = dynamic_cast<const ast::ParenthesizedExpression*>(expr)) {
+        validateAssignmentTarget(paren->expression.get(), forCompoundAssign);
+        return;
+    }
+    if (auto* asExpr = dynamic_cast<const ast::AsExpression*>(expr)) {
+        validateAssignmentTarget(asExpr->expression.get(), forCompoundAssign);
+        return;
+    }
+    if (auto* nn = dynamic_cast<const ast::NonNullExpression*>(expr)) {
+        validateAssignmentTarget(nn->expression.get(), forCompoundAssign);
+        return;
+    }
+
+    // Identifier — almost always a valid IdentifierReference. The
+    // spec exceptions:
+    //   - `this` is a ThisExpression in spec terms; our parser
+    //     represents it as Identifier with name "this"
+    //   - In strict mode, `eval` and `arguments` are invalid targets
+    if (auto* ident = dynamic_cast<const ast::Identifier*>(expr)) {
+        if (ident->name == "this") {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'this' is not a valid assignment target",
+                expr->line, expr->column));
+        }
+        if (strictMode_ && (ident->name == "eval" || ident->name == "arguments")) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: '{}' is not a valid assignment target in strict mode",
+                expr->line, expr->column, ident->name));
+        }
+        return;
+    }
+
+    // Property / member access — always valid LHS.
+    if (dynamic_cast<const ast::PropertyAccessExpression*>(expr)) return;
+    if (dynamic_cast<const ast::ElementAccessExpression*>(expr)) return;
+
+    // Object/Array literals — valid only as destructuring targets,
+    // and only for plain `=` (not `+=` etc.).
+    if (dynamic_cast<const ast::ObjectLiteralExpression*>(expr) ||
+        dynamic_cast<const ast::ArrayLiteralExpression*>(expr)) {
+        if (forCompoundAssign) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: destructuring pattern not allowed with compound assignment",
+                expr->line, expr->column));
+        }
+        return;
+    }
+
+    // CallExpression: the spec strictly forbids it as
+    // SimpleAssignmentTarget, but legacy non-strict code (and many
+    // browsers) tolerate it; we follow tsc's behavior and accept it
+    // at parse time. Downstream type-check would catch real errors.
+    if (dynamic_cast<const ast::CallExpression*>(expr)) return;
+
+    // Everything else is invalid: literals, arrow / function /
+    // class expressions, binary / conditional / unary / new /
+    // await / yield / spread / template / super.
+    throw std::runtime_error(fmt::format(
+        "{}:{}: SyntaxError: invalid assignment target",
+        expr->line, expr->column));
+}
+
 bool Parser::isParameterListSimple(
     const std::vector<std::unique_ptr<ast::Parameter>>& params) const {
     for (const auto& p : params) {
