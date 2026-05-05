@@ -416,7 +416,15 @@ std::unique_ptr<ast::Parameter> Parser::parseParameter() {
     }
 
     // Default value
-    if (match(TokenKind::Equals)) {
+    if (check(TokenKind::Equals)) {
+        // Per ECMA-262 14.1: BindingRestElement may not have an initializer.
+        // `function f(...x = []) {}` is a SyntaxError in any mode.
+        if (param->isRest) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: rest parameter may not have a default initializer",
+                current_.line, current_.column));
+        }
+        advance();
         param->initializer = parseAssignmentExpression();
     }
 
