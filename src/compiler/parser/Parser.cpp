@@ -1425,10 +1425,27 @@ ast::StmtPtr Parser::parseIfStatement() {
 
     node->condition = parseExpression();
     expect(TokenKind::CloseParen, "')'");
-    node->thenStatement = parseDeclarationOrStatement();
+    // Annex B.3.2: a FunctionDeclaration in IfStatement body position is
+    // implicitly wrapped in a Block — give it its own lexical scope so a
+    // \`let X = ...; if (true) function X() {}\` doesn't trigger an outer-
+    // scope redeclaration error. We push a scope for any thenStatement
+    // that's a FunctionDeclaration; the same applies to elseStatement.
+    if (current_.kind == TokenKind::KW_function) {
+        pushLexicalScope();
+        node->thenStatement = parseDeclarationOrStatement();
+        popLexicalScope();
+    } else {
+        node->thenStatement = parseDeclarationOrStatement();
+    }
 
     if (match(TokenKind::KW_else)) {
-        node->elseStatement = parseDeclarationOrStatement();
+        if (current_.kind == TokenKind::KW_function) {
+            pushLexicalScope();
+            node->elseStatement = parseDeclarationOrStatement();
+            popLexicalScope();
+        } else {
+            node->elseStatement = parseDeclarationOrStatement();
+        }
     }
 
     return node;
