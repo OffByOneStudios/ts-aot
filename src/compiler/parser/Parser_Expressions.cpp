@@ -873,6 +873,24 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             node->name = std::string(tok.text);
             return node;
         }
+        case TokenKind::KW_let: {
+            // ES262 13.3.1: `let` is an Identifier in non-strict mode
+            // when used as IdentifierReference (e.g., `let = 1;` after
+            // `var let;`). Strict mode forbids this; the analyzer/parser
+            // reaches here only after a let-as-decl lookahead check
+            // determines this is the IdentifierReference path.
+            if (strictMode_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'let' cannot be used as an "
+                    "identifier in strict mode",
+                    fileName_, tok.line));
+            }
+            advance();
+            auto node = std::make_unique<ast::Identifier>();
+            setLocation(node.get(), tok);
+            node->name = "let";
+            return node;
+        }
 
         default:
             break;

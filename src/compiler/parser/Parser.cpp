@@ -814,6 +814,22 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
                 }
                 restoreState(saved);
             }
+            // ES262 13.3.1: in non-strict mode, `let` is an Identifier
+            // when not followed by a BindingIdentifier/`[`/`{`. Tests like
+            // `let = 1; let.x = 2; [let][0];` rely on this.
+            if (current_.kind == TokenKind::KW_let && !strictMode_) {
+                auto saved = saveState();
+                advance();
+                bool looksLikeDecl =
+                    current_.kind == TokenKind::Identifier ||
+                    current_.kind == TokenKind::OpenBracket ||
+                    current_.kind == TokenKind::OpenBrace;
+                restoreState(saved);
+                if (!looksLikeDecl) {
+                    result = parseLabeledOrExpressionStatement();
+                    break;
+                }
+            }
             auto stmts = parseVariableDeclarationList(false);
             if (stmts.size() == 1) {
                 result = std::move(stmts[0]);
@@ -1478,8 +1494,33 @@ ast::StmtPtr Parser::parseForStatement() {
     }
 
     // --- Variable declaration initializer: for (var/let/const ...) ---
-    if (current_.kind == TokenKind::KW_var || current_.kind == TokenKind::KW_let ||
-        current_.kind == TokenKind::KW_const) {
+    // ES262 13.7.4: in `for (` context, `let` followed by anything other
+    // than `[` or BindingIdentifier is interpreted as IdentifierReference
+    // (per the Lookahead restriction). Specifically, `for (let = 3; ;)`
+    // and `for (let; ;)` and `for ([let][0]; ;)` are valid in non-strict.
+    // Speculatively probe: if KW_let is followed by `=`, `;`, `,`, `)`,
+    // `.`, `[` (member access — not `[` binding pattern though), etc.,
+    // it's the Identifier path. Strict mode forbids `let` as identifier
+    // entirely so this only matters non-strict.
+    bool isLetAsIdent = false;
+    if (current_.kind == TokenKind::KW_let && !strictMode_) {
+        // Look at next token to decide.
+        auto saved = saveState();
+        advance();
+        // `let [` is a binding-pattern declaration; `let X` is normal.
+        // Anything else (`let =`, `let ;`, `let .`, `let in`, `let of`)
+        // means the `let` was an IdentifierReference, not a declaration.
+        bool looksLikeDecl =
+            current_.kind == TokenKind::Identifier ||
+            current_.kind == TokenKind::OpenBracket ||
+            current_.kind == TokenKind::OpenBrace;
+        restoreState(saved);
+        isLetAsIdent = !looksLikeDecl;
+    }
+
+    if (!isLetAsIdent &&
+        (current_.kind == TokenKind::KW_var || current_.kind == TokenKind::KW_let ||
+         current_.kind == TokenKind::KW_const)) {
         auto kwTok = current_;
         advance(); // consume var/let/const
 
