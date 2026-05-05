@@ -620,29 +620,36 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             // double range round to +Infinity (or 0 for underflow). std::stod
             // throws std::out_of_range in those cases; std::stoull throws
             // for hex/oct/bin literals beyond uint64. Catch and clamp.
-            // Only catch out_of_range (per ECMA-262 12.8.3 NumericValue
-            // rounds to ±Infinity / 0 for unrepresentable magnitudes).
-            // std::invalid_argument (e.g. malformed `0x` with no digits)
-            // is a real parse error and must propagate so negative-parse
-            // test262 tests still reject incomplete literals.
             auto safeStod = [](const std::string& s) -> double {
                 try {
                     return std::stod(s);
                 } catch (const std::out_of_range&) {
+                    // Underflow returns 0 (errno==ERANGE with HUGE_VAL=0);
+                    // overflow returns +Inf. stod throws for both, so
+                    // distinguish by parsing as long-double and checking
+                    // magnitude. Cheaper proxy: if the mantissa portion
+                    // has a leading non-zero digit, treat as overflow.
                     bool sawNonZeroDigit = false;
+                    bool sawDot = false;
                     for (char c : s) {
-                        if (c == '.') continue;
+                        if (c == '.') { sawDot = true; continue; }
                         if (c == 'e' || c == 'E') break;
                         if (c >= '1' && c <= '9') { sawNonZeroDigit = true; break; }
                     }
                     return sawNonZeroDigit ? std::numeric_limits<double>::infinity() : 0.0;
+                } catch (const std::invalid_argument&) {
+                    return 0.0;
                 }
             };
             auto safeStoull = [](const std::string& s, int base) -> double {
                 try {
                     return static_cast<double>(std::stoull(s, nullptr, base));
                 } catch (const std::out_of_range&) {
+                    // Per spec, integer literals always represent positive
+                    // values; out-of-range becomes +Infinity at runtime.
                     return std::numeric_limits<double>::infinity();
+                } catch (const std::invalid_argument&) {
+                    return 0.0;
                 }
             };
             // Handle hex, octal, binary

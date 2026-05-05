@@ -5526,21 +5526,30 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
                 auto getIntFn = module_->getOrInsertFunction("ts_value_get_int", getIntFt);
                 arg = builder_->CreateCall(getIntFt, getIntFn.getCallee(), { arg });
             }
-            else if (arg->getType()->isIntegerTy(64) && expected->isPointerTy())
-                arg = builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+            else if (arg->getType()->isIntegerTy(64) && expected->isPointerTy()) {
+                // i64 -> ptr: box as a properly NaN-boxed TsValue*.
+                // Raw inttoptr would produce ptr null for the value 0
+                // and unaligned junk for small ints — that bypasses
+                // NaN-boxing entirely and breaks every runtime caller
+                // that expects a real boxed value (the discovery case
+                // was Object.defineProperty(obj, +0, {}) where the
+                // numeric prop key arrived as i64 0 and became ptr null).
+                // ts_value_make_int produces the correct NaN-tagged
+                // representation, preserving the boxing scheme.
+                arg = convertArg(arg, ::hir::ArgConversion::Box);
+            }
             else if (arg->getType()->isIntegerTy(1) && expected->isPointerTy()) {
-                // bool -> ptr: zero-extend to i64 then inttoptr
-                arg = builder_->CreateZExt(arg, builder_->getInt64Ty());
-                arg = builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+                // bool -> ptr: box as NaN-tagged TsValue*.
+                arg = convertArg(arg, ::hir::ArgConversion::Box);
             }
             else if (arg->getType()->isDoubleTy() && expected->isPointerTy()) {
                 // f64 -> ptr: box the double value
                 arg = convertArg(arg, ::hir::ArgConversion::Box);
             }
             else if (arg->getType()->isIntegerTy(32) && expected->isPointerTy()) {
-                // i32 -> ptr: sign-extend to i64 then inttoptr
+                // i32 -> ptr: extend to i64 then box.
                 arg = builder_->CreateSExt(arg, builder_->getInt64Ty());
-                arg = builder_->CreateIntToPtr(arg, builder_->getPtrTy());
+                arg = convertArg(arg, ::hir::ArgConversion::Box);
             }
             else if (arg->getType()->isIntegerTy(1) && expected->isDoubleTy()) {
                 // bool -> f64
