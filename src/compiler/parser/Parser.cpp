@@ -592,6 +592,24 @@ ast::NodePtr Parser::parseBindingNameOrPattern() {
                 "via Unicode escape and cannot be used as a binding",
                 fileName_, current_.line));
         }
+        // Per ECMA-262 12.1.1: `await` is not a valid BindingIdentifier
+        // inside an [Await] context (async function body or module). The
+        // lexer maps the `await` keyword to KW_await; in a non-await
+        // context it is allowed (treated as an Identifier when used as
+        // a binding name). Likewise, `yield` is not valid inside a
+        // [Yield] context (generator function body) or strict mode.
+        if (k == TokenKind::KW_await && inAsync_) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'await' is not allowed as a binding "
+                "identifier inside an async function",
+                fileName_, current_.line));
+        }
+        if (k == TokenKind::KW_yield && (inGenerator_ || strictMode_)) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'yield' is not allowed as a binding "
+                "identifier inside a generator function or strict mode",
+                fileName_, current_.line));
+        }
     }
     // Simple identifier
     auto id = std::make_unique<ast::Identifier>();
