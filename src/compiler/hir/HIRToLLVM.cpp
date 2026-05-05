@@ -62,10 +62,14 @@ llvm::Value* HIRToLLVM::boxPrimitiveToPtr(llvm::Value* val) {
     auto* ty = val->getType();
     if (ty->isPointerTy()) return val;
     if (ty->isIntegerTy(1)) {
+        // ts_value_make_bool's canonical signature is `ptr(i32)` (matches
+        // convertArg's Box path). ZExt the i1 to i32 first to avoid a
+        // conflicting `ptr(i1)` declaration in the module.
+        llvm::Value* ext = builder_->CreateZExt(val, builder_->getInt32Ty(), "bool_ext");
         auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
-                                            {builder_->getInt1Ty()}, false);
+                                            {builder_->getInt32Ty()}, false);
         auto bf = module_->getOrInsertFunction("ts_value_make_bool", fnTy);
-        return builder_->CreateCall(fnTy, bf.getCallee(), {val});
+        return builder_->CreateCall(fnTy, bf.getCallee(), {ext});
     }
     if (ty->isIntegerTy(64)) {
         auto fnTy = llvm::FunctionType::get(builder_->getPtrTy(),
@@ -6627,6 +6631,14 @@ void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
     // Operand 1+: regular arguments (boxed TsValue*)
 
     llvm::Value* callablePtr = getOperandValue(inst->operands[0]);
+    // The ts_call_N runtime functions expect a TsValue* (ptr) for the
+    // callee. If the callable arrived here as a primitive (i64/double/i1)
+    // — which happens when a property-access result was inline-decoded
+    // because its HIR type was Int64 by upstream type inference (e.g.
+    // `it.next` whose result type ended up Int64), the verifier rejects
+    // `call ptr @ts_call_N(i64, ...)`. Box the callee so the runtime
+    // sees a TsValue* and can throw a clean "not callable" TypeError.
+    callablePtr = boxPrimitiveToPtr(callablePtr);
 
     // Gather regular arguments - ensure they're boxed for the ts_call_N interface
     std::vector<llvm::Value*> regularArgs;
