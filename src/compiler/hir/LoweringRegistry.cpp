@@ -1396,6 +1396,19 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // object
             .build());
 
+    reg.registerLowering("ts_object_setPrototypeOf",
+        lowering("ts_object_setPrototypeOf")
+            .returnsPtr()
+            .ptrArg()      // object
+            .ptrArg()      // proto (boxed; runtime throws TypeError if non-object/null)
+            .build());
+
+    reg.registerLowering("ts_object_getPrototypeOf",
+        lowering("ts_object_getPrototypeOf")
+            .returnsPtr()
+            .ptrArg()      // object
+            .build());
+
     reg.registerLowering("ts_object_seal",
         lowering("ts_object_seal")
             .returnsPtr()
