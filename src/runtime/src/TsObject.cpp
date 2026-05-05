@@ -2692,6 +2692,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = (TsFunction*)fn;
         func->name = TsString::Create(name);
         func->arity = arity;
+        // Per ECMA-262: built-in prototype methods have no [[Construct]].
+        // `new (new Date()).getDate()` must throw TypeError; isConstructor
+        // must return false. Match the addMethod() helper in TsGlobals.cpp.
+        func->is_constructor = false;
         if (!func->properties) func->properties = TsMap::Create();
         TsValue lk; lk.type = ValueType::STRING_PTR;
         lk.ptr_val = TsString::GetInterned("length");
