@@ -1078,7 +1078,21 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
         // we parse the whole expression to consume tokens and best-effort
         // record the leading identifier as baseClass for analyzer lookups.
         bool simple = false;
-        if (isIdentifierOrKeyword()) {
+        // Only attempt simple-identifier path for actual identifiers;
+        // reserved words like `class`, `function`, `null`, `true`, `false`,
+        // `new`, `super`, `this` are not valid IdentifierReference and must
+        // go through the LHS-expression path so e.g. `extends class {}` is
+        // parsed correctly as an anonymous class expression.
+        if (current_.kind == TokenKind::Identifier ||
+            current_.kind == TokenKind::KW_async ||
+            current_.kind == TokenKind::KW_await ||
+            current_.kind == TokenKind::KW_yield ||
+            current_.kind == TokenKind::KW_of ||
+            current_.kind == TokenKind::KW_from ||
+            current_.kind == TokenKind::KW_as ||
+            current_.kind == TokenKind::KW_get ||
+            current_.kind == TokenKind::KW_set ||
+            current_.kind == TokenKind::KW_type) {
             auto saved = saveState();
             std::string firstName(current_.text);
             advance();
@@ -1107,7 +1121,12 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
             bool lhsStart = current_.kind == TokenKind::Identifier ||
                             check(TokenKind::KW_new) ||
                             check(TokenKind::KW_super) ||
-                            check(TokenKind::KW_this);
+                            check(TokenKind::KW_this) ||
+                            check(TokenKind::KW_class) ||
+                            check(TokenKind::KW_function) ||
+                            check(TokenKind::KW_null) ||
+                            check(TokenKind::KW_true) ||
+                            check(TokenKind::KW_false);
             if (lhsStart) {
                 // Best-effort baseClass: leave empty so analyzer treats
                 // this as no user-defined base; downstream still registers
