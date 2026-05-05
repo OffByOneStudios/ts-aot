@@ -222,7 +222,8 @@ private:
         auto& module = lowerer.module();
 
         llvm::Value* arr = lowerer.getOperandValue(inst->operands[1]);
-        llvm::Value* callback = lowerer.getOperandValue(inst->operands[2]);
+        llvm::Value* callback = lowerer.boxPrimitiveToPtr(
+            lowerer.getOperandValue(inst->operands[2]));
         llvm::Value* thisArg = (inst->operands.size() > 3)
             ? lowerer.boxPrimitiveToPtr(lowerer.getOperandValue(inst->operands[3]))
             : llvm::ConstantPointerNull::get(builder.getPtrTy());
@@ -243,7 +244,8 @@ private:
         auto& module = lowerer.module();
 
         llvm::Value* arr = lowerer.getOperandValue(inst->operands[1]);
-        llvm::Value* callback = lowerer.getOperandValue(inst->operands[2]);
+        llvm::Value* callback = lowerer.boxPrimitiveToPtr(
+            lowerer.getOperandValue(inst->operands[2]));
         llvm::Value* thisArg = (inst->operands.size() > 3)
             ? lowerer.boxPrimitiveToPtr(lowerer.getOperandValue(inst->operands[3]))
             : llvm::ConstantPointerNull::get(builder.getPtrTy());
@@ -263,7 +265,8 @@ private:
         auto& module = lowerer.module();
 
         llvm::Value* arr = lowerer.getOperandValue(inst->operands[1]);
-        llvm::Value* callback = lowerer.getOperandValue(inst->operands[2]);
+        llvm::Value* callback = lowerer.boxPrimitiveToPtr(
+            lowerer.getOperandValue(inst->operands[2]));
         llvm::Value* thisArg = (inst->operands.size() > 3)
             ? lowerer.boxPrimitiveToPtr(lowerer.getOperandValue(inst->operands[3]))
             : llvm::ConstantPointerNull::get(builder.getPtrTy());
