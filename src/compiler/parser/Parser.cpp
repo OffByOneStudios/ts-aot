@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <unordered_set>
 
 namespace ts::parser {
 
@@ -434,10 +435,47 @@ std::unique_ptr<ast::Parameter> Parser::parseParameter() {
 std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList() {
     std::vector<std::unique_ptr<ast::Parameter>> params;
     expect(TokenKind::OpenParen, "'('");
+    // Per ECMA-262 14.1.2: It is a SyntaxError if IsSimpleParameterList of
+    // FormalParameters is false and BoundNames contains any duplicate
+    // elements. We track simple-ness and seen bound names of plain
+    // identifier params; destructuring binding patterns count as
+    // non-simple but we don't enumerate their bound names here.
+    std::unordered_set<std::string> seenIdentNames;
+    bool hasNonSimple = false;
     while (!check(TokenKind::CloseParen) && !isAtEnd()) {
         params.push_back(parseParameter());
-        const bool wasRest = !params.empty() && params.back() &&
-                             params.back()->isRest;
+        auto& p = params.back();
+        const bool wasRest = p && p->isRest;
+        // Determine simple-ness: a single binding-identifier with no
+        // default, no rest, no question mark, and not destructuring.
+        bool paramSimple = false;
+        std::string paramName;
+        if (p && !p->isRest && !p->initializer && !p->isOptional) {
+            if (auto* ident = dynamic_cast<ast::Identifier*>(p->name.get())) {
+                paramSimple = true;
+                paramName = ident->name;
+            }
+        } else if (p && !p->isRest && !p->isOptional) {
+            // has initializer: not simple but still an Identifier name we
+            // can track
+            if (auto* ident = dynamic_cast<ast::Identifier*>(p->name.get())) {
+                paramName = ident->name;
+            }
+        } else if (p && p->isRest) {
+            if (auto* ident = dynamic_cast<ast::Identifier*>(p->name.get())) {
+                paramName = ident->name;
+            }
+        }
+        if (!paramSimple) hasNonSimple = true;
+        if (!paramName.empty()) {
+            if (hasNonSimple && seenIdentNames.count(paramName)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: duplicate parameter name '{}' is not allowed in "
+                    "this context",
+                    current_.line, current_.column, paramName));
+            }
+            seenIdentNames.insert(paramName);
+        }
         if (!check(TokenKind::CloseParen)) {
             // Per ECMA-262 14.1: FunctionRestParameter must not be followed
             // by a trailing comma. `(... a,)` is a SyntaxError in any mode.
