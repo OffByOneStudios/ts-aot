@@ -547,7 +547,12 @@ std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList() {
         }
         if (!paramSimple) hasNonSimple = true;
         if (!paramName.empty()) {
-            if (hasNonSimple && seenIdentNames.count(paramName)) {
+            // Per ECMA-262 14.1.2: duplicates are a SyntaxError when EITHER
+            // (a) the param list is non-simple (has rest, default, optional,
+            // or destructuring), OR (b) we're in strict mode (which class
+            // method bodies always are, per 10.2.1). Without the strict-mode
+            // arm, `class C { foo(a, a) {} }` was silently accepted.
+            if ((hasNonSimple || strictMode_) && seenIdentNames.count(paramName)) {
                 throw std::runtime_error(fmt::format(
                     "{}:{}: duplicate parameter name '{}' is not allowed in "
                     "this context",
