@@ -1946,7 +1946,11 @@ extern "C" {
 
     void* ts_encode_uri_component(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = ts_ensure_flat(str);
+        // ToString-coerce: handle NaN-boxed primitives. ts_ensure_flat
+        // would deref the input as a TsString* magic header and crash on
+        // small-int pointer values (e.g. encodeURIComponent(0)).
+        TsString* s = (TsString*)ts_string_from_value((TsValue*)str);
+        if (!s) s = ts_ensure_flat(str);
         if (!s) return TsString::GetInterned("");
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
@@ -1964,9 +1968,19 @@ extern "C" {
         return TsString::Create(result.c_str());
     }
 
+    // Helper: ToString-coerce a void* arg that may be a NaN-boxed
+    // primitive or a real string pointer. Returns nullptr only if the
+    // input cannot be coerced to a string.
+    static TsString* coerceToString(void* str) {
+        if (!str) return nullptr;
+        TsString* s = (TsString*)ts_string_from_value((TsValue*)str);
+        if (s) return s;
+        return ts_ensure_flat(str);
+    }
+
     void* ts_decode_uri_component(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = ts_ensure_flat(str);
+        TsString* s = coerceToString(str);
         if (!s) return TsString::GetInterned("");
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
@@ -1991,7 +2005,7 @@ extern "C" {
 
     void* ts_encode_uri(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = ts_ensure_flat(str);
+        TsString* s = coerceToString(str);
         if (!s) return TsString::GetInterned("");
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
@@ -2011,7 +2025,7 @@ extern "C" {
 
     void* ts_decode_uri(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = ts_ensure_flat(str);
+        TsString* s = coerceToString(str);
         if (!s) return TsString::GetInterned("");
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
