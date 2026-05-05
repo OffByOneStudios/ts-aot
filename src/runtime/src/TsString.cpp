@@ -2042,7 +2042,12 @@ extern "C" {
 
     void* ts_escape(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = (TsString*)str;
+        // ECMA-262 B.2.1.1 escape coerces its argument via ToString first.
+        // The argument may be a NaN-boxed primitive (number, bool, etc.)
+        // rather than a raw TsString*; route through ts_string_from_value
+        // which handles every TsValue tag.
+        TsString* s = (TsString*)ts_string_from_value((TsValue*)str);
+        if (!s) s = (TsString*)str;  // fallback: assume already a TsString*
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
 
@@ -2063,7 +2068,9 @@ extern "C" {
 
     void* ts_unescape(void* str) {
         if (!str) return TsString::GetInterned("undefined");
-        TsString* s = (TsString*)str;
+        // ECMA-262 B.2.1.2 unescape — same ToString coercion as escape.
+        TsString* s = (TsString*)ts_string_from_value((TsValue*)str);
+        if (!s) s = (TsString*)str;
         const char* utf8 = s->ToUtf8();
         if (!utf8) return TsString::GetInterned("");
 
