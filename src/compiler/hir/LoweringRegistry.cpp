@@ -1409,6 +1409,110 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // object
             .build());
 
+    // Auto-registry batch (2026-05-05): registry entries for runtime
+    // functions that were previously reachable only via the generic
+    // lowerCall fallback path. Without explicit specs, the fallback
+    // fabricated forward-decls from the FIRST callsite's argc and
+    // primitive args were not boxed, causing verifier failures.
+
+    reg.registerLowering("ts_object_defineProperty",
+        lowering("ts_object_defineProperty")
+            .returnsPtr()
+            .ptrArg()      // object
+            .ptrArg()      // prop key
+            .ptrArg()      // descriptor
+            .build());
+
+    reg.registerLowering("ts_object_defineProperties",
+        lowering("ts_object_defineProperties")
+            .returnsPtr()
+            .ptrArg()      // object
+            .ptrArg()      // descriptors
+            .build());
+
+    reg.registerLowering("ts_object_getOwnPropertyDescriptor",
+        lowering("ts_object_getOwnPropertyDescriptor")
+            .returnsPtr()
+            .ptrArg()      // object
+            .ptrArg()      // prop
+            .build());
+
+    reg.registerLowering("ts_object_getOwnPropertyDescriptors",
+        lowering("ts_object_getOwnPropertyDescriptors")
+            .returnsPtr()
+            .ptrArg()      // object
+            .build());
+
+    reg.registerLowering("ts_object_getOwnPropertyNames",
+        lowering("ts_object_getOwnPropertyNames")
+            .returnsPtr()
+            .ptrArg()      // object
+            .build());
+
+    reg.registerLowering("ts_object_groupBy",
+        lowering("ts_object_groupBy")
+            .returnsPtr()
+            .ptrArg()      // iterable
+            .ptrArg()      // callbackFn
+            .build());
+
+    reg.registerLowering("ts_object_is",
+        lowering("ts_object_is")
+            .returnsBool()
+            .ptrArg()      // val1
+            .ptrArg()      // val2
+            .build());
+
+    reg.registerLowering("ts_string_fromCharCode",
+        lowering("ts_string_fromCharCode")
+            .returnsPtr()
+            .ptrArg()      // codePoints array
+            .build());
+
+    reg.registerLowering("ts_string_fromCodePoint",
+        lowering("ts_string_fromCodePoint")
+            .returnsPtr()
+            .ptrArg()      // codePoints array
+            .build());
+
+    reg.registerLowering("ts_string_isWellFormed",
+        lowering("ts_string_isWellFormed")
+            .returnsBool()
+            .ptrArg()      // str
+            .build());
+
+    reg.registerLowering("ts_string_toWellFormed",
+        lowering("ts_string_toWellFormed")
+            .returnsPtr()
+            .ptrArg()      // str
+            .build());
+
+    reg.registerLowering("ts_string_match_regexp",
+        lowering("ts_string_match_regexp")
+            .returnsPtr()
+            .ptrArg()      // str
+            .ptrArg()      // regexp
+            .build());
+
+    reg.registerLowering("ts_string_matchAll_regexp",
+        lowering("ts_string_matchAll_regexp")
+            .returnsPtr()
+            .ptrArg()      // str
+            .ptrArg()      // regexp
+            .build());
+
+    reg.registerLowering("ts_string_toLocaleLowerCase",
+        lowering("ts_string_toLocaleLowerCase")
+            .returnsPtr()
+            .ptrArg()      // str
+            .build());
+
+    reg.registerLowering("ts_string_toLocaleUpperCase",
+        lowering("ts_string_toLocaleUpperCase")
+            .returnsPtr()
+            .ptrArg()      // str
+            .build());
+
     reg.registerLowering("ts_object_seal",
         lowering("ts_object_seal")
             .returnsPtr()
