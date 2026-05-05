@@ -5947,11 +5947,14 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     TsValue* ts_object_getOwnPropertyDescriptor(TsValue* obj, TsValue* prop) {
-        if (!obj || !prop) return ts_value_make_object(nullptr);
+        // Per ECMA-262 19.1.2.6: returns undefined when the property does
+        // not exist (or the receiver isn't an object). Previously returned
+        // ts_value_make_object(nullptr) which is the *null* TsValue.
+        if (!obj || !prop) return ts_value_make_undefined();
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) {
-            return ts_value_make_object(nullptr);  // undefined for non-objects
+            return ts_value_make_undefined();
         }
 
         // Convert flat object to TsMap
@@ -5968,12 +5971,12 @@ TsValue* ts_value_make_int(int64_t i) {
         // properties-TsMap extraction below — no synthetic override needed.
         if (magic == 0x46554E43) { // TsFunction::MAGIC
             TsFunction* func = (TsFunction*)rawPtr;
-            if (!func->properties) return ts_value_make_object(nullptr);
+            if (!func->properties) return ts_value_make_undefined();
             rawPtr = func->properties;
             magic = 0x4D415053;
         } else if (magic == 0x434C5352) { // TsClosure magic
             TsClosure* clos = (TsClosure*)rawPtr;
-            if (!clos->properties) return ts_value_make_object(nullptr);
+            if (!clos->properties) return ts_value_make_undefined();
             rawPtr = clos->properties;
             magic = 0x4D415053;
         }
@@ -5998,9 +6001,9 @@ TsValue* ts_value_make_int(int64_t i) {
                         keyStr = (TsString*)ts_value_get_string(prop);
                     }
                 }
-                if (!keyStr) return ts_value_make_object(nullptr);
+                if (!keyStr) return ts_value_make_undefined();
                 const char* keyCStr = ts_ensure_flat(keyStr)->ToUtf8();
-                if (!keyCStr) return ts_value_make_object(nullptr);
+                if (!keyCStr) return ts_value_make_undefined();
 
                 auto buildDataDesc = [](TsValue val, bool writable, bool enumerable, bool configurable) -> TsValue* {
                     TsMap* d = TsMap::Create();
@@ -6040,12 +6043,12 @@ TsValue* ts_value_make_int(int64_t i) {
                         return buildDataDesc(v, (a & 0x02) != 0, (a & 0x01) != 0, (a & 0x04) != 0);
                     }
                 }
-                return ts_value_make_object(nullptr);
+                return ts_value_make_undefined();
             }
         }
 
         if (magic != 0x4D415053) {
-            return ts_value_make_object(nullptr);  // undefined for non-objects
+            return ts_value_make_undefined();  // undefined for non-objects
         }
 
         TsMap* map = (TsMap*)rawPtr;
@@ -6110,7 +6113,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check if property exists
         if (!map->Has(propKey)) {
-            return ts_value_make_object(nullptr);  // undefined if not found
+            return ts_value_make_undefined();  // per ECMA-262 19.1.2.6
         }
 
         TsValue value = map->Get(propKey);
