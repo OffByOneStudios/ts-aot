@@ -125,3 +125,4 @@ tests/test262/.smoke_baseline.json
 .claude/CLAUDE.local.md
 .claude/settings.local.json
 .claude/**/*.local.*
+.claude/scheduled_tasks.lock
