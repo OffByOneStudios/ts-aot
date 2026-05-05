@@ -6628,29 +6628,20 @@ void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
 
     llvm::Value* callablePtr = getOperandValue(inst->operands[0]);
 
+    // The ts_call_N runtime functions expect a TsValue* (ptr) for the
+    // callee. If the callable arrived here as a primitive (i64/double/i1)
+    // — which happens when a property-access result was inline-decoded
+    // because its HIR type was Int64 by upstream type inference, e.g.
+    // `it.next` where `next` was wrongly typed numeric — box it back to
+    // a TsValue*. The runtime will detect the non-callable and throw
+    // TypeError at runtime, instead of failing the LLVM verifier here.
+    callablePtr = boxPrimitiveToPtr(callablePtr);
+
     // Gather regular arguments - ensure they're boxed for the ts_call_N interface
     std::vector<llvm::Value*> regularArgs;
     for (size_t i = 1; i < inst->operands.size(); ++i) {
         llvm::Value* arg = getOperandValue(inst->operands[i]);
-        // Box the argument if it's not already a pointer
-        if (!arg->getType()->isPointerTy()) {
-            if (arg->getType()->isDoubleTy()) {
-                auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
-                auto boxFn = module_->getOrInsertFunction("ts_value_make_double", boxFt);
-                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg });
-            } else if (arg->getType()->isIntegerTy(64)) {
-                auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
-                auto boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFt);
-                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { arg });
-            } else if (arg->getType()->isIntegerTy(1)) {
-                // Convert i1 to i64 for boxing
-                llvm::Value* extended = builder_->CreateZExt(arg, builder_->getInt64Ty());
-                auto boxFt = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
-                auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", boxFt);
-                arg = builder_->CreateCall(boxFt, boxFn.getCallee(), { extended });
-            }
-        }
-        regularArgs.push_back(arg);
+        regularArgs.push_back(boxPrimitiveToPtr(arg));
     }
 
     // Use ts_call_N based on argument count
