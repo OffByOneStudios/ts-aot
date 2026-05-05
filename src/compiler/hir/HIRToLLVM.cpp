@@ -4362,6 +4362,19 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
                 }
             }
         }
+        // Coerce non-i64 numeric/boolean indices up-front. Boolean
+        // indices (`x[true]`) come through as i1; smaller integer
+        // widths (i32) need extension; doubles (numeric literals)
+        // need fp-to-si conversion.
+        if (idx->getType()->isDoubleTy()) {
+            idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+        } else if (idx->getType()->isIntegerTy(1)) {
+            idx = builder_->CreateZExt(idx, builder_->getInt64Ty(), "idx_to_i64");
+        } else if (idx->getType()->isIntegerTy() &&
+                   !idx->getType()->isIntegerTy(64)) {
+            idx = builder_->CreateSExtOrTrunc(idx, builder_->getInt64Ty(),
+                                              "idx_to_i64");
+        }
         if (isBuffer) {
             // Buffer index access: buf[i] -> ts_buffer_read_uint8(buf, i)
             if (idx->getType()->isDoubleTy()) {
@@ -4491,9 +4504,17 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
             }
         }
 
-        // Convert index to i64 if it's a double (numeric literal indices come through as f64)
+        // Coerce index to i64. Numeric literal indices come through as f64;
+        // boolean primitives (`x[true] = 1`) come through as i1; smaller
+        // integer widths (i32) need extension.
         if (idx->getType()->isDoubleTy()) {
             idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+        } else if (idx->getType()->isIntegerTy(1)) {
+            idx = builder_->CreateZExt(idx, builder_->getInt64Ty(), "idx_to_i64");
+        } else if (idx->getType()->isIntegerTy() &&
+                   !idx->getType()->isIntegerTy(64)) {
+            idx = builder_->CreateSExtOrTrunc(idx, builder_->getInt64Ty(),
+                                              "idx_to_i64");
         }
 
         if (isBuffer) {

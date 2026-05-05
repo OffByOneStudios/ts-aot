@@ -224,7 +224,7 @@ private:
         llvm::Value* arr = lowerer.getOperandValue(inst->operands[1]);
         llvm::Value* callback = lowerer.getOperandValue(inst->operands[2]);
         llvm::Value* thisArg = (inst->operands.size() > 3)
-            ? lowerer.getOperandValue(inst->operands[3])
+            ? lowerer.boxPrimitiveToPtr(lowerer.getOperandValue(inst->operands[3]))
             : llvm::ConstantPointerNull::get(builder.getPtrTy());
 
         // Pass the raw closure pointer - runtime will check ts_is_closure and handle it
@@ -245,7 +245,7 @@ private:
         llvm::Value* arr = lowerer.getOperandValue(inst->operands[1]);
         llvm::Value* callback = lowerer.getOperandValue(inst->operands[2]);
         llvm::Value* thisArg = (inst->operands.size() > 3)
-            ? lowerer.getOperandValue(inst->operands[3])
+            ? lowerer.boxPrimitiveToPtr(lowerer.getOperandValue(inst->operands[3]))
             : llvm::ConstantPointerNull::get(builder.getPtrTy());
 
         llvm::FunctionType* ft = llvm::FunctionType::get(
@@ -265,7 +265,7 @@ private:
         llvm::Value* arr = lowerer.getOperandValue(inst->operands[1]);
         llvm::Value* callback = lowerer.getOperandValue(inst->operands[2]);
         llvm::Value* thisArg = (inst->operands.size() > 3)
-            ? lowerer.getOperandValue(inst->operands[3])
+            ? lowerer.boxPrimitiveToPtr(lowerer.getOperandValue(inst->operands[3]))
             : llvm::ConstantPointerNull::get(builder.getPtrTy());
 
         llvm::FunctionType* ft = llvm::FunctionType::get(
