@@ -996,6 +996,51 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
     }
 
     restoreState(saved);
+
+    // `async ident => body` — single-identifier async arrow without
+    // parens. Per ECMA-262 14.7 AsyncArrowFunction, the param-list may
+    // be a single binding identifier in this form. After restoreState,
+    // we're at the position right after the leading `async` token (saved
+    // was captured post-advance at line 949), so check for ident => here
+    // before falling through to the `(`-expecting branch below. This
+    // branch sits *before* the "Re-consume 'async'" advance so we don't
+    // misalign the cursor.
+    if (isAsync &&
+        (current_.kind == TokenKind::Identifier ||
+         isContextualKeywordAsIdentifier(current_.kind)) &&
+        !current_.hadNewlineBefore) {
+        auto identTok = current_;
+        auto saved2 = saveState();
+        advance();
+        if (check(TokenKind::Arrow) && !current_.hadNewlineBefore) {
+            advance(); // =>
+            auto arrow = std::make_unique<ast::ArrowFunction>();
+            setLocation(arrow.get(), startTok);
+            arrow->isAsync = true;
+            auto param = std::make_unique<ast::Parameter>();
+            setLocation(param.get(), identTok);
+            auto id = std::make_unique<ast::Identifier>();
+            id->name = std::string(identTok.text);
+            setLocation(id.get(), identTok);
+            param->name = std::move(id);
+            arrow->parameters.push_back(std::move(param));
+
+            bool prevAsync = inAsync_;
+            StrictModeGuard sg(this);
+            inAsync_ = true;
+            functionDepth_++;
+            if (check(TokenKind::OpenBrace)) {
+                arrow->body = parseBlockStatement();
+            } else {
+                arrow->body = parseAssignmentExpression();
+            }
+            functionDepth_--;
+            inAsync_ = prevAsync;
+            return arrow;
+        }
+        restoreState(saved2);
+    }
+
     if (isAsync) {
         // Re-consume 'async'
         advance(); // async
