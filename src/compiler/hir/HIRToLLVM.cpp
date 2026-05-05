@@ -5196,6 +5196,42 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     }
 
     // Generic function call
+    // First, if the HIR module has a function whose unmangled name matches
+    // funcName but whose mangledName differs (e.g., counter-form `inner_0`
+    // produced by Monomorphizer for nested user functions), retarget
+    // funcName to the mangled name so the call site resolves to the real
+    // definition rather than creating a dangling external declaration
+    // under the bare name.
+    if (!module_->getFunction(funcName) && hirModule_) {
+        // Counter-mangled match: funcName="inner" matches hirFn->name="inner_0"
+        // (ASTToHIR appends `_<digits>` to nested function declarations to
+        // disambiguate from possible same-named hoisted siblings). The
+        // call site is emitted with the bare name; without retargeting,
+        // we'd create a dangling external declaration `@inner` that the
+        // linker can't resolve.
+        auto isCounterSuffix = [](const std::string& full,
+                                   const std::string& base) {
+            if (full.size() <= base.size() + 1) return false;
+            if (full.compare(0, base.size(), base) != 0) return false;
+            if (full[base.size()] != '_') return false;
+            for (size_t i = base.size() + 1; i < full.size(); ++i) {
+                if (!std::isdigit(static_cast<unsigned char>(full[i])))
+                    return false;
+            }
+            return true;
+        };
+        for (const auto& hirFn : hirModule_->functions) {
+            const std::string& hn = hirFn->name;
+            bool simpleMatch = (hn == funcName);
+            bool counterMatch = isCounterSuffix(hn, funcName);
+            if ((simpleMatch || counterMatch) &&
+                !hirFn->mangledName.empty() &&
+                hirFn->mangledName != funcName) {
+                funcName = hirFn->mangledName;
+                break;
+            }
+        }
+    }
     llvm::Function* fn = module_->getFunction(funcName);
     if (!fn) {
         // Function not yet in LLVM module. Try to find it in the HIR module
@@ -5212,7 +5248,13 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
                     }
                     llvm::Type* retTy = hirFn->returnType ? getLLVMType(hirFn->returnType) : builder_->getPtrTy();
                     llvm::FunctionType* ft = llvm::FunctionType::get(retTy, paramTypes, false);
-                    fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
+                    // Always use the mangled name so the forward declaration
+                    // matches the eventual definition's symbol.
+                    const std::string& declName = hirFn->mangledName.empty()
+                        ? funcName
+                        : hirFn->mangledName;
+                    fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, declName, module_.get());
+                    funcName = declName;
                     foundInHIR = true;
                     break;
                 }
