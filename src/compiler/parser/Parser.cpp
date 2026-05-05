@@ -428,7 +428,16 @@ std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList() {
     expect(TokenKind::OpenParen, "'('");
     while (!check(TokenKind::CloseParen) && !isAtEnd()) {
         params.push_back(parseParameter());
+        const bool wasRest = !params.empty() && params.back() &&
+                             params.back()->isRest;
         if (!check(TokenKind::CloseParen)) {
+            // Per ECMA-262 14.1: FunctionRestParameter must not be followed
+            // by a trailing comma. `(... a,)` is a SyntaxError in any mode.
+            if (wasRest && check(TokenKind::Comma)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: rest parameter must not be followed by a trailing comma",
+                    current_.line, current_.column));
+            }
             expect(TokenKind::Comma, "','");
         }
     }
