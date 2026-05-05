@@ -1065,6 +1065,19 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 argTypeOffset = 1;  // Skip 'this' in spec.argTypes for regular params
             }
 
+            // Collect destructured parameter patterns so we can emit the
+            // extraction (get_elem / get_prop) code at method entry — same
+            // shape as the FunctionDeclaration path above. Without this,
+            // `class C { method([x, y, z]) {} }` produces a HIR function
+            // with a single `param0` and no destructuring, leaving x/y/z
+            // unbound and crashing on use.
+            struct MethDestructuredParam {
+                size_t paramIndex;
+                ast::ObjectBindingPattern* objPattern = nullptr;
+                ast::ArrayBindingPattern* arrPattern = nullptr;
+            };
+            std::vector<MethDestructuredParam> methDestructuredParams;
+
             // Handle regular parameters
             for (size_t paramIdx = 0; paramIdx < methodNode->parameters.size(); ++paramIdx) {
                 auto& param = methodNode->parameters[paramIdx];
@@ -1081,6 +1094,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 std::string paramName;
                 if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
                     paramName = ident->name;
+                } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(param->name.get())) {
+                    paramName = "param" + std::to_string(func->params.size());
+                    paramType = HIRType::makeAny();
+                    methDestructuredParams.push_back({func->params.size(), objPat, nullptr});
+                } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(param->name.get())) {
+                    paramName = "param" + std::to_string(func->params.size());
+                    paramType = HIRType::makeAny();
+                    methDestructuredParams.push_back({func->params.size(), nullptr, arrPat});
                 } else {
                     paramName = "param" + std::to_string(func->params.size());
                 }
@@ -1129,6 +1150,22 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 auto allocaVal = builder_.createAlloca(paramType);
                 builder_.createStore(paramValue, allocaVal);
                 defineVariableAlloca(paramName, allocaVal, paramType);
+            }
+
+            // Emit destructuring extraction for parameters with binding
+            // patterns. Mirrors the FunctionDeclaration path above; without
+            // this, class `method([x, y, z]) {}` would receive `param0` but
+            // never bind x/y/z, crashing on use.
+            for (auto& dp : methDestructuredParams) {
+                auto paramValue = std::make_shared<HIRValue>(
+                    static_cast<uint32_t>(dp.paramIndex),
+                    HIRType::makeAny(),
+                    methPtr->params[dp.paramIndex].first);
+                if (dp.objPattern) {
+                    lowerObjectBindingPattern(dp.objPattern, paramValue);
+                } else if (dp.arrPattern) {
+                    lowerArrayBindingPattern(dp.arrPattern, paramValue);
+                }
             }
 
             // For constructors of imported classes, emit field initializers
@@ -9069,6 +9106,18 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 func->params.push_back({"this", HIRType::makeObject()});
             }
 
+            // Collect destructured parameter patterns so we can emit
+            // extraction at method entry — without this, `class C {
+            // method([x, y, z]) {} }` produces a method with a single
+            // `paramN` and no destructuring, leaving x/y/z unbound and
+            // crashing on use. Mirrors the FunctionDeclaration handling.
+            struct CClsDestructuredParam {
+                size_t paramIndex;
+                ast::ObjectBindingPattern* objPattern = nullptr;
+                ast::ArrayBindingPattern* arrPattern = nullptr;
+            };
+            std::vector<CClsDestructuredParam> ccDestructuredParams;
+
             // Add explicit parameters
             for (auto& param : methodDef->parameters) {
                 auto paramType = param->type.empty()
@@ -9078,6 +9127,14 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 std::string paramName;
                 if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
                     paramName = ident->name;
+                } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(param->name.get())) {
+                    paramName = "param" + std::to_string(func->params.size());
+                    paramType = HIRType::makeAny();
+                    ccDestructuredParams.push_back({func->params.size(), objPat, nullptr});
+                } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(param->name.get())) {
+                    paramName = "param" + std::to_string(func->params.size());
+                    paramType = HIRType::makeAny();
+                    ccDestructuredParams.push_back({func->params.size(), nullptr, arrPat});
                 } else {
                     paramName = "param" + std::to_string(func->params.size());
                 }
@@ -9113,6 +9170,20 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 defineVariable(paramName, paramValue);
             }
             func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+            // Emit destructuring extraction for parameters with binding
+            // patterns (mirrors the FunctionDeclaration path).
+            for (auto& dp : ccDestructuredParams) {
+                auto paramValue = std::make_shared<HIRValue>(
+                    static_cast<uint32_t>(dp.paramIndex),
+                    HIRType::makeAny(),
+                    func->params[dp.paramIndex].first);
+                if (dp.objPattern) {
+                    lowerObjectBindingPattern(dp.objPattern, paramValue);
+                } else if (dp.arrPattern) {
+                    lowerArrayBindingPattern(dp.arrPattern, paramValue);
+                }
+            }
 
             // For constructors, initialize instance property default values before user code
             if (methodDef->name == "constructor") {
@@ -9478,6 +9549,18 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 func->params.push_back({"this", HIRType::makeObject()});
             }
 
+            // Collect destructured parameter patterns so we can emit
+            // extraction at method entry — without this, `class C {
+            // method([x, y, z]) {} }` produces a method with a single
+            // `paramN` and no destructuring, leaving x/y/z unbound and
+            // crashing on use. Mirrors the FunctionDeclaration handling.
+            struct CClsDestructuredParam {
+                size_t paramIndex;
+                ast::ObjectBindingPattern* objPattern = nullptr;
+                ast::ArrayBindingPattern* arrPattern = nullptr;
+            };
+            std::vector<CClsDestructuredParam> ccDestructuredParams;
+
             // Add explicit parameters
             for (auto& param : methodDef->parameters) {
                 auto paramType = param->type.empty()
@@ -9487,6 +9570,14 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 std::string paramName;
                 if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
                     paramName = ident->name;
+                } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(param->name.get())) {
+                    paramName = "param" + std::to_string(func->params.size());
+                    paramType = HIRType::makeAny();
+                    ccDestructuredParams.push_back({func->params.size(), objPat, nullptr});
+                } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(param->name.get())) {
+                    paramName = "param" + std::to_string(func->params.size());
+                    paramType = HIRType::makeAny();
+                    ccDestructuredParams.push_back({func->params.size(), nullptr, arrPat});
                 } else {
                     paramName = "param" + std::to_string(func->params.size());
                 }
@@ -9522,6 +9613,20 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 defineVariable(paramName, paramValue);
             }
             func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+            // Emit destructuring extraction for parameters with binding
+            // patterns (mirrors the FunctionDeclaration path).
+            for (auto& dp : ccDestructuredParams) {
+                auto paramValue = std::make_shared<HIRValue>(
+                    static_cast<uint32_t>(dp.paramIndex),
+                    HIRType::makeAny(),
+                    func->params[dp.paramIndex].first);
+                if (dp.objPattern) {
+                    lowerObjectBindingPattern(dp.objPattern, paramValue);
+                } else if (dp.arrPattern) {
+                    lowerArrayBindingPattern(dp.arrPattern, paramValue);
+                }
+            }
 
             // For constructors, initialize instance property default values before user code
             if (methodDef->name == "constructor") {
