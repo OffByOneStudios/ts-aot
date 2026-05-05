@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <cstdlib>
 #include <cmath>
+#include <limits>
 
 namespace ts::parser {
 
@@ -615,24 +616,59 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             auto node = std::make_unique<ast::NumericLiteral>();
             setLocation(node.get(), tok);
             std::string text(tok.text);
+            // Per ECMA-262 12.8.3 NumericValue, literals that exceed the
+            // double range round to +Infinity (or 0 for underflow). std::stod
+            // throws std::out_of_range in those cases; std::stoull throws
+            // for hex/oct/bin literals beyond uint64. Catch and clamp.
+            auto safeStod = [](const std::string& s) -> double {
+                try {
+                    return std::stod(s);
+                } catch (const std::out_of_range&) {
+                    // Underflow returns 0 (errno==ERANGE with HUGE_VAL=0);
+                    // overflow returns +Inf. stod throws for both, so
+                    // distinguish by parsing as long-double and checking
+                    // magnitude. Cheaper proxy: if the mantissa portion
+                    // has a leading non-zero digit, treat as overflow.
+                    bool sawNonZeroDigit = false;
+                    bool sawDot = false;
+                    for (char c : s) {
+                        if (c == '.') { sawDot = true; continue; }
+                        if (c == 'e' || c == 'E') break;
+                        if (c >= '1' && c <= '9') { sawNonZeroDigit = true; break; }
+                    }
+                    return sawNonZeroDigit ? std::numeric_limits<double>::infinity() : 0.0;
+                } catch (const std::invalid_argument&) {
+                    return 0.0;
+                }
+            };
+            auto safeStoull = [](const std::string& s, int base) -> double {
+                try {
+                    return static_cast<double>(std::stoull(s, nullptr, base));
+                } catch (const std::out_of_range&) {
+                    // Per spec, integer literals always represent positive
+                    // values; out-of-range becomes +Infinity at runtime.
+                    return std::numeric_limits<double>::infinity();
+                } catch (const std::invalid_argument&) {
+                    return 0.0;
+                }
+            };
             // Handle hex, octal, binary
             if (text.size() > 1 && text[0] == '0') {
                 if (text[1] == 'x' || text[1] == 'X') {
-                    node->value = static_cast<double>(std::stoull(text, nullptr, 16));
+                    node->value = safeStoull(text, 16);
                 } else if (text[1] == 'o' || text[1] == 'O') {
-                    node->value = static_cast<double>(std::stoull(text, nullptr, 8));
+                    node->value = safeStoull(text, 8);
                 } else if (text[1] == 'b' || text[1] == 'B') {
-                    node->value = static_cast<double>(std::stoull(text, nullptr, 2));
+                    node->value = safeStoull(text, 2);
                 } else {
-                    // Remove underscores for numeric separators
                     std::string clean;
                     for (char c : text) if (c != '_') clean += c;
-                    node->value = std::stod(clean);
+                    node->value = safeStod(clean);
                 }
             } else {
                 std::string clean;
                 for (char c : text) if (c != '_') clean += c;
-                node->value = std::stod(clean);
+                node->value = safeStod(clean);
             }
             return node;
         }
