@@ -815,15 +815,31 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
                 restoreState(saved);
             }
             // ES262 13.3.1: in non-strict mode, `let` is an Identifier
-            // when not followed by a BindingIdentifier/`[`/`{`. Tests like
-            // `let = 1; let.x = 2; [let][0];` rely on this.
+            // when not followed by a BindingIdentifier/`[`/`{`.
+            // BindingIdentifier includes contextual keywords like
+            // `async`, `await`, `yield`, `of`, `from`, `let` (recursive),
+            // etc., that can appear as identifiers — so the lookahead
+            // must accept those too.
             if (current_.kind == TokenKind::KW_let && !strictMode_) {
                 auto saved = saveState();
                 advance();
+                TokenKind k = current_.kind;
                 bool looksLikeDecl =
-                    current_.kind == TokenKind::Identifier ||
-                    current_.kind == TokenKind::OpenBracket ||
-                    current_.kind == TokenKind::OpenBrace;
+                    k == TokenKind::Identifier ||
+                    k == TokenKind::OpenBracket ||
+                    k == TokenKind::OpenBrace ||
+                    // Contextual keywords usable as BindingIdentifier:
+                    k == TokenKind::KW_async || k == TokenKind::KW_await ||
+                    k == TokenKind::KW_yield || k == TokenKind::KW_of ||
+                    k == TokenKind::KW_from || k == TokenKind::KW_as ||
+                    k == TokenKind::KW_get || k == TokenKind::KW_set ||
+                    k == TokenKind::KW_let || k == TokenKind::KW_static ||
+                    k == TokenKind::KW_type || k == TokenKind::KW_module ||
+                    k == TokenKind::KW_namespace || k == TokenKind::KW_interface ||
+                    k == TokenKind::KW_declare || k == TokenKind::KW_abstract ||
+                    k == TokenKind::KW_readonly || k == TokenKind::KW_implements ||
+                    k == TokenKind::KW_public || k == TokenKind::KW_private ||
+                    k == TokenKind::KW_protected;
                 restoreState(saved);
                 if (!looksLikeDecl) {
                     result = parseLabeledOrExpressionStatement();
@@ -1504,17 +1520,40 @@ ast::StmtPtr Parser::parseForStatement() {
     // entirely so this only matters non-strict.
     bool isLetAsIdent = false;
     if (current_.kind == TokenKind::KW_let && !strictMode_) {
-        // Look at next token to decide.
+        // Look at next token. Per ES262 13.7.4, in `for (`, `let X` /
+        // `let [` / `let {` is a LexicalDeclaration; anything else
+        // (`let =`, `let ;`, `let .`, `let in`, `let of`) means `let`
+        // is an IdentifierReference.
+        // Special case: `for (let of [])` — spec disallows `let` as
+        // LHS in for-of (lookahead ≠ let). We treat it as identifier
+        // and emit the spec SyntaxError later.
         auto saved = saveState();
         advance();
-        // `let [` is a binding-pattern declaration; `let X` is normal.
-        // Anything else (`let =`, `let ;`, `let .`, `let in`, `let of`)
-        // means the `let` was an IdentifierReference, not a declaration.
+        TokenKind k = current_.kind;
         bool looksLikeDecl =
-            current_.kind == TokenKind::Identifier ||
-            current_.kind == TokenKind::OpenBracket ||
-            current_.kind == TokenKind::OpenBrace;
+            k == TokenKind::Identifier ||
+            k == TokenKind::OpenBracket ||
+            k == TokenKind::OpenBrace ||
+            k == TokenKind::KW_async || k == TokenKind::KW_await ||
+            k == TokenKind::KW_yield || k == TokenKind::KW_from ||
+            k == TokenKind::KW_as || k == TokenKind::KW_get ||
+            k == TokenKind::KW_set || k == TokenKind::KW_static ||
+            k == TokenKind::KW_type || k == TokenKind::KW_module ||
+            k == TokenKind::KW_namespace || k == TokenKind::KW_interface ||
+            k == TokenKind::KW_declare || k == TokenKind::KW_abstract ||
+            k == TokenKind::KW_readonly || k == TokenKind::KW_implements ||
+            k == TokenKind::KW_public || k == TokenKind::KW_private ||
+            k == TokenKind::KW_protected;
+        // NOTE: KW_of intentionally not in the list — `for (let of [])`
+        // is a spec parse error (`let` cannot be LHS of for-of).
+        bool letFollowedByOf = (k == TokenKind::KW_of);
         restoreState(saved);
+        if (letFollowedByOf) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'let' cannot be the LeftHandSide of "
+                "a for-of loop (ES262 13.7.5)",
+                fileName_, current_.line));
+        }
         isLetAsIdent = !looksLikeDecl;
     }
 
