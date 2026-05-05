@@ -18,6 +18,17 @@ bool Parser::processPrologueDirective(const ast::StmtPtr& stmt) {
     if (!strLit) return false;
     if (strLit->value == "use strict") {
         strictMode_ = true;
+        sawUseStrictDirective_ = true;
+    }
+    return true;
+}
+
+bool Parser::isParameterListSimple(
+    const std::vector<std::unique_ptr<ast::Parameter>>& params) const {
+    for (const auto& p : params) {
+        if (!p) continue;
+        if (p->isRest || p->initializer || p->isOptional) return false;
+        if (!dynamic_cast<ast::Identifier*>(p->name.get())) return false;
     }
     return true;
 }
@@ -1030,6 +1041,8 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         inAsync_ = node->isAsync;
         inGenerator_ = node->isGenerator;
         functionDepth_++;
+        bool prevSawUseStrict = sawUseStrictDirective_;
+        sawUseStrictDirective_ = false;
 
         expect(TokenKind::OpenBrace, "'{'");
         bool inPrologue = true;
@@ -1043,6 +1056,18 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
             }
         }
         expect(TokenKind::CloseBrace, "'}'");
+
+        // Per ECMA-262 14.1.1: It is a SyntaxError if ContainsUseStrict of
+        // FunctionBody is true and IsSimpleParameterList of FormalParameters
+        // is false.
+        if (sawUseStrictDirective_ &&
+            !isParameterListSimple(node->parameters)) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: function with non-simple parameter list may not "
+                "declare \"use strict\"",
+                current_.line, current_.column));
+        }
+        sawUseStrictDirective_ = prevSawUseStrict;
 
         functionDepth_--;
         inAsync_ = prevAsync;
@@ -1464,6 +1489,8 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         inAsync_ = method->isAsync;
         inGenerator_ = method->isGenerator;
         functionDepth_++;
+        bool prevSawUseStrict = sawUseStrictDirective_;
+        sawUseStrictDirective_ = false;
 
         expect(TokenKind::OpenBrace, "'{'");
         bool inPrologue = true;
@@ -1477,6 +1504,15 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
             }
         }
         expect(TokenKind::CloseBrace, "'}'");
+
+        if (sawUseStrictDirective_ &&
+            !isParameterListSimple(method->parameters)) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: method with non-simple parameter list may not "
+                "declare \"use strict\"",
+                current_.line, current_.column));
+        }
+        sawUseStrictDirective_ = prevSawUseStrict;
 
         functionDepth_--;
         inAsync_ = prevAsync;

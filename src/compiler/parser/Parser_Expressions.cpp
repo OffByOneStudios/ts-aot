@@ -1336,6 +1336,8 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     inAsync_ = node->isAsync;
     inGenerator_ = node->isGenerator;
     functionDepth_++;
+    bool prevSawUseStrict = sawUseStrictDirective_;
+    sawUseStrictDirective_ = false;
 
     expect(TokenKind::OpenBrace, "'{'");
     bool inPrologue = true;
@@ -1349,6 +1351,15 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
         }
     }
     expect(TokenKind::CloseBrace, "'}'");
+
+    if (sawUseStrictDirective_ &&
+        !isParameterListSimple(node->parameters)) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: function with non-simple parameter list may not "
+            "declare \"use strict\"",
+            current_.line, current_.column));
+    }
+    sawUseStrictDirective_ = prevSawUseStrict;
 
     functionDepth_--;
     inAsync_ = prevAsync;

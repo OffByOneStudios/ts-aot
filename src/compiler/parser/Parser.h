@@ -162,6 +162,7 @@ private:
     bool inGenerator_ = false;  // Inside generator function?
     bool noIn_ = false;         // Suppress 'in' as binary operator (for-loop initializers)
     bool strictMode_ = false;   // Effective strict mode (set after "use strict" prologue)
+    bool sawUseStrictDirective_ = false;  // Did the most-recently-parsed body contain a "use strict" directive?
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
     int errorCount_ = 0;       // Parse-time errors (redeclaration, etc.)
 
@@ -184,6 +185,11 @@ private:
     // StringLiteral). Side effect: if the literal text is "use strict",
     // sets strictMode_ = true.
     bool processPrologueDirective(const ast::StmtPtr& stmt);
+    // Returns true iff `params` is a SimpleParameterList per ECMA-262 14.1
+    // (single binding-identifier per param, no rest, no default, no
+    // destructuring, no optional `?`).
+    bool isParameterListSimple(
+        const std::vector<std::unique_ptr<ast::Parameter>>& params) const;
 public:
     int getErrorCount() const {
         // Include lexer errors if lexer exists
