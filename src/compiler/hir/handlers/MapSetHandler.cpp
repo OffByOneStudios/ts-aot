@@ -168,49 +168,14 @@ private:
     // Boxing helper for Map/Set operations
     // These need TsValue* so we must box primitives AND strings
     //==========================================================================
+    // Delegate to the canonical coercion helper. Previously this had its
+    // own switch over LLVM types + HIR-type lookup; that logic is now
+    // duplicated in HIRToLLVM::coerceArgToType. Routing through the
+    // single source of truth keeps Map/Set arg boxing aligned with
+    // every other ptr-typed runtime call site.
     llvm::Value* boxForMapSet(llvm::Value* val, const HIROperand& operand, HIRToLLVM& lowerer) {
-        auto& builder = lowerer.builder();
-        auto& module = lowerer.module();
-
-        // Get HIR type from operand
-        std::shared_ptr<HIRType> hirType = nullptr;
-        if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&operand)) {
-            if (*valPtr) hirType = (*valPtr)->type;
-        }
-
-        if (!val->getType()->isPointerTy()) {
-            // Primitive types - box based on LLVM type
-            if (val->getType()->isIntegerTy(64)) {
-                auto boxFn = lowerer.getTsValueMakeInt();
-                return builder.CreateCall(boxFn, {val});
-            } else if (val->getType()->isDoubleTy()) {
-                auto boxFn = lowerer.getTsValueMakeDouble();
-                return builder.CreateCall(boxFn, {val});
-            } else if (val->getType()->isIntegerTy(1)) {
-                auto boxFn = lowerer.getTsValueMakeBool();
-                llvm::Value* extended = builder.CreateZExt(val, builder.getInt32Ty());
-                return builder.CreateCall(boxFn, {extended});
-            }
-        } else {
-            // Pointer type - check HIR type to determine boxing method
-            if (hirType && hirType->kind == HIRTypeKind::String) {
-                // Box string with ts_value_make_string
-                llvm::FunctionType* ft = llvm::FunctionType::get(
-                    builder.getPtrTy(), { builder.getPtrTy() }, false);
-                llvm::FunctionCallee fn = module.getOrInsertFunction("ts_value_make_string", ft);
-                return builder.CreateCall(ft, fn.getCallee(), { val });
-            } else if (hirType && (hirType->kind == HIRTypeKind::Object ||
-                                   hirType->kind == HIRTypeKind::Class ||
-                                   hirType->kind == HIRTypeKind::Array)) {
-                // Box object with ts_value_make_object
-                llvm::FunctionType* ft = llvm::FunctionType::get(
-                    builder.getPtrTy(), { builder.getPtrTy() }, false);
-                llvm::FunctionCallee fn = module.getOrInsertFunction("ts_value_make_object", ft);
-                return builder.CreateCall(ft, fn.getCallee(), { val });
-            }
-            // If no HIR type info, assume it's already boxed or an object pointer
-        }
-        return val;
+        return lowerer.coerceArgToType(val, lowerer.builder().getPtrTy(),
+                                       operand, /*calleeParamType=*/nullptr);
     }
 
     //==========================================================================

@@ -102,7 +102,7 @@ private:
         // directly). The runtime ts_array_concat distinguishes via magic.
         for (size_t i = 2; i < inst->operands.size(); ++i) {
             llvm::Value* other = lowerer.getOperandValue(inst->operands[i]);
-            other = boxValue(other, lowerer);
+            other = boxValue(other, lowerer, &inst->operands[i]);
             result = builder.CreateCall(ft, fn.getCallee(), { result, other });
         }
 
@@ -125,7 +125,7 @@ private:
         llvm::Value* result = nullptr;
         for (size_t i = 2; i < inst->operands.size(); ++i) {
             llvm::Value* val = lowerer.getOperandValue(inst->operands[i]);
-            val = boxValue(val, lowerer);
+            val = boxValue(val, lowerer, &inst->operands[i]);
             result = builder.CreateCall(ft, fn.getCallee(), { arr, val });
         }
         // Zero-arg push returns current length — produce it via a fallback call
@@ -153,7 +153,7 @@ private:
         llvm::Value* result = nullptr;
         for (size_t i = inst->operands.size(); i > 2; --i) {
             llvm::Value* val = lowerer.getOperandValue(inst->operands[i - 1]);
-            val = boxValue(val, lowerer);
+            val = boxValue(val, lowerer, &inst->operands[i - 1]);
             result = builder.CreateCall(ft, fn.getCallee(), { arr, val });
         }
         if (!result) {
@@ -199,7 +199,7 @@ private:
             auto pushFn = module.getOrInsertFunction("ts_array_push", pushFt);
             for (size_t i = 4; i < inst->operands.size(); ++i) {
                 llvm::Value* item = lowerer.getOperandValue(inst->operands[i]);
-                item = boxValue(item, lowerer);
+                item = boxValue(item, lowerer, &inst->operands[i]);
                 builder.CreateCall(pushFt, pushFn.getCallee(), { itemsArr, item });
             }
         }
@@ -321,29 +321,20 @@ private:
     }
 
     // Helper to box a value if needed for array operations
-    llvm::Value* boxValue(llvm::Value* val, HIRToLLVM& lowerer) {
-        auto& builder = lowerer.builder();
-
-        if (!val->getType()->isPointerTy()) {
-            if (val->getType()->isIntegerTy(1)) {
-                auto boxFn = lowerer.getTsValueMakeBool();
-                llvm::Value* extended = builder.CreateZExt(val, builder.getInt32Ty());
-                return builder.CreateCall(boxFn, {extended});
-            } else if (val->getType()->isIntegerTy()) {
-                // Handle i8/i16/i32/i64 uniformly.
-                llvm::Value* asI64 = builder.CreateSExtOrTrunc(val, builder.getInt64Ty());
-                auto boxFn = lowerer.getTsValueMakeInt();
-                return builder.CreateCall(boxFn, {asI64});
-            } else if (val->getType()->isDoubleTy()) {
-                auto boxFn = lowerer.getTsValueMakeDouble();
-                return builder.CreateCall(boxFn, {val});
-            } else if (val->getType()->isFloatTy()) {
-                llvm::Value* asDouble = builder.CreateFPExt(val, builder.getDoubleTy());
-                auto boxFn = lowerer.getTsValueMakeDouble();
-                return builder.CreateCall(boxFn, {asDouble});
-            }
+    // Box a value for a ptr-typed runtime call. Delegates to the
+    // canonical coerceArgToType so that primitive boxing AND
+    // HIR-type-aware string/object boxing match every other ptr-typed
+    // runtime call site. Falls back to boxPrimitiveToPtr when the
+    // operand is unavailable (we only have the LLVM value, no HIR
+    // operand for it).
+    llvm::Value* boxValue(llvm::Value* val, HIRToLLVM& lowerer,
+                          const HIROperand* operand = nullptr) {
+        if (operand) {
+            return lowerer.coerceArgToType(
+                val, lowerer.builder().getPtrTy(), *operand,
+                /*calleeParamType=*/nullptr);
         }
-        return val; // Already a pointer, return as-is
+        return lowerer.boxPrimitiveToPtr(val);
     }
 };
 
