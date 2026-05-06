@@ -5623,10 +5623,19 @@ TsValue* ts_value_make_int(int64_t i) {
                 "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute"));
             return ts_value_make_undefined();
         }
-        // Spec: get and set, when present and not undefined, must be callable.
+        // Spec ToPropertyDescriptor: get and set, when present and not
+        // undefined, must be callable. Note that nanbox_to_tagged maps
+        // JS null to ValueType::OBJECT_PTR with ptr_val=nullptr (see
+        // TsObject.h:62), so an explicit null check is required — the
+        // earlier `type != OBJECT_PTR` test alone accepts null silently.
+        auto isCallableValue = [](const TsValue& v) -> bool {
+            if (v.type != ValueType::OBJECT_PTR && v.type != ValueType::FUNCTION_PTR)
+                return false;
+            return v.ptr_val != nullptr;
+        };
         if (hasGetDef) {
             TsValue gv = descCheck->Get(getKeyChk);
-            if (gv.type != ValueType::OBJECT_PTR && gv.type != ValueType::FUNCTION_PTR) {
+            if (!isCallableValue(gv)) {
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
                     "Getter must be a function"));
                 return ts_value_make_undefined();
@@ -5634,7 +5643,7 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         if (hasSetDef) {
             TsValue sv = descCheck->Get(setKeyChk);
-            if (sv.type != ValueType::OBJECT_PTR && sv.type != ValueType::FUNCTION_PTR) {
+            if (!isCallableValue(sv)) {
                 ts_throw((TsValue*)ts_error_create_typed("TypeError",
                     "Setter must be a function"));
                 return ts_value_make_undefined();
