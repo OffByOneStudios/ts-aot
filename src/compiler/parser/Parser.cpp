@@ -1088,11 +1088,15 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             auto head = parseExpression();
             expect(TokenKind::CloseParen, "')'");
             // Body is a regular statement. Treat the whole `with (...) stmt`
-            // as a block enclosing the body — the with-scope semantics are
-            // not modeled, but lookups fall through to the surrounding scope
-            // which is closer to spec than failing to parse.
+            // as a SYNTHETIC block — the with-scope semantics are not modeled,
+            // but `var` declarations inside should hoist to the enclosing
+            // function/script scope per JS spec (var hoisting traverses any
+            // block boundaries). isSynthetic=true makes the analyzer skip
+            // entering a new lexical scope so vars land in the enclosing
+            // scope, where outer code can find them.
             auto block = std::make_unique<ast::BlockStatement>();
             setLocation(block.get(), current_);
+            block->isSynthetic = true;
             // Wrap head as an ExpressionStatement so any side-effecting
             // expression in the head still executes.
             auto headStmt = std::make_unique<ast::ExpressionStatement>();
