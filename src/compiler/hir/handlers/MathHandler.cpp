@@ -242,6 +242,9 @@ private:
     llvm::Value* lowerNumberIsNaN(HIRInstruction* inst, HIRToLLVM& lowerer) {
         auto& builder = lowerer.builder();
 
+        // No arg → arg is undefined → Number.isNaN(undefined) returns false
+        // (strict isNaN, no coercion).
+        if (inst->operands.size() < 2) return builder.getInt1(false);
         llvm::Value* val = lowerer.getOperandValue(inst->operands[1]);
 
         // Handle different input types
@@ -262,6 +265,8 @@ private:
         auto& builder = lowerer.builder();
         auto& module = lowerer.module();
 
+        // No arg → arg is undefined → not an integer.
+        if (inst->operands.size() < 2) return builder.getInt1(false);
         llvm::Value* val = lowerer.getOperandValue(inst->operands[1]);
 
         // Handle different input types
@@ -296,6 +301,8 @@ private:
         auto& builder = lowerer.builder();
         auto& module = lowerer.module();
 
+        // No arg → arg is undefined → not a safe integer.
+        if (inst->operands.size() < 2) return builder.getInt1(false);
         llvm::Value* val = lowerer.getOperandValue(inst->operands[1]);
 
         // Handle different input types
