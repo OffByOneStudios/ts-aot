@@ -464,21 +464,78 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
         };
 
-        for (auto& stmt : funcNode->body) {
-            if (stmt->getKind() == "VariableDeclaration") {
-                auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
-                if (varDecl) registerModuleVar(varDecl);
-            } else if (stmt->getKind() == "BlockStatement") {
-                // Multi-variable declarations (e.g., "let a, b") get wrapped in a
-                // BlockStatement by the parser. Unwrap and check each child.
-                auto* block = dynamic_cast<ast::BlockStatement*>(stmt.get());
-                if (block) {
-                    for (auto& inner : block->statements) {
-                        auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(inner.get());
-                        if (varDecl) registerModuleVar(varDecl);
+        // Recursively walk into block-like statements so `var` declarations
+        // inside any nested block hoist to module-global scope per ECMA-262.
+        // Stops at function/method boundaries (those are their own scopes).
+        std::function<void(ast::Statement*)> walkForVars;
+        walkForVars = [&](ast::Statement* s) {
+            if (!s) return;
+            if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(s)) {
+                // Only `var` (and legacy `function` declarations) hoist;
+                // `let`/`const` are block-scoped per ECMA-262.
+                if (varDecl->varKind == ast::VarKind::Var) {
+                    registerModuleVar(varDecl);
+                }
+                return;
+            }
+            if (auto* block = dynamic_cast<ast::BlockStatement*>(s)) {
+                for (auto& inner : block->statements) {
+                    walkForVars(dynamic_cast<ast::Statement*>(inner.get()));
+                }
+                return;
+            }
+            if (auto* ifSt = dynamic_cast<ast::IfStatement*>(s)) {
+                walkForVars(dynamic_cast<ast::Statement*>(ifSt->thenStatement.get()));
+                walkForVars(dynamic_cast<ast::Statement*>(ifSt->elseStatement.get()));
+                return;
+            }
+            if (auto* w = dynamic_cast<ast::WhileStatement*>(s)) {
+                walkForVars(dynamic_cast<ast::Statement*>(w->body.get()));
+                return;
+            }
+            if (auto* f = dynamic_cast<ast::ForStatement*>(s)) {
+                walkForVars(dynamic_cast<ast::Statement*>(f->initializer.get()));
+                walkForVars(dynamic_cast<ast::Statement*>(f->body.get()));
+                return;
+            }
+            if (auto* fi = dynamic_cast<ast::ForInStatement*>(s)) {
+                walkForVars(dynamic_cast<ast::Statement*>(fi->initializer.get()));
+                walkForVars(dynamic_cast<ast::Statement*>(fi->body.get()));
+                return;
+            }
+            if (auto* fo = dynamic_cast<ast::ForOfStatement*>(s)) {
+                walkForVars(dynamic_cast<ast::Statement*>(fo->initializer.get()));
+                walkForVars(dynamic_cast<ast::Statement*>(fo->body.get()));
+                return;
+            }
+            if (auto* lab = dynamic_cast<ast::LabeledStatement*>(s)) {
+                walkForVars(dynamic_cast<ast::Statement*>(lab->statement.get()));
+                return;
+            }
+            if (auto* sw = dynamic_cast<ast::SwitchStatement*>(s)) {
+                for (auto& clause : sw->clauses) {
+                    if (auto* cc = dynamic_cast<ast::CaseClause*>(clause.get())) {
+                        for (auto& cs : cc->statements) walkForVars(dynamic_cast<ast::Statement*>(cs.get()));
+                    } else if (auto* dc = dynamic_cast<ast::DefaultClause*>(clause.get())) {
+                        for (auto& cs : dc->statements) walkForVars(dynamic_cast<ast::Statement*>(cs.get()));
                     }
                 }
-            } else if (auto* funcDecl = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
+                return;
+            }
+            if (auto* tr = dynamic_cast<ast::TryStatement*>(s)) {
+                for (auto& tb : tr->tryBlock) walkForVars(dynamic_cast<ast::Statement*>(tb.get()));
+                if (tr->catchClause) {
+                    for (auto& cb : tr->catchClause->block) walkForVars(dynamic_cast<ast::Statement*>(cb.get()));
+                }
+                for (auto& fb : tr->finallyBlock) walkForVars(dynamic_cast<ast::Statement*>(fb.get()));
+                return;
+            }
+            // Don't recurse into FunctionDeclaration, FunctionExpression,
+            // ArrowFunction, ClassDeclaration — those are own-scope boundaries.
+        };
+
+        for (auto& stmt : funcNode->body) {
+            if (auto* funcDecl = dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
                 // Function declarations must also be registered as module globals.
                 // Without this, functions captured by closures in the same module
                 // use closure cells, which fail when the captured function is declared
@@ -487,6 +544,8 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     moduleGlobalVarsByModule_[funcDecl->name].insert(currentModulePath_);
                     module_->globals[modVarName(funcDecl->name)] = HIRType::makeAny();
                 }
+            } else {
+                walkForVars(dynamic_cast<ast::Statement*>(stmt.get()));
             }
         }
     }
