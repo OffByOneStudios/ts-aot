@@ -3955,10 +3955,22 @@ void HIRToLLVM::lowerSetPropStatic(HIRInstruction* inst) {
         }
     }
 
-    // Box the object - ts_object_set_dynamic expects TsValue*, not raw TsMap*
+    // Box the object - ts_object_set_dynamic expects TsValue*, not raw TsMap*.
+    // Per ECMA-262 PutValue, primitive receivers are wrapped to objects;
+    // box i64/i1/double via the corresponding make_X helper so the call
+    // type matches the runtime signature.
     if (obj->getType()->isPointerTy()) {
         auto boxObjFn = getTsValueMakeObject();
         obj = builder_->CreateCall(boxObjFn, {obj});
+    } else if (obj->getType()->isIntegerTy(64)) {
+        obj = builder_->CreateCall(getTsValueMakeInt(), {obj});
+    } else if (obj->getType()->isDoubleTy()) {
+        obj = builder_->CreateCall(getTsValueMakeDouble(), {obj});
+    } else if (obj->getType()->isIntegerTy(1)) {
+        llvm::Value* w = builder_->CreateZExt(obj, builder_->getInt32Ty());
+        obj = builder_->CreateCall(getTsValueMakeBool(), {w});
+    } else if (obj->getType()->isIntegerTy(32)) {
+        obj = builder_->CreateCall(getTsValueMakeBool(), {obj});
     }
     // Pin boxed obj — subsequent calls (ts_string_create, boxing) can trigger GC
     obj = gcPin(obj, "gc.pin.obj");
@@ -4473,6 +4485,23 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
     // Check if index is a string/pointer (dynamic property access) vs numeric (array index)
     if (idx->getType()->isPointerTy()) {
         // Dynamic property set: obj[stringKey] = val - call ts_object_set_dynamic
+        // Per ECMA-262 PutValue, the receiver is ToObject'd. We can't model
+        // that fully here, but we must at least box primitive receivers so
+        // the call type matches ts_object_set_dynamic(ptr, ptr, ptr).
+        if (!arr->getType()->isPointerTy()) {
+            if (arr->getType()->isIntegerTy(64)) {
+                arr = builder_->CreateCall(getTsValueMakeInt(), {arr});
+            } else if (arr->getType()->isDoubleTy()) {
+                arr = builder_->CreateCall(getTsValueMakeDouble(), {arr});
+            } else if (arr->getType()->isIntegerTy(1)) {
+                llvm::Value* w = builder_->CreateZExt(arr, builder_->getInt32Ty());
+                arr = builder_->CreateCall(getTsValueMakeBool(), {w});
+            } else if (arr->getType()->isIntegerTy(32)) {
+                arr = builder_->CreateCall(getTsValueMakeBool(), {arr});
+            } else {
+                arr = builder_->CreateIntToPtr(arr, builder_->getPtrTy());
+            }
+        }
         // Box the string key to TsValue* since ts_object_set_dynamic expects TsValue* args
         auto boxKeyFn = getTsValueMakeString();
         llvm::Value* boxedKey = builder_->CreateCall(boxKeyFn, {idx});
