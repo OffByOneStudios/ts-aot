@@ -5041,8 +5041,11 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     // class-static convention (`C_static_hasOwnProperty`)
                     // would yield an undefined-symbol linker error.
                     static const std::set<std::string> objectProtoMethods = {
+                        // Object.prototype methods inherited via Function.prototype
                         "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable",
                         "toString", "toLocaleString", "valueOf",
+                        // Function.prototype methods on the class constructor
+                        "bind", "call", "apply",
                     };
                     if (objectProtoMethods.count(propAccess->name)) {
                         auto obj = lowerExpression(propAccess->expression.get());
