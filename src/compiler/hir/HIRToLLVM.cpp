@@ -5015,32 +5015,34 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     if (funcName == "ts_json_stringify") {
         // ts_json_stringify(void* obj, void* replacer, void* space) -> TsString*
         // replacer and space are optional - pass null if not provided
-        llvm::Value* obj = getOperandValue(inst->operands[1]);
-        // Box the object if it's a primitive type (int, bool, double)
-        if (obj->getType()->isIntegerTy(64)) {
-            // Box integer as TsValue
-            llvm::FunctionType* boxFt = llvm::FunctionType::get(
-                builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
-            llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFt);
-            obj = builder_->CreateCall(boxFt, boxFn.getCallee(), { obj });
-        } else if (obj->getType()->isIntegerTy(1)) {
-            // Box boolean as TsValue
-            llvm::Value* extended = builder_->CreateZExt(obj, builder_->getInt64Ty());
-            llvm::FunctionType* boxFt = llvm::FunctionType::get(
-                builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
-            llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_bool", boxFt);
-            obj = builder_->CreateCall(boxFt, boxFn.getCallee(), { builder_->CreateTrunc(extended, builder_->getInt1Ty()) });
-        } else if (obj->getType()->isDoubleTy()) {
-            // Box double as TsValue
-            llvm::FunctionType* boxFt = llvm::FunctionType::get(
-                builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
-            llvm::FunctionCallee boxFn = module_->getOrInsertFunction("ts_value_make_double", boxFt);
-            obj = builder_->CreateCall(boxFt, boxFn.getCallee(), { obj });
-        }
+        // Helper: box any primitive (i64/i1/i32/double) into a TsValue ptr.
+        auto boxAny = [&](llvm::Value* v) -> llvm::Value* {
+            if (v->getType()->isPointerTy()) return v;
+            if (v->getType()->isIntegerTy(64)) {
+                return builder_->CreateCall(getTsValueMakeInt(), { v });
+            }
+            if (v->getType()->isIntegerTy(1)) {
+                llvm::Value* w = builder_->CreateZExt(v, builder_->getInt32Ty());
+                return builder_->CreateCall(getTsValueMakeBool(), { w });
+            }
+            if (v->getType()->isIntegerTy(32)) {
+                return builder_->CreateCall(getTsValueMakeBool(), { v });
+            }
+            if (v->getType()->isDoubleTy()) {
+                auto ft0 = llvm::FunctionType::get(
+                    builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+                auto fn0 = module_->getOrInsertFunction("ts_value_make_double", ft0);
+                return builder_->CreateCall(ft0, fn0.getCallee(), { v });
+            }
+            return builder_->CreateIntToPtr(v, builder_->getPtrTy());
+        };
+        llvm::Value* obj = inst->operands.size() > 1
+            ? boxAny(getOperandValue(inst->operands[1]))
+            : llvm::ConstantPointerNull::get(builder_->getPtrTy());
         llvm::Value* replacer = llvm::ConstantPointerNull::get(builder_->getPtrTy());
         llvm::Value* space = llvm::ConstantPointerNull::get(builder_->getPtrTy());
         if (inst->operands.size() > 2) {
-            replacer = getOperandValue(inst->operands[2]);
+            replacer = boxAny(getOperandValue(inst->operands[2]));
         }
         if (inst->operands.size() > 3) {
             space = getOperandValue(inst->operands[3]);
