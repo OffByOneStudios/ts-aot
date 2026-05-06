@@ -6274,11 +6274,37 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!target) return target;
         if (!source) return target;
 
+        // ECMA-262 19.1.2.1 step 1: ToObject(target) — null/undefined throws.
+        uint64_t tnb = nanbox_from_tsvalue_ptr(target);
+        if (nanbox_is_null(tnb) || nanbox_is_undefined(tnb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return target;  // unreachable
+        }
+        // Step 2: For each source, if null/undefined, skip silently.
+        uint64_t snb = nanbox_from_tsvalue_ptr(source);
+        if (nanbox_is_null(snb) || nanbox_is_undefined(snb)) {
+            return target;
+        }
+
         void* targetRaw = ts_value_get_object(target);
         if (!targetRaw) targetRaw = target;
 
         void* sourceRaw = ts_value_get_object(source);
         if (!sourceRaw) sourceRaw = source;
+
+        // If targetRaw isn't a real heap pointer (e.g., target is a NaN-boxed
+        // number/string), reading magic at offset 16 would crash. The
+        // primitive-boxing-to-wrapper path isn't implemented here; return
+        // the target unchanged rather than fault.
+        uint64_t targetCheck = (uint64_t)(uintptr_t)targetRaw;
+        if ((targetCheck & 0xFFFF000000000000ULL) != 0 || targetCheck < 0x1000) {
+            return target;
+        }
+        uint64_t sourceCheck = (uint64_t)(uintptr_t)sourceRaw;
+        if ((sourceCheck & 0xFFFF000000000000ULL) != 0 || sourceCheck < 0x1000) {
+            return target;
+        }
 
         // Check for flat source object
         uint32_t sourceMagic0 = *(uint32_t*)sourceRaw;
