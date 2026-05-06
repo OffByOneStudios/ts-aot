@@ -3523,8 +3523,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
             }
             
-            // Handle .prototype specially - every JS function should have one
-            // Create it lazily if it doesn't exist
+            // Handle .prototype specially. Per ECMA-262, only constructor
+            // functions (regular functions, classes, generators) have a
+            // `.prototype`; built-in prototype methods and arrow functions
+            // do not. Synthesizing a default for non-constructors makes
+            // `Array.prototype.concat.prototype` return an object instead
+            // of the spec-required undefined.
             if (strcmp(keyStr, "prototype") == 0) {
                 if (!func->properties) {
                     func->properties = TsMap::Create();
@@ -3533,14 +3537,22 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue protoKey;
                 protoKey.type = ValueType::STRING_PTR;
                 protoKey.ptr_val = TsString::GetInterned("prototype");
-                
-                // Check if we already have it
+
+                // Check if we already have one explicitly installed
                 TsValue existing = func->properties->Get(protoKey);
                 if (existing.type != ValueType::UNDEFINED) {
                     return nanbox_from_tagged(existing);
                 }
-                
-                // Create a new empty object as the prototype
+
+                // Non-constructors return undefined per spec (no [[Construct]]
+                // → no .prototype). dateRegisterMethod / addMethod /
+                // makeNamedNativeFunction set is_constructor=false on
+                // built-in prototype methods to opt them out of synthesis.
+                if (!func->is_constructor) {
+                    return nanbox_to_tsvalue_ptr(NANBOX_UNDEFINED);
+                }
+
+                // Create a new empty object as the prototype (constructor case)
                 TsMap* proto = TsMap::Create();
                 // Set Foo.prototype.constructor = Foo (per ES spec)
                 TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
@@ -7075,10 +7087,16 @@ TsValue* ts_value_make_int(int64_t i) {
                     return nanbox_from_tagged(result);
                 }
             }
-            // Lazy .prototype creation with .constructor back-reference
+            // Lazy .prototype creation with .constructor back-reference.
+            // Only synthesize for constructor functions; non-constructors
+            // (built-in prototype methods, arrow functions etc.) return
+            // undefined per ECMA-262.
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k && strcmp(k, "prototype") == 0) {
+                    if (!func->is_constructor) {
+                        return ts_value_make_undefined();
+                    }
                     if (!func->properties) {
                         func->properties = TsMap::Create();
                         ts_gc_write_barrier(&func->properties, func->properties);
