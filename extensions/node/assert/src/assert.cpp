@@ -396,8 +396,19 @@ void ts_assert_throws(void* fn, void* error, void* message) {
     };
     auto isConstructorClass = [](void* v) -> bool {
         if (!v) return false;
+        // Try NaN-boxed unboxing first; fall back to treating v as a raw
+        // pointer if that fails. Built-in constructors like TypeError are
+        // returned by ts_get_global_TypeError() as raw TsFunction* (not
+        // NaN-boxed), so ts_value_get_object would return nullptr.
         void* raw = ts_value_get_object((TsValue*)v);
-        if (!raw) return false;
+        if (!raw) {
+            uintptr_t p = (uintptr_t)v;
+            if (p > 0x1000 && (p & 0xFFFF000000000000ULL) == 0) {
+                raw = v;
+            } else {
+                return false;
+            }
+        }
         uint32_t magic16 = *(uint32_t*)((char*)raw + 16);
         if (magic16 != 0x46554E43 /* FUNC */) return false;
         // TsFunction layout: is_constructor flag is part of the struct.
