@@ -5017,6 +5017,22 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         lastValue_ = builder_.createCall(method->name, args, method->returnType);
                         return;
                     }
+                    // Object.prototype methods are inherited by every class
+                    // constructor via Function.prototype → Object.prototype.
+                    // Calls like `C.hasOwnProperty(...)` should go through
+                    // dynamic dispatch on the class object so the prototype
+                    // chain resolves them at runtime — emitting the user-
+                    // class-static convention (`C_static_hasOwnProperty`)
+                    // would yield an undefined-symbol linker error.
+                    static const std::set<std::string> objectProtoMethods = {
+                        "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable",
+                        "toString", "toLocaleString", "valueOf",
+                    };
+                    if (objectProtoMethods.count(propAccess->name)) {
+                        auto obj = lowerExpression(propAccess->expression.get());
+                        lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
+                        return;
+                    }
                     // Fallback: For imported classes, staticMethods may not be populated
                     // because the class body is compiled later (via module init specialization).
                     // Emit a forward-reference call using the conventional name.
