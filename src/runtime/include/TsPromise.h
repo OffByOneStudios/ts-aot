@@ -27,6 +27,10 @@ struct AsyncContext : public TsObject {
     void* execContext = nullptr; // Execution context for nested function creation
     TsValue* delegateIterator = nullptr; // For yield* delegation
     void* syncGenerator = nullptr; // Back-pointer to TsGenerator (set by ts_generator_create)
+    TsValue* thisValue = nullptr; // ECMA-262: `this` captured at generator creation,
+                                  // restored before each resume so that `this` references
+                                  // inside the generator body see the original receiver
+                                  // (the value of ts_get_call_this() when the wrapper ran).
 
     AsyncContext();
 };
@@ -129,6 +133,11 @@ extern "C" {
     // Parameter storage for generator state machines
     void ts_async_context_set_data(AsyncContext* ctx, void* data);
     void* ts_async_context_get_data(AsyncContext* ctx);
+
+    // `this` capture: wrapper stores the receiver so that resumes can
+    // restore it via ts_set_call_this() before invoking the impl.
+    void ts_async_context_set_this(AsyncContext* ctx, TsValue* thisArg);
+    TsValue* ts_async_context_get_this(AsyncContext* ctx);
 
     // ES2024 Promise.withResolvers()
     TsValue* ts_promise_withResolvers();

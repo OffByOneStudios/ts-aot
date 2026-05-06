@@ -924,6 +924,30 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             "ts_async_context_set_resume_fn", setResumeFt);
         builder_->CreateCall(setResumeFt, setResumeFn.getCallee(), { asyncCtx, generatorImplFunc_ });
 
+        // Capture `this` so generator-method calls bind it correctly per
+        // ECMA-262. Without this, `this` references inside the generator
+        // body see whatever the .next() caller's `this` happens to be
+        // (typically globalThis). The wrapper runs with the original
+        // receiver still in the call-this slot (set by the method dispatch
+        // path before invoking us); snapshot it now and restore on each
+        // resume in TsGenerator::next().
+        {
+            llvm::FunctionType* getThisFt = llvm::FunctionType::get(
+                builder_->getPtrTy(), {}, false);
+            llvm::FunctionCallee getThisFn = module_->getOrInsertFunction(
+                "ts_get_call_this", getThisFt);
+            llvm::Value* capturedThis = builder_->CreateCall(
+                getThisFt, getThisFn.getCallee(), {}, "captured_this");
+            llvm::FunctionType* setThisFt = llvm::FunctionType::get(
+                builder_->getVoidTy(),
+                { builder_->getPtrTy(), builder_->getPtrTy() },
+                false);
+            llvm::FunctionCallee setThisFn = module_->getOrInsertFunction(
+                "ts_async_context_set_this", setThisFt);
+            builder_->CreateCall(setThisFt, setThisFn.getCallee(),
+                { asyncCtx, capturedThis });
+        }
+
         // Store function parameters (and reserve space for locals) in ctx->data
         {
             // Allocate a buffer for params + locals (8 bytes each slot)

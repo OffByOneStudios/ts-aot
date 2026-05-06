@@ -12,6 +12,8 @@ extern "C" {
     TsValue* Generator_next_internal(void* context, TsValue* value);
     TsValue* AsyncGenerator_next_internal(void* context, TsValue* value);
     TsValue* ts_map_get_property(void* obj, void* propName);
+    void ts_set_call_this(void* thisArg);
+    void* ts_get_call_this();
 }
 
 // Async iterator wrapper for arrays - used by for await...of
@@ -73,7 +75,18 @@ TsValue* TsGenerator::next(TsValue* value) {
 
     ctx->yielded = false;
     ctx->resumedValue = value;
+
+    // ECMA-262: `this` inside a generator body must be the receiver at the
+    // time the generator was created, not the receiver of the .next() call.
+    // The wrapper captured it via ts_async_context_set_this; restore it here
+    // so that `ts_get_call_this()` inside the impl returns the correct value.
+    // Save/restore so we don't permanently clobber the caller's `this`.
+    void* savedThis = ts_get_call_this();
+    if (ctx->thisValue) {
+        ts_set_call_this(ctx->thisValue);
+    }
     ctx->resumeFn(ctx);
+    ts_set_call_this(savedThis);
 
     if (ctx->yielded) {
         return create_generator_result(ctx->yieldedValue, false);
@@ -1463,6 +1476,19 @@ void ts_async_context_set_delegate_iterator(AsyncContext* ctx, TsValue* iter) {
 TsValue* ts_async_context_get_delegate_iterator(AsyncContext* ctx) {
     if (ctx) {
         return ctx->delegateIterator;
+    }
+    return nullptr;
+}
+
+void ts_async_context_set_this(AsyncContext* ctx, TsValue* thisArg) {
+    if (ctx) {
+        ctx->thisValue = thisArg;
+    }
+}
+
+TsValue* ts_async_context_get_this(AsyncContext* ctx) {
+    if (ctx) {
+        return ctx->thisValue;
     }
     return nullptr;
 }
