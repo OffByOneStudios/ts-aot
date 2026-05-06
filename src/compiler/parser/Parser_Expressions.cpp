@@ -944,6 +944,24 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             node->name = "yield";
             return node;
         }
+        case TokenKind::KW_public:
+        case TokenKind::KW_private:
+        case TokenKind::KW_protected:
+        case TokenKind::KW_static: {
+            // ES262 12.6.1: future-reserved-words `public`, `private`,
+            // `protected`, `static` are reserved only in strict mode.
+            // In non-strict code they are valid IdentifierReferences.
+            if (strictMode_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '{}' is a reserved word in strict mode",
+                    fileName_, tok.line, std::string(tok.text)));
+            }
+            advance();
+            auto node = std::make_unique<ast::Identifier>();
+            setLocation(node.get(), tok);
+            node->name = std::string(tok.text);
+            return node;
+        }
         case TokenKind::KW_await: {
             // ES262 13.1.1: `await` is a valid IdentifierReference outside
             // async/module code. The await-expression form is handled
