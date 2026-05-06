@@ -5075,6 +5075,12 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             arg = builder_->CreateCall(getTsValueMakeInt(), { arg });
         } else if (arg->getType()->isDoubleTy()) {
             arg = builder_->CreateCall(getTsValueMakeDouble(), { arg });
+        } else if (arg->getType()->isIntegerTy(1)) {
+            // ts_value_make_bool's canonical signature is ptr(i32)
+            llvm::Value* widened = builder_->CreateZExt(arg, builder_->getInt32Ty());
+            arg = builder_->CreateCall(getTsValueMakeBool(), { widened });
+        } else if (arg->getType()->isIntegerTy(32)) {
+            arg = builder_->CreateCall(getTsValueMakeBool(), { arg });
         }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
