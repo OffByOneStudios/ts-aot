@@ -121,9 +121,14 @@ void* ts_set_values(void* set) {
     return ((TsSet*)set)->GetValues();
 }
 
+// Forward decl (defined below). Used by ts_set_forEach to validate
+// the receiver before dereferencing as a TsSet pointer.
+static void* requireSet(void* context, const char* methodName);
+
 void ts_set_forEach(void* set, void* callback, void* thisArg) {
-    if (!set) return;
-    ((TsSet*)set)->ForEach(callback, thisArg);
+    void* rawCtx = requireSet(set, "forEach");
+    if (!rawCtx) return;
+    ((TsSet*)rawCtx)->ForEach(callback, thisArg);
 }
 
 // Validate that ctx points to a TsSet (has [[SetData]] internal slot).
@@ -137,8 +142,18 @@ static void* requireSet(void* context, const char* methodName) {
             "Set method called on incompatible receiver"));
         return nullptr;
     }
-    void* rawCtx = context;
     uint64_t nb = (uint64_t)(uintptr_t)context;
+    // Reject NaN-boxed primitives:
+    //   - Special values (null=0x02, undefined=0x0A, true=0x06, false=0x04)
+    //   - Numbers/strings (top 16 bits set)
+    // Only raw pointers OR true pointer-tagged NaN-box values can be Sets.
+    if (nb <= NANBOX_UNDEFINED ||
+        (!nanbox_is_ptr(nb) && (nb & 0xFFFF000000000000ULL) != 0)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Set method called on incompatible receiver"));
+        return nullptr;
+    }
+    void* rawCtx = context;
     if (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) {
         rawCtx = nanbox_to_ptr(nb);
     }

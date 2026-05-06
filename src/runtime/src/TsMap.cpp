@@ -365,9 +365,13 @@ void* ts_map_entries_iter(void* map) {
     return (void*)ts_create_iterator_with_proto(entries, getMapIteratorPrototype());
 }
 
+// Forward decl: defined later in this TU.
+static void* requireMapData(void* context, const char* methodName);
+
 void ts_map_forEach(void* map, void* callback, void* thisArg) {
-    if (!map) return;
-    ((TsMap*)map)->ForEach(callback, thisArg);
+    void* rawCtx = requireMapData(map, "forEach");
+    if (!rawCtx) return;
+    ((TsMap*)rawCtx)->ForEach(callback, thisArg);
 }
 
 void* ts_map_copy_excluding_v2(void* obj, void* excluded_keys_array) {
@@ -396,8 +400,17 @@ static void* requireMapData(void* context, const char* methodName) {
             "Method Map.prototype.get called on incompatible receiver"));
         return nullptr;
     }
-    void* rawCtx = context;
     uint64_t nb = (uint64_t)(uintptr_t)context;
+    // Reject NaN-boxed primitives:
+    //   - Special values (null=0x02, undefined=0x0A, true=0x06, false=0x04)
+    //   - Numbers/strings (top 16 bits set)
+    if (nb <= NANBOX_UNDEFINED ||
+        (!nanbox_is_ptr(nb) && (nb & 0xFFFF000000000000ULL) != 0)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Method Map.prototype.get called on incompatible receiver"));
+        return nullptr;
+    }
+    void* rawCtx = context;
     if (nanbox_is_ptr(nb) && nb > NANBOX_UNDEFINED) {
         rawCtx = nanbox_to_ptr(nb);
     }
