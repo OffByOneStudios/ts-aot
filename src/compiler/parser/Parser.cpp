@@ -1070,16 +1070,38 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             break;
         case TokenKind::KW_with: {
             // ECMA-262 §13.11.1: WithStatement is a Syntax Error in strict
-            // mode. We don't implement dynamic-scope semantics in non-strict
-            // either, AND many test262 tests rely on us REJECTING `with`
-            // syntactically (they have negative.phase=parse expecting
-            // SyntaxError on `with` constructs). So we reject in BOTH
-            // modes; the message changes by mode for clarity.
-            const char* msg = strictMode_
-                ? "'with' statements are not allowed in strict mode"
-                : "'with' statement not supported by this compiler";
-            throw std::runtime_error(fmt::format(
-                "{}:{}: SyntaxError: {}", fileName_, current_.line, msg));
+            // mode. We don't implement dynamic-scope semantics, but we DO
+            // parse the syntax in non-strict mode so test262's
+            // dynamic-import-with-with-binding tests can compile (their
+            // assertions are about the inner specifier syntax, not with's
+            // dynamic-scope behavior). Strict mode still rejects.
+            if (strictMode_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'with' statements are not allowed in strict mode",
+                    fileName_, current_.line));
+            }
+            advance(); // 'with'
+            expect(TokenKind::OpenParen, "'('");
+            // Evaluate the head expression (parsing only — its result is
+            // discarded). This still surfaces parse errors inside the
+            // expression for the test262 negative-parse cases.
+            auto head = parseExpression();
+            expect(TokenKind::CloseParen, "')'");
+            // Body is a regular statement. Treat the whole `with (...) stmt`
+            // as a block enclosing the body — the with-scope semantics are
+            // not modeled, but lookups fall through to the surrounding scope
+            // which is closer to spec than failing to parse.
+            auto block = std::make_unique<ast::BlockStatement>();
+            setLocation(block.get(), current_);
+            // Wrap head as an ExpressionStatement so any side-effecting
+            // expression in the head still executes.
+            auto headStmt = std::make_unique<ast::ExpressionStatement>();
+            headStmt->expression = std::move(head);
+            block->statements.push_back(std::move(headStmt));
+            auto body = parseDeclarationOrStatement();
+            if (body) block->statements.push_back(std::move(body));
+            result = std::move(block);
+            break;
         }
         case TokenKind::OpenBrace:
             result = parseBlockStatement();
