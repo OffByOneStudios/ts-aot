@@ -304,13 +304,42 @@ private:
             endVal = llvm::ConstantInt::get(builder.getInt64Ty(), INT64_MAX);
         }
 
-        // Convert f64 indices to i64 if needed
-        if (startVal->getType()->isDoubleTy()) {
-            startVal = builder.CreateFPToSI(startVal, builder.getInt64Ty());
-        }
-        if (endVal->getType()->isDoubleTy()) {
-            endVal = builder.CreateFPToSI(endVal, builder.getInt64Ty());
-        }
+        // Convert f64 indices to i64 if needed.
+        // ptr (boxed) values come from `undefined`/`null` literals or from
+        // any-typed expressions: route through ts_value_get_int. Undefined
+        // unboxes to 0 by default, but the spec wants ToLength(undefined)
+        // to behave as "use length"; detect the undefined sentinel
+        // (NaN-box value 10) and substitute INT64_MAX so the runtime's
+        // length clamp produces the right slice.
+        auto coerceToI64 = [&](llvm::Value* v, bool endIsLength) -> llvm::Value* {
+            if (v->getType()->isDoubleTy()) {
+                return builder.CreateFPToSI(v, builder.getInt64Ty());
+            }
+            if (v->getType()->isPointerTy()) {
+                // Check for compile-time undefined sentinel
+                if (auto* ce = llvm::dyn_cast<llvm::ConstantExpr>(v)) {
+                    if (ce->getOpcode() == llvm::Instruction::IntToPtr) {
+                        if (auto* ci = llvm::dyn_cast<llvm::ConstantInt>(ce->getOperand(0))) {
+                            uint64_t raw = ci->getZExtValue();
+                            if (raw == 10) {
+                                return llvm::ConstantInt::get(
+                                    builder.getInt64Ty(),
+                                    endIsLength ? INT64_MAX : 0);
+                            }
+                        }
+                    }
+                }
+                // Generic boxed-int unbox
+                llvm::FunctionType* ftU = llvm::FunctionType::get(
+                    builder.getInt64Ty(), { builder.getPtrTy() }, false);
+                llvm::FunctionCallee fnU = module.getOrInsertFunction(
+                    "ts_value_get_int", ftU);
+                return builder.CreateCall(ftU, fnU.getCallee(), { v });
+            }
+            return v;
+        };
+        startVal = coerceToI64(startVal, /*endIsLength=*/false);
+        endVal = coerceToI64(endVal, /*endIsLength=*/true);
 
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder.getPtrTy(),
