@@ -3113,10 +3113,14 @@ extern "C" {
             return ts_array_create();  // unreachable
         }
 
-        // Spec: if mapFn is defined, it must be callable.
+        // Spec (ECMA-262 22.1.2.1): If mapfn is undefined, let mapping be false.
+        // Otherwise IsCallable(mapfn) is checked; if false, throw TypeError.
+        // Null is NOT treated as undefined here — it must throw.
         if (mapFn) {
             uint64_t mfNB = (uint64_t)(uintptr_t)mapFn;
-            if (!nanbox_is_undefined(mfNB) && !nanbox_is_null(mfNB)) {
+            if (nanbox_is_undefined(mfNB)) {
+                mapFn = nullptr;
+            } else {
                 bool isCallable = false;
                 if (nanbox_is_ptr(mfNB)) {
                     void* rawMf = ts_nanbox_safe_unbox(mapFn);
@@ -3135,9 +3139,6 @@ extern "C" {
                         "Array.from: when provided, mapFn must be callable"));
                     return ts_array_create();  // unreachable
                 }
-            } else {
-                // undefined/null mapFn is treated as no mapFn
-                mapFn = nullptr;
             }
         }
 
