@@ -5013,8 +5013,24 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                             lastValue_ = builder_.createCall(callFn, callArgs, HIRType::makeAny());
                             return;
                         }
-                        // Static methods don't need 'this' parameter
-                        lastValue_ = builder_.createCall(method->name, args, method->returnType);
+                        // Static methods don't need 'this' parameter.
+                        // Truncate or pad args to match the callee's arity:
+                        // verifier rejects extra args, and missing args
+                        // need explicit `undefined` so the receiver always
+                        // sees the same shape.
+                        std::vector<std::shared_ptr<HIRValue>> calleeArgs;
+                        size_t expected = method->params.size();
+                        if (method->hasRestParam && expected > 0) {
+                            // Keep all user args; the rest-param lowering
+                            // collects the trailing values into an array.
+                            calleeArgs = args;
+                        } else {
+                            for (size_t i = 0; i < expected; ++i) {
+                                if (i < args.size()) calleeArgs.push_back(args[i]);
+                                else calleeArgs.push_back(builder_.createConstUndefined());
+                            }
+                        }
+                        lastValue_ = builder_.createCall(method->name, calleeArgs, method->returnType);
                         return;
                     }
                     // Object.prototype methods are inherited by every class
