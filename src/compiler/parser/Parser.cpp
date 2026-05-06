@@ -710,6 +710,26 @@ ast::NodePtr Parser::parseObjectBindingPattern() {
         if (match(TokenKind::DotDotDot)) {
             elem->isSpread = true;
             elem->name = parseBindingNameOrPattern();
+        } else if (check(TokenKind::NumericLiteral) ||
+                   check(TokenKind::StringLiteral)) {
+            // PropertyName : BindingElement with numeric or string key.
+            // Per ECMA-262 14.1.2 BindingProperty : PropertyName : BindingElement
+            // — PropertyName includes NumericLiteral and StringLiteral. The
+            // shorthand path doesn't apply here; a `:` is mandatory.
+            std::string propName;
+            if (check(TokenKind::StringLiteral)) {
+                propName = Lexer::getStringValue(current_.text);
+            } else {
+                propName = std::string(current_.text);
+            }
+            advance();
+            expect(TokenKind::Colon, "':'");
+            elem->propertyName = propName;
+            elem->name = parseBindingNameOrPattern();
+
+            if (match(TokenKind::Equals)) {
+                elem->initializer = parseAssignmentExpression();
+            }
         } else {
             // propertyName: binding or just binding
             // We need to look ahead: if there's a ':', it's propertyName: binding
