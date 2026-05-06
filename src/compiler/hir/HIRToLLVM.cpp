@@ -6309,9 +6309,23 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
     // This handles cases where MethodResolutionPass couldn't resolve due to Any type
     if (methodName == "join") {
         // ts_array_join(void* arr, void* separator) -> TsString*
+        // Box primitive separators so the call type matches the runtime sig.
         llvm::Value* separator = llvm::ConstantPointerNull::get(builder_->getPtrTy());
         if (inst->operands.size() > 2) {
             separator = getOperandValue(inst->operands[2]);
+            if (separator->getType()->isDoubleTy()) {
+                auto ft0 = llvm::FunctionType::get(
+                    builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+                auto fn0 = module_->getOrInsertFunction("ts_value_make_double", ft0);
+                separator = builder_->CreateCall(ft0, fn0.getCallee(), { separator });
+            } else if (separator->getType()->isIntegerTy(64)) {
+                separator = builder_->CreateCall(getTsValueMakeInt(), { separator });
+            } else if (separator->getType()->isIntegerTy(1)) {
+                llvm::Value* w = builder_->CreateZExt(separator, builder_->getInt32Ty());
+                separator = builder_->CreateCall(getTsValueMakeBool(), { w });
+            } else if (separator->getType()->isIntegerTy(32)) {
+                separator = builder_->CreateCall(getTsValueMakeBool(), { separator });
+            }
         }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getPtrTy(),
