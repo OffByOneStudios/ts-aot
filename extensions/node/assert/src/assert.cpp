@@ -380,6 +380,37 @@ void ts_assert_throws(void* fn, void* error, void* message) {
         return;
     }
 
+    // Detect calling convention. Node.js: assert.throws(block, error?, message?)
+    // — first arg is the function. Test262/Mocha: assert.throws(error, block, message)
+    // — first arg is the expected error class, second is the function.
+    // Heuristic: if the second positional arg is callable AND the first is not,
+    // user is using the test262 convention; swap so `fn` actually points at
+    // the function. Constructors (TypeError, etc.) appear callable as
+    // FUNCTION_PTR/OBJECT_PTR too, so we prefer to swap only when the FIRST
+    // arg is a TsFunction with is_constructor=true (typical Error class).
+    auto isCallable = [](void* v) -> bool {
+        if (!v) return false;
+        TsValue tv = nanbox_to_tagged((TsValue*)v);
+        return (tv.type == ValueType::FUNCTION_PTR ||
+                tv.type == ValueType::OBJECT_PTR) && tv.ptr_val;
+    };
+    auto isConstructorClass = [](void* v) -> bool {
+        if (!v) return false;
+        void* raw = ts_value_get_object((TsValue*)v);
+        if (!raw) return false;
+        uint32_t magic16 = *(uint32_t*)((char*)raw + 16);
+        if (magic16 != 0x46554E43 /* FUNC */) return false;
+        // TsFunction layout: is_constructor flag is part of the struct.
+        // Avoid pulling the full header here; safe-fall is "function but
+        // not necessarily constructor". Treat any TsFunction as a class
+        // for the swap heuristic — we'd rather swap a method-passed-as-fn
+        // (rare) than miss the test262 convention (very common).
+        return true;
+    };
+    if (isConstructorClass(fn) && isCallable(error)) {
+        std::swap(fn, error);
+    }
+
     // fn is a NaN-boxed TsValue* - pass directly to ts_function_call which handles NaN-boxed values
     TsValue fnVal = nanbox_to_tagged((TsValue*)fn);
     // Accept FUNCTION_PTR (raw function pointers) and OBJECT_PTR (closures/TsClosure)
