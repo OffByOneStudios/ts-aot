@@ -46,6 +46,16 @@ bool SymbolTable::define(const std::string& name, std::shared_ptr<Type> type, De
     auto& currentScope = scopes.back();
     auto it = currentScope.find(name);
     if (it != currentScope.end()) {
+        // User declarations may freely shadow extension-registered builtins
+        // (module namespaces, host objects). Per ECMA-262 these would be
+        // properties of the global object, not LexicallyDeclaredNames, so
+        // a script-level `let X` does not conflict with them.
+        if (it->second->isBuiltin) {
+            it->second->type = type;
+            it->second->declKind = kind;
+            it->second->isBuiltin = false;
+            return true;
+        }
         DeclKind existing = it->second->declKind;
         // var + var is OK (JS hoisting allows redeclaration)
         // Everything else is a conflict (let/const/function/class can't be redeclared)

@@ -1756,12 +1756,14 @@ void Analyzer::registerTypesFromExtensions() {
                         auto globalType = convertExtTypeRef(globalDef.property->type);
                         symbols.define(globalName, globalType);
                     }
+                    if (auto sym = symbols.lookup(globalName)) sym->isBuiltin = true;
                 }
             } else if (globalDef.kind == ext::GlobalDefinition::Kind::Function) {
                 // Global function
                 if (globalDef.function) {
                     auto funcType = convertExtFunction(*globalDef.function);
                     symbols.define(globalName, funcType);
+                    if (auto sym = symbols.lookup(globalName)) sym->isBuiltin = true;
                 }
             }
         }
@@ -1805,6 +1807,7 @@ void Analyzer::registerTypesFromExtensions() {
             }
 
             symbols.define(objName, objType);
+            if (auto sym = symbols.lookup(objName)) sym->isBuiltin = true;
         }
     }
 

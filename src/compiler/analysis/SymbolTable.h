@@ -16,6 +16,11 @@ struct Symbol {
     std::shared_ptr<Type> type;
     std::string modulePath; // Module path for top-level variables (empty for non-module symbols)
     DeclKind declKind = DeclKind::Var;
+    // True if this symbol was registered by extension contracts (module
+    // namespaces, host objects, etc.) rather than declared in user code.
+    // User-level let/const/var/function/class declarations may shadow these
+    // without producing a redeclaration error.
+    bool isBuiltin = false;
 };
 
 class SymbolTable {
