@@ -166,10 +166,26 @@ private:
         auto& builder = lowerer.builder();
         auto& module = lowerer.module();
 
-        llvm::Value* a = lowerer.getOperandValue(inst->operands[1]);
-        llvm::Value* b = lowerer.getOperandValue(inst->operands[2]);
-        a = ensureDouble(a, lowerer);
-        b = ensureDouble(b, lowerer);
+        // Per spec, missing args differ by function:
+        //   Math.hypot()    -> +0  (sqrt of empty sum)
+        //   Math.min()      -> +Infinity
+        //   Math.max()      -> -Infinity
+        //   Math.pow(x)     -> NaN  (pow(x, undefined) = pow(x, NaN))
+        //   Math.atan2(x)   -> NaN
+        // Pad missing args with the per-function default rather than crash
+        // on operands[N] OOB.
+        auto defaultFor = [&](size_t which) -> llvm::Value* {
+            if (funcName == "ts_math_hypot") return llvm::ConstantFP::get(builder.getDoubleTy(), 0.0);
+            if (funcName == "ts_math_min")   return llvm::ConstantFP::getInfinity(builder.getDoubleTy(), false);
+            if (funcName == "ts_math_max")   return llvm::ConstantFP::getInfinity(builder.getDoubleTy(), true);
+            return llvm::ConstantFP::getNaN(builder.getDoubleTy());
+        };
+        llvm::Value* a = inst->operands.size() > 1
+            ? ensureDouble(lowerer.getOperandValue(inst->operands[1]), lowerer)
+            : defaultFor(0);
+        llvm::Value* b = inst->operands.size() > 2
+            ? ensureDouble(lowerer.getOperandValue(inst->operands[2]), lowerer)
+            : defaultFor(1);
 
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder.getDoubleTy(), { builder.getDoubleTy(), builder.getDoubleTy() }, false);
