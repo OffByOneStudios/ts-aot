@@ -1960,7 +1960,16 @@ void HIRToLLVM::lowerStringConcat(HIRInstruction* inst) {
                 builder_->getPtrTy(),
                 { builder_->getInt64Ty(), builder_->getInt64Ty() }
             );
-            return builder_->CreateCall(fn, { val, llvm::ConstantInt::get(builder_->getInt64Ty(), 10) });
+            llvm::Value* intVal = val;
+            if (val->getType()->isPointerTy()) {
+                auto unboxFn = getOrDeclareRuntimeFunction(
+                    "ts_value_get_int",
+                    builder_->getInt64Ty(),
+                    { builder_->getPtrTy() }
+                );
+                intVal = builder_->CreateCall(unboxFn, { gcPtrToRaw(val) }, "unbox_int_for_str");
+            }
+            return builder_->CreateCall(fn, { intVal, llvm::ConstantInt::get(builder_->getInt64Ty(), 10) });
         }
 
         if (type->kind == HIRTypeKind::Bool || val->getType()->isIntegerTy(1)) {
