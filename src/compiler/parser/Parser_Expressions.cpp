@@ -927,6 +927,39 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             node->name = "let";
             return node;
         }
+        case TokenKind::KW_yield: {
+            // ES262 12.6.1: `yield` is a valid IdentifierReference in
+            // non-strict, non-generator code. The yield-expression form
+            // (`yield expr`) is handled earlier in parseAssignmentExpression
+            // when inGenerator_ is true.
+            if (inGenerator_ || strictMode_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'yield' is not allowed as an "
+                    "identifier inside a generator function or strict mode",
+                    fileName_, tok.line));
+            }
+            advance();
+            auto node = std::make_unique<ast::Identifier>();
+            setLocation(node.get(), tok);
+            node->name = "yield";
+            return node;
+        }
+        case TokenKind::KW_await: {
+            // ES262 13.1.1: `await` is a valid IdentifierReference outside
+            // async/module code. The await-expression form is handled
+            // earlier in parseUnaryExpression when inAsync_ is true.
+            if (inAsync_ || strictMode_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'await' is not allowed as an "
+                    "identifier inside an async function or module",
+                    fileName_, tok.line));
+            }
+            advance();
+            auto node = std::make_unique<ast::Identifier>();
+            setLocation(node.get(), tok);
+            node->name = "await";
+            return node;
+        }
 
         default:
             break;
