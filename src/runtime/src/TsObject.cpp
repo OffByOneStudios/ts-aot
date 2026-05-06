@@ -5013,8 +5013,21 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_getOwnPropertyNames(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
+        // ECMA-262 19.1.2.10: ToObject(O) is performed first, which throws
+        // TypeError on null/undefined. Primitives coerce to wrapper objects
+        // with no own keys (effectively empty array — match V8 behavior).
+        uint64_t nb = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_null(nb) || nanbox_is_undefined(nb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return ts_value_make_array(TsArray::Create(0));  // unreachable
+        }
+        if (!nanbox_is_ptr(nb)) {
+            return ts_value_make_array(TsArray::Create(0));
+        }
+
         void* rawPtr = ts_value_get_object(obj);
-        if (!rawPtr) rawPtr = obj;
+        if (!rawPtr) return ts_value_make_array(TsArray::Create(0));
 
         // Handle flat objects
         if (is_flat_object(rawPtr)) {
@@ -5209,8 +5222,12 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_freeze(TsValue* obj) {
         if (!obj) return obj;
 
+        // ES2015+: Object.freeze of a non-object returns the input unchanged.
+        uint64_t nb = nanbox_from_tsvalue_ptr(obj);
+        if (!nanbox_is_ptr(nb)) return obj;
+
         void* rawPtr = ts_value_get_object(obj);
-        if (!rawPtr) rawPtr = obj;
+        if (!rawPtr) return obj;
 
         // Convert flat objects to TsMap first
         if (is_flat_object(rawPtr)) {
@@ -5252,8 +5269,14 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_seal(TsValue* obj) {
         if (!obj) return obj;
 
+        // Per ECMA-262 (ES2015+), Object.seal of a non-object returns the
+        // input unchanged. Guard against passing primitives where we would
+        // dereference a NaN-box as a pointer and crash.
+        uint64_t nb = nanbox_from_tsvalue_ptr(obj);
+        if (!nanbox_is_ptr(nb)) return obj;
+
         void* rawPtr = ts_value_get_object(obj);
-        if (!rawPtr) rawPtr = obj;
+        if (!rawPtr) return obj;
 
         // Convert flat objects to TsMap first
         if (is_flat_object(rawPtr)) {
@@ -5292,8 +5315,13 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_preventExtensions(TsValue* obj) {
         if (!obj) return obj;
 
+        // ES2015+: Object.preventExtensions of a non-object returns the
+        // input unchanged.
+        uint64_t nb = nanbox_from_tsvalue_ptr(obj);
+        if (!nanbox_is_ptr(nb)) return obj;
+
         void* rawPtr = ts_value_get_object(obj);
-        if (!rawPtr) rawPtr = obj;
+        if (!rawPtr) return obj;
 
         // Convert flat objects to TsMap first
         if (is_flat_object(rawPtr)) {
@@ -5909,6 +5937,20 @@ TsValue* ts_value_make_int(int64_t i) {
         // and throws TypeError for primitives. Previously this silently
         // no-op'd on non-TsMap targets, which regressed spec tests like
         // Object.defineProperties(fun, {...}) where fun is a TsFunction.
+
+        // Per ECMA-262 19.1.2.3.1 ObjectDefineProperties step 2:
+        // ToObject(Properties) — throws TypeError on null/undefined.
+        uint64_t descNb = nanbox_from_tsvalue_ptr(descriptors);
+        if (nanbox_is_null(descNb) || nanbox_is_undefined(descNb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return obj;  // unreachable
+        }
+        if (!nanbox_is_ptr(descNb)) {
+            // Primitive (number/bool) coerces to a wrapper with no own
+            // property keys — defineProperties is then a no-op per spec.
+            return obj;
+        }
 
         // Get the descriptors object
         void* descRaw = ts_value_get_object(descriptors);
