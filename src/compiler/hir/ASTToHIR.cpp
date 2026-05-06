@@ -5785,11 +5785,14 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             newArgs.push_back(restArray);
             args = std::move(newArgs);
         } else if (targetFunc) {
-            // If we found the function and have fewer args than params, pad with undefined
+            // Match args to declared params: pad short with undefined, truncate
+            // long. The LLVM verifier rejects either mismatch on direct calls.
             if (args.size() < targetFunc->params.size()) {
                 for (size_t i = args.size(); i < targetFunc->params.size(); ++i) {
                     args.push_back(builder_.createConstUndefined());
                 }
+            } else if (args.size() > targetFunc->params.size()) {
+                args.resize(targetFunc->params.size());
             }
         }
 
