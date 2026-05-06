@@ -4356,6 +4356,21 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
     // Check if index is a string/pointer (dynamic property access) vs numeric (array index)
     if (idx->getType()->isPointerTy()) {
         // Dynamic property access: obj[stringKey] - call ts_object_get_dynamic
+        // Box primitive receivers per ECMA-262 GetValue (ToObject coerces).
+        if (!arr->getType()->isPointerTy()) {
+            if (arr->getType()->isIntegerTy(64)) {
+                arr = builder_->CreateCall(getTsValueMakeInt(), {arr});
+            } else if (arr->getType()->isDoubleTy()) {
+                arr = builder_->CreateCall(getTsValueMakeDouble(), {arr});
+            } else if (arr->getType()->isIntegerTy(1)) {
+                llvm::Value* w = builder_->CreateZExt(arr, builder_->getInt32Ty());
+                arr = builder_->CreateCall(getTsValueMakeBool(), {w});
+            } else if (arr->getType()->isIntegerTy(32)) {
+                arr = builder_->CreateCall(getTsValueMakeBool(), {arr});
+            } else {
+                arr = builder_->CreateIntToPtr(arr, builder_->getPtrTy());
+            }
+        }
         // Box the string key to TsValue* since ts_object_get_dynamic expects TsValue* args
         auto boxKeyFn = getTsValueMakeString();
         llvm::Value* boxedKey = builder_->CreateCall(boxKeyFn, {idx});
