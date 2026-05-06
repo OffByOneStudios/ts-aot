@@ -6598,9 +6598,12 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
             auto boxFn = getTsValueMakeInt();
             boxedObj = builder_->CreateCall(boxFn, { obj }, "box_int_for_method");
         } else if (obj->getType()->isIntegerTy(1)) {
-            // Box bool to TsValue*
+            // Box bool to TsValue*. ts_value_make_bool's canonical signature
+            // is ptr(i32), so widen i1 → i32 before the call to avoid an
+            // LLVM verifier error.
             auto boxFn = getTsValueMakeBool();
-            boxedObj = builder_->CreateCall(boxFn, { obj }, "box_bool_for_method");
+            llvm::Value* widened = builder_->CreateZExt(obj, builder_->getInt32Ty(), "bool_widen_for_method");
+            boxedObj = builder_->CreateCall(boxFn, { widened }, "box_bool_for_method");
         } else if (!obj->getType()->isPointerTy()) {
             // Other non-pointer types: cast to ptr (shouldn't normally happen)
             boxedObj = builder_->CreateIntToPtr(obj, builder_->getPtrTy(), "cast_to_ptr_for_method");
