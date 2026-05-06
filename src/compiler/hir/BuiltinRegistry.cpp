@@ -270,9 +270,9 @@ void BuiltinRegistry::registerStringMethods() {
     methodTable_[{HIRTypeKind::String, "normalize"}] =
         MethodResolution::makeRuntimeCall("ts_string_normalize", -1, stringType);
 
-    // Locale comparison
-    methodTable_[{HIRTypeKind::String, "localeCompare"}] =
-        MethodResolution::makeRuntimeCall("ts_string_localeCompare", -1, intType);
+    // Locale comparison: no flat-named ts_string_localeCompare runtime
+    // function exists; falling back to dynamic dispatch resolves to
+    // String.prototype.localeCompare via the prototype chain.
 
     // Well-formed checks (ES2024)
     methodTable_[{HIRTypeKind::String, "isWellFormed"}] =
