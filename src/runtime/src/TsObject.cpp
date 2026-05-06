@@ -6584,10 +6584,6 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic16 == 0x42494749) return val;  // BigInt
         if (magic16 == 0x53594D42) return val;  // Symbol
 
-        // hint 2 (string) → toString first, else valueOf first
-        const char* firstMethod  = (hint == 2) ? "toString" : "valueOf";
-        const char* secondMethod = (hint == 2) ? "valueOf"  : "toString";
-
         auto is_primitive_result = [](TsValue* r) -> bool {
             if (!r) return false;
             uint64_t rnb = nanbox_from_tsvalue_ptr(r);
@@ -6597,6 +6593,28 @@ TsValue* ts_value_make_int(int64_t i) {
             if (nanbox_is_ptr(rnb) && nanbox_is_string_ptr(rnb)) return true;
             return false;
         };
+
+        // ECMA-262 7.1.1 ToPrimitive: first look up @@toPrimitive
+        // (Symbol.toPrimitive). If present and callable, call with
+        // hint string and use the primitive result. Well-known symbols
+        // are stored under canonical string keys "[Symbol.<name>]"
+        // (see TsGlobals.cpp register-well-known-symbols).
+        TsValue* exoticToPrim = ts_object_get_property(obj, "[Symbol.toPrimitive]");
+        if (exoticToPrim && !ts_value_is_undefined(exoticToPrim)) {
+            const char* hintStr = (hint == 2) ? "string"
+                                : (hint == 1) ? "number"
+                                              : "default";
+            TsValue* hintVal = ts_value_make_string(TsString::Create(hintStr));
+            TsValue* result = ts_call_with_this_1(exoticToPrim, val, hintVal);
+            if (is_primitive_result(result)) return result;
+            // Per spec: if @@toPrimitive returned a non-primitive, throw.
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert object to primitive value"));
+        }
+
+        // hint 2 (string) → toString first, else valueOf first
+        const char* firstMethod  = (hint == 2) ? "toString" : "valueOf";
+        const char* secondMethod = (hint == 2) ? "valueOf"  : "toString";
 
         // Try each method. Track whether any method WAS reachable (existed
         // AND was callable), so we can distinguish "user gave us an object
