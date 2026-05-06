@@ -4604,6 +4604,13 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     if (superExpr && currentClass_ && currentClass_->baseClass) {
         if (currentClass_->baseClass->constructor) {
             // Base class has explicit constructor - call it with [this, ...args]
+            // Truncate or pad args to match the base constructor's arity:
+            // verifier rejects extra args (super(1,2) on a zero-arg base),
+            // and missing args are undefined.
+            HIRFunction* baseCtor = currentClass_->baseClass->constructor;
+            // Param 0 of a constructor is `this` (implicit), so user-visible
+            // arity is params.size() - 1.
+            size_t expectedUserArgs = baseCtor->params.empty() ? 0 : baseCtor->params.size() - 1;
             std::vector<std::shared_ptr<HIRValue>> ctorArgs;
             auto thisVal = lookupVariable("this");
             if (thisVal) {
@@ -4611,10 +4618,15 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             } else {
                 ctorArgs.push_back(builder_.createConstNull());
             }
-            for (auto& arg : args) {
-                ctorArgs.push_back(arg);
+            if (baseCtor->hasRestParam) {
+                for (auto& arg : args) ctorArgs.push_back(arg);
+            } else {
+                for (size_t i = 0; i < expectedUserArgs; ++i) {
+                    if (i < args.size()) ctorArgs.push_back(args[i]);
+                    else ctorArgs.push_back(builder_.createConstUndefined());
+                }
             }
-            builder_.createCall(currentClass_->baseClass->constructor->name, ctorArgs, HIRType::makeVoid());
+            builder_.createCall(baseCtor->name, ctorArgs, HIRType::makeVoid());
         }
         // If base class has no explicit constructor (e.g., abstract class),
         // super() is a no-op - just continue with the derived class constructor
@@ -6314,15 +6326,24 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     }
 
     if (hirClass && hirClass->constructor) {
-        // Build constructor call args: [this, ...args]
+        // Build constructor call args: [this, ...args]. Truncate or pad to
+        // match the constructor's declared arity — verifier rejects extras
+        // and missing args are undefined.
+        HIRFunction* ctor = hirClass->constructor;
+        size_t expectedUserArgs = ctor->params.empty() ? 0 : ctor->params.size() - 1;
         std::vector<std::shared_ptr<HIRValue>> ctorArgs;
         ctorArgs.push_back(newObj);  // 'this' is the new object
-        for (auto& arg : args) {
-            ctorArgs.push_back(arg);
+        if (ctor->hasRestParam) {
+            for (auto& arg : args) ctorArgs.push_back(arg);
+        } else {
+            for (size_t i = 0; i < expectedUserArgs; ++i) {
+                if (i < args.size()) ctorArgs.push_back(args[i]);
+                else ctorArgs.push_back(builder_.createConstUndefined());
+            }
         }
 
         // Call the constructor
-        builder_.createCall(hirClass->constructor->name, ctorArgs, HIRType::makeVoid());
+        builder_.createCall(ctor->name, ctorArgs, HIRType::makeVoid());
     } else if (hirClass && !hirClass->constructor && specializations_) {
         // The HIRClass was created (e.g., by pre-pass for imported classes) but the
         // constructor function hasn't been generated yet. Look through specializations
