@@ -359,6 +359,9 @@ ast::ExprPtr Parser::parseUnaryExpression() {
             setLocation(node.get(), tok);
             node->op = std::string(tok.text);
             node->operand = parseUnaryExpression();
+            // ECMA-262 13.4 UpdateExpression: operand must be a valid
+            // simple assignment target.
+            validateAssignmentTarget(node->operand.get(), false);
             return node;
         }
         case TokenKind::KW_typeof: {
@@ -423,6 +426,9 @@ ast::ExprPtr Parser::parsePostfixExpression() {
         if (current_.kind == TokenKind::PlusPlus) {
             auto tok = current_;
             advance();
+            // ECMA-262 13.4: postfix UpdateExpression operand must be a
+            // valid simple assignment target.
+            validateAssignmentTarget(expr.get(), false);
             auto node = std::make_unique<ast::PostfixUnaryExpression>();
             setLocation(node.get(), expr->line, expr->column);
             node->op = "++";
@@ -432,6 +438,7 @@ ast::ExprPtr Parser::parsePostfixExpression() {
         if (current_.kind == TokenKind::MinusMinus) {
             auto tok = current_;
             advance();
+            validateAssignmentTarget(expr.get(), false);
             auto node = std::make_unique<ast::PostfixUnaryExpression>();
             setLocation(node.get(), expr->line, expr->column);
             node->op = "--";
