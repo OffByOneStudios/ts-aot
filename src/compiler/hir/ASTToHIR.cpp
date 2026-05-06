@@ -5518,6 +5518,17 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             return;
         }
 
+        // Date(...) without `new`: per ECMA-262 21.4.2.1, returns the
+        // current time as a string regardless of args. The args are
+        // evaluated for side effects but discarded.
+        if (ident->name == "Date") {
+            // Evaluate args for side-effect, then call ts_date_now_string().
+            // (createCall with the evaluated arg values is unnecessary —
+            // they were already evaluated when args was built.)
+            lastValue_ = builder_.createCall("ts_date_now_string", {}, HIRType::makeString());
+            return;
+        }
+
         // Error constructors called as functions (without new) - same as new Error()
         if (ident->name == "Error" || ident->name == "TypeError" || ident->name == "RangeError" ||
             ident->name == "ReferenceError" || ident->name == "SyntaxError" || ident->name == "URIError" ||

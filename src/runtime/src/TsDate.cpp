@@ -365,4 +365,12 @@ extern "C" {
     void* Date_toDateString(void* date) { return ((TsDate*)date)->ToDateString(); }
 
     int64_t Date_static_now() { return TsDate::Now(); }
+
+    // ECMA-262 21.4.2.1: when Date is called as a function (not via new),
+    // it ignores all args and returns the current time formatted as a
+    // string (toString form).
+    void* ts_date_now_string() {
+        TsDate* d = TsDate::Create();
+        return d->ToString();
+    }
 }
