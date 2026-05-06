@@ -5101,6 +5101,15 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 
     // Handle global isNaN/isFinite -> redirect to Number.isNaN/isFinite handlers
     if (funcName == "isNaN" || funcName == "isFinite") {
+        // No arg → coerce undefined to NaN. isNaN(undefined)=true,
+        // isFinite(undefined)=false. Use NaN sentinel for both.
+        if (inst->operands.size() < 2) {
+            llvm::Value* result = funcName == "isNaN"
+                ? builder_->getInt1(true)
+                : builder_->getInt1(false);
+            if (inst->result) setValue(inst->result, result);
+            return;
+        }
         llvm::Value* arg = getOperandValue(inst->operands[1]);
         // Global isNaN/isFinite coerce to number first, but for our purposes
         // we can use the Number.* versions which work on doubles
