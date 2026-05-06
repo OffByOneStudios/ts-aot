@@ -4940,10 +4940,19 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
 
     // Handle Object.is(value1, value2) - needs to box both arguments
     if (funcName == "ts_object_is") {
-        llvm::Value* val1 = getOperandValue(inst->operands[1]);
-        llvm::Value* val2 = getOperandValue(inst->operands[2]);
+        // Pad missing args with undefined NaN-box (i64 10 → ptr).
+        // Object.is(undefined, undefined) returns true; this matches spec
+        // for `Object.is()` (zero args) and `Object.is(x)` (one arg).
+        llvm::Value* undefBoxed = builder_->CreateIntToPtr(
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 10),
+            builder_->getPtrTy());
+        llvm::Value* val1 = inst->operands.size() > 1
+            ? getOperandValue(inst->operands[1]) : undefBoxed;
+        llvm::Value* val2 = inst->operands.size() > 2
+            ? getOperandValue(inst->operands[2]) : undefBoxed;
 
-        // Box val1 based on type
+        // Box val1 based on type. ts_value_make_bool's canonical signature
+        // is ptr(i32), so widen i1 → i32 first.
         if (val1->getType()->isIntegerTy(64)) {
             val1 = builder_->CreateCall(getTsValueMakeInt(), { val1 });
         } else if (val1->getType()->isDoubleTy()) {
@@ -4951,9 +4960,8 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
             val1 = builder_->CreateCall(ft, fn.getCallee(), { val1 });
         } else if (val1->getType()->isIntegerTy(1)) {
-            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
-            auto fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
-            val1 = builder_->CreateCall(ft, fn.getCallee(), { val1 });
+            llvm::Value* w = builder_->CreateZExt(val1, builder_->getInt32Ty());
+            val1 = builder_->CreateCall(getTsValueMakeBool(), { w });
         }
         // For pointers, assume already boxed or wrap if needed
         if (!val1->getType()->isPointerTy()) {
@@ -4968,9 +4976,8 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
             val2 = builder_->CreateCall(ft, fn.getCallee(), { val2 });
         } else if (val2->getType()->isIntegerTy(1)) {
-            auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
-            auto fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
-            val2 = builder_->CreateCall(ft, fn.getCallee(), { val2 });
+            llvm::Value* w = builder_->CreateZExt(val2, builder_->getInt32Ty());
+            val2 = builder_->CreateCall(getTsValueMakeBool(), { w });
         }
         if (!val2->getType()->isPointerTy()) {
             val2 = builder_->CreateIntToPtr(val2, builder_->getPtrTy());
