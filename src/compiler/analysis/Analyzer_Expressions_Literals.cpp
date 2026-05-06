@@ -143,14 +143,17 @@ void Analyzer::visitObjectLiteralExpression(ast::ObjectLiteralExpression* node) 
     for (auto& prop : node->properties) {
         visit(prop.get());
         if (auto pa = dynamic_cast<ast::PropertyAssignment*>(prop.get())) {
-            // Strict mode: check for duplicate properties
-            if (strictMode && seenProperties.count(pa->name)) {
+            // Strict mode: check for duplicate literal property names. Per
+            // ECMA-262 12.2.6.1, the early error applies only to statically
+            // known names; computed property names ([expr]) are evaluated
+            // at runtime so we can't (and shouldn't) compare them here.
+            if (strictMode && pa->name != "[computed]" && seenProperties.count(pa->name)) {
                 reportError("Strict mode: Duplicate data property '" + pa->name + "' in object literal");
             }
             seenProperties.insert(pa->name);
             objType->fields[pa->name] = lastType;
         } else if (auto spa = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop.get())) {
-            if (strictMode && seenProperties.count(spa->name)) {
+            if (strictMode && spa->name != "[computed]" && seenProperties.count(spa->name)) {
                 reportError("Strict mode: Duplicate data property '" + spa->name + "' in object literal");
             }
             seenProperties.insert(spa->name);
