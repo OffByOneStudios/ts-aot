@@ -1369,9 +1369,26 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
     StrictModeGuard sg(this);
     strictMode_ = true;
     expect(TokenKind::OpenBrace, "'{'");
+    int constructorCount = 0;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto member = parseClassMember();
-        if (member) node->members.push_back(std::move(member));
+        if (member) {
+            // ECMA-262 15.7.1 Static Semantics: Early Errors —
+            // ClassBody : ClassElementList. It is a Syntax Error if
+            // PrototypePropertyNameList of ClassElementList contains
+            // more than one occurrence of "constructor".
+            if (auto* m = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                if (m->name == "constructor" && !m->isStatic && !m->isGetter && !m->isSetter) {
+                    constructorCount++;
+                    if (constructorCount > 1) {
+                        throw std::runtime_error(fmt::format(
+                            "{}:{}: SyntaxError: A class may only have one constructor",
+                            fileName_, m->line));
+                    }
+                }
+            }
+            node->members.push_back(std::move(member));
+        }
         // Consume trailing semicolons between members
         while (match(TokenKind::Semicolon)) {}
     }
