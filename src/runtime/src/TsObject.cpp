@@ -918,9 +918,14 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!arg) return nullptr;
         void* raw = ts_value_get_object((TsValue*)arg);
         if (raw) return raw;
-        // NaN-boxed special or number - not a valid heap pointer
-        if ((uint64_t)(uintptr_t)arg < 0x10000) return nullptr;
-        // Raw pointer that wasn't NaN-boxed
+        uint64_t nb = (uint64_t)(uintptr_t)arg;
+        // NaN-boxed special (null/undefined/true/false/hole) — not an object.
+        if (nb <= NANBOX_UNDEFINED) return nullptr;
+        // NaN-boxed number (top 16 bits set) — not a valid heap pointer.
+        if ((nb & 0xFFFF000000000000ULL) != 0) return nullptr;
+        // Below the user-allocatable heap range — bogus.
+        if (nb < 0x10000) return nullptr;
+        // Raw pointer that wasn't NaN-boxed.
         return arg;
     }
 
