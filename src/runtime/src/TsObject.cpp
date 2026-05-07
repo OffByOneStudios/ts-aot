@@ -703,6 +703,37 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)func;
     }
 
+    // Test262 host-defined exotic object with [[IsHTMLDDA]] internal slot.
+    // Per Annex B, this object loose-equals null/undefined, ToBoolean returns
+    // false, calling it returns undefined, typeof returns "undefined". The
+    // ~3000-test "*-emulates-undefined" cluster across destructuring,
+    // generators, TypedArray, and Symbol.iterator depends on this behavior.
+    static TsValue* htmldda_call_native(void* /*ctx*/, int /*argc*/, TsValue** /*argv*/) {
+        return ts_value_make_undefined();
+    }
+    TsValue* ts_create_htmldda() {
+        void* mem = ts_alloc(sizeof(TsFunction));
+        TsFunction* func = new (mem) TsFunction((void*)htmldda_call_native, nullptr,
+                                                 FunctionType::NATIVE);
+        func->magic = TsFunction::MAGIC;
+        func->is_constructor = false;
+        func->is_htmldda = true;
+        func->name = TsString::Create("IsHTMLDDA");
+        return (TsValue*)func;
+    }
+
+    // Returns true if val is a TsFunction with [[IsHTMLDDA]] = true.
+    bool ts_is_htmldda(TsValue* val) {
+        if (!val) return false;
+        uint64_t nb = (uint64_t)(uintptr_t)val;
+        if (!nanbox_is_ptr(nb) || nb <= NANBOX_UNDEFINED) return false;
+        void* raw = ts_value_get_object(val);
+        if (!raw) return false;
+        uint32_t magic = *(uint32_t*)((char*)raw + 16);
+        if (magic != TsFunction::MAGIC) return false;
+        return ((TsFunction*)raw)->is_htmldda;
+    }
+
     // Create a native function with name and arity set as real own
     // properties in the TsMap, so hasOwnProperty, getOwnPropertyDescriptor,
     // delete, and Object.defineProperty all work through standard TsMap
@@ -6836,6 +6867,10 @@ TsValue* ts_value_make_int(int64_t i) {
         bool a_nullish = nanbox_is_undefined(nba) || nanbox_is_null(nba);
         bool b_nullish = nanbox_is_undefined(nbb) || nanbox_is_null(nbb);
         if (a_nullish && b_nullish) return ts_value_make_bool(true);
+        // Annex B § B.3.7.1: an object with [[IsHTMLDDA]] internal slot
+        // loose-equals null and undefined (legacy DOM document.all).
+        if (a_nullish && ts_is_htmldda(b)) return ts_value_make_bool(true);
+        if (b_nullish && ts_is_htmldda(a)) return ts_value_make_bool(true);
         if (a_nullish || b_nullish) return ts_value_make_bool(false);
 
         // Same type: strict equal
@@ -9394,6 +9429,13 @@ TsValue* ts_value_make_int(int64_t i) {
         globalMap->Set(makeKey("Infinity"), nanbox_to_tagged(ts_value_make_double(std::numeric_limits<double>::infinity())));
         globalMap->Set(makeKey("isNaN"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isNaN_native, nullptr, "isNaN", 1)));
         globalMap->Set(makeKey("isFinite"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isFinite_native, nullptr, "isFinite", 1)));
+        // Test262 host hook: produces a TsFunction with [[IsHTMLDDA]] slot
+        // for the harness $262.IsHTMLDDA construction. See HOST_262_SETUP
+        // in tests/test262/run_test262.py.
+        auto htmlddaCreator = [](void* /*ctx*/, int /*argc*/, TsValue** /*argv*/) -> TsValue* {
+            return ts_create_htmldda();
+        };
+        globalMap->Set(makeKey("__ts_create_htmldda__"), nanbox_to_tagged(makeNamedNativeFunction((void*)+htmlddaCreator, nullptr, "__ts_create_htmldda__", 0)));
 
         global = ts_value_make_object(globalMap);
         globalThis = global;  // ES2020: globalThis is an alias for global

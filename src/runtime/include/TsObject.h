@@ -164,6 +164,11 @@ public:
     // no [[Construct]] internal method — `new fn()` must throw TypeError.
     // User functions and class constructors default to true.
     bool is_constructor = true;
+    // Annex B [[IsHTMLDDA]] internal slot (test262 $262.IsHTMLDDA host
+    // hook). When true: == null/undefined returns true; ToBoolean returns
+    // false. Used by ~3000 tests in the "*-emulates-undefined" pattern
+    // to model legacy DOM document.all behavior.
+    bool is_htmldda = false;
     TsFunction(void* fp, void* ctx = nullptr, FunctionType t = FunctionType::COMPILED, int a = -1)
         : funcPtr(fp), context(ctx), type(t), arity(a) {
         magic = MAGIC;
@@ -187,6 +192,9 @@ extern "C" {
     TsValue* ts_value_make_function_with_arity(void* funcPtr, void* context, int arity);
     TsValue* ts_value_make_function_named(void* funcPtr, void* context, void* name);
     TsValue* ts_value_make_native_function(void* funcPtr, void* context);
+    // Test262 host-defined IsHTMLDDA exotic (Annex B § B.3.7.1)
+    TsValue* ts_create_htmldda();
+    bool ts_is_htmldda(TsValue* val);
     bool ts_value_is_undefined(TsValue* v);
     bool ts_value_is_null(TsValue* v);
     TsValue* ts_call_0(TsValue* boxedFunc);

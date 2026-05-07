@@ -383,11 +383,15 @@ var $262 = {
             buffer.transfer();
         }
     },
-    // [[IsHTMLDDA]]: a callable whose [[Call]] returns undefined.
-    // Per Annex B, `IsHTMLDDA == null` is also true (legacy DOM
-    // document.all semantics) — we don't model that here, but tests
-    // that just check `Call(IsHTMLDDA)` returning a non-Object pass.
-    IsHTMLDDA: function() {},
+    // [[IsHTMLDDA]]: a host-defined exotic whose [[Call]] returns
+    // undefined. Per Annex B § B.3.7.1: also `IsHTMLDDA == null` and
+    // `IsHTMLDDA == undefined` are true; ToBoolean returns false.
+    // The runtime sets globalThis.__ts_create_htmldda__ to produce a
+    // TsFunction with the is_htmldda flag set; the equality and
+    // ToBoolean paths in the runtime check that flag.
+    IsHTMLDDA: (typeof globalThis.__ts_create_htmldda__ === "function")
+        ? globalThis.__ts_create_htmldda__()
+        : function() {},
     // Reference to the global object. test262 occasionally uses
     // $262.global for indirect property access.
     global: globalThis,

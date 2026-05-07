@@ -697,12 +697,24 @@ TsString* ts_typeof(void* val) {
         if (magic == 0x53594D42) return TsString::Create("symbol");   // TsSymbol
         if (magic == 0x41525259) return TsString::Create("object");   // TsArray
         if (magic == 0x4D415053) return TsString::Create("object");   // TsMap
-        if (magic == 0x46554E43) return TsString::Create("function"); // TsFunction
+        if (magic == 0x46554E43) {
+            // Annex B § B.3.7: typeof on an [[IsHTMLDDA]] object yields
+            // "undefined" (legacy DOM document.all).
+            if (((TsFunction*)ptr)->is_htmldda) return TsString::Create("undefined");
+            return TsString::Create("function"); // TsFunction
+        }
         if (magic == 0x464C4154) return TsString::Create("object");   // Flat object
 
         // Check offset 16 for TsObject-derived types
         uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-        if (magic16 == 0x46554E43) return TsString::Create("function"); // TsFunction at offset 16
+        if (magic16 == 0x46554E43) {
+            // Annex B § B.3.7: typeof on an [[IsHTMLDDA]] object yields
+            // "undefined" (legacy DOM document.all). For TsFunction
+            // pointers stored without the TsObject prefix prefix,
+            // is_htmldda lives at the same TsFunction layout.
+            if (((TsFunction*)ptr)->is_htmldda) return TsString::Create("undefined");
+            return TsString::Create("function"); // TsFunction at offset 16
+        }
         if (magic16 == 0x434C5352) return TsString::Create("function"); // TsClosure at offset 16
         if (magic16 == 0x4D415053) return TsString::Create("object");   // TsMap at offset 16
 
@@ -1054,6 +1066,8 @@ bool ts_value_to_bool(TsValue* v) {
         if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
             return ts_string_like_length(ptr) > 0; // Empty string is falsy
         }
+        // Annex B § B.3.7: [[IsHTMLDDA]] objects coerce to false.
+        if (ts_is_htmldda(v)) return false;
         return true; // Non-null objects are truthy
     }
     return false;
