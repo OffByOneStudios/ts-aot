@@ -5111,6 +5111,43 @@ TsValue* ts_value_make_int(int64_t i) {
             objRaw = obj;
         }
 
+        // Helper: walk to ConstructorGlobal.prototype and return its TsMap*.
+        // ctorGetter is the runtime accessor (e.g. ts_get_global_Array).
+        auto getCtorPrototype = [](void* ctor) -> TsValue* {
+            if (!ctor) return ts_value_make_null();
+            void* raw = ts_value_get_object((TsValue*)ctor);
+            if (!raw) raw = ctor;
+            if (!raw) return ts_value_make_null();
+            uint32_t fmagic = *(uint32_t*)((char*)raw + 16);
+            if (fmagic != TsFunction::MAGIC) return ts_value_make_null();
+            TsFunction* fctor = (TsFunction*)raw;
+            if (!fctor->properties) return ts_value_make_null();
+            TsValue protoKey;
+            protoKey.type = ValueType::STRING_PTR;
+            protoKey.ptr_val = TsString::GetInterned("prototype");
+            TsValue protoVal = fctor->properties->Get(protoKey);
+            if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+                return ts_value_make_object(protoVal.ptr_val);
+            }
+            return ts_value_make_null();
+        };
+
+        // Check offset 0 magic first — TsArray/TsRegExp/TsDate don't have
+        // the TsObject prefix so their magic lives at offset 0.
+        uint32_t magic0 = *(uint32_t*)objRaw;
+        if (magic0 == 0x41525259) { // TsArray "ARRY"
+            extern void* ts_get_global_Array();
+            return getCtorPrototype(ts_get_global_Array());
+        }
+        if (magic0 == 0x52454758) { // TsRegExp "REGX"
+            extern void* ts_get_global_RegExp();
+            return getCtorPrototype(ts_get_global_RegExp());
+        }
+        if (magic0 == 0x44415445) { // TsDate "DATE"
+            extern void* ts_get_global_Date();
+            return getCtorPrototype(ts_get_global_Date());
+        }
+
         // Check if obj is a TsMap
         uint32_t magic = *(uint32_t*)((char*)objRaw + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
@@ -5119,8 +5156,19 @@ TsValue* ts_value_make_int(int64_t i) {
             if (proto) {
                 return ts_value_make_object(proto);
             }
-            // null prototype - return null
+            // For explicit Map instances with no user-set prototype,
+            // return Map.prototype. Plain objects keep null per existing
+            // behavior (object literals don't have an explicit IsExplicitMap
+            // path here; falls through to null).
+            if (objMap->IsExplicitMap()) {
+                extern void* ts_get_global_Map();
+                return getCtorPrototype(ts_get_global_Map());
+            }
             return ts_value_make_null();
+        }
+        if (magic == 0x53455453) { // TsSet "SETS"
+            extern void* ts_get_global_Set();
+            return getCtorPrototype(ts_get_global_Set());
         }
 
         // ECMA-262: Function/Closure objects' [[Prototype]] is
@@ -5128,27 +5176,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // .prototype property of the global Function constructor.
         if (magic == 0x46554E43 /* FUNC */ || magic == 0x434C5352 /* CLSR */) {
             extern void* ts_get_global_Function();
-            void* funcCtor = ts_get_global_Function();
-            if (funcCtor) {
-                void* funcCtorRaw = ts_value_get_object((TsValue*)funcCtor);
-                if (!funcCtorRaw) funcCtorRaw = funcCtor;
-                if (funcCtorRaw) {
-                    uint32_t fmagic = *(uint32_t*)((char*)funcCtorRaw + 16);
-                    if (fmagic == TsFunction::MAGIC) {
-                        TsFunction* fctor = (TsFunction*)funcCtorRaw;
-                        if (fctor->properties) {
-                            TsValue protoKey;
-                            protoKey.type = ValueType::STRING_PTR;
-                            protoKey.ptr_val = TsString::GetInterned("prototype");
-                            TsValue protoVal = fctor->properties->Get(protoKey);
-                            if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
-                                return ts_value_make_object(protoVal.ptr_val);
-                            }
-                        }
-                    }
-                }
-            }
-            return ts_value_make_null();
+            return getCtorPrototype(ts_get_global_Function());
         }
 
         // For non-TsMap objects, return null (no prototype chain for them yet)
