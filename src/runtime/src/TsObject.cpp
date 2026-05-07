@@ -5123,6 +5123,34 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_null();
         }
 
+        // ECMA-262: Function/Closure objects' [[Prototype]] is
+        // %FunctionPrototype% (i.e., Function.prototype). Read the
+        // .prototype property of the global Function constructor.
+        if (magic == 0x46554E43 /* FUNC */ || magic == 0x434C5352 /* CLSR */) {
+            extern void* ts_get_global_Function();
+            void* funcCtor = ts_get_global_Function();
+            if (funcCtor) {
+                void* funcCtorRaw = ts_value_get_object((TsValue*)funcCtor);
+                if (!funcCtorRaw) funcCtorRaw = funcCtor;
+                if (funcCtorRaw) {
+                    uint32_t fmagic = *(uint32_t*)((char*)funcCtorRaw + 16);
+                    if (fmagic == TsFunction::MAGIC) {
+                        TsFunction* fctor = (TsFunction*)funcCtorRaw;
+                        if (fctor->properties) {
+                            TsValue protoKey;
+                            protoKey.type = ValueType::STRING_PTR;
+                            protoKey.ptr_val = TsString::GetInterned("prototype");
+                            TsValue protoVal = fctor->properties->Get(protoKey);
+                            if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+                                return ts_value_make_object(protoVal.ptr_val);
+                            }
+                        }
+                    }
+                }
+            }
+            return ts_value_make_null();
+        }
+
         // For non-TsMap objects, return null (no prototype chain for them yet)
         return ts_value_make_null();
     }
