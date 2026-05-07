@@ -3,6 +3,7 @@
 #include "TsRuntime.h"
 #include "TsArray.h"
 #include "TsMap.h"
+#include "TsHashTable.h"
 #include "GC.h"
 #include "TsNanBox.h"
 #include <new>
@@ -32,6 +33,16 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
     TsMap* err = TsMap::Create();
     err->Set(TsString::Create("message"), nanbox_to_tagged(ts_value_make_string(msgStr)));
     err->Set(TsString::Create("name"), nanbox_to_tagged(ts_value_make_string(TsString::Create("Error"))));
+    // Brand as Error per [[ErrorData]] internal slot via @@toStringTag own
+    // property (string-key convention). Spec says Object.prototype.toString
+    // returns "[object Error]" for instances with [[ErrorData]].
+    {
+        TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+        tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+        TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+        tagVal.ptr_val = TsString::Create("Error");
+        err->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+    }
 
     // ES2022: Handle options.cause
     if (options) {
@@ -173,6 +184,14 @@ static TsValue* buildTypedErrorObject(const char* name, TsString* msgStr) {
     TsMap* err = TsMap::Create();
     err->Set(TsString::Create("message"), nanbox_to_tagged(ts_value_make_string(msgStr)));
     err->Set(TsString::Create("name"), nanbox_to_tagged(ts_value_make_string(TsString::Create(name))));
+    // Brand as Error per [[ErrorData]] internal slot.
+    {
+        TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+        tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+        TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+        tagVal.ptr_val = TsString::Create("Error");
+        err->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+    }
 
     // Set .constructor to the matching global constructor so
     // `e.constructor === TypeError` works for assert.throws identity checks.

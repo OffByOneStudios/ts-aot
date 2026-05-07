@@ -209,15 +209,15 @@ void* ts_get_global_Object() {
     addMethod(ctor, "values", (void*)ts_object_values_native);
     addMethod(ctor, "entries", (void*)ts_object_entries_native);
     addMethod(ctor, "fromEntries", (void*)object_fromEntries_native, 1);
-    addMethod(ctor, "assign", (void*)ts_object_assign_native);
-    addMethod(ctor, "create", (void*)ts_object_create_native);
-    addMethod(ctor, "defineProperty", (void*)ts_object_defineProperty_native);
-    addMethod(ctor, "defineProperties", (void*)ts_object_defineProperties_native);
-    addMethod(ctor, "getOwnPropertyDescriptor", (void*)ts_object_getOwnPropertyDescriptor_native);
+    addMethod(ctor, "assign", (void*)ts_object_assign_native, 2);
+    addMethod(ctor, "create", (void*)ts_object_create_native, 2);
+    addMethod(ctor, "defineProperty", (void*)ts_object_defineProperty_native, 3);
+    addMethod(ctor, "defineProperties", (void*)ts_object_defineProperties_native, 2);
+    addMethod(ctor, "getOwnPropertyDescriptor", (void*)ts_object_getOwnPropertyDescriptor_native, 2);
     addMethod(ctor, "getOwnPropertyDescriptors", (void*)ts_object_getOwnPropertyDescriptors_native);
     addMethod(ctor, "getOwnPropertyNames", (void*)ts_object_getOwnPropertyNames_native);
     addMethod(ctor, "getPrototypeOf", (void*)ts_object_getPrototypeOf_native);
-    addMethod(ctor, "setPrototypeOf", (void*)ts_object_setPrototypeOf_native);
+    addMethod(ctor, "setPrototypeOf", (void*)ts_object_setPrototypeOf_native, 2);
     addMethod(ctor, "freeze", (void*)ts_object_freeze_native);
     addMethod(ctor, "seal", (void*)ts_object_seal_native);
     addMethod(ctor, "preventExtensions", (void*)ts_object_preventExtensions_native);
@@ -326,13 +326,13 @@ void* ts_get_global_Array() {
     TsMap* proto = TsMap::Create();
     extern TsMap* g_array_prototype_map;
     g_array_prototype_map = proto;
-    addMethod(proto, "slice", (void*)ts_array_slice_native);
+    addMethod(proto, "slice", (void*)ts_array_slice_native, 2);
     addMethod(proto, "map", (void*)ts_array_map_native);
     addMethod(proto, "filter", (void*)ts_array_filter_native);
     addMethod(proto, "forEach", (void*)ts_array_forEach_native);
     addMethod(proto, "reduce", (void*)ts_array_reduce_native);
     addMethod(proto, "push", (void*)ts_array_push_native);
-    addMethod(proto, "pop", (void*)ts_array_pop_native);
+    addMethod(proto, "pop", (void*)ts_array_pop_native, 0);
     addMethod(proto, "join", (void*)ts_array_join_native);
     addMethod(proto, "indexOf", (void*)ts_array_indexOf_native);
     addMethod(proto, "includes", (void*)ts_array_includes_native);
@@ -341,21 +341,21 @@ void* ts_get_global_Array() {
     addMethod(proto, "find", (void*)ts_array_find_native);
     addMethod(proto, "findIndex", (void*)ts_array_findIndex_native);
     addMethod(proto, "sort", (void*)ts_array_sort_native);
-    addMethod(proto, "reverse", (void*)ts_array_reverse_native);
-    addMethod(proto, "splice", (void*)ts_array_splice_native);
+    addMethod(proto, "reverse", (void*)ts_array_reverse_native, 0);
+    addMethod(proto, "splice", (void*)ts_array_splice_native, 2);
     addMethod(proto, "concat", (void*)ts_array_concat_native);
-    addMethod(proto, "flat", (void*)ts_array_flat_native);
-    addMethod(proto, "shift", (void*)ts_array_shift_native);
+    addMethod(proto, "flat", (void*)ts_array_flat_native, 0);
+    addMethod(proto, "shift", (void*)ts_array_shift_native, 0);
     addMethod(proto, "unshift", (void*)ts_array_unshift_native);
     // ES2022+ methods
     addMethod(proto, "at", (void*)ts_array_at_native);
     addMethod(proto, "fill", (void*)ts_array_fill_native);
-    addMethod(proto, "reduceRight", (void*)ts_array_reduceRight_native, 2);
+    addMethod(proto, "reduceRight", (void*)ts_array_reduceRight_native, 1);
     addMethod(proto, "lastIndexOf", (void*)ts_array_lastIndexOf_native);
     addMethod(proto, "findLast", (void*)ts_array_findLast_native);
     addMethod(proto, "findLastIndex", (void*)ts_array_findLastIndex_native);
     addMethod(proto, "flatMap", (void*)ts_array_flatMap_native);
-    addMethod(proto, "copyWithin", (void*)ts_array_copyWithin_native);
+    addMethod(proto, "copyWithin", (void*)ts_array_copyWithin_native, 2);
     // ES2023 mutation-free methods
     addMethod(proto, "toReversed", (void*)ts_array_toReversed_native, 0);
     addMethod(proto, "toSorted", (void*)ts_array_toSorted_native);
@@ -546,26 +546,26 @@ void* ts_get_global_String() {
         TsMap* proto = TsMap::Create();
         addMethod(proto, "indexOf", (void*)ts_string_proto_indexOf);
         addMethod(proto, "lastIndexOf", (void*)ts_string_proto_lastIndexOf);
-        addMethod(proto, "slice", (void*)ts_string_proto_slice);
-        addMethod(proto, "substring", (void*)ts_string_proto_substring);
+        addMethod(proto, "slice", (void*)ts_string_proto_slice, 2);
+        addMethod(proto, "substring", (void*)ts_string_proto_substring, 2);
         addMethod(proto, "charAt", (void*)ts_string_proto_charAt);
         addMethod(proto, "charCodeAt", (void*)ts_string_proto_charCodeAt);
         addMethod(proto, "includes", (void*)ts_string_proto_includes);
         addMethod(proto, "startsWith", (void*)ts_string_proto_startsWith);
         addMethod(proto, "endsWith", (void*)ts_string_proto_endsWith);
-        addMethod(proto, "trim", (void*)ts_string_proto_trim);
-        addMethod(proto, "split", (void*)ts_string_proto_split);
-        addMethod(proto, "replace", (void*)ts_string_proto_replace);
-        addMethod(proto, "toLowerCase", (void*)ts_string_proto_toLowerCase);
-        addMethod(proto, "toUpperCase", (void*)ts_string_proto_toUpperCase);
+        addMethod(proto, "trim", (void*)ts_string_proto_trim, 0);
+        addMethod(proto, "split", (void*)ts_string_proto_split, 2);
+        addMethod(proto, "replace", (void*)ts_string_proto_replace, 2);
+        addMethod(proto, "toLowerCase", (void*)ts_string_proto_toLowerCase, 0);
+        addMethod(proto, "toUpperCase", (void*)ts_string_proto_toUpperCase, 0);
         addMethod(proto, "repeat", (void*)ts_string_proto_repeat);
         addMethod(proto, "padStart", (void*)ts_string_proto_padStart);
         addMethod(proto, "padEnd", (void*)ts_string_proto_padEnd);
         addMethod(proto, "match", (void*)ts_string_proto_match);
         addMethod(proto, "search", (void*)ts_string_proto_search);
         addMethod(proto, "concat", (void*)ts_string_proto_concat);
-        addMethod(proto, "trimStart", (void*)ts_string_proto_trimStart);
-        addMethod(proto, "trimEnd", (void*)ts_string_proto_trimEnd);
+        addMethod(proto, "trimStart", (void*)ts_string_proto_trimStart, 0);
+        addMethod(proto, "trimEnd", (void*)ts_string_proto_trimEnd, 0);
         addMethod(proto, "at", (void*)ts_string_proto_at);
         addMethod(proto, "codePointAt", (void*)ts_string_proto_codePointAt);
         addMethod(proto, "normalize", (void*)ts_string_proto_normalize);
@@ -690,6 +690,16 @@ static void* makeErrorConstructor(const char* errorName) {
                     emptyVal.ptr_val = TsString::Create("");
                     obj->Set(msgKey, emptyVal);
                 }
+                // Brand the instance as Error per [[ErrorData]] internal slot
+                // (spec brand check). Use the @@toStringTag string-key
+                // convention as own non-enumerable property so
+                // Object.prototype.toString returns "[object Error]" but
+                // Error.prototype itself remains "[object Object]".
+                TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+                tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+                TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+                tagVal.ptr_val = TsString::Create("Error");
+                obj->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
                 return (TsValue*)thisVal;
             }
         }
@@ -714,15 +724,6 @@ static void* makeErrorConstructor(const char* errorName) {
     nameVal.ptr_val = TsString::Create(errorName);
     proto->Set(nameKey, nameVal);
 
-    // Per ECMA-262: Error.prototype has @@toStringTag = "Error".
-    // Native Error subtypes (TypeError, etc.) inherit it from Error.prototype.
-    if (strcmp(errorName, "Error") == 0) {
-        TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
-        tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
-        TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
-        tagVal.ptr_val = TsString::Create("Error");
-        proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
-    }
 
     // Per spec: TypeError.prototype / RangeError.prototype / etc.
     // inherit from Error.prototype. Link via the TsMap prototype chain
@@ -926,8 +927,8 @@ void* ts_get_global_JSON() {
     if (cached) return cached;
 
     cached = TsMap::Create();
-    addMethod(cached, "stringify", (void*)ts_json_stringify_native);
-    addMethod(cached, "parse", (void*)ts_json_parse_native);
+    addMethod(cached, "stringify", (void*)ts_json_stringify_native, 3);
+    addMethod(cached, "parse", (void*)ts_json_parse_native, 2);
     // Symbol.toStringTag so Object.prototype.toString.call(JSON) === "[object JSON]"
     TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
     tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
