@@ -880,6 +880,13 @@ ast::NodePtr Parser::parseBindingNameOrPattern() {
     setLocation(id.get(), current_);
     // Handle # prefix for private fields
     if (match(TokenKind::Hash)) {
+        // ECMA-262: PrivateName is a single token — no whitespace between
+        // '#' and the IdentifierName.
+        if (current_.offset != previous_.offset + 1) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: no whitespace or line terminator allowed between '#' and identifier",
+                previous_.line, previous_.column));
+        }
         id->isPrivate = true;
         id->name = identifierName();
     } else {
@@ -1732,6 +1739,14 @@ ast::NodePtr Parser::parseClassMember() {
     } else if (check(TokenKind::Hash)) {
         // Private field/method
         advance(); // #
+        // ECMA-262: PrivateName is a single token "#IdentifierName" — the #
+        // and the identifier are scanned together, with NO whitespace,
+        // line terminator, or comment between them.
+        if (current_.offset != previous_.offset + 1) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: no whitespace or line terminator allowed between '#' and identifier",
+                previous_.line, previous_.column));
+        }
         name = "#" + identifierName();
         auto id = std::make_unique<ast::Identifier>();
         id->name = name;
