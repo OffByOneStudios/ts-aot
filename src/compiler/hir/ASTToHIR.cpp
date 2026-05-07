@@ -2705,6 +2705,14 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
 
 void ASTToHIR::lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
                                           std::shared_ptr<HIRValue> sourceValue) {
+    // ECMA-262 8.5.2 BindingInitialization for ObjectBindingPattern:
+    //   1. Perform ? RequireObjectCoercible(value).
+    // Skip the check for empty `{}` patterns — spec for `ObjectBindingPattern : {}`
+    // returns NormalCompletion(empty) without coercing.
+    if (!pattern->elements.empty()) {
+        builder_.createCall("ts_destructure_require_object", {sourceValue},
+                            HIRType::makeVoid());
+    }
     for (auto& elem : pattern->elements) {
         if (auto* binding = dynamic_cast<ast::BindingElement*>(elem.get())) {
             lowerBindingElement(binding, sourceValue, true /* isObjectPattern */);
@@ -2714,6 +2722,13 @@ void ASTToHIR::lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
 
 void ASTToHIR::lowerArrayBindingPattern(ast::ArrayBindingPattern* pattern,
                                          std::shared_ptr<HIRValue> sourceValue) {
+    // ECMA-262 8.5.2 BindingInitialization for ArrayBindingPattern uses
+    // GetIterator, which throws TypeError when the source is null or
+    // undefined (no @@iterator on those). Even for `[] = null` an empty
+    // pattern still constructs an iterator, so the check applies
+    // unconditionally.
+    builder_.createCall("ts_destructure_require_object", {sourceValue},
+                        HIRType::makeVoid());
     int64_t index = 0;
     for (auto& elem : pattern->elements) {
         if (auto* binding = dynamic_cast<ast::BindingElement*>(elem.get())) {

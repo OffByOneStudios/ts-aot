@@ -7146,6 +7146,24 @@ TsValue* ts_value_make_int(int64_t i) {
         return TsString::Create("undefined");
     }
 
+    // Per ECMA-262 8.5.2 BindingInitialization step 1:
+    //   "Let valid be ? RequireObjectCoercible(value)."
+    // Throws TypeError if `val` is null or undefined. Used by destructuring
+    // patterns to validate the source value before extracting properties.
+    void ts_destructure_require_object(TsValue* val) {
+        bool isNullish = false;
+        if (!val) {
+            isNullish = true;
+        } else {
+            uint64_t nb = (uint64_t)(uintptr_t)val;
+            if (nb == NANBOX_NULL || nb == NANBOX_UNDEFINED) isNullish = true;
+        }
+        if (isNullish) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot destructure null or undefined"));
+        }
+    }
+
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
 
