@@ -405,7 +405,8 @@ private:
     void extractDestructuringForParam(HIRFunction* func,
                                       size_t hirParamIndex,
                                       ast::ObjectBindingPattern* objPattern,
-                                      ast::ArrayBindingPattern* arrPattern);
+                                      ast::ArrayBindingPattern* arrPattern,
+                                      ast::Node* defaultInitializer = nullptr);
 
     //==========================================================================
     // JSX Helpers
