@@ -8,6 +8,197 @@
 namespace ts::parser {
 
 // ============================================================================
+// Class field initializer early-error walkers (ECMA-262 15.7.1)
+// ============================================================================
+//
+// Per spec a FieldDefinition Initializer must NOT contain:
+//   1. ContainsArguments — an IdentifierReference with name "arguments"
+//      (skipping nested non-arrow function bodies, which have their own
+//      arguments object; arrows do NOT shadow).
+//   2. Contains SuperCall — a CallExpression with callee = SuperExpression
+//      (skipping nested non-arrow functions and method definitions, which
+//      have their own super-binding).
+//
+// Returned int is one of: 0 = clean, 1 = arguments, 2 = super-call.
+
+namespace {
+constexpr int FIELD_INIT_OK = 0;
+constexpr int FIELD_INIT_ARGUMENTS = 1;
+constexpr int FIELD_INIT_SUPER_CALL = 2;
+
+int containsArgumentsOrSuperCall(const ast::Node* node) {
+    if (!node) return FIELD_INIT_OK;
+
+    // IdentifierReference "arguments"
+    if (auto* ident = dynamic_cast<const ast::Identifier*>(node)) {
+        if (ident->name == "arguments") return FIELD_INIT_ARGUMENTS;
+        return FIELD_INIT_OK;
+    }
+    // SuperCall: CallExpression where callee is SuperExpression
+    if (auto* call = dynamic_cast<const ast::CallExpression*>(node)) {
+        if (dynamic_cast<const ast::SuperExpression*>(call->callee.get())) {
+            return FIELD_INIT_SUPER_CALL;
+        }
+        if (int r = containsArgumentsOrSuperCall(call->callee.get())) return r;
+        for (auto& a : call->arguments) {
+            if (int r = containsArgumentsOrSuperCall(a.get())) return r;
+        }
+        return FIELD_INIT_OK;
+    }
+
+    // Boundary nodes — own arguments / super binding, do NOT recurse
+    if (dynamic_cast<const ast::FunctionExpression*>(node)) return FIELD_INIT_OK;
+    if (dynamic_cast<const ast::FunctionDeclaration*>(node)) return FIELD_INIT_OK;
+    if (dynamic_cast<const ast::MethodDefinition*>(node)) return FIELD_INIT_OK;
+    if (dynamic_cast<const ast::ClassDeclaration*>(node)) return FIELD_INIT_OK;
+    if (dynamic_cast<const ast::ClassExpression*>(node)) return FIELD_INIT_OK;
+
+    // Arrow functions: do recurse (no own arguments/super)
+    if (auto* arrow = dynamic_cast<const ast::ArrowFunction*>(node)) {
+        return containsArgumentsOrSuperCall(arrow->body.get());
+    }
+
+    // Statement containers
+    if (auto* block = dynamic_cast<const ast::BlockStatement*>(node)) {
+        for (auto& s : block->statements) if (int r = containsArgumentsOrSuperCall(s.get())) return r;
+        return FIELD_INIT_OK;
+    }
+    if (auto* expr = dynamic_cast<const ast::ExpressionStatement*>(node)) {
+        return containsArgumentsOrSuperCall(expr->expression.get());
+    }
+    if (auto* ret = dynamic_cast<const ast::ReturnStatement*>(node)) {
+        return containsArgumentsOrSuperCall(ret->expression.get());
+    }
+    if (auto* ifStmt = dynamic_cast<const ast::IfStatement*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(ifStmt->condition.get())) return r;
+        if (int r = containsArgumentsOrSuperCall(ifStmt->thenStatement.get())) return r;
+        return containsArgumentsOrSuperCall(ifStmt->elseStatement.get());
+    }
+    if (auto* w = dynamic_cast<const ast::WhileStatement*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(w->condition.get())) return r;
+        return containsArgumentsOrSuperCall(w->body.get());
+    }
+    if (auto* f = dynamic_cast<const ast::ForStatement*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(f->initializer.get())) return r;
+        if (int r = containsArgumentsOrSuperCall(f->condition.get())) return r;
+        if (int r = containsArgumentsOrSuperCall(f->incrementor.get())) return r;
+        return containsArgumentsOrSuperCall(f->body.get());
+    }
+    if (auto* fo = dynamic_cast<const ast::ForOfStatement*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(fo->expression.get())) return r;
+        return containsArgumentsOrSuperCall(fo->body.get());
+    }
+    if (auto* fi = dynamic_cast<const ast::ForInStatement*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(fi->expression.get())) return r;
+        return containsArgumentsOrSuperCall(fi->body.get());
+    }
+    if (auto* sw = dynamic_cast<const ast::SwitchStatement*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(sw->expression.get())) return r;
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<const ast::CaseClause*>(cl.get())) {
+                if (int r = containsArgumentsOrSuperCall(cc->expression.get())) return r;
+                for (auto& s : cc->statements) if (int r = containsArgumentsOrSuperCall(s.get())) return r;
+            }
+            if (auto* dc = dynamic_cast<const ast::DefaultClause*>(cl.get())) {
+                for (auto& s : dc->statements) if (int r = containsArgumentsOrSuperCall(s.get())) return r;
+            }
+        }
+        return FIELD_INIT_OK;
+    }
+    if (auto* tryStmt = dynamic_cast<const ast::TryStatement*>(node)) {
+        for (auto& s : tryStmt->tryBlock) if (int r = containsArgumentsOrSuperCall(s.get())) return r;
+        if (tryStmt->catchClause) {
+            for (auto& s : tryStmt->catchClause->block) if (int r = containsArgumentsOrSuperCall(s.get())) return r;
+        }
+        for (auto& s : tryStmt->finallyBlock) if (int r = containsArgumentsOrSuperCall(s.get())) return r;
+        return FIELD_INIT_OK;
+    }
+    if (auto* th = dynamic_cast<const ast::ThrowStatement*>(node)) {
+        return containsArgumentsOrSuperCall(th->expression.get());
+    }
+    if (auto* vd = dynamic_cast<const ast::VariableDeclaration*>(node)) {
+        return containsArgumentsOrSuperCall(vd->initializer.get());
+    }
+    if (auto* lab = dynamic_cast<const ast::LabeledStatement*>(node)) {
+        return containsArgumentsOrSuperCall(lab->statement.get());
+    }
+
+    // Expression containers
+    if (auto* ne = dynamic_cast<const ast::NewExpression*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(ne->expression.get())) return r;
+        for (auto& a : ne->arguments) if (int r = containsArgumentsOrSuperCall(a.get())) return r;
+        return FIELD_INIT_OK;
+    }
+    if (auto* bin = dynamic_cast<const ast::BinaryExpression*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(bin->left.get())) return r;
+        return containsArgumentsOrSuperCall(bin->right.get());
+    }
+    if (auto* as = dynamic_cast<const ast::AssignmentExpression*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(as->left.get())) return r;
+        return containsArgumentsOrSuperCall(as->right.get());
+    }
+    if (auto* c = dynamic_cast<const ast::ConditionalExpression*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(c->condition.get())) return r;
+        if (int r = containsArgumentsOrSuperCall(c->whenTrue.get())) return r;
+        return containsArgumentsOrSuperCall(c->whenFalse.get());
+    }
+    if (auto* p = dynamic_cast<const ast::PrefixUnaryExpression*>(node)) {
+        return containsArgumentsOrSuperCall(p->operand.get());
+    }
+    if (auto* p = dynamic_cast<const ast::PostfixUnaryExpression*>(node)) {
+        return containsArgumentsOrSuperCall(p->operand.get());
+    }
+    if (auto* pa = dynamic_cast<const ast::PropertyAccessExpression*>(node)) {
+        return containsArgumentsOrSuperCall(pa->expression.get());
+    }
+    if (auto* ea = dynamic_cast<const ast::ElementAccessExpression*>(node)) {
+        if (int r = containsArgumentsOrSuperCall(ea->expression.get())) return r;
+        return containsArgumentsOrSuperCall(ea->argumentExpression.get());
+    }
+    if (auto* arr = dynamic_cast<const ast::ArrayLiteralExpression*>(node)) {
+        for (auto& e : arr->elements) if (int r = containsArgumentsOrSuperCall(e.get())) return r;
+        return FIELD_INIT_OK;
+    }
+    if (auto* obj = dynamic_cast<const ast::ObjectLiteralExpression*>(node)) {
+        for (auto& p : obj->properties) {
+            if (auto* pa = dynamic_cast<const ast::PropertyAssignment*>(p.get())) {
+                if (int r = containsArgumentsOrSuperCall(pa->initializer.get())) return r;
+            }
+        }
+        return FIELD_INIT_OK;
+    }
+    if (auto* tmpl = dynamic_cast<const ast::TemplateExpression*>(node)) {
+        for (auto& span : tmpl->spans) {
+            if (int r = containsArgumentsOrSuperCall(span.expression.get())) return r;
+        }
+        return FIELD_INIT_OK;
+    }
+    if (auto* paren = dynamic_cast<const ast::ParenthesizedExpression*>(node)) {
+        return containsArgumentsOrSuperCall(paren->expression.get());
+    }
+    if (auto* sp = dynamic_cast<const ast::SpreadElement*>(node)) {
+        return containsArgumentsOrSuperCall(sp->expression.get());
+    }
+    if (auto* del = dynamic_cast<const ast::DeleteExpression*>(node)) {
+        return containsArgumentsOrSuperCall(del->expression.get());
+    }
+    if (auto* aw = dynamic_cast<const ast::AwaitExpression*>(node)) {
+        return containsArgumentsOrSuperCall(aw->expression.get());
+    }
+    if (auto* y = dynamic_cast<const ast::YieldExpression*>(node)) {
+        return containsArgumentsOrSuperCall(y->expression.get());
+    }
+    if (auto* asx = dynamic_cast<const ast::AsExpression*>(node)) {
+        return containsArgumentsOrSuperCall(asx->expression.get());
+    }
+    if (auto* nn = dynamic_cast<const ast::NonNullExpression*>(node)) {
+        return containsArgumentsOrSuperCall(nn->expression.get());
+    }
+    return FIELD_INIT_OK;
+}
+}  // namespace
+
+// ============================================================================
 // Strict-mode helpers
 // ============================================================================
 
@@ -1595,6 +1786,20 @@ ast::NodePtr Parser::parseClassMember() {
     // Initializer
     if (match(TokenKind::Equals)) {
         prop->initializer = parseAssignmentExpression();
+        // ECMA-262 15.7.1: It is a Syntax Error if Initializer is present and
+        //   - ContainsArguments of Initializer is true, or
+        //   - Initializer Contains SuperCall is true.
+        int err = containsArgumentsOrSuperCall(prop->initializer.get());
+        if (err == FIELD_INIT_ARGUMENTS) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'arguments' is not allowed in class field initializer",
+                prop->initializer->line, prop->initializer->column));
+        }
+        if (err == FIELD_INIT_SUPER_CALL) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'super(...)' call is not allowed in class field initializer",
+                prop->initializer->line, prop->initializer->column));
+        }
     }
 
     expectSemicolon();
