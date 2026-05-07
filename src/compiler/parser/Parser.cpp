@@ -1774,6 +1774,26 @@ ast::NodePtr Parser::parseClassMember() {
 
     // Is it a method (has parentheses)?
     if (check(TokenKind::OpenParen) || check(TokenKind::LessThan)) {
+        // ECMA-262 15.7.1 Static Semantics: Early Errors for ClassElement
+        //   - It is a Syntax Error if PropName is "constructor" and
+        //     SpecialMethod is true (async / generator / async-generator /
+        //     get / set).
+        //   - It is a Syntax Error if PropName of `static MethodDefinition`
+        //     is "prototype".
+        // (Class-only — object-literal setters/getters can be named anything.)
+        bool isSpecial = isAsync || isGenerator || isGetter || isSetter;
+        if (!isStatic && name == "constructor" && isSpecial) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: class constructor cannot be a "
+                "generator, async, getter, or setter",
+                current_.line, current_.column));
+        }
+        if (isStatic && name == "prototype") {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: class static method cannot be "
+                "named 'prototype'",
+                current_.line, current_.column));
+        }
         auto method = parseMethodDefinition(name, std::move(nameNode), isStatic, isAbstract,
                                              isAsync, isGenerator, isGetter, isSetter, access, std::move(decorators));
         return method;
@@ -1855,26 +1875,6 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
     method->isSetter = isSetter;
     method->access = access;
     method->decorators = std::move(decorators);
-
-    // ECMA-262 15.7.1 Static Semantics: Early Errors for ClassElement
-    //   - It is a Syntax Error if PropName is "constructor" and
-    //     SpecialMethod is true (async / generator / async-generator /
-    //     get / set).
-    //   - It is a Syntax Error if PropName of `static MethodDefinition`
-    //     is "prototype".
-    bool isSpecial = isAsync || isGenerator || isGetter || isSetter;
-    if (!isStatic && name == "constructor" && isSpecial) {
-        throw std::runtime_error(fmt::format(
-            "{}:{}: SyntaxError: class constructor cannot be a "
-            "generator, async, getter, or setter",
-            method->line, method->column));
-    }
-    if (isStatic && name == "prototype") {
-        throw std::runtime_error(fmt::format(
-            "{}:{}: SyntaxError: class static method/field cannot be "
-            "named 'prototype'",
-            method->line, method->column));
-    }
 
     // Type parameters
     method->typeParameters = parseTypeParameterList();
