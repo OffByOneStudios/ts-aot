@@ -5157,18 +5157,82 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_object(proto);
             }
             // For explicit Map instances with no user-set prototype,
-            // return Map.prototype. Plain objects keep null per existing
-            // behavior (object literals don't have an explicit IsExplicitMap
-            // path here; falls through to null).
+            // return Map.prototype.
             if (objMap->IsExplicitMap()) {
                 extern void* ts_get_global_Map();
                 return getCtorPrototype(ts_get_global_Map());
+            }
+            // Plain object literals: return Object.prototype per spec.
+            // The Object constructor's .prototype is created by the
+            // global init in TsObject.cpp.
+            extern TsValue* globalThis;
+            if (globalThis) {
+                void* gtRaw = ts_value_get_object(globalThis);
+                if (gtRaw) {
+                    uint32_t gtMagic = *(uint32_t*)((char*)gtRaw + 16);
+                    if (gtMagic == TsMap::MAGIC) {
+                        TsMap* gt = (TsMap*)gtRaw;
+                        TsValue objKey;
+                        objKey.type = ValueType::STRING_PTR;
+                        objKey.ptr_val = TsString::GetInterned("Object");
+                        TsValue objCtor = gt->Get(objKey);
+                        if (objCtor.type == ValueType::FUNCTION_PTR ||
+                            objCtor.type == ValueType::OBJECT_PTR) {
+                            return getCtorPrototype(nanbox_from_tagged(objCtor));
+                        }
+                    }
+                }
             }
             return ts_value_make_null();
         }
         if (magic == 0x53455453) { // TsSet "SETS"
             extern void* ts_get_global_Set();
             return getCtorPrototype(ts_get_global_Set());
+        }
+        if (magic == 0x574D4150) { // TsWeakMap "WMAP"
+            extern void* ts_get_global_WeakMap();
+            return getCtorPrototype(ts_get_global_WeakMap());
+        }
+        if (magic == 0x57534554) { // TsWeakSet "WSET"
+            extern void* ts_get_global_WeakSet();
+            return getCtorPrototype(ts_get_global_WeakSet());
+        }
+        if (magic == 0x42554646) { // TsBuffer "BUFF" (ArrayBuffer)
+            extern void* ts_get_global_ArrayBuffer();
+            return getCtorPrototype(ts_get_global_ArrayBuffer());
+        }
+        if (magic == 0x44564945) { // TsDataView "DVIE"
+            extern void* ts_get_global_DataView();
+            return getCtorPrototype(ts_get_global_DataView());
+        }
+        if (magic == 0x54415252) { // TsTypedArray "TARR"
+            // Per-class dispatch by element type.
+            extern void* ts_get_global_Int8Array();
+            extern void* ts_get_global_Uint8Array();
+            extern void* ts_get_global_Uint8ClampedArray();
+            extern void* ts_get_global_Int16Array();
+            extern void* ts_get_global_Uint16Array();
+            extern void* ts_get_global_Int32Array();
+            extern void* ts_get_global_Uint32Array();
+            extern void* ts_get_global_Float32Array();
+            extern void* ts_get_global_Float64Array();
+            extern void* ts_get_global_BigInt64Array();
+            extern void* ts_get_global_BigUint64Array();
+            TsTypedArray* ta = (TsTypedArray*)objRaw;
+            switch (ta->GetType()) {
+                case TypedArrayType::Int8:    return getCtorPrototype(ts_get_global_Int8Array());
+                case TypedArrayType::Uint8:   return getCtorPrototype(ts_get_global_Uint8Array());
+                case TypedArrayType::Uint8Clamped: return getCtorPrototype(ts_get_global_Uint8ClampedArray());
+                case TypedArrayType::Int16:   return getCtorPrototype(ts_get_global_Int16Array());
+                case TypedArrayType::Uint16:  return getCtorPrototype(ts_get_global_Uint16Array());
+                case TypedArrayType::Int32:   return getCtorPrototype(ts_get_global_Int32Array());
+                case TypedArrayType::Uint32:  return getCtorPrototype(ts_get_global_Uint32Array());
+                case TypedArrayType::Float32: return getCtorPrototype(ts_get_global_Float32Array());
+                case TypedArrayType::Float64: return getCtorPrototype(ts_get_global_Float64Array());
+                case TypedArrayType::BigInt64:  return getCtorPrototype(ts_get_global_BigInt64Array());
+                case TypedArrayType::BigUint64: return getCtorPrototype(ts_get_global_BigUint64Array());
+                default: return ts_value_make_null();
+            }
         }
 
         // ECMA-262: Function/Closure objects' [[Prototype]] is
