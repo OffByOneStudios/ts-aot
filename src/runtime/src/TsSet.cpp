@@ -72,13 +72,15 @@ void* TsSet::GetValues() {
 void TsSet::ForEach(void* callback, void* thisArg) {
     if (!callback) return;
     TsValue* cbVal = (TsValue*)callback;
+    // Per ECMA-262 24.2.3.5 Set.prototype.forEach: bind `this` to thisArg.
+    TsValue* thisVal = thisArg ? (TsValue*)thisArg : ts_value_make_undefined();
 
     auto* ht = (TsHashTable*)impl;
     ht->ForEach([&](const TsValue& key, const TsValue& val) {
         TsValue* v1 = nanbox_from_tagged(key);
         TsValue* v2 = nanbox_from_tagged(key);
         TsValue* s = ts_value_make_object(this);
-        ts_call_3(cbVal, v1, v2, s);
+        ts_call_with_this_3(cbVal, thisVal, v1, v2, s);
     });
 }
 

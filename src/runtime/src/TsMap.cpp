@@ -172,13 +172,16 @@ void* TsMap::GetEntries() {
 void TsMap::ForEach(void* callback, void* thisArg) {
     if (!callback) return;
     TsValue* cbVal = (TsValue*)callback;
+    // Per ECMA-262 23.1.3.6 Map.prototype.forEach: invoke callback with
+    // `this` = thisArg if provided, else undefined.
+    TsValue* thisVal = thisArg ? (TsValue*)thisArg : ts_value_make_undefined();
 
     auto* ht = (TsHashTable*)impl;
     ht->ForEach([&](const TsValue& key, const TsValue& val) {
         TsValue* v = nanbox_from_tagged(val);
         TsValue* k = nanbox_from_tagged(key);
         TsValue* m = ts_value_make_object(this);
-        ts_call_3(cbVal, v, k, m);
+        ts_call_with_this_3(cbVal, thisVal, v, k, m);
     });
 }
 
