@@ -1,5 +1,6 @@
 #include "Parser.h"
 #include <stdexcept>
+#include <functional>
 #include <fmt/format.h>
 #include <cstdlib>
 #include <cmath>
@@ -396,6 +397,35 @@ ast::ExprPtr Parser::parseUnaryExpression() {
                 throw std::runtime_error(fmt::format(
                     "{}:{}: SyntaxError: 'delete' of an unqualified "
                     "identifier is not allowed in strict mode",
+                    fileName_, tok.line));
+            }
+            // ECMA-262 §13.5.1.1: It is a Syntax Error if the
+            // UnaryExpression is contained in strict mode code and the
+            // operand derives a MemberExpression : MemberExpression .
+            // PrivateIdentifier (i.e. `delete obj.#x` is always invalid).
+            // The "covered" rule walks through parens / sequence / comma
+            // expressions before applying this check.
+            std::function<bool(const ast::Node*)> containsPrivateMember;
+            containsPrivateMember = [&](const ast::Node* n) -> bool {
+                if (!n) return false;
+                if (auto* p = dynamic_cast<const ast::PropertyAccessExpression*>(n)) {
+                    if (!p->name.empty() && p->name[0] == '#') return true;
+                    return containsPrivateMember(p->expression.get());
+                }
+                if (auto* paren = dynamic_cast<const ast::ParenthesizedExpression*>(n)) {
+                    return containsPrivateMember(paren->expression.get());
+                }
+                if (auto* bin = dynamic_cast<const ast::BinaryExpression*>(n)) {
+                    if (bin->op == ",") {
+                        return containsPrivateMember(bin->left.get()) ||
+                               containsPrivateMember(bin->right.get());
+                    }
+                }
+                return false;
+            };
+            if (containsPrivateMember(node->expression.get())) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: cannot delete a private member",
                     fileName_, tok.line));
             }
             return node;
