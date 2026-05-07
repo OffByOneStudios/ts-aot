@@ -5069,9 +5069,16 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
-        // Unbox obj if needed
+        // Unbox obj if needed. For NaN-boxed primitives (numbers/strings/
+        // booleans) ts_value_get_object returns nullptr; per spec we should
+        // ToObject-box and return the wrapper prototype, but absent that
+        // path we return null to avoid faulting on the magic check below.
         void* objRaw = ts_value_get_object(obj);
-        if (!objRaw) objRaw = obj;
+        if (!objRaw) {
+            uint64_t nb = nanbox_from_tsvalue_ptr(obj);
+            if (!nanbox_is_ptr(nb)) return ts_value_make_null();
+            objRaw = obj;
+        }
 
         // Check if obj is a TsMap
         uint32_t magic = *(uint32_t*)((char*)objRaw + 16);
