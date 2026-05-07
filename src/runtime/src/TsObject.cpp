@@ -1116,7 +1116,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // Forward declarations for prototype methods
     static TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv);
-    static TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
     static TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv);
 
     TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv);
@@ -9035,7 +9035,8 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     
     // Object.prototype.toString() - returns "[object Type]" based on this value
-    static TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv) {
+    // Non-static so TsGlobals.cpp can route the prototype.toString slot here.
+    extern "C" TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv) {
         // When called via .call(thisArg), the compiler sets ts_call_this_value
         // but passes ctx=nullptr (the function's original context).
         // Check ts_get_call_this() as fallback.
@@ -9063,6 +9064,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) tag = "String";
             else if (magic0 == 0x41525259) tag = "Array";
             else if (magic0 == 0x52454758) tag = "RegExp";
+            else if (magic0 == 0x44415445) tag = "Date";  // TsDate "DATE"
             else if (magic0 == 0x42494749) tag = "BigInt";  // TsBigInt 'BIGI' — not a TsObject, must check before dynamic_cast
             else if (magic0 == 0x464C4154) {
                 tag = "Object";
@@ -9072,12 +9074,38 @@ TsValue* ts_value_make_int(int64_t i) {
                 uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
                 if (magic16 == 0x434C5352) tag = "Function";
                 else if (magic16 == 0x42554646) tag = "ArrayBuffer";  // TsBuffer "BUFF"
+                else if (magic16 == 0x53455453) tag = "Set";  // TsSet "SETS"
+                else if (magic16 == 0x574D4150) tag = "WeakMap";
+                else if (magic16 == 0x57534554) tag = "WeakSet";
+                else if (magic16 == 0x44564945) tag = "DataView";
+                else if (magic16 == 0x50524F4D) tag = "Promise";  // TsPromise "PROM"
+                else if (magic16 == 0x54415252) {  // TsTypedArray "TARR"
+                    TsTypedArray* ta = (TsTypedArray*)ptr;
+                    switch (ta->GetType()) {
+                        case TypedArrayType::Int8:    tag = "Int8Array"; break;
+                        case TypedArrayType::Uint8:   tag = "Uint8Array"; break;
+                        case TypedArrayType::Uint8Clamped: tag = "Uint8ClampedArray"; break;
+                        case TypedArrayType::Int16:   tag = "Int16Array"; break;
+                        case TypedArrayType::Uint16:  tag = "Uint16Array"; break;
+                        case TypedArrayType::Int32:   tag = "Int32Array"; break;
+                        case TypedArrayType::Uint32:  tag = "Uint32Array"; break;
+                        case TypedArrayType::Float32: tag = "Float32Array"; break;
+                        case TypedArrayType::Float64: tag = "Float64Array"; break;
+                        case TypedArrayType::BigInt64:  tag = "BigInt64Array"; break;
+                        case TypedArrayType::BigUint64: tag = "BigUint64Array"; break;
+                        default: tag = "Object"; break;
+                    }
+                }
                 else {
                     TsFunction* func = dynamic_cast<TsFunction*>((TsObject*)ptr);
                     if (func) tag = "Function";
                     else {
                         TsMap* m = dynamic_cast<TsMap*>((TsObject*)ptr);
-                        if (m) { tag = "Object"; mapForTag = m; }
+                        if (m) {
+                            // Distinguish explicit Map from plain object literal.
+                            if (m->IsExplicitMap()) tag = "Map";
+                            else { tag = "Object"; mapForTag = m; }
+                        }
                     }
                 }
             }

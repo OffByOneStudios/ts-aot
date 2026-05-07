@@ -92,6 +92,7 @@ TsValue* ts_json_parse_native(void* context, int argc, TsValue** argv);
 TsValue* ts_function_call_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_function_apply_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_function_bind_native(void* ctx, int argc, TsValue** argv);
+extern "C" TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
 TsValue* ts_get_builtin_module(const char* name);
 TsValue* ts_value_make_native_function(void* funcPtr, void* context);
 TsValue* ts_value_make_object(void* ptr);
@@ -258,38 +259,15 @@ void* ts_get_global_Object() {
         // spec-shaped output here.
         addMethod(proto, "isPrototypeOf",       (void*)ts_object_isPrototypeOf_native, 1);
         addMethod(proto, "propertyIsEnumerable",(void*)ts_object_propertyIsEnumerable_native, 1);
-        // Object.prototype.toString — call the same shared implementation
-        // by going through the public symbol that lives in TsObject.cpp.
-        // It's a `static` C++ function, not externally linkable, so use
-        // a thin lambda that mimics the expected behavior.
-        auto protoToString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            if (!ctx) ctx = ts_get_call_this();
-            if (!ctx) return ts_value_make_string(TsString::Create("[object Undefined]"));
-            // Defer to Object.prototype.toString invoked via the runtime
-            // dispatch on the receiver. The simplest: just produce the
-            // brand tag like the canonical impl. Brand detection via magic.
-            uint64_t nb = (uint64_t)(uintptr_t)ctx;
-            if (nb == NANBOX_UNDEFINED) return ts_value_make_string(TsString::Create("[object Undefined]"));
-            if (nb == NANBOX_NULL) return ts_value_make_string(TsString::Create("[object Null]"));
-            if (nb == NANBOX_TRUE || nb == NANBOX_FALSE) return ts_value_make_string(TsString::Create("[object Boolean]"));
-            if (nanbox_is_int32(nb) || nanbox_is_double(nb)) return ts_value_make_string(TsString::Create("[object Number]"));
-            if (nanbox_is_ptr(nb)) {
-                void* ptr = nanbox_to_ptr(nb);
-                if (!ptr) return ts_value_make_string(TsString::Create("[object Null]"));
-                uint32_t magic0 = *(uint32_t*)ptr;
-                if (magic0 == 0x53545247) return ts_value_make_string(TsString::Create("[object String]"));
-                if (magic0 == 0x41525259) return ts_value_make_string(TsString::Create("[object Array]"));
-                uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-                if (magic16 == 0x434C5352 || magic16 == 0x46554E43)
-                    return ts_value_make_string(TsString::Create("[object Function]"));
-            }
-            return ts_value_make_string(TsString::Create("[object Object]"));
-        };
+        // Route Object.prototype.toString to the canonical implementation in
+        // TsObject.cpp which handles all magic-byte brand checks plus
+        // @@toStringTag prototype-chain lookup per ECMA-262 step 15-16.
+        // (Forward decl declared at file scope below addMethod call.)
         auto protoValueOf = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             return (TsValue*)(ctx ? ctx : ts_value_make_undefined());
         };
-        addMethod(proto, "toString", (void*)+protoToString, 0);
+        addMethod(proto, "toString", (void*)ts_object_toString_native, 0);
         addMethod(proto, "valueOf",  (void*)+protoValueOf,  0);
     }
     TsValue protoKey;
@@ -735,6 +713,16 @@ static void* makeErrorConstructor(const char* errorName) {
     TsValue nameVal; nameVal.type = ValueType::STRING_PTR;
     nameVal.ptr_val = TsString::Create(errorName);
     proto->Set(nameKey, nameVal);
+
+    // Per ECMA-262: Error.prototype has @@toStringTag = "Error".
+    // Native Error subtypes (TypeError, etc.) inherit it from Error.prototype.
+    if (strcmp(errorName, "Error") == 0) {
+        TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+        tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+        TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+        tagVal.ptr_val = TsString::Create("Error");
+        proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+    }
 
     // Per spec: TypeError.prototype / RangeError.prototype / etc.
     // inherit from Error.prototype. Link via the TsMap prototype chain
@@ -1382,6 +1370,18 @@ void* ts_get_global_Promise() {
         addMethod(ctor, "race",       (void*)promise_race_native,    1);
         addMethod(ctor, "allSettled", (void*)promise_allSettled_native, 1);
         addMethod(ctor, "any",        (void*)promise_any_native,     1);
+        // Per ECMA-262: Promise.prototype has @@toStringTag = "Promise".
+        TsValue pkey; pkey.type = ValueType::STRING_PTR;
+        pkey.ptr_val = TsString::GetInterned("prototype");
+        TsValue pval = ctor->Get(pkey);
+        if (pval.type == ValueType::OBJECT_PTR && pval.ptr_val) {
+            TsMap* proto = (TsMap*)pval.ptr_val;
+            TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+            tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+            TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+            tagVal.ptr_val = TsString::Create("Promise");
+            proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+        }
         cached = wrapAsCallable(ctor, "Promise", 1);
     }
     return cached;
