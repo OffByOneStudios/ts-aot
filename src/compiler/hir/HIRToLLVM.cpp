@@ -13,6 +13,7 @@
 
 #include <spdlog/spdlog.h>
 #include <llvm/BinaryFormat/Dwarf.h>
+#include <limits>
 
 #include <stdexcept>
 #include <cassert>
@@ -6204,6 +6205,27 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
                     arg = coerceArgToType(arg, expectedType, inst->operands[i], calleeParamType);
                 }
                 args.push_back(arg);
+            }
+            // Pad missing args with undefined to match callee arity. LLVM
+            // verifier rejects mismatched call arity; this is the same fix
+            // applied to direct-call sites elsewhere.
+            while (args.size() < fnType->getNumParams()) {
+                llvm::Type* expectedType = fnType->getParamType(args.size());
+                if (expectedType->isPointerTy()) {
+                    // NaN-box undefined sentinel (0x0A)
+                    args.push_back(builder_->CreateIntToPtr(
+                        llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0A),
+                        builder_->getPtrTy()));
+                } else if (expectedType->isDoubleTy()) {
+                    args.push_back(llvm::ConstantFP::get(builder_->getDoubleTy(),
+                                                         std::numeric_limits<double>::quiet_NaN()));
+                } else {
+                    args.push_back(llvm::Constant::getNullValue(expectedType));
+                }
+            }
+            // Truncate extra args (caller passed more than callee declares)
+            if (args.size() > fnType->getNumParams()) {
+                args.resize(fnType->getNumParams());
             }
 
             llvm::Value* result = builder_->CreateCall(fn, args);
