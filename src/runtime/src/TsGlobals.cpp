@@ -2093,6 +2093,45 @@ static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) 
         return ts_value_make_undefined();
     }
 
+    // ECMA-262 23.2.2.1.1 IterableToList: when the source has @@iterator,
+    // call it and validate Type(iterator) is Object — throw TypeError if
+    // not. The IsHTMLDDA-emulates-undefined cluster relies on this check.
+    {
+        TsValue* iterMethod = ts_object_get_property(source, "[Symbol.iterator]");
+        if (iterMethod && !ts_value_is_undefined(iterMethod) &&
+            !ts_value_is_null(iterMethod)) {
+            void* methodRaw = ts_value_get_object(iterMethod);
+            if (!methodRaw) methodRaw = iterMethod;
+            bool isCallable = false;
+            if (methodRaw) {
+                uintptr_t p = (uintptr_t)methodRaw;
+                if (p > 0x1000 && (p & 0xFFFF000000000000ULL) == 0) {
+                    uint32_t m16 = *(uint32_t*)((char*)methodRaw + 16);
+                    isCallable = (m16 == 0x46554E43 /* FUNC */ ||
+                                  m16 == 0x434C5352 /* CLSR */);
+                }
+            }
+            if (isCallable) {
+                TsValue* sourceBoxed = ts_value_make_object(source);
+                TsValue* iter = ts_call_with_this_0(iterMethod, sourceBoxed);
+                bool iterIsObj = false;
+                if (iter) {
+                    uint64_t inb = (uint64_t)(uintptr_t)iter;
+                    if (nanbox_is_ptr(inb) && inb > NANBOX_UNDEFINED) {
+                        if (nanbox_to_ptr(inb)) iterIsObj = true;
+                    }
+                }
+                if (!iterIsObj) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "TypedArray.from: result of @@iterator method is not an object"));
+                    return ts_value_make_undefined();
+                }
+                // Iterator is valid — fall through to length-based path
+                // (full protocol-driven iteration is a separate fix).
+            }
+        }
+    }
+
     TsValue* lenVal = ts_object_get_property(source, "length");
     double lenD = lenVal ? ts_to_number(lenVal) : 0;
     if (lenD != lenD || lenD <= 0) lenD = 0;
