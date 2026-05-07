@@ -1788,6 +1788,22 @@ ast::NodePtr Parser::parseClassMember() {
     prop->isReadonly = isReadonly;
     prop->decorators = std::move(decorators);
 
+    // ECMA-262 15.7.1:
+    //   - It is a Syntax Error if PropName of FieldDefinition is
+    //     "constructor" (a class field cannot be named "constructor").
+    //   - It is a Syntax Error if PropName of `static FieldDefinition`
+    //     is "prototype".
+    if (name == "constructor") {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: class field cannot be named 'constructor'",
+            prop->line, prop->column));
+    }
+    if (isStatic && name == "prototype") {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: class static field cannot be named 'prototype'",
+            prop->line, prop->column));
+    }
+
     // Optional marker
     if (match(TokenKind::QuestionMark)) { prop->isOptional = true; }
     // Definite assignment assertion
@@ -1839,6 +1855,26 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
     method->isSetter = isSetter;
     method->access = access;
     method->decorators = std::move(decorators);
+
+    // ECMA-262 15.7.1 Static Semantics: Early Errors for ClassElement
+    //   - It is a Syntax Error if PropName is "constructor" and
+    //     SpecialMethod is true (async / generator / async-generator /
+    //     get / set).
+    //   - It is a Syntax Error if PropName of `static MethodDefinition`
+    //     is "prototype".
+    bool isSpecial = isAsync || isGenerator || isGetter || isSetter;
+    if (!isStatic && name == "constructor" && isSpecial) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: class constructor cannot be a "
+            "generator, async, getter, or setter",
+            method->line, method->column));
+    }
+    if (isStatic && name == "prototype") {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: class static method/field cannot be "
+            "named 'prototype'",
+            method->line, method->column));
+    }
 
     // Type parameters
     method->typeParameters = parseTypeParameterList();
