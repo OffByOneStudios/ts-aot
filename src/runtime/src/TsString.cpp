@@ -901,6 +901,7 @@ TsString* TsString::ToWellFormed() {
 }
 
 TsString* TsString::Replace(TsString* pattern, TsString* replacement) {
+    if (!pattern) return this;  // No pattern → no match → return original
     icu::UnicodeString s;
     if (isSmall) s = icu::UnicodeString::fromUTF8(data.inlineBuffer);
     else { ensureImpl(); s = *static_cast<icu::UnicodeString*>(data.heap.impl); }
@@ -910,8 +911,10 @@ TsString* TsString::Replace(TsString* pattern, TsString* replacement) {
     else { pattern->ensureImpl(); p = *static_cast<icu::UnicodeString*>(pattern->data.heap.impl); }
 
     icu::UnicodeString r;
-    if (replacement->isSmall) r = icu::UnicodeString::fromUTF8(replacement->data.inlineBuffer);
-    else { replacement->ensureImpl(); r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl); }
+    if (replacement) {
+        if (replacement->isSmall) r = icu::UnicodeString::fromUTF8(replacement->data.inlineBuffer);
+        else { replacement->ensureImpl(); r = *static_cast<icu::UnicodeString*>(replacement->data.heap.impl); }
+    }
     
     int32_t pos = s.indexOf(p);
     if (pos != -1) {
@@ -1429,7 +1432,24 @@ extern "C" {
     void* ts_string_split(void* str, void* separator) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
+        // Per ECMA-262 22.1.3.21 step 11: if separator is undefined, return
+        // a single-element array containing S.
+        uint64_t sepNb = (uint64_t)(uintptr_t)separator;
+        if (!separator || sepNb == NANBOX_UNDEFINED) {
+            TsArray* arr = TsArray::Create();
+            arr->Push((int64_t)ts_value_make_string(s));
+            return arr;
+        }
         TsString* sep = ts_ensure_flat(separator);
+        if (!sep) {
+            // separator is some non-string, non-undefined value (e.g. number,
+            // null). Per spec: ToString(separator). For now, fall back to
+            // returning [S] to avoid crash; full ToString implementation is
+            // a separate fix.
+            TsArray* arr = TsArray::Create();
+            arr->Push((int64_t)ts_value_make_string(s));
+            return arr;
+        }
         return s->Split(sep);
     }
 
@@ -1582,18 +1602,27 @@ extern "C" {
 
     // Helper: unbox a potential TsValue* to get the raw TsRegExp* pointer.
     // In the JS slow path, arguments may be NaN-boxed TsValue* instead of raw pointers.
+    // Returns nullptr for any non-RegExp value (including NaN-box sentinels for
+    // null/undefined/true/false/number/string) so callers can fall back to the
+    // spec-defined RegExpCreate path.
     static TsRegExp* unboxRegExp(void* arg) {
         if (!arg) return nullptr;
+        uint64_t nb = (uint64_t)(uintptr_t)arg;
+        if (nb <= NANBOX_UNDEFINED) return nullptr;  // null / undefined / true / false
+        if (!nanbox_is_ptr(nb)) return nullptr;       // NaN-boxed int/double
         // Check if it's already a raw TsRegExp* (magic 0x52454758 = "REGX")
         uint32_t magic = *(uint32_t*)arg;
         if (magic == 0x52454758) return (TsRegExp*)arg;
         // Try to unbox as TsValue*
         void* raw = ts_value_get_object((TsValue*)arg);
         if (raw) {
-            magic = *(uint32_t*)raw;
-            if (magic == 0x52454758) return (TsRegExp*)raw;
+            uint64_t rawNb = (uint64_t)(uintptr_t)raw;
+            if (rawNb > NANBOX_UNDEFINED && nanbox_is_ptr(rawNb)) {
+                magic = *(uint32_t*)raw;
+                if (magic == 0x52454758) return (TsRegExp*)raw;
+            }
         }
-        return (TsRegExp*)arg; // Fallback: assume raw pointer
+        return nullptr;
     }
 
     void* ts_string_match_regexp(void* str, void* regexp) {

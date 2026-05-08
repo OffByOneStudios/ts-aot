@@ -1,5 +1,6 @@
 #include "TsConsString.h"
 #include "TsString.h"
+#include "TsNanBox.h"
 #include "GC.h"
 #include "TsGC.h"
 #include <cstring>
@@ -141,6 +142,11 @@ TsString* TsConsString::Flatten() {
 
 TsString* ts_ensure_flat(void* ptr) {
     if (!ptr) return nullptr;
+    // Reject NaN-boxed special sentinels (undefined/null/true/false) before
+    // dereferencing — they look like pointers but the low bits are tag bits
+    // and *(uint32_t*)ptr would crash with an access violation.
+    uint64_t nb = (uint64_t)(uintptr_t)ptr;
+    if (nb <= NANBOX_UNDEFINED) return nullptr;
     uint32_t m = *(uint32_t*)ptr;
     if (m == TsString::MAGIC) return (TsString*)ptr;
     if (m == TsConsString::MAGIC) return ((TsConsString*)ptr)->Flatten();
