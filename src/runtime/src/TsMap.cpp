@@ -234,6 +234,46 @@ void ts_map_init_inplace(void* mem) {
     TsMap::InitInPlace(mem);
 }
 
+// Per ECMA-262 24.1.1.1 Map ( [ iterable ] ): create a Map, then iterate
+// the iterable expecting [key, value] pairs and call map.set(k, v) for each.
+// Currently handles TsArray-of-TsArrays iterables (the common test262 case).
+void* ts_map_create_from_iterable(TsValue* iterable) {
+    extern void* ts_map_create_explicit();
+    void* map = ts_map_create_explicit();
+    if (!iterable) return map;
+    uint64_t nb = (uint64_t)(uintptr_t)iterable;
+    if (nb <= NANBOX_UNDEFINED) return map;
+    if (!nanbox_is_ptr(nb)) return map;
+    void* raw = nanbox_to_ptr(nb);
+    if (!raw) return map;
+    void* unboxed = ts_value_get_object(iterable);
+    if (unboxed) raw = unboxed;
+    uint32_t magic = *(uint32_t*)raw;
+    if (magic == 0x41525259) {  // ARRY
+        TsArray* arr = (TsArray*)raw;
+        int64_t len = arr->Length();
+        TsMap* m = (TsMap*)map;
+        for (int64_t i = 0; i < len; i++) {
+            int64_t elem = arr->GetUnchecked((size_t)i);
+            // Each element should be a 2-element array [key, value]
+            uint64_t enb = (uint64_t)elem;
+            if (!nanbox_is_ptr(enb)) continue;
+            void* eraw = nanbox_to_ptr(enb);
+            if (!eraw) continue;
+            uint32_t emagic = *(uint32_t*)eraw;
+            if (emagic != 0x41525259) continue;
+            TsArray* pair = (TsArray*)eraw;
+            if (pair->Length() < 2) continue;
+            int64_t k = pair->GetUnchecked(0);
+            int64_t v = pair->GetUnchecked(1);
+            TsValue kv = nanbox_to_tagged((TsValue*)(uintptr_t)k);
+            TsValue vv = nanbox_to_tagged((TsValue*)(uintptr_t)v);
+            m->Set(kv, vv);
+        }
+    }
+    return map;
+}
+
 void* ts_map_create_explicit() {
     TsMap* map = TsMap::Create();
     map->SetExplicitMap(true);

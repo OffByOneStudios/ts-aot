@@ -90,6 +90,37 @@ void* ts_set_create() {
     return TsSet::Create();
 }
 
+// Per ECMA-262 24.2.1.1 Set ( [ iterable ] ): create a Set, then iterate
+// the iterable and call set.add(item) for each. Used by `new Set([...])`.
+// Currently only handles TsArray iterables (the common case in test262);
+// general iterators (custom @@iterator) fall through to empty Set.
+void* ts_set_create_from_iterable(TsValue* iterable) {
+    void* set = TsSet::Create();
+    if (!iterable) return set;
+    uint64_t nb = (uint64_t)(uintptr_t)iterable;
+    if (nb <= NANBOX_UNDEFINED) return set;  // null / undefined → empty
+    if (!nanbox_is_ptr(nb)) return set;
+    void* raw = nanbox_to_ptr(nb);
+    if (!raw) return set;
+    // Unbox if it's a TsValue wrapper
+    void* unboxed = ts_value_get_object(iterable);
+    if (unboxed) raw = unboxed;
+    uint32_t magic = *(uint32_t*)raw;
+    // Handle TsArray (most common iterable in tests)
+    if (magic == 0x41525259) {  // ARRY
+        TsArray* arr = (TsArray*)raw;
+        int64_t len = arr->Length();
+        for (int64_t i = 0; i < len; i++) {
+            int64_t elem = arr->GetUnchecked((size_t)i);
+            TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)elem);
+            ((TsSet*)set)->Add(v);
+        }
+    }
+    // TODO: TsString iterables (each char becomes an element)
+    // TODO: Generic iterator protocol (call @@iterator + next loop)
+    return set;
+}
+
 void ts_set_add(void* set, TsValue* value) {
     if (!set) return;
     TsValue v = nanbox_to_tagged(value);

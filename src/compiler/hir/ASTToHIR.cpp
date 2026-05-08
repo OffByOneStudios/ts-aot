@@ -6103,13 +6103,27 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
 
     // Handle built-in Map class
     if (className == "Map") {
-        lastValue_ = builder_.createCall("ts_map_create_explicit", {}, HIRType::makeMap());
+        if (node->arguments.empty()) {
+            lastValue_ = builder_.createCall("ts_map_create_explicit", {}, HIRType::makeMap());
+        } else {
+            // new Map(iterable) — populate from [k,v] pairs per ECMA-262 24.1.1.1
+            auto iter = lowerExpression(node->arguments[0].get());
+            iter = boxValueIfNeeded(iter);
+            lastValue_ = builder_.createCall("ts_map_create_from_iterable", {iter}, HIRType::makeMap());
+        }
         return;
     }
 
     // Handle built-in Set class
     if (className == "Set") {
-        lastValue_ = builder_.createCall("ts_set_create", {}, HIRType::makeSet());
+        if (node->arguments.empty()) {
+            lastValue_ = builder_.createCall("ts_set_create", {}, HIRType::makeSet());
+        } else {
+            // new Set(iterable) — populate from the iterable per ECMA-262 24.2.1.1
+            auto iter = lowerExpression(node->arguments[0].get());
+            iter = boxValueIfNeeded(iter);
+            lastValue_ = builder_.createCall("ts_set_create_from_iterable", {iter}, HIRType::makeSet());
+        }
         return;
     }
 
