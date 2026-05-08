@@ -1246,43 +1246,46 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_string(TsString::Create(out.c_str()));
     }
 
-    static TsValue* ts_string_big_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_big_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap(ctx, "<big>", "</big>", "big");
     }
-    static TsValue* ts_string_small_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_small_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap(ctx, "<small>", "</small>", "small");
     }
-    static TsValue* ts_string_bold_native(void* ctx, int argc, TsValue** argv) {
+    // Annex B.2.3 HTML wrapper methods. Non-static so TsGlobals.cpp can
+    // register them on String.prototype (visible via the prototype object,
+    // not just via instance lookup).
+    extern "C" TsValue* ts_string_bold_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap(ctx, "<b>", "</b>", "bold");
     }
-    static TsValue* ts_string_italics_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_italics_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap(ctx, "<i>", "</i>", "italics");
     }
-    static TsValue* ts_string_fixed_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_fixed_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap(ctx, "<tt>", "</tt>", "fixed");
     }
-    static TsValue* ts_string_strike_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_strike_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap(ctx, "<strike>", "</strike>", "strike");
     }
-    static TsValue* ts_string_blink_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_blink_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap(ctx, "<blink>", "</blink>", "blink");
     }
-    static TsValue* ts_string_sub_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_sub_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap(ctx, "<sub>", "</sub>", "sub");
     }
-    static TsValue* ts_string_sup_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_sup_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap(ctx, "<sup>", "</sup>", "sup");
     }
-    static TsValue* ts_string_anchor_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_anchor_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap_attr(ctx, argc, argv, "a", "name", "anchor");
     }
-    static TsValue* ts_string_link_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_link_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap_attr(ctx, argc, argv, "a", "href", "link");
     }
-    static TsValue* ts_string_fontcolor_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_fontcolor_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap_attr(ctx, argc, argv, "font", "color", "fontcolor");
     }
-    static TsValue* ts_string_fontsize_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_string_fontsize_native(void* ctx, int argc, TsValue** argv) {
         return string_html_wrap_attr(ctx, argc, argv, "font", "size", "fontsize");
     }
     static TsValue* ts_string_split_native(void* ctx, int argc, TsValue** argv) {

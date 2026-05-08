@@ -579,6 +579,36 @@ void* ts_get_global_String() {
         addMethod(proto, "toString", (void*)ts_string_proto_toString, 0);
         addMethod(proto, "valueOf", (void*)ts_string_proto_valueOf, 0);
 
+        // Annex B.2.3: HTML wrapper methods (deprecated but standardized).
+        // These need to be on String.prototype directly so
+        // String.prototype.italics etc. work (not just instance access).
+        extern TsValue* ts_string_big_native(void*, int, TsValue**);
+        extern TsValue* ts_string_small_native(void*, int, TsValue**);
+        extern TsValue* ts_string_bold_native(void*, int, TsValue**);
+        extern TsValue* ts_string_italics_native(void*, int, TsValue**);
+        extern TsValue* ts_string_fixed_native(void*, int, TsValue**);
+        extern TsValue* ts_string_strike_native(void*, int, TsValue**);
+        extern TsValue* ts_string_blink_native(void*, int, TsValue**);
+        extern TsValue* ts_string_sub_native(void*, int, TsValue**);
+        extern TsValue* ts_string_sup_native(void*, int, TsValue**);
+        extern TsValue* ts_string_anchor_native(void*, int, TsValue**);
+        extern TsValue* ts_string_link_native(void*, int, TsValue**);
+        extern TsValue* ts_string_fontcolor_native(void*, int, TsValue**);
+        extern TsValue* ts_string_fontsize_native(void*, int, TsValue**);
+        addMethod(proto, "big",       (void*)ts_string_big_native, 0);
+        addMethod(proto, "small",     (void*)ts_string_small_native, 0);
+        addMethod(proto, "bold",      (void*)ts_string_bold_native, 0);
+        addMethod(proto, "italics",   (void*)ts_string_italics_native, 0);
+        addMethod(proto, "fixed",     (void*)ts_string_fixed_native, 0);
+        addMethod(proto, "strike",    (void*)ts_string_strike_native, 0);
+        addMethod(proto, "blink",     (void*)ts_string_blink_native, 0);
+        addMethod(proto, "sub",       (void*)ts_string_sub_native, 0);
+        addMethod(proto, "sup",       (void*)ts_string_sup_native, 0);
+        addMethod(proto, "anchor",    (void*)ts_string_anchor_native, 1);
+        addMethod(proto, "link",      (void*)ts_string_link_native, 1);
+        addMethod(proto, "fontcolor", (void*)ts_string_fontcolor_native, 1);
+        addMethod(proto, "fontsize",  (void*)ts_string_fontsize_native, 1);
+
         if (!ctorFunc->properties) ctorFunc->properties = TsMap::Create();
         TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
         protoKey.ptr_val = TsString::GetInterned("prototype");
