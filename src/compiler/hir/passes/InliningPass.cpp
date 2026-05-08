@@ -391,17 +391,35 @@ std::vector<std::unique_ptr<HIRInstruction>> InliningPass::cloneInstructions(
 
     const auto& sourceBlock = callee.blocks[0];
 
-    // Map callee parameters to caller arguments
-    // In HIR, parameters have IDs 0, 1, 2... matching their index in callee.params
-    // We create HIRValue objects for these parameters and map them to the actual arguments
-    for (size_t i = 0; i < callee.params.size() && i < args.size(); ++i) {
+    // Map callee parameters to caller arguments.
+    // In HIR, parameters have IDs 0, 1, 2... matching their index in callee.params.
+    // When the call site passes fewer args than the callee declares (a common
+    // case for `obj.method()` on methods with destructure-pattern params with
+    // defaults: callee has [this, param1] but call passes only [this]), we
+    // synthesize ConstUndefined instructions in the caller for the missing
+    // params. Without this, operand cloning later (line 441-444) leaks the
+    // original callee HIRValue verbatim into the caller, causing id-collision
+    // miscompiles when HIRToLLVM resolves operands by id.
+    for (size_t i = 0; i < callee.params.size(); ++i) {
         const auto& [paramName, paramType] = callee.params[i];
-        // Create a HIRValue representing the parameter (same as ASTToHIR does)
+        // Create a HIRValue representing the callee's parameter.
         auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-        // Map this parameter value to the corresponding argument from the caller
-        valueMap[paramValue] = args[i];
-        SPDLOG_DEBUG("Inlining: Mapping parameter {} (id={}) to argument {}",
-                     paramName, i, args[i]->toString());
+        std::shared_ptr<HIRValue> mapped;
+        if (i < args.size()) {
+            mapped = args[i];
+            SPDLOG_DEBUG("Inlining: Mapping parameter {} (id={}) to argument {}",
+                         paramName, i, args[i]->toString());
+        } else {
+            // Synthesize ConstUndefined in the caller's value space.
+            mapped = caller.createValue(HIRType::makeAny(),
+                                        paramName + "_undef_inline");
+            auto undefInst = std::make_unique<HIRInstruction>(HIROpcode::ConstUndefined);
+            undefInst->result = mapped;
+            result.push_back(std::move(undefInst));
+            SPDLOG_DEBUG("Inlining: Synthesized undefined for missing parameter {} (id={})",
+                         paramName, i);
+        }
+        valueMap[paramValue] = mapped;
     }
 
     for (const auto& inst : sourceBlock->instructions) {
