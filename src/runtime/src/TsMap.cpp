@@ -371,9 +371,32 @@ void* ts_map_entries_iter(void* map) {
 // Forward decl: defined later in this TU.
 static void* requireMapData(void* context, const char* methodName);
 
+// Forward decls for TypeError throw helpers (defined later in this TU
+// at line ~415).
+extern "C" void ts_throw(TsValue* err);
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
+// Helper: returns true iff val is a callable function/closure.
+static bool ts_is_callable_map(void* val) {
+    if (!val) return false;
+    uint64_t nb = (uint64_t)(uintptr_t)val;
+    if (!nanbox_is_ptr(nb) || nb <= NANBOX_UNDEFINED) return false;
+    void* ptr = nanbox_to_ptr(nb);
+    if (!ptr) return false;
+    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+    if (magic16 == 0x434C5352) return true; // TsClosure::MAGIC "CLSR"
+    if (magic16 == 0x46554E43) return true; // TsFunction::MAGIC "FUNC"
+    return false;
+}
+
 void ts_map_forEach(void* map, void* callback, void* thisArg) {
     void* rawCtx = requireMapData(map, "forEach");
     if (!rawCtx) return;
+    if (!ts_is_callable_map(callback)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Map.prototype.forEach callback must be callable"));
+        return;
+    }
     ((TsMap*)rawCtx)->ForEach(callback, thisArg);
 }
 
