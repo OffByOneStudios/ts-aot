@@ -3482,6 +3482,107 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                 } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(varDecl->name.get())) {
                     lowerObjectBindingPattern(objPat, elemVal);
                 }
+            } else {
+                // Assignment-target form: `for (lhs of iter)` where lhs is
+                // an existing variable, member access, element access, or
+                // an array/object destructuring pattern. The parser hands
+                // these to us as an ExpressionStatement (initializer is
+                // StmtPtr, not ExprPtr), so unwrap one layer if needed.
+                ast::Node* lhsNode = node->initializer.get();
+                if (auto* es = dynamic_cast<ast::ExpressionStatement*>(lhsNode)) {
+                    lhsNode = es->expression.get();
+                }
+                if (auto* lhsExpr = dynamic_cast<ast::Expression*>(lhsNode)) {
+                    auto savedLast = lastValue_;
+                    // Push elemVal as the synthetic RHS by stashing it as
+                    // lastValue_ during a dispatch on a fake AssignmentExpression.
+                    // We can't construct an AST AssignmentExpression here, so
+                    // inline the destructure dispatch instead.
+                    if (auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(lhsExpr)) {
+                        // Inline minimal version of the dstr-assign code:
+                        // for each element, extract source[i] (with default
+                        // handling) and assign to the target.
+                        builder_.createCall("ts_destructure_require_object",
+                                            {elemVal}, HIRType::makeVoid());
+                        int64_t index = 0;
+                        for (auto& slotPtr : arrLit->elements) {
+                            ast::Expression* slot = slotPtr.get();
+                            if (!slot || dynamic_cast<ast::OmittedExpression*>(slot)) {
+                                ++index;
+                                continue;
+                            }
+                            ast::Expression* tgt = slot;
+                            std::shared_ptr<HIRValue> value;
+                            if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
+                                auto idxConst = builder_.createConstInt(index);
+                                value = builder_.createCall("ts_array_slice",
+                                    {elemVal, idxConst}, HIRType::makeAny());
+                                tgt = dynamic_cast<ast::Expression*>(sp->expression.get());
+                            } else {
+                                auto idxConst = builder_.createConstInt(index);
+                                value = builder_.createGetElem(elemVal, idxConst, HIRType::makeAny());
+                                if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(slot)) {
+                                    if (auto* defExpr = dynamic_cast<ast::Expression*>(assn->right.get())) {
+                                        auto isUndef = builder_.createIsUndefined(value);
+                                        auto defVal = lowerExpression(defExpr);
+                                        defVal = boxValueIfNeeded(defVal);
+                                        value = boxValueIfNeeded(value);
+                                        value = builder_.createSelect(isUndef, defVal, value);
+                                    }
+                                    tgt = dynamic_cast<ast::Expression*>(assn->left.get());
+                                }
+                            }
+                            // Simple identifier assignment (most common
+                            // case in for-of dstr tests). Member/element
+                            // forms are rare but supported via a fallback
+                            // through the assign path.
+                            if (auto* id = dynamic_cast<ast::Identifier*>(tgt)) {
+                                auto* info = lookupVariableInfo(id->name);
+                                if (info && info->isAlloca) {
+                                    builder_.createStore(value, info->value, info->elemType);
+                                } else if (info) {
+                                    auto allocaPtr = builder_.createAlloca(value->type, id->name);
+                                    builder_.createStore(value, allocaPtr, value->type);
+                                    info->value = allocaPtr;
+                                    info->elemType = value->type;
+                                    info->isAlloca = true;
+                                } else {
+                                    defineVariable(id->name, value);
+                                }
+                                if (currentFunction_ && isModuleGlobalVar(id->name)) {
+                                    builder_.createStoreGlobal(modVarName(id->name), value);
+                                }
+                            } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(tgt)) {
+                                auto obj = lowerExpression(pa->expression.get());
+                                builder_.createSetPropStatic(obj, pa->name, value);
+                            } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(tgt)) {
+                                auto obj = lowerExpression(ea->expression.get());
+                                auto idx = lowerExpression(ea->argumentExpression.get());
+                                builder_.createSetElem(obj, idx, value);
+                            }
+                            ++index;
+                        }
+                    } else if (auto* id = dynamic_cast<ast::Identifier*>(lhsExpr)) {
+                        // Plain `for (x of arr)` without let/const — assign
+                        // to existing variable each iteration.
+                        auto* info = lookupVariableInfo(id->name);
+                        if (info && info->isAlloca) {
+                            builder_.createStore(elemVal, info->value, info->elemType);
+                        } else if (info) {
+                            auto allocaPtr = builder_.createAlloca(elemVal->type, id->name);
+                            builder_.createStore(elemVal, allocaPtr, elemVal->type);
+                            info->value = allocaPtr;
+                            info->elemType = elemVal->type;
+                            info->isAlloca = true;
+                        } else {
+                            defineVariable(id->name, elemVal);
+                        }
+                        if (currentFunction_ && isModuleGlobalVar(id->name)) {
+                            builder_.createStoreGlobal(modVarName(id->name), elemVal);
+                        }
+                    }
+                    lastValue_ = savedLast;
+                }
             }
         }
 
@@ -3530,6 +3631,107 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                     lowerArrayBindingPattern(arrPat, elemVal);
                 } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(varDecl->name.get())) {
                     lowerObjectBindingPattern(objPat, elemVal);
+                }
+            } else {
+                // Assignment-target form: `for (lhs of iter)` where lhs is
+                // an existing variable, member access, element access, or
+                // an array/object destructuring pattern. The parser hands
+                // these to us as an ExpressionStatement (initializer is
+                // StmtPtr, not ExprPtr), so unwrap one layer if needed.
+                ast::Node* lhsNode = node->initializer.get();
+                if (auto* es = dynamic_cast<ast::ExpressionStatement*>(lhsNode)) {
+                    lhsNode = es->expression.get();
+                }
+                if (auto* lhsExpr = dynamic_cast<ast::Expression*>(lhsNode)) {
+                    auto savedLast = lastValue_;
+                    // Push elemVal as the synthetic RHS by stashing it as
+                    // lastValue_ during a dispatch on a fake AssignmentExpression.
+                    // We can't construct an AST AssignmentExpression here, so
+                    // inline the destructure dispatch instead.
+                    if (auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(lhsExpr)) {
+                        // Inline minimal version of the dstr-assign code:
+                        // for each element, extract source[i] (with default
+                        // handling) and assign to the target.
+                        builder_.createCall("ts_destructure_require_object",
+                                            {elemVal}, HIRType::makeVoid());
+                        int64_t index = 0;
+                        for (auto& slotPtr : arrLit->elements) {
+                            ast::Expression* slot = slotPtr.get();
+                            if (!slot || dynamic_cast<ast::OmittedExpression*>(slot)) {
+                                ++index;
+                                continue;
+                            }
+                            ast::Expression* tgt = slot;
+                            std::shared_ptr<HIRValue> value;
+                            if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
+                                auto idxConst = builder_.createConstInt(index);
+                                value = builder_.createCall("ts_array_slice",
+                                    {elemVal, idxConst}, HIRType::makeAny());
+                                tgt = dynamic_cast<ast::Expression*>(sp->expression.get());
+                            } else {
+                                auto idxConst = builder_.createConstInt(index);
+                                value = builder_.createGetElem(elemVal, idxConst, HIRType::makeAny());
+                                if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(slot)) {
+                                    if (auto* defExpr = dynamic_cast<ast::Expression*>(assn->right.get())) {
+                                        auto isUndef = builder_.createIsUndefined(value);
+                                        auto defVal = lowerExpression(defExpr);
+                                        defVal = boxValueIfNeeded(defVal);
+                                        value = boxValueIfNeeded(value);
+                                        value = builder_.createSelect(isUndef, defVal, value);
+                                    }
+                                    tgt = dynamic_cast<ast::Expression*>(assn->left.get());
+                                }
+                            }
+                            // Simple identifier assignment (most common
+                            // case in for-of dstr tests). Member/element
+                            // forms are rare but supported via a fallback
+                            // through the assign path.
+                            if (auto* id = dynamic_cast<ast::Identifier*>(tgt)) {
+                                auto* info = lookupVariableInfo(id->name);
+                                if (info && info->isAlloca) {
+                                    builder_.createStore(value, info->value, info->elemType);
+                                } else if (info) {
+                                    auto allocaPtr = builder_.createAlloca(value->type, id->name);
+                                    builder_.createStore(value, allocaPtr, value->type);
+                                    info->value = allocaPtr;
+                                    info->elemType = value->type;
+                                    info->isAlloca = true;
+                                } else {
+                                    defineVariable(id->name, value);
+                                }
+                                if (currentFunction_ && isModuleGlobalVar(id->name)) {
+                                    builder_.createStoreGlobal(modVarName(id->name), value);
+                                }
+                            } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(tgt)) {
+                                auto obj = lowerExpression(pa->expression.get());
+                                builder_.createSetPropStatic(obj, pa->name, value);
+                            } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(tgt)) {
+                                auto obj = lowerExpression(ea->expression.get());
+                                auto idx = lowerExpression(ea->argumentExpression.get());
+                                builder_.createSetElem(obj, idx, value);
+                            }
+                            ++index;
+                        }
+                    } else if (auto* id = dynamic_cast<ast::Identifier*>(lhsExpr)) {
+                        // Plain `for (x of arr)` without let/const — assign
+                        // to existing variable each iteration.
+                        auto* info = lookupVariableInfo(id->name);
+                        if (info && info->isAlloca) {
+                            builder_.createStore(elemVal, info->value, info->elemType);
+                        } else if (info) {
+                            auto allocaPtr = builder_.createAlloca(elemVal->type, id->name);
+                            builder_.createStore(elemVal, allocaPtr, elemVal->type);
+                            info->value = allocaPtr;
+                            info->elemType = elemVal->type;
+                            info->isAlloca = true;
+                        } else {
+                            defineVariable(id->name, elemVal);
+                        }
+                        if (currentFunction_ && isModuleGlobalVar(id->name)) {
+                            builder_.createStoreGlobal(modVarName(id->name), elemVal);
+                        }
+                    }
+                    lastValue_ = savedLast;
                 }
             }
         }
@@ -4948,6 +5150,137 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         auto obj = lowerExpression(elemAccess->expression.get());
         auto idx = lowerExpression(elemAccess->argumentExpression.get());
         builder_.createSetElem(obj, idx, rhs);
+        lastValue_ = rhs;
+        return;
+    }
+
+    // Handle destructuring assignment: `[a, b = 1, ...rest] = arr` (LHS is
+    // an ArrayLiteralExpression because the parser cannot distinguish the
+    // assignment-target from the value form until it sees the `=`). Each
+    // element is one of:
+    //   - Identifier: simple assignment of source[i]
+    //   - AssignmentExpression (target = default): use default when
+    //     source[i] is undefined
+    //   - SpreadElement (...rest): assign source.slice(i) to rest
+    //   - OmittedExpression: skip the slot
+    // Without this branch, `[x, y] = [1, 2]` falls through and stores
+    // nothing — variables remain undefined.
+    auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(node->left.get());
+    if (arrLit) {
+        // Per ECMA-262 RequireObjectCoercible — null/undefined source throws.
+        builder_.createCall("ts_destructure_require_object", {rhs},
+                            HIRType::makeVoid());
+        // Lower each LHS slot. We re-enter visitAssignmentExpression for
+        // each per-slot assignment so all the existing target shapes
+        // (identifier, member access, element access, nested pattern) are
+        // handled uniformly.
+        auto assignToTarget = [&](ast::Expression* target,
+                                  std::shared_ptr<HIRValue> value) {
+            // Build a synthetic AssignmentExpression with `target = <value>`.
+            // The RHS expression is dummy because we set lastValue_
+            // directly via a captured-binding shim; instead, just inline
+            // the dispatch.
+            // Simple identifier: use the same logic as the start of this
+            // function (module-global handling, captured, alloca, etc).
+            if (auto* tgt = dynamic_cast<ast::Identifier*>(target)) {
+                // Inline a simplified version of the identifier-LHS path.
+                if (currentFunction_ && isModuleGlobalVar(tgt->name)) {
+                    size_t scopeIndex = 0;
+                    if (isCapturedVariable(tgt->name, &scopeIndex)) {
+                        moduleGlobalsUsedByInnerByModule_[tgt->name].insert(currentModulePath_);
+                        builder_.createStoreGlobal(modVarName(tgt->name), value);
+                        return;
+                    }
+                }
+                size_t scopeIndex = 0;
+                if (currentFunction_ && isCapturedVariable(tgt->name, &scopeIndex)) {
+                    auto* info = lookupVariableInfo(tgt->name);
+                    auto type = info && info->elemType ? info->elemType : value->type;
+                    registerCapture(tgt->name, type, scopeIndex);
+                    currentFunction_->hasClosure = true;
+                    builder_.createStoreCapture(tgt->name, value);
+                    return;
+                }
+                auto* info = lookupVariableInfo(tgt->name);
+                if (info && info->isAlloca) {
+                    builder_.createStore(value, info->value, info->elemType);
+                    if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
+                        auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+                        builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, value);
+                    }
+                } else if (info) {
+                    auto allocaPtr = builder_.createAlloca(value->type, tgt->name);
+                    builder_.createStore(value, allocaPtr, value->type);
+                    info->value = allocaPtr;
+                    info->elemType = value->type;
+                    info->isAlloca = true;
+                } else {
+                    defineVariable(tgt->name, value);
+                }
+                if (isModuleGlobalVar(tgt->name)) {
+                    builder_.createStoreGlobal(modVarName(tgt->name), value);
+                }
+                return;
+            }
+            if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
+                auto obj = lowerExpression(tgt->expression.get());
+                builder_.createSetPropStatic(obj, tgt->name, value);
+                return;
+            }
+            if (auto* tgt = dynamic_cast<ast::ElementAccessExpression*>(target)) {
+                auto obj = lowerExpression(tgt->expression.get());
+                auto idx = lowerExpression(tgt->argumentExpression.get());
+                builder_.createSetElem(obj, idx, value);
+                return;
+            }
+            // Nested array pattern is rare here because nested patterns
+            // come through the binding form; if it shows up we extend
+            // this helper later.
+        };
+
+        int64_t index = 0;
+        for (auto& elemPtr : arrLit->elements) {
+            ast::Expression* elem = elemPtr.get();
+            if (!elem || dynamic_cast<ast::OmittedExpression*>(elem)) {
+                ++index;
+                continue;
+            }
+            if (auto* spread = dynamic_cast<ast::SpreadElement*>(elem)) {
+                // ...rest = source.slice(index)
+                auto idxConst = builder_.createConstInt(index);
+                auto restVal = builder_.createCall("ts_array_slice",
+                    {rhs, idxConst}, HIRType::makeAny());
+                if (auto* tgtExpr = dynamic_cast<ast::Expression*>(spread->expression.get())) {
+                    assignToTarget(tgtExpr, restVal);
+                }
+                ++index;
+                continue;
+            }
+            // Extract source[index] (may be undefined for missing slots).
+            auto idxConst = builder_.createConstInt(index);
+            auto extracted = builder_.createGetElem(rhs, idxConst, HIRType::makeAny());
+
+            ast::Expression* target = elem;
+            // Default-initializer form: `target = defaultValue` — the
+            // parser represents this as an AssignmentExpression in the
+            // array-literal element position (covers both compound and
+            // simple `=`; per ECMA-262 only `=` is valid here, but we
+            // accept any AssignmentExpression and treat it as `=` since
+            // the AST doesn't carry an operator).
+            if (auto* assignDefault = dynamic_cast<ast::AssignmentExpression*>(elem)) {
+                auto* defaultExpr = dynamic_cast<ast::Expression*>(assignDefault->right.get());
+                if (defaultExpr) {
+                    auto isUndef = builder_.createIsUndefined(extracted);
+                    auto defaultVal = lowerExpression(defaultExpr);
+                    defaultVal = boxValueIfNeeded(defaultVal);
+                    extracted = boxValueIfNeeded(extracted);
+                    extracted = builder_.createSelect(isUndef, defaultVal, extracted);
+                }
+                target = dynamic_cast<ast::Expression*>(assignDefault->left.get());
+            }
+            if (target) assignToTarget(target, extracted);
+            ++index;
+        }
         lastValue_ = rhs;
         return;
     }
