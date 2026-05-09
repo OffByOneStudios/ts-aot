@@ -3407,6 +3407,18 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic0 == 0x41525259 || magic8 == 0x41525259 || magic16 == 0x41525259) { // TsArray::MAGIC ("ARRY")
             TsArray* arr = (TsArray*)obj;
             if (strcmp(keyStr, "length") == 0) return ts_value_make_int(arr->Length());
+            // ECMA-262 Array.prototype.constructor === Array — every Array
+            // instance inherits this via the prototype chain. Synthesize
+            // the lookup here so `[1,2,3].constructor === Array`,
+            // `arr.constructor.name === 'Array'`, etc. work without a
+            // real prototype TsMap. Tests in built-ins/String/prototype/
+            // split rely on the returned array's .constructor === Array.
+            if (strcmp(keyStr, "constructor") == 0) {
+                extern void* ts_get_global_Array();
+                void* arrayCtor = ts_get_global_Array();
+                return arrayCtor ? (TsValue*)ts_value_make_object(arrayCtor)
+                                 : ts_value_make_undefined();
+            }
             // P0: Extremely common methods
             if (strcmp(keyStr, "map") == 0) return makeNamedNativeFunction((void*)ts_array_map_native, arr, "map", 1);
             if (strcmp(keyStr, "filter") == 0) return makeNamedNativeFunction((void*)ts_array_filter_native, arr, "filter", 1);
