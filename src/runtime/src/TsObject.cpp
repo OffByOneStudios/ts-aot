@@ -3067,8 +3067,13 @@ TsValue* ts_value_make_int(int64_t i) {
                     return makeNamedNativeFunction((void*)ts_object_valueOf_native, nullptr, "valueOf", 0);
                 }
                 if (strcmp(keyStr, "constructor") == 0) {
-                    extern TsValue* Object;
-                    if (Object) return Object;
+                    // Original code referenced an `extern TsValue* Object`
+                    // symbol that doesn't exist — always returned nullptr,
+                    // leaving fallthrough to the spec-compliant Object
+                    // constructor lookup. Use the global accessor instead.
+                    extern void* ts_get_global_Object();
+                    void* ctor = ts_get_global_Object();
+                    if (ctor) return (TsValue*)ts_value_make_object(ctor);
                 }
                 if (strcmp(keyStr, "isPrototypeOf") == 0) {
                     return makeNamedNativeFunction((void*)ts_object_isPrototypeOf_native, nullptr, "isPrototypeOf", 1);
@@ -3086,6 +3091,12 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsRegExp (magic at offset 0) - handle BEFORE dynamic_cast!
         if (magic0 == 0x52454758) { // TsRegExp::MAGIC ("REGX")
             TsRegExp* re = (TsRegExp*)obj;
+            if (strcmp(keyStr, "constructor") == 0) {
+                extern void* ts_get_global_RegExp();
+                void* ctor = ts_get_global_RegExp();
+                return ctor ? (TsValue*)ts_value_make_object(ctor)
+                            : ts_value_make_undefined();
+            }
             if (strcmp(keyStr, "source") == 0) {
                 return ts_value_make_string(re->GetSource());
             }
@@ -3491,6 +3502,12 @@ TsValue* ts_value_make_int(int64_t i) {
             TsString* strObj = ts_ensure_flat(obj);
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int(strObj->Length());
+            }
+            if (strcmp(keyStr, "constructor") == 0) {
+                extern void* ts_get_global_String();
+                void* ctor = ts_get_global_String();
+                return ctor ? (TsValue*)ts_value_make_object(ctor)
+                            : ts_value_make_undefined();
             }
             // Return native function wrappers for string methods
             if (strcmp(keyStr, "startsWith") == 0) return makeNamedNativeFunction((void*)ts_string_startsWith_native, strObj, "startsWith", 1);
