@@ -1223,12 +1223,68 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
             pushFunctionScope(methPtr);
             methPtr->nextValueId = static_cast<uint32_t>(methPtr->params.size());
+            // argTypeOffset is 1 for instance methods (slot 0 = synthetic 'this',
+            // user params start at HIR index 1) and 0 for static methods. Map
+            // the HIR param index back to the AST parameter so we can honor
+            // default-value initializers (e.g. `method(a = 99) {}`). Without
+            // this mapping the spec path silently drops scalar defaults — the
+            // earlier destructured-default fix (loop below) only handled
+            // `method([a] = [1])` patterns.
             for (size_t i = 0; i < methPtr->params.size(); ++i) {
                 const auto& [paramName, paramType] = methPtr->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-                auto allocaVal = builder_.createAlloca(paramType);
-                builder_.createStore(paramValue, allocaVal);
-                defineVariableAlloca(paramName, allocaVal, paramType);
+
+                // Map HIR param index → AST parameter index. Skip the
+                // synthetic 'this' (argTypeOffset==1, i==0) which has no AST
+                // counterpart. Skip destructured params — they are handled by
+                // the methDestructuredParams loop below which applies defaults
+                // before pattern extraction.
+                size_t astParamIdx = (i >= argTypeOffset) ? (i - argTypeOffset) : SIZE_MAX;
+                ast::Parameter* astParam = (astParamIdx < methodNode->parameters.size())
+                    ? methodNode->parameters[astParamIdx].get() : nullptr;
+                bool isDestructured = astParam && (
+                    dynamic_cast<ast::ObjectBindingPattern*>(astParam->name.get()) ||
+                    dynamic_cast<ast::ArrayBindingPattern*>(astParam->name.get()));
+
+                if (astParam && astParam->initializer && !isDestructured) {
+                    // Scalar default (e.g. `method(a = 99) {}`). Mirror the
+                    // FunctionDeclaration spec path: branch on undefined, use
+                    // the default expression, otherwise use the passed value.
+                    auto allocaVal = builder_.createAlloca(paramType);
+                    auto isUndefined = builder_.createCall("ts_value_is_undefined",
+                        {paramValue}, HIRType::makeBool());
+
+                    auto defaultBB = methPtr->createBlock("default_param");
+                    auto usedBB = methPtr->createBlock("use_param");
+                    auto mergeBB = methPtr->createBlock("param_merge");
+
+                    builder_.createCondBranch(isUndefined, defaultBB, usedBB);
+
+                    builder_.setInsertPoint(defaultBB);
+                    currentBlock_ = defaultBB;
+                    auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
+                    auto defaultVal = initExpr ? lowerExpression(initExpr)
+                                               : builder_.createConstUndefined();
+                    if (paramType->kind == HIRTypeKind::Any) {
+                        defaultVal = forceBoxValue(defaultVal);
+                    }
+                    builder_.createStore(defaultVal, allocaVal);
+                    builder_.createBranch(mergeBB);
+
+                    builder_.setInsertPoint(usedBB);
+                    currentBlock_ = usedBB;
+                    builder_.createStore(paramValue, allocaVal);
+                    builder_.createBranch(mergeBB);
+
+                    builder_.setInsertPoint(mergeBB);
+                    currentBlock_ = mergeBB;
+
+                    defineVariableAlloca(paramName, allocaVal, paramType);
+                } else {
+                    auto allocaVal = builder_.createAlloca(paramType);
+                    builder_.createStore(paramValue, allocaVal);
+                    defineVariableAlloca(paramName, allocaVal, paramType);
+                }
             }
 
             // Emit destructuring extraction for parameters with binding
@@ -9373,13 +9429,73 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // Enter function scope
             pushFunctionScope(func.get());
 
-            // Register parameters in scope
+            // Register parameters in scope.
+            // ccArgTypeOffset is 1 for instance methods (slot 0 = synthetic
+            // 'this', user params start at HIR index 1) and 0 for static
+            // methods. Map the HIR param index back to the AST parameter so
+            // we honor default-value initializers (e.g. `method(a = 99)`).
+            // The InliningPass searches module_->functions by name and picks
+            // the first match — visitClassDeclaration emits this body BEFORE
+            // the spec path, so this body must include the default-handling
+            // branch or the inliner will fold the call site to raw `undefined`.
+            //
+            // CRITICAL: set nextValueId BEFORE the loop so allocas created
+            // for default-handling don't collide with param HIRValue ids
+            // (params already occupy ids [0..N-1]).
+            func->nextValueId = static_cast<uint32_t>(func->params.size());
+            size_t ccArgTypeOffset = methodDef->isStatic ? 0 : 1;
             for (size_t i = 0; i < func->params.size(); ++i) {
                 const auto& [paramName, paramType] = func->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-                defineVariable(paramName, paramValue);
+
+                size_t astParamIdx = (i >= ccArgTypeOffset) ? (i - ccArgTypeOffset) : SIZE_MAX;
+                ast::Parameter* astParam = (astParamIdx < methodDef->parameters.size())
+                    ? methodDef->parameters[astParamIdx].get() : nullptr;
+                bool isDestructured = astParam && (
+                    dynamic_cast<ast::ObjectBindingPattern*>(astParam->name.get()) ||
+                    dynamic_cast<ast::ArrayBindingPattern*>(astParam->name.get()));
+
+                if (astParam && astParam->initializer && !isDestructured) {
+                    // Scalar default — alloca + branch on isUndefined, assign
+                    // default expression value when missing.
+                    auto allocaVal = builder_.createAlloca(paramType);
+                    auto isUndefined = builder_.createCall("ts_value_is_undefined",
+                        {paramValue}, HIRType::makeBool());
+
+                    auto defaultBB = func->createBlock("default_param");
+                    auto usedBB = func->createBlock("use_param");
+                    auto mergeBB = func->createBlock("param_merge");
+
+                    builder_.createCondBranch(isUndefined, defaultBB, usedBB);
+
+                    builder_.setInsertPoint(defaultBB);
+                    currentBlock_ = defaultBB;
+                    auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
+                    auto defaultVal = initExpr ? lowerExpression(initExpr)
+                                               : builder_.createConstUndefined();
+                    if (paramType->kind == HIRTypeKind::Any) {
+                        defaultVal = forceBoxValue(defaultVal);
+                    }
+                    builder_.createStore(defaultVal, allocaVal);
+                    builder_.createBranch(mergeBB);
+
+                    builder_.setInsertPoint(usedBB);
+                    currentBlock_ = usedBB;
+                    builder_.createStore(paramValue, allocaVal);
+                    builder_.createBranch(mergeBB);
+
+                    builder_.setInsertPoint(mergeBB);
+                    currentBlock_ = mergeBB;
+
+                    defineVariableAlloca(paramName, allocaVal, paramType);
+                } else {
+                    defineVariable(paramName, paramValue);
+                }
             }
-            func->nextValueId = static_cast<uint32_t>(func->params.size());
+            // NOTE: Do NOT reset nextValueId here. The default-handling logic
+            // above creates allocas and intermediate values that bumped
+            // nextValueId past params.size(); resetting it here would cause
+            // the destructure loop below to re-use ids and collide.
 
             // Emit destructuring extraction for parameters with binding
             // patterns (mirrors the FunctionDeclaration path).
@@ -9825,13 +9941,73 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // Enter function scope
             pushFunctionScope(func.get());
 
-            // Register parameters in scope
+            // Register parameters in scope.
+            // ccArgTypeOffset is 1 for instance methods (slot 0 = synthetic
+            // 'this', user params start at HIR index 1) and 0 for static
+            // methods. Map the HIR param index back to the AST parameter so
+            // we honor default-value initializers (e.g. `method(a = 99)`).
+            // The InliningPass searches module_->functions by name and picks
+            // the first match — visitClassDeclaration emits this body BEFORE
+            // the spec path, so this body must include the default-handling
+            // branch or the inliner will fold the call site to raw `undefined`.
+            //
+            // CRITICAL: set nextValueId BEFORE the loop so allocas created
+            // for default-handling don't collide with param HIRValue ids
+            // (params already occupy ids [0..N-1]).
+            func->nextValueId = static_cast<uint32_t>(func->params.size());
+            size_t ccArgTypeOffset = methodDef->isStatic ? 0 : 1;
             for (size_t i = 0; i < func->params.size(); ++i) {
                 const auto& [paramName, paramType] = func->params[i];
                 auto paramValue = std::make_shared<HIRValue>(static_cast<uint32_t>(i), paramType, paramName);
-                defineVariable(paramName, paramValue);
+
+                size_t astParamIdx = (i >= ccArgTypeOffset) ? (i - ccArgTypeOffset) : SIZE_MAX;
+                ast::Parameter* astParam = (astParamIdx < methodDef->parameters.size())
+                    ? methodDef->parameters[astParamIdx].get() : nullptr;
+                bool isDestructured = astParam && (
+                    dynamic_cast<ast::ObjectBindingPattern*>(astParam->name.get()) ||
+                    dynamic_cast<ast::ArrayBindingPattern*>(astParam->name.get()));
+
+                if (astParam && astParam->initializer && !isDestructured) {
+                    // Scalar default — alloca + branch on isUndefined, assign
+                    // default expression value when missing.
+                    auto allocaVal = builder_.createAlloca(paramType);
+                    auto isUndefined = builder_.createCall("ts_value_is_undefined",
+                        {paramValue}, HIRType::makeBool());
+
+                    auto defaultBB = func->createBlock("default_param");
+                    auto usedBB = func->createBlock("use_param");
+                    auto mergeBB = func->createBlock("param_merge");
+
+                    builder_.createCondBranch(isUndefined, defaultBB, usedBB);
+
+                    builder_.setInsertPoint(defaultBB);
+                    currentBlock_ = defaultBB;
+                    auto* initExpr = dynamic_cast<ast::Expression*>(astParam->initializer.get());
+                    auto defaultVal = initExpr ? lowerExpression(initExpr)
+                                               : builder_.createConstUndefined();
+                    if (paramType->kind == HIRTypeKind::Any) {
+                        defaultVal = forceBoxValue(defaultVal);
+                    }
+                    builder_.createStore(defaultVal, allocaVal);
+                    builder_.createBranch(mergeBB);
+
+                    builder_.setInsertPoint(usedBB);
+                    currentBlock_ = usedBB;
+                    builder_.createStore(paramValue, allocaVal);
+                    builder_.createBranch(mergeBB);
+
+                    builder_.setInsertPoint(mergeBB);
+                    currentBlock_ = mergeBB;
+
+                    defineVariableAlloca(paramName, allocaVal, paramType);
+                } else {
+                    defineVariable(paramName, paramValue);
+                }
             }
-            func->nextValueId = static_cast<uint32_t>(func->params.size());
+            // NOTE: Do NOT reset nextValueId here. The default-handling logic
+            // above creates allocas and intermediate values that bumped
+            // nextValueId past params.size(); resetting it here would cause
+            // the destructure loop below to re-use ids and collide.
 
             // Emit destructuring extraction for parameters with binding
             // patterns (mirrors the FunctionDeclaration path).
