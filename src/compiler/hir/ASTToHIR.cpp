@@ -355,31 +355,6 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         }
     }
 
-    // Phase 9c-i: pre-register top-level class expressions assigned to
-    // variables (`const X = class { ... }`). Without this, function bodies
-    // visited in the second pass below see no class registered for X — they
-    // fall through visitNewExpression's "Unknown class" branch, which
-    // generates ts_new_from_constructor_N(undefined, args). The runtime
-    // fallback for an undefined constructor stores arg1 as `.message` instead
-    // of running the actual constructor body, silently producing wrong objects.
-    //
-    // Calling visitClassExpression here registers the HIRClass, shape,
-    // constructor, and methods. The trailer (loadFunction + prototype setup)
-    // is skipped because currentFunction_ is null at this point; the second
-    // invocation from visitVariableDeclaration during normal lowering hits
-    // the astClassExprToHIRClass_ cache and emits the trailer in the correct
-    // function context.
-    for (auto& stmt : program->body) {
-        auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
-        if (!varDecl || !varDecl->initializer) continue;
-        auto* classExpr = dynamic_cast<ast::ClassExpression*>(varDecl->initializer.get());
-        if (!classExpr) continue;
-        visitClassExpression(classExpr);
-        if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
-            variableToClassName_[ident->name] = lastGeneratedClassName_;
-        }
-    }
-
     // Determine the main source file for distinguishing imported modules.
     // The main file's statements come LAST in program->body (after all imports).
     // So we scan backwards to find the last unique sourceFile.
@@ -547,6 +522,37 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             } else {
                 walkForVars(dynamic_cast<ast::Statement*>(stmt.get()));
             }
+        }
+    }
+
+    // Phase 9c-i: pre-register top-level class expressions assigned to
+    // variables (`const X = class { ... }`). Without this, function bodies
+    // visited in the second pass below see no class registered for X — they
+    // fall through visitNewExpression's "Unknown class" branch.
+    //
+    // Calling visitClassExpression here registers the HIRClass, shape,
+    // constructor, and methods. The trailer (loadFunction + prototype setup)
+    // is skipped because currentFunction_ is null at this point; the second
+    // invocation from visitVariableDeclaration during normal lowering hits
+    // the astClassExprToHIRClass_ cache and emits the trailer in the correct
+    // function context.
+    //
+    // Critically, this pre-pass MUST run AFTER moduleGlobalVarsByModule_ is
+    // populated (the var-scan loop above): visitClassExpression eagerly
+    // emits method bodies, and writes inside those bodies need to see
+    // `isModuleGlobalVar(name)` as true so they take the StoreGlobal path
+    // instead of falling through to a method-local alloca that's invisible
+    // to module_init's reads. Class-expression methods have no spec-loop
+    // entry (Monomorphizer doesn't specialize anonymous class methods), so
+    // this is the ONLY emission of those bodies.
+    for (auto& stmt : program->body) {
+        auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+        if (!varDecl || !varDecl->initializer) continue;
+        auto* classExpr = dynamic_cast<ast::ClassExpression*>(varDecl->initializer.get());
+        if (!classExpr) continue;
+        visitClassExpression(classExpr);
+        if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+            variableToClassName_[ident->name] = lastGeneratedClassName_;
         }
     }
 
@@ -5612,6 +5618,26 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         if (cls->name == newIdent->name) {
                             className = newIdent->name;
                             break;
+                        }
+                    }
+                    // Class-expression binding: `var C = class { ... }`
+                    // stores `__anon_class_N` under variableToClassName_["C"].
+                    // The direct-name search above finds nothing (class is
+                    // anonymous); consult the map. Only used as a fallback
+                    // so real class declarations take the natural-name path.
+                    // visitNewExpression already does this lookup at the
+                    // construct site; Case 2 method-dispatch must do it too
+                    // or we fall through to dynamic prototype lookup which
+                    // can't find vtable methods on the FLAT instance.
+                    if (className.empty()) {
+                        auto vIt = variableToClassName_.find(newIdent->name);
+                        if (vIt != variableToClassName_.end()) {
+                            for (auto& cls : module_->classes) {
+                                if (cls->name == vIt->second) {
+                                    className = vIt->second;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
