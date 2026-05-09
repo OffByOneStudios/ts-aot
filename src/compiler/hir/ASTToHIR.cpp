@@ -2155,18 +2155,31 @@ void ASTToHIR::emitDeferredStaticInits() {
     // test262 accessor-name probes that read directly from the
     // prototype.
     for (auto* hirClass : deferredClassPrototypes_) {
-        if (!hirClass || hirClass->methods.empty()) continue;
+        if (!hirClass) continue;
+        if (hirClass->methods.empty() && hirClass->staticMethods.empty()) continue;
         std::string ctorName = hirClass->constructor
             ? hirClass->constructor->name
             : hirClass->name + "_constructor";
         auto ctorVal = builder_.createLoadFunction(ctorName);
-        auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
-        for (auto& [methodKey, methodFunc] : hirClass->methods) {
+        if (!hirClass->methods.empty()) {
+            auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
+            for (auto& [methodKey, methodFunc] : hirClass->methods) {
+                if (!methodFunc) continue;
+                auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+                builder_.createSetPropStatic(proto, methodKey, methodClosure);
+            }
+            builder_.createSetPropStatic(ctorVal, "prototype", proto);
+        }
+        // Install static methods on the constructor itself so dynamic
+        // access like `F.method()` (where `F` is a class-expression-bound
+        // variable) resolves to the function. Class declarations have a
+        // direct Case 3 dispatch in visitCallExpression that bypasses
+        // this, but class expressions and indirect access need it.
+        for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
             auto methodClosure = builder_.createLoadFunction(methodFunc->name);
-            builder_.createSetPropStatic(proto, methodKey, methodClosure);
+            builder_.createSetPropStatic(ctorVal, methodName, methodClosure);
         }
-        builder_.createSetPropStatic(ctorVal, "prototype", proto);
     }
     deferredClassPrototypes_.clear();
 
@@ -10307,7 +10320,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // never runs for top-level class expressions because the
             // node is not re-visited from a function context — the
             // let-decl statement lives in `module->ast->body` only).
-            if (!hirClass->methods.empty()) {
+            if (!hirClass->methods.empty() || !hirClass->staticMethods.empty()) {
                 bool already = false;
                 for (auto* c : deferredClassPrototypes_) if (c == hirClass) { already = true; break; }
                 if (!already) deferredClassPrototypes_.push_back(hirClass);
@@ -10330,6 +10343,12 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 builder_.createSetPropStatic(proto, methodKey, methodClosure);
             }
             builder_.createSetPropStatic(ctorVal, "prototype", proto);
+        }
+        // Install static methods on the constructor for dynamic access.
+        for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
+            if (!methodFunc) continue;
+            auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+            builder_.createSetPropStatic(lastValue_, methodName, methodClosure);
         }
         return;
     }
@@ -10802,7 +10821,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // from the spec body when they have a class-expression initializer,
     // so the cache-fast-path's IR emission never happens.
     if (!currentFunction_) {
-        if (!hirClass->methods.empty()) {
+        if (!hirClass->methods.empty() || !hirClass->staticMethods.empty()) {
             bool already = false;
             for (auto* c : deferredClassPrototypes_) if (c == hirClass) { already = true; break; }
             if (!already) deferredClassPrototypes_.push_back(hirClass);
@@ -10843,6 +10862,16 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
         // Set constructor.prototype = proto
         builder_.createSetPropStatic(ctorVal, "prototype", proto);
+    }
+    // Install static methods on the constructor itself so dynamic-dispatch
+    // access like `F.method()` resolves correctly when `F` is a class-
+    // expression-bound variable. visitCallExpression's Case 3 only fires
+    // for class-name identifiers tracked in module_->classes, not for
+    // class-expression variables.
+    for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
+        if (!methodFunc) continue;
+        auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+        builder_.createSetPropStatic(lastValue_, methodName, methodClosure);
     }
 }
 
