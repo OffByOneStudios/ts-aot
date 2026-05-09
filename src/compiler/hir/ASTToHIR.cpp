@@ -3499,6 +3499,19 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                     // We can't construct an AST AssignmentExpression here, so
                     // inline the destructure dispatch instead.
                     if (auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(lhsExpr)) {
+                        // ECMA-262 13.15.5.1 early errors: rest element must
+                        // be last and cannot have a default initializer.
+                        for (size_t ri = 0; ri < arrLit->elements.size(); ++ri) {
+                            auto* slot = arrLit->elements[ri].get();
+                            if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
+                                if (ri + 1 != arrLit->elements.size()) {
+                                    throw std::runtime_error("SyntaxError: Rest element must be last element in destructuring pattern");
+                                }
+                                if (dynamic_cast<ast::AssignmentExpression*>(sp->expression.get())) {
+                                    throw std::runtime_error("SyntaxError: Rest element cannot have a default initializer");
+                                }
+                            }
+                        }
                         // Inline minimal version of the dstr-assign code:
                         // for each element, extract source[i] (with default
                         // handling) and assign to the target.
@@ -3649,6 +3662,19 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                     // We can't construct an AST AssignmentExpression here, so
                     // inline the destructure dispatch instead.
                     if (auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(lhsExpr)) {
+                        // ECMA-262 13.15.5.1 early errors: rest element must
+                        // be last and cannot have a default initializer.
+                        for (size_t ri = 0; ri < arrLit->elements.size(); ++ri) {
+                            auto* slot = arrLit->elements[ri].get();
+                            if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
+                                if (ri + 1 != arrLit->elements.size()) {
+                                    throw std::runtime_error("SyntaxError: Rest element must be last element in destructuring pattern");
+                                }
+                                if (dynamic_cast<ast::AssignmentExpression*>(sp->expression.get())) {
+                                    throw std::runtime_error("SyntaxError: Rest element cannot have a default initializer");
+                                }
+                            }
+                        }
                         // Inline minimal version of the dstr-assign code:
                         // for each element, extract source[i] (with default
                         // handling) and assign to the target.
@@ -5167,6 +5193,26 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     // nothing — variables remain undefined.
     auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(node->left.get());
     if (arrLit) {
+        // ECMA-262 13.15.5.1 (AssignmentPattern early errors):
+        //   - AssignmentRestElement must be the LAST element of the
+        //     pattern. `[...x,]` and `[...x, y]` are SyntaxErrors.
+        //   - AssignmentRestElement is `... DestructuringAssignmentTarget`
+        //     and CANNOT have an Initializer. `[...x = 1]` is a SyntaxError.
+        // We catch these here as compile-time errors. The parser doesn't
+        // validate because it can't distinguish AssignmentExpression LHS
+        // from a value array until it sees the `=`.
+        for (size_t i = 0; i < arrLit->elements.size(); ++i) {
+            auto* slot = arrLit->elements[i].get();
+            if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
+                if (i + 1 != arrLit->elements.size()) {
+                    throw std::runtime_error("SyntaxError: Rest element must be last element in destructuring pattern");
+                }
+                if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(sp->expression.get())) {
+                    (void)assn;
+                    throw std::runtime_error("SyntaxError: Rest element cannot have a default initializer");
+                }
+            }
+        }
         // Per ECMA-262 RequireObjectCoercible — null/undefined source throws.
         builder_.createCall("ts_destructure_require_object", {rhs},
                             HIRType::makeVoid());
