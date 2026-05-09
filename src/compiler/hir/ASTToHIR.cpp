@@ -911,6 +911,27 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 for (auto& s : methodNode->body) scanIds(s.get(), spec.modulePath);
             }
         }
+
+        // Class-expression methods aren't in `specializations` (the
+        // Monomorphizer doesn't synthesize specs for anonymous class
+        // members). Walk the AST directly so `var X = 0; var C = class
+        // { m(){ X = X + 1; } }; new C().m(); console.log(X)` registers
+        // the marker in time for module_init's `console.log(X)` read to
+        // take the LoadGlobal path. Without this, the read pulls a stale
+        // local copy and assertions like
+        // `assert.sameValue(callCount, 1, 'method invoked exactly once')`
+        // see 0 instead of the incremented value.
+        for (auto& stmt : program->body) {
+            auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
+            if (!varDecl || !varDecl->initializer) continue;
+            auto* classExpr = dynamic_cast<ast::ClassExpression*>(varDecl->initializer.get());
+            if (!classExpr) continue;
+            for (auto& memberPtr : classExpr->members) {
+                auto* md = dynamic_cast<ast::MethodDefinition*>(memberPtr.get());
+                if (!md || !md->hasBody) continue;
+                for (auto& s : md->body) scanIds(s.get(), currentModulePath_);
+            }
+        }
     }
 
     // Second pass: generate functions from specializations
