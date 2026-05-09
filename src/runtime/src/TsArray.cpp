@@ -2359,7 +2359,13 @@ extern "C" {
         return ((TsArray*)arr)->Flat(depth);
     }
 
+    // Forward decl — defined further down. Used by the C-level array
+    // method entry points to throw TypeError for non-callable callbacks
+    // per ECMA-262 spec.
+    static bool array_require_callable(void* callback, const char* name);
+
     void* ts_array_flatMap(void* arr, void* callback, void* thisArg) {
+        if (!array_require_callable(callback, "flatMap")) return nullptr;
         return ((TsArray*)arr)->FlatMap(callback, thisArg);
     }
 
@@ -2663,6 +2669,7 @@ extern "C" {
             ts_array_forEach_native(arr, 2, argvBuf);
             return;
         }
+        if (!array_require_callable(callback, "forEach")) return;
         ((TsArray*)arr)->ForEach(callback, thisArg);
     }
 
@@ -2827,6 +2834,7 @@ extern "C" {
             void* raw = res ? ts_value_get_object(res) : nullptr;
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
+        if (!array_require_callable(callback, "map")) return nullptr;
         return ((TsArray*)arr)->Map(callback, thisArg);
     }
 
@@ -2837,19 +2845,16 @@ extern "C" {
             void* raw = res ? ts_value_get_object(res) : nullptr;
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
+        if (!array_require_callable(callback, "filter")) return nullptr;
         return ((TsArray*)arr)->Filter(callback, thisArg);
     }
 
-    // Shared spec preamble for reduce/reduceRight:
-    // - callback must be callable (else TypeError)
-    // - if no initial value and array is empty, TypeError
-    // Returns true if preamble passed; caller proceeds. ts_throw uses
-    // longjmp so a false return is only reached when no handler is live.
-    static bool reduce_spec_preamble(TsArray* a, void* callback, void* initialValue,
-                                     const char* name) {
-        // Callable check: reuse the same magic pattern as requireCallableOrThrow
-        // in TsObject.cpp. Callback must point to a TsFunction/TsClosure.
-        bool callable = false;
+    // IsCallable check shared across array methods (forEach/map/filter/...).
+    // Per ECMA-262 each of these methods expects a callable as the first arg
+    // and must throw TypeError otherwise. The C-level entry points are
+    // reached directly from compiler-emitted IR (bypassing the *_native
+    // wrappers), so the check must live here too.
+    static bool array_require_callable(void* callback, const char* name) {
         if (callback) {
             uint64_t nb = (uint64_t)(uintptr_t)callback;
             if (!nanbox_is_undefined(nb) && !nanbox_is_null(nb) &&
@@ -2865,18 +2870,26 @@ extern "C" {
                         return m == 0x46554E43 /* FUNC */ || m == 0x434C5352 /* CLSR */;
                     };
                     if (isCallable(m16) || isCallable(m20) || isCallable(m24)) {
-                        callable = true;
+                        return true;
                     }
                 }
             }
         }
-        if (!callable) {
-            char msg[160];
-            snprintf(msg, sizeof(msg),
-                "Array.prototype.%s callback is not a function", name);
-            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
-            return false;  // unreachable
-        }
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+            "Array.prototype.%s callback is not a function", name);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return false;  // unreachable
+    }
+
+    // Shared spec preamble for reduce/reduceRight:
+    // - callback must be callable (else TypeError)
+    // - if no initial value and array is empty, TypeError
+    // Returns true if preamble passed; caller proceeds. ts_throw uses
+    // longjmp so a false return is only reached when no handler is live.
+    static bool reduce_spec_preamble(TsArray* a, void* callback, void* initialValue,
+                                     const char* name) {
+        if (!array_require_callable(callback, name)) return false;
         if (!initialValue && a->Length() == 0) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Reduce of empty array with no initial value"));
@@ -2924,6 +2937,7 @@ extern "C" {
             TsValue* res = ts_array_some_native(arr, 2, argvBuf);
             return res ? ts_value_to_bool(res) : false;
         }
+        if (!array_require_callable(callback, "some")) return false;
         return ((TsArray*)rawArr)->Some(callback, thisArg);
     }
 
@@ -2934,6 +2948,7 @@ extern "C" {
             TsValue* res = ts_array_every_native(arr, 2, argvBuf);
             return res ? ts_value_to_bool(res) : true;
         }
+        if (!array_require_callable(callback, "every")) return false;
         return ((TsArray*)rawArr)->Every(callback, thisArg);
     }
 
@@ -2943,6 +2958,7 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             return ts_array_find_native(arr, 2, argvBuf);
         }
+        if (!array_require_callable(callback, "find")) return ts_value_make_undefined();
         return ((TsArray*)rawArr)->Find(callback, thisArg);
     }
 
@@ -2953,6 +2969,7 @@ extern "C" {
             TsValue* res = ts_array_findIndex_native(arr, 2, argvBuf);
             return res ? ts_value_get_int(res) : -1;
         }
+        if (!array_require_callable(callback, "findIndex")) return -1;
         return ((TsArray*)rawArr)->FindIndex(callback, thisArg);
     }
 
@@ -2962,6 +2979,7 @@ extern "C" {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
             return ts_array_findLast_native(arr, 2, argvBuf);
         }
+        if (!array_require_callable(callback, "findLast")) return ts_value_make_undefined();
         return ((TsArray*)rawArr)->FindLast(callback, thisArg);
     }
 
@@ -2972,6 +2990,7 @@ extern "C" {
             TsValue* res = ts_array_findLastIndex_native(arr, 2, argvBuf);
             return res ? ts_value_get_int(res) : -1;
         }
+        if (!array_require_callable(callback, "findLastIndex")) return -1;
         return ((TsArray*)rawArr)->FindLastIndex(callback, thisArg);
     }
 

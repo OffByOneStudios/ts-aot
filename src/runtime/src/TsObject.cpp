@@ -2346,6 +2346,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "flatMap");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "flatMap")) return ts_value_make_undefined();
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         void* result = ts_array_flatMap(arr, callback, thisArg);
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
@@ -2477,6 +2478,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "findLast");
         if (!arr) return ts_value_make_undefined();
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "findLast")) return ts_value_make_undefined();
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         // ts_array_findLast returns a NaN-boxed TsValue* (not a heap TaggedValue*).
         // Must not dereference — 0x0A (undefined) would fault.
@@ -2487,6 +2489,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsArray* arr = require_array_or_throw(ctx, "findLastIndex");
         if (!arr) return ts_value_make_int(-1);
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        if (!requireCallableOrThrow(callback, "findLastIndex")) return ts_value_make_int(-1);
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
         return ts_value_make_int(ts_array_findLastIndex(arr, callback, thisArg));
     }
