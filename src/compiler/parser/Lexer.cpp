@@ -548,8 +548,17 @@ Token Lexer::scanIdentifierOrKeyword() {
         if (it != keywords_.end()) {
             Token tok = makeToken(TokenKind::Identifier, start);
             tok.escapedReservedWord = true;
+            tok.decodedText = std::move(decoded);
             return tok;
         }
+        // Even when the decoded form isn't a reserved word, store it so
+        // the parser can use the spec-correct identifier name in
+        // PropertyName / MemberExpression / ImportSpecifier / Export-
+        // Specifier positions. Without this, `{ foo: 42 }` would
+        // define property `foo` instead of `foo`.
+        Token tok = makeToken(TokenKind::Identifier, start);
+        tok.decodedText = std::move(decoded);
+        return tok;
     }
 
     return makeToken(TokenKind::Identifier, start);

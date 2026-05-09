@@ -131,6 +131,14 @@ struct Token {
     // positions while allowing it in PropertyName / member-expression
     // identifier-name positions.
     bool escapedReservedWord = false;
+    // Decoded form of the identifier text when `text` contains Unicode
+    // escapes (`\uXXXX` / `\u{...}`). Empty when no escapes present —
+    // callers should fall back to `text` in that case. Per ECMA-262 the
+    // decoded form is the spec-meaningful identifier name in PropertyName
+    // / MemberExpression / ImportSpecifier / ExportSpecifier positions:
+    // `{ break: 42 }` defines property "break", not "break", so
+    // `obj['break']` must find it.
+    std::string decodedText;
 };
 
 /// Snapshot of lexer state for save/restore during speculative parsing

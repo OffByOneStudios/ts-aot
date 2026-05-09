@@ -447,7 +447,16 @@ bool Parser::isIdentifierOrKeyword() const {
 
 std::string Parser::identifierName() {
     if (current_.kind == TokenKind::Identifier || Lexer::isKeyword(current_.kind)) {
-        std::string name(current_.text);
+        // Prefer the lexer-decoded text when the source contained Unicode
+        // escapes (`\uXXXX` / `\u{...}`). Per ECMA-262 the decoded form is
+        // the spec-meaningful identifier name in every position this helper
+        // is called from (PropertyName, MemberExpression `.foo`, Import/
+        // Export specifier names, class member names, etc.). Without this,
+        // `obj.foo` would store as the literal source span and
+        // `obj.foo` would miss the property.
+        std::string name = !current_.decodedText.empty()
+            ? current_.decodedText
+            : std::string(current_.text);
         advance();
         return name;
     }
