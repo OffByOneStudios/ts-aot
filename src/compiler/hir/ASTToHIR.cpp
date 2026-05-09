@@ -753,6 +753,160 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         }
     }
 
+    // Pre-scan: walk all non-module-init spec bodies for identifier
+    // references to module-global vars, populating
+    // moduleGlobalsUsedByInnerByModule_ BEFORE module_init lowering.
+    // Without this, module_init lowers reads like `console.log(callCount)`
+    // via the stale local-alloca fast path because the marker is only set
+    // when the inner function (e.g. a class method that mutates callCount)
+    // is later lowered. Result: writes from inner functions land in
+    // __modvar_callCount but module_init's read pulls the stale local copy.
+    {
+        std::function<void(ast::Node*, const std::string&)> scanIds;
+        scanIds = [&](ast::Node* node, const std::string& modPath) {
+            if (!node) return;
+            if (auto* id = dynamic_cast<ast::Identifier*>(node)) {
+                auto it = moduleGlobalVarsByModule_.find(id->name);
+                if (it != moduleGlobalVarsByModule_.end() &&
+                    it->second.count(modPath)) {
+                    moduleGlobalsUsedByInnerByModule_[id->name].insert(modPath);
+                }
+                return;
+            }
+            // Don't descend into nested function/method nodes — they're
+            // separate specs scanned independently.
+            if (dynamic_cast<ast::FunctionDeclaration*>(node)) return;
+            if (dynamic_cast<ast::FunctionExpression*>(node)) return;
+            if (dynamic_cast<ast::ArrowFunction*>(node)) return;
+            if (auto* block = dynamic_cast<ast::BlockStatement*>(node)) {
+                for (auto& s : block->statements) scanIds(s.get(), modPath);
+                return;
+            }
+            if (auto* expr = dynamic_cast<ast::ExpressionStatement*>(node)) { scanIds(expr->expression.get(), modPath); return; }
+            if (auto* ret = dynamic_cast<ast::ReturnStatement*>(node)) { scanIds(ret->expression.get(), modPath); return; }
+            if (auto* ifSt = dynamic_cast<ast::IfStatement*>(node)) {
+                scanIds(ifSt->condition.get(), modPath);
+                scanIds(ifSt->thenStatement.get(), modPath);
+                scanIds(ifSt->elseStatement.get(), modPath);
+                return;
+            }
+            if (auto* w = dynamic_cast<ast::WhileStatement*>(node)) {
+                scanIds(w->condition.get(), modPath);
+                scanIds(w->body.get(), modPath);
+                return;
+            }
+            if (auto* f = dynamic_cast<ast::ForStatement*>(node)) {
+                scanIds(f->initializer.get(), modPath);
+                scanIds(f->condition.get(), modPath);
+                scanIds(f->incrementor.get(), modPath);
+                scanIds(f->body.get(), modPath);
+                return;
+            }
+            if (auto* fo = dynamic_cast<ast::ForOfStatement*>(node)) {
+                scanIds(fo->expression.get(), modPath);
+                scanIds(fo->body.get(), modPath);
+                return;
+            }
+            if (auto* fi = dynamic_cast<ast::ForInStatement*>(node)) {
+                scanIds(fi->expression.get(), modPath);
+                scanIds(fi->body.get(), modPath);
+                return;
+            }
+            if (auto* sw = dynamic_cast<ast::SwitchStatement*>(node)) {
+                scanIds(sw->expression.get(), modPath);
+                for (auto& cl : sw->clauses) {
+                    if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) {
+                        scanIds(cc->expression.get(), modPath);
+                        for (auto& s : cc->statements) scanIds(s.get(), modPath);
+                    }
+                    if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get())) {
+                        for (auto& s : dc->statements) scanIds(s.get(), modPath);
+                    }
+                }
+                return;
+            }
+            if (auto* tryStmt = dynamic_cast<ast::TryStatement*>(node)) {
+                for (auto& s : tryStmt->tryBlock) scanIds(s.get(), modPath);
+                if (tryStmt->catchClause) {
+                    for (auto& s : tryStmt->catchClause->block) scanIds(s.get(), modPath);
+                }
+                for (auto& s : tryStmt->finallyBlock) scanIds(s.get(), modPath);
+                return;
+            }
+            if (auto* th = dynamic_cast<ast::ThrowStatement*>(node)) { scanIds(th->expression.get(), modPath); return; }
+            if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(node)) {
+                scanIds(vd->initializer.get(), modPath);
+                return;
+            }
+            if (auto* lab = dynamic_cast<ast::LabeledStatement*>(node)) { scanIds(lab->statement.get(), modPath); return; }
+            if (auto* call = dynamic_cast<ast::CallExpression*>(node)) {
+                scanIds(call->callee.get(), modPath);
+                for (auto& a : call->arguments) scanIds(a.get(), modPath);
+                return;
+            }
+            if (auto* ne = dynamic_cast<ast::NewExpression*>(node)) {
+                scanIds(ne->expression.get(), modPath);
+                for (auto& a : ne->arguments) scanIds(a.get(), modPath);
+                return;
+            }
+            if (auto* bin = dynamic_cast<ast::BinaryExpression*>(node)) {
+                scanIds(bin->left.get(), modPath);
+                scanIds(bin->right.get(), modPath);
+                return;
+            }
+            if (auto* as = dynamic_cast<ast::AssignmentExpression*>(node)) {
+                scanIds(as->left.get(), modPath);
+                scanIds(as->right.get(), modPath);
+                return;
+            }
+            if (auto* c = dynamic_cast<ast::ConditionalExpression*>(node)) {
+                scanIds(c->condition.get(), modPath);
+                scanIds(c->whenTrue.get(), modPath);
+                scanIds(c->whenFalse.get(), modPath);
+                return;
+            }
+            if (auto* p = dynamic_cast<ast::PrefixUnaryExpression*>(node)) { scanIds(p->operand.get(), modPath); return; }
+            if (auto* p2 = dynamic_cast<ast::PostfixUnaryExpression*>(node)) { scanIds(p2->operand.get(), modPath); return; }
+            if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(node)) { scanIds(pa->expression.get(), modPath); return; }
+            if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(node)) {
+                scanIds(ea->expression.get(), modPath);
+                scanIds(ea->argumentExpression.get(), modPath);
+                return;
+            }
+            if (auto* arr = dynamic_cast<ast::ArrayLiteralExpression*>(node)) {
+                for (auto& e : arr->elements) scanIds(e.get(), modPath);
+                return;
+            }
+            if (auto* obj = dynamic_cast<ast::ObjectLiteralExpression*>(node)) {
+                for (auto& pr : obj->properties) {
+                    if (auto* pa2 = dynamic_cast<ast::PropertyAssignment*>(pr.get())) {
+                        scanIds(pa2->initializer.get(), modPath);
+                    }
+                }
+                return;
+            }
+            if (auto* tmpl = dynamic_cast<ast::TemplateExpression*>(node)) {
+                for (auto& span : tmpl->spans) scanIds(span.expression.get(), modPath);
+                return;
+            }
+            if (auto* paren = dynamic_cast<ast::ParenthesizedExpression*>(node)) { scanIds(paren->expression.get(), modPath); return; }
+            if (auto* sp = dynamic_cast<ast::SpreadElement*>(node)) { scanIds(sp->expression.get(), modPath); return; }
+            if (auto* del = dynamic_cast<ast::DeleteExpression*>(node)) { scanIds(del->expression.get(), modPath); return; }
+            if (auto* aw = dynamic_cast<ast::AwaitExpression*>(node)) { scanIds(aw->expression.get(), modPath); return; }
+            if (auto* y = dynamic_cast<ast::YieldExpression*>(node)) { scanIds(y->expression.get(), modPath); return; }
+            if (auto* asx = dynamic_cast<ast::AsExpression*>(node)) { scanIds(asx->expression.get(), modPath); return; }
+            if (auto* nn = dynamic_cast<ast::NonNullExpression*>(node)) { scanIds(nn->expression.get(), modPath); return; }
+        };
+        for (const auto& spec : specializations) {
+            if (spec.originalName.find("__module_init_") == 0) continue;
+            if (auto* funcNode = dynamic_cast<ast::FunctionDeclaration*>(spec.node)) {
+                for (auto& s : funcNode->body) scanIds(s.get(), spec.modulePath);
+            } else if (auto* methodNode = dynamic_cast<ast::MethodDefinition*>(spec.node)) {
+                for (auto& s : methodNode->body) scanIds(s.get(), spec.modulePath);
+            }
+        }
+    }
+
     // Second pass: generate functions from specializations
     SPDLOG_WARN("[ASTToHIR] Generating {} specializations...", specializations.size());
     size_t specIdx = 0;
@@ -1197,9 +1351,28 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 func->returnType = HIRType::makeAny();
             }
 
-            // Push method to module BEFORE lowering body (same reason as functions above)
+            // Push method to module BEFORE lowering body (same reason as functions above).
+            // visitClassDeclaration emits a same-named placeholder during the
+            // early pre-pass — but at pre-pass time the module-scope vars
+            // haven't been registered, so identifier writes there miss the
+            // StoreGlobal path and the body becomes a no-op. Replace any
+            // existing entry so HIRToLLVM lowers ONE HIRFunction (and
+            // InliningPass picks the spec-loop body, which IS scope-correct).
+            // Without this, both HIRFunctions push and HIRToLLVM merges them
+            // into one llvm::Function with two entry blocks; the spec-loop's
+            // body becomes "entry1: No predecessors!" — unreachable.
             auto* methPtr = func.get();
-            module_->functions.push_back(std::move(func));
+            bool replacedExisting = false;
+            for (auto& existing : module_->functions) {
+                if (existing && existing->name == spec.specializedName) {
+                    existing = std::move(func);
+                    replacedExisting = true;
+                    break;
+                }
+            }
+            if (!replacedExisting) {
+                module_->functions.push_back(std::move(func));
+            }
 
             auto entryBlock = methPtr->createBlock("entry");
             currentFunction_ = methPtr;
@@ -1383,7 +1556,24 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                             if (methodNode->isGetter) methodKey = "__getter_" + methodNode->name;
                             else if (methodNode->isSetter) methodKey = "__setter_" + methodNode->name;
                             hirClass->methods[methodKey] = methPtr;
-                            hirClass->vtable.push_back({methodKey, methPtr});
+                            // visitClassDeclaration may have already pushed a
+                            // vtable entry for this method (with a stale func
+                            // pointer if we replaced the HIRFunction in
+                            // module_->functions). Replace the existing entry
+                            // by methodKey rather than appending — otherwise
+                            // VTable codegen sees two entries and the first
+                            // points to a freed unique_ptr.
+                            bool updatedVtable = false;
+                            for (auto& vt : hirClass->vtable) {
+                                if (vt.first == methodKey) {
+                                    vt.second = methPtr;
+                                    updatedVtable = true;
+                                    break;
+                                }
+                            }
+                            if (!updatedVtable) {
+                                hirClass->vtable.push_back({methodKey, methPtr});
+                            }
                         }
                     }
                 }
