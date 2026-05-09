@@ -18,7 +18,14 @@ struct BoundMethodCtx {
     void* methodPtr; // compiled method function pointer
 };
 
-static TsValue* flat_bound_method_trampoline(void* ctx, int argc, TsValue** argv) {
+// Exposed (no `static`) so ts_call_with_this_N in TsObject.cpp can detect a
+// bound-method TsFunction and skip the `func->context = thisArg` override
+// — that override clobbers the BoundMethodCtx* pointer and the trampoline
+// then casts a raw thisArg as BoundMethodCtx, reading garbage methodPtr
+// → indirect call to data → 0xc0000005 access violation. ~684 of the
+// class CRASH cluster trip this when a method is fetched via a getter
+// (e.g. `get method() { return this.#m; }; new C().method([1,2,3])`).
+extern "C" TsValue* flat_bound_method_trampoline(void* ctx, int argc, TsValue** argv) {
     BoundMethodCtx* bm = (BoundMethodCtx*)ctx;
     void* thisObj = bm->obj;
     void* methodPtr = bm->methodPtr;

@@ -4377,6 +4377,22 @@ TsValue* ts_value_make_int(int64_t i) {
         }
     }
 
+    // Forward decl: TsFlatObject.cpp's bound-method trampoline. We need
+    // its address to detect bound methods so ts_call_with_this_N doesn't
+    // overwrite the BoundMethodCtx* with thisArg.
+    extern "C" TsValue* flat_bound_method_trampoline(void*, int, TsValue**);
+
+    // Helper: override func->context = thisArg unless `func` is a bound-
+    // method TsFunction (whose context IS its BoundMethodCtx — overriding
+    // would corrupt the trampoline's read of the method pointer).
+    static inline void* maybe_override_context(TsFunction* func, TsValue* thisArg) {
+        void* savedCtx = func->context;
+        if (func->funcPtr != (void*)flat_bound_method_trampoline) {
+            func->context = thisArg;
+        }
+        return savedCtx;
+    }
+
     // ts_call_with_this_X functions: call a function with a specific 'this' binding
     // These temporarily patch the function's context before calling
     TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg) {
@@ -4404,9 +4420,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_call_0(boxedFunc);
 
@@ -4444,9 +4461,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_call_1(boxedFunc, arg1);
 
@@ -4480,9 +4498,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_call_2(boxedFunc, arg1, arg2);
 
@@ -4514,9 +4533,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_call_3(boxedFunc, arg1, arg2, arg3);
 
@@ -4547,9 +4567,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_call_4(boxedFunc, arg1, arg2, arg3, arg4);
 
@@ -4575,9 +4596,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_call_5(boxedFunc, arg1, arg2, arg3, arg4, arg5);
 
@@ -4603,9 +4625,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_call_6(boxedFunc, arg1, arg2, arg3, arg4, arg5, arg6);
 
@@ -4631,9 +4654,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_call_7(boxedFunc, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 
@@ -4659,9 +4683,10 @@ TsValue* ts_value_make_int(int64_t i) {
         TsFunction* func = ts_extract_function(boxedFunc);
         if (!func) { ts_call_this_value = savedThis; return ts_value_make_undefined(); }
 
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_call_8(boxedFunc, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 
@@ -4917,9 +4942,10 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         // Preserve the captured context and only override when the function has none.
-        void* savedCtx = func->context;
-        // .call() always overrides the receiver for TsFunction
-        func->context = thisArg;
+        // .call() overrides the receiver for plain TsFunctions, but NOT
+        // for bound-method trampolines whose context IS a BoundMethodCtx*
+        // (overriding clobbers the methodPtr → indirect call to data crash).
+        void* savedCtx = maybe_override_context(func, thisArg);
 
         TsValue* result = ts_function_call(boxedFunc, argc, argv);
 
