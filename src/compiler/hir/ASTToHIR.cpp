@@ -3515,8 +3515,8 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                             std::shared_ptr<HIRValue> value;
                             if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
                                 auto idxConst = builder_.createConstInt(index);
-                                value = builder_.createCall("ts_array_slice",
-                                    {elemVal, idxConst}, HIRType::makeAny());
+                                value = builder_.createCallMethod(elemVal, "slice",
+                                    {idxConst}, HIRType::makeAny());
                                 tgt = dynamic_cast<ast::Expression*>(sp->expression.get());
                             } else {
                                 auto idxConst = builder_.createConstInt(index);
@@ -3665,8 +3665,8 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                             std::shared_ptr<HIRValue> value;
                             if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
                                 auto idxConst = builder_.createConstInt(index);
-                                value = builder_.createCall("ts_array_slice",
-                                    {elemVal, idxConst}, HIRType::makeAny());
+                                value = builder_.createCallMethod(elemVal, "slice",
+                                    {idxConst}, HIRType::makeAny());
                                 tgt = dynamic_cast<ast::Expression*>(sp->expression.get());
                             } else {
                                 auto idxConst = builder_.createConstInt(index);
@@ -5246,10 +5246,11 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 continue;
             }
             if (auto* spread = dynamic_cast<ast::SpreadElement*>(elem)) {
-                // ...rest = source.slice(index)
+                // ...rest = source.slice(index) — dispatch via prototype so
+                // typed arrays / array-likes use their own slice method.
                 auto idxConst = builder_.createConstInt(index);
-                auto restVal = builder_.createCall("ts_array_slice",
-                    {rhs, idxConst}, HIRType::makeAny());
+                auto restVal = builder_.createCallMethod(rhs, "slice",
+                    {idxConst}, HIRType::makeAny());
                 if (auto* tgtExpr = dynamic_cast<ast::Expression*>(spread->expression.get())) {
                     assignToTarget(tgtExpr, restVal);
                 }
