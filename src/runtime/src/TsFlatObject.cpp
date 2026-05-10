@@ -316,10 +316,15 @@ extern "C" void* ts_flat_object_to_map(void* obj) {
     TsMap* map = TsMap::Create();
     for (uint32_t i = 0; i < desc->numSlots; i++) {
         uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
-        if (val != NANBOX_UNDEFINED) {
-            TsValue tv = nanbox_to_tagged((TsValue*)(uintptr_t)val);
-            map->Set(TsValue(TsString::Create(desc->propNames[i])), tv);
-        }
+        // Include all shape slots, even when the slot value is
+        // undefined. Per ECMA-262, every declared class field is an
+        // own property — `class { x; y = 1; }` must report both `x`
+        // and `y` for Object.getOwnPropertyDescriptor /
+        // Object.keys / etc. Slots are pre-allocated by shape, so
+        // NANBOX_UNDEFINED at this point reflects the field's value
+        // (set explicitly by the constructor field-init pass).
+        TsValue tv = nanbox_to_tagged((TsValue*)(uintptr_t)val);
+        map->Set(TsValue(TsString::Create(desc->propNames[i])), tv);
     }
 
     // Copy overflow entries too

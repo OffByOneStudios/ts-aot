@@ -704,11 +704,18 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             auto thisValue = std::make_shared<HIRValue>(0, HIRType::makeClass(className, 0), "this");
             defineVariable("this", thisValue);
 
-            // Initialize property defaults from AST
+            // Initialize property defaults from AST. Every declared
+            // instance field is installed even without initializer
+            // (value defaults to undefined) per ECMA-262 15.7.
             for (auto& memberPtr2 : classDecl->members) {
                 if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr2.get())) {
-                    if (!propDef->isStatic && propDef->initializer) {
-                        auto initVal = lowerExpression(propDef->initializer.get());
+                    if (!propDef->isStatic) {
+                        std::shared_ptr<HIRValue> initVal;
+                        if (propDef->initializer) {
+                            initVal = lowerExpression(propDef->initializer.get());
+                        } else {
+                            initVal = builder_.createConstUndefined();
+                        }
                         builder_.createSetPropStatic(thisValue, propDef->name, initVal);
                     }
                 }
@@ -1523,8 +1530,16 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     if (thisValue) {
                         for (auto& member : classType->node->members) {
                             if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
-                                if (!propDef->isStatic && propDef->initializer) {
-                                    auto initVal = lowerExpression(propDef->initializer.get());
+                                if (!propDef->isStatic) {
+                                    // ECMA-262 15.7: install every
+                                    // instance field; default to
+                                    // undefined when no initializer.
+                                    std::shared_ptr<HIRValue> initVal;
+                                    if (propDef->initializer) {
+                                        initVal = lowerExpression(propDef->initializer.get());
+                                    } else {
+                                        initVal = builder_.createConstUndefined();
+                                    }
                                     builder_.createSetPropStatic(thisValue, propDef->name, initVal);
                                 }
                             }
@@ -10174,11 +10189,19 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                     // Iterate over all property definitions and emit initializers
                     for (auto& member : node->members) {
                         if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
-                            if (!propDef->isStatic && propDef->initializer) {
-                                // Lower the initializer expression
-                                auto initVal = lowerExpression(propDef->initializer.get());
-
-                                // Store the initialized value to the property
+                            if (!propDef->isStatic) {
+                                // ECMA-262 15.7: every declared field
+                                // is installed on the instance, even
+                                // when no initializer is given — value
+                                // defaults to undefined. Without this,
+                                // tests like `class { 'a'; 'b' = 1; }`
+                                // see only 'b' as an own property.
+                                std::shared_ptr<HIRValue> initVal;
+                                if (propDef->initializer) {
+                                    initVal = lowerExpression(propDef->initializer.get());
+                                } else {
+                                    initVal = builder_.createConstUndefined();
+                                }
                                 builder_.createSetPropStatic(thisValue, propDef->name, initVal);
                             }
                         }
@@ -10277,11 +10300,18 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 builder_.createCall(hirClass->baseClass->constructor->name, superArgs, HIRType::makeVoid());
             }
 
-            // Initialize property defaults
+            // Initialize property defaults. Every declared instance
+            // field is installed on `this`, with `undefined` for
+            // fields without initializers — matches ECMA-262 15.7.
             for (auto& memberPtr : node->members) {
                 if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
-                    if (!propDef->isStatic && propDef->initializer) {
-                        auto initVal = lowerExpression(propDef->initializer.get());
+                    if (!propDef->isStatic) {
+                        std::shared_ptr<HIRValue> initVal;
+                        if (propDef->initializer) {
+                            initVal = lowerExpression(propDef->initializer.get());
+                        } else {
+                            initVal = builder_.createConstUndefined();
+                        }
                         builder_.createSetPropStatic(thisValue, propDef->name, initVal);
                     }
                 }
@@ -10695,11 +10725,19 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                     // Iterate over all property definitions and emit initializers
                     for (auto& member : node->members) {
                         if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
-                            if (!propDef->isStatic && propDef->initializer) {
-                                // Lower the initializer expression
-                                auto initVal = lowerExpression(propDef->initializer.get());
-
-                                // Store the initialized value to the property
+                            if (!propDef->isStatic) {
+                                // ECMA-262 15.7: every declared field
+                                // is installed on the instance, even
+                                // when no initializer is given — value
+                                // defaults to undefined. Without this,
+                                // tests like `class { 'a'; 'b' = 1; }`
+                                // see only 'b' as an own property.
+                                std::shared_ptr<HIRValue> initVal;
+                                if (propDef->initializer) {
+                                    initVal = lowerExpression(propDef->initializer.get());
+                                } else {
+                                    initVal = builder_.createConstUndefined();
+                                }
                                 builder_.createSetPropStatic(thisValue, propDef->name, initVal);
                             }
                         }
@@ -10798,11 +10836,18 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 builder_.createCall(hirClass->baseClass->constructor->name, superArgs, HIRType::makeVoid());
             }
 
-            // Initialize property defaults
+            // Initialize property defaults. Every declared instance
+            // field is installed on `this`, with `undefined` for
+            // fields without initializers — matches ECMA-262 15.7.
             for (auto& memberPtr : node->members) {
                 if (auto* propDef = dynamic_cast<ast::PropertyDefinition*>(memberPtr.get())) {
-                    if (!propDef->isStatic && propDef->initializer) {
-                        auto initVal = lowerExpression(propDef->initializer.get());
+                    if (!propDef->isStatic) {
+                        std::shared_ptr<HIRValue> initVal;
+                        if (propDef->initializer) {
+                            initVal = lowerExpression(propDef->initializer.get());
+                        } else {
+                            initVal = builder_.createConstUndefined();
+                        }
                         builder_.createSetPropStatic(thisValue, propDef->name, initVal);
                     }
                 }
