@@ -2746,6 +2746,17 @@ ast::StmtPtr Parser::parseReturnStatement() {
     auto startTok = current_;
     expect(TokenKind::KW_return, "'return'");
 
+    // ECMA-262 14.10: ReturnStatement is only valid inside a function
+    // body (FunctionDeclaration / FunctionExpression / ArrowFunction /
+    // MethodDefinition / Generator / Async). Top-level `return` is a
+    // SyntaxError.
+    if (functionDepth_ == 0) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: 'return' statement is not allowed at "
+            "the top level",
+            fileName_, startTok.line));
+    }
+
     auto node = std::make_unique<ast::ReturnStatement>();
     setLocation(node.get(), startTok);
 
