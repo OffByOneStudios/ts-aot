@@ -48,6 +48,11 @@ private:
     // --- Statement parsers (Parser.cpp) ---
     ast::StmtPtr parseStatement();
     ast::StmtPtr parseDeclarationOrStatement();
+    // Body of if/while/for/do-while/etc — only Statement is allowed,
+    // not Declaration (per ECMA-262 13.1). Rejects let/const/class,
+    // generators, and async functions; honors Annex B.3.2 for plain
+    // FunctionDeclaration in non-strict mode.
+    ast::StmtPtr parseStatementOnly();
     ast::StmtPtr parseFunctionDeclaration(bool isAsync, bool isExported, bool isDefaultExport);
     std::vector<ast::StmtPtr> parseVariableDeclarationList(bool isExported);
     ast::StmtPtr parseClassDeclaration(bool isAbstract, bool isExported, bool isDefaultExport);

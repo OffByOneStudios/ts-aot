@@ -1131,6 +1131,65 @@ ast::NodePtr Parser::parseArrayBindingPattern() {
 // Statement parsing
 // ============================================================================
 
+ast::StmtPtr Parser::parseStatementOnly() {
+    TokenKind k = current_.kind;
+    int line = current_.line;
+    auto reject = [&](const std::string& form) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: {} is not a Statement (Declaration "
+            "forms are not allowed as the body of "
+            "if/while/for/do-while/labeled-statement)",
+            fileName_, line, form));
+    };
+    if (k == TokenKind::KW_let) {
+        auto saved = saveState();
+        advance();
+        TokenKind n = current_.kind;
+        bool nextHasNewline = current_.hadNewlineBefore;
+        restoreState(saved);
+        // `let [` is always a LexicalDeclaration (ExpressionStatement
+        // lookahead restriction includes `let [`). Always reject.
+        if (n == TokenKind::OpenBracket) reject("'let' declaration");
+        // `let X` or `let {` on the same line is a LexicalDeclaration.
+        // With a LineTerminator before X / `{`, ASI splits `let;` from
+        // the next statement — fall through to parseDeclarationOrStatement
+        // which will take the let-as-identifier path.
+        bool isDecl =
+            n == TokenKind::Identifier ||
+            n == TokenKind::OpenBrace ||
+            n == TokenKind::KW_async || n == TokenKind::KW_await ||
+            n == TokenKind::KW_yield || n == TokenKind::KW_of ||
+            n == TokenKind::KW_from || n == TokenKind::KW_as ||
+            n == TokenKind::KW_get || n == TokenKind::KW_set ||
+            n == TokenKind::KW_let || n == TokenKind::KW_static ||
+            n == TokenKind::KW_type || n == TokenKind::KW_module ||
+            n == TokenKind::KW_namespace || n == TokenKind::KW_interface ||
+            n == TokenKind::KW_declare || n == TokenKind::KW_abstract ||
+            n == TokenKind::KW_readonly || n == TokenKind::KW_implements ||
+            n == TokenKind::KW_public || n == TokenKind::KW_private ||
+            n == TokenKind::KW_protected;
+        if (isDecl && !nextHasNewline) reject("'let' declaration");
+    } else if (k == TokenKind::KW_const) {
+        reject("'const' declaration");
+    } else if (k == TokenKind::KW_class) {
+        reject("'class' declaration");
+    } else if (k == TokenKind::KW_function) {
+        auto saved = saveState();
+        advance();
+        bool isGen = (current_.kind == TokenKind::Star);
+        restoreState(saved);
+        if (isGen) reject("generator declaration");
+        if (strictMode_) reject("'function' declaration");
+    } else if (k == TokenKind::KW_async) {
+        auto saved = saveState();
+        advance();
+        bool isAsyncFn = (current_.kind == TokenKind::KW_function);
+        restoreState(saved);
+        if (isAsyncFn) reject("async function declaration");
+    }
+    return parseDeclarationOrStatement();
+}
+
 ast::StmtPtr Parser::parseDeclarationOrStatement() {
     auto decorators = parseDecorators();
 
@@ -1413,7 +1472,7 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             auto headStmt = std::make_unique<ast::ExpressionStatement>();
             headStmt->expression = std::move(head);
             block->statements.push_back(std::move(headStmt));
-            auto body = parseDeclarationOrStatement();
+            auto body = parseStatementOnly();
             if (body) block->statements.push_back(std::move(body));
             result = std::move(block);
             break;
@@ -2121,19 +2180,19 @@ ast::StmtPtr Parser::parseIfStatement() {
     // that's a FunctionDeclaration; the same applies to elseStatement.
     if (current_.kind == TokenKind::KW_function) {
         pushLexicalScope();
-        node->thenStatement = parseDeclarationOrStatement();
+        node->thenStatement = parseStatementOnly();
         popLexicalScope();
     } else {
-        node->thenStatement = parseDeclarationOrStatement();
+        node->thenStatement = parseStatementOnly();
     }
 
     if (match(TokenKind::KW_else)) {
         if (current_.kind == TokenKind::KW_function) {
             pushLexicalScope();
-            node->elseStatement = parseDeclarationOrStatement();
+            node->elseStatement = parseStatementOnly();
             popLexicalScope();
         } else {
-            node->elseStatement = parseDeclarationOrStatement();
+            node->elseStatement = parseStatementOnly();
         }
     }
 
@@ -2150,7 +2209,7 @@ ast::StmtPtr Parser::parseWhileStatement() {
 
     node->condition = parseExpression();
     expect(TokenKind::CloseParen, "')'");
-    node->body = parseDeclarationOrStatement();
+    node->body = parseStatementOnly();
 
     return node;
 }
@@ -2163,7 +2222,7 @@ ast::StmtPtr Parser::parseDoWhileStatement() {
     setLocation(node.get(), startTok);
     node->isDoWhile = true;
 
-    node->body = parseDeclarationOrStatement();
+    node->body = parseStatementOnly();
     expect(TokenKind::KW_while, "'while'");
     expect(TokenKind::OpenParen, "'('");
     node->condition = parseExpression();
@@ -2209,7 +2268,7 @@ ast::StmtPtr Parser::parseForStatement() {
 
         auto node = std::make_unique<ast::ForStatement>();
         setLocation(node.get(), startTok);
-        node->body = parseDeclarationOrStatement();
+        node->body = parseStatementOnly();
         node->condition = std::move(condition);
         node->incrementor = std::move(incrementor);
         return node;
@@ -2280,7 +2339,7 @@ ast::StmtPtr Parser::parseForStatement() {
         // Check for for-of: for (const x of iterable)
         if (current_.kind == TokenKind::KW_of) {
             advance(); // consume 'of'
-            auto iterable = parseExpression();
+            auto iterable = parseAssignmentExpression();
             expect(TokenKind::CloseParen, "')'");
 
             auto node = std::make_unique<ast::ForOfStatement>();
@@ -2288,7 +2347,7 @@ ast::StmtPtr Parser::parseForStatement() {
             node->isAwait = isAwait;
             node->initializer = std::move(firstDecl);
             node->expression = std::move(iterable);
-            node->body = parseDeclarationOrStatement();
+            node->body = parseStatementOnly();
             return node;
         }
 
@@ -2302,7 +2361,7 @@ ast::StmtPtr Parser::parseForStatement() {
             setLocation(node.get(), startTok);
             node->initializer = std::move(firstDecl);
             node->expression = std::move(iterable);
-            node->body = parseDeclarationOrStatement();
+            node->body = parseStatementOnly();
             return node;
         }
 
@@ -2332,7 +2391,7 @@ ast::StmtPtr Parser::parseForStatement() {
                 setLocation(node.get(), startTok);
                 node->initializer = std::move(firstDecl);
                 node->expression = std::move(iterable);
-                node->body = parseDeclarationOrStatement();
+                node->body = parseStatementOnly();
                 return node;
             }
         }
@@ -2382,7 +2441,7 @@ ast::StmtPtr Parser::parseForStatement() {
         node->initializer = std::move(initializer);
         node->condition = std::move(condition);
         node->incrementor = std::move(incrementor);
-        node->body = parseDeclarationOrStatement();
+        node->body = parseStatementOnly();
         return node;
     }
 
@@ -2398,7 +2457,7 @@ ast::StmtPtr Parser::parseForStatement() {
         // Check for for-of: for (x of iterable)
         if (current_.kind == TokenKind::KW_of) {
             advance(); // consume 'of'
-            auto iterable = parseExpression();
+            auto iterable = parseAssignmentExpression();
             expect(TokenKind::CloseParen, "')'");
 
             auto node = std::make_unique<ast::ForOfStatement>();
@@ -2409,7 +2468,7 @@ ast::StmtPtr Parser::parseForStatement() {
             es->expression = std::move(expr);
             node->initializer = std::move(es);
             node->expression = std::move(iterable);
-            node->body = parseDeclarationOrStatement();
+            node->body = parseStatementOnly();
             return node;
         }
 
@@ -2426,7 +2485,7 @@ ast::StmtPtr Parser::parseForStatement() {
             es->expression = std::move(expr);
             node->initializer = std::move(es);
             node->expression = std::move(iterable);
-            node->body = parseDeclarationOrStatement();
+            node->body = parseStatementOnly();
             return node;
         }
 
@@ -2476,7 +2535,7 @@ ast::StmtPtr Parser::parseForStatement() {
         node->initializer = std::move(es);
         node->condition = std::move(condition);
         node->incrementor = std::move(incrementor);
-        node->body = parseDeclarationOrStatement();
+        node->body = parseStatementOnly();
         return node;
     }
 }
@@ -2706,7 +2765,7 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
             auto node = std::make_unique<ast::LabeledStatement>();
             setLocation(node.get(), line, col);
             node->label = name;
-            node->statement = parseDeclarationOrStatement();
+            node->statement = parseStatementOnly();
             return node;
         }
         restoreState(saved);
