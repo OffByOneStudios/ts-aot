@@ -175,13 +175,14 @@ void ts_closure_set_arity(TsClosure* closure, int32_t arity) {
 void ts_closure_set_name(TsClosure* closure, void* name) {
     if (closure) {
         closure->name = (TsString*)name;
-        // Per ES spec: Function.name is {writable:false, enumerable:false, configurable:true}
-        if (name) {
-            TsValue val;
-            val.type = ValueType::STRING_PTR;
-            val.ptr_val = name;
-            closure_store_own_property(closure, "name", val, TsHashTable::ATTR_CONFIGURABLE);
-        }
+        // Per ES spec: Function.name is {value, writable:false, enumerable:false, configurable:true}.
+        // Always install as own-property so verifyProperty(fn, "name", ...)
+        // and Object.getOwnPropertyDescriptor(fn, "name") work correctly,
+        // even for anonymous functions where name is "".
+        TsValue val;
+        val.type = ValueType::STRING_PTR;
+        val.ptr_val = name ? name : (void*)TsString::Create("");
+        closure_store_own_property(closure, "name", val, TsHashTable::ATTR_CONFIGURABLE);
     }
 }
 

@@ -7256,8 +7256,14 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
         auto pos = displayName.rfind("_M");
         if (pos != std::string::npos) displayName = displayName.substr(0, pos);
     }
-    if (!displayName.empty() && displayName.find("__arrow_fn_") != 0 &&
-        displayName.find("__fn_expr_") != 0 && displayName.find("module_init") == std::string::npos) {
+    // For anonymous functions (arrow_fn_, fn_expr_), pass empty string
+    // so the name own-property is installed with value="" per ECMA-262.
+    // Without this, Object.getOwnPropertyDescriptor(fn, "name") returns
+    // undefined and verifyProperty(()=>{}, "name", {value:""}) fails.
+    bool isAnonymous = displayName.find("__arrow_fn_") == 0 ||
+                       displayName.find("__fn_expr_") == 0;
+    bool isModuleInit = displayName.find("module_init") != std::string::npos;
+    if (!isModuleInit) {
         auto setNameFt = llvm::FunctionType::get(
             builder_->getVoidTy(),
             { builder_->getPtrTy(), builder_->getPtrTy() },
@@ -7268,7 +7274,8 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
             { builder_->getPtrTy() },
             false);
         auto strCreateFn = module_->getOrInsertFunction("ts_string_create", strCreateFt);
-        llvm::Value* cStr = createGlobalString(displayName);
+        std::string nameStr = isAnonymous ? std::string("") : displayName;
+        llvm::Value* cStr = createGlobalString(nameStr);
         llvm::Value* tsStr = builder_->CreateCall(strCreateFt, strCreateFn.getCallee(), { cStr });
         builder_->CreateCall(setNameFt, setNameFn.getCallee(), { closure, tsStr });
     }
@@ -7744,23 +7751,26 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             auto pos = displayName.rfind("_M");
             if (pos != std::string::npos) displayName = displayName.substr(0, pos);
         }
-        // Skip internal names (__arrow_fn_, __fn_expr_)
-        if (displayName.find("__arrow_fn_") == 0 || displayName.find("__fn_expr_") == 0) {
-            displayName.clear();
-        }
-        if (!displayName.empty() && displayName != "anonymous" && displayName.find("module_init") == std::string::npos) {
+        // Anonymous functions (__arrow_fn_, __fn_expr_) and "anonymous"
+        // get name="" so the own-property is still installed per
+        // ECMA-262 (verifyProperty(()=>{}, "name", {value:""}) passes).
+        bool isAnonymous = displayName.find("__arrow_fn_") == 0 ||
+                           displayName.find("__fn_expr_") == 0 ||
+                           displayName == "anonymous";
+        bool isModuleInit = displayName.find("module_init") != std::string::npos;
+        if (!isModuleInit) {
             auto setNameFt = llvm::FunctionType::get(
                 builder_->getVoidTy(),
                 { builder_->getPtrTy(), builder_->getPtrTy() },
                 false);
             auto setNameFn = module_->getOrInsertFunction("ts_closure_set_name", setNameFt);
-            // Create a TsString from the C string constant
             auto strCreateFt = llvm::FunctionType::get(
                 builder_->getPtrTy(),
                 { builder_->getPtrTy() },
                 false);
             auto strCreateFn = module_->getOrInsertFunction("ts_string_create", strCreateFt);
-            llvm::Value* cStr = createGlobalString(displayName);
+            std::string nameStr = isAnonymous ? std::string("") : displayName;
+            llvm::Value* cStr = createGlobalString(nameStr);
             llvm::Value* tsStr = builder_->CreateCall(strCreateFt, strCreateFn.getCallee(), { cStr });
             builder_->CreateCall(setNameFt, setNameFn.getCallee(), { gcPtrToRaw(closure), tsStr });
         }
