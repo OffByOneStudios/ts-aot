@@ -388,6 +388,11 @@ static inline double nanbox_extract_double(TsValue* v) {
     }
     if (nb == NANBOX_TRUE) return 1.0;
     if (nb == NANBOX_FALSE) return 0.0;
+    if (nb == NANBOX_NULL) return 0.0;
+    // ECMA-262 ToNumber(undefined) = NaN. Other unrecognized NaN-box
+    // values fall through to 0.0 to preserve existing behavior for
+    // BigInt comparisons, etc.
+    if (nb == NANBOX_UNDEFINED) return std::numeric_limits<double>::quiet_NaN();
     return 0.0;
 }
 

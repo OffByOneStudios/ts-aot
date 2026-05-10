@@ -1005,6 +1005,11 @@ double ts_value_get_double(TsValue* v) {
     if (nanbox_is_int32(nb)) return (double)nanbox_to_int32(nb);
     if (nanbox_is_double(nb)) return nanbox_to_double(nb);
     if (nanbox_is_bool(nb)) return nanbox_to_bool(nb) ? 1.0 : 0.0;
+    // ECMA-262 ToNumber(null) = 0, ToNumber(undefined) = NaN. Check
+    // these before the generic pointer branch so that undefined
+    // doesn't dereference a non-pointer.
+    if (nb == NANBOX_NULL) return 0.0;
+    if (nb == NANBOX_UNDEFINED) return std::numeric_limits<double>::quiet_NaN();
     if (nanbox_is_ptr(nb)) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return 0.0;
