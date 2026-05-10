@@ -2154,6 +2154,18 @@ void ASTToHIR::emitDeferredStaticInits() {
     // `E.prototype['<key>']` find the installed function and supports
     // test262 accessor-name probes that read directly from the
     // prototype.
+    // Helper to install a class method/accessor with the spec method
+    // descriptor: { writable: true, enumerable: false, configurable: true }.
+    // verifyProperty(C.prototype, "m", { enumerable: false, ... }) and
+    // Object.keys(C) tests require non-enumerable. Routes through the
+    // ts_object_set_method runtime which uses TsMap::SetWithAttrs.
+    auto installMethod = [&](std::shared_ptr<HIRValue> recv,
+                             const std::string& key,
+                             std::shared_ptr<HIRValue> closure) {
+        auto keyStr = builder_.createConstString(key);
+        std::vector<std::shared_ptr<HIRValue>> args = {recv, keyStr, closure};
+        builder_.createCall("ts_object_set_method", args, HIRType::makeVoid());
+    };
     for (auto* hirClass : deferredClassPrototypes_) {
         if (!hirClass) continue;
         if (hirClass->methods.empty() && hirClass->staticMethods.empty()) continue;
@@ -2166,8 +2178,10 @@ void ASTToHIR::emitDeferredStaticInits() {
             for (auto& [methodKey, methodFunc] : hirClass->methods) {
                 if (!methodFunc) continue;
                 auto methodClosure = builder_.createLoadFunction(methodFunc->name);
-                builder_.createSetPropStatic(proto, methodKey, methodClosure);
+                installMethod(proto, methodKey, methodClosure);
             }
+            // `prototype` itself stays writable+configurable but
+            // intentionally enumerable per spec — keep createSetPropStatic.
             builder_.createSetPropStatic(ctorVal, "prototype", proto);
         }
         // Install static methods on the constructor itself so dynamic
@@ -2178,7 +2192,7 @@ void ASTToHIR::emitDeferredStaticInits() {
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
             auto methodClosure = builder_.createLoadFunction(methodFunc->name);
-            builder_.createSetPropStatic(ctorVal, methodName, methodClosure);
+            installMethod(ctorVal, methodName, methodClosure);
         }
     }
     deferredClassPrototypes_.clear();

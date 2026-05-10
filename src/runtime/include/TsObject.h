@@ -267,6 +267,7 @@ extern "C" {
     void ts_array_set_dynamic(TsValue* arr, TsValue* index, TsValue* value);
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);  // Handles both arrays and maps
     void ts_object_set_property(void* obj, void* key, void* value);  // HIR-friendly wrapper for ts_object_set_dynamic
+    void ts_object_set_method(TsValue* obj, TsValue* key, TsValue* value);   // Class method/accessor install: writable+configurable, NOT enumerable
     bool ts_object_has_prop(TsValue* obj, TsValue* key);
     bool ts_object_delete_prop(TsValue* obj, TsValue* key);
     

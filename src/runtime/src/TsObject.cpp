@@ -7795,6 +7795,59 @@ TsValue* ts_value_make_int(int64_t i) {
         ts_object_set_dynamic((TsValue*)obj, (TsValue*)key, (TsValue*)value);
     }
 
+    // Install a class method or accessor on an object with the spec
+    // descriptor: { writable: true, enumerable: false, configurable: true }
+    // (ECMA-262: non-static and static methods, getters, setters all
+    // share these defaults). Used by the class-prototype install path
+    // in emitDeferredStaticInits and visitClassExpression trailers so
+    // verifyProperty(C.prototype, "m", { enumerable: false, ... })
+    // and Object.keys(C) tests pass.
+    void ts_object_set_method(TsValue* obj, TsValue* key, TsValue* value) {
+        if (!obj || !key || !value) return;
+        uint64_t objNb = nanbox_from_tsvalue_ptr(obj);
+        if (!nanbox_is_ptr(objNb)) return;
+        void* rawObj = nanbox_to_ptr(objNb);
+        if (!rawObj) return;
+
+        TsString* keyStr = (TsString*)ts_value_get_string(key);
+        if (!keyStr) return;
+        TsValue keyTagged;
+        keyTagged.type = ValueType::STRING_PTR;
+        keyTagged.ptr_val = keyStr;
+        TsValue valTagged = nanbox_to_tagged(value);
+        constexpr uint8_t METHOD_ATTRS =
+            TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE;
+
+        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+        if (magic16 == 0x434C5352) { // TsClosure
+            TsClosure* closure = (TsClosure*)rawObj;
+            if (!closure->properties) {
+                closure->properties = TsMap::Create();
+                ts_gc_write_barrier(&closure->properties, closure->properties);
+            }
+            closure->properties->SetWithAttrs(keyTagged, valTagged, METHOD_ATTRS);
+            return;
+        }
+        if (magic16 == 0x46554E43) { // TsFunction
+            TsFunction* func = (TsFunction*)rawObj;
+            if (!func->properties) {
+                func->properties = TsMap::Create();
+                ts_gc_write_barrier(&func->properties, func->properties);
+            }
+            func->properties->SetWithAttrs(keyTagged, valTagged, METHOD_ATTRS);
+            return;
+        }
+        if (magic16 == 0x4D415053) { // TsMap (prototype object)
+            TsMap* map = (TsMap*)rawObj;
+            map->SetWithAttrs(keyTagged, valTagged, METHOD_ATTRS);
+            return;
+        }
+        // Fallback: same as ts_object_set_dynamic — preserves existing
+        // behavior for non-class-install callers (none expected, but
+        // safe).
+        ts_object_set_dynamic(obj, key, value);
+    }
+
     // ============================================================
     // Value-passing variants (_v) - avoid heap allocation for TsValue
     // These take TsValue by value (16 bytes, fits in 2 registers)
