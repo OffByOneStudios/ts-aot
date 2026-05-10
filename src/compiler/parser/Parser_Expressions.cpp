@@ -226,6 +226,8 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
             StrictModeGuard sg(this);
             inAsync_ = false;
             functionDepth_++;
+            int prevIter = iterationDepth_, prevSwitch = switchDepth_;
+            iterationDepth_ = 0; switchDepth_ = 0;
 
             if (check(TokenKind::OpenBrace)) {
                 arrow->body = parseBlockStatement();
@@ -234,6 +236,7 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
             }
 
             functionDepth_--;
+            iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
             inAsync_ = prevAsync;
             return arrow;
         }
@@ -1091,6 +1094,8 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
         StrictModeGuard sg(this);
         inAsync_ = isAsync;
         functionDepth_++;
+        int prevIter = iterationDepth_, prevSwitch = switchDepth_;
+        iterationDepth_ = 0; switchDepth_ = 0;
 
         if (check(TokenKind::OpenBrace)) {
             arrow->body = parseBlockStatement();
@@ -1099,6 +1104,7 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
         }
 
         functionDepth_--;
+        iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
         inAsync_ = prevAsync;
         return arrow;
     }
@@ -1137,12 +1143,15 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
             StrictModeGuard sg(this);
             inAsync_ = true;
             functionDepth_++;
+            int prevIter = iterationDepth_, prevSwitch = switchDepth_;
+            iterationDepth_ = 0; switchDepth_ = 0;
             if (check(TokenKind::OpenBrace)) {
                 arrow->body = parseBlockStatement();
             } else {
                 arrow->body = parseAssignmentExpression();
             }
             functionDepth_--;
+            iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
             inAsync_ = prevAsync;
             return arrow;
         }
@@ -1169,6 +1178,8 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
             StrictModeGuard sg(this);
             inAsync_ = isAsync;
             functionDepth_++;
+            int prevIter = iterationDepth_, prevSwitch = switchDepth_;
+            iterationDepth_ = 0; switchDepth_ = 0;
 
             if (check(TokenKind::OpenBrace)) {
                 arrow->body = parseBlockStatement();
@@ -1177,6 +1188,7 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
             }
 
             functionDepth_--;
+            iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
             inAsync_ = prevAsync;
             return arrow;
         }
@@ -1525,6 +1537,8 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     inAsync_ = node->isAsync;
     inGenerator_ = node->isGenerator;
     functionDepth_++;
+    int prevIter = iterationDepth_, prevSwitch = switchDepth_;
+    iterationDepth_ = 0; switchDepth_ = 0;
     bool prevSawUseStrict = sawUseStrictDirective_;
     sawUseStrictDirective_ = false;
 
@@ -1551,6 +1565,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     sawUseStrictDirective_ = prevSawUseStrict;
 
     functionDepth_--;
+    iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
     inAsync_ = prevAsync;
     inGenerator_ = prevGen;
 

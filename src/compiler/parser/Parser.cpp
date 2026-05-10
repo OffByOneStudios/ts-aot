@@ -1190,6 +1190,13 @@ ast::StmtPtr Parser::parseStatementOnly() {
     return parseDeclarationOrStatement();
 }
 
+ast::StmtPtr Parser::parseLoopBody() {
+    iterationDepth_++;
+    auto body = parseStatementOnly();
+    iterationDepth_--;
+    return body;
+}
+
 ast::StmtPtr Parser::parseDeclarationOrStatement() {
     auto decorators = parseDecorators();
 
@@ -1548,6 +1555,8 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         inAsync_ = node->isAsync;
         inGenerator_ = node->isGenerator;
         functionDepth_++;
+        int prevIter = iterationDepth_, prevSwitch = switchDepth_;
+        iterationDepth_ = 0; switchDepth_ = 0;
         bool prevSawUseStrict = sawUseStrictDirective_;
         sawUseStrictDirective_ = false;
 
@@ -1577,6 +1586,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         sawUseStrictDirective_ = prevSawUseStrict;
 
         functionDepth_--;
+        iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
         inAsync_ = prevAsync;
         inGenerator_ = prevGen;
     } else {
@@ -2173,6 +2183,8 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         inAsync_ = method->isAsync;
         inGenerator_ = method->isGenerator;
         functionDepth_++;
+        int prevIter = iterationDepth_, prevSwitch = switchDepth_;
+        iterationDepth_ = 0; switchDepth_ = 0;
         bool prevSawUseStrict = sawUseStrictDirective_;
         sawUseStrictDirective_ = false;
 
@@ -2199,6 +2211,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         sawUseStrictDirective_ = prevSawUseStrict;
 
         functionDepth_--;
+        iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
         inAsync_ = prevAsync;
         inGenerator_ = prevGen;
     } else {
@@ -2255,7 +2268,7 @@ ast::StmtPtr Parser::parseWhileStatement() {
 
     node->condition = parseExpression();
     expect(TokenKind::CloseParen, "')'");
-    node->body = parseStatementOnly();
+    node->body = parseLoopBody();
 
     return node;
 }
@@ -2268,7 +2281,7 @@ ast::StmtPtr Parser::parseDoWhileStatement() {
     setLocation(node.get(), startTok);
     node->isDoWhile = true;
 
-    node->body = parseStatementOnly();
+    node->body = parseLoopBody();
     expect(TokenKind::KW_while, "'while'");
     expect(TokenKind::OpenParen, "'('");
     node->condition = parseExpression();
@@ -2314,7 +2327,7 @@ ast::StmtPtr Parser::parseForStatement() {
 
         auto node = std::make_unique<ast::ForStatement>();
         setLocation(node.get(), startTok);
-        node->body = parseStatementOnly();
+        node->body = parseLoopBody();
         node->condition = std::move(condition);
         node->incrementor = std::move(incrementor);
         return node;
@@ -2407,7 +2420,7 @@ ast::StmtPtr Parser::parseForStatement() {
             node->isAwait = isAwait;
             node->initializer = std::move(firstDecl);
             node->expression = std::move(iterable);
-            node->body = parseStatementOnly();
+            node->body = parseLoopBody();
             return node;
         }
 
@@ -2421,7 +2434,7 @@ ast::StmtPtr Parser::parseForStatement() {
             setLocation(node.get(), startTok);
             node->initializer = std::move(firstDecl);
             node->expression = std::move(iterable);
-            node->body = parseStatementOnly();
+            node->body = parseLoopBody();
             return node;
         }
 
@@ -2451,7 +2464,7 @@ ast::StmtPtr Parser::parseForStatement() {
                 setLocation(node.get(), startTok);
                 node->initializer = std::move(firstDecl);
                 node->expression = std::move(iterable);
-                node->body = parseStatementOnly();
+                node->body = parseLoopBody();
                 return node;
             }
         }
@@ -2501,7 +2514,7 @@ ast::StmtPtr Parser::parseForStatement() {
         node->initializer = std::move(initializer);
         node->condition = std::move(condition);
         node->incrementor = std::move(incrementor);
-        node->body = parseStatementOnly();
+        node->body = parseLoopBody();
         return node;
     }
 
@@ -2528,7 +2541,7 @@ ast::StmtPtr Parser::parseForStatement() {
             es->expression = std::move(expr);
             node->initializer = std::move(es);
             node->expression = std::move(iterable);
-            node->body = parseStatementOnly();
+            node->body = parseLoopBody();
             return node;
         }
 
@@ -2545,7 +2558,7 @@ ast::StmtPtr Parser::parseForStatement() {
             es->expression = std::move(expr);
             node->initializer = std::move(es);
             node->expression = std::move(iterable);
-            node->body = parseStatementOnly();
+            node->body = parseLoopBody();
             return node;
         }
 
@@ -2595,7 +2608,7 @@ ast::StmtPtr Parser::parseForStatement() {
         node->initializer = std::move(es);
         node->condition = std::move(condition);
         node->incrementor = std::move(incrementor);
-        node->body = parseStatementOnly();
+        node->body = parseLoopBody();
         return node;
     }
 }
@@ -2611,6 +2624,7 @@ ast::StmtPtr Parser::parseSwitchStatement() {
     expect(TokenKind::CloseParen, "')'");
     expect(TokenKind::OpenBrace, "'{'");
 
+    switchDepth_++;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         if (match(TokenKind::KW_case)) {
             auto clause = std::make_unique<ast::CaseClause>();
@@ -2633,6 +2647,7 @@ ast::StmtPtr Parser::parseSwitchStatement() {
             node->clauses.push_back(std::move(clause));
         }
     }
+    switchDepth_--;
     expect(TokenKind::CloseBrace, "'}'");
 
     // ECMA-262 13.12.1: It is a Syntax Error if the LexicallyDeclared-
@@ -2855,6 +2870,14 @@ ast::StmtPtr Parser::parseBreakStatement() {
         node->label = std::string(current_.text);
         advance();
     }
+    // ECMA-262 14.13: unlabeled `break` requires an enclosing
+    // IterationStatement or SwitchStatement; labeled `break` requires
+    // the label to be in scope (defer label validation).
+    if (node->label.empty() && iterationDepth_ == 0 && switchDepth_ == 0) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: 'break' must be inside a loop or switch",
+            fileName_, startTok.line));
+    }
     expectSemicolon();
     return node;
 }
@@ -2869,6 +2892,13 @@ ast::StmtPtr Parser::parseContinueStatement() {
     if (!canInsertSemicolon() && current_.kind == TokenKind::Identifier) {
         node->label = std::string(current_.text);
         advance();
+    }
+    // ECMA-262 14.13: `continue` (labeled or not) requires an
+    // enclosing IterationStatement.
+    if (iterationDepth_ == 0) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: 'continue' must be inside a loop",
+            fileName_, startTok.line));
     }
     expectSemicolon();
     return node;

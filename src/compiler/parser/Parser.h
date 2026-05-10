@@ -53,6 +53,10 @@ private:
     // generators, and async functions; honors Annex B.3.2 for plain
     // FunctionDeclaration in non-strict mode.
     ast::StmtPtr parseStatementOnly();
+    // Like parseStatementOnly() but additionally bumps iterationDepth_
+    // around the body parse so unlabeled break/continue inside know
+    // they're in a loop.
+    ast::StmtPtr parseLoopBody();
     ast::StmtPtr parseFunctionDeclaration(bool isAsync, bool isExported, bool isDefaultExport);
     std::vector<ast::StmtPtr> parseVariableDeclarationList(bool isExported);
     ast::StmtPtr parseClassDeclaration(bool isAbstract, bool isExported, bool isDefaultExport);
@@ -177,6 +181,8 @@ private:
     bool strictMode_ = false;   // Effective strict mode (set after "use strict" prologue)
     bool sawUseStrictDirective_ = false;  // Did the most-recently-parsed body contain a "use strict" directive?
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
+    int iterationDepth_ = 0;   // Inside for/while/do-while body (break + continue allowed)
+    int switchDepth_ = 0;      // Inside switch body (break allowed, continue not)
     int errorCount_ = 0;       // Parse-time errors (redeclaration, etc.)
 
     // Strict-mode helpers. Function/class bodies push the parent's
