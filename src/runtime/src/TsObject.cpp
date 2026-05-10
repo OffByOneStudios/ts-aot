@@ -9636,16 +9636,23 @@ TsValue* ts_value_make_int(int64_t i) {
             k.ptr_val = TsString::Create(name);
             return k;
         };
+        // Per ECMA-262 19.1, every built-in constructor and global
+        // function (Array, Object, parseInt, etc.) has descriptor
+        // { writable: true, enumerable: false, configurable: true }.
+        // Default Set() uses ATTR_DEFAULT (all-true) which makes them
+        // enumerable; install via SetWithAttrs(... BUILTIN_ATTRS).
+        constexpr uint8_t BUILTIN_ATTRS =
+            TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE;
 
         // Add all built-in constructors that lodash expects
-        if (Object) globalMap->Set(makeKey("Object"), *Object);
-        if (Array) globalMap->Set(makeKey("Array"), *Array);
-        if (Math) globalMap->Set(makeKey("Math"), *Math);
-        globalMap->Set(makeKey("parseInt"), nanbox_to_tagged(parseIntWrapper));
-        globalMap->Set(makeKey("parseFloat"), nanbox_to_tagged(parseFloatWrapper));
-        if (process) globalMap->Set(makeKey("process"), *process);
-        if (Buffer) globalMap->Set(makeKey("Buffer"), *Buffer);
-        if (JSON) globalMap->Set(makeKey("JSON"), *JSON);
+        if (Object) globalMap->SetWithAttrs(makeKey("Object"), *Object, BUILTIN_ATTRS);
+        if (Array) globalMap->SetWithAttrs(makeKey("Array"), *Array, BUILTIN_ATTRS);
+        if (Math) globalMap->SetWithAttrs(makeKey("Math"), *Math, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("parseInt"), nanbox_to_tagged(parseIntWrapper), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("parseFloat"), nanbox_to_tagged(parseFloatWrapper), BUILTIN_ATTRS);
+        if (process) globalMap->SetWithAttrs(makeKey("process"), *process, BUILTIN_ATTRS);
+        if (Buffer) globalMap->SetWithAttrs(makeKey("Buffer"), *Buffer, BUILTIN_ATTRS);
+        if (JSON) globalMap->SetWithAttrs(makeKey("JSON"), *JSON, BUILTIN_ATTRS);
         
         // Create stub constructors for types that lodash checks but we don't fully implement
         // These need .prototype property with proper methods to avoid issues
@@ -9698,17 +9705,17 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* WeakMap = makeConstructorWithPrototype("WeakMap");
         TsValue* Promise = makeConstructorWithPrototype("Promise");
         
-        globalMap->Set(makeKey("Function"), *Function);
-        globalMap->Set(makeKey("String"), *String);
-        globalMap->Set(makeKey("Date"), *Date);
-        globalMap->Set(makeKey("RegExp"), *RegExp);
-        globalMap->Set(makeKey("Error"), *Error);
-        globalMap->Set(makeKey("TypeError"), *TypeError);
-        globalMap->Set(makeKey("Symbol"), *Symbol);
-        globalMap->Set(makeKey("Map"), *Map);
-        globalMap->Set(makeKey("Set"), *Set);
-        globalMap->Set(makeKey("WeakMap"), *WeakMap);
-        globalMap->Set(makeKey("Promise"), *Promise);
+        globalMap->SetWithAttrs(makeKey("Function"), *Function, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("String"), *String, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Date"), *Date, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("RegExp"), *RegExp, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Error"), *Error, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("TypeError"), *TypeError, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Symbol"), *Symbol, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Map"), *Map, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Set"), *Set, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("WeakMap"), *WeakMap, BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Promise"), *Promise, BUILTIN_ATTRS);
         
         // Also add prototype to Array and Object with proper methods
         TsValue protoKey = makeKey("prototype");
@@ -9737,8 +9744,14 @@ TsValue* ts_value_make_int(int64_t i) {
         globalMap->SetWithAttrs(makeKey("undefined"), nanbox_to_tagged(ts_value_make_undefined()), 0);
         globalMap->SetWithAttrs(makeKey("NaN"), nanbox_to_tagged(ts_value_make_double(std::numeric_limits<double>::quiet_NaN())), 0);
         globalMap->SetWithAttrs(makeKey("Infinity"), nanbox_to_tagged(ts_value_make_double(std::numeric_limits<double>::infinity())), 0);
-        globalMap->Set(makeKey("isNaN"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isNaN_native, nullptr, "isNaN", 1)));
-        globalMap->Set(makeKey("isFinite"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isFinite_native, nullptr, "isFinite", 1)));
+        globalMap->SetWithAttrs(makeKey("isNaN"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isNaN_native, nullptr, "isNaN", 1)), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("isFinite"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isFinite_native, nullptr, "isFinite", 1)), BUILTIN_ATTRS);
+        // URI-handling functions are also part of the global object per
+        // ECMA-262 19.2 with the same {writable, configurable} descriptor.
+        globalMap->SetWithAttrs(makeKey("encodeURI"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_encodeURI_native, nullptr, "encodeURI", 1)), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("encodeURIComponent"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_encodeURIComponent_native, nullptr, "encodeURIComponent", 1)), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("decodeURI"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_decodeURI_native, nullptr, "decodeURI", 1)), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("decodeURIComponent"), nanbox_to_tagged(makeNamedNativeFunction((void*)builtin_decodeURIComponent_native, nullptr, "decodeURIComponent", 1)), BUILTIN_ATTRS);
         // Test262 host hook: produces a TsFunction with [[IsHTMLDDA]] slot
         // for the harness $262.IsHTMLDDA construction. See HOST_262_SETUP
         // in tests/test262/run_test262.py.
