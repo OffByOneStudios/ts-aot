@@ -16,6 +16,14 @@ public:
     std::unique_ptr<ast::Program> parse(const std::string& source,
                                          const std::string& fileName);
 
+    /// Canonicalize a NumericLiteral lexeme to its ECMA-262 property-name
+    /// form: ToString(ToNumber(lexeme)). For example `0b10` → "2",
+    /// `0xFF` → "255", `1.0` → "1". Used wherever a numeric literal
+    /// appears as a property key (class member name, object literal,
+    /// binding pattern), since property keys must compare against the
+    /// canonical string per spec.
+    static std::string canonicalNumericPropertyName(std::string_view lexeme);
+
 private:
     // --- Token manipulation ---
     Token advance();

@@ -1255,7 +1255,7 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                 nameNode = std::move(lit);
                 advance();
             } else if (check(TokenKind::NumericLiteral)) {
-                name = std::string(current_.text);
+                name = Parser::canonicalNumericPropertyName(current_.text);
                 advance();
             } else {
                 nameEscapedReserved = current_.escapedReservedWord;

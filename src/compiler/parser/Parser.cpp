@@ -3,6 +3,9 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <limits>
 #include <unordered_set>
 
 namespace ts::parser {
@@ -290,6 +293,64 @@ bool Parser::isParameterListSimple(
         if (!dynamic_cast<ast::Identifier*>(p->name.get())) return false;
     }
     return true;
+}
+
+// ============================================================================
+// Numeric literal property-name canonicalization (ECMA-262 13.2.5.1)
+// ============================================================================
+
+std::string Parser::canonicalNumericPropertyName(std::string_view lexeme) {
+    // Parse the lexeme as a double using the same logic as
+    // Parser_Expressions.cpp NumericLiteral handling, then format the
+    // result to its canonical Number::toString form. Property keys
+    // built from numeric literals must use this canonical form so
+    // `class C { get 0b10() {} }` registers the getter under "2",
+    // matching test code that probes `C.prototype['2']`.
+    std::string text(lexeme);
+    // Strip numeric separator underscores (already lexer-validated).
+    std::string clean;
+    clean.reserve(text.size());
+    for (char c : text) if (c != '_') clean += c;
+    double value = 0.0;
+    auto safeStod = [](const std::string& s) -> double {
+        try { return std::stod(s); }
+        catch (const std::out_of_range&) {
+            for (char c : s) {
+                if (c == '.') continue;
+                if (c == 'e' || c == 'E') break;
+                if (c >= '1' && c <= '9') return std::numeric_limits<double>::infinity();
+            }
+            return 0.0;
+        }
+        catch (...) { return 0.0; }
+    };
+    auto safeStoull = [](const std::string& s, int base) -> double {
+        try { return static_cast<double>(std::stoull(s, nullptr, base)); }
+        catch (...) { return std::numeric_limits<double>::infinity(); }
+    };
+    if (clean.size() > 1 && clean[0] == '0') {
+        if (clean[1] == 'x' || clean[1] == 'X') value = safeStoull(clean, 16);
+        else if (clean[1] == 'o' || clean[1] == 'O') value = safeStoull(clean.substr(2), 8);
+        else if (clean[1] == 'b' || clean[1] == 'B') value = safeStoull(clean.substr(2), 2);
+        else value = safeStod(clean);
+    } else {
+        value = safeStod(clean);
+    }
+    // Number::toString canonical form: integer doubles in (-2^53, 2^53)
+    // print as their integer representation, otherwise %.17g for full
+    // precision. NaN/±Infinity should be unreachable here (lexer
+    // doesn't produce them) but guard for safety.
+    if (std::isnan(value)) return "NaN";
+    if (std::isinf(value)) return value < 0 ? "-Infinity" : "Infinity";
+    if (value == 0.0) return "0";
+    if (value == std::floor(value) && std::abs(value) < 1e21) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%lld", (long long)value);
+        return std::string(buf);
+    }
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.17g", value);
+    return std::string(buf);
 }
 
 // ============================================================================
@@ -927,7 +988,7 @@ ast::NodePtr Parser::parseObjectBindingPattern() {
             if (check(TokenKind::StringLiteral)) {
                 propName = Lexer::getStringValue(current_.text);
             } else {
-                propName = std::string(current_.text);
+                propName = canonicalNumericPropertyName(current_.text);
             }
             advance();
             expect(TokenKind::Colon, "':'");
@@ -1768,7 +1829,7 @@ ast::NodePtr Parser::parseClassMember() {
         nameNode = std::move(lit);
         advance();
     } else if (check(TokenKind::NumericLiteral)) {
-        name = std::string(current_.text);
+        name = canonicalNumericPropertyName(current_.text);
         advance();
     } else if (current_.kind == TokenKind::KW_constructor) {
         name = "constructor";
