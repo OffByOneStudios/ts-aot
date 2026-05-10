@@ -261,8 +261,18 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
         auto cond = std::make_unique<ast::ConditionalExpression>();
         setLocation(cond.get(), expr->line, expr->column);
         cond->condition = std::move(expr);
+        // Per ECMA-262 ConditionalExpression[In, Yield] grammar:
+        //   LogicalOR ? AssignmentExpression[+In, ?Yield] : AssignmentExpression[?In, ?Yield]
+        // The whenTrue branch ALWAYS allows `in` (+In overrides outer
+        // context), but the whenFalse branch INHERITS the outer In
+        // flag. So `for (true ? '' in obj : 0; false;);` is valid
+        // (whenTrue allows in) but `for (true ? 0 : 0 in {}; false;);`
+        // is a SyntaxError (whenFalse inherits NoIn from for-init).
+        bool prevNoIn = noIn_;
+        noIn_ = false;
         cond->whenTrue = parseAssignmentExpression();
         expect(TokenKind::Colon, "':'");
+        noIn_ = prevNoIn;
         cond->whenFalse = parseAssignmentExpression();
         return cond;
     }
