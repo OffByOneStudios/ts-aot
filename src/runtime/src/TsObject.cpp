@@ -9729,10 +9729,14 @@ TsValue* ts_value_make_int(int64_t i) {
         arrayProtoMap->Set(makeKey("valueOf"), nanbox_to_tagged(ts_value_make_native_function((void*)ts_object_valueOf_native, nullptr)));
         arrayFunc->properties->Set(protoKey, nanbox_to_tagged(ts_value_make_object(arrayProtoMap)));
         
-        // Misc global values
-        globalMap->Set(makeKey("undefined"), nanbox_to_tagged(ts_value_make_undefined()));
-        globalMap->Set(makeKey("NaN"), nanbox_to_tagged(ts_value_make_double(std::numeric_limits<double>::quiet_NaN())));
-        globalMap->Set(makeKey("Infinity"), nanbox_to_tagged(ts_value_make_double(std::numeric_limits<double>::infinity())));
+        // Misc global values. Per ECMA-262 19.1, Infinity / NaN /
+        // undefined are { writable: false, enumerable: false,
+        // configurable: false } — stored via SetWithAttrs(..., 0)
+        // so verifyProperty(globalThis, "Infinity", ...) sees the
+        // spec descriptor.
+        globalMap->SetWithAttrs(makeKey("undefined"), nanbox_to_tagged(ts_value_make_undefined()), 0);
+        globalMap->SetWithAttrs(makeKey("NaN"), nanbox_to_tagged(ts_value_make_double(std::numeric_limits<double>::quiet_NaN())), 0);
+        globalMap->SetWithAttrs(makeKey("Infinity"), nanbox_to_tagged(ts_value_make_double(std::numeric_limits<double>::infinity())), 0);
         globalMap->Set(makeKey("isNaN"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isNaN_native, nullptr, "isNaN", 1)));
         globalMap->Set(makeKey("isFinite"), nanbox_to_tagged(makeNamedNativeFunction((void*)ts_isFinite_native, nullptr, "isFinite", 1)));
         // Test262 host hook: produces a TsFunction with [[IsHTMLDDA]] slot
