@@ -2650,19 +2650,30 @@ ast::StmtPtr Parser::parseSwitchStatement() {
     switchDepth_--;
     expect(TokenKind::CloseBrace, "'}'");
 
-    // ECMA-262 13.12.1: It is a Syntax Error if the LexicallyDeclared-
-    // Names of CaseBlock contains any duplicate entries. CaseBlock is
-    // the union of all case/default clauses; lexical names come from
-    // let, const, function, and class declarations at any clause's
-    // top level. Annex B.3.3.5: in non-strict mode, duplicates are
-    // allowed when ALL duplicates are bound by FunctionDeclarations.
+    // ECMA-262 13.12.1: SwitchStatement CaseBlock early errors —
+    //   - LexicallyDeclaredNames of CaseBlock must not contain duplicates.
+    //     (Annex B.3.3.5: in non-strict mode, function+function pairs
+    //     are allowed.)
+    //   - LexicallyDeclaredNames of CaseBlock must not intersect
+    //     VarDeclaredNames of CaseBlock.
+    // VarDeclaredNames includes var declarations at any depth inside
+    // the case clauses (recursing into blocks / if / loops / try /
+    // labeled statements / switch) but NOT inside nested functions.
     {
         // entry kind: 1 = function, 2 = lexical (let/const/class)
-        std::unordered_map<std::string, std::pair<int, int>> entries; // name -> (kind, line)
-        auto recordName = [&](const std::string& nm, int line, int kind) {
+        std::unordered_map<std::string, std::pair<int, int>> lexEntries; // name -> (kind, line)
+        std::unordered_map<std::string, int> varEntries;                 // name -> line
+        auto recordLexName = [&](const std::string& nm, int line, int kind) {
             if (nm.empty()) return;
-            auto it = entries.find(nm);
-            if (it != entries.end()) {
+            // Check against var names first (lex-var overlap is illegal).
+            auto vit = varEntries.find(nm);
+            if (vit != varEntries.end()) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '{}' has already been declared as 'var' in the switch case block",
+                    fileName_, line, nm));
+            }
+            auto it = lexEntries.find(nm);
+            if (it != lexEntries.end()) {
                 bool annexBAllowed = !strictMode_ && kind == 1 && it->second.first == 1;
                 if (!annexBAllowed) {
                     throw std::runtime_error(fmt::format(
@@ -2671,30 +2682,101 @@ ast::StmtPtr Parser::parseSwitchStatement() {
                 }
                 return;
             }
-            entries[nm] = {kind, line};
+            lexEntries[nm] = {kind, line};
         };
-        auto collectFromStmts = [&](const std::vector<ast::StmtPtr>& stmts) {
+        auto recordVarName = [&](const std::string& nm, int line) {
+            if (nm.empty()) return;
+            // Check against lex names (var-lex overlap is also illegal).
+            auto lit = lexEntries.find(nm);
+            if (lit != lexEntries.end()) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '{}' has already been declared lexically in the switch case block",
+                    fileName_, line, nm));
+            }
+            varEntries[nm] = line;
+        };
+        // Recursively walk nested statements to gather var-declared
+        // names. Recurses into Block / If / For / While / DoWhile /
+        // Try / Labeled / Switch but stops at function boundaries
+        // (a nested function's vars belong to that function).
+        std::function<void(const ast::Node*)> collectVars = [&](const ast::Node* n) {
+            if (!n) return;
+            if (auto* vd = dynamic_cast<const ast::VariableDeclaration*>(n)) {
+                if (vd->varKind == ast::VarKind::Var) {
+                    std::vector<std::pair<std::string, int>> names;
+                    collectBoundIdentNames(vd->name.get(), names);
+                    for (auto& [nm, ln] : names) recordVarName(nm, ln);
+                }
+                return;
+            }
+            if (auto* b = dynamic_cast<const ast::BlockStatement*>(n)) {
+                for (auto& s : b->statements) collectVars(s.get());
+                return;
+            }
+            if (auto* ifs = dynamic_cast<const ast::IfStatement*>(n)) {
+                collectVars(ifs->thenStatement.get());
+                collectVars(ifs->elseStatement.get());
+                return;
+            }
+            if (auto* ws = dynamic_cast<const ast::WhileStatement*>(n)) {
+                collectVars(ws->body.get());
+                return;
+            }
+            if (auto* fs = dynamic_cast<const ast::ForStatement*>(n)) {
+                collectVars(fs->initializer.get());
+                collectVars(fs->body.get());
+                return;
+            }
+            if (auto* fos = dynamic_cast<const ast::ForOfStatement*>(n)) {
+                collectVars(fos->initializer.get());
+                collectVars(fos->body.get());
+                return;
+            }
+            if (auto* fis = dynamic_cast<const ast::ForInStatement*>(n)) {
+                collectVars(fis->initializer.get());
+                collectVars(fis->body.get());
+                return;
+            }
+            if (auto* ts = dynamic_cast<const ast::TryStatement*>(n)) {
+                for (auto& s : ts->tryBlock) collectVars(s.get());
+                collectVars(ts->catchClause.get());
+                for (auto& s : ts->finallyBlock) collectVars(s.get());
+                return;
+            }
+            if (auto* lbl = dynamic_cast<const ast::LabeledStatement*>(n)) {
+                collectVars(lbl->statement.get());
+                return;
+            }
+            // Don't recurse into FunctionDeclaration, ClassDeclaration,
+            // ArrowFunction, FunctionExpression — their var names are
+            // function-scope, not switch-scope.
+        };
+        auto collectLexFromStmts = [&](const std::vector<ast::StmtPtr>& stmts) {
             for (const auto& s : stmts) {
                 if (!s) continue;
                 if (auto* vd = dynamic_cast<const ast::VariableDeclaration*>(s.get())) {
                     if (vd->varKind == ast::VarKind::Let || vd->varKind == ast::VarKind::Const) {
                         if (auto* id = dynamic_cast<const ast::Identifier*>(vd->name.get())) {
-                            recordName(id->name, vd->line, 2);
+                            recordLexName(id->name, vd->line, 2);
                         }
                     }
                 } else if (auto* fd = dynamic_cast<const ast::FunctionDeclaration*>(s.get())) {
-                    recordName(fd->name, fd->line, 1);
+                    recordLexName(fd->name, fd->line, 1);
                 } else if (auto* cd = dynamic_cast<const ast::ClassDeclaration*>(s.get())) {
-                    recordName(cd->name, cd->line, 2);
+                    recordLexName(cd->name, cd->line, 2);
                 }
             }
         };
         for (const auto& clause : node->clauses) {
+            const std::vector<ast::StmtPtr>* stmts = nullptr;
             if (auto* cc = dynamic_cast<const ast::CaseClause*>(clause.get())) {
-                collectFromStmts(cc->statements);
+                stmts = &cc->statements;
             } else if (auto* dc = dynamic_cast<const ast::DefaultClause*>(clause.get())) {
-                collectFromStmts(dc->statements);
+                stmts = &dc->statements;
             }
+            if (!stmts) continue;
+            collectLexFromStmts(*stmts);
+            for (const auto& s : *stmts) collectVars(s.get());
         }
     }
     return node;
