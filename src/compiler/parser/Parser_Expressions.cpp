@@ -1581,9 +1581,60 @@ ast::ExprPtr Parser::parseClassExpression() {
     StrictModeGuard csg(this);
     strictMode_ = true;
     expect(TokenKind::OpenBrace, "'{'");
+    // ECMA-262 15.7.1 Static Semantics: Early Errors — duplicate
+    // private name detection. Mirrors parseClassDeclaration's logic;
+    // see that site for spec rationale. Static and instance share the
+    // private namespace.
+    struct PrivateEntryE {
+        bool isGetter = false;
+        bool isSetter = false;
+        bool isOther = false;
+        int line = 0;
+    };
+    std::unordered_map<std::string, PrivateEntryE> privateNamesE;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto member = parseClassMember();
-        if (member) node->members.push_back(std::move(member));
+        if (member) {
+            if (auto* m = dynamic_cast<ast::MethodDefinition*>(member.get())) {
+                bool methodIsAscii = true;
+                for (unsigned char c : m->name) if (c >= 0x80) { methodIsAscii = false; break; }
+                if (methodIsAscii && !m->name.empty() && m->name[0] == '#') {
+                    auto& e = privateNamesE[m->name];
+                    bool conflict = false;
+                    if (m->isGetter) {
+                        if (e.isGetter || e.isOther) conflict = true;
+                        e.isGetter = true;
+                    } else if (m->isSetter) {
+                        if (e.isSetter || e.isOther) conflict = true;
+                        e.isSetter = true;
+                    } else {
+                        if (e.isGetter || e.isSetter || e.isOther) conflict = true;
+                        e.isOther = true;
+                    }
+                    if (conflict) {
+                        throw std::runtime_error(fmt::format(
+                            "{}:{}: SyntaxError: duplicate private name '{}' in class body",
+                            fileName_, m->line, m->name));
+                    }
+                    e.line = m->line;
+                }
+            } else if (auto* p = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
+                bool propIsAscii = true;
+                for (unsigned char c : p->name) if (c >= 0x80) { propIsAscii = false; break; }
+                if (propIsAscii && !p->name.empty() && p->name[0] == '#') {
+                    auto& e = privateNamesE[p->name];
+                    bool conflict = (e.isGetter || e.isSetter || e.isOther);
+                    e.isOther = true;
+                    if (conflict) {
+                        throw std::runtime_error(fmt::format(
+                            "{}:{}: SyntaxError: duplicate private name '{}' in class body",
+                            fileName_, p->line, p->name));
+                    }
+                    e.line = p->line;
+                }
+            }
+            node->members.push_back(std::move(member));
+        }
         while (match(TokenKind::Semicolon)) {}
     }
     expect(TokenKind::CloseBrace, "'}'");
