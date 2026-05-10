@@ -5806,8 +5806,13 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // Check if this is a class name
             for (auto& cls : module_->classes) {
                 if (cls->name == classNameIdent->name) {
-                    // Check for static method
+                    // Check for static method (raw name first, then
+                    // __getter_<name> for static accessors which are now
+                    // routed via methodKey for runtime dispatch).
                     auto it = cls->staticMethods.find(propAccess->name);
+                    if (it == cls->staticMethods.end()) {
+                        it = cls->staticMethods.find("__getter_" + propAccess->name);
+                    }
                     if (it != cls->staticMethods.end()) {
                         HIRFunction* method = it->second;
                         // Static getter: invoke the getter with the class as `this`,
@@ -10192,7 +10197,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             if (methodDef->name == "constructor") {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {
-                hirClass->staticMethods[methodDef->name] = funcPtr;
+                // Use methodKey so static accessors get the
+                // __getter_<name> / __setter_<name> prefix needed for
+                // runtime accessor dispatch on the constructor.
+                hirClass->staticMethods[methodKey] = funcPtr;
             } else {
                 // Use methodKey for registration (includes __getter_/__setter_ prefix for accessors)
                 hirClass->methods[methodKey] = funcPtr;
@@ -10293,7 +10301,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // the function's default `prototype` slot (an empty object) and
     // direct accessor probes like `E.prototype['<key>']` return
     // undefined.
-    if (!hirClass->methods.empty()) {
+    if (!hirClass->methods.empty() || !hirClass->staticMethods.empty()) {
         deferredClassPrototypes_.push_back(hirClass);
     }
 
@@ -10710,7 +10718,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             if (methodDef->name == "constructor") {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {
-                hirClass->staticMethods[methodDef->name] = funcPtr;
+                // Use methodKey so static accessors get the
+                // __getter_<name> / __setter_<name> prefix needed for
+                // runtime accessor dispatch on the constructor.
+                hirClass->staticMethods[methodKey] = funcPtr;
             } else {
                 // Use methodKey for registration (includes __getter_/__setter_ prefix for accessors)
                 hirClass->methods[methodKey] = funcPtr;

@@ -7480,8 +7480,29 @@ TsValue* ts_value_make_int(int64_t i) {
                     }
                 }
             }
-            // Check closure properties (e.g., .prototype)
+            // Check closure properties (e.g., .prototype). Mirror the
+            // ts_object_get_property TsClosure path: look up
+            // __getter_<key> first so static accessors on a class
+            // constructor (`class C { static get foo() {} }`) invoke
+            // properly when accessed via `C.foo`. Without this, the
+            // accessor function value is returned as-is, defeating the
+            // accessor pattern.
             if (closure->properties) {
+                if (keyStr) {
+                    const char* k = keyStr->ToUtf8();
+                    if (k) {
+                        std::string getterKey = std::string("__getter_") + k;
+                        TsValue gk;
+                        gk.type = ValueType::STRING_PTR;
+                        gk.ptr_val = TsString::GetInterned(getterKey.c_str());
+                        TsValue getterVal = closure->properties->Get(gk);
+                        if (getterVal.type != ValueType::UNDEFINED) {
+                            TsValue* boxedObj = obj;
+                            TsValue* getterFunc = nanbox_from_tagged(getterVal);
+                            return ts_function_call_with_this(getterFunc, boxedObj, 0, nullptr);
+                        }
+                    }
+                }
                 TsValue funcKeyVal = nanbox_to_tagged(key);
                 TsValue result = closure->properties->Get(funcKeyVal);
                 if (result.type != ValueType::UNDEFINED) {
