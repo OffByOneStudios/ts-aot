@@ -202,6 +202,16 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
         int line = current_.line, col = current_.column;
         advance();
         if (check(TokenKind::Arrow) && !current_.hadNewlineBefore) {
+            // ECMA-262 14.7: in strict mode, the binding identifier of
+            // an arrow function parameter cannot be `eval` or
+            // `arguments`. The lexer emits these as plain
+            // IdentifierName tokens, so the check has to live here.
+            if (strictMode_ && (name == "eval" || name == "arguments")) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '{}' is not allowed as an arrow "
+                    "function parameter in strict mode",
+                    fileName_, line, name));
+            }
             advance(); // =>
             auto arrow = std::make_unique<ast::ArrowFunction>();
             setLocation(arrow.get(), line, col);

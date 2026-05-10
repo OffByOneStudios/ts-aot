@@ -944,6 +944,17 @@ ast::NodePtr Parser::parseBindingNameOrPattern() {
                 "identifier inside a generator function or strict mode",
                 fileName_, current_.line));
         }
+        // Per ECMA-262 12.1.1: in strict-mode code, BindingIdentifier
+        // cannot be `eval` or `arguments`. The lexer emits these as
+        // regular IdentifierName tokens (not keywords), so check by
+        // text here. Outside strict mode they're fine.
+        if (strictMode_ && (k == TokenKind::Identifier) &&
+            (current_.text == "eval" || current_.text == "arguments")) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: '{}' is not allowed as a binding "
+                "identifier in strict mode",
+                fileName_, current_.line, std::string(current_.text)));
+        }
     }
     // Simple identifier
     auto id = std::make_unique<ast::Identifier>();
