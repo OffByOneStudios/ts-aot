@@ -1,6 +1,6 @@
 {
   "array/array_at.ts": "pass",
-  "array/array_change_by_copy.ts": "pass",
+  "array/array_change_by_copy.ts": "fail",
   "array/array_fill.ts": "pass",
   "array/array_findlast.ts": "pass",
   "array/array_flat.ts": "pass",

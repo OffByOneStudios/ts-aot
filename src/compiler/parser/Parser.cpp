@@ -2515,6 +2515,54 @@ ast::StmtPtr Parser::parseSwitchStatement() {
         }
     }
     expect(TokenKind::CloseBrace, "'}'");
+
+    // ECMA-262 13.12.1: It is a Syntax Error if the LexicallyDeclared-
+    // Names of CaseBlock contains any duplicate entries. CaseBlock is
+    // the union of all case/default clauses; lexical names come from
+    // let, const, function, and class declarations at any clause's
+    // top level. Annex B.3.3.5: in non-strict mode, duplicates are
+    // allowed when ALL duplicates are bound by FunctionDeclarations.
+    {
+        // entry kind: 1 = function, 2 = lexical (let/const/class)
+        std::unordered_map<std::string, std::pair<int, int>> entries; // name -> (kind, line)
+        auto recordName = [&](const std::string& nm, int line, int kind) {
+            if (nm.empty()) return;
+            auto it = entries.find(nm);
+            if (it != entries.end()) {
+                bool annexBAllowed = !strictMode_ && kind == 1 && it->second.first == 1;
+                if (!annexBAllowed) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: '{}' has already been declared in switch case block",
+                        fileName_, line, nm));
+                }
+                return;
+            }
+            entries[nm] = {kind, line};
+        };
+        auto collectFromStmts = [&](const std::vector<ast::StmtPtr>& stmts) {
+            for (const auto& s : stmts) {
+                if (!s) continue;
+                if (auto* vd = dynamic_cast<const ast::VariableDeclaration*>(s.get())) {
+                    if (vd->varKind == ast::VarKind::Let || vd->varKind == ast::VarKind::Const) {
+                        if (auto* id = dynamic_cast<const ast::Identifier*>(vd->name.get())) {
+                            recordName(id->name, vd->line, 2);
+                        }
+                    }
+                } else if (auto* fd = dynamic_cast<const ast::FunctionDeclaration*>(s.get())) {
+                    recordName(fd->name, fd->line, 1);
+                } else if (auto* cd = dynamic_cast<const ast::ClassDeclaration*>(s.get())) {
+                    recordName(cd->name, cd->line, 2);
+                }
+            }
+        };
+        for (const auto& clause : node->clauses) {
+            if (auto* cc = dynamic_cast<const ast::CaseClause*>(clause.get())) {
+                collectFromStmts(cc->statements);
+            } else if (auto* dc = dynamic_cast<const ast::DefaultClause*>(clause.get())) {
+                collectFromStmts(dc->statements);
+            }
+        }
+    }
     return node;
 }
 
