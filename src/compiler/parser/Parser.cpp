@@ -1587,6 +1587,29 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
     return node;
 }
 
+// Recursively collect BindingIdentifier names from a binding pattern.
+// Used to enforce static-semantics rules like "BoundNames of LexicalDeclaration
+// must not contain 'let'" (ECMA-262 13.3.1.1).
+static void collectBoundIdentNames(const ast::Node* n, std::vector<std::pair<std::string, int>>& out) {
+    if (!n) return;
+    if (auto* id = dynamic_cast<const ast::Identifier*>(n)) {
+        out.push_back({id->name, id->line});
+        return;
+    }
+    if (auto* be = dynamic_cast<const ast::BindingElement*>(n)) {
+        collectBoundIdentNames(be->name.get(), out);
+        return;
+    }
+    if (auto* obj = dynamic_cast<const ast::ObjectBindingPattern*>(n)) {
+        for (auto& e : obj->elements) collectBoundIdentNames(e.get(), out);
+        return;
+    }
+    if (auto* arr = dynamic_cast<const ast::ArrayBindingPattern*>(n)) {
+        for (auto& e : arr->elements) collectBoundIdentNames(e.get(), out);
+        return;
+    }
+}
+
 std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported) {
     auto startTok = current_;
     // var / let / const
@@ -1603,6 +1626,21 @@ std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported) 
 
         // Name or binding pattern
         decl->name = parseBindingNameOrPattern();
+
+        // ECMA-262 13.3.1.1: BoundNames of LexicalDeclaration may not
+        // contain "let". Applies recursively through destructuring.
+        if (decl->varKind == ast::VarKind::Let || decl->varKind == ast::VarKind::Const) {
+            std::vector<std::pair<std::string, int>> names;
+            collectBoundIdentNames(decl->name.get(), names);
+            for (auto& [nm, ln] : names) {
+                if (nm == "let") {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: 'let' is not a valid binding "
+                        "identifier in let/const declarations",
+                        fileName_, ln));
+                }
+            }
+        }
 
         // Track declarations for redeclaration detection
         if (auto* ident = dynamic_cast<ast::Identifier*>(decl->name.get())) {
@@ -2340,6 +2378,20 @@ ast::StmtPtr Parser::parseForStatement() {
         auto firstDecl = std::make_unique<ast::VariableDeclaration>();
         setLocation(firstDecl.get(), current_);
         firstDecl->name = parseBindingNameOrPattern();
+        // ECMA-262 13.3.1.1: BoundNames of LexicalDeclaration may not
+        // contain "let".
+        if (kwTok.kind == TokenKind::KW_let || kwTok.kind == TokenKind::KW_const) {
+            std::vector<std::pair<std::string, int>> names;
+            collectBoundIdentNames(firstDecl->name.get(), names);
+            for (auto& [nm, ln] : names) {
+                if (nm == "let") {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: 'let' is not a valid binding "
+                        "identifier in let/const declarations",
+                        fileName_, ln));
+                }
+            }
+        }
         if (check(TokenKind::Colon)) {
             firstDecl->type = parseTypeAnnotation();
         }
