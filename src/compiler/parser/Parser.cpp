@@ -1976,6 +1976,14 @@ ast::NodePtr Parser::parseClassMember() {
                 previous_.line, previous_.column));
         }
         name = "#" + identifierName();
+        // ECMA-262 15.7.1: It is a Syntax Error if StringValue of a
+        // PrivateName declared in a class body is "#constructor".
+        if (name == "#constructor") {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: classes may not have a private name "
+                "'#constructor'",
+                fileName_, previous_.line));
+        }
         auto id = std::make_unique<ast::Identifier>();
         id->name = name;
         id->isPrivate = true;
