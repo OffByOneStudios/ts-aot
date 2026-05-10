@@ -1007,6 +1007,32 @@ ast::NodePtr Parser::parseObjectBindingPattern() {
             // fine (PropertyName position).
             bool propEscapedReserved = current_.escapedReservedWord;
             int propLine = current_.line;
+            // Capture the reserved-word kind BEFORE identifierName()
+            // consumes the token. Shorthand binding `{ default }` must
+            // be a SyntaxError because `default` is a reserved word and
+            // BindingIdentifier rejects reserved words. The identifier-
+            // alone-as-property-name form (full `{ default: x }`) is OK
+            // since `default` there is a PropertyName, not a binding.
+            TokenKind propKind = current_.kind;
+            bool propIsReserved =
+                propKind == TokenKind::KW_break    || propKind == TokenKind::KW_case ||
+                propKind == TokenKind::KW_catch    || propKind == TokenKind::KW_class ||
+                propKind == TokenKind::KW_const    || propKind == TokenKind::KW_continue ||
+                propKind == TokenKind::KW_debugger || propKind == TokenKind::KW_default ||
+                propKind == TokenKind::KW_delete   || propKind == TokenKind::KW_do ||
+                propKind == TokenKind::KW_else     || propKind == TokenKind::KW_enum ||
+                propKind == TokenKind::KW_export   || propKind == TokenKind::KW_extends ||
+                propKind == TokenKind::KW_false    || propKind == TokenKind::KW_finally ||
+                propKind == TokenKind::KW_for      || propKind == TokenKind::KW_function ||
+                propKind == TokenKind::KW_if       || propKind == TokenKind::KW_import ||
+                propKind == TokenKind::KW_in       || propKind == TokenKind::KW_instanceof ||
+                propKind == TokenKind::KW_new      || propKind == TokenKind::KW_null ||
+                propKind == TokenKind::KW_return   || propKind == TokenKind::KW_super ||
+                propKind == TokenKind::KW_switch   || propKind == TokenKind::KW_this ||
+                propKind == TokenKind::KW_throw    || propKind == TokenKind::KW_true ||
+                propKind == TokenKind::KW_try      || propKind == TokenKind::KW_typeof ||
+                propKind == TokenKind::KW_var      || propKind == TokenKind::KW_void ||
+                propKind == TokenKind::KW_while    || propKind == TokenKind::KW_with;
             std::string propName = identifierName();
 
             if (match(TokenKind::Colon)) {
@@ -1019,6 +1045,12 @@ ast::NodePtr Parser::parseObjectBindingPattern() {
                         "word via Unicode escape and cannot be used as a "
                         "shorthand binding",
                         fileName_, propLine));
+                }
+                if (propIsReserved) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: '{}' is a reserved word and "
+                        "cannot be used as a shorthand binding",
+                        fileName_, propLine, propName));
                 }
                 auto id = std::make_unique<ast::Identifier>();
                 id->name = propName;
