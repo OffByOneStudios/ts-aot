@@ -1277,6 +1277,7 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             // is an IdentifierReference, but `{ break: x }` is fine
             // because the property name is an IdentifierName position.
             bool nameEscapedReserved = false;
+            bool nameIsIdentifier = false;  // true => eligible for shorthand form
             int nameLine = current_.line;
 
             if (check(TokenKind::OpenBracket)) {
@@ -1301,6 +1302,7 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             } else {
                 nameEscapedReserved = current_.escapedReservedWord;
                 name = identifierName();
+                nameIsIdentifier = true;
             }
 
             // Method: name(...) { }
@@ -1321,6 +1323,16 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             }
             // Shorthand property: { name }  or CoverInitializedName: { name = init }
             else {
+                // ECMA-262 13.2.5: PropertyDefinition shorthand requires
+                // an IdentifierReference. Numeric/string literals and
+                // computed names cannot be used as shorthand.
+                if (!nameIsIdentifier) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: object literal property "
+                        "name must be followed by ':' (only "
+                        "IdentifierReference is valid in shorthand form)",
+                        fileName_, nameLine));
+                }
                 // Shorthand acts as IdentifierReference. An escape-encoded
                 // reserved word here is a SyntaxError per ES262 12.6.1
                 // (e.g. `({ break }) => {}` — the value side of `break` is
