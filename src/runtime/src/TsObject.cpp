@@ -5846,7 +5846,32 @@ TsValue* ts_value_make_int(int64_t i) {
             descRaw = ts_flat_object_to_map(descRaw);
         }
 
+        // Per ECMA-262 ToPropertyDescriptor: any object can serve as a
+        // property descriptor; the algorithm uses HasProperty/Get on it.
+        // Functions and closures are objects too (e.g. `funObj.value =
+        // "X"; Object.defineProperty(o, "p", funObj)` is legal). For
+        // those, route through the function/closure's own `properties`
+        // map which holds user-set fields like .value, .writable.
         uint32_t descMagic = *(uint32_t*)((char*)descRaw + 16);
+        if (descMagic == 0x46554E43) { // TsFunction
+            TsFunction* fnDesc = (TsFunction*)descRaw;
+            if (!fnDesc->properties) {
+                // Function with no user-set properties — empty
+                // descriptor. Per spec, an empty descriptor is a
+                // generic descriptor (no fields), so defineProperty
+                // becomes a no-op.
+                return obj;
+            }
+            descRaw = fnDesc->properties;
+            descMagic = 0x4D415053;
+        } else if (descMagic == 0x434C5352) { // TsClosure
+            TsClosure* closDesc = (TsClosure*)descRaw;
+            if (!closDesc->properties) {
+                return obj;
+            }
+            descRaw = closDesc->properties;
+            descMagic = 0x4D415053;
+        }
         if (descMagic != 0x4D415053) {
             // Object that isn't a TsMap (TsArray, TsString, etc.) — preserve
             // the legacy silent no-op rather than throw.
