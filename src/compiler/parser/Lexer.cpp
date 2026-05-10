@@ -666,7 +666,13 @@ Token Lexer::scanNumericLiteral() {
                 advance();
                 return makeToken(TokenKind::BigIntLiteral, start);
             }
-            return makeToken(TokenKind::NumericLiteral, start);
+            // Per ECMA-262 Annex B.1.1: LegacyOctalIntegerLiteral is a
+            // Syntax Error in strict mode. The lexer can't know strict
+            // mode yet (directive prologues are parser-detected) so we
+            // flag the token and defer the check to the parser.
+            Token t = makeToken(TokenKind::NumericLiteral, start);
+            t.isLegacyOctal = true;
+            return t;
         }
     }
 

@@ -679,6 +679,15 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
         }
 
         case TokenKind::NumericLiteral: {
+            // ECMA-262 Annex B.1.1: LegacyOctalIntegerLiteral and
+            // NonCanonical-leading-zero decimal numerals are Syntax
+            // Errors in strict mode.
+            if (tok.isLegacyOctal && strictMode_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: legacy octal literals are not "
+                    "allowed in strict mode",
+                    fileName_, tok.line));
+            }
             advance();
             auto node = std::make_unique<ast::NumericLiteral>();
             setLocation(node.get(), tok);

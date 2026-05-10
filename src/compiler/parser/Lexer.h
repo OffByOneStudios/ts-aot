@@ -131,6 +131,10 @@ struct Token {
     // positions while allowing it in PropertyName / member-expression
     // identifier-name positions.
     bool escapedReservedWord = false;
+    // True for NumericLiteral tokens formed via the legacy-octal /
+    // non-canonical-leading-zero grammar (ECMA-262 Annex B.1.1). Strict
+    // mode rejects these tokens.
+    bool isLegacyOctal = false;
     // Decoded form of the identifier text when `text` contains Unicode
     // escapes (`\uXXXX` / `\u{...}`). Empty when no escapes present —
     // callers should fall back to `text` in that case. Per ECMA-262 the
