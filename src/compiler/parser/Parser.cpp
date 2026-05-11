@@ -1223,7 +1223,10 @@ ast::StmtPtr Parser::parseStatementOnly(bool allowAnnexBFunction) {
             n == TokenKind::KW_declare || n == TokenKind::KW_abstract ||
             n == TokenKind::KW_readonly || n == TokenKind::KW_implements ||
             n == TokenKind::KW_public || n == TokenKind::KW_private ||
-            n == TokenKind::KW_protected;
+            n == TokenKind::KW_protected ||
+            n == TokenKind::KW_constructor || n == TokenKind::KW_keyof ||
+            n == TokenKind::KW_infer || n == TokenKind::KW_asserts ||
+            n == TokenKind::KW_satisfies;
         if (isDecl && !nextHasNewline) reject("'let' declaration");
     } else if (k == TokenKind::KW_const) {
         reject("'const' declaration");
@@ -1453,7 +1456,10 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
                     k == TokenKind::KW_declare || k == TokenKind::KW_abstract ||
                     k == TokenKind::KW_readonly || k == TokenKind::KW_implements ||
                     k == TokenKind::KW_public || k == TokenKind::KW_private ||
-                    k == TokenKind::KW_protected;
+                    k == TokenKind::KW_protected ||
+                    k == TokenKind::KW_constructor || k == TokenKind::KW_keyof ||
+                    k == TokenKind::KW_infer || k == TokenKind::KW_asserts ||
+                    k == TokenKind::KW_satisfies;
                 restoreState(saved);
                 if (!looksLikeDecl) {
                     result = parseLabeledOrExpressionStatement();
@@ -2450,7 +2456,10 @@ ast::StmtPtr Parser::parseForStatement() {
             k == TokenKind::KW_declare || k == TokenKind::KW_abstract ||
             k == TokenKind::KW_readonly || k == TokenKind::KW_implements ||
             k == TokenKind::KW_public || k == TokenKind::KW_private ||
-            k == TokenKind::KW_protected;
+            k == TokenKind::KW_protected ||
+            k == TokenKind::KW_constructor || k == TokenKind::KW_keyof ||
+            k == TokenKind::KW_infer || k == TokenKind::KW_asserts ||
+            k == TokenKind::KW_satisfies;
         // NOTE: KW_of intentionally not in the list — `for (let of [])`
         // is a spec parse error (`let` cannot be LHS of for-of).
         bool letFollowedByOf = (k == TokenKind::KW_of);
