@@ -358,6 +358,19 @@ ast::ExprPtr Parser::parsePrecedenceExpression(int minPrec) {
 }
 
 ast::ExprPtr Parser::parseUnaryExpression() {
+    // ECMA-262 13.6.1: UnaryExpression cannot directly precede `**`
+    // (ExponentiationExpression's LHS is UpdateExpression). Detected
+    // after the unary expression is built but before any `**` is
+    // consumed by a higher-level parsePrecedenceExpression — i.e.,
+    // right here in the unary-token cases.
+    auto checkNotFollowedByStarStar = [&](const Token& opTok, const char* opName) {
+        if (current_.kind == TokenKind::StarStar) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: unparenthesized unary '{}' "
+                "expression cannot be the left operand of '**'",
+                fileName_, opTok.line, opName));
+        }
+    };
     switch (current_.kind) {
         case TokenKind::ExclamationMark:
         case TokenKind::Tilde:
@@ -373,6 +386,7 @@ ast::ExprPtr Parser::parseUnaryExpression() {
             setLocation(node.get(), tok);
             node->op = std::string(tok.text);
             node->operand = parseUnaryExpression();
+            checkNotFollowedByStarStar(tok, node->op.c_str());
             return node;
         }
         case TokenKind::PlusPlus:
@@ -395,6 +409,7 @@ ast::ExprPtr Parser::parseUnaryExpression() {
             setLocation(node.get(), tok);
             node->op = "typeof";
             node->operand = parseUnaryExpression();
+            checkNotFollowedByStarStar(tok, "typeof");
             return node;
         }
         case TokenKind::KW_void: {
@@ -404,6 +419,7 @@ ast::ExprPtr Parser::parseUnaryExpression() {
             setLocation(node.get(), tok);
             node->op = "void";
             node->operand = parseUnaryExpression();
+            checkNotFollowedByStarStar(tok, "void");
             return node;
         }
         case TokenKind::KW_delete: {
@@ -412,6 +428,7 @@ ast::ExprPtr Parser::parseUnaryExpression() {
             auto node = std::make_unique<ast::DeleteExpression>();
             setLocation(node.get(), tok);
             node->expression = parseUnaryExpression();
+            checkNotFollowedByStarStar(tok, "delete");
             // ECMA-262 §13.5.1.1: in strict mode, the operand of `delete`
             // must not be a plain Identifier reference. `delete obj.prop`
             // and `delete obj[key]` are fine; `delete x` where x is just
