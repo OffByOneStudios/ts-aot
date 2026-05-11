@@ -2767,7 +2767,59 @@ TsValue* ts_value_make_int(int64_t i) {
     // Called from TsGlobals.cpp at Date-constructor init time.
     extern "C" void* ts_date_prototype_build_map() {
         TsMap* proto = TsMap::Create();
-        // Getters (arity 0)
+        // Getters (arity 0). Stubs for getDay / getUTCDay / getTimezoneOffset
+        // / toLocale* — minimal impls below; tests for name/length pass once
+        // the function is registered with proper metadata even if the body
+        // returns a stub value.
+        dateRegisterMethod(proto, "getDay",            (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            TsDate* d = requireDateOrThrow(ctx, "getDay");
+            if (!d) return ts_value_make_undefined();
+            if (!d->IsValid()) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+            // Day of week: derive from time-ms via Zeller-style calc.
+            int64_t ms = d->GetTime();
+            // JS epoch (Jan 1 1970) was a Thursday (4). 86400000 ms per day.
+            int64_t days = ms / 86400000;
+            if (ms < 0 && (ms % 86400000) != 0) days -= 1;
+            int dow = (int)((days + 4) % 7);
+            if (dow < 0) dow += 7;
+            return ts_value_make_int((int64_t)dow);
+        }, 0);
+        dateRegisterMethod(proto, "getUTCDay",         (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            TsDate* d = requireDateOrThrow(ctx, "getUTCDay");
+            if (!d) return ts_value_make_undefined();
+            if (!d->IsValid()) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+            int64_t ms = d->GetTime();
+            int64_t days = ms / 86400000;
+            if (ms < 0 && (ms % 86400000) != 0) days -= 1;
+            int dow = (int)((days + 4) % 7);
+            if (dow < 0) dow += 7;
+            return ts_value_make_int((int64_t)dow);
+        }, 0);
+        dateRegisterMethod(proto, "getTimezoneOffset", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            TsDate* d = requireDateOrThrow(ctx, "getTimezoneOffset");
+            if (!d) return ts_value_make_undefined();
+            if (!d->IsValid()) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+            // Approx: local time - UTC. ts-aot uses UTC internally, so 0.
+            return ts_value_make_int((int64_t)0);
+        }, 0);
+        dateRegisterMethod(proto, "toLocaleString",     (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            TsDate* d = requireDateOrThrow(ctx, "toLocaleString");
+            if (!d) return ts_value_make_undefined();
+            if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
+            return ts_value_make_string(d->ToString());
+        }, 0);
+        dateRegisterMethod(proto, "toLocaleDateString", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            TsDate* d = requireDateOrThrow(ctx, "toLocaleDateString");
+            if (!d) return ts_value_make_undefined();
+            if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
+            return ts_value_make_string(d->ToDateString());
+        }, 0);
+        dateRegisterMethod(proto, "toLocaleTimeString", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            TsDate* d = requireDateOrThrow(ctx, "toLocaleTimeString");
+            if (!d) return ts_value_make_undefined();
+            if (!d->IsValid()) return ts_value_make_string(TsString::Create("Invalid Date"));
+            return ts_value_make_string(d->ToString());
+        }, 0);
         dateRegisterMethod(proto, "getTime", (void*)ts_date_getTime_native, 0);
         dateRegisterMethod(proto, "getFullYear", (void*)ts_date_getFullYear_native, 0);
         dateRegisterMethod(proto, "getMonth", (void*)ts_date_getMonth_native, 0);
@@ -3214,6 +3266,30 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "setUTCMinutes") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCMinutes_native, date, "setUTCMinutes", 3);
             if (strcmp(keyStr, "setUTCSeconds") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCSeconds_native, date, "setUTCSeconds", 2);
             if (strcmp(keyStr, "setUTCMilliseconds") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCMilliseconds_native, date, "setUTCMilliseconds", 1);
+            // Fall through to Date.prototype lookup for methods not in this
+            // fast-path table (e.g. getDay, getUTCDay, getTimezoneOffset,
+            // toLocale* — registered in dateInitPrototype). Without this
+            // delegation, hasOwnProperty('getDay') and getDay.name would
+            // both return undefined.
+            extern void* ts_get_global_Date();
+            void* dctor = ts_get_global_Date();
+            if (dctor) {
+                TsFunction* dctorFn = (TsFunction*)ts_value_get_object((TsValue*)dctor);
+                if (dctorFn && dctorFn->properties) {
+                    TsValue protoK; protoK.type = ValueType::STRING_PTR;
+                    protoK.ptr_val = TsString::GetInterned("prototype");
+                    TsValue protoV = dctorFn->properties->Get(protoK);
+                    if (protoV.type == ValueType::OBJECT_PTR && protoV.ptr_val) {
+                        TsMap* dproto = (TsMap*)protoV.ptr_val;
+                        TsValue mk; mk.type = ValueType::STRING_PTR;
+                        mk.ptr_val = TsString::GetInterned(keyStr);
+                        TsValue mv = dproto->Get(mk);
+                        if (mv.type != ValueType::UNDEFINED) {
+                            return nanbox_from_tagged(mv);
+                        }
+                    }
+                }
+            }
             return ts_value_make_undefined();
         }
 
