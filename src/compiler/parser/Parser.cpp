@@ -1714,6 +1714,28 @@ std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported) 
         if (match(TokenKind::Equals)) {
             decl->initializer = parseAssignmentExpression();
         }
+        // ECMA-262 14.3.1.1: const declarations require an initializer.
+        // (Object/array destructuring patterns also require an initializer
+        // because there's nothing to destructure from otherwise.) The
+        // exception — `for (const x in obj)` / `for (const x of arr)` —
+        // is parsed by parseForStatement, not this function, so this
+        // path is always the bare `const x;` form.
+        if (decl->varKind == ast::VarKind::Const && !decl->initializer) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'const' declaration requires an "
+                "initializer",
+                fileName_, decl->line));
+        }
+        // ECMA-262 14.3.1.1: BindingPattern (destructuring) declarations
+        // also require an initializer (let/var alike, since there's
+        // nothing to destructure otherwise).
+        if (!decl->initializer &&
+            !dynamic_cast<ast::Identifier*>(decl->name.get())) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: destructuring declaration requires an "
+                "initializer",
+                fileName_, decl->line));
+        }
 
         result.push_back(std::move(decl));
     } while (match(TokenKind::Comma));
