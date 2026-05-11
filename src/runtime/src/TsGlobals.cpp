@@ -23,6 +23,8 @@
 #include <unicode/bytestream.h>
 #include <unicode/coll.h>
 #include <unicode/ucol.h>
+#include <unicode/numfmt.h>
+#include <unicode/decimfmt.h>
 #include <unordered_map>
 #include <string>
 #include <limits>
@@ -2373,6 +2375,176 @@ static TsValue* intlCollatorResolvedOptions(void* ctx, int argc, TsValue** argv)
     return ts_value_make_object(result);
 }
 
+// =============================================================================
+// Intl.NumberFormat (Phase C) — real icu::NumberFormat integration.
+// =============================================================================
+
+static TsMap* g_intlNumberFormatProto = nullptr;
+
+static TsValue* intlNumberFormatFormatImpl(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_value_get_object((TsValue*)ctx);
+    if (!raw) raw = ctx;
+    TsMap* receiver = raw ? (TsMap*)raw : nullptr;
+    if (!receiver) return ts_value_make_string(TsString::Create(""));
+    TsValue fk; fk.type = ValueType::STRING_PTR;
+    fk.ptr_val = TsString::GetInterned("__icuNumberFormat");
+    TsValue fv = receiver->Get(fk);
+    icu::NumberFormat* fmt = (fv.type == ValueType::OBJECT_PTR) ? (icu::NumberFormat*)fv.ptr_val : nullptr;
+    double d = 0.0;
+    if (argc >= 1 && argv && argv[0]) d = ts_value_get_double(argv[0]);
+    if (!fmt) {
+        char buf[64]; std::snprintf(buf, sizeof(buf), "%g", d);
+        return ts_value_make_string(TsString::Create(buf));
+    }
+    icu::UnicodeString result;
+    fmt->format(d, result);
+    std::string utf8;
+    result.toUTF8String(utf8);
+    return ts_value_make_string(TsString::Create(utf8.c_str()));
+}
+
+static TsValue* intlNumberFormatResolvedOptions(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_value_get_object((TsValue*)ctx);
+    if (!raw) raw = ctx;
+    TsMap* receiver = raw ? (TsMap*)raw : nullptr;
+    TsMap* result = TsMap::Create();
+    if (!receiver) return ts_value_make_object(result);
+    const char* keys[] = {"locale", "style", "currency", "currencyDisplay",
+                          "minimumIntegerDigits", "minimumFractionDigits",
+                          "maximumFractionDigits", "useGrouping",
+                          "notation", "numberingSystem"};
+    for (const char* k : keys) {
+        TsValue key; key.type = ValueType::STRING_PTR;
+        key.ptr_val = TsString::GetInterned(k);
+        TsValue v = receiver->Get(key);
+        if (v.type != ValueType::UNDEFINED) result->Set(key, v);
+    }
+    return ts_value_make_object(result);
+}
+
+static TsValue* intlNumberFormatCtorBody(void* ctx, int argc, TsValue** argv) {
+    icu::Locale locale = icu::Locale::getDefault();
+    std::string localeTagOut;
+    if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+        void* str = ts_value_get_string(argv[0]);
+        if (str) {
+            const char* utf8 = ((TsString*)str)->ToUtf8();
+            if (utf8 && utf8[0]) {
+                locale = icu::Locale::createCanonical(utf8);
+                UErrorCode err = U_ZERO_ERROR;
+                icu::StringByteSink<std::string> sink(&localeTagOut);
+                locale.toLanguageTag(sink, err);
+                if (U_FAILURE(err) || localeTagOut.empty()) localeTagOut = utf8;
+            }
+        }
+    }
+    if (localeTagOut.empty()) localeTagOut = locale.getName();
+
+    const char* style = "decimal";
+    const char* currency = nullptr;
+    const char* currencyDisplay = "symbol";
+    int minFracDigits = -1;  // -1 = use style default (2 for currency, 0 otherwise)
+    int maxFracDigits = -1;
+    int minIntDigits = 1;
+    bool useGrouping = true;
+    if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1])) {
+        auto getStrOpt = [&](const char* k) -> const char* {
+            TsValue* v = ts_object_get_property(argv[1], k);
+            if (!v || ts_value_is_undefined(v)) return nullptr;
+            void* s = ts_value_get_string(v);
+            return s ? ((TsString*)s)->ToUtf8() : nullptr;
+        };
+        auto getIntOpt = [&](const char* k, int dflt) -> int {
+            TsValue* v = ts_object_get_property(argv[1], k);
+            if (!v || ts_value_is_undefined(v)) return dflt;
+            return (int)ts_value_get_double(v);
+        };
+        if (const char* s = getStrOpt("style")) style = s;
+        if (const char* c = getStrOpt("currency")) currency = c;
+        if (const char* cd = getStrOpt("currencyDisplay")) currencyDisplay = cd;
+        minFracDigits = getIntOpt("minimumFractionDigits", -1);
+        maxFracDigits = getIntOpt("maximumFractionDigits", -1);
+        minIntDigits = getIntOpt("minimumIntegerDigits", 1);
+        TsValue* gv = ts_object_get_property(argv[1], "useGrouping");
+        if (gv && !ts_value_is_undefined(gv)) useGrouping = ts_value_to_bool(gv);
+    }
+
+    UErrorCode err = U_ZERO_ERROR;
+    icu::NumberFormat* fmt = nullptr;
+    if (std::strcmp(style, "currency") == 0) {
+        fmt = icu::NumberFormat::createCurrencyInstance(locale, err);
+        if (fmt && currency && currency[0]) {
+            UChar ucur[4] = {0};
+            for (int i = 0; i < 3 && currency[i]; i++) ucur[i] = (UChar)currency[i];
+            fmt->setCurrency(ucur, err);
+        }
+        if (minFracDigits < 0) minFracDigits = 2;
+        if (maxFracDigits < 0) maxFracDigits = 2;
+    } else if (std::strcmp(style, "percent") == 0) {
+        fmt = icu::NumberFormat::createPercentInstance(locale, err);
+        if (minFracDigits < 0) minFracDigits = 0;
+        if (maxFracDigits < 0) maxFracDigits = 0;
+    } else {
+        fmt = icu::NumberFormat::createInstance(locale, err);
+        if (minFracDigits < 0) minFracDigits = 0;
+        if (maxFracDigits < 0) maxFracDigits = 3;
+    }
+    if (U_FAILURE(err) || !fmt) {
+        err = U_ZERO_ERROR;
+        fmt = icu::NumberFormat::createInstance(icu::Locale::getDefault(), err);
+    }
+    if (fmt) {
+        // ECMA-402: if min > max default, raise max to min (so a user
+        // setting minimumFractionDigits=4 implies maxFractionDigits>=4).
+        int actualMin = minFracDigits >= 0 ? minFracDigits : 0;
+        int actualMax = maxFracDigits >= 0 ? maxFracDigits : 3;
+        if (actualMax < actualMin) actualMax = actualMin;
+        fmt->setMinimumFractionDigits(actualMin);
+        fmt->setMaximumFractionDigits(actualMax);
+        fmt->setMinimumIntegerDigits(minIntDigits);
+        fmt->setGroupingUsed(useGrouping);
+    }
+
+    TsMap* instance = TsMap::Create();
+    if (g_intlNumberFormatProto) instance->SetPrototype(g_intlNumberFormatProto);
+    auto setStr = [&](const char* k, const char* v) {
+        TsValue kk; kk.type = ValueType::STRING_PTR;
+        kk.ptr_val = TsString::GetInterned(k);
+        TsValue vv; vv.type = ValueType::STRING_PTR;
+        vv.ptr_val = TsString::Create(v);
+        instance->Set(kk, vv);
+    };
+    auto setInt = [&](const char* k, int v) {
+        TsValue kk; kk.type = ValueType::STRING_PTR;
+        kk.ptr_val = TsString::GetInterned(k);
+        TsValue vv; vv.type = ValueType::NUMBER_INT; vv.i_val = v;
+        instance->Set(kk, vv);
+    };
+    auto setBool = [&](const char* k, bool v) {
+        TsValue kk; kk.type = ValueType::STRING_PTR;
+        kk.ptr_val = TsString::GetInterned(k);
+        TsValue vv; vv.type = ValueType::BOOLEAN; vv.i_val = v ? 1 : 0;
+        instance->Set(kk, vv);
+    };
+    setStr("locale", localeTagOut.c_str());
+    setStr("style", style);
+    if (currency) setStr("currency", currency);
+    setStr("currencyDisplay", currencyDisplay);
+    setInt("minimumIntegerDigits", minIntDigits);
+    setInt("minimumFractionDigits", minFracDigits >= 0 ? minFracDigits : 0);
+    setInt("maximumFractionDigits", maxFracDigits >= 0 ? maxFracDigits : 3);
+    setBool("useGrouping", useGrouping);
+    setStr("notation", "standard");
+    setStr("numberingSystem", "latn");
+    TsValue fk; fk.type = ValueType::STRING_PTR;
+    fk.ptr_val = TsString::GetInterned("__icuNumberFormat");
+    TsValue fv; fv.type = ValueType::OBJECT_PTR; fv.ptr_val = fmt;
+    instance->Set(fk, fv);
+    return ts_value_make_object(instance);
+}
+
 static TsValue* intlCollatorCtorBody(void* ctx, int argc, TsValue** argv) {
     // Extract locale from argv[0] (string or array; first usable element).
     icu::Locale locale = icu::Locale::getDefault();
@@ -2591,7 +2763,34 @@ void* ts_get_global_Intl() {
         v.ptr_val = ts_value_get_object((TsValue*)fn);
         cached->SetWithAttrs(k, v, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
     }
-    registerCtor("NumberFormat",       0, "Intl.NumberFormat",        populateFormatProto);
+    // Intl.NumberFormat — Phase C: real icu::NumberFormat backing.
+    {
+        TsMap* ctor = makeSimpleConstructorGlobal("NumberFormat");
+        TsValue protoK; protoK.type = ValueType::STRING_PTR;
+        protoK.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoV = ctor->Get(protoK);
+        if (protoV.type == ValueType::OBJECT_PTR && protoV.ptr_val) {
+            TsMap* proto = (TsMap*)protoV.ptr_val;
+            addMethod(proto, "format", (void*)intlNumberFormatFormatImpl, 1);
+            addMethod(proto, "formatToParts", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                extern void* ts_array_create();
+                return ts_value_make_object(ts_array_create());
+            }, 1);
+            addMethod(proto, "resolvedOptions", (void*)intlNumberFormatResolvedOptions, 0);
+            intlInstallToStringTag(proto, "Intl.NumberFormat");
+            g_intlNumberFormatProto = proto;
+        }
+        addMethod(ctor, "supportedLocalesOf", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            extern void* ts_array_create();
+            return ts_value_make_object(ts_array_create());
+        }, 1);
+        void* fn = wrapAsCallableWithBody(ctor, "NumberFormat", 0, intlNumberFormatCtorBody);
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned("NumberFormat");
+        TsValue v; v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = ts_value_get_object((TsValue*)fn);
+        cached->SetWithAttrs(k, v, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+    }
     registerCtor("DateTimeFormat",     0, "Intl.DateTimeFormat",      populateFormatProto);
     registerCtor("PluralRules",        0, "Intl.PluralRules",         populatePluralProto);
     registerCtor("Locale",             1, "Intl.Locale",              populateLocaleProto);
