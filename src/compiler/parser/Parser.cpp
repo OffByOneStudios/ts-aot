@@ -1131,7 +1131,7 @@ ast::NodePtr Parser::parseArrayBindingPattern() {
 // Statement parsing
 // ============================================================================
 
-ast::StmtPtr Parser::parseStatementOnly() {
+ast::StmtPtr Parser::parseStatementOnly(bool allowAnnexBFunction) {
     TokenKind k = current_.kind;
     int line = current_.line;
     auto reject = [&](const std::string& form) {
@@ -1179,6 +1179,10 @@ ast::StmtPtr Parser::parseStatementOnly() {
         bool isGen = (current_.kind == TokenKind::Star);
         restoreState(saved);
         if (isGen) reject("generator declaration");
+        // Plain `function` is allowed via Annex B.3.2 only in if-body
+        // and labeled-statement body, in non-strict mode. Loop bodies
+        // (while/for/do-while) reject regardless of strict mode.
+        if (!allowAnnexBFunction) reject("'function' declaration");
         if (strictMode_) reject("'function' declaration");
     } else if (k == TokenKind::KW_async) {
         auto saved = saveState();
@@ -2239,19 +2243,19 @@ ast::StmtPtr Parser::parseIfStatement() {
     // that's a FunctionDeclaration; the same applies to elseStatement.
     if (current_.kind == TokenKind::KW_function) {
         pushLexicalScope();
-        node->thenStatement = parseStatementOnly();
+        node->thenStatement = parseStatementOnly(/*allowAnnexBFunction=*/true);
         popLexicalScope();
     } else {
-        node->thenStatement = parseStatementOnly();
+        node->thenStatement = parseStatementOnly(/*allowAnnexBFunction=*/true);
     }
 
     if (match(TokenKind::KW_else)) {
         if (current_.kind == TokenKind::KW_function) {
             pushLexicalScope();
-            node->elseStatement = parseStatementOnly();
+            node->elseStatement = parseStatementOnly(/*allowAnnexBFunction=*/true);
             popLexicalScope();
         } else {
-            node->elseStatement = parseStatementOnly();
+            node->elseStatement = parseStatementOnly(/*allowAnnexBFunction=*/true);
         }
     }
 
@@ -2929,11 +2933,12 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
                     "word via Unicode escape and cannot be used as a label",
                     fileName_, line));
             }
-            // It's a labeled statement
+            // It's a labeled statement. Annex B.3.2.1: FunctionDeclaration
+            // is allowed as LabelledItem in non-strict.
             auto node = std::make_unique<ast::LabeledStatement>();
             setLocation(node.get(), line, col);
             node->label = name;
-            node->statement = parseStatementOnly();
+            node->statement = parseStatementOnly(/*allowAnnexBFunction=*/true);
             return node;
         }
         restoreState(saved);

@@ -51,8 +51,10 @@ private:
     // Body of if/while/for/do-while/etc — only Statement is allowed,
     // not Declaration (per ECMA-262 13.1). Rejects let/const/class,
     // generators, and async functions; honors Annex B.3.2 for plain
-    // FunctionDeclaration in non-strict mode.
-    ast::StmtPtr parseStatementOnly();
+    // FunctionDeclaration in non-strict mode when allowAnnexBFunction
+    // is true (if-body and labeled-stmt-body sites). Loop bodies pass
+    // false: plain function-declaration is always rejected there.
+    ast::StmtPtr parseStatementOnly(bool allowAnnexBFunction = false);
     // Like parseStatementOnly() but additionally bumps iterationDepth_
     // around the body parse so unlabeled break/continue inside know
     // they're in a loop.
