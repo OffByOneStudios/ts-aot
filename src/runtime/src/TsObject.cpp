@@ -2925,14 +2925,16 @@ TsValue* ts_value_make_int(int64_t i) {
         dateRegisterMethod(ctor, "UTC",   (void*)ts_date_UTC_native,   7);
     }
 
-    // Native wrappers for RegExp instance methods (.test() and .exec())
-    static TsValue* ts_regexp_test_native(void* ctx, int argc, TsValue** argv) {
+    // Native wrappers for RegExp instance methods (.test() and .exec()).
+    // Exported (non-static) so RegExp.prototype population in TsGlobals.cpp
+    // can install them via addMethod with proper name/length metadata.
+    extern "C" TsValue* ts_regexp_test_native(void* ctx, int argc, TsValue** argv) {
         TsRegExp* re = (TsRegExp*)ctx;
         void* str = (argc >= 1 && argv && argv[0]) ? (void*)argv[0] : nullptr;
         int32_t result = RegExp_test(re, str);
         return (TsValue*)ts_value_make_bool(result != 0);
     }
-    static TsValue* ts_regexp_exec_native(void* ctx, int argc, TsValue** argv) {
+    extern "C" TsValue* ts_regexp_exec_native(void* ctx, int argc, TsValue** argv) {
         TsRegExp* re = (TsRegExp*)ctx;
         void* str = (argc >= 1 && argv && argv[0]) ? (void*)argv[0] : nullptr;
         void* result = RegExp_exec(re, str);

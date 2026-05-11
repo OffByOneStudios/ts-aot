@@ -1348,9 +1348,31 @@ void* ts_get_global_Date() {
     return cached;
 }
 
+// Forward decls for RegExp.prototype native methods (defined in TsObject.cpp).
+extern "C" {
+    TsValue* ts_regexp_exec_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_regexp_test_native(void* ctx, int argc, TsValue** argv);
+}
+
 void* ts_get_global_RegExp() {
     static void* cached = nullptr;
-    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("RegExp"), "RegExp", 2);
+    if (!cached) {
+        cached = wrapAsCallable(makeSimpleConstructorGlobal("RegExp"), "RegExp", 2);
+        // Populate RegExp.prototype with the spec-required methods so that
+        // `RegExp.prototype.exec`, `.test`, etc. are accessible with proper
+        // name/length own-properties — required by test262.
+        TsFunction* ctorFn = (TsFunction*)ts_value_get_object((TsValue*)cached);
+        if (ctorFn && ctorFn->properties) {
+            TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+            protoKey.ptr_val = TsString::GetInterned("prototype");
+            TsValue protoVal = ctorFn->properties->Get(protoKey);
+            if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+                TsMap* reproto = (TsMap*)protoVal.ptr_val;
+                addMethod(reproto, "exec",     (void*)ts_regexp_exec_native, 1);
+                addMethod(reproto, "test",     (void*)ts_regexp_test_native, 1);
+            }
+        }
+    }
     return cached;
 }
 
