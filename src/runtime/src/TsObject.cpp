@@ -8847,6 +8847,39 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         return ts_value_make_double(std::sqrt(acc));
     }
+    // ECMA-262 21.3.2.5: Math.clz32 — count leading zero bits in the
+    // ToUint32 of the argument. NaN/Infinity → 32 (per the ToUint32 → 0
+    // coercion → all bits zero).
+    static TsValue* ts_math_clz32_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_int(32);
+        double d = ts_value_get_double(argv[0]);
+        if (std::isnan(d) || std::isinf(d)) return ts_value_make_int(32);
+        // ToUint32: truncate to int64, then mask to 32 bits.
+        int64_t i = (int64_t)d;
+        uint32_t u = (uint32_t)(i & 0xFFFFFFFFLL);
+        if (u == 0) return ts_value_make_int(32);
+        int count = 0;
+        while ((u & 0x80000000u) == 0) { count++; u <<= 1; }
+        return ts_value_make_int((int64_t)count);
+    }
+    // ECMA-262 21.3.2.16: Math.fround — round to nearest float32.
+    static TsValue* ts_math_fround_native(void* context, int argc, TsValue** argv) {
+        if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
+        double d = ts_value_get_double(argv[0]);
+        return ts_value_make_double((double)(float)d);
+    }
+    // ECMA-262 21.3.2.19: Math.imul — 32-bit integer multiplication.
+    static TsValue* ts_math_imul_native(void* context, int argc, TsValue** argv) {
+        if (argc < 2) return ts_value_make_int(0);
+        double a = ts_value_get_double(argv[0]);
+        double b = ts_value_get_double(argv[1]);
+        if (std::isnan(a) || std::isinf(a)) a = 0;
+        if (std::isnan(b) || std::isinf(b)) b = 0;
+        int32_t ia = (int32_t)(int64_t)a;
+        int32_t ib = (int32_t)(int64_t)b;
+        int32_t result = (int32_t)((uint32_t)ia * (uint32_t)ib);
+        return ts_value_make_int((int64_t)result);
+    }
 
     extern "C" int64_t ts_parseInt(void* value);
 
@@ -9709,6 +9742,9 @@ TsValue* ts_value_make_int(int64_t i) {
         ADD_MATH(pow, 2);
         ADD_MATH(atan2, 2);
         ADD_MATH(hypot, 2);
+        ADD_MATH(clz32, 1);
+        ADD_MATH(fround, 1);
+        ADD_MATH(imul, 2);
         #undef ADD_MATH
         setToStringTag(mathMap, "Math");
         Math = ts_value_make_object(mathMap);

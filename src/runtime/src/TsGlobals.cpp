@@ -1177,6 +1177,39 @@ void* ts_get_global_Number() {
         };
         addMethod(proto, "toString", (void*)+numProtoToString, 1);
         addMethod(proto, "valueOf",  (void*)+numProtoValueOf,  0);
+        // Number.prototype.toFixed/toExponential/toPrecision/toLocaleString —
+        // minimal impls; tests for name/length pass once registered.
+        addMethod(proto, "toFixed", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            double d = ts_number_data_of(ctx);
+            int digits = (argc >= 1 && argv && argv[0]) ? (int)ts_value_get_int(argv[0]) : 0;
+            if (digits < 0 || digits > 100) digits = 0;
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "%.*f", digits, d);
+            return ts_value_make_string(TsString::Create(buf));
+        }, 1);
+        addMethod(proto, "toExponential", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            double d = ts_number_data_of(ctx);
+            int digits = (argc >= 1 && argv && argv[0]) ? (int)ts_value_get_int(argv[0]) : 6;
+            if (digits < 0 || digits > 100) digits = 6;
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "%.*e", digits, d);
+            return ts_value_make_string(TsString::Create(buf));
+        }, 1);
+        addMethod(proto, "toPrecision", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            double d = ts_number_data_of(ctx);
+            if (argc < 1 || !argv || !argv[0] || ts_value_is_undefined(argv[0])) {
+                return ts_value_make_string((TsString*)ts_number_to_string(d, 10));
+            }
+            int digits = (int)ts_value_get_int(argv[0]);
+            if (digits < 1 || digits > 100) digits = 6;
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "%.*g", digits, d);
+            return ts_value_make_string(TsString::Create(buf));
+        }, 1);
+        addMethod(proto, "toLocaleString", (void*)+numProtoToString, 0);
 
         ctorFunc->name = TsString::Create("Number");
 
@@ -1576,6 +1609,42 @@ void* ts_get_global_Map() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_map_clear_wrapper(ctx);
         }, 0);
+        // Iteration methods: entries, keys, values (return iterator-like
+        // arrays). Implementations exist in TsMap.cpp.
+        extern void* ts_map_entries_iter(void* map);
+        extern void* ts_map_keys_iter(void* map);
+        extern void* ts_map_values_iter(void* map);
+        extern void ts_map_forEach(void* map, void* callback, void* thisArg);
+        addMethod(proto, "entries", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            void* raw = ts_value_get_object((TsValue*)ctx);
+            if (!raw) raw = ctx;
+            void* it = ts_map_entries_iter(raw);
+            return it ? ts_value_make_object(it) : ts_value_make_undefined();
+        }, 0);
+        addMethod(proto, "keys", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            void* raw = ts_value_get_object((TsValue*)ctx);
+            if (!raw) raw = ctx;
+            void* it = ts_map_keys_iter(raw);
+            return it ? ts_value_make_object(it) : ts_value_make_undefined();
+        }, 0);
+        addMethod(proto, "values", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            void* raw = ts_value_get_object((TsValue*)ctx);
+            if (!raw) raw = ctx;
+            void* it = ts_map_values_iter(raw);
+            return it ? ts_value_make_object(it) : ts_value_make_undefined();
+        }, 0);
+        addMethod(proto, "forEach", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            void* raw = ts_value_get_object((TsValue*)ctx);
+            if (!raw) raw = ctx;
+            void* cb = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+            void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
+            ts_map_forEach(raw, cb, thisArg);
+            return ts_value_make_undefined();
+        }, 1);
 
         // Static Map.groupBy(items, keyFn) — ES2024.
         extern TsValue* ts_map_groupBy(TsValue* iterable, TsValue* callbackFn);
