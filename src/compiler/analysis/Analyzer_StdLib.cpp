@@ -1240,6 +1240,9 @@ Analyzer::Analyzer() {
 
     symbols.define("Reflect", reflectType);
 
+    // Register Intl global (ECMA-402; Collator/NumberFormat/PluralRules/etc. accessed as fields).
+    symbols.define("Intl", std::make_shared<Type>(TypeKind::Any));
+
     // Register Array global (for static methods like Array.isArray)
     auto arrayGlobalType = std::make_shared<ObjectType>();
     

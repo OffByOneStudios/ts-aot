@@ -25,6 +25,7 @@
 #include <unicode/ucol.h>
 #include <unicode/numfmt.h>
 #include <unicode/decimfmt.h>
+#include <unicode/plurrule.h>
 #include <unordered_map>
 #include <string>
 #include <limits>
@@ -2376,6 +2377,114 @@ static TsValue* intlCollatorResolvedOptions(void* ctx, int argc, TsValue** argv)
 }
 
 // =============================================================================
+// Intl.PluralRules (Phase E) — real icu::PluralRules integration.
+// =============================================================================
+
+static TsMap* g_intlPluralRulesProto = nullptr;
+
+static TsValue* intlPluralRulesSelectImpl(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_value_get_object((TsValue*)ctx);
+    if (!raw) raw = ctx;
+    TsMap* receiver = raw ? (TsMap*)raw : nullptr;
+    if (!receiver) return ts_value_make_string(TsString::Create("other"));
+    TsValue pk; pk.type = ValueType::STRING_PTR;
+    pk.ptr_val = TsString::GetInterned("__icuPluralRules");
+    TsValue pv = receiver->Get(pk);
+    icu::PluralRules* rules = (pv.type == ValueType::OBJECT_PTR) ? (icu::PluralRules*)pv.ptr_val : nullptr;
+    double d = 0;
+    if (argc >= 1 && argv && argv[0]) d = ts_value_get_double(argv[0]);
+    if (!rules) return ts_value_make_string(TsString::Create("other"));
+    icu::UnicodeString cat = rules->select(d);
+    std::string utf8;
+    cat.toUTF8String(utf8);
+    return ts_value_make_string(TsString::Create(utf8.c_str()));
+}
+
+static TsValue* intlPluralRulesResolvedOptions(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_value_get_object((TsValue*)ctx);
+    if (!raw) raw = ctx;
+    TsMap* receiver = raw ? (TsMap*)raw : nullptr;
+    TsMap* result = TsMap::Create();
+    if (!receiver) return ts_value_make_object(result);
+    const char* keys[] = {"locale", "type", "minimumIntegerDigits",
+                          "minimumFractionDigits", "maximumFractionDigits"};
+    for (const char* k : keys) {
+        TsValue key; key.type = ValueType::STRING_PTR;
+        key.ptr_val = TsString::GetInterned(k);
+        TsValue v = receiver->Get(key);
+        if (v.type != ValueType::UNDEFINED) result->Set(key, v);
+    }
+    return ts_value_make_object(result);
+}
+
+static TsValue* intlPluralRulesCtorBody(void* ctx, int argc, TsValue** argv) {
+    icu::Locale locale = icu::Locale::getDefault();
+    std::string localeTagOut;
+    if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+        void* str = ts_value_get_string(argv[0]);
+        if (str) {
+            const char* utf8 = ((TsString*)str)->ToUtf8();
+            if (utf8 && utf8[0]) {
+                locale = icu::Locale::createCanonical(utf8);
+                UErrorCode err = U_ZERO_ERROR;
+                icu::StringByteSink<std::string> sink(&localeTagOut);
+                locale.toLanguageTag(sink, err);
+                if (U_FAILURE(err) || localeTagOut.empty()) localeTagOut = utf8;
+            }
+        }
+    }
+    if (localeTagOut.empty()) localeTagOut = locale.getName();
+
+    const char* type = "cardinal";
+    if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1])) {
+        TsValue* tv = ts_object_get_property(argv[1], "type");
+        if (tv && !ts_value_is_undefined(tv)) {
+            void* s = ts_value_get_string(tv);
+            if (s) {
+                const char* ts2 = ((TsString*)s)->ToUtf8();
+                if (ts2 && std::strcmp(ts2, "ordinal") == 0) type = "ordinal";
+            }
+        }
+    }
+
+    UErrorCode err = U_ZERO_ERROR;
+    UPluralType pt = (std::strcmp(type, "ordinal") == 0) ? UPLURAL_TYPE_ORDINAL : UPLURAL_TYPE_CARDINAL;
+    icu::PluralRules* rules = icu::PluralRules::forLocale(locale, pt, err);
+    if (U_FAILURE(err) || !rules) {
+        err = U_ZERO_ERROR;
+        rules = icu::PluralRules::forLocale(icu::Locale::getDefault(), pt, err);
+    }
+
+    TsMap* instance = TsMap::Create();
+    if (g_intlPluralRulesProto) instance->SetPrototype(g_intlPluralRulesProto);
+    auto setStr = [&](const char* k, const char* v) {
+        TsValue kk; kk.type = ValueType::STRING_PTR;
+        kk.ptr_val = TsString::GetInterned(k);
+        TsValue vv; vv.type = ValueType::STRING_PTR;
+        vv.ptr_val = TsString::Create(v);
+        instance->Set(kk, vv);
+    };
+    auto setInt = [&](const char* k, int v) {
+        TsValue kk; kk.type = ValueType::STRING_PTR;
+        kk.ptr_val = TsString::GetInterned(k);
+        TsValue vv; vv.type = ValueType::NUMBER_INT; vv.i_val = v;
+        instance->Set(kk, vv);
+    };
+    setStr("locale", localeTagOut.c_str());
+    setStr("type", type);
+    setInt("minimumIntegerDigits", 1);
+    setInt("minimumFractionDigits", 0);
+    setInt("maximumFractionDigits", 3);
+    TsValue rk; rk.type = ValueType::STRING_PTR;
+    rk.ptr_val = TsString::GetInterned("__icuPluralRules");
+    TsValue rv; rv.type = ValueType::OBJECT_PTR; rv.ptr_val = rules;
+    instance->Set(rk, rv);
+    return ts_value_make_object(instance);
+}
+
+// =============================================================================
 // Intl.NumberFormat (Phase C) — real icu::NumberFormat integration.
 // =============================================================================
 
@@ -2792,7 +2901,30 @@ void* ts_get_global_Intl() {
         cached->SetWithAttrs(k, v, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
     }
     registerCtor("DateTimeFormat",     0, "Intl.DateTimeFormat",      populateFormatProto);
-    registerCtor("PluralRules",        0, "Intl.PluralRules",         populatePluralProto);
+    // Intl.PluralRules — Phase E: real icu::PluralRules backing.
+    {
+        TsMap* ctor = makeSimpleConstructorGlobal("PluralRules");
+        TsValue protoK; protoK.type = ValueType::STRING_PTR;
+        protoK.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoV = ctor->Get(protoK);
+        if (protoV.type == ValueType::OBJECT_PTR && protoV.ptr_val) {
+            TsMap* proto = (TsMap*)protoV.ptr_val;
+            addMethod(proto, "select", (void*)intlPluralRulesSelectImpl, 1);
+            addMethod(proto, "resolvedOptions", (void*)intlPluralRulesResolvedOptions, 0);
+            intlInstallToStringTag(proto, "Intl.PluralRules");
+            g_intlPluralRulesProto = proto;
+        }
+        addMethod(ctor, "supportedLocalesOf", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            extern void* ts_array_create();
+            return ts_value_make_object(ts_array_create());
+        }, 1);
+        void* fn = wrapAsCallableWithBody(ctor, "PluralRules", 0, intlPluralRulesCtorBody);
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned("PluralRules");
+        TsValue v; v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = ts_value_get_object((TsValue*)fn);
+        cached->SetWithAttrs(k, v, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+    }
     registerCtor("Locale",             1, "Intl.Locale",              populateLocaleProto);
     registerCtor("RelativeTimeFormat", 0, "Intl.RelativeTimeFormat",  populateFormatProto);
     registerCtor("ListFormat",         0, "Intl.ListFormat",          populateFormatProto);
