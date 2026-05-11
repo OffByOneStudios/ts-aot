@@ -4866,6 +4866,12 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         }
         if (obj->getType()->isDoubleTy()) {
             obj = emitInlineBoxFloat(obj);
+        } else if (obj->getType()->isIntegerTy(64)) {
+            obj = emitInlineBoxInt(obj);
+        } else if (obj->getType()->isIntegerTy(1)) {
+            auto ft2 = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
+            auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", ft2);
+            obj = builder_->CreateCall(ft2, boxFn.getCallee(), {obj});
         }
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getInt1Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
