@@ -255,9 +255,41 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
         return;
     }
 
-    // Property / member access — always valid LHS.
-    if (dynamic_cast<const ast::PropertyAccessExpression*>(expr)) return;
-    if (dynamic_cast<const ast::ElementAccessExpression*>(expr)) return;
+    // Property / member access — valid LHS unless ANY link in the
+    // chain is optional (`?.`). ECMA-262 13.5.1: OptionalChain cannot
+    // be the target of an assignment or update expression.
+    std::function<bool(const ast::Node*)> hasOptionalChain;
+    hasOptionalChain = [&](const ast::Node* n) -> bool {
+        if (!n) return false;
+        if (auto* p = dynamic_cast<const ast::PropertyAccessExpression*>(n)) {
+            return p->isOptional || hasOptionalChain(p->expression.get());
+        }
+        if (auto* e = dynamic_cast<const ast::ElementAccessExpression*>(n)) {
+            return e->isOptional || hasOptionalChain(e->expression.get());
+        }
+        if (auto* c = dynamic_cast<const ast::CallExpression*>(n)) {
+            return c->isOptional || hasOptionalChain(c->callee.get());
+        }
+        return false;
+    };
+    if (auto* p = dynamic_cast<const ast::PropertyAccessExpression*>(expr)) {
+        if (hasOptionalChain(p)) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: optional chain ('?.') cannot be the "
+                "target of an assignment or update expression",
+                expr->line, expr->column));
+        }
+        return;
+    }
+    if (auto* e = dynamic_cast<const ast::ElementAccessExpression*>(expr)) {
+        if (hasOptionalChain(e)) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: optional chain ('?.') cannot be the "
+                "target of an assignment or update expression",
+                expr->line, expr->column));
+        }
+        return;
+    }
 
     // Object/Array literals — valid only as destructuring targets,
     // and only for plain `=` (not `+=` etc.).
