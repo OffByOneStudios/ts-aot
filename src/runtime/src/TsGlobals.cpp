@@ -19,6 +19,8 @@
 #include "TsBigInt.h"  // for BigInt.asIntN / asUintN
 #include <unicode/unistr.h>
 #include <unicode/utypes.h>
+#include <unicode/locid.h>
+#include <unicode/bytestream.h>
 #include <unordered_map>
 #include <string>
 #include <limits>
@@ -1012,6 +1014,7 @@ void* ts_get_global_JSON() {
     cached->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
     return cached;
 }
+
 
 // ========================================
 // Other constructor globals — minimal stubs
@@ -2237,6 +2240,160 @@ extern "C" TsValue* globalThis;
 
 void* ts_get_global_Math() {
     return (void*)Math;
+}
+
+// ========================================
+// Intl (ECMA-402) — Phase A scaffold
+// ========================================
+// The Intl namespace is a top-level TsMap exposing constructor stubs
+// (Collator, NumberFormat, DateTimeFormat, PluralRules, Locale, plus
+// stretch goals) and a static `getCanonicalLocales(input)` helper.
+//
+// Each constructor stub:
+//   - Has spec-correct .name and .length own-properties via wrapAsCallable.
+//   - Has a .prototype TsMap with Symbol.toStringTag = "Intl.<Name>".
+//   - Has prototype methods (compare/format/formatToParts/select/etc.)
+//     installed via addMethod with proper name/length, returning placeholder
+//     values. Phases B-F replace these with real ICU-backed impls.
+//   - Has supportedLocalesOf static (stub returning empty array; refine later).
+
+static void intlInstallToStringTag(TsMap* proto, const char* tag) {
+    TsValue tagKey; tagKey.type = ValueType::STRING_PTR;
+    tagKey.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+    TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
+    tagVal.ptr_val = TsString::Create(tag);
+    proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+}
+
+static void* makeIntlCtorStub(const char* name, int length,
+                              const char* protoToStringTag,
+                              void (*populateProto)(TsMap*)) {
+    TsMap* ctor = makeSimpleConstructorGlobal(name);
+    TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+    protoKey.ptr_val = TsString::GetInterned("prototype");
+    TsValue protoVal = ctor->Get(protoKey);
+    if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+        TsMap* proto = (TsMap*)protoVal.ptr_val;
+        if (populateProto) populateProto(proto);
+        intlInstallToStringTag(proto, protoToStringTag);
+    }
+    // supportedLocalesOf — minimal stub returning empty array (full impl
+    // would filter via icu::Locale::createCanonical). Spec arity: 1.
+    addMethod(ctor, "supportedLocalesOf", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        extern void* ts_array_create();
+        return ts_value_make_object(ts_array_create());
+    }, 1);
+    return wrapAsCallable(ctor, name, length);
+}
+
+void* ts_get_global_Intl() {
+    static TsMap* cached = nullptr;
+    if (cached) return cached;
+    cached = TsMap::Create();
+
+    // Intl.getCanonicalLocales(locales) — ECMA-402 §8.2.1.
+    // Minimal: if input is a string, canonicalize via ICU and return [tag].
+    // If input is an array (TsArray), iterate and canonicalize each. Else
+    // return an empty array. Full BCP47 validation/RangeError on malformed
+    // tags is deferred.
+    addMethod(cached, "getCanonicalLocales", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        extern void* ts_array_create();
+        extern void ts_array_push(void* arr, void* value);
+        void* result = ts_array_create();
+        if (argc < 1 || !argv || !argv[0] || ts_value_is_undefined(argv[0])) {
+            return ts_value_make_object(result);
+        }
+        TsValue* input = argv[0];
+        void* str = ts_value_get_string(input);
+        if (str) {
+            const char* utf8 = ((TsString*)str)->ToUtf8();
+            if (utf8 && utf8[0]) {
+                UErrorCode err = U_ZERO_ERROR;
+                icu::Locale loc = icu::Locale::createCanonical(utf8);
+                std::string out;
+                icu::StringByteSink<std::string> sink(&out);
+                loc.toLanguageTag(sink, err);
+                if (U_SUCCESS(err) && !out.empty()) {
+                    ts_array_push(result, (void*)ts_value_make_string(TsString::Create(out.c_str())));
+                }
+            }
+        }
+        return ts_value_make_object(result);
+    }, 1);
+
+    auto populateCollatorProto = [](TsMap* proto) {
+        addMethod(proto, "compare", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            void* a = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+            void* b = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
+            if (!a || !b) return ts_value_make_int(0);
+            const char* sa = ((TsString*)a)->ToUtf8();
+            const char* sb = ((TsString*)b)->ToUtf8();
+            int cmp = std::strcmp(sa ? sa : "", sb ? sb : "");
+            return ts_value_make_int(cmp < 0 ? -1 : (cmp > 0 ? 1 : 0));
+        }, 2);
+        addMethod(proto, "resolvedOptions", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            return ts_value_make_object(TsMap::Create());
+        }, 0);
+    };
+    auto populateFormatProto = [](TsMap* proto) {
+        addMethod(proto, "format", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (argc < 1 || !argv || !argv[0]) return ts_value_make_string(TsString::Create(""));
+            double d = ts_value_get_double(argv[0]);
+            char buf[64]; std::snprintf(buf, sizeof(buf), "%g", d);
+            return ts_value_make_string(TsString::Create(buf));
+        }, 1);
+        addMethod(proto, "formatToParts", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            extern void* ts_array_create();
+            return ts_value_make_object(ts_array_create());
+        }, 1);
+        addMethod(proto, "resolvedOptions", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            return ts_value_make_object(TsMap::Create());
+        }, 0);
+    };
+    auto populatePluralProto = [](TsMap* proto) {
+        addMethod(proto, "select", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            return ts_value_make_string(TsString::Create("other"));
+        }, 1);
+        addMethod(proto, "resolvedOptions", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            return ts_value_make_object(TsMap::Create());
+        }, 0);
+    };
+    auto populateLocaleProto = [](TsMap* proto) {
+        addMethod(proto, "toString", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            return ts_value_make_string(TsString::Create("und"));
+        }, 0);
+        addMethod(proto, "maximize", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return (TsValue*)ctx;
+        }, 0);
+        addMethod(proto, "minimize", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return (TsValue*)ctx;
+        }, 0);
+    };
+
+    auto registerCtor = [&](const char* name, int length, const char* tag,
+                            void (*pp)(TsMap*)) {
+        void* fn = makeIntlCtorStub(name, length, tag, pp);
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned(name);
+        TsValue v; v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = ts_value_get_object((TsValue*)fn);
+        cached->SetWithAttrs(k, v, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+    };
+    registerCtor("Collator",           0, "Intl.Collator",            populateCollatorProto);
+    registerCtor("NumberFormat",       0, "Intl.NumberFormat",        populateFormatProto);
+    registerCtor("DateTimeFormat",     0, "Intl.DateTimeFormat",      populateFormatProto);
+    registerCtor("PluralRules",        0, "Intl.PluralRules",         populatePluralProto);
+    registerCtor("Locale",             1, "Intl.Locale",              populateLocaleProto);
+    registerCtor("RelativeTimeFormat", 0, "Intl.RelativeTimeFormat",  populateFormatProto);
+    registerCtor("ListFormat",         0, "Intl.ListFormat",          populateFormatProto);
+    registerCtor("DisplayNames",       2, "Intl.DisplayNames",        populateLocaleProto);
+    registerCtor("Segmenter",          0, "Intl.Segmenter",           populatePluralProto);
+
+    // Symbol.toStringTag — Object.prototype.toString.call(Intl) → "[object Intl]"
+    intlInstallToStringTag(cached, "Intl");
+    return cached;
 }
 
 void* ts_get_global_Buffer() {

@@ -8152,6 +8152,8 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             // Buffer-backed + BigInt + generator-family constructor stubs.
             "ArrayBuffer", "DataView", "SharedArrayBuffer", "BigInt",
             "GeneratorFunction", "AsyncFunction", "AsyncGeneratorFunction",
+            // Intl (ECMA-402) namespace
+            "Intl",
         };
         if (jsBuiltinGlobals.count(node->name)) {
             SPDLOG_DEBUG("[IDENT] builtin global: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
