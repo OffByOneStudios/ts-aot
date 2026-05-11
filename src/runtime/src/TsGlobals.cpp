@@ -110,6 +110,43 @@ TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key);
 TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
 bool ts_object_has_property(void* objArg, void* keyArg);
 
+// Helper: install an accessor-getter on a prototype TsMap, where reading
+// the property `propName` invokes `getterFn(this)`. Uses the existing
+// `__getter_<propName>` convention recognized by ts_object_get_property
+// (TsObject.cpp:3440-3468). The getter function is named "get <propName>"
+// per ECMA-262 6.2.5 / built-in accessor convention.
+static void addAccessorGetter(TsMap* map, const char* propName, void* nativeFn) {
+    TsValue* fn = ts_value_make_native_function(nativeFn, nullptr);
+    TsFunction* func = (TsFunction*)fn;
+    std::string fname = std::string("get ") + propName;
+    func->name = TsString::Create(fname.c_str());
+    func->arity = 0;
+    func->is_constructor = false;
+    if (!func->properties) func->properties = TsMap::Create();
+    TsValue nk; nk.type = ValueType::STRING_PTR;
+    nk.ptr_val = TsString::GetInterned("name");
+    TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = func->name;
+    func->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+    TsValue lk; lk.type = ValueType::STRING_PTR;
+    lk.ptr_val = TsString::GetInterned("length");
+    TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 0;
+    func->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+    // Install __getter_<propName> on the prototype map.
+    std::string getterKey = std::string("__getter_") + propName;
+    TsValue gk; gk.type = ValueType::STRING_PTR;
+    gk.ptr_val = TsString::GetInterned(getterKey.c_str());
+    TsValue gv; gv.type = ValueType::FUNCTION_PTR; gv.ptr_val = fn;
+    map->SetWithAttrs(gk, gv, 0);  // hidden — not enumerable, not writable, not configurable
+    // Install the outward-facing slot for getOwnPropertyDescriptor's
+    // attribute lookup. Value is undefined (placeholder); the descriptor
+    // path detects __getter_<name> and returns {get, set, enum, conf}
+    // shape with the attrs taken from this slot.
+    TsValue pk; pk.type = ValueType::STRING_PTR;
+    pk.ptr_val = TsString::GetInterned(propName);
+    TsValue pv; pv.type = ValueType::UNDEFINED;
+    map->SetWithAttrs(pk, pv, TsHashTable::ATTR_CONFIGURABLE);
+}
+
 // Helper: add a native function to a TsMap, setting .name and .arity
 // so hasOwnProperty('length'/'name') works per ES spec.
 static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 1) {
@@ -1934,7 +1971,72 @@ void* ts_get_global_ArrayBuffer() {
 
 void* ts_get_global_DataView() {
     static void* cached = nullptr;
-    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("DataView"), "DataView", 1);
+    if (!cached) {
+        TsMap* ctor = makeSimpleConstructorGlobal("DataView");
+        // Install accessor getters on DataView.prototype per ECMA-262
+        // 25.3.4.{1,2,3}: buffer / byteLength / byteOffset are accessor
+        // properties whose getter functions have .name = "get buffer"
+        // (etc.). When invoked, the getter reads the slot from `this`
+        // (which must be a TsDataView) or throws TypeError.
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoVal = ctor->Get(protoKey);
+        if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+            TsMap* dvProto = (TsMap*)protoVal.ptr_val;
+            // Helper: extract a TsDataView from `this` (ctx) or throw.
+            auto requireDataView = [](void* ctx, const char* method) -> TsDataView* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx);
+                if (!raw) raw = ctx;
+                if (!raw) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: DataView accessor invoked on non-DataView")));
+                    return nullptr;
+                }
+                // Magic at offset 0 for TsDataView.
+                uint32_t magic0 = *(uint32_t*)raw;
+                if (magic0 != TsDataView::MAGIC) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: DataView accessor invoked on non-DataView")));
+                    return nullptr;
+                }
+                return (TsDataView*)raw;
+            };
+            addAccessorGetter(dvProto, "buffer", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: get buffer called on non-DataView")));
+                    return ts_value_make_undefined();
+                }
+                TsBuffer* buf = ((TsDataView*)raw)->GetBuffer();
+                return buf ? ts_value_make_object(buf) : ts_value_make_undefined();
+            });
+            addAccessorGetter(dvProto, "byteLength", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: get byteLength called on non-DataView")));
+                    return ts_value_make_undefined();
+                }
+                return ts_value_make_int((int64_t)((TsDataView*)raw)->GetByteLength());
+            });
+            addAccessorGetter(dvProto, "byteOffset", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: get byteOffset called on non-DataView")));
+                    return ts_value_make_undefined();
+                }
+                return ts_value_make_int((int64_t)((TsDataView*)raw)->GetByteOffset());
+            });
+            (void)requireDataView;
+        }
+        cached = wrapAsCallable(ctor, "DataView", 1);
+    }
     return cached;
 }
 
@@ -2486,6 +2588,53 @@ void* ts_get_global_TypedArray() {
         TsValue protoT = tactor->properties->Get(protoKeyT);
         if (protoT.type == ValueType::OBJECT_PTR && protoT.ptr_val) {
             TsMap* tproto = (TsMap*)protoT.ptr_val;
+            // Accessor getters per ECMA-262 23.2.3: buffer/byteLength/
+            // byteOffset/length live on %TypedArray%.prototype as
+            // accessor properties with named getter functions
+            // ("get buffer" etc., length 0). All per-class prototypes
+            // (Int8Array.prototype, etc.) inherit these via the
+            // prototype-chain link installed in makeTypedArrayCtor.
+            addAccessorGetter(tproto, "buffer", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: get buffer called on non-TypedArray")));
+                    return ts_value_make_undefined();
+                }
+                TsBuffer* buf = ((TsTypedArray*)raw)->GetBuffer();
+                return buf ? ts_value_make_object(buf) : ts_value_make_undefined();
+            });
+            addAccessorGetter(tproto, "byteLength", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: get byteLength called on non-TypedArray")));
+                    return ts_value_make_undefined();
+                }
+                return ts_value_make_int((int64_t)((TsTypedArray*)raw)->GetByteLength());
+            });
+            addAccessorGetter(tproto, "byteOffset", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: get byteOffset called on non-TypedArray")));
+                    return ts_value_make_undefined();
+                }
+                return ts_value_make_int((int64_t)((TsTypedArray*)raw)->GetByteOffset());
+            });
+            addAccessorGetter(tproto, "length", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
+                    ts_throw((TsValue*)ts_error_create(TsString::Create(
+                        "TypeError: get length called on non-TypedArray")));
+                    return ts_value_make_undefined();
+                }
+                return ts_value_make_int((int64_t)((TsTypedArray*)raw)->GetLength());
+            });
             #define TA_PROTO_STUB(NAME) \
                 addMethod(tproto, #NAME, (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* { \
                     TsTypedArray* ta = requireTypedArrayOrThrow(ctx, #NAME); \
