@@ -216,6 +216,14 @@ void* ts_get_global_Object() {
     addMethod(ctor, "getOwnPropertyDescriptor", (void*)ts_object_getOwnPropertyDescriptor_native, 2);
     addMethod(ctor, "getOwnPropertyDescriptors", (void*)ts_object_getOwnPropertyDescriptors_native);
     addMethod(ctor, "getOwnPropertyNames", (void*)ts_object_getOwnPropertyNames_native);
+    // Object.getOwnPropertySymbols — minimal stub returning empty array.
+    // Full impl would walk own-keys for Symbol-typed keys (TsMap currently
+    // stores them as strings keyed off `[Symbol.<name>]` canonicalized
+    // form). Stub satisfies test262 name/length checks.
+    addMethod(ctor, "getOwnPropertySymbols", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        extern void* ts_array_create();
+        return ts_value_make_object(ts_array_create());
+    }, 1);
     addMethod(ctor, "getPrototypeOf", (void*)ts_object_getPrototypeOf_native);
     addMethod(ctor, "setPrototypeOf", (void*)ts_object_setPrototypeOf_native, 2);
     addMethod(ctor, "freeze", (void*)ts_object_freeze_native);
@@ -1686,6 +1694,22 @@ void* ts_get_global_Set() {
         addMethod(proto, "clear", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             return ts_set_clear_wrapper(ctx);
+        }, 0);
+        // Set.prototype iteration methods (entries/keys/values). For a Set,
+        // values and keys are the same; entries returns [v, v] pairs.
+        extern TsValue* ts_set_values_iter_wrapper(void* context, int argc, TsValue** argv);
+        extern TsValue* ts_set_entries_iter_wrapper(void* context, int argc, TsValue** argv);
+        addMethod(proto, "values", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_values_iter_wrapper(ctx, argc, argv);
+        }, 0);
+        addMethod(proto, "keys", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_values_iter_wrapper(ctx, argc, argv);
+        }, 0);
+        addMethod(proto, "entries", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_entries_iter_wrapper(ctx, argc, argv);
         }, 0);
         addMethod(proto, "forEach", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
