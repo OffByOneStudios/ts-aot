@@ -5,6 +5,7 @@
 #include "TsRuntime.h"
 #include "TsArray.h"
 #include "TsMap.h"
+#include "TsHashTable.h"  // for TsHashTable::ATTR_CONFIGURABLE
 #include "TsBigInt.h"
 #include "TsObject.h"  // for TsFunction (used by GetPropertyVirtual returning slice)
 #include <cstring>
@@ -2515,6 +2516,24 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
         v.i_val = (int64_t)byteOffset;
         return v;
     }
+    // Helper that builds a TsFunction wrapping a getter/setter lambda
+    // and installs the spec-required .name and .length own-properties
+    // ({writable:false, enumerable:false, configurable:true} per
+    // ECMA-262 25.3.4 / built-in function descriptor convention).
+    auto installFnMeta = [](TsFunction* fn, const char* mname, int marity) {
+        fn->name = TsString::Create(mname);
+        fn->arity = marity;
+        fn->is_constructor = false;
+        if (!fn->properties) fn->properties = TsMap::Create();
+        TsValue nk; nk.type = ValueType::STRING_PTR;
+        nk.ptr_val = TsString::GetInterned("name");
+        TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = fn->name;
+        fn->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+        TsValue lk; lk.type = ValueType::STRING_PTR;
+        lk.ptr_val = TsString::GetInterned("length");
+        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = marity;
+        fn->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+    };
     // Helper that builds a TsFunction wrapping a getter lambda. ctx is
     // the receiver DataView; offV is the byte offset; leV is the
     // littleEndian flag (defaults false for big-endian per spec).
@@ -2522,7 +2541,7 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
         if (strcmp(key, name) == 0) { \
             TsValue v; v.type = ValueType::FUNCTION_PTR; \
             void* mem = ts_alloc(sizeof(TsFunction)); \
-            v.ptr_val = new (mem) TsFunction( \
+            TsFunction* fn = new (mem) TsFunction( \
                 (void*)+[](void* ctx, TsValue* offV, TsValue* leV) -> TsValue* { \
                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx); \
                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
@@ -2537,13 +2556,15 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                     body \
                 }, \
                 this, FunctionType::COMPILED, 1); \
+            installFnMeta(fn, name, 1); \
+            v.ptr_val = fn; \
             return v; \
         }
     #define DV_SET(name, width, body) \
         if (strcmp(key, name) == 0) { \
             TsValue v; v.type = ValueType::FUNCTION_PTR; \
             void* mem = ts_alloc(sizeof(TsFunction)); \
-            v.ptr_val = new (mem) TsFunction( \
+            TsFunction* fn = new (mem) TsFunction( \
                 (void*)+[](void* ctx, TsValue* offV, TsValue* valV, TsValue* leV) -> TsValue* { \
                     TsDataView* dv = dynamic_cast<TsDataView*>((TsObject*)ctx); \
                     if (!dv || !dv->GetBuffer()) return ts_value_make_undefined(); \
@@ -2560,6 +2581,8 @@ TsValue TsDataView::GetPropertyVirtual(const char* key) {
                     return ts_value_make_undefined(); \
                 }, \
                 this, FunctionType::COMPILED, 2); \
+            installFnMeta(fn, name, 2); \
+            v.ptr_val = fn; \
             return v; \
         }
 

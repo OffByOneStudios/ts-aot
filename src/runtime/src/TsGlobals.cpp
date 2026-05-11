@@ -2245,8 +2245,24 @@ static void* makeTypedArrayCtor(const char* name,
     ctorRefVal.ptr_val = ctorFunc;
     proto->Set(ctorKey, ctorRefVal);
 
-    // .name = constructor name
+    // .name = constructor name (and arity = 3 per ECMA-262 23.2.4.1
+    // for concrete TypedArray ctors; %TypedArray% itself overrides
+    // below). Install both as own-properties on the function so
+    // Object.getOwnPropertyDescriptor(Int8Array, 'name'/'length') sees
+    // the spec-required {writable:false, enumerable:false, configurable:true}
+    // descriptor.
     ctorFunc->name = TsString::Create(name);
+    ctorFunc->arity = 3;
+    {
+        TsValue nk; nk.type = ValueType::STRING_PTR;
+        nk.ptr_val = TsString::GetInterned("name");
+        TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = ctorFunc->name;
+        ctorFunc->properties->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+        TsValue lk; lk.type = ValueType::STRING_PTR;
+        lk.ptr_val = TsString::GetInterned("length");
+        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = 3;
+        ctorFunc->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+    }
 
     // TypedArray spec: each constructor has `from` (arity 1) and `of`
     // (arity 0) static methods. Attach them via addMethod so they get
