@@ -1039,7 +1039,31 @@ ast::NodePtr Parser::parseObjectBindingPattern() {
             elem->name = parseBindingNameOrPattern();
 
             if (match(TokenKind::Equals)) {
+                bool prevNoIn = noIn_;
+                noIn_ = false;
                 elem->initializer = parseAssignmentExpression();
+                noIn_ = prevNoIn;
+            }
+        } else if (check(TokenKind::OpenBracket)) {
+            // ECMA-262 14.3.3 BindingProperty : PropertyName : BindingElement,
+            // and PropertyName includes ComputedPropertyName [ AssignmentExpression[+In] ].
+            advance();  // consume '['
+            auto cpn = std::make_unique<ast::ComputedPropertyName>();
+            setLocation(cpn.get(), previous_);
+            bool prevNoIn = noIn_;
+            noIn_ = false;
+            cpn->expression = parseAssignmentExpression();
+            noIn_ = prevNoIn;
+            expect(TokenKind::CloseBracket, "']'");
+            expect(TokenKind::Colon, "':'");
+            elem->computedPropertyName = std::move(cpn);
+            elem->propertyName = "[computed]";
+            elem->name = parseBindingNameOrPattern();
+            if (match(TokenKind::Equals)) {
+                bool prevNoIn2 = noIn_;
+                noIn_ = false;
+                elem->initializer = parseAssignmentExpression();
+                noIn_ = prevNoIn2;
             }
         } else {
             // propertyName: binding or just binding

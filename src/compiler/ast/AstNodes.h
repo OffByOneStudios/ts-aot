@@ -274,6 +274,7 @@ struct VariableDeclaration : Statement {
 struct BindingElement : Node {
     NodePtr name;
     std::string propertyName;
+    NodePtr computedPropertyName;  // ComputedPropertyName node when present
     ExprPtr initializer;
     bool isSpread = false;
     std::string getKind() const override { return "BindingElement"; }
