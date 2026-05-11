@@ -1022,14 +1022,16 @@ ast::NodePtr Parser::parseObjectBindingPattern() {
             elem->isSpread = true;
             elem->name = parseBindingNameOrPattern();
         } else if (check(TokenKind::NumericLiteral) ||
-                   check(TokenKind::StringLiteral)) {
-            // PropertyName : BindingElement with numeric or string key.
-            // Per ECMA-262 14.1.2 BindingProperty : PropertyName : BindingElement
-            // — PropertyName includes NumericLiteral and StringLiteral. The
-            // shorthand path doesn't apply here; a `:` is mandatory.
+                   check(TokenKind::StringLiteral) ||
+                   check(TokenKind::BigIntLiteral)) {
+            // PropertyName : BindingElement with numeric/string/bigint key.
+            // ECMA-262 14.3.3 BindingProperty : PropertyName : BindingElement.
             std::string propName;
             if (check(TokenKind::StringLiteral)) {
                 propName = Lexer::getStringValue(current_.text);
+            } else if (check(TokenKind::BigIntLiteral)) {
+                propName = std::string(current_.text);
+                if (!propName.empty() && propName.back() == 'n') propName.pop_back();
             } else {
                 propName = canonicalNumericPropertyName(current_.text);
             }
@@ -2133,6 +2135,12 @@ ast::NodePtr Parser::parseClassMember() {
         advance();
     } else if (check(TokenKind::NumericLiteral)) {
         name = canonicalNumericPropertyName(current_.text);
+        advance();
+    } else if (check(TokenKind::BigIntLiteral)) {
+        // ECMA-262: BigIntLiteral as PropertyName -> its decimal-string form.
+        std::string lex(current_.text);
+        if (!lex.empty() && lex.back() == 'n') lex.pop_back();
+        name = lex;
         advance();
     } else if (current_.kind == TokenKind::KW_constructor) {
         name = "constructor";

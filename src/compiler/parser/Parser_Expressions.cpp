@@ -1322,6 +1322,13 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             } else if (check(TokenKind::NumericLiteral)) {
                 name = Parser::canonicalNumericPropertyName(current_.text);
                 advance();
+            } else if (check(TokenKind::BigIntLiteral)) {
+                // ECMA-262: BigIntLiteral as PropertyName converts to its
+                // decimal-string representation (the 'n' suffix is stripped).
+                std::string lex(current_.text);
+                if (!lex.empty() && lex.back() == 'n') lex.pop_back();
+                name = lex;
+                advance();
             } else {
                 nameEscapedReserved = current_.escapedReservedWord;
                 name = identifierName();
