@@ -2058,11 +2058,15 @@ ast::NodePtr Parser::parseClassMember() {
         }
 
         if (check(TokenKind::OpenBracket)) {
-            // Computed property name
+            // Computed property name — ECMA-262 14.5: ComputedPropertyName is
+            // [ AssignmentExpression[+In] ], so `in` is always allowed inside.
             advance(); // [
             auto cpn = std::make_unique<ast::ComputedPropertyName>();
             setLocation(cpn.get(), previous_);
+            bool prevNoIn = noIn_;
+            noIn_ = false;
             cpn->expression = parseAssignmentExpression();
+            noIn_ = prevNoIn;
             expect(TokenKind::CloseBracket, "']'");
             name = "[computed]";
             nameNode = std::move(cpn);
@@ -3478,7 +3482,10 @@ ast::StmtPtr Parser::parseInterfaceDeclaration(bool isExported, bool isDefaultEx
         if (check(TokenKind::OpenBracket)) {
             advance();
             auto cpn = std::make_unique<ast::ComputedPropertyName>();
+            bool prevNoIn = noIn_;
+            noIn_ = false;
             cpn->expression = parseAssignmentExpression();
+            noIn_ = prevNoIn;
             expect(TokenKind::CloseBracket, "']'");
             name = "[computed]";
             nameNode = std::move(cpn);

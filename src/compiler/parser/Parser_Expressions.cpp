@@ -1236,6 +1236,9 @@ ast::ExprPtr Parser::parseObjectLiteral() {
     auto node = std::make_unique<ast::ObjectLiteralExpression>();
     setLocation(node.get(), startTok);
 
+    // ECMA-262: ObjectLiteral PropertyDefinition uses AssignmentExpression[+In].
+    bool prevNoIn = noIn_;
+    noIn_ = false;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         // Spread property: ...expr
         if (check(TokenKind::DotDotDot)) {
@@ -1298,11 +1301,14 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             int nameLine = current_.line;
 
             if (check(TokenKind::OpenBracket)) {
-                // Computed property name
+                // Computed property name — AssignmentExpression[+In].
                 advance();
                 auto cpn = std::make_unique<ast::ComputedPropertyName>();
                 setLocation(cpn.get(), previous_);
+                bool prevNoIn = noIn_;
+                noIn_ = false;
                 cpn->expression = parseAssignmentExpression();
+                noIn_ = prevNoIn;
                 expect(TokenKind::CloseBracket, "']'");
                 name = "[computed]";
                 nameNode = std::move(cpn);
@@ -1409,6 +1415,7 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             match(TokenKind::Comma);  // Trailing comma is optional
         }
     }
+    noIn_ = prevNoIn;
 
     expect(TokenKind::CloseBrace, "'}'");
     lexer_->setRegexAllowed(false);
@@ -1422,6 +1429,9 @@ ast::ExprPtr Parser::parseArrayLiteral() {
     auto node = std::make_unique<ast::ArrayLiteralExpression>();
     setLocation(node.get(), startTok);
 
+    // ECMA-262: ArrayLiteral elements are AssignmentExpression[+In].
+    bool prevNoIn = noIn_;
+    noIn_ = false;
     while (!check(TokenKind::CloseBracket) && !isAtEnd()) {
         if (check(TokenKind::Comma)) {
             // Elision (hole in array)
@@ -1442,6 +1452,7 @@ ast::ExprPtr Parser::parseArrayLiteral() {
             expect(TokenKind::Comma, "','");
         }
     }
+    noIn_ = prevNoIn;
 
     expect(TokenKind::CloseBracket, "']'");
     lexer_->setRegexAllowed(false);
