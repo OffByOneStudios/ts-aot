@@ -21,6 +21,8 @@
 #include <unicode/utypes.h>
 #include <unicode/locid.h>
 #include <unicode/bytestream.h>
+#include <unicode/coll.h>
+#include <unicode/ucol.h>
 #include <unordered_map>
 #include <string>
 #include <limits>
@@ -2265,6 +2267,31 @@ static void intlInstallToStringTag(TsMap* proto, const char* tag) {
     proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
 }
 
+// Like wrapAsCallable but with a custom body. Used by Intl constructors
+// that need to actually instantiate ICU-backed objects.
+static void* wrapAsCallableWithBody(TsMap* ctor, const char* name, int length,
+                                     TsValue* (*body)(void*, int, TsValue**)) {
+    if (!ctor) return nullptr;
+    TsValue* fnVal = ts_value_make_native_function((void*)body, nullptr);
+    void* rawFn = ts_value_get_object(fnVal);
+    if (!rawFn) return (void*)ctor;
+    TsFunction* func = (TsFunction*)rawFn;
+    func->name = TsString::Create(name);
+    func->arity = length;
+    func->is_constructor = true;
+    func->properties = ctor;
+    ts_gc_write_barrier(&func->properties, ctor);
+    TsValue nk; nk.type = ValueType::STRING_PTR;
+    nk.ptr_val = TsString::GetInterned("name");
+    TsValue nv; nv.type = ValueType::STRING_PTR; nv.ptr_val = func->name;
+    ctor->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
+    TsValue lk; lk.type = ValueType::STRING_PTR;
+    lk.ptr_val = TsString::GetInterned("length");
+    TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = length;
+    ctor->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+    return (void*)fnVal;
+}
+
 static void* makeIntlCtorStub(const char* name, int length,
                               const char* protoToStringTag,
                               void (*populateProto)(TsMap*)) {
@@ -2284,6 +2311,176 @@ static void* makeIntlCtorStub(const char* name, int length,
         return ts_value_make_object(ts_array_create());
     }, 1);
     return wrapAsCallable(ctor, name, length);
+}
+
+// =============================================================================
+// Intl.Collator (Phase B) — real icu::Collator integration.
+// =============================================================================
+//
+// Each instance is a TsMap with prototype = Collator.prototype. Holds the
+// icu::Collator* under a hidden "__icuCollator" key (leaked on GC since
+// Boehm doesn't track external ICU allocations — acceptable for short-
+// lived test262 use; finalizer is a future task).
+
+static TsMap* g_intlCollatorProto = nullptr;  // Set during Intl init.
+
+static TsValue* intlCollatorCompareImpl(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_value_get_object((TsValue*)ctx);
+    if (!raw) raw = ctx;
+    TsMap* receiver = raw ? (TsMap*)raw : nullptr;
+    if (!receiver) return ts_value_make_int(0);
+    // Look up __icuCollator on the receiver.
+    TsValue ck; ck.type = ValueType::STRING_PTR;
+    ck.ptr_val = TsString::GetInterned("__icuCollator");
+    TsValue cv = receiver->Get(ck);
+    icu::Collator* coll = (cv.type == ValueType::OBJECT_PTR) ? (icu::Collator*)cv.ptr_val : nullptr;
+    void* sa = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
+    void* sb = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
+    const char* ua = sa ? ((TsString*)sa)->ToUtf8() : "";
+    const char* ub = sb ? ((TsString*)sb)->ToUtf8() : "";
+    if (!ua) ua = "";
+    if (!ub) ub = "";
+    if (!coll) {
+        // No collator (shouldn't normally happen) — fall back to byte compare.
+        int cmp = std::strcmp(ua, ub);
+        return ts_value_make_int(cmp < 0 ? -1 : (cmp > 0 ? 1 : 0));
+    }
+    UErrorCode err = U_ZERO_ERROR;
+    UCollationResult r = coll->compareUTF8(icu::StringPiece(ua), icu::StringPiece(ub), err);
+    if (U_FAILURE(err)) return ts_value_make_int(0);
+    return ts_value_make_int(r == UCOL_LESS ? -1 : (r == UCOL_GREATER ? 1 : 0));
+}
+
+static TsValue* intlCollatorResolvedOptions(void* ctx, int argc, TsValue** argv) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_value_get_object((TsValue*)ctx);
+    if (!raw) raw = ctx;
+    TsMap* receiver = raw ? (TsMap*)raw : nullptr;
+    TsMap* result = TsMap::Create();
+    if (!receiver) return ts_value_make_object(result);
+    // Copy resolved option fields from the instance to a fresh TsMap.
+    const char* keys[] = {"locale", "usage", "sensitivity", "ignorePunctuation",
+                          "collation", "numeric", "caseFirst"};
+    for (const char* k : keys) {
+        TsValue key; key.type = ValueType::STRING_PTR;
+        key.ptr_val = TsString::GetInterned(k);
+        TsValue v = receiver->Get(key);
+        if (v.type != ValueType::UNDEFINED) {
+            result->Set(key, v);
+        }
+    }
+    return ts_value_make_object(result);
+}
+
+static TsValue* intlCollatorCtorBody(void* ctx, int argc, TsValue** argv) {
+    // Extract locale from argv[0] (string or array; first usable element).
+    icu::Locale locale = icu::Locale::getDefault();
+    std::string localeTagOut = "und";
+    if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+        void* str = ts_value_get_string(argv[0]);
+        if (str) {
+            const char* utf8 = ((TsString*)str)->ToUtf8();
+            if (utf8 && utf8[0]) {
+                locale = icu::Locale::createCanonical(utf8);
+                UErrorCode err = U_ZERO_ERROR;
+                localeTagOut.clear();
+                icu::StringByteSink<std::string> sink(&localeTagOut);
+                locale.toLanguageTag(sink, err);
+                if (U_FAILURE(err) || localeTagOut.empty()) localeTagOut = utf8;
+            }
+        }
+    }
+    // Build the icu::Collator.
+    UErrorCode err = U_ZERO_ERROR;
+    icu::Collator* coll = icu::Collator::createInstance(locale, err);
+    if (U_FAILURE(err) || !coll) {
+        // Fall back to default locale.
+        err = U_ZERO_ERROR;
+        coll = icu::Collator::createInstance(icu::Locale::getDefault(), err);
+    }
+    // Default ECMA-402 Collator options.
+    const char* usage = "sort";
+    const char* sensitivity = "variant";
+    bool numeric = false;
+    bool ignorePunctuation = false;
+    const char* caseFirst = "false";
+    // Parse options object if present. Use ts_object_get_property so we
+    // handle both TsMap and TsFlatObject receivers uniformly.
+    if (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1])) {
+        auto getOpt = [&](const char* k) -> TsValue* {
+            return ts_object_get_property(argv[1], k);
+        };
+        auto getStrOpt = [&](const char* k) -> const char* {
+            TsValue* v = getOpt(k);
+            if (!v) return nullptr;
+            void* s = ts_value_get_string(v);
+            return s ? ((TsString*)s)->ToUtf8() : nullptr;
+        };
+        if (const char* u = getStrOpt("usage")) usage = u;
+        if (const char* s = getStrOpt("sensitivity")) sensitivity = s;
+        if (const char* cf = getStrOpt("caseFirst")) caseFirst = cf;
+        TsValue* nv = getOpt("numeric");
+        if (nv && !ts_value_is_undefined(nv)) numeric = ts_value_to_bool(nv);
+        TsValue* iv = getOpt("ignorePunctuation");
+        if (iv && !ts_value_is_undefined(iv)) ignorePunctuation = ts_value_to_bool(iv);
+    }
+    // Apply options to the collator.
+    if (coll) {
+        UErrorCode e2 = U_ZERO_ERROR;
+        if (std::strcmp(sensitivity, "base") == 0) {
+            coll->setAttribute(UCOL_STRENGTH, UCOL_PRIMARY, e2);
+        } else if (std::strcmp(sensitivity, "accent") == 0) {
+            coll->setAttribute(UCOL_STRENGTH, UCOL_SECONDARY, e2);
+        } else if (std::strcmp(sensitivity, "case") == 0) {
+            coll->setAttribute(UCOL_STRENGTH, UCOL_PRIMARY, e2);
+            coll->setAttribute(UCOL_CASE_LEVEL, UCOL_ON, e2);
+        } else {  // "variant" (default)
+            coll->setAttribute(UCOL_STRENGTH, UCOL_TERTIARY, e2);
+        }
+        if (numeric) {
+            coll->setAttribute(UCOL_NUMERIC_COLLATION, UCOL_ON, e2);
+        }
+        if (ignorePunctuation) {
+            coll->setAttribute(UCOL_ALTERNATE_HANDLING, UCOL_SHIFTED, e2);
+        }
+        if (std::strcmp(caseFirst, "upper") == 0) {
+            coll->setAttribute(UCOL_CASE_FIRST, UCOL_UPPER_FIRST, e2);
+        } else if (std::strcmp(caseFirst, "lower") == 0) {
+            coll->setAttribute(UCOL_CASE_FIRST, UCOL_LOWER_FIRST, e2);
+        }
+    }
+    // Build the instance TsMap.
+    TsMap* instance = TsMap::Create();
+    if (g_intlCollatorProto) {
+        instance->SetPrototype(g_intlCollatorProto);
+    }
+    auto setStr = [&](const char* k, const char* v) {
+        TsValue kk; kk.type = ValueType::STRING_PTR;
+        kk.ptr_val = TsString::GetInterned(k);
+        TsValue vv; vv.type = ValueType::STRING_PTR;
+        vv.ptr_val = TsString::Create(v);
+        instance->Set(kk, vv);
+    };
+    auto setBool = [&](const char* k, bool v) {
+        TsValue kk; kk.type = ValueType::STRING_PTR;
+        kk.ptr_val = TsString::GetInterned(k);
+        TsValue vv; vv.type = ValueType::BOOLEAN; vv.i_val = v ? 1 : 0;
+        instance->Set(kk, vv);
+    };
+    setStr("locale", localeTagOut.c_str());
+    setStr("usage", usage);
+    setStr("sensitivity", sensitivity);
+    setStr("caseFirst", caseFirst);
+    setStr("collation", "default");
+    setBool("numeric", numeric);
+    setBool("ignorePunctuation", ignorePunctuation);
+    // Hidden slot: icu::Collator pointer.
+    TsValue collKey; collKey.type = ValueType::STRING_PTR;
+    collKey.ptr_val = TsString::GetInterned("__icuCollator");
+    TsValue collVal; collVal.type = ValueType::OBJECT_PTR; collVal.ptr_val = coll;
+    instance->Set(collKey, collVal);
+    return ts_value_make_object(instance);
 }
 
 void* ts_get_global_Intl() {
@@ -2322,18 +2519,8 @@ void* ts_get_global_Intl() {
     }, 1);
 
     auto populateCollatorProto = [](TsMap* proto) {
-        addMethod(proto, "compare", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            void* a = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
-            void* b = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
-            if (!a || !b) return ts_value_make_int(0);
-            const char* sa = ((TsString*)a)->ToUtf8();
-            const char* sb = ((TsString*)b)->ToUtf8();
-            int cmp = std::strcmp(sa ? sa : "", sb ? sb : "");
-            return ts_value_make_int(cmp < 0 ? -1 : (cmp > 0 ? 1 : 0));
-        }, 2);
-        addMethod(proto, "resolvedOptions", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-            return ts_value_make_object(TsMap::Create());
-        }, 0);
+        addMethod(proto, "compare", (void*)intlCollatorCompareImpl, 2);
+        addMethod(proto, "resolvedOptions", (void*)intlCollatorResolvedOptions, 0);
     };
     auto populateFormatProto = [](TsMap* proto) {
         addMethod(proto, "format", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
@@ -2381,7 +2568,29 @@ void* ts_get_global_Intl() {
         v.ptr_val = ts_value_get_object((TsValue*)fn);
         cached->SetWithAttrs(k, v, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
     };
-    registerCtor("Collator",           0, "Intl.Collator",            populateCollatorProto);
+    // Intl.Collator — Phase B: real icu::Collator backing.
+    {
+        TsMap* ctor = makeSimpleConstructorGlobal("Collator");
+        TsValue protoK; protoK.type = ValueType::STRING_PTR;
+        protoK.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoV = ctor->Get(protoK);
+        if (protoV.type == ValueType::OBJECT_PTR && protoV.ptr_val) {
+            TsMap* proto = (TsMap*)protoV.ptr_val;
+            populateCollatorProto(proto);
+            intlInstallToStringTag(proto, "Intl.Collator");
+            g_intlCollatorProto = proto;  // stash for instance prototype linkage
+        }
+        addMethod(ctor, "supportedLocalesOf", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            extern void* ts_array_create();
+            return ts_value_make_object(ts_array_create());
+        }, 1);
+        void* fn = wrapAsCallableWithBody(ctor, "Collator", 0, intlCollatorCtorBody);
+        TsValue k; k.type = ValueType::STRING_PTR;
+        k.ptr_val = TsString::GetInterned("Collator");
+        TsValue v; v.type = ValueType::FUNCTION_PTR;
+        v.ptr_val = ts_value_get_object((TsValue*)fn);
+        cached->SetWithAttrs(k, v, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+    }
     registerCtor("NumberFormat",       0, "Intl.NumberFormat",        populateFormatProto);
     registerCtor("DateTimeFormat",     0, "Intl.DateTimeFormat",      populateFormatProto);
     registerCtor("PluralRules",        0, "Intl.PluralRules",         populatePluralProto);
