@@ -4459,6 +4459,18 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
             if (idx->getType()->isDoubleTy()) {
                 idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
             }
+            // Box arr if it's a primitive (e.g., `for (x of 37)` or `for (x of false)`
+            // reaches here with `arr` as i64/i1/double instead of ptr — the runtime
+            // is then responsible for throwing TypeError on the non-array receiver).
+            if (arr->getType()->isDoubleTy()) {
+                arr = emitInlineBoxFloat(arr);
+            } else if (arr->getType()->isIntegerTy(64)) {
+                arr = emitInlineBoxInt(arr);
+            } else if (arr->getType()->isIntegerTy(1)) {
+                auto ft2 = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
+                auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", ft2);
+                arr = builder_->CreateCall(ft2, boxFn.getCallee(), {arr});
+            }
 
             auto fn = getTsArrayGet();
             result = builder_->CreateCall(fn, {arr, idx});
@@ -4631,6 +4643,19 @@ void HIRToLLVM::lowerSetElemTyped(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerArrayLength(HIRInstruction* inst) {
     llvm::Value* arr = getOperandValue(inst->operands[0]);
+
+    // Box primitive receivers (for-of of a non-array like 37 or false reaches
+    // here with the primitive unboxed; the runtime is responsible for the
+    // TypeError).
+    if (arr->getType()->isDoubleTy()) {
+        arr = emitInlineBoxFloat(arr);
+    } else if (arr->getType()->isIntegerTy(64)) {
+        arr = emitInlineBoxInt(arr);
+    } else if (arr->getType()->isIntegerTy(1)) {
+        auto ft2 = llvm::FunctionType::get(builder_->getPtrTy(), {builder_->getInt1Ty()}, false);
+        auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", ft2);
+        arr = builder_->CreateCall(ft2, boxFn.getCallee(), {arr});
+    }
 
     auto fn = getTsArrayLength();
     llvm::Value* result = builder_->CreateCall(fn, {arr});
