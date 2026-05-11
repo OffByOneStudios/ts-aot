@@ -1535,9 +1535,21 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
         node->isGenerator = true;
     }
 
-    // Optional name
+    // Optional name. Track for the strict-mode early-error check below.
+    int nameLine = current_.line;
     if (isIdentifierOrKeyword() && !check(TokenKind::OpenParen)) {
         node->name = identifierName();
+    }
+    // ECMA-262 14.1.5.3: BindingIdentifier of FunctionExpression must not
+    // be 'eval' or 'arguments' in strict-mode code. The outer strict
+    // case is checked here; the inner-strict (body has "use strict"
+    // directive prologue) case is checked after the body parses, since
+    // we only learn the body's strict-ness then.
+    if (strictMode_ && (node->name == "eval" || node->name == "arguments")) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: function expression name may not be "
+            "'eval' or 'arguments' in strict mode",
+            fileName_, nameLine));
     }
 
     // Type parameters
@@ -1582,6 +1594,16 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
             "{}:{}: function with non-simple parameter list may not "
             "declare \"use strict\"",
             current_.line, current_.column));
+    }
+    // ECMA-262 14.1.5.3: BindingIdentifier of FunctionExpression with
+    // a body containing "use strict" directive is also strict-mode
+    // code. Re-check name === 'eval'/'arguments' after the body parses.
+    if (sawUseStrictDirective_ &&
+        (node->name == "eval" || node->name == "arguments")) {
+        throw std::runtime_error(fmt::format(
+            "{}:{}: SyntaxError: function expression name may not be "
+            "'eval' or 'arguments' when body is strict-mode code",
+            fileName_, nameLine));
     }
     sawUseStrictDirective_ = prevSawUseStrict;
 
