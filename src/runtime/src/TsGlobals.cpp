@@ -2292,6 +2292,17 @@ static void* wrapAsCallableWithBody(TsMap* ctor, const char* name, int length,
     lk.ptr_val = TsString::GetInterned("length");
     TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = length;
     ctor->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
+    // ECMA-262: F.prototype.constructor = F (writable, non-enumerable, configurable).
+    TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+    protoKey.ptr_val = TsString::GetInterned("prototype");
+    TsValue protoVal = ctor->Get(protoKey);
+    if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+        TsMap* proto = (TsMap*)protoVal.ptr_val;
+        TsValue ck; ck.type = ValueType::STRING_PTR;
+        ck.ptr_val = TsString::GetInterned("constructor");
+        TsValue cv; cv.type = ValueType::FUNCTION_PTR; cv.ptr_val = func;
+        proto->SetWithAttrs(ck, cv, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+    }
     return (void*)fnVal;
 }
 
@@ -2313,7 +2324,16 @@ static void* makeIntlCtorStub(const char* name, int length,
         extern void* ts_array_create();
         return ts_value_make_object(ts_array_create());
     }, 1);
-    return wrapAsCallable(ctor, name, length);
+    void* fn = wrapAsCallable(ctor, name, length);
+    // ECMA-262: F.prototype.constructor = F (writable, non-enumerable, configurable).
+    if (fn && protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+        TsMap* proto = (TsMap*)protoVal.ptr_val;
+        TsValue ck; ck.type = ValueType::STRING_PTR;
+        ck.ptr_val = TsString::GetInterned("constructor");
+        TsValue cv; cv.type = ValueType::FUNCTION_PTR; cv.ptr_val = fn;
+        proto->SetWithAttrs(ck, cv, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+    }
+    return fn;
 }
 
 // =============================================================================
