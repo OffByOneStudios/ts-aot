@@ -1361,6 +1361,22 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                         "shorthand property reference",
                         fileName_, nameLine));
                 }
+                // ECMA-262 12.6.1.1: strict-mode FutureReservedWords
+                // (and `let` / `yield`) are not valid IdentifierReferences
+                // in strict-mode code. The shorthand-form binds the same
+                // identifier as both PropertyName and reference value, so
+                // strict-mode rejection applies.
+                if (strictMode_ && (name == "let" || name == "yield" ||
+                                    name == "package" || name == "private" ||
+                                    name == "protected" || name == "public" ||
+                                    name == "interface" || name == "implements" ||
+                                    name == "static")) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: '{}' is a strict-mode reserved "
+                        "word and cannot be used as a shorthand property "
+                        "reference",
+                        fileName_, nameLine, name));
+                }
                 auto prop = std::make_unique<ast::ShorthandPropertyAssignment>();
                 setLocation(prop.get(), previous_);
                 prop->name = name;
