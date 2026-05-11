@@ -1674,10 +1674,12 @@ std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported) 
         decl->name = parseBindingNameOrPattern();
 
         // ECMA-262 13.3.1.1: BoundNames of LexicalDeclaration may not
-        // contain "let". Applies recursively through destructuring.
+        // contain "let", and BoundNames of a single LexicalBinding
+        // pattern may not contain duplicates (`let [x, x] = arr`).
         if (decl->varKind == ast::VarKind::Let || decl->varKind == ast::VarKind::Const) {
             std::vector<std::pair<std::string, int>> names;
             collectBoundIdentNames(decl->name.get(), names);
+            std::unordered_map<std::string, int> seen;
             for (auto& [nm, ln] : names) {
                 if (nm == "let") {
                     throw std::runtime_error(fmt::format(
@@ -1685,6 +1687,13 @@ std::vector<ast::StmtPtr> Parser::parseVariableDeclarationList(bool isExported) 
                         "identifier in let/const declarations",
                         fileName_, ln));
                 }
+                if (seen.count(nm)) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: duplicate binding name '{}' in "
+                        "destructuring pattern",
+                        fileName_, ln, nm));
+                }
+                seen[nm] = ln;
             }
         }
 
@@ -2427,11 +2436,13 @@ ast::StmtPtr Parser::parseForStatement() {
         auto firstDecl = std::make_unique<ast::VariableDeclaration>();
         setLocation(firstDecl.get(), current_);
         firstDecl->name = parseBindingNameOrPattern();
-        // ECMA-262 13.3.1.1: BoundNames of LexicalDeclaration may not
-        // contain "let".
+        // ECMA-262 13.3.1.1 / 14.7.5.1: BoundNames of LexicalDeclaration
+        // may not contain "let", and the BoundNames of a ForDeclaration
+        // must not contain duplicates (`for (const [x, x] of arr)`).
         if (kwTok.kind == TokenKind::KW_let || kwTok.kind == TokenKind::KW_const) {
             std::vector<std::pair<std::string, int>> names;
             collectBoundIdentNames(firstDecl->name.get(), names);
+            std::unordered_map<std::string, int> seen;
             for (auto& [nm, ln] : names) {
                 if (nm == "let") {
                     throw std::runtime_error(fmt::format(
@@ -2439,6 +2450,13 @@ ast::StmtPtr Parser::parseForStatement() {
                         "identifier in let/const declarations",
                         fileName_, ln));
                 }
+                if (seen.count(nm)) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: duplicate binding name '{}' in "
+                        "ForDeclaration",
+                        fileName_, ln, nm));
+                }
+                seen[nm] = ln;
             }
         }
         if (check(TokenKind::Colon)) {
