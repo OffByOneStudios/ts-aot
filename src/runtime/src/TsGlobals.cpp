@@ -2520,9 +2520,12 @@ static TsValue* intlNumberFormatFormatImpl(void* ctx, int argc, TsValue** argv) 
     fk.ptr_val = TsString::GetInterned("__icuNumberFormat");
     TsValue fv = receiver->Get(fk);
     icu::NumberFormat* fmt = (fv.type == ValueType::OBJECT_PTR) ? (icu::NumberFormat*)fv.ptr_val : nullptr;
-    double d = 0.0;
+    // ECMA-402 11.1.4 Number Format Functions: if value is not provided,
+    // let value be undefined; then x = ToNumber(value) -> NaN.
+    double d = std::numeric_limits<double>::quiet_NaN();
     if (argc >= 1 && argv && argv[0]) d = ts_value_get_double(argv[0]);
     if (!fmt) {
+        if (std::isnan(d)) return ts_value_make_string(TsString::Create("NaN"));
         char buf[64]; std::snprintf(buf, sizeof(buf), "%g", d);
         return ts_value_make_string(TsString::Create(buf));
     }
