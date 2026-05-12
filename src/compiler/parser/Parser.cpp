@@ -3055,15 +3055,19 @@ ast::StmtPtr Parser::parseExpressionStatement() {
 
 ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
     // Check if this is a labeled statement: identifier ':'
-    if (current_.kind == TokenKind::Identifier) {
+    // ECMA-262: LabelIdentifier = BindingIdentifier minus context-specific
+    // reservations. `await` is a valid label in non-async/non-module code,
+    // and `yield` is a valid label in non-strict/non-generator code.
+    TokenKind k = current_.kind;
+    bool isLabelCandidate =
+        k == TokenKind::Identifier ||
+        (k == TokenKind::KW_await && !inAsync_) ||
+        (k == TokenKind::KW_yield && !inGenerator_ && !strictMode_);
+    if (isLabelCandidate) {
         auto saved = saveState();
         std::string name(current_.text);
         int line = current_.line;
         int col = current_.column;
-        // Capture before advance(): label identifiers are
-        // BindingIdentifier-form per spec, so escape-encoded reserved
-        // words must be rejected. Without this, e.g. \`\\u0061wait:\` as
-        // a label inside async would slip through.
         bool labelEscapedReserved = current_.escapedReservedWord;
         advance();
         if (match(TokenKind::Colon)) {
