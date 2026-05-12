@@ -471,7 +471,13 @@ ast::ExprPtr Parser::parseUnaryExpression() {
             return node;
         }
         case TokenKind::KW_await: {
-            if (inAsync_ || functionDepth_ == 0) {
+            // await-expression: only valid in async function/method body.
+            // Top-level await (functionDepth_ == 0) is valid only in module
+            // mode, not in script mode — and our test262 harness defaults
+            // to script. Outside async, fall through to parsePostfix ->
+            // parsePrimary which handles KW_await as an Identifier (per
+            // ES262 13.1.1).
+            if (inAsync_) {
                 auto tok = current_;
                 advance();
                 auto node = std::make_unique<ast::AwaitExpression>();
