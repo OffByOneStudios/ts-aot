@@ -3066,22 +3066,32 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
     if (isLabelCandidate) {
         auto saved = saveState();
         std::string name(current_.text);
+        std::string decodedName = !current_.decodedText.empty()
+            ? current_.decodedText : name;
         int line = current_.line;
         int col = current_.column;
         bool labelEscapedReserved = current_.escapedReservedWord;
         advance();
         if (match(TokenKind::Colon)) {
             if (labelEscapedReserved) {
-                throw std::runtime_error(fmt::format(
-                    "{}:{}: SyntaxError: identifier resolves to reserved "
-                    "word via Unicode escape and cannot be used as a label",
-                    fileName_, line));
+                // `await` and `yield` are context-sensitive (not strict-
+                // reserved in script/non-generator/non-async). Allow their
+                // escape-encoded forms as labels in the same contexts as
+                // their raw forms.
+                bool awaitOk = decodedName == "await" && !inAsync_;
+                bool yieldOk = decodedName == "yield" && !inGenerator_ && !strictMode_;
+                if (!awaitOk && !yieldOk) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: identifier resolves to reserved "
+                        "word via Unicode escape and cannot be used as a label",
+                        fileName_, line));
+                }
             }
             // It's a labeled statement. Annex B.3.2.1: FunctionDeclaration
             // is allowed as LabelledItem in non-strict.
             auto node = std::make_unique<ast::LabeledStatement>();
             setLocation(node.get(), line, col);
-            node->label = name;
+            node->label = decodedName;
             node->statement = parseStatementOnly(/*allowAnnexBFunction=*/true);
             return node;
         }
