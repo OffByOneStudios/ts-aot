@@ -609,6 +609,23 @@ ast::ExprPtr Parser::parseCallExpression() {
                 access->argumentExpression = parseExpression();
                 expect(TokenKind::CloseBracket, "']'");
                 expr = std::move(access);
+            } else if (check(TokenKind::Hash)) {
+                // Optional private property access: expr?.#name
+                // ECMA-262 (private-field optional-chaining): OptionalChain
+                // includes `?.` PrivateIdentifier.
+                advance();  // consume '#'
+                if (current_.offset != previous_.offset + 1) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: no whitespace or line terminator "
+                        "allowed between '#' and identifier",
+                        previous_.line, previous_.column));
+                }
+                auto access = std::make_unique<ast::PropertyAccessExpression>();
+                setLocation(access.get(), expr->line, expr->column);
+                access->expression = std::move(expr);
+                access->isOptional = true;
+                access->name = "#" + identifierName();
+                expr = std::move(access);
             } else {
                 // Optional property access: expr?.prop
                 auto access = std::make_unique<ast::PropertyAccessExpression>();
