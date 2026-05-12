@@ -1256,7 +1256,7 @@ ast::StmtPtr Parser::parseStatementOnly(bool allowAnnexBFunction) {
             n == TokenKind::KW_protected ||
             n == TokenKind::KW_constructor || n == TokenKind::KW_keyof ||
             n == TokenKind::KW_infer || n == TokenKind::KW_asserts ||
-            n == TokenKind::KW_satisfies;
+            n == TokenKind::KW_satisfies || n == TokenKind::KW_undefined;
         if (isDecl && !nextHasNewline) reject("'let' declaration");
     } else if (k == TokenKind::KW_const) {
         reject("'const' declaration");
@@ -1489,7 +1489,7 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
                     k == TokenKind::KW_protected ||
                     k == TokenKind::KW_constructor || k == TokenKind::KW_keyof ||
                     k == TokenKind::KW_infer || k == TokenKind::KW_asserts ||
-                    k == TokenKind::KW_satisfies;
+                    k == TokenKind::KW_satisfies || k == TokenKind::KW_undefined;
                 restoreState(saved);
                 if (!looksLikeDecl) {
                     result = parseLabeledOrExpressionStatement();
@@ -2502,7 +2502,7 @@ ast::StmtPtr Parser::parseForStatement() {
             k == TokenKind::KW_protected ||
             k == TokenKind::KW_constructor || k == TokenKind::KW_keyof ||
             k == TokenKind::KW_infer || k == TokenKind::KW_asserts ||
-            k == TokenKind::KW_satisfies;
+            k == TokenKind::KW_satisfies || k == TokenKind::KW_undefined;
         // NOTE: KW_of intentionally not in the list — `for (let of [])`
         // is a spec parse error (`let` cannot be LHS of for-of).
         bool letFollowedByOf = (k == TokenKind::KW_of);
