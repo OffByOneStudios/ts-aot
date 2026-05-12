@@ -1719,10 +1719,58 @@ ast::ExprPtr Parser::parseClassExpression() {
     // Type parameters
     node->typeParameters = parseTypeParameterList();
 
-    // extends
+    // extends — mirror parseClassDeclaration's complex-LHS handling so that
+    // ECMA-262 ClassHeritage : extends LeftHandSideExpression works for
+    // class EXPRESSIONS too (`class extends function(){} {}`, `class extends
+    // 42 {}`, `class extends Foo.bar() {}`, etc.). The simple-identifier
+    // fast-path keeps the legacy node->baseClass string for analyzer
+    // lookups; the complex path consumes the LHS and leaves baseClass
+    // empty (downstream still registers the class).
     if (match(TokenKind::KW_extends)) {
-        node->baseClass = identifierName();
-        if (check(TokenKind::LessThan)) skipTypeExpression();
+        bool simple = false;
+        if (current_.kind == TokenKind::Identifier ||
+            current_.kind == TokenKind::KW_async ||
+            current_.kind == TokenKind::KW_await ||
+            current_.kind == TokenKind::KW_yield ||
+            current_.kind == TokenKind::KW_of ||
+            current_.kind == TokenKind::KW_from ||
+            current_.kind == TokenKind::KW_as ||
+            current_.kind == TokenKind::KW_get ||
+            current_.kind == TokenKind::KW_set ||
+            current_.kind == TokenKind::KW_type) {
+            auto saved = saveState();
+            std::string firstName(current_.text);
+            advance();
+            if (check(TokenKind::OpenBrace) ||
+                check(TokenKind::KW_implements) ||
+                check(TokenKind::LessThan)) {
+                node->baseClass = firstName;
+                if (check(TokenKind::LessThan)) skipTypeExpression();
+                simple = true;
+            } else {
+                restoreState(saved);
+            }
+        }
+        if (!simple) {
+            bool lhsStart = current_.kind == TokenKind::Identifier ||
+                            check(TokenKind::KW_new) ||
+                            check(TokenKind::KW_super) ||
+                            check(TokenKind::KW_this) ||
+                            check(TokenKind::KW_class) ||
+                            check(TokenKind::KW_function) ||
+                            check(TokenKind::KW_null) ||
+                            check(TokenKind::KW_true) ||
+                            check(TokenKind::KW_false) ||
+                            check(TokenKind::NumericLiteral) ||
+                            check(TokenKind::StringLiteral) ||
+                            check(TokenKind::TemplateHead) ||
+                            check(TokenKind::NoSubstitutionTemplate) ||
+                            check(TokenKind::RegularExpressionLiteral) ||
+                            check(TokenKind::BigIntLiteral) ||
+                            check(TokenKind::OpenParen) ||
+                            check(TokenKind::OpenBracket);
+            if (lhsStart) (void)parseCallExpression();
+        }
     }
 
     // implements
