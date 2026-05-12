@@ -1910,7 +1910,19 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
                             check(TokenKind::KW_function) ||
                             check(TokenKind::KW_null) ||
                             check(TokenKind::KW_true) ||
-                            check(TokenKind::KW_false);
+                            check(TokenKind::KW_false) ||
+                            // PrimaryExpression literals also valid per ES262
+                            // ClassHeritage : extends LeftHandSideExpression
+                            // → PrimaryExpression. Runtime throws TypeError
+                            // if not a constructor.
+                            check(TokenKind::NumericLiteral) ||
+                            check(TokenKind::StringLiteral) ||
+                            check(TokenKind::TemplateHead) ||
+                            check(TokenKind::NoSubstitutionTemplate) ||
+                            check(TokenKind::RegularExpressionLiteral) ||
+                            check(TokenKind::BigIntLiteral) ||
+                            check(TokenKind::OpenParen) ||
+                            check(TokenKind::OpenBracket);
             if (lhsStart) {
                 // Best-effort baseClass: leave empty so analyzer treats
                 // this as no user-defined base; downstream still registers
