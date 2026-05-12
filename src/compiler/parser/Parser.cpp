@@ -1650,6 +1650,15 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
     // Type parameters
     node->typeParameters = parseTypeParameterList();
 
+    // ECMA-262: parameter list is parsed under the new function's [Await]/
+    // [Yield] flags, NOT the outer context's. So `function* g() { function
+    // f(yield) {} }` is valid — the inner f's params have [Yield]=false.
+    // Save current flags and set per-function flags before parseParameterList.
+    bool prevAsyncOuter = inAsync_;
+    bool prevGenOuter = inGenerator_;
+    inAsync_ = node->isAsync;
+    inGenerator_ = node->isGenerator;
+
     // Parameters
     node->parameters = parseParameterList();
 
@@ -1704,6 +1713,9 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         // Overload signature (no body) - consume the semicolon
         expectSemicolon();
     }
+    // Restore the outer flags now that param-list + (optional) body are done.
+    inAsync_ = prevAsyncOuter;
+    inGenerator_ = prevGenOuter;
 
     return node;
 }

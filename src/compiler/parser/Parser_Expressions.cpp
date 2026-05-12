@@ -1616,6 +1616,14 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     // Type parameters
     node->typeParameters = parseTypeParameterList();
 
+    // ECMA-262: parameter list uses the new function's [Await]/[Yield]
+    // flags, not the outer context's. Save outer flags, set per-function
+    // flags before parseParameterList.
+    bool prevAsyncOuter = inAsync_;
+    bool prevGenOuter = inGenerator_;
+    inAsync_ = node->isAsync;
+    inGenerator_ = node->isGenerator;
+
     // Parameters
     node->parameters = parseParameterList();
 
@@ -1672,6 +1680,9 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
     inAsync_ = prevAsync;
     inGenerator_ = prevGen;
+    // Restore outer flags (the param-list scope).
+    inAsync_ = prevAsyncOuter;
+    inGenerator_ = prevGenOuter;
 
     lexer_->setRegexAllowed(false);
     return node;
