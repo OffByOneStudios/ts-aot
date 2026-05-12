@@ -446,6 +446,39 @@ Token Parser::advance() {
         case TokenKind::KW_undefined:
         case TokenKind::KW_this:
         case TokenKind::KW_super:
+        // Contextual keywords that are valid IdentifierReferences must also
+        // disable regex-after, otherwise `instance/of/g` is mis-scanned as
+        // an identifier followed by a regex literal `/of/g`.
+        case TokenKind::KW_let:
+        case TokenKind::KW_of:
+        case TokenKind::KW_as:
+        case TokenKind::KW_is:
+        case TokenKind::KW_get:
+        case TokenKind::KW_set:
+        case TokenKind::KW_from:
+        case TokenKind::KW_async:
+        case TokenKind::KW_await:
+        case TokenKind::KW_yield:
+        case TokenKind::KW_type:
+        case TokenKind::KW_namespace:
+        case TokenKind::KW_module:
+        case TokenKind::KW_declare:
+        case TokenKind::KW_abstract:
+        case TokenKind::KW_readonly:
+        case TokenKind::KW_interface:
+        case TokenKind::KW_implements:
+        case TokenKind::KW_public:
+        case TokenKind::KW_private:
+        case TokenKind::KW_protected:
+        case TokenKind::KW_static:
+        case TokenKind::KW_constructor:
+        case TokenKind::KW_keyof:
+        case TokenKind::KW_infer:
+        case TokenKind::KW_asserts:
+        case TokenKind::KW_satisfies:
+        case TokenKind::KW_override:
+        case TokenKind::KW_out:
+        case TokenKind::KW_require:
         case TokenKind::CloseParen:
         case TokenKind::CloseBracket:
         case TokenKind::CloseBrace:
