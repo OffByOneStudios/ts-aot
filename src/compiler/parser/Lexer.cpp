@@ -356,9 +356,17 @@ void Lexer::skipWhitespaceAndComments() {
                 advance();
             }
         } else if (c == '#' && pos_ == 0 && peekAt(1) == '!') {
-            // Hashbang: #! at start of file
+            // Hashbang: #! at start of file. Terminated by any LineTerminator
+            // per ECMA-262 — \n, \r, U+2028 (LS), U+2029 (PS). LS/PS in UTF-8
+            // are 0xE2 0x80 0xA8 / 0xA9 respectively.
             advance(); advance();
-            while (!isAtEnd() && peek() != '\n' && peek() != '\r') {
+            while (!isAtEnd()) {
+                char ch = peek();
+                if (ch == '\n' || ch == '\r') break;
+                if ((unsigned char)ch == 0xE2 &&
+                    (unsigned char)peekAt(1) == 0x80 &&
+                    ((unsigned char)peekAt(2) == 0xA8 ||
+                     (unsigned char)peekAt(2) == 0xA9)) break;
                 advance();
             }
         } else {
