@@ -333,7 +333,38 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
 }
 
 ast::ExprPtr Parser::parsePrecedenceExpression(int minPrec) {
-    auto left = parseUnaryExpression();
+    // ECMA-262 13.10 RelationalExpression :: PrivateIdentifier `in` ShiftExpression
+    // ("ergonomic brand check"). A PrivateIdentifier is only valid as the LHS
+    // of `in`. Lower it as a regular `in` with a String key "#name" — private
+    // fields are stored under exactly that key (Parser preserves the `#`
+    // prefix at Parser_Expressions.cpp:578/627 and Parser.cpp:2023/2046).
+    ast::ExprPtr left;
+    if (current_.kind == TokenKind::Hash) {
+        auto saved = saveState();
+        int hashLine = current_.line;
+        int hashCol = current_.column;
+        advance();  // consume '#'
+        if (current_.offset != previous_.offset + 1) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: no whitespace or line terminator allowed between '#' and identifier",
+                previous_.line, previous_.column));
+        }
+        std::string privName = "#" + identifierName();
+        // Only proceed if followed by `in` AND `in` is enabled in this
+        // context. Otherwise rewind and fall through (will likely error).
+        bool isPrivateIn = (current_.kind == TokenKind::KW_in) && !noIn_;
+        if (isPrivateIn) {
+            auto litLeft = std::make_unique<ast::StringLiteral>();
+            setLocation(litLeft.get(), hashLine, hashCol);
+            litLeft->value = privName;
+            left = std::move(litLeft);
+        } else {
+            restoreState(saved);
+            left = parseUnaryExpression();
+        }
+    } else {
+        left = parseUnaryExpression();
+    }
 
     while (true) {
         int prec = getBinaryPrecedence(current_.kind);
