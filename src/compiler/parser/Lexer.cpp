@@ -546,6 +546,16 @@ Token Lexer::scanIdentifierOrKeyword() {
         // parseObjectLiteral's shorthand-property branch).
         auto it = keywords_.find(decoded);
         if (it != keywords_.end()) {
+            // Narrow exception: `async` is never reserved in any context.
+            // Other contextual keywords (let/yield/await/static/etc.) have
+            // context-sensitive reservation that the parser checks via the
+            // KW_xxx token kind, so they MUST stay marked as escapedReservedWord
+            // to preserve the existing strict-mode / generator / async checks.
+            if (it->second == TokenKind::KW_async) {
+                Token tok = makeToken(TokenKind::Identifier, start);
+                tok.decodedText = std::move(decoded);
+                return tok;
+            }
             Token tok = makeToken(TokenKind::Identifier, start);
             tok.escapedReservedWord = true;
             tok.decodedText = std::move(decoded);
