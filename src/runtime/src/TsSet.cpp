@@ -154,6 +154,155 @@ void* ts_set_values(void* set) {
     return ((TsSet*)set)->GetValues();
 }
 
+// ECMA-2024 Set composition methods (24.2.3.*). Minimal Set-Set
+// implementations: for non-Set `other`, treat as empty (rather than
+// the spec-mandated GetSetRecord/SetLike protocol, which would
+// require calling JS-level .has/.keys/.size). Sufficient to convert
+// link-error compile failures into runtime test outcomes; passes the
+// Set-Set subset of staging/sm/Set tests at minimum.
+static TsSet* setFromArg(void* other) {
+    if (!other) return nullptr;
+    uint64_t nb = (uint64_t)(uintptr_t)other;
+    if (nb <= NANBOX_UNDEFINED) return nullptr;
+    void* raw = other;
+    // Unbox if NaN-boxed
+    if (nanbox_is_ptr(nb)) {
+        void* unboxed = ts_value_get_object((TsValue*)other);
+        if (unboxed) raw = unboxed;
+        else raw = nanbox_to_ptr(nb);
+    } else if ((nb & 0xFFFF000000000000ULL) != 0) {
+        // Primitive nanbox values (numbers/strings) — not a Set
+        return nullptr;
+    }
+    if (!raw) return nullptr;
+    // Check magic at offsets that match TsObject layout (mirror requireSet)
+    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+    uint32_t m20 = *(uint32_t*)((char*)raw + 20);
+    uint32_t m24 = *(uint32_t*)((char*)raw + 24);
+    if (m16 == TsSet::MAGIC || m20 == TsSet::MAGIC || m24 == TsSet::MAGIC) {
+        return (TsSet*)raw;
+    }
+    return nullptr;
+}
+
+void* ts_set_union(void* set, void* other) {
+    if (!set) return TsSet::Create();
+    TsSet* a = (TsSet*)set;
+    TsSet* result = TsSet::Create();
+    TsArray* aVals = (TsArray*)a->GetValues();
+    int64_t aLen = aVals ? aVals->Length() : 0;
+    for (int64_t i = 0; i < aLen; i++) {
+        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
+        result->Add(v);
+    }
+    TsSet* b = setFromArg(other);
+    if (b) {
+        TsArray* bVals = (TsArray*)b->GetValues();
+        int64_t bLen = bVals ? bVals->Length() : 0;
+        for (int64_t i = 0; i < bLen; i++) {
+            TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)bVals->Get(i));
+            result->Add(v);
+        }
+    }
+    return result;
+}
+
+void* ts_set_intersection(void* set, void* other) {
+    if (!set) return TsSet::Create();
+    TsSet* a = (TsSet*)set;
+    TsSet* result = TsSet::Create();
+    TsSet* b = setFromArg(other);
+    if (!b) return result;
+    TsArray* aVals = (TsArray*)a->GetValues();
+    int64_t aLen = aVals ? aVals->Length() : 0;
+    for (int64_t i = 0; i < aLen; i++) {
+        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
+        if (b->Has(v)) result->Add(v);
+    }
+    return result;
+}
+
+void* ts_set_difference(void* set, void* other) {
+    if (!set) return TsSet::Create();
+    TsSet* a = (TsSet*)set;
+    TsSet* result = TsSet::Create();
+    TsSet* b = setFromArg(other);
+    TsArray* aVals = (TsArray*)a->GetValues();
+    int64_t aLen = aVals ? aVals->Length() : 0;
+    for (int64_t i = 0; i < aLen; i++) {
+        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
+        if (!b || !b->Has(v)) result->Add(v);
+    }
+    return result;
+}
+
+void* ts_set_symmetricDifference(void* set, void* other) {
+    if (!set) return TsSet::Create();
+    TsSet* a = (TsSet*)set;
+    TsSet* result = TsSet::Create();
+    TsSet* b = setFromArg(other);
+    TsArray* aVals = (TsArray*)a->GetValues();
+    int64_t aLen = aVals ? aVals->Length() : 0;
+    for (int64_t i = 0; i < aLen; i++) {
+        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
+        if (!b || !b->Has(v)) result->Add(v);
+    }
+    if (b) {
+        TsArray* bVals = (TsArray*)b->GetValues();
+        int64_t bLen = bVals ? bVals->Length() : 0;
+        for (int64_t i = 0; i < bLen; i++) {
+            TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)bVals->Get(i));
+            if (!a->Has(v)) result->Add(v);
+        }
+    }
+    return result;
+}
+
+// NB: registry-dispatched Set methods are IR-declared with `ptr` return type
+// regardless of the registry's HIRType hint, so boolean results must be
+// returned as NaN-boxed TsValue* (via ts_value_make_bool), not raw `bool`.
+void* ts_set_isSubsetOf(void* set, void* other) {
+    if (!set) return ts_value_make_bool(true);
+    TsSet* a = (TsSet*)set;
+    TsSet* b = setFromArg(other);
+    if (!b) return ts_value_make_bool(a->Size() == 0);
+    TsArray* aVals = (TsArray*)a->GetValues();
+    int64_t aLen = aVals ? aVals->Length() : 0;
+    for (int64_t i = 0; i < aLen; i++) {
+        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
+        if (!b->Has(v)) return ts_value_make_bool(false);
+    }
+    return ts_value_make_bool(true);
+}
+
+void* ts_set_isSupersetOf(void* set, void* other) {
+    if (!set) return ts_value_make_bool(false);
+    TsSet* a = (TsSet*)set;
+    TsSet* b = setFromArg(other);
+    if (!b) return ts_value_make_bool(true);
+    TsArray* bVals = (TsArray*)b->GetValues();
+    int64_t bLen = bVals ? bVals->Length() : 0;
+    for (int64_t i = 0; i < bLen; i++) {
+        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)bVals->Get(i));
+        if (!a->Has(v)) return ts_value_make_bool(false);
+    }
+    return ts_value_make_bool(true);
+}
+
+void* ts_set_isDisjointFrom(void* set, void* other) {
+    if (!set) return ts_value_make_bool(true);
+    TsSet* a = (TsSet*)set;
+    TsSet* b = setFromArg(other);
+    if (!b) return ts_value_make_bool(true);
+    TsArray* aVals = (TsArray*)a->GetValues();
+    int64_t aLen = aVals ? aVals->Length() : 0;
+    for (int64_t i = 0; i < aLen; i++) {
+        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)aVals->Get(i));
+        if (b->Has(v)) return ts_value_make_bool(false);
+    }
+    return ts_value_make_bool(true);
+}
+
 // Forward decl (defined below). Used by ts_set_forEach to validate
 // the receiver before dereferencing as a TsSet pointer.
 static void* requireSet(void* context, const char* methodName);
