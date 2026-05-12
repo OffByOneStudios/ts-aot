@@ -1055,10 +1055,14 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             return node;
         }
         case TokenKind::KW_await: {
-            // ES262 13.1.1: `await` is a valid IdentifierReference outside
-            // async/module code. The await-expression form is handled
-            // earlier in parseUnaryExpression when inAsync_ is true.
-            if (inAsync_ || strictMode_) {
+            // ES262 13.1.1: `await` is reserved as an IdentifierReference
+            // ONLY in async function bodies and modules. Strict mode does
+            // NOT reserve `await` — that's reserved by [Await] grammar
+            // parameter, not strict-mode early-error rules. Class bodies
+            // (which are strict) and other strict-mode contexts allow
+            // `await` as an identifier provided we're not in an async
+            // function.
+            if (inAsync_) {
                 throw std::runtime_error(fmt::format(
                     "{}:{}: SyntaxError: 'await' is not allowed as an "
                     "identifier inside an async function or module",
