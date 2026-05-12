@@ -622,6 +622,13 @@ bool Parser::declareLexicalName(const std::string& name, PDeclKind kind) {
         if (existing == PDeclKind::Var && kind == PDeclKind::Var) {
             return true;
         }
+        // ECMA-262 Annex B.3.3.4: in non-strict code, duplicate
+        // LexicallyDeclaredNames bound ONLY by FunctionDeclarations are
+        // allowed in a Block. Mirror the carveout already applied to
+        // switch CaseBlock (commit e4d724d).
+        if (!strictMode_ && existing == PDeclKind::Function && kind == PDeclKind::Function) {
+            return true;
+        }
         // Everything else is a redeclaration error
         fprintf(stderr, "SyntaxError: Identifier '%s' has already been declared\n", name.c_str());
         errorCount_++;
@@ -2846,6 +2853,11 @@ ast::StmtPtr Parser::parseSwitchStatement() {
     expect(TokenKind::OpenBrace, "'{'");
 
     switchDepth_++;
+    // ECMA-262 13.12: CaseBlock is its own lexical scope. Push one
+    // scope for the whole switch so lex/function declarations inside
+    // case clauses don't conflict with names in the enclosing Block
+    // (e.g. Annex B.3.3.5 `{ let f; switch(_) { case 1: function f(){} } }`).
+    pushLexicalScope();
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         if (match(TokenKind::KW_case)) {
             auto clause = std::make_unique<ast::CaseClause>();
@@ -2868,6 +2880,7 @@ ast::StmtPtr Parser::parseSwitchStatement() {
             node->clauses.push_back(std::move(clause));
         }
     }
+    popLexicalScope();
     switchDepth_--;
     expect(TokenKind::CloseBrace, "'}'");
 
