@@ -212,16 +212,6 @@ private:
     int generatorLocalCount_ = 0;                        // Number of Alloca instructions in generator
     int generatorNextLocalIndex_ = 0;                    // Next local index for alloca replacement
     std::vector<llvm::Value*> generatorLocalSlots_;      // Pre-created GEPs for local slots (dominate all uses)
-    // Cross-yield SSA spill: for each HIRValue defined-before-any-yield-in-program-order,
-    // pre-assign a slot in the data buffer (after the param + alloca slots). At each
-    // yield, store live valueMap_ entries into their slots; at each resume block start,
-    // reload them. This fixes "Instruction does not dominate all uses" failures for SSA
-    // values that cross a yield boundary.
-    std::vector<uint32_t> generatorSpillIds_;            // Spillable HIRValue IDs (program order)
-    std::unordered_map<uint32_t, size_t> generatorSpillSlotOf_;  // HIRValue ID -> slot index (offset from spill area start)
-    size_t generatorSpillCount_ = 0;                     // Total spill slots
-    size_t generatorSpillAreaStart_ = 0;                 // Slot index where spill area begins (= numParams + allocaCount)
-    std::vector<llvm::Value*> generatorSpillSlots_;      // Pre-created GEPs for spill slots (parallel to generatorSpillIds_)
 
     //==========================================================================
     // Type Mapping

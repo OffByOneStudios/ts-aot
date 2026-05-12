@@ -882,58 +882,6 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         generatorLocalCount_ = allocaCount;
         generatorNextLocalIndex_ = 0;
 
-        // Cross-yield SSA spill pre-pass: collect HIRValue IDs that need
-        // spilling. A value is spillable if (a) it has a result, (b) it's
-        // defined before some yield in program order. We conservatively
-        // include ALL non-param SSA results that are defined before the LAST
-        // yield in the function — over-spilling is cheap (1 ptr slot per
-        // value) and avoids needing a real liveness analysis.
-        //
-        // The slot index is allocated in program-order so all stores/loads
-        // refer to a stable mapping. Constants don't need spilling — they
-        // re-materialize on each use via getOperandValue's const path.
-        generatorSpillIds_.clear();
-        generatorSpillSlotOf_.clear();
-        generatorSpillCount_ = 0;
-        {
-            // First locate the position of the last yield in linear program
-            // order. We track a running instruction index and remember the
-            // index of the highest-numbered yield. Values whose result.id
-            // is encountered before that index are spillable.
-            std::vector<HIRInstruction*> linear;
-            int lastYieldIdx = -1;
-            for (auto& block : fn->blocks) {
-                for (auto& inst : block->instructions) {
-                    linear.push_back(inst.get());
-                    if (inst->opcode == HIROpcode::Yield ||
-                        inst->opcode == HIROpcode::YieldStar) {
-                        lastYieldIdx = static_cast<int>(linear.size()) - 1;
-                    }
-                }
-            }
-            if (lastYieldIdx >= 0) {
-                // Anything defined at or before lastYieldIdx might cross a
-                // later yield. Spill them all (conservative).
-                for (int idx = 0; idx <= lastYieldIdx; ++idx) {
-                    HIRInstruction* inst = linear[idx];
-                    if (!inst->result) continue;
-                    // Skip the Yield's own result — the resume block sets it
-                    // via ts_async_context_get_resumed_value, so it's fresh
-                    // post-resume and doesn't need spill/reload.
-                    if (inst->opcode == HIROpcode::Yield ||
-                        inst->opcode == HIROpcode::YieldStar) continue;
-                    uint32_t id = inst->result->id;
-                    if (generatorSpillSlotOf_.find(id) == generatorSpillSlotOf_.end()) {
-                        size_t slotOff = generatorSpillIds_.size();
-                        generatorSpillIds_.push_back(id);
-                        generatorSpillSlotOf_[id] = slotOff;
-                    }
-                }
-            }
-            generatorSpillCount_ = generatorSpillIds_.size();
-        }
-        generatorSpillAreaStart_ = fn->params.size() + allocaCount;
-
         // Create the implementation function (state machine)
         // Signature: void impl(AsyncContext* ctx)
         std::string implName = fn->mangledName + "$impl";
@@ -1003,10 +951,9 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
 
         // Store function parameters (and reserve space for locals) in ctx->data
         {
-            // Allocate a buffer for params + locals + cross-yield spill slots
-            // (8 bytes each slot).
+            // Allocate a buffer for params + locals (8 bytes each slot)
             size_t numParams = fn->params.empty() ? 0 : fn->params.size();
-            size_t totalSlots = numParams + allocaCount + generatorSpillCount_;
+            size_t totalSlots = numParams + allocaCount;
             llvm::FunctionType* allocFt = llvm::FunctionType::get(
                 builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
             llvm::FunctionCallee allocFn = module_->getOrInsertFunction("ts_alloc", allocFt);
@@ -1119,19 +1066,6 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
                     "gen_local_" + std::to_string(i));
                 generatorLocalSlots_.push_back(slotPtr);
             }
-
-            // Pre-create GEPs for cross-yield SSA spill slots. These are
-            // allocated after the param+local slots in the same data buffer.
-            // Created in impl_entry so they dominate all blocks including
-            // yield_resume_N successors of the state-switch.
-            generatorSpillSlots_.clear();
-            for (size_t i = 0; i < generatorSpillCount_; ++i) {
-                size_t slotIndex = generatorSpillAreaStart_ + i;
-                llvm::Value* slotPtr = builder_->CreateGEP(builder_->getPtrTy(), generatorDataBuf_,
-                    { llvm::ConstantInt::get(builder_->getInt64Ty(), slotIndex) },
-                    "gen_spill_" + std::to_string(i));
-                generatorSpillSlots_.push_back(slotPtr);
-            }
         }
 
         // Create blocks for each state
@@ -1196,11 +1130,6 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         generatorLocalCount_ = 0;
         generatorNextLocalIndex_ = 0;
         generatorLocalSlots_.clear();
-        generatorSpillIds_.clear();
-        generatorSpillSlotOf_.clear();
-        generatorSpillCount_ = 0;
-        generatorSpillAreaStart_ = 0;
-        generatorSpillSlots_.clear();
         return;  // Exit early - we've handled everything for generators
     }
 
@@ -9378,62 +9307,6 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
             builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getInt32Ty() });
         builder_->CreateCall(setStateFn, { asyncContext_, builder_->getInt32(nextState) });
 
-        // CROSS-YIELD SSA SPILL: store every live SSA value (whose id is in
-        // generatorSpillSlotOf_) to its data-buffer slot BEFORE we suspend.
-        // After the suspend (impl returns), the LLVM frame is gone; on resume
-        // the impl is called fresh and enters the resume block via the state
-        // switch, bypassing any pre-yield code that produced these SSA values.
-        // The slots in the heap data buffer persist across suspend/resume.
-        //
-        // Defensive check: only spill values defined in a block that dominates
-        // (and includes) the current builder block. Without this, using `v`
-        // here would introduce a CROSS-BLOCK SSA use that didn't exist before
-        // and may violate dominance (e.g. `v` defined in `entry` but the yield
-        // is in `for.body` reachable via `for.cond` from both `entry` and
-        // `for.update`; `v` does not dominate `for.body` along the loop-back
-        // path).
-        //
-        // The cheap approximation: only spill if `v` is in the SAME LLVM block
-        // as the current insertion point (same-block uses are always dominated)
-        // OR is in impl_entry (the function entry block, which dominates all).
-        llvm::BasicBlock* yieldBlock = builder_->GetInsertBlock();
-        llvm::BasicBlock* implEntryBB = currentFunction_
-            ? &currentFunction_->getEntryBlock() : nullptr;
-        for (uint32_t id : generatorSpillIds_) {
-            auto vmIt = valueMap_.find(id);
-            if (vmIt == valueMap_.end()) continue;  // not yet defined at this yield
-            llvm::Value* v = vmIt->second;
-            if (!v) continue;
-            if (llvm::isa<llvm::Constant>(v)) continue;
-            // Restrict to values whose definition unconditionally dominates
-            // the yield. Without a full DominatorTree we use a structural
-            // approximation: same-block or impl_entry-defined.
-            if (auto* vi = llvm::dyn_cast<llvm::Instruction>(v)) {
-                llvm::BasicBlock* defBB = vi->getParent();
-                if (defBB != yieldBlock && defBB != implEntryBB) {
-                    continue;  // can't safely spill — would add cross-block use
-                }
-            }
-            llvm::Type* vTy = v->getType();
-            llvm::Value* toStore = v;
-            if (vTy->isDoubleTy()) {
-                toStore = builder_->CreateBitCast(v, builder_->getInt64Ty());
-                toStore = builder_->CreateIntToPtr(toStore, builder_->getPtrTy());
-            } else if (vTy->isIntegerTy()) {
-                if (vTy->getIntegerBitWidth() < 64) {
-                    toStore = builder_->CreateZExt(v, builder_->getInt64Ty());
-                } else {
-                    toStore = v;
-                }
-                toStore = builder_->CreateIntToPtr(toStore, builder_->getPtrTy());
-            } else if (!vTy->isPointerTy()) {
-                continue;  // Unhandled type — skip (rare)
-            }
-            size_t slotOff = generatorSpillSlotOf_[id];
-            llvm::Value* slotPtr = generatorSpillSlots_[slotOff];
-            builder_->CreateStore(toStore, slotPtr);
-        }
-
         // Return from the impl function (suspend)
         builder_->CreateRetVoid();
 
@@ -9441,49 +9314,6 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
         if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
             llvm::BasicBlock* resumeBlock = yieldResumeBlocks_[currentYieldState_];
             builder_->SetInsertPoint(resumeBlock);
-
-            // CROSS-YIELD SSA RELOAD: reverse of the spill above. Only
-            // reload values we actually spilled (same dominance check as
-            // the spill loop). Updates valueMap_ to the reloaded value
-            // for subsequent uses in this resume block and its dominated
-            // successors.
-            //
-            // Caveat: if a downstream block (e.g. a different yield_resume_N)
-            // is reached via the state switch and NOT through this resume
-            // block, it sees stale valueMap_ entries. This is acceptable for
-            // single-yield-on-each-path functions but limits multi-yield cases.
-            // A complete fix would require per-block valueMap shadows.
-            for (uint32_t id : generatorSpillIds_) {
-                auto vmIt = valueMap_.find(id);
-                if (vmIt == valueMap_.end()) continue;
-                llvm::Value* orig = vmIt->second;
-                if (!orig || llvm::isa<llvm::Constant>(orig)) continue;
-                // Apply the same dominance restriction so we only reload
-                // values we (very likely) spilled.
-                if (auto* vi = llvm::dyn_cast<llvm::Instruction>(orig)) {
-                    llvm::BasicBlock* defBB = vi->getParent();
-                    if (defBB != yieldBlock && defBB != implEntryBB) {
-                        continue;
-                    }
-                }
-                llvm::Type* origTy = orig->getType();
-                size_t slotOff = generatorSpillSlotOf_[id];
-                llvm::Value* slotPtr = generatorSpillSlots_[slotOff];
-                llvm::Value* loaded = builder_->CreateLoad(
-                    builder_->getPtrTy(), slotPtr, "gen_reload_" + std::to_string(id));
-                if (origTy->isDoubleTy()) {
-                    loaded = builder_->CreatePtrToInt(loaded, builder_->getInt64Ty());
-                    loaded = builder_->CreateBitCast(loaded, builder_->getDoubleTy());
-                } else if (origTy->isIntegerTy()) {
-                    loaded = builder_->CreatePtrToInt(loaded, builder_->getInt64Ty());
-                    if (origTy->getIntegerBitWidth() < 64) {
-                        loaded = builder_->CreateTrunc(loaded, origTy);
-                    }
-                } else if (!origTy->isPointerTy()) {
-                    continue;
-                }
-                valueMap_[id] = loaded;
-            }
 
             // Get the resumed value from ctx->resumedValue for the yield result
             auto getResumedFn = getOrDeclareRuntimeFunction("ts_async_context_get_resumed_value",
