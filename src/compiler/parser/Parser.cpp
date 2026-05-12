@@ -981,10 +981,25 @@ ast::NodePtr Parser::parseBindingNameOrPattern() {
         // Same restriction for identifiers whose decoded form matches a
         // reserved word via Unicode escape (`var for = 1`).
         if (current_.escapedReservedWord) {
-            throw std::runtime_error(fmt::format(
-                "{}:{}: SyntaxError: identifier resolves to reserved word "
-                "via Unicode escape and cannot be used as a binding",
-                fileName_, current_.line));
+            // Strict-mode-only future-reserved-words: `implements`,
+            // `interface`, `package`, `protected`, `public`, `private`,
+            // `static`, `let`, `yield`. In non-strict code these are valid
+            // BindingIdentifiers. Allow their escape-encoded forms through
+            // in non-strict mode.
+            const std::string& decoded = current_.decodedText;
+            bool isStrictOnlyFRW =
+                decoded == "implements" || decoded == "interface" ||
+                decoded == "package"    || decoded == "protected" ||
+                decoded == "public"     || decoded == "private"   ||
+                decoded == "static"     || decoded == "let";
+            bool isYield = decoded == "yield";
+            if (!((isStrictOnlyFRW && !strictMode_) ||
+                  (isYield && !strictMode_ && !inGenerator_))) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: identifier resolves to reserved word "
+                    "via Unicode escape and cannot be used as a binding",
+                    fileName_, current_.line));
+            }
         }
         // Per ECMA-262 12.1.1: `await` is not a valid BindingIdentifier
         // inside an [Await] context (async function body or module). The
