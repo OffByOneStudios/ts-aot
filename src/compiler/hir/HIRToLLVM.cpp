@@ -5411,7 +5411,30 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
                 retType = builder_->getVoidTy();
             }
             llvm::FunctionType* ft = llvm::FunctionType::get(retType, paramTypes, false);
-            fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
+            // Runtime symbols (prefix `ts_`) come from libtsruntime and must
+            // be ExternalLinkage so the linker resolves them. Anything else
+            // reaching this fallback is a user-defined / monomorphized call
+            // target whose definition was never emitted (e.g. `print_any`,
+            // `Proxy_any_any`, harness JS functions hoisted into
+            // syntheticFunctions — see Monomorphizer.cpp:2164 findFunction
+            // gap). Emit a stub returning `undefined` so the link succeeds
+            // and any actual invocation produces a runtime-level result
+            // rather than a confusing linker error. Mirrors the existing
+            // lowerLoadFunction stub pattern at HIRToLLVM.cpp:7395.
+            bool isRuntimeSymbol = funcName.size() >= 3 && funcName[0] == 't' &&
+                                   funcName[1] == 's' && funcName[2] == '_';
+            if (!isRuntimeSymbol && retType == builder_->getPtrTy()) {
+                fn = llvm::Function::Create(ft, llvm::Function::InternalLinkage,
+                                            funcName, module_.get());
+                auto* bb = llvm::BasicBlock::Create(context_, "entry", fn);
+                llvm::IRBuilder<> stubBuilder(bb);
+                auto undefFn = module_->getOrInsertFunction(
+                    "ts_value_make_undefined",
+                    llvm::FunctionType::get(builder_->getPtrTy(), {}, false));
+                stubBuilder.CreateRet(stubBuilder.CreateCall(undefFn));
+            } else {
+                fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
+            }
         }
     }
 
