@@ -1808,10 +1808,17 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
     // static, yield) must be rejected here.
     if (isIdentifierOrKeyword() && !check(TokenKind::KW_extends) && !check(TokenKind::KW_implements) && !check(TokenKind::OpenBrace)) {
         if (current_.escapedReservedWord) {
-            throw std::runtime_error(fmt::format(
-                "{}:{}: SyntaxError: identifier resolves to reserved word "
-                "via Unicode escape and cannot be used as a class name",
-                fileName_, current_.line));
+            // ECMA-262: `await` is NOT strict-reserved; it's reserved only
+            // in modules / async function bodies. Class body being strict
+            // doesn't make `await` reserved (strict reserves `yield`, not
+            // `await`).
+            bool isAwaitEscape = current_.decodedText == "await";
+            if (!isAwaitEscape || inAsync_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: identifier resolves to reserved word "
+                    "via Unicode escape and cannot be used as a class name",
+                    fileName_, current_.line));
+            }
         }
         node->name = identifierName();
     }

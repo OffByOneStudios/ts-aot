@@ -1680,10 +1680,17 @@ ast::ExprPtr Parser::parseClassExpression() {
     if (isIdentifierOrKeyword() && !check(TokenKind::KW_extends) &&
         !check(TokenKind::KW_implements) && !check(TokenKind::OpenBrace)) {
         if (current_.escapedReservedWord) {
-            throw std::runtime_error(fmt::format(
-                "{}:{}: SyntaxError: identifier resolves to reserved word "
-                "via Unicode escape and cannot be used as a class name",
-                fileName_, current_.line));
+            // ECMA-262: `await` is NOT a reserved word in script-mode class
+            // bodies — it's only reserved in modules and async function/
+            // method bodies. Class body being strict doesn't change that
+            // (strict reserves `yield`, but not `await`).
+            bool isAwaitEscape = current_.decodedText == "await";
+            if (!isAwaitEscape || inAsync_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: identifier resolves to reserved word "
+                    "via Unicode escape and cannot be used as a class name",
+                    fileName_, current_.line));
+            }
         }
         node->name = identifierName();
     }
