@@ -667,18 +667,20 @@ Token Lexer::scanNumericLiteral() {
         }
 
         // Legacy octal / NonOctalDecimal: 0 followed by digits (no x/o/b/./eE suffix).
-        // NonOctalDecimal (0 followed by 8/9) is always a SyntaxError per spec.
-        // Also reject BigInt suffix on any 0-prefixed legacy number.
+        // ECMA-262 Annex B.1.1:
+        //   - LegacyOctalIntegerLiteral: 0 followed by octal digits (0-7).
+        //   - NonOctalDecimalIntegerLiteral: 0 followed by digits including at
+        //     least one 8 or 9 (treated as decimal).
+        // BOTH are SyntaxError in strict mode (handled at the parser via the
+        // isLegacyOctal token flag). In non-strict the parser evaluates the
+        // literal via std::stod which gives the spec-correct decimal value
+        // for NonOctalDecimal forms.
+        // BigInt suffix is rejected on any 0-prefixed legacy number.
         if (isDigit(next)) {
-            bool hasNonOctal = false;
             while (!isAtEnd() && isDigit(peek())) {
-                if (peek() == '8' || peek() == '9') hasNonOctal = true;
                 advance();
             }
-            if (hasNonOctal) {
-                reportLexError("Invalid numeric literal (leading 0 with 8/9 is not allowed)");
-            }
-            // Reject BigInt suffix on legacy octal (0nnn)
+            // Reject BigInt suffix on legacy octal / non-octal-decimal (0nnn)
             if (!isAtEnd() && peek() == 'n') {
                 reportLexError("BigInt literal cannot use legacy octal notation");
                 advance();
