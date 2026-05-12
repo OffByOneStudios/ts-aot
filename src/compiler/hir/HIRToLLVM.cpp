@@ -1309,6 +1309,52 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         lowerBlock(rpoOrder[bi]);
     }
 
+    // Terminator safety net (skip for generators — their impl function has
+    // its own terminator-emission scheme via the state-machine + done block,
+    // handled earlier in this function).
+    //
+    // Block-splitting helpers in HIRToLLVM (NaN-box unboxing diamonds at
+    // ~2868/2910/2947, write-barrier inserts, GC safepoints, etc.) leave
+    // the IRBuilder positioned on a freshly-created "merge" block that
+    // initially has only a PHI and no terminator. The block is intended
+    // to be the continuation of the surrounding HIR block. If the LAST
+    // HIR instruction of a function happens to land in one of these split
+    // sub-blocks AND the source function didn't end with an explicit
+    // `return` (e.g. a top-level script that runs off the end), the
+    // continuation block is left without a terminator. LLVM verifier
+    // rejects the module with "Basic Block ... does not have terminator!".
+    //
+    // Walk every block in the LLVM function; if any lacks a terminator,
+    // append a default return matching the function's return type. This
+    // mirrors the dispatch in lowerReturnVoid (~line 8830). The fix only
+    // touches blocks that are *already* unterminated; legitimately-
+    // terminated blocks are untouched.
+    if (!isGeneratorFunction_ && currentFunction_) {
+        llvm::Type* expectedRetType = currentFunction_->getReturnType();
+        for (auto& bb : *currentFunction_) {
+            if (bb.empty() || !bb.back().isTerminator()) {
+                builder_->SetInsertPoint(&bb);
+                if (expectedRetType->isVoidTy()) {
+                    builder_->CreateRetVoid();
+                } else if (expectedRetType->isPointerTy()) {
+                    auto undefFn = getOrDeclareRuntimeFunction(
+                        "ts_value_make_undefined",
+                        builder_->getPtrTy(), {});
+                    llvm::Value* undefVal = builder_->CreateCall(undefFn, {}, "undef.tail");
+                    builder_->CreateRet(undefVal);
+                } else if (expectedRetType->isDoubleTy()) {
+                    builder_->CreateRet(llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0));
+                } else if (expectedRetType->isIntegerTy(64)) {
+                    builder_->CreateRet(llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
+                } else if (expectedRetType->isIntegerTy(1)) {
+                    builder_->CreateRet(llvm::ConstantInt::get(builder_->getInt1Ty(), 0));
+                } else {
+                    builder_->CreateRet(llvm::Constant::getNullValue(expectedRetType));
+                }
+            }
+        }
+    }
+
     currentFunction_ = nullptr;
     currentHIRFunction_ = nullptr;
     isAsyncFunction_ = false;
