@@ -1,6 +1,6 @@
 # test262 Conformance Results
 
-**Last sweep:** 2026-05-12 (commit `ebbfbce`)
+**Last sweep:** 2026-05-12 (commit `8e08f14`)
 **Runner:** `python tests/test262/run_test262.py --fresh -j 24 --timeout 8`
 **Suite version:** vendored at `tests/test262/test262/`
 
@@ -8,14 +8,19 @@
 
 | Status | Count | % of total | % of executed |
 |--------|------:|-----------:|--------------:|
-| **pass** | 17,161 | 33.98% | 49.59% |
-| **fail** | 17,408 | 34.47% | 50.30% |
-| **compile_error** (ce) | 256 | 0.51% | 0.74% |
+| **pass** | 17,179 | 34.01% | 49.62% |
+| **fail** | 17,482 | 34.61% | 50.49% |
+| **compile_error** (ce) | 164 | 0.32% | 0.47% |
 | **timeout** | 37 | 0.07% | 0.11% |
 | skip | 15,644 | 30.97% | — |
 | **Total** | 50,506 | 100% | 34,862 executed |
 
-Executed pass rate: **49.6%** (17,161 / 34,862).
+Executed pass rate: **49.6%** (17,179 / 34,862).
+
+**Session-cumulative change** (29 commits since 2026-05-11):
+- Pass: 17,137 → 17,179 (**+42**)
+- Ce: 384 → 164 (**-220, 57% reduction**)
+- Highest-yield commit: `b53f3ae` + `8e08f14` monomorphizer stub fallback (-92 ce, +18 pass).
 
 The skip count covers tests for features explicitly marked unsupported (modules, `eval`, BigInt edge cases, `tail-call-optimization`, etc.) via the runner's feature-flag filter.
 
