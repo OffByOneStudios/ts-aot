@@ -546,41 +546,8 @@ Token Lexer::scanIdentifierOrKeyword() {
         // parseObjectLiteral's shorthand-property branch).
         auto it = keywords_.find(decoded);
         if (it != keywords_.end()) {
-            // ECMA-262 12.6.1: ReservedWord rejection applies only to actual
-            // reserved words, NOT contextual keywords like `async`, `await`,
-            // `let`, `yield`, `of`, `as`, `from`, `get`, `set`, `constructor`,
-            // `keyof`, `infer`, etc. The latter are valid IdentifierReferences
-            // and BindingIdentifiers in non-strict, non-async, non-generator
-            // code. So `async` (decoded "async") may appear as an
-            // identifier here.
-            TokenKind kw = it->second;
-            bool isReserved =
-                kw == TokenKind::KW_break || kw == TokenKind::KW_case ||
-                kw == TokenKind::KW_catch || kw == TokenKind::KW_class ||
-                kw == TokenKind::KW_const || kw == TokenKind::KW_continue ||
-                kw == TokenKind::KW_debugger || kw == TokenKind::KW_default ||
-                kw == TokenKind::KW_delete || kw == TokenKind::KW_do ||
-                kw == TokenKind::KW_else || kw == TokenKind::KW_enum ||
-                kw == TokenKind::KW_export || kw == TokenKind::KW_extends ||
-                kw == TokenKind::KW_false || kw == TokenKind::KW_finally ||
-                kw == TokenKind::KW_for || kw == TokenKind::KW_function ||
-                kw == TokenKind::KW_if || kw == TokenKind::KW_import ||
-                kw == TokenKind::KW_in || kw == TokenKind::KW_instanceof ||
-                kw == TokenKind::KW_new || kw == TokenKind::KW_null ||
-                kw == TokenKind::KW_return || kw == TokenKind::KW_super ||
-                kw == TokenKind::KW_switch || kw == TokenKind::KW_this ||
-                kw == TokenKind::KW_throw || kw == TokenKind::KW_true ||
-                kw == TokenKind::KW_try || kw == TokenKind::KW_typeof ||
-                kw == TokenKind::KW_var || kw == TokenKind::KW_void ||
-                kw == TokenKind::KW_while || kw == TokenKind::KW_with;
-            if (isReserved) {
-                Token tok = makeToken(TokenKind::Identifier, start);
-                tok.escapedReservedWord = true;
-                tok.decodedText = std::move(decoded);
-                return tok;
-            }
-            // Contextual keyword — emit as plain identifier with decoded text.
             Token tok = makeToken(TokenKind::Identifier, start);
+            tok.escapedReservedWord = true;
             tok.decodedText = std::move(decoded);
             return tok;
         }
