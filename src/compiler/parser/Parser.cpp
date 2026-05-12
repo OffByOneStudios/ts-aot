@@ -2418,7 +2418,12 @@ ast::StmtPtr Parser::parseDoWhileStatement() {
     expect(TokenKind::OpenParen, "'('");
     node->condition = parseExpression();
     expect(TokenKind::CloseParen, "')'");
-    expectSemicolon();
+    // ECMA-262 13.7.2: the trailing `;` of a do-while is auto-inserted
+    // unconditionally — it's optional regardless of LineTerminator. So
+    // `do break; while (0) x = 42;` parses as do-while followed by `x =
+    // 42;`. Use match() rather than expectSemicolon() (which would only
+    // ASI-insert across a newline).
+    match(TokenKind::Semicolon);
 
     return node;
 }
