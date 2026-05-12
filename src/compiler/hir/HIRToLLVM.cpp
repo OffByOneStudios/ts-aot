@@ -5424,7 +5424,14 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             bool isRuntimeSymbol = funcName.size() >= 3 && funcName[0] == 't' &&
                                    funcName[1] == 's' && funcName[2] == '_';
             if (!isRuntimeSymbol && retType == builder_->getPtrTy()) {
-                fn = llvm::Function::Create(ft, llvm::Function::InternalLinkage,
+                // WeakAnyLinkage: emit a stub body returning undefined, but
+                // allow the linker to replace it with any STRONG definition
+                // (e.g. real `parseFloat` in the runtime, real specialization
+                // emitted by another TU). This prevents shadowing while still
+                // resolving missing-symbol link errors for genuinely-undefined
+                // monomorphizer specializations (e.g. `Proxy_any_any`,
+                // `print_any` from harness JS hoisted into syntheticFunctions).
+                fn = llvm::Function::Create(ft, llvm::Function::WeakAnyLinkage,
                                             funcName, module_.get());
                 auto* bb = llvm::BasicBlock::Create(context_, "entry", fn);
                 llvm::IRBuilder<> stubBuilder(bb);
