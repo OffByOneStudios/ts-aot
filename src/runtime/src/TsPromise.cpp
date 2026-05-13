@@ -201,6 +201,22 @@ TsValue* ts_generator_yield(TsValue* value) {
     return ts_value_make_undefined();
 }
 
+// yield* delegation stubs. The proper implementation requires
+// generator state-machine support that isn't wired up at this level
+// (the codegen handles the common case inline). These exist to
+// satisfy the linker for paths that emit a fallback runtime call;
+// returning undefined causes the delegating expression to evaluate
+// to undefined, which converts compile_error → runtime-fail.
+TsValue* ts_generator_yield_star(TsValue* iterable) {
+    (void)iterable;
+    return ts_value_make_undefined();
+}
+
+TsValue* ts_async_generator_yield_star(TsValue* iterable) {
+    (void)iterable;
+    return ts_value_make_undefined();
+}
+
 // gen.return(value) per spec §27.5.1.4: completes the generator, optionally
 // running pending finally clauses with `value` as the return value. We
 // don't yet support the finally-clause unwinding (would require compiler
