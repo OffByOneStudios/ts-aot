@@ -36,6 +36,17 @@ bool SymbolTable::define(const std::string& name, std::shared_ptr<Type> type) {
     auto symbol = std::make_shared<Symbol>();
     symbol->name = name;
     symbol->type = type;
+    // The single-arg overload is only called by stdlib registration paths
+    // (Analyzer_StdLib.cpp and similar). When such a define lands in the
+    // global scope, mark the symbol as builtin so a user-script
+    // `let X = ...` can shadow the predeclared global without
+    // triggering a redeclaration error (ECMA-262 GlobalDeclarationInstantiation:
+    // configurable globals like Array/Math/Symbol can be shadowed by
+    // lexical declarations; restricted globals like undefined/NaN/Infinity
+    // cannot, and are handled separately).
+    if (scopes.size() == 1) {
+        symbol->isBuiltin = true;
+    }
     currentScope[name] = symbol;
     return true;
 }
