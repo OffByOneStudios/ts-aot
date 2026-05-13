@@ -154,6 +154,11 @@ void* ts_set_values(void* set) {
     return ((TsSet*)set)->GetValues();
 }
 
+// ECMA-262 24.2.3.6: Set.prototype.keys === Set.prototype.values
+void* ts_set_keys(void* set) {
+    return ts_set_values(set);
+}
+
 // ECMA-2024 Set composition methods (24.2.3.*). Minimal Set-Set
 // implementations: for non-Set `other`, treat as empty (rather than
 // the spec-mandated GetSetRecord/SetLike protocol, which would
