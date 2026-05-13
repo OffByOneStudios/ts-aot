@@ -269,9 +269,31 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         // Create vtable struct type (always has at least the parent pointer)
         llvm::StructType* vtableStruct = llvm::StructType::create(context_, vtableFieldTypes, hirClass->name + "_VTable");
 
-        // Create vtable global
+        // Create vtable global. If a forward declaration already exists
+        // (e.g., from `class X extends X` self-extension or
+        // `class A extends B; class B {...}` order-of-declaration), the
+        // forward decl was inserted by `getOrInsertGlobal` with type `ptr`
+        // and ExternalLinkage. We must replace its uses with the new
+        // typed-struct global so the linker doesn't end up with a
+        // dangling external `X_VTable_Global` reference (LLVM otherwise
+        // auto-renames the new global to `X_VTable_Global.1`).
         llvm::Constant* vtableInit = llvm::ConstantStruct::get(vtableStruct, vtableFuncs);
-        new llvm::GlobalVariable(*module_, vtableStruct, true, llvm::GlobalValue::ExternalLinkage, vtableInit, vtableGlobalName);
+        llvm::GlobalVariable* existing = module_->getGlobalVariable(vtableGlobalName, /*AllowInternal=*/true);
+        auto* newGlobal = new llvm::GlobalVariable(*module_, vtableStruct, true,
+                                                    llvm::GlobalValue::ExternalLinkage,
+                                                    vtableInit, vtableGlobalName);
+        if (existing && existing != newGlobal) {
+            // The forward decl used `ptr` type; the new global uses the
+            // typed struct. Bitcast-replace and erase the old.
+            existing->replaceAllUsesWith(
+                llvm::ConstantExpr::getBitCast(newGlobal, existing->getType()));
+            existing->eraseFromParent();
+            // The new global may have been auto-renamed by LLVM (with a
+            // `.1` suffix) because the name was previously taken. Rename
+            // it back to the canonical name now that the old extern is
+            // gone.
+            newGlobal->setName(vtableGlobalName);
+        }
 
         SPDLOG_DEBUG("Created VTable global: {} with {} entries (+ parent ptr)", vtableGlobalName, hirClass->vtable.size());
     }
