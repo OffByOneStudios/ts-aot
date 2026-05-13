@@ -5713,7 +5713,6 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
                 paramTypes.push_back(builder_->getInt64Ty());
                 retType = builder_->getVoidTy();
             }
-            llvm::FunctionType* ft = llvm::FunctionType::get(retType, paramTypes, false);
             // Runtime symbols (prefix `ts_`) come from libtsruntime and must
             // be ExternalLinkage so the linker resolves them. Anything else
             // reaching this fallback is a user-defined / monomorphized call
@@ -5726,7 +5725,16 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             // lowerLoadFunction stub pattern at HIRToLLVM.cpp:7395.
             bool isRuntimeSymbol = funcName.size() >= 3 && funcName[0] == 't' &&
                                    funcName[1] == 's' && funcName[2] == '_';
+            llvm::FunctionType* ft;
             if (!isRuntimeSymbol && retType == builder_->getPtrTy()) {
+                // **Varargs stub**: harness JS functions (e.g. `assertThrowsInstanceOf`
+                // from test262 sm shell) are called with DIFFERENT arities at
+                // different sites (2 args at some calls, 3 at others). Declaring
+                // the stub with the FIRST call's arity makes later calls with
+                // different arity fail the verifier with "Incorrect number of
+                // arguments passed to called function!". Declare with varargs
+                // (`ptr (...)`) so any arity is accepted.
+                ft = llvm::FunctionType::get(retType, {}, /*isVarArg=*/true);
                 // WeakAnyLinkage: emit a stub body returning undefined, but
                 // allow the linker to replace it with any STRONG definition
                 // (e.g. real `parseFloat` in the runtime, real specialization
@@ -5743,6 +5751,7 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
                     llvm::FunctionType::get(builder_->getPtrTy(), {}, false));
                 stubBuilder.CreateRet(stubBuilder.CreateCall(undefFn));
             } else {
+                ft = llvm::FunctionType::get(retType, paramTypes, false);
                 fn = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, funcName, module_.get());
             }
         }
