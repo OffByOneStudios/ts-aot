@@ -194,6 +194,44 @@ ast::ExprPtr Parser::parseAssignmentExpression() {
         restoreState(saved);
     }
 
+    // ES262 14.2.1: `yield` is a BindingIdentifier in non-strict,
+    // non-generator code. So `yield => 1` is an ArrowFunction with
+    // parameter `yield`. Detect this form before falling into
+    // parseAssignmentExpression where KW_yield would be consumed as a
+    // yield-expression header.
+    if (current_.kind == TokenKind::KW_yield && !inGenerator_ && !strictMode_) {
+        auto saved = saveState();
+        int line = current_.line, col = current_.column;
+        advance();
+        if (check(TokenKind::Arrow) && !current_.hadNewlineBefore) {
+            advance(); // =>
+            auto arrow = std::make_unique<ast::ArrowFunction>();
+            setLocation(arrow.get(), line, col);
+            auto param = std::make_unique<ast::Parameter>();
+            auto id = std::make_unique<ast::Identifier>();
+            id->name = "yield";
+            param->name = std::move(id);
+            param->type = "";
+            arrow->parameters.push_back(std::move(param));
+            bool prevAsync = inAsync_;
+            StrictModeGuard sg(this);
+            inAsync_ = false;
+            functionDepth_++;
+            int prevIter = iterationDepth_, prevSwitch = switchDepth_;
+            iterationDepth_ = 0; switchDepth_ = 0;
+            if (check(TokenKind::OpenBrace)) {
+                arrow->body = parseBlockStatement();
+            } else {
+                arrow->body = parseAssignmentExpression();
+            }
+            functionDepth_--;
+            iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
+            inAsync_ = prevAsync;
+            return arrow;
+        }
+        restoreState(saved);
+    }
+
     // Simple arrow: ident => body
     // Also handle contextual keywords used as identifiers (e.g., `type => { ... }`)
     if (current_.kind == TokenKind::Identifier || isContextualKeywordAsIdentifier(current_.kind)) {
