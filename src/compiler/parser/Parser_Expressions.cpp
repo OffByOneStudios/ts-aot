@@ -737,10 +737,25 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             // this flag, so they accept silently. Object-literal shorthand
             // is handled separately in parseObjectLiteral.
             if (tok.escapedReservedWord) {
-                throw std::runtime_error(fmt::format(
-                    "{}:{}: SyntaxError: identifier resolves to reserved word "
-                    "via Unicode escape and cannot be used as a reference",
-                    fileName_, tok.line));
+                // Strict-mode-only future-reserved-words (`implements`,
+                // `interface`, `package`, `protected`, `public`, `private`,
+                // `static`, `let`) and `yield` in non-generator are valid
+                // IdentifierReferences when escape-encoded outside strict
+                // mode. Mirrors Parser.cpp:1023 binding-identifier carveout.
+                const std::string& decoded = tok.decodedText;
+                bool isStrictOnlyFRW =
+                    decoded == "implements" || decoded == "interface" ||
+                    decoded == "package"    || decoded == "protected" ||
+                    decoded == "public"     || decoded == "private"   ||
+                    decoded == "static"     || decoded == "let";
+                bool isYield = decoded == "yield";
+                if (!((isStrictOnlyFRW && !strictMode_) ||
+                      (isYield && !strictMode_ && !inGenerator_))) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: identifier resolves to reserved word "
+                        "via Unicode escape and cannot be used as a reference",
+                        fileName_, tok.line));
+                }
             }
             advance();
             auto node = std::make_unique<ast::Identifier>();
