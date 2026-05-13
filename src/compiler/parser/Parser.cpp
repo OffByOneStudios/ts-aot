@@ -1751,6 +1751,12 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         sawUseStrictDirective_ = false;
 
         expect(TokenKind::OpenBrace, "'{'");
+        // Function body has its own lexical scope. Without this push,
+        // a `function f() { let X = ...; }` declaration would land in
+        // the enclosing block's lexical scope, conflicting with any
+        // sibling `let X` declaration. Symmetric pop before
+        // CloseBrace is handled below.
+        pushLexicalScope();
         bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();
@@ -1761,6 +1767,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
                 node->body.push_back(std::move(stmt));
             }
         }
+        popLexicalScope();
         expect(TokenKind::CloseBrace, "'}'");
 
         // Per ECMA-262 14.1.1: It is a SyntaxError if ContainsUseStrict of
