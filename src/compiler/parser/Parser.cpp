@@ -1392,7 +1392,22 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
             return parseInterfaceDeclaration(false, false);
         }
         if (current_.kind == TokenKind::KW_type) {
-            return parseTypeAliasDeclaration(false);
+            // `type` is contextual: `type X = ...` declares a type alias,
+            // but `type = ...` / `type.foo` / `type()` etc. are
+            // assignments/member-access on a variable named `type`. Peek
+            // the next token to disambiguate. If it isn't an identifier
+            // (or contextual keyword identifier), fall through to
+            // expression-statement.
+            auto saved = saveState();
+            advance();
+            bool isTypeAlias = (current_.kind == TokenKind::Identifier ||
+                                Lexer::isKeyword(current_.kind))
+                               && !current_.hadNewlineBefore;
+            restoreState(saved);
+            if (isTypeAlias) {
+                return parseTypeAliasDeclaration(false);
+            }
+            // Otherwise, fall through to expression statement.
         }
         if (current_.kind == TokenKind::KW_var || current_.kind == TokenKind::KW_let ||
             current_.kind == TokenKind::KW_const) {
@@ -1645,9 +1660,24 @@ ast::StmtPtr Parser::parseDeclarationOrStatement() {
         case TokenKind::KW_interface:
             result = parseInterfaceDeclaration(false, false);
             break;
-        case TokenKind::KW_type:
-            result = parseTypeAliasDeclaration(false);
+        case TokenKind::KW_type: {
+            // Contextual: `type X = ...` is a type alias, but `type =`/
+            // `type.foo`/`type()` etc. are expressions using `type` as an
+            // identifier. Peek the next token (must be an identifier-like
+            // start of a type-alias name, no newline).
+            auto saved = saveState();
+            advance();
+            bool isTypeAlias = (current_.kind == TokenKind::Identifier ||
+                                Lexer::isKeyword(current_.kind))
+                               && !current_.hadNewlineBefore;
+            restoreState(saved);
+            if (isTypeAlias) {
+                result = parseTypeAliasDeclaration(false);
+            } else {
+                result = parseLabeledOrExpressionStatement();
+            }
             break;
+        }
         case TokenKind::KW_enum:
             result = parseEnumDeclaration(false, false);
             break;
