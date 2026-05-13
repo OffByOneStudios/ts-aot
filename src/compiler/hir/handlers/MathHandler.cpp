@@ -135,6 +135,12 @@ private:
     // Convert value to i64 if needed
     llvm::Value* ensureI64(llvm::Value* val, HIRToLLVM& lowerer) {
         auto& builder = lowerer.builder();
+        if (val->getType()->isIntegerTy(1)) {
+            // bool → i64 (per ToInteger spec: true=1, false=0).
+            // Math.clz32(true) etc. need this to avoid call-signature
+            // mismatch in the verifier.
+            return builder.CreateZExt(val, builder.getInt64Ty(), "bool_to_i64");
+        }
         if (val->getType()->isDoubleTy()) {
             return builder.CreateFPToSI(val, builder.getInt64Ty(), "f64_to_i64");
         }
