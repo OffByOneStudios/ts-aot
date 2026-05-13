@@ -9614,6 +9614,15 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
 
     llvm::Value* iterableVal = getOperandValue(inst->operands[0]);
 
+    // Box primitive operands to ptr — ts_iterator_get expects a ptr receiver,
+    // but iterableVal can be an i1 (boolean) / i64 / double when the iterable
+    // comes from a `'' in obj`-style boolean expression or other primitive.
+    // Without boxing, the call-arg type mismatch fails verifier with
+    // "Call parameter type does not match function signature!".
+    if (!iterableVal->getType()->isPointerTy()) {
+        iterableVal = boxPrimitiveToPtr(iterableVal);
+    }
+
     if (isGeneratorFunction_ && asyncContext_ != nullptr && !isAsyncFunction_) {
         // State-machine generator: inline the delegation loop
         // The iterator is stored in ctx->delegateIterator so it persists across
