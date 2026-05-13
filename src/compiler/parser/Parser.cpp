@@ -2169,9 +2169,15 @@ ast::NodePtr Parser::parseClassMember() {
     if (current_.kind == TokenKind::KW_async) {
         auto saved = saveState();
         advance();
-        // If followed by identifier/keyword/star/open-bracket/open-paren, it's async
+        // If followed by a property name start, it's an async method.
+        // PropertyName includes Identifier/keyword (treated as name), `[`
+        // (ComputedPropertyName), `#` (PrivateName), and ECMA-262 literal
+        // PropertyName variants: StringLiteral, NumericLiteral,
+        // BigIntLiteral.
         if (isIdentifierOrKeyword() || check(TokenKind::Star) ||
-            check(TokenKind::OpenBracket) || check(TokenKind::Hash)) {
+            check(TokenKind::OpenBracket) || check(TokenKind::Hash) ||
+            check(TokenKind::StringLiteral) || check(TokenKind::NumericLiteral) ||
+            check(TokenKind::BigIntLiteral)) {
             isAsync = true;
         } else {
             restoreState(saved);
@@ -2189,9 +2195,10 @@ ast::NodePtr Parser::parseClassMember() {
         bool isGet = current_.kind == TokenKind::KW_get;
         advance();
         // Only treat as getter/setter if followed by a property name
+        // (Identifier/keyword/CPN/StringLit/NumericLit/BigIntLit/PrivateName).
         if (isIdentifierOrKeyword() || check(TokenKind::OpenBracket) ||
             check(TokenKind::StringLiteral) || check(TokenKind::NumericLiteral) ||
-            check(TokenKind::Hash)) {
+            check(TokenKind::BigIntLiteral) || check(TokenKind::Hash)) {
             if (isGet) isGetter = true;
             else isSetter = true;
         } else {
