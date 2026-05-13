@@ -601,6 +601,46 @@ llvm::Value* HIRToLLVM::getValue(const std::shared_ptr<HIRValue>& hirValue) {
         return getOrCreateGlobal(hirValue->globalName, hirValue->globalType);
     }
 
+    // Cross-yield SSA spill: for values that were marked as cross-yield-live
+    // in the generator pre-pass, ALWAYS load from the heap-backed spill slot.
+    // The slot's GEP was created in impl_entry so it dominates every block;
+    // the load happens at the use site so it lives in the using block.
+    // This avoids the "Instruction does not dominate all uses!" failures that
+    // arise when a value defined pre-yield is referenced post-yield, because
+    // the post-yield block is reached directly from impl_entry via the
+    // state-switch (bypassing the pre-yield definition's block).
+    auto spillIt = crossYieldSlotOf_.find(hirValue->id);
+    if (spillIt != crossYieldSlotOf_.end() && spillIt->second < crossYieldSlotGEPs_.size()) {
+        llvm::Value* slotGEP = crossYieldSlotGEPs_[spillIt->second];
+        llvm::Value* loaded = builder_->CreateLoad(builder_->getPtrTy(), slotGEP, "spill_load");
+        // Unbox to the original LLVM type if the value was boxed at spill time.
+        auto typeIt = crossYieldSlotType_.find(hirValue->id);
+        if (typeIt != crossYieldSlotType_.end() && typeIt->second != loaded->getType()) {
+            llvm::Type* origType = typeIt->second;
+            if (origType->isIntegerTy(64)) {
+                auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_get_int", ft);
+                loaded = builder_->CreateCall(ft, fn.getCallee(), { loaded }, "spill_unbox_i64");
+            } else if (origType->isDoubleTy()) {
+                auto ft = llvm::FunctionType::get(builder_->getDoubleTy(), { builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_get_double", ft);
+                loaded = builder_->CreateCall(ft, fn.getCallee(), { loaded }, "spill_unbox_f64");
+            } else if (origType->isIntegerTy(1)) {
+                auto ft = llvm::FunctionType::get(builder_->getInt1Ty(), { builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_get_bool", ft);
+                loaded = builder_->CreateCall(ft, fn.getCallee(), { loaded }, "spill_unbox_bool");
+            } else if (origType->isIntegerTy()) {
+                auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
+                auto fn = module_->getOrInsertFunction("ts_value_get_int", ft);
+                loaded = builder_->CreateCall(ft, fn.getCallee(), { loaded }, "spill_unbox_iN");
+                if (origType != builder_->getInt64Ty()) {
+                    loaded = builder_->CreateTrunc(loaded, origType, "spill_trunc");
+                }
+            }
+        }
+        return loaded;
+    }
+
     auto it = valueMap_.find(hirValue->id);
     if (it != valueMap_.end()) {
         // If this value has a GC pin alloca, reload from it.
@@ -641,6 +681,48 @@ llvm::GlobalVariable* HIRToLLVM::getOrCreateGlobal(const std::string& name, std:
 void HIRToLLVM::setValue(const std::shared_ptr<HIRValue>& hirValue, llvm::Value* llvmValue) {
     if (hirValue) {
         valueMap_[hirValue->id] = llvmValue;
+
+        // Cross-yield SSA spill: if this value was marked as cross-yield-live
+        // by the generator pre-pass, also store it into its slot in the
+        // heap-backed data buffer so it survives across the impl-function's
+        // suspend/resume. Non-ptr types are boxed via ts_value_make_*; the
+        // slot is uniformly `ptr` to keep GC scanning of the buffer correct.
+        if (llvmValue) {
+            auto spillIt = crossYieldSlotOf_.find(hirValue->id);
+            if (spillIt != crossYieldSlotOf_.end() && spillIt->second < crossYieldSlotGEPs_.size() &&
+                crossYieldSlotGEPs_[spillIt->second] != nullptr) {
+                // Remember the original LLVM type so getValue can unbox correctly.
+                crossYieldSlotType_[hirValue->id] = llvmValue->getType();
+                llvm::Value* toStore = llvmValue;
+                llvm::Type* ty = toStore->getType();
+                if (!ty->isPointerTy()) {
+                    if (ty->isIntegerTy(64)) {
+                        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                        auto fn = module_->getOrInsertFunction("ts_value_make_int", ft);
+                        toStore = builder_->CreateCall(ft, fn.getCallee(), { toStore }, "spill_box_i64");
+                    } else if (ty->isDoubleTy()) {
+                        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getDoubleTy() }, false);
+                        auto fn = module_->getOrInsertFunction("ts_value_make_double", ft);
+                        toStore = builder_->CreateCall(ft, fn.getCallee(), { toStore }, "spill_box_f64");
+                    } else if (ty->isIntegerTy(1)) {
+                        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt1Ty() }, false);
+                        auto fn = module_->getOrInsertFunction("ts_value_make_bool", ft);
+                        toStore = builder_->CreateCall(ft, fn.getCallee(), { toStore }, "spill_box_bool");
+                    } else if (ty->isIntegerTy()) {
+                        llvm::Value* widened = builder_->CreateZExt(toStore, builder_->getInt64Ty(), "spill_zext");
+                        auto ft = llvm::FunctionType::get(builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
+                        auto fn = module_->getOrInsertFunction("ts_value_make_int", ft);
+                        toStore = builder_->CreateCall(ft, fn.getCallee(), { widened }, "spill_box_iN");
+                    } else {
+                        // Unhandled type (e.g. struct) — don't spill, will fail loudly later.
+                        toStore = nullptr;
+                    }
+                }
+                if (toStore) {
+                    builder_->CreateStore(toStore, crossYieldSlotGEPs_[spillIt->second]);
+                }
+            }
+        }
 
         // GC root pinning: if this is a pointer-type value from a runtime call
         // (i.e., potentially a GC-allocated object), store it to a stack alloca
@@ -904,6 +986,114 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         generatorLocalCount_ = allocaCount;
         generatorNextLocalIndex_ = 0;
 
+        // ---- Cross-yield SSA liveness pre-pass ----
+        // For each HIR SSA value defined before any yield, if it has at least
+        // one use after that yield (linear-order approximation, safe over-set),
+        // mark it for spilling. The codegen below routes every SET of a
+        // spilled value through a slot in the data buffer, and every GET
+        // reads from the slot — so the value survives the impl-function's
+        // suspend/resume without ever crossing an LLVM basic-block edge.
+        //
+        // Filters:
+        //   - Allocas (their result is the slot address itself, already
+        //     created in impl_entry which dominates everything).
+        //   - Const opcodes (re-materializable; the LLVM constant is a
+        //     ConstantInt/Fp etc. which doesn't have a "defining block").
+        //   - Function parameters (loaded in impl_entry, dominate everywhere).
+        //   - Phi results (phi-incoming values are what need spilling).
+        crossYieldSpillIds_.clear();
+        crossYieldSlotOf_.clear();
+        crossYieldSlotType_.clear();
+        crossYieldSlotGEPs_.clear();
+        if (yieldCount > 0) {
+            // Two over-approximations for "cross-yield-live", unioned:
+            //
+            //  (A) WITHIN-BLOCK yield-crossing: a value defined in some block B
+            //      at instruction index Di, used in B at index Ui, with a Yield
+            //      between (Di < Yi < Ui in B's instruction list). lowerYield
+            //      relocates the insert point to yield_resume_N mid-block, so
+            //      Ui is actually emitted in a different LLVM block from Di.
+            //      This catches patterns like `'' in (yield)` and template
+            //      literals containing yield.
+            //
+            //  (B) CROSS-BLOCK uses: a value defined in block B but used in a
+            //      different block. Even if there's no yield between, the resume
+            //      block(s) are reached directly from impl_entry's state-switch,
+            //      so the defining LLVM block may not dominate the using one.
+            //      This catches loop-header reads of pre-loop values when the
+            //      loop body contains a yield.
+            //
+            // Filters out:
+            //   - HIR Alloca results (their value IS the slot address, created in
+            //     impl_entry which already dominates everything)
+            //   - HIR Phi results (their incoming values are what need spilling;
+            //     a phi node lives in its block and is fed by predecessors)
+            //   - Function parameters and impl_entry-loaded values (loaded in
+            //     impl_entry which dominates every state-switch target)
+            std::unordered_map<uint32_t, HIRBlock*> defBlock;
+            std::unordered_map<uint32_t, int> defIdxWithinBlock;
+            std::unordered_set<uint32_t> spillCandidates;
+            for (auto& block : fn->blocks) {
+                int idx = 0;
+                for (auto& inst : block->instructions) {
+                    if (inst->result) {
+                        bool skipDef = inst->opcode == HIROpcode::Alloca ||
+                                       inst->opcode == HIROpcode::Phi;
+                        if (!skipDef) {
+                            defBlock[inst->result->id] = block.get();
+                            defIdxWithinBlock[inst->result->id] = idx;
+                        }
+                    }
+                    ++idx;
+                }
+            }
+            for (auto& block : fn->blocks) {
+                // Pre-compute the instruction indices of Yields in this block.
+                std::vector<int> yieldsInBlock;
+                {
+                    int idx = 0;
+                    for (auto& inst : block->instructions) {
+                        if (inst->opcode == HIROpcode::Yield ||
+                            inst->opcode == HIROpcode::YieldStar) {
+                            yieldsInBlock.push_back(idx);
+                        }
+                        ++idx;
+                    }
+                }
+                int useIdx = 0;
+                for (auto& inst : block->instructions) {
+                    for (auto& op : inst->operands) {
+                        if (auto* opVal = std::get_if<std::shared_ptr<HIRValue>>(&op)) {
+                            if (!*opVal) continue;
+                            uint32_t id = (*opVal)->id;
+                            auto dbIt = defBlock.find(id);
+                            if (dbIt == defBlock.end()) continue;  // param/phi/alloca — skip
+                            if (dbIt->second != block.get()) {
+                                // (B) Cross-block use
+                                spillCandidates.insert(id);
+                            } else {
+                                // (A) Same-block: check yield-crossing
+                                int defIdx = defIdxWithinBlock[id];
+                                for (int yIdx : yieldsInBlock) {
+                                    if (defIdx < yIdx && yIdx < useIdx) {
+                                        spillCandidates.insert(id);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ++useIdx;
+                }
+            }
+            for (uint32_t id : spillCandidates) {
+                size_t slot = crossYieldSpillIds_.size();
+                crossYieldSpillIds_.insert(id);
+                crossYieldSlotOf_[id] = slot;
+            }
+        }
+        size_t crossYieldSpillCount = crossYieldSpillIds_.size();
+
         // Create the implementation function (state machine)
         // Signature: void impl(AsyncContext* ctx)
         std::string implName = fn->mangledName + "$impl";
@@ -973,9 +1163,9 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
 
         // Store function parameters (and reserve space for locals) in ctx->data
         {
-            // Allocate a buffer for params + locals (8 bytes each slot)
+            // Allocate a buffer for params + locals + cross-yield spill slots (8 bytes each)
             size_t numParams = fn->params.empty() ? 0 : fn->params.size();
-            size_t totalSlots = numParams + allocaCount;
+            size_t totalSlots = numParams + allocaCount + crossYieldSpillCount;
             llvm::FunctionType* allocFt = llvm::FunctionType::get(
                 builder_->getPtrTy(), { builder_->getInt64Ty() }, false);
             llvm::FunctionCallee allocFn = module_->getOrInsertFunction("ts_alloc", allocFt);
@@ -1088,6 +1278,18 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
                     "gen_local_" + std::to_string(i));
                 generatorLocalSlots_.push_back(slotPtr);
             }
+
+            // Pre-create GEPs for cross-yield SSA spill slots. Indexed by
+            // crossYieldSlotOf_[hir_value_id]. Created in impl_entry so they
+            // dominate every block reachable from the state-switch.
+            crossYieldSlotGEPs_.assign(crossYieldSpillCount, nullptr);
+            for (const auto& [id, slot] : crossYieldSlotOf_) {
+                size_t slotIndex = numParams + allocaCount + slot;
+                llvm::Value* slotPtr = builder_->CreateGEP(builder_->getPtrTy(), generatorDataBuf_,
+                    { llvm::ConstantInt::get(builder_->getInt64Ty(), slotIndex) },
+                    "gen_xy_" + std::to_string(id));
+                crossYieldSlotGEPs_[slot] = slotPtr;
+            }
         }
 
         // Create blocks for each state
@@ -1152,6 +1354,10 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         generatorLocalCount_ = 0;
         generatorNextLocalIndex_ = 0;
         generatorLocalSlots_.clear();
+        crossYieldSpillIds_.clear();
+        crossYieldSlotOf_.clear();
+        crossYieldSlotType_.clear();
+        crossYieldSlotGEPs_.clear();
         return;  // Exit early - we've handled everything for generators
     }
 

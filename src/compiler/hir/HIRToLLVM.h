@@ -17,6 +17,8 @@
 #include <memory>
 #include <map>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace ts::hir {
 
@@ -212,6 +214,29 @@ private:
     int generatorLocalCount_ = 0;                        // Number of Alloca instructions in generator
     int generatorNextLocalIndex_ = 0;                    // Next local index for alloca replacement
     std::vector<llvm::Value*> generatorLocalSlots_;      // Pre-created GEPs for local slots (dominate all uses)
+
+    // Cross-yield SSA spill state. Populated only for generator/async-generator
+    // functions where some HIR SSA value is defined before a yield and used
+    // after it. The post-yield resume block is reached directly from impl_entry
+    // via the state-switch, bypassing the pre-yield definition's block — so
+    // without spilling, the verifier rejects with "Instruction does not
+    // dominate all uses!". The fix routes such values through the heap-backed
+    // data buffer: every SET also stores to a per-value slot, every GET of a
+    // spilled value reads from the slot. The slot GEPs are created in
+    // impl_entry so they dominate every block.
+    //
+    // Differs from the reverted commit de53567 in three ways:
+    //   (1) only values with cross-yield liveness are spilled (not every
+    //       value defined before any yield);
+    //   (2) non-ptr types are *boxed* (ts_value_make_int/double/bool) before
+    //       being stored — never type-punned via IntToPtr — so the GC scan of
+    //       the data buffer sees real ptr values uniformly;
+    //   (3) reads always come from the slot at use-site (no global valueMap_
+    //       mutation that poisons subsequent blocks).
+    std::unordered_set<uint32_t> crossYieldSpillIds_;            // HIRValue ids to spill
+    std::unordered_map<uint32_t, size_t> crossYieldSlotOf_;      // id -> slot index
+    std::unordered_map<uint32_t, llvm::Type*> crossYieldSlotType_; // id -> original LLVM type (for unboxing on reload)
+    std::vector<llvm::Value*> crossYieldSlotGEPs_;               // slot index -> GEP into data buffer (in impl_entry)
 
     //==========================================================================
     // Type Mapping
