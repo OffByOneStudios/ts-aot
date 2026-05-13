@@ -635,9 +635,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         }
 
         // Scan constructor body for this.x = expr assignments
+        // ECMA-262: only the INSTANCE constructor counts; a `static constructor()`
+        // is a static method that happens to be named "constructor" and has
+        // unrelated semantics. Without the !isStatic filter, scanning a
+        // static-constructor body crashes downstream when its `this` (the
+        // class itself) is treated as an instance.
         for (auto& memberPtr : classDecl->members) {
             if (auto* method = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
-                if (method->name == "constructor" && method->hasBody) {
+                if (method->name == "constructor" && method->hasBody && !method->isStatic) {
                     scanConstructorBodyForProperties(method->body, shape, propertyOffset);
                     break;
                 }
@@ -676,11 +681,12 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             }
         }
 
-        // Also check if there's an explicit constructor in the class
+        // Also check if there's an explicit instance constructor in the class.
+        // Static methods named "constructor" don't count — they're orthogonal.
         bool hasExplicitConstructor = false;
         for (auto& memberPtr2 : classDecl->members) {
             if (auto* method = dynamic_cast<ast::MethodDefinition*>(memberPtr2.get())) {
-                if (method->name == "constructor" && method->hasBody) {
+                if (method->name == "constructor" && method->hasBody && !method->isStatic) {
                     hasExplicitConstructor = true;
                     break;
                 }
@@ -9913,10 +9919,11 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
         }
     }
 
-    // Scan constructor body for this.x = expr assignments
+    // Scan instance constructor body for this.x = expr assignments
+    // (static-method "constructor" is unrelated).
     for (auto& memberPtr : node->members) {
         if (auto* method = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
-            if (method->name == "constructor" && method->hasBody) {
+            if (method->name == "constructor" && method->hasBody && !method->isStatic) {
                 scanConstructorBodyForProperties(method->body, shape, propertyOffset);
                 break;
             }
@@ -10004,10 +10011,14 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 continue;
             }
 
-            // Generate a unique function name for the method
+            // Generate a unique function name for the method.
+            // Static `constructor` is a static method, not the instance ctor —
+            // it must NOT share the canonical "<Class>_constructor" symbol
+            // (would collide with the real instance constructor and crash
+            // codegen on duplicate symbols).
             std::string methodFuncName;
             std::string methodKey = methodDef->name;  // Key used for registration in class
-            if (methodDef->name == "constructor") {
+            if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 methodFuncName = node->name + "_constructor";
             } else if (methodDef->isGetter) {
                 // Getter: ClassName___getter_propName
@@ -10183,8 +10194,9 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 }
             }
 
-            // For constructors, initialize instance property default values before user code
-            if (methodDef->name == "constructor") {
+            // For instance constructors, initialize instance property defaults before user code.
+            // Static `constructor` is just a static method — never an instance ctor.
+            if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 // Get 'this' pointer (first parameter)
                 auto thisValue = lookupVariable("this");
                 if (thisValue) {
@@ -10231,9 +10243,11 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 currentBlock_ = savedBlock;
             }
 
-            // Register method in the class
+            // Register method in the class. Static `constructor` is a
+            // static method that happens to be named "constructor" — NOT
+            // the class's instance constructor.
             HIRFunction* funcPtr = func.get();
-            if (methodDef->name == "constructor") {
+            if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {
                 // Use methodKey so static accessors get the
@@ -10472,10 +10486,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         }
     }
 
-    // Scan constructor body for this.x = expr assignments
+    // Scan instance constructor body for this.x = expr assignments
+    // (static-method "constructor" is unrelated).
     for (auto& memberPtr : node->members) {
         if (auto* method = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
-            if (method->name == "constructor" && method->hasBody) {
+            if (method->name == "constructor" && method->hasBody && !method->isStatic) {
                 scanConstructorBodyForProperties(method->body, shape, propertyOffset);
                 break;
             }
@@ -10540,10 +10555,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 continue;
             }
 
-            // Generate a unique function name for the method
+            // Generate a unique function name for the method.
+            // Static `constructor` is a static method, not the instance ctor.
             std::string methodFuncName;
             std::string methodKey = methodDef->name;  // Key used for registration in class
-            if (methodDef->name == "constructor") {
+            if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 methodFuncName = className + "_constructor";
             } else if (methodDef->isGetter) {
                 // Getter: ClassName___getter_propName
@@ -10719,8 +10735,9 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 }
             }
 
-            // For constructors, initialize instance property default values before user code
-            if (methodDef->name == "constructor") {
+            // For instance constructors, initialize instance property defaults before user code.
+            // Static `constructor` is just a static method — never an instance ctor.
+            if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 // Get 'this' pointer (first parameter)
                 auto thisValue = lookupVariable("this");
                 if (thisValue) {
@@ -10767,9 +10784,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 currentBlock_ = savedBlock;
             }
 
-            // Register method in the class
+            // Register method in the class. Static `constructor` is a
+            // static method that happens to be named "constructor" — NOT
+            // the class's instance constructor.
             HIRFunction* funcPtr = func.get();
-            if (methodDef->name == "constructor") {
+            if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {
                 // Use methodKey so static accessors get the
