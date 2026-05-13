@@ -2398,6 +2398,19 @@ void HIRToLLVM::lowerCmpEqI64(HIRInstruction* inst) {
         lhs = builder_->CreateZExt(lhs, builder_->getInt64Ty(), "bool_to_i64");
     }
 
+    // If either side is f64, coerce both to f64 and use fcmp.
+    if (lhs->getType()->isDoubleTy() || rhs->getType()->isDoubleTy()) {
+        if (lhs->getType()->isIntegerTy(64)) {
+            lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy(), "i64_to_f64");
+        }
+        if (rhs->getType()->isIntegerTy(64)) {
+            rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy(), "i64_to_f64");
+        }
+        llvm::Value* result = builder_->CreateFCmpOEQ(lhs, rhs, "feq");
+        setValue(inst->result, result);
+        return;
+    }
+
     llvm::Value* result = builder_->CreateICmpEQ(lhs, rhs, "eq");
     setValue(inst->result, result);
 }
@@ -2493,6 +2506,22 @@ void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
     } else if (lhs->getType()->isIntegerTy(1) && rhs->getType()->isIntegerTy(64)) {
         // Extend i1 to i64 for comparison
         lhs = builder_->CreateZExt(lhs, builder_->getInt64Ty(), "bool_to_i64");
+    }
+
+    // If either side is f64 (e.g., result of `~object` lowering via SIToFP),
+    // coerce both to f64 and use fcmp — icmp requires matched integer types.
+    // Affects `~object !== ~1` style comparisons where bitwise-not produces
+    // f64 to match JS number semantics.
+    if (lhs->getType()->isDoubleTy() || rhs->getType()->isDoubleTy()) {
+        if (lhs->getType()->isIntegerTy(64)) {
+            lhs = builder_->CreateSIToFP(lhs, builder_->getDoubleTy(), "i64_to_f64");
+        }
+        if (rhs->getType()->isIntegerTy(64)) {
+            rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy(), "i64_to_f64");
+        }
+        llvm::Value* result = builder_->CreateFCmpUNE(lhs, rhs, "fne");
+        setValue(inst->result, result);
+        return;
     }
 
     llvm::Value* result = builder_->CreateICmpNE(lhs, rhs, "ne");
