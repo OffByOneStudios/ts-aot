@@ -1328,9 +1328,20 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             stateSwitch->addCase(builder_->getInt32(i + 1), yieldResumeBlocks_[i]);
         }
 
-        // Build the done block - just return without setting yielded
+        // Build the done block - just return without setting yielded.
+        // Impl functions are normally void, but match the actual return type
+        // defensively to avoid a verifier mismatch if the function was
+        // declared with a non-void return (some derived-class super-prop
+        // paths route a non-impl function through here — see superPropOrdering).
         builder_->SetInsertPoint(generatorDoneBlock_);
-        builder_->CreateRetVoid();
+        {
+            llvm::Type* retTy = currentFunction_->getReturnType();
+            if (retTy->isVoidTy()) {
+                builder_->CreateRetVoid();
+            } else {
+                builder_->CreateRet(llvm::UndefValue::get(retTy));
+            }
+        }
 
         // Lower each HIR block in the impl function
         for (auto& block : fn->blocks) {
@@ -1557,27 +1568,47 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     // mirrors the dispatch in lowerReturnVoid (~line 8830). The fix only
     // touches blocks that are *already* unterminated; legitimately-
     // terminated blocks are untouched.
-    if (!isGeneratorFunction_ && currentFunction_) {
+    if (currentFunction_) {
         llvm::Type* expectedRetType = currentFunction_->getReturnType();
+        auto emitDefaultReturn = [&]() {
+            if (expectedRetType->isVoidTy()) {
+                builder_->CreateRetVoid();
+            } else if (expectedRetType->isPointerTy()) {
+                auto undefFn = getOrDeclareRuntimeFunction(
+                    "ts_value_make_undefined",
+                    builder_->getPtrTy(), {});
+                llvm::Value* undefVal = builder_->CreateCall(undefFn, {}, "undef.tail");
+                builder_->CreateRet(undefVal);
+            } else if (expectedRetType->isDoubleTy()) {
+                builder_->CreateRet(llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0));
+            } else if (expectedRetType->isIntegerTy(64)) {
+                builder_->CreateRet(llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
+            } else if (expectedRetType->isIntegerTy(1)) {
+                builder_->CreateRet(llvm::ConstantInt::get(builder_->getInt1Ty(), 0));
+            } else {
+                builder_->CreateRet(llvm::Constant::getNullValue(expectedRetType));
+            }
+        };
         for (auto& bb : *currentFunction_) {
             if (bb.empty() || !bb.back().isTerminator()) {
                 builder_->SetInsertPoint(&bb);
-                if (expectedRetType->isVoidTy()) {
-                    builder_->CreateRetVoid();
-                } else if (expectedRetType->isPointerTy()) {
-                    auto undefFn = getOrDeclareRuntimeFunction(
-                        "ts_value_make_undefined",
-                        builder_->getPtrTy(), {});
-                    llvm::Value* undefVal = builder_->CreateCall(undefFn, {}, "undef.tail");
-                    builder_->CreateRet(undefVal);
-                } else if (expectedRetType->isDoubleTy()) {
-                    builder_->CreateRet(llvm::ConstantFP::get(builder_->getDoubleTy(), 0.0));
-                } else if (expectedRetType->isIntegerTy(64)) {
-                    builder_->CreateRet(llvm::ConstantInt::get(builder_->getInt64Ty(), 0));
-                } else if (expectedRetType->isIntegerTy(1)) {
-                    builder_->CreateRet(llvm::ConstantInt::get(builder_->getInt1Ty(), 0));
-                } else {
-                    builder_->CreateRet(llvm::Constant::getNullValue(expectedRetType));
+                emitDefaultReturn();
+                continue;
+            }
+            // Also fix RET terminators whose value type doesn't match the
+            // declared return type (e.g. derived-class super-prop paths can
+            // route to a generator-state-machine done-block that emits ret
+            // void while the function is declared ptr — superPropOrdering
+            // hit this with "ret void <badref> ptr" from the LLVM verifier).
+            llvm::Instruction& term = bb.back();
+            if (auto* retInst = llvm::dyn_cast<llvm::ReturnInst>(&term)) {
+                llvm::Type* retValTy = retInst->getReturnValue()
+                    ? retInst->getReturnValue()->getType()
+                    : builder_->getVoidTy();
+                if (retValTy != expectedRetType) {
+                    retInst->eraseFromParent();
+                    builder_->SetInsertPoint(&bb);
+                    emitDefaultReturn();
                 }
             }
         }
@@ -9114,7 +9145,17 @@ void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
             builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
         builder_->CreateCall(returnFn, { asyncContext_, undefinedVal });
 
-        builder_->CreateRetVoid();
+        // State-machine impl functions are normally declared void, but a
+        // non-state-machine derived-class method that the codegen mistakenly
+        // routes here can have a non-void return type (e.g. superPropOrdering
+        // hit this with a ptr-returning method). Match the actual return type
+        // rather than blindly emitting RetVoid.
+        llvm::Type* retTy = currentFunction_->getReturnType();
+        if (retTy->isVoidTy()) {
+            builder_->CreateRetVoid();
+        } else {
+            builder_->CreateRet(llvm::UndefValue::get(retTy));
+        }
         return;
     }
 
