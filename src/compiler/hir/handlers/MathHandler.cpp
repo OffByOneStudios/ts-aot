@@ -240,6 +240,14 @@ private:
     llvm::Value* lowerNumberIsFinite(HIRInstruction* inst, HIRToLLVM& lowerer) {
         auto& builder = lowerer.builder();
 
+        // No arg → arg is undefined → Number.isFinite(undefined) returns false
+        // (strict isFinite, no coercion). Mirrors lowerNumberIsNaN below.
+        // Without this guard, getOperandValue reads past the end of the operands
+        // vector — variant memory is uninitialized, index reads garbage, the
+        // SPDLOG warning fires, and the compile aborts non-deterministically.
+        // Hit by built-ins/Number/isFinite/arg-is-not-number.js.
+        if (inst->operands.size() < 2) return builder.getInt1(false);
+
         llvm::Value* val = lowerer.getOperandValue(inst->operands[1]);
 
         // Handle different input types
