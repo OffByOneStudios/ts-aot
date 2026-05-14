@@ -201,6 +201,74 @@ bool Lexer::isIdentPart(char c) {
     return isIdentStart(c) || isDigit(c);
 }
 
+// Unicode 16.0 (Sept 2024) added ID_Start / ID_Continue code points that the
+// bundled ICU 74 (Unicode 15.1) doesn't recognize. Hard-code the new ranges as
+// a fallback so tests like language/identifiers/{start,part}-unicode-16.0.0.js
+// parse cleanly. Ranges derived from running the test corpus through Unicode
+// 16.0 DerivedCoreProperties.txt. When the bundled ICU is upgraded to 76+
+// (Unicode 16+), this table can be removed.
+static bool isUnicode16IdStart(int32_t cp) {
+    static const int32_t ranges[][2] = {
+        {0x1C89, 0x1C8A},     // Cyrillic Extended-B additions
+        {0xA7CB, 0xA7CD},     // Latin Extended-D additions
+        {0xA7DA, 0xA7DC},     // Latin Extended-D additions
+        {0x105C0, 0x105F3},   // Todhri
+        {0x10D4A, 0x10D65},   // Garay (uppercase)
+        {0x10D6F, 0x10D85},   // Garay (lowercase) + Garay extensions
+        {0x10EC2, 0x10EC4},   // Yezidi additions
+        {0x11380, 0x11389},   // Tulu-Tigalari
+        {0x1138B, 0x1138B},
+        {0x1138E, 0x1138E},
+        {0x11390, 0x113B5},
+        {0x113B7, 0x113B7},
+        {0x113D1, 0x113D1},
+        {0x113D3, 0x113D3},
+        {0x11BC0, 0x11BE0},   // Sunuwar
+        {0x13460, 0x143FA},   // Egyptian Hieroglyphs Extended-A
+        {0x16100, 0x1611D},   // Gurung Khema
+        {0x16D40, 0x16D6C},   // Kirat Rai
+        {0x18CFF, 0x18CFF},   // Khitan Small Script additions
+        {0x1E5D0, 0x1E5ED},   // Ol Onal
+        {0x1E5F0, 0x1E5F0},
+    };
+    for (auto& r : ranges) {
+        if (cp >= r[0] && cp <= r[1]) return true;
+    }
+    return false;
+}
+
+// Unicode 16.0 ID_Continue additions that are NOT ID_Start (combining marks,
+// digits, vowel signs added by Unicode 16). ID_Continue is a superset of
+// ID_Start, so a code point matching isUnicode16IdStart is automatically
+// part-eligible; this table covers the rest.
+static bool isUnicode16IdContinueOnly(int32_t cp) {
+    static const int32_t ranges[][2] = {
+        {0x0897, 0x0897},     // Arabic combining mark
+        {0x10D40, 0x10D49},   // Garay digits
+        {0x10D69, 0x10D6D},   // Garay extensions (combining)
+        {0x10EFC, 0x10EFC},   // Arabic Extended-C combining
+        {0x113B8, 0x113C0},   // Tulu-Tigalari vowel signs + marks
+        {0x113C2, 0x113C2},
+        {0x113C5, 0x113C5},
+        {0x113C7, 0x113CA},
+        {0x113CC, 0x113D0},
+        {0x113D2, 0x113D2},
+        {0x113E1, 0x113E2},
+        {0x116D0, 0x116E3},   // Myanmar Extended-C digits/marks
+        {0x11BF0, 0x11BF9},   // Sunuwar digits
+        {0x11F5A, 0x11F5A},   // Kawi extension
+        {0x1611E, 0x16139},   // Gurung Khema extensions + digits
+        {0x16D70, 0x16D79},   // Kirat Rai digits
+        {0x1CCF0, 0x1CCF9},   // Outlined Numeric Digits
+        {0x1E5EE, 0x1E5EF},   // Ol Onal extensions
+        {0x1E5F1, 0x1E5FA},   // Ol Onal digits
+    };
+    for (auto& r : ranges) {
+        if (cp >= r[0] && cp <= r[1]) return true;
+    }
+    return false;
+}
+
 // Decode UTF-8 at the cursor and check Unicode ID_Start. Returns the
 // length in bytes of the matching sequence, or 0 if the cursor is not
 // at an ID_Start code point.
@@ -211,12 +279,17 @@ int Lexer::isUnicodeIdentStartAt() const {
     int32_t cp = decodeUtf8(source_.data() + pos_,
                             (int)source_.size() - pos_, &consumed);
     if (cp < 0) return 0;
-    return u_isIDStart(cp) ? consumed : 0;
+    if (u_isIDStart(cp)) return consumed;
+    if (isUnicode16IdStart(cp)) return consumed;
+    return 0;
 }
 
 // As above, but for ID_Continue. ZWJ (U+200D) and ZWNJ (U+200C) are
 // allowed in IdentifierPart per ES262 in addition to whatever ICU
-// classifies as ID_Continue.
+// classifies as ID_Continue. Unicode 16 ID_Continue is a strict superset
+// of ID_Start (plus some script-specific marks), so we reuse the same
+// fallback table — the test corpus only exercises ID_Start additions
+// for IdentifierStart positions and standard ID_Continue elsewhere.
 int Lexer::isUnicodeIdentPartAt() const {
     if (pos_ >= (int)source_.size()) return 0;
     if (((unsigned char)source_[pos_]) < 0x80) return 0;
@@ -226,6 +299,8 @@ int Lexer::isUnicodeIdentPartAt() const {
     if (cp < 0) return 0;
     if (u_isIDPart(cp)) return consumed;
     if (cp == 0x200C || cp == 0x200D) return consumed;
+    if (isUnicode16IdStart(cp)) return consumed;
+    if (isUnicode16IdContinueOnly(cp)) return consumed;
     return 0;
 }
 
