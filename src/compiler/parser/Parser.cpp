@@ -622,6 +622,20 @@ bool Parser::declareLexicalName(const std::string& name, PDeclKind kind) {
         if (existing == PDeclKind::Var && kind == PDeclKind::Var) {
             return true;
         }
+        // ECMA-262 14.1: FunctionDeclaration at function-scope is hoisted into
+        // VarDeclaredNames, not LexicallyDeclaredNames. So `function f() { var
+        // x; function x() {} }` is well-formed (the fn-decl shadows/merges with
+        // the var). Both directions: pre-existing var then fn-decl, or pre-
+        // existing fn-decl then var. The var+fn (in either order) and fn+var
+        // (in either order) carveout below makes function-body scope push
+        // (commit 50566e3) work without regressing this pattern.
+        if ((existing == PDeclKind::Var && kind == PDeclKind::Function) ||
+            (existing == PDeclKind::Function && kind == PDeclKind::Var)) {
+            // Promote the slot to Function (the fn-decl wins; later var
+            // re-declarations are fine since var+fn is allowed).
+            scope.names[name] = PDeclKind::Function;
+            return true;
+        }
         // ECMA-262 Annex B.3.3.4: in non-strict code, duplicate
         // LexicallyDeclaredNames bound ONLY by FunctionDeclarations are
         // allowed in a Block. Mirror the carveout already applied to
@@ -2443,6 +2457,10 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         sawUseStrictDirective_ = false;
 
         expect(TokenKind::OpenBrace, "'{'");
+        // Method body has its own LexicalDeclarations scope (same rationale
+        // as parseFunctionDeclaration). Without this, `let X` in sibling
+        // method bodies of an object literal or class mistakenly conflict.
+        pushLexicalScope();
         bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();
@@ -2453,6 +2471,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
                 method->body.push_back(std::move(stmt));
             }
         }
+        popLexicalScope();
         expect(TokenKind::CloseBrace, "'}'");
 
         if (sawUseStrictDirective_ &&

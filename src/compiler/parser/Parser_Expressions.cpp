@@ -1746,6 +1746,10 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     sawUseStrictDirective_ = false;
 
     expect(TokenKind::OpenBrace, "'{'");
+    // FunctionExpression body has its own LexicalDeclarations scope
+    // (same rationale as parseFunctionDeclaration). Without this, `let X` in
+    // sibling method bodies of an object literal mistakenly conflict.
+    pushLexicalScope();
     bool inPrologue = true;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();
@@ -1756,6 +1760,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
             node->body.push_back(std::move(stmt));
         }
     }
+    popLexicalScope();
     expect(TokenKind::CloseBrace, "'}'");
 
     if (sawUseStrictDirective_ &&
