@@ -91,8 +91,23 @@ std::unique_ptr<HIRInstruction> BuiltinResolutionPass::tryResolveBuiltin(
     newInst->sourceLine = inst->sourceLine;
     newInst->sourceColumn = inst->sourceColumn;
 
-    // First operand is the runtime function name
-    newInst->operands.push_back(resolution.runtimeFunction);
+    // Pre-reserve to avoid push_back reallocations during the loop. Each realloc
+    // frees the old operand storage; downstream readers in HIRToLLVM hold
+    // pointers into operands[N] and become heap-use-after-free on realloc.
+    // ASan caught this in MathHandler::lowerSingleArgDouble reading
+    // inst->operands[1] in staging/sm/Math/fround.js after the second push_back
+    // reallocated the operands buffer.
+    newInst->operands.reserve(1 + args.size());
+
+    // First operand is the runtime function name.
+    // Construct an explicit std::string from data/size to guarantee a fresh
+    // heap allocation. Without this, the variant move from a temporary
+    // HIROperand can leave the new variant's std::string aliasing the local
+    // `resolution.runtimeFunction`'s heap, which gets freed when this function
+    // returns — a second UAF that ASan caught after the reserve() fix above
+    // alone wasn't sufficient.
+    newInst->operands.push_back(
+        std::string(resolution.runtimeFunction.data(), resolution.runtimeFunction.size()));
 
     // Remaining operands are the arguments
     for (const auto& arg : args) {
