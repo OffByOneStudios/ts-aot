@@ -1751,6 +1751,11 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         sawUseStrictDirective_ = false;
 
         expect(TokenKind::OpenBrace, "'{'");
+        // ECMA-262 14.2.1: FunctionBody introduces its own LexicalDeclarations
+        // scope. Without this push, `function f() { let t = ...; }` would land
+        // in the enclosing scope, conflicting with sibling `let t` decls in
+        // other functions or outer blocks (has-instance-jitted.js hit this).
+        pushLexicalScope();
         bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();
@@ -1761,6 +1766,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
                 node->body.push_back(std::move(stmt));
             }
         }
+        popLexicalScope();
         expect(TokenKind::CloseBrace, "'}'");
 
         // Per ECMA-262 14.1.1: It is a SyntaxError if ContainsUseStrict of
