@@ -1005,7 +1005,13 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         crossYieldSlotOf_.clear();
         crossYieldSlotType_.clear();
         crossYieldSlotGEPs_.clear();
-        if (yieldCount > 0) {
+        // Run cross-block spill detection for ALL generators, not just those
+        // with yields. 0-yield generators (e.g. gen-meth-dflt-params tests) still
+        // get the state-machine impl/wrapper split, which can cause HIR-level
+        // single-block SSA defs to be referenced from LLVM-level distinct
+        // blocks after codegen reroutes via state-switch. Without the spill,
+        // verifier reports "Instruction does not dominate all uses!".
+        if (fn->isGenerator) {
             // Two over-approximations for "cross-yield-live", unioned:
             //
             //  (A) WITHIN-BLOCK yield-crossing: a value defined in some block B
