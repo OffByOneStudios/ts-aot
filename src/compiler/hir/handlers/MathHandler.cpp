@@ -221,6 +221,10 @@ private:
         auto& builder = lowerer.builder();
         auto& module = lowerer.module();
 
+        // No arg → ToUint32(undefined) = 0 → clz32(0) = 32.
+        if (inst->operands.size() < 2) {
+            return llvm::ConstantInt::get(builder.getInt64Ty(), 32);
+        }
         llvm::Value* arg = lowerer.getOperandValue(inst->operands[1]);
         arg = ensureI64(arg, lowerer);
 
@@ -234,10 +238,14 @@ private:
         auto& builder = lowerer.builder();
         auto& module = lowerer.module();
 
-        llvm::Value* a = lowerer.getOperandValue(inst->operands[1]);
-        llvm::Value* b = lowerer.getOperandValue(inst->operands[2]);
-        a = ensureI64(a, lowerer);
-        b = ensureI64(b, lowerer);
+        // Missing args → ToUint32(undefined) = 0; imul(0, x) = 0.
+        auto zero = llvm::ConstantInt::get(builder.getInt64Ty(), 0);
+        llvm::Value* a = inst->operands.size() > 1
+            ? ensureI64(lowerer.getOperandValue(inst->operands[1]), lowerer)
+            : zero;
+        llvm::Value* b = inst->operands.size() > 2
+            ? ensureI64(lowerer.getOperandValue(inst->operands[2]), lowerer)
+            : zero;
 
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder.getInt64Ty(), { builder.getInt64Ty(), builder.getInt64Ty() }, false);
