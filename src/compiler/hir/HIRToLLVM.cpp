@@ -1387,15 +1387,19 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
 
     // Map function parameters to values
     auto argIt = llvmFunc->arg_begin();
+    auto argEnd = llvmFunc->arg_end();
 
-    // If we have captures AND no explicit __closure__ param, the first LLVM argument is the implicit closure context
-    if (hasCaptureParams && !hasHiddenClosureParam) {
+    // If we have captures AND no explicit __closure__ param, the first LLVM argument is the implicit closure context.
+    // Defensive: only walk past an actual existing arg. The LLVM function may have been
+    // created without an implicit closure slot when HIR has captures (bytecodePatternMatching
+    // hit a crash dereferencing an end iterator at setName for the closure).
+    if (hasCaptureParams && !hasHiddenClosureParam && argIt != argEnd) {
         argIt->setName("__closure");
         closureParam_ = &*argIt;
         ++argIt;
     }
 
-    for (size_t i = 0; i < fn->params.size(); ++i, ++argIt) {
+    for (size_t i = 0; i < fn->params.size() && argIt != argEnd; ++i, ++argIt) {
         argIt->setName(fn->params[i].first);
         // Create a value mapping for the parameter
         // Parameters are represented as values with IDs starting from 0
