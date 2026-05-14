@@ -97,6 +97,17 @@ UNSUPPORTED_FLAGS: Set[str] = {
     "CanBlockIsTrue",
 }
 
+# Tests we intentionally don't support — SpiderMonkey-staging tests that
+# contradict ECMA-262 by asserting SM-specific quirks. Path is relative to
+# the test262 BUILD_DIR (matches how paths are stored in results.jsonl).
+SKIPPED_PATHS: Set[str] = {
+    # SM accepts `await` as IdentifierReference inside class field initializer
+    # of an async function (referring to a `var await = 1` declared in
+    # surrounding script-mode code). Per ECMA-262 13.1.1, IdentifierReference
+    # with [+Await] cannot be `await`. Our parser is spec-correct.
+    "staging/sm/fields/await-identifier-script.js",
+}
+
 
 # ---------------------------------------------------------------------------
 # Frontmatter parsing
@@ -525,6 +536,14 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
         return TestResult(test_path, "fail", f"read error: {e}")
 
     meta = parse_frontmatter(source)
+
+    # Path-based skip (SM-specific tests that contradict ECMA-262)
+    try:
+        rel = str(test_path.relative_to(build_dir)).replace('\\', '/')
+        if rel in SKIPPED_PATHS:
+            return TestResult(test_path, "skip", "intentionally skipped (SM-specific spec divergence)")
+    except ValueError:
+        pass
 
     # Check if should skip
     skip_reason = should_skip(meta)
