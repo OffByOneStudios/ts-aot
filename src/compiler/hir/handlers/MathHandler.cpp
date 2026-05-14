@@ -158,6 +158,14 @@ private:
         auto& builder = lowerer.builder();
         auto& module = lowerer.module();
 
+        // No arg → ToNumber(undefined) → NaN. Without this guard,
+        // getOperandValue reads past the end of operands and the variant index
+        // returns garbage (10, 116, etc.), aborting the compile
+        // non-deterministically. Hit by Math.fround() with no args.
+        if (inst->operands.size() < 2) {
+            return llvm::ConstantFP::getNaN(builder.getDoubleTy());
+        }
+
         llvm::Value* arg = lowerer.getOperandValue(inst->operands[1]);
         arg = ensureDouble(arg, lowerer);
 

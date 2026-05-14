@@ -72,10 +72,17 @@ struct BuiltinResolution {
     };
 
     Kind kind = Kind::Unknown;
-    std::string runtimeFunction;
+    // const char* (not std::string) because callers only ever pass C string
+    // literals and the registry is a singleton living forever. Using
+    // std::string introduced an aliasing bug where the heap from the local
+    // `auto resolution = registry.resolveGlobalBuiltin(...)` copy was being
+    // referenced after the local destructed (ASan-detected, manifested as
+    // non-deterministic compile failures in tests heavy on builtin calls
+    // such as staging/sm/Math/fround.js).
+    const char* runtimeFunction = nullptr;
     std::shared_ptr<HIRType> returnType;
 
-    static BuiltinResolution makeRuntimeCall(const std::string& fn,
+    static BuiltinResolution makeRuntimeCall(const char* fn,
                                              std::shared_ptr<HIRType> retType = nullptr) {
         BuiltinResolution r;
         r.kind = Kind::RuntimeCall;
