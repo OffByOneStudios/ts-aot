@@ -5251,7 +5251,9 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         if (targetClass) {
             std::string setterKey = "__setter_" + propAccess->name;
             auto setterIt = targetClass->methods.find(setterKey);
-            if (setterIt != targetClass->methods.end()) {
+            // Skip nullptr placeholders (see getter path comment) — same UAF
+            // family for private-setter-before-super class-body lowering.
+            if (setterIt != targetClass->methods.end() && setterIt->second) {
                 // Found a setter - call it instead of direct property assignment
                 HIRFunction* setterFunc = setterIt->second;
                 builder_.createCall(setterFunc->name, {obj, rhs}, HIRType::makeVoid());
@@ -7661,7 +7663,13 @@ void ASTToHIR::visitPropertyAccessExpression(ast::PropertyAccessExpression* node
     if (targetClass) {
         std::string getterKey = "__getter_" + node->name;
         auto getterIt = targetClass->methods.find(getterKey);
-        if (getterIt != targetClass->methods.end()) {
+        // Skip nullptr placeholders inserted by the JS pre-scan at line ~771;
+        // those get a real HIRFunction* later when the body is lowered.
+        // Reading getterFunc->returnType on a nullptr crashes during
+        // class-body expression processing (e.g. private-getter access in
+        // a derived constructor before super() — visitClassDeclaration
+        // lowers inner expressions before method bodies finish registering).
+        if (getterIt != targetClass->methods.end() && getterIt->second) {
             // Found a getter - call it instead of direct property access
             HIRFunction* getterFunc = getterIt->second;
             auto returnType = getterFunc->returnType ? getterFunc->returnType : HIRType::makeAny();
