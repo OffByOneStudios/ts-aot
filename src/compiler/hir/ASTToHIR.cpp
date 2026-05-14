@@ -1405,6 +1405,26 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             bool replacedExisting = false;
             for (auto& existing : module_->functions) {
                 if (existing && existing->name == spec.specializedName) {
+                    // HIRClass fields (vtable, methods, staticMethods, constructor)
+                    // hold raw HIRFunction* into module_->functions. Replacing the
+                    // unique_ptr here destroys the old HIRFunction; any HIRClass
+                    // pointer to it becomes dangling and HIRToLLVM later reads
+                    // freed memory via methodFunc->mangledName. Retarget them
+                    // to the new HIRFunction before the move.
+                    HIRFunction* oldPtr = existing.get();
+                    for (auto& cls : module_->classes) {
+                        if (!cls) continue;
+                        for (auto& entry : cls->vtable) {
+                            if (entry.second == oldPtr) entry.second = methPtr;
+                        }
+                        for (auto& entry : cls->methods) {
+                            if (entry.second == oldPtr) entry.second = methPtr;
+                        }
+                        for (auto& entry : cls->staticMethods) {
+                            if (entry.second == oldPtr) entry.second = methPtr;
+                        }
+                        if (cls->constructor == oldPtr) cls->constructor = methPtr;
+                    }
                     existing = std::move(func);
                     replacedExisting = true;
                     break;
