@@ -2020,8 +2020,8 @@ void* ts_get_global_DataView() {
                 // dereferenced wild memory and crashed.
                 void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: get buffer called on non-DataView")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get buffer called on non-DataView"));
                     return ts_value_make_undefined();
                 }
                 TsBuffer* buf = ((TsDataView*)raw)->GetBuffer();
@@ -2031,8 +2031,8 @@ void* ts_get_global_DataView() {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: get byteLength called on non-DataView")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get byteLength called on non-DataView"));
                     return ts_value_make_undefined();
                 }
                 return ts_value_make_int((int64_t)((TsDataView*)raw)->GetByteLength());
@@ -2041,8 +2041,8 @@ void* ts_get_global_DataView() {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: get byteOffset called on non-DataView")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get byteOffset called on non-DataView"));
                     return ts_value_make_undefined();
                 }
                 return ts_value_make_int((int64_t)((TsDataView*)raw)->GetByteOffset());
@@ -3328,8 +3328,8 @@ void* ts_get_global_TypedArray() {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: get buffer called on non-TypedArray")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get buffer called on non-TypedArray"));
                     return ts_value_make_undefined();
                 }
                 TsBuffer* buf = ((TsTypedArray*)raw)->GetBuffer();
@@ -3339,8 +3339,8 @@ void* ts_get_global_TypedArray() {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: get byteLength called on non-TypedArray")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get byteLength called on non-TypedArray"));
                     return ts_value_make_undefined();
                 }
                 return ts_value_make_int((int64_t)((TsTypedArray*)raw)->GetByteLength());
@@ -3349,8 +3349,8 @@ void* ts_get_global_TypedArray() {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: get byteOffset called on non-TypedArray")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get byteOffset called on non-TypedArray"));
                     return ts_value_make_undefined();
                 }
                 return ts_value_make_int((int64_t)((TsTypedArray*)raw)->GetByteOffset());
@@ -3359,8 +3359,8 @@ void* ts_get_global_TypedArray() {
                 if (!ctx) ctx = ts_get_call_this();
                 void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
-                    ts_throw((TsValue*)ts_error_create(TsString::Create(
-                        "TypeError: get length called on non-TypedArray")));
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get length called on non-TypedArray"));
                     return ts_value_make_undefined();
                 }
                 return ts_value_make_int((int64_t)((TsTypedArray*)raw)->GetLength());
