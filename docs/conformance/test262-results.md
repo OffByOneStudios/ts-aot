@@ -1,22 +1,28 @@
 # test262 Conformance Results
 
-**Last sweep:** 2026-05-15 (commit `ed3505f`)
+**Last sweep:** 2026-05-15 (commit `299cf0f` — Track A round 2)
 **Runner:** `python tests/test262/run_test262.py --fresh -j 24 --timeout 8`
 **Suite version:** vendored at `tests/test262/test262/`
 
-## Current Status — ce DRIVEN TO ZERO ✅
+## Current Status — ce ZERO + Track A receiver guards landed
 
 | Status | Count | % of total | % of executed |
 |--------|------:|-----------:|--------------:|
-| **pass** | 17,176 | 34.01% | 49.27% |
-| **fail** | 17,648 | 34.94% | 50.62% |
+| **pass** | 17,222 | 34.10% | 49.40% |
+| **fail** | 17,602 | 34.85% | 50.49% |
 | **compile_error** (ce) | **0** | **0%** | **0%** |
 | **timeout** | 37 | 0.07% | 0.11% |
-| **crash** | 0 | 0% | 0% |
+| **crash** (subset of fail) | 564 | — | 1.62% |
 | skip | 15,645 | 30.98% | — |
 | **Total** | 50,506 | 100% | 34,861 executed |
 
-**Executed pass rate: 49.3%** (17,176 / 34,861).
+**Executed pass rate: 49.4%** (17,222 / 34,861).
+
+**Track A round 1 + 2 cumulative impact (3 commits, 2026-05-15):**
+- Pass: 17,176 → **17,222 (+46)**
+- Fail: 17,648 → **17,602 (-46)**
+- TypedArray.prototype crashes: 52 → 48 (-4 directly; getter-extraction tests for `this-is-not-object` and `this-has-no-typedarrayname-internal` now pass)
+- Plus ArrayBuffer.prototype getter-extraction tests now pass (`built-ins/ArrayBuffer/prototype/{byteLength,detached,resizable,maxByteLength}/this-is-not-object.js`)
 
 The compile-error tail is now empty. The compiler successfully translates every non-skipped test in the test262 corpus to valid LLVM IR.
 
