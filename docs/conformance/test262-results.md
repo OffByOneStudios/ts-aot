@@ -1,150 +1,169 @@
 # test262 Conformance Results
 
-**Last sweep:** 2026-05-12 (commit `0a644ad`)
+**Last sweep:** 2026-05-15 (commit `ed3505f`)
 **Runner:** `python tests/test262/run_test262.py --fresh -j 24 --timeout 8`
 **Suite version:** vendored at `tests/test262/test262/`
 
-## Current Status
+## Current Status — ce DRIVEN TO ZERO ✅
 
 | Status | Count | % of total | % of executed |
 |--------|------:|-----------:|--------------:|
-| **pass** | 17,182 | 34.02% | 49.63% |
-| **fail** | 17,482 | 34.61% | 50.49% |
-| **compile_error** (ce) | 161 | 0.32% | 0.46% |
+| **pass** | 17,176 | 34.01% | 49.27% |
+| **fail** | 17,648 | 34.94% | 50.62% |
+| **compile_error** (ce) | **0** | **0%** | **0%** |
 | **timeout** | 37 | 0.07% | 0.11% |
-| skip | 15,644 | 30.97% | — |
-| **Total** | 50,506 | 100% | 34,862 executed |
+| **crash** | 0 | 0% | 0% |
+| skip | 15,645 | 30.98% | — |
+| **Total** | 50,506 | 100% | 34,861 executed |
 
-Executed pass rate: **49.6%** (17,182 / 34,862).
+**Executed pass rate: 49.3%** (17,176 / 34,861).
 
-**Session-cumulative change** (31 commits since 2026-05-11):
-- Pass: 17,137 → 17,182 (**+45**)
-- Ce: 384 → 161 (**-223, 58% reduction**)
-- Highest-yield commit: `b53f3ae` + `8e08f14` monomorphizer stub fallback (-92 ce, +18 pass).
-- Followup `0a644ad`: contextual-keyword regex-after disambiguation in `advance()` — fixes `instance/of/g`-style division-after-keyword parse errors.
+The compile-error tail is now empty. The compiler successfully translates every non-skipped test in the test262 corpus to valid LLVM IR.
 
-The skip count covers tests for features explicitly marked unsupported (modules, `eval`, BigInt edge cases, `tail-call-optimization`, etc.) via the runner's feature-flag filter.
+## Trajectory — 2026-05-14/15 day (17 commits, ce 42 → 0)
 
-## Trajectory (recent commits)
+Three pushes spanning ASan-detected memory-corruption forensics, parser scoping refactors, codegen defensive guards, and a small ICU-fallback table. All 17 commits landed with 0 golden_ir/node regressions.
 
-The last 27 commits (May 11–12, 2026) drove the autonomous-loop ce-cluster spike. Starting baseline was pass 17,137 / ce 384.
+| Phase | Commits | ce Δ | Key wins |
+|-------|--------:|-----:|----------|
+| Push 1: ASan forensics | 2 | -26 | HIRClass UAF (`3839367`), getter/setter null (`8fe9f49`) |
+| Push 2: Finish-the-tail | 8 | -6 | BuiltinResolution UAF, lowerStore/lowerFunction guards, parser scope push |
+| Push 3: Last-mile | 7 | -10 | 0-yield generator SSA, Unicode 16, Math no-arg guards, skip mechanism |
 
-| Metric | Start | Current | Δ |
-|--------|-------|--------:|--:|
-| Pass | 17,137 | 17,161 | **+24** |
-| Ce | 384 | 256 | **-128 (-33%)** |
+Full commit list in [`memory/session_2026-05-14_finish_the_tail.md`](../../C:/Users/cgrin/.claude/projects/E--src-github-com-cgrinker-ts-aoc/memory/session_2026-05-14_finish_the_tail.md) and `memory/MEMORY.md` index.
 
-Highest-yield individual commits:
-- `64ce932` ComputedPropertyName in ObjectBindingPattern → **-67 ce**
-- `a269591` Function param flags scoping (inner function's `[Await]`/`[Yield]`) → **+13 pass**
-- `1ed98d1` Class expression extends parity with class declaration → **-12 ce**
-- `392e949` Intl prototype.constructor backref → **+9 pass**
-- `15aeb5c` Top-level await tightening → **-8 ce**
-- `df536c5` Contextual keywords (constructor/keyof/etc.) as let-binding identifiers → **-8 ce**
-- `f560eb6` Escape-encoded strict-FRWs as BindingIdentifier in non-strict → **+5 pass**
+## Next Targets — Top Failure Clusters
 
-Sweep noise floor: **±6 pass** on same-commit re-runs (measured via diagnostic resweep). Single-commit deltas within that band are not deterministic.
+Two ways to slice the 17,648 fails. By **path prefix** to find feature/area gaps; by **reason pattern** to find systemic semantic issues.
 
-## Compile-Error Clusters (top by 3-segment path prefix)
+### Top 25 fail clusters by 3-segment path prefix
 
-| Count | Cluster | Dominant cause |
-|------:|---------|----------------|
-| 23 | `language/statements/class` | Generator-method yield as binding, computed-property from yield |
-| 21 | `staging/sm/expressions` | SM-specific harness deps (`print`, `assertEq`) + destructuring |
-| 18 | `language/statements/for-of` | dstr array-elem iter-close patterns (SSA dominance) |
-| 16 | `annexB/language/eval-code` | Runtime `eval` (AOT-incompatible) |
-| 16 | `language/expressions/assignment` | dstr rest-elem yield-expr (SSA dominance) |
-| 14 | `language/expressions/class` | Same yield/private patterns as class statements |
-| 12 | `language/expressions/object` | yield-expr in method names |
-| 11 | `language/expressions/in` | `#x in y` private-field brand check (feature) |
-| 9 | `staging/sm/TypedArray` | Harness arity mismatch (`assertThrowsInstanceOf`) |
-| 8 | `staging/sm/RegExp` | Harness deps + arity mismatch |
-| 7 | `staging/sm/class` | Default constructor as function, derived class TDZ |
-| 7 | `staging/sm/Set` | SSA dominance in Set.prototype.union/etc. |
+| Count | Cluster | Likely dominant cause |
+|------:|---------|------------------------|
+| 2,092 | `language/statements/class` | Class semantics (likely a mix: TDZ, static, private, generator method) |
+| 1,361 | `language/expressions/class` | Same as above, expression form |
+| 970 | `built-ins/Array/prototype` | Array method spec edge cases |
+| 543 | `language/expressions/object` | Object literal / method semantics |
+| 499 | `built-ins/TypedArray/prototype` | TypedArray method edges + TypeError detection |
+| 496 | `built-ins/String/prototype` | String method spec edges |
+| 494 | `built-ins/Object/defineProperty` | Descriptor semantics, throwing on invalid descriptors |
+| 453 | `language/statements/for-of` | dstr / iteration protocol edges |
+| 391 | `built-ins/RegExp/prototype` | RegExp method edges |
+| 304 | `language/expressions/assignment` | Destructuring / compound semantics |
+| 300 | `built-ins/Object/defineProperties` | Multiple-descriptor edge cases |
+| 275 | `built-ins/DataView/prototype` | Endianness / OOB / detached buffer cases |
+| 235 | `language/expressions/compound-assignment` | `+=`/etc. with property access (TypeError paths) |
+| 216 | `built-ins/Function/prototype` | bind/call/apply edges |
+| 192 | `language/expressions/generators` | Generator-expression semantics |
+| 192 | `language/statements/function` | Function semantics |
+| 190 | `language/expressions/function` | Same, expression form |
+| 184 | `language/statements/for` | for-statement edge cases |
+| 172 | `built-ins/TypedArrayConstructors/internals` | Constructor edge cases |
+| 170 | `built-ins/RegExp/property-escapes` | RegExp \p{} edges |
+| 155 | `language/statements/generators` | Generator semantics |
+| 151 | `language/expressions/arrow-function` | Arrow semantics |
+| 136 | `built-ins/Object/prototype` | Object.prototype methods |
+| 135 | `language/statements/with` | `with` statement (parsed, never lowered) |
+| 132 | `built-ins/Date/prototype` | Date method edges |
 
-## Heavy-Cluster Root Causes (verified via research agents 2026-05-12)
+### Top failure reason patterns (deduplicated)
 
-The 256 remaining ce tests cluster around five heavy infrastructural issues. Narrow parser fixes are exhausted; further progress requires investments outside the narrow-fix template.
+| Count | Pattern | What this means |
+|------:|---------|-----------------|
+| **1,375** | `Uncaught: Expected a TypeError to be thrown but no exception was thrown at all` | Runtime didn't throw a required TypeError. Likely missing receiver/arg validation in stdlib methods. |
+| **993** | `Uncaught: Expected a Test262Error to be thrown but no exception was thrown at all` | Test's `assert` block passed silently instead of throwing on a wrong value. Almost always indicates the prior assertion DID get the right value, so a different test step misbehaved. |
+| **963** | `expected parse error but compiled successfully` | Negative test that asserts a SyntaxError — our parser is too permissive. |
+| **871** | `Expected SameValue(undefined, N)` | Runtime returned undefined where a number was expected. Common cause: method returning undefined when it should return a primitive. |
+| **666** | `Expected SameValue(N, N)` (numeric mismatch) | Computed result differs from spec. |
+| **649** | `Expected SameValue("X", "X")` (string mismatch) | String result differs. |
+| **599** | `Expected SameValue([object Object], [object Object])` | Object identity check failure — likely wrong object returned (e.g., `this` vs receiver). |
+| **569** | `CRASH: VectoredException 0xc0000005` | Native access-violation crashes at runtime (not compile-time). |
+| **540** | `Expected SameValue(undefined, "X")` | Method returned undefined where string was expected. |
+| **530** | `Uncaught: Expected a ReferenceError to be thrown` | Tests checking TDZ, undeclared vars, etc. — runtime doesn't ReferenceError consistently. |
+| 314 | `AssertionError [ERR_ASSERTION]: ...falsy value` | Generic assertion failure (varied causes). |
+| 280 | `Expected true but got false` | Boolean assertion failure. |
+| 136 | `An initialized binding is not created prior to evaluation` | TDZ semantics (re-binding before init). |
 
-### 1. Monomorphizer `_any` specialization not emitted (~80 tests)
+### Top CRASH clusters (569 crashes — runtime segfaults)
 
-**Symptom:** `ts-aot-linker: error: undefined symbol: print_any` (or `Proxy_any_any`, `WeakSet_any`, `reportFailure_any`, `__func`).
+| Count | Cluster |
+|------:|---------|
+| 52 | `built-ins/TypedArray/prototype` |
+| 36 | `language/expressions/yield` |
+| 35 | `language/statements/class` |
+| 33 | `language/expressions/class` |
+| 29 | `language/statements/for-of` |
+| 26 | `built-ins/String/prototype` |
+| 23 | `built-ins/Iterator/concat` |
+| 20 | `built-ins/Function/prototype` |
+| 19 | `language/expressions/object` |
+| 19 | `language/statements/with` |
+| 17 | `language/statements/async-generator` |
 
-**Root cause:** three-part. When a function is called with `any`-typed args, the call-site mangler emits `<name>_any` as a static LLVM symbol, but the definition is never emitted because:
+Runtime crashes are real correctness bugs in the generated code or runtime — these are higher priority than `fail` because they suggest memory safety issues in the compiled binaries (not in `ts-aot.exe` itself).
 
-- For built-in globals (Proxy, WeakSet, Map, Set, Reflect, Promise, typed-array constructors): the call-position dispatch in `ASTToHIR.cpp:6571-6603` has no case for them and falls through to user-function mangling. The identifier-resolution path (`ASTToHIR.cpp:8134-8157`) recognizes them but the call path doesn't.
-- For harness JS functions (`print`, `assertEq`, `reportFailure` from test262 harness/sm/non262.js): the JS-untyped module rewriter at `Monomorphizer.cpp:1127` moves FunctionDeclarations into a synthetic `moduleInit`, but `findFunction` at `:2164` only walks `analyzer.modules[*]->ast->body` and never searches `syntheticFunctions`, so the spec request silently fails.
-- For genuinely-unknown call targets: the generic Call lowering at `HIRToLLVM.cpp:5396-5415` emits an `ExternalLinkage` forward declaration with no body, instead of a stub returning `undefined`.
+### Top parse-negative clusters (963 — should be SyntaxError but compile)
 
-**Possible fixes (one or more):**
-- **A. Stub emission in `lowerCall` (cheapest).** Mirror the existing `lowerLoadFunction` stub pattern at `HIRToLLVM.cpp:5413`: emit `InternalLinkage` function with a body that returns `ts_value_make_undefined()`, preserving the mangled name verbatim. Turns link-time failures into runtime ReferenceErrors. **Est. blast radius: ~80 tests** (covers all three sub-causes).
-- **B. Builtin-call-without-new dispatch (most principled).** Add Proxy/WeakSet/Map/Set/Reflect/Promise/etc. to the call-position handler in `ASTToHIR.cpp:6606`, lowering as `createCallIndirect(createLoadGlobal(name), args, Any)`. **Est. blast radius: ~40 tests, mostly under built-ins/Proxy, built-ins/WeakSet, built-ins/WeakMap.**
-- **C. findFunction also searches `syntheticFunctions`.** Fixes only the harness-JS-function case. **Est. blast radius: ~20 tests under staging/sm/*.**
+| Count | Cluster |
+|------:|---------|
+| 163 | `built-ins/RegExp/property-escapes` |
+| 109 | `language/statements/class` |
+| 95 | `language/literals/regexp` |
+| 79 | `language/expressions/class` |
+| 63 | `language/block-scope/syntax` |
+| 42 | `language/expressions/dynamic-import` |
+| 34 | `language/expressions/object` |
+| 29 | `built-ins/RegExp/prototype` |
+| 27 | `language/literals/string` |
+| 25 | `language/statements/for-in` |
+| 23 | `language/statements/for-of` |
 
-A+B+C combined would unlock most of the ~80 monomorphizer-_any cluster. Recommendation: start with A (single-site stub emission), measure, then layer B for the builtin TypeError tests.
+The two RegExp clusters (163+95+29 = 287) are mostly invalid regex syntax we accept — many of these are easy parser-side rejections.
 
-### 2. Generator/yield SSA dominance (~80 tests)
+## Recommended Next-Target Priorities
 
-**Symptom:** `LLVM Module verification failed: Instruction does not dominate all uses!` in generator bodies.
+Three tracks ranked by expected ROI per hour of work:
 
-**Root cause:** generator state-machine lowering creates phi nodes across yield-resume blocks where some incoming values aren't reachable from all predecessors. The codegen needs proper SSA insertion (or a rewrite of the resume-machinery to avoid the dominance violation).
+### Track A — Runtime TypeError emission (~1,375 tests, high ROI)
 
-**Fix scope:** large. Requires either reworking the generator state-machine lowering or running mem2reg / a SSA-fixer pass after generator codegen.
+The single biggest cluster. Most stdlib methods need a `RequireObjectCoercible` / `ThisHasInternalSlot` / "method called on non-object" check that throws TypeError before doing work. We've already done this for some Array/String methods (commits `27/27` and `23/23` from prior sessions). Audit the remaining built-ins systematically:
 
-**Affected clusters:** `cpn-*-from-yield-expression`, `dstr/array-elem-iter-*-close`, `methods-gen-yield-as-expression-*`, `scope-gen-meth-paramsbody-var-*`.
+- TypedArray.prototype methods (52 + many fails are likely missing receiver checks)
+- DataView.prototype methods (275 fails, lots of receiver-validation gaps)
+- Object.defineProperty / defineProperties (794 fails combined — descriptor validation)
 
-### 3. Arity mismatch on harness functions (~30 tests)
+**Estimated impact: +300 to +600 pass** depending on cluster overlap.
 
-**Symptom:** `LLVM Module verification failed: Incorrect number of arguments passed to called function!` (e.g., `assertThrowsInstanceOf` called with 3 args, declared with 4).
+### Track B — Parser-side negative-test detection (~963 tests, medium ROI)
 
-**Root cause:** the harness function is declared with N parameters but the test calls it with fewer (relying on JS default-undefined). The compiler emits a strict-arity LLVM call.
+Tests asserting SyntaxError that our parser doesn't catch. Three sub-clusters:
 
-**Fix scope:** medium. Need to either pad args with `undefined` at call sites, or generate variadic-style trampolines for cross-module function calls.
+1. **RegExp body validation (287 tests):** `\p{NotAProp}`, illegal flags, invalid character class. Mostly ICU/regex-validation work.
+2. **Class early errors (188 tests):** duplicate constructor, invalid static field, etc.
+3. **Block-scope redeclaration (63 tests):** sibling-block dup detection.
 
-**Affected clusters:** mostly `staging/sm/TypedArray/*`, `staging/sm/RegExp/*`, scattered in `staging/sm/Set/*`.
+**Estimated impact: +200 to +400 pass.**
 
-### 4. Eval semantics (~16 tests, AOT-incompatible)
+### Track C — Runtime crash investigation (~569 crashes, high importance lower ROI)
 
-**Symptom:** various — block-scoped function declarations in eval-globals.
+These are real correctness bugs — generated code crashes on valid input. Per-cluster forensics under CDB or ASan-instrumented runtime. The TypedArray + iterator clusters (75+) suggest issues with detached-buffer or iterator-result-shape handling.
 
-**Root cause:** runtime `eval` is fundamentally incompatible with AOT. These tests will never pass; consider adding to the skip list with feature `dynamic-import-into-script` or similar.
+**Estimated impact: +100 to +200 pass, plus reduced crash-blast risk in production.**
 
-**Affected cluster:** `annexB/language/eval-code/*`.
+### Track D — Smaller surgical wins
 
-### 5. Private-field-in brand check (~11 tests)
-
-**Symptom:** parse error on `#field in obj` or runtime not-implemented.
-
-**Root cause:** ECMA-2022 "ergonomic brand check" feature requires both parser support for `#x in y` and runtime support for private-name `in`-test. Currently unimplemented.
-
-**Affected cluster:** `language/expressions/in/private-field-*`.
-
-### 6. Smaller clusters (~30 tests scattered)
-
-- Unicode 16.0.0 identifier characters (`language/identifiers/start-unicode-16.0.0.js`, etc.) — requires ICU upgrade or per-codepoint table.
-- `with` statement (`language/statements/function/S13.2.2_A19_T3.js`, etc.) — `with` is parsed but not lowered. Deprecated; low priority.
-- Class-as-function TypeError (`Derived()` without new) — needs runtime TypeError emission for class-symbol-called-without-new.
-- Default-constructor symbol issues (`class C extends Base {}` chain) — analyzer/HIR class-extends quirk.
-- Codegen missing-block-terminator failures — scattered, each likely a different lowering path.
-
-## Outlook
-
-If the monomorphizer-stub fix lands (option A), ce drops to ~175 (-80). Pass count moves +30 to +50 (most stub-emit tests then fail or pass at runtime depending on what behavior the test expects from the undefined symbol).
-
-If options A + B both land, ce drops to ~140 (-115). Estimated pass gain +60 to +100 (TypeError-on-no-new tests will start passing because the runtime path handles it correctly).
-
-If generator SSA gets a proper fix, ce drops by another ~80. Pass gain there is harder to estimate (many of those tests are negative-tests checking yield semantics that may still fail post-parse).
-
-**Realistic next-quarter target:** ce < 100, pass > 17,400.
+- **`with` statement (135 fails + 19 crashes):** Either implement minimal `with` lowering (low ROI per LOC) or skip those tests (some are negative tests checking strict-mode rejection — those would still need parser work).
+- **Date.prototype (132 fails):** mostly locale/format edge cases. ICU calls.
+- **Bigger pictures: ICU 76 upgrade.** Unlocks Unicode 16.0 (currently faked via fallback table) and likely modernizes locale/format for Date/Intl.
 
 ## Methodology Notes
 
-The autonomous-loop ce-cluster-fix skill (`.claude/skills/test262-autoloop/SKILL.md`) drove the 27-commit spike. Key lessons captured there:
+Carrying over from the autonomous-loop ce-cluster era:
 
-- **Sweep noise floor is ±6 pass.** Single-commit deltas inside that band are not signal.
-- **Trust the ce count, not the pass count, for narrow-fix evaluation** — ce moves are deterministic; pass moves are stochastic from timeout/scheduling effects.
-- **Broad TokenKind-based widening is dangerous.** Commit `c666db0` widened the lexer's escapedReservedWord reservation and regressed 170 tests; had to revert (`95569c9`).
-- **Spec-citing commits.** Each commit message references the ECMA-262 section being implemented. This discipline rules out cargo-culted "fixes" that match a single engine's quirk rather than the spec.
+- **Sweep noise floor is ±6 to ±15 pass.** Same-commit re-runs swing within this band from timeout scheduling / intl402 flake.
+- **Trust per-cluster counts more than overall pass deltas.** A targeted fix for cluster X should show movement in cluster X's count specifically.
+- **ASan is the right forensic tool for "non-deterministic compile failure".** CDB usually can't reproduce; ASan deterministically catches the UAF on first invocation. See `memory/asan-build-tradeoffs.md` and `memory/hirtollvm-segfault-investigation.md` for the canonical playbook.
+- **Spec-cite every commit.** Each commit message references the ECMA-262 section being implemented. This discipline rules out cargo-culted "fixes" that match a single engine's quirk rather than the spec.
 
 ## Re-Running the Sweep
 
@@ -152,8 +171,20 @@ The autonomous-loop ce-cluster-fix skill (`.claude/skills/test262-autoloop/SKILL
 python tests/test262/run_test262.py --fresh -j 24 --timeout 8 2>&1 | tail -5
 ```
 
-Results are written to `tests/test262/.test262_results.jsonl`. The cluster_ce.py helper (committed at `tmp/cluster_ce.py`) tallies ce by 3-segment path prefix and samples top buckets:
+Results are written to `tests/test262/.test262_results.jsonl`. Cluster failures with:
 
-```bash
-python tmp/cluster_ce.py
+```python
+import json, collections
+fails = []
+with open('tests/test262/.test262_results.jsonl','rb') as f:
+    for raw in f:
+        try:
+            r = json.loads(raw.decode('utf-8','ignore'))
+            if r.get('status') == 'fail':
+                fails.append(r.get('path','').replace(chr(92),'/'))
+        except: pass
+c = collections.Counter()
+for p in fails:
+    c['/'.join(p.split('/')[:3])] += 1
+for k,v in c.most_common(25): print(f'{v:5d}  {k}')
 ```
