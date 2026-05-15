@@ -1972,6 +1972,75 @@ void* ts_get_global_ArrayBuffer() {
             }
             return ts_value_make_bool(false);
         }, 1);
+
+        // Install accessor getters on ArrayBuffer.prototype (byteLength,
+        // detached, maxByteLength, resizable) so `Object.getOwnPropertyDescriptor(
+        // ArrayBuffer.prototype, "byteLength").get.call(non-buffer)` throws
+        // TypeError per spec. Without these, property access on an
+        // ArrayBuffer instance still works via TsBuffer::GetPropertyVirtual,
+        // but the getter-extraction tests in built-ins/ArrayBuffer/prototype/*
+        // fail because they retrieve the getter and call it on a non-buffer.
+        TsValue pkey; pkey.type = ValueType::STRING_PTR; pkey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoT = ctor->Get(pkey);
+        if (protoT.type == ValueType::OBJECT_PTR && protoT.ptr_val) {
+            TsMap* abProto = (TsMap*)protoT.ptr_val;
+            // TsBuffer's MAGIC pattern at offset 16. See TsBuffer.h.
+            auto requireBuffer = [](void* ctx, const char* getterName) -> TsBuffer* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_nanbox_safe_unbox(ctx);
+                if (!raw) return nullptr;
+                TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)raw);
+                if (!buf) return nullptr;
+                (void)getterName;
+                return buf;
+            };
+            addAccessorGetter(abProto, "byteLength", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_nanbox_safe_unbox(ctx);
+                TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                if (!buf) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get byteLength called on non-ArrayBuffer"));
+                    return ts_value_make_undefined();
+                }
+                return ts_value_make_int((int64_t)buf->GetLength());
+            });
+            addAccessorGetter(abProto, "detached", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_nanbox_safe_unbox(ctx);
+                TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                if (!buf) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get detached called on non-ArrayBuffer"));
+                    return ts_value_make_undefined();
+                }
+                return ts_value_make_bool(buf->IsDetached());
+            });
+            addAccessorGetter(abProto, "resizable", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_nanbox_safe_unbox(ctx);
+                TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                if (!buf) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get resizable called on non-ArrayBuffer"));
+                    return ts_value_make_undefined();
+                }
+                return ts_value_make_bool(buf->IsResizable());
+            });
+            addAccessorGetter(abProto, "maxByteLength", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_nanbox_safe_unbox(ctx);
+                TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                if (!buf) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "get maxByteLength called on non-ArrayBuffer"));
+                    return ts_value_make_undefined();
+                }
+                return ts_value_make_int((int64_t)(buf->IsResizable() ? buf->GetMaxByteLength() : buf->GetLength()));
+            });
+            (void)requireBuffer;
+        }
+
         cached = wrapAsCallable(ctor, "ArrayBuffer", 1);
     }
     return cached;
