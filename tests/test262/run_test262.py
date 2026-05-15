@@ -537,9 +537,12 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
 
     meta = parse_frontmatter(source)
 
-    # Path-based skip (SM-specific tests that contradict ECMA-262)
+    # Path-based skip (SM-specific tests that contradict ECMA-262).
+    # test_path is rooted in TEST_DIR (the original test262/test/ tree); the
+    # skip set is keyed on the same relative-to-TEST_DIR form that appears in
+    # results.jsonl.
     try:
-        rel = str(test_path.relative_to(build_dir)).replace('\\', '/')
+        rel = str(test_path.relative_to(TEST_DIR)).replace('\\', '/')
         if rel in SKIPPED_PATHS:
             return TestResult(test_path, "skip", "intentionally skipped (SM-specific spec divergence)")
     except ValueError:
