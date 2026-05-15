@@ -2012,7 +2012,13 @@ void* ts_get_global_DataView() {
             };
             addAccessorGetter(dvProto, "buffer", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                // ts_nanbox_safe_unbox returns nullptr for NaN-boxed specials
+                // (null, undefined, true, false, numbers). The MAGIC check below
+                // then fires cleanly. Previously the code did
+                // `if (!raw) raw = ctx;` which for primitive `this` left raw
+                // pointing at a tagged-value bit pattern; the MAGIC read
+                // dereferenced wild memory and crashed.
+                void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
                     ts_throw((TsValue*)ts_error_create(TsString::Create(
                         "TypeError: get buffer called on non-DataView")));
@@ -2023,7 +2029,7 @@ void* ts_get_global_DataView() {
             });
             addAccessorGetter(dvProto, "byteLength", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
                     ts_throw((TsValue*)ts_error_create(TsString::Create(
                         "TypeError: get byteLength called on non-DataView")));
@@ -2033,7 +2039,7 @@ void* ts_get_global_DataView() {
             });
             addAccessorGetter(dvProto, "byteOffset", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)raw != TsDataView::MAGIC) {
                     ts_throw((TsValue*)ts_error_create(TsString::Create(
                         "TypeError: get byteOffset called on non-DataView")));
@@ -3314,9 +3320,13 @@ void* ts_get_global_TypedArray() {
             // ("get buffer" etc., length 0). All per-class prototypes
             // (Int8Array.prototype, etc.) inherit these via the
             // prototype-chain link installed in makeTypedArrayCtor.
+            // Use ts_nanbox_safe_unbox to safely handle primitive `this`
+            // (null/undefined/number/bool) which would previously crash on
+            // the MAGIC dereference. See DataView getters above for the
+            // canonical fix pattern.
             addAccessorGetter(tproto, "buffer", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
                     ts_throw((TsValue*)ts_error_create(TsString::Create(
                         "TypeError: get buffer called on non-TypedArray")));
@@ -3327,7 +3337,7 @@ void* ts_get_global_TypedArray() {
             });
             addAccessorGetter(tproto, "byteLength", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
                     ts_throw((TsValue*)ts_error_create(TsString::Create(
                         "TypeError: get byteLength called on non-TypedArray")));
@@ -3337,7 +3347,7 @@ void* ts_get_global_TypedArray() {
             });
             addAccessorGetter(tproto, "byteOffset", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
                     ts_throw((TsValue*)ts_error_create(TsString::Create(
                         "TypeError: get byteOffset called on non-TypedArray")));
@@ -3347,7 +3357,7 @@ void* ts_get_global_TypedArray() {
             });
             addAccessorGetter(tproto, "length", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
                 if (!ctx) ctx = ts_get_call_this();
-                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                void* raw = ts_nanbox_safe_unbox(ctx);
                 if (!raw || *(uint32_t*)((char*)raw + 16) != TsTypedArray::MAGIC) {
                     ts_throw((TsValue*)ts_error_create(TsString::Create(
                         "TypeError: get length called on non-TypedArray")));
