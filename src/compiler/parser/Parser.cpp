@@ -1962,7 +1962,9 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
     node->typeParameters = parseTypeParameterList();
 
     // extends
+    bool hasHeritage = false;
     if (match(TokenKind::KW_extends)) {
+        hasHeritage = true;
         // ECMA-262 ClassHeritage : extends LeftHandSideExpression. The AST
         // currently stores baseClass as a plain identifier string. For the
         // simple `Identifier (<TypeArgs>)?` shape we keep the legacy fast
@@ -2055,6 +2057,11 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
     // Body. ECMA-262 §10.2.1: ClassBody is always strict-mode code.
     StrictModeGuard sg(this);
     strictMode_ = true;
+    // ECMA-262 15.7.1: track whether this class has a ClassHeritage so
+    // parseMethodDefinition can validate the constructor's HasDirectSuper
+    // invariant. Save+restore to handle nested classes correctly.
+    bool prevClassHasHeritage = currentClassHasHeritage_;
+    currentClassHasHeritage_ = hasHeritage;
     expect(TokenKind::OpenBrace, "'{'");
     int constructorCount = 0;
     // ECMA-262 15.7.1 Static Semantics: Early Errors — ClassBody.
@@ -2136,6 +2143,7 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
         while (match(TokenKind::Semicolon)) {}
     }
     expect(TokenKind::CloseBrace, "'}'");
+    currentClassHasHeritage_ = prevClassHasHeritage;
 
     return node;
 }
@@ -2471,6 +2479,11 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         functionDepth_++;
         int prevIter = iterationDepth_, prevSwitch = switchDepth_;
         iterationDepth_ = 0; switchDepth_ = 0;
+        // ECMA-262 15.7.1: HasDirectSuper scoped to this MethodDefinition
+        // body. Save the outer count and start at 0 so super(...) calls
+        // inside nested methods/object-literals/static-blocks don't leak.
+        int prevDirectSuper = directSuperCount_;
+        directSuperCount_ = 0;
         bool prevSawUseStrict = sawUseStrictDirective_;
         sawUseStrictDirective_ = false;
 
@@ -2500,6 +2513,37 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
                 current_.line, current_.column));
         }
         sawUseStrictDirective_ = prevSawUseStrict;
+
+        // ECMA-262 15.7.1 Static Semantics: Early Errors —
+        //   ClassElement : MethodDefinition
+        //     It is a Syntax Error if PropName of MethodDefinition is not
+        //     "constructor" and HasDirectSuper of MethodDefinition is true.
+        //   ClassTail : ClassHeritage_opt { ClassBody }
+        //     If ClassHeritage is not present and HasDirectSuper of the
+        //     constructor is true, it is a Syntax Error.
+        // We approximate PropName="constructor" via the parser-level name
+        // string and the absence of static/getter/setter modifiers; the
+        // heritage check uses currentClassHasHeritage_, set by
+        // parseClassDeclaration/parseClassExpression before walking members.
+        if (directSuperCount_ > 0) {
+            bool isCtor = (method->name == "constructor") &&
+                          !method->isStatic && !method->isGetter &&
+                          !method->isSetter && !method->isAsync &&
+                          !method->isGenerator;
+            if (!isCtor) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'super' call is only allowed in a "
+                    "derived class constructor",
+                    fileName_, method->line));
+            }
+            if (!currentClassHasHeritage_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'super' call is only allowed in a "
+                    "class that extends another class",
+                    fileName_, method->line));
+            }
+        }
+        directSuperCount_ = prevDirectSuper;
 
         functionDepth_--;
         iterationDepth_ = prevIter; switchDepth_ = prevSwitch;

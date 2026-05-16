@@ -602,6 +602,14 @@ ast::ExprPtr Parser::parseCallExpression() {
 
     while (true) {
         if (check(TokenKind::OpenParen)) {
+            // ECMA-262 15.7.1: HasDirectSuper. If the callee is a bare
+            // SuperExpression (and the `(` follows immediately), this is a
+            // direct super-call. Bump the per-method counter so
+            // parseMethodDefinition can validate the spec invariant
+            // (only the constructor of a derived class may have super()).
+            if (dynamic_cast<ast::SuperExpression*>(expr.get())) {
+                directSuperCount_++;
+            }
             // Function call
             advance();
             auto call = std::make_unique<ast::CallExpression>();
@@ -1832,7 +1840,9 @@ ast::ExprPtr Parser::parseClassExpression() {
     // fast-path keeps the legacy node->baseClass string for analyzer
     // lookups; the complex path consumes the LHS and leaves baseClass
     // empty (downstream still registers the class).
+    bool hasHeritage = false;
     if (match(TokenKind::KW_extends)) {
+        hasHeritage = true;
         bool simple = false;
         if (current_.kind == TokenKind::Identifier ||
             current_.kind == TokenKind::KW_async ||
@@ -1891,6 +1901,9 @@ ast::ExprPtr Parser::parseClassExpression() {
     // Body. ECMA-262 §10.2.1: ClassBody is always strict-mode code.
     StrictModeGuard csg(this);
     strictMode_ = true;
+    // ECMA-262 15.7.1: same HasDirectSuper tracking as parseClassDeclaration.
+    bool prevClassHasHeritage = currentClassHasHeritage_;
+    currentClassHasHeritage_ = hasHeritage;
     expect(TokenKind::OpenBrace, "'{'");
     // ECMA-262 15.7.1 Static Semantics: Early Errors — duplicate
     // private name detection. Mirrors parseClassDeclaration's logic;
@@ -1949,6 +1962,7 @@ ast::ExprPtr Parser::parseClassExpression() {
         while (match(TokenKind::Semicolon)) {}
     }
     expect(TokenKind::CloseBrace, "'}'");
+    currentClassHasHeritage_ = prevClassHasHeritage;
 
     return node;
 }

@@ -186,6 +186,14 @@ private:
     int iterationDepth_ = 0;   // Inside for/while/do-while body (break + continue allowed)
     int switchDepth_ = 0;      // Inside switch body (break allowed, continue not)
     int errorCount_ = 0;       // Parse-time errors (redeclaration, etc.)
+    // ECMA-262 15.7.1: HasDirectSuper counter scoped to the immediate
+    // MethodDefinition body. Incremented in parseCallExpression when the
+    // callee is a SuperExpression; saved+reset around each method body.
+    int directSuperCount_ = 0;
+    // Tracks whether the enclosing class has a ClassHeritage clause.
+    // Used in parseMethodDefinition to validate the constructor's
+    // HasDirectSuper invariant.
+    bool currentClassHasHeritage_ = false;
 
     // Strict-mode helpers. Function/class bodies push the parent's
     // strictMode_ via StrictModeGuard; class bodies always force-elevate
