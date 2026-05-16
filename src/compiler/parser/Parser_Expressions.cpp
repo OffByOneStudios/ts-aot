@@ -652,7 +652,18 @@ ast::ExprPtr Parser::parseCallExpression() {
             setLocation(access.get(), expr->line, expr->column);
             access->expression = std::move(expr);
             if (check(TokenKind::Hash)) {
-                advance();
+                advance();  // consume '#'
+                // ECMA-262: PrivateIdentifier is a single token "#IdentifierName"
+                // — no whitespace, line terminator, or comment between # and
+                // identifier. (The class-member parse site has the same check;
+                // expressions/member-expr and expressions/call-expr tests
+                // exercise this in MemberExpression position.)
+                if (current_.offset != previous_.offset + 1) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: no whitespace or line terminator "
+                        "allowed between '#' and identifier",
+                        previous_.line, previous_.column));
+                }
                 int privLine = current_.line;
                 access->name = "#" + identifierName();
                 // ECMA-262 AllPrivateIdentifiersValid: record reference for
