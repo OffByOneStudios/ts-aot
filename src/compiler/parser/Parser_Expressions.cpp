@@ -972,6 +972,20 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
         }
 
         case TokenKind::KW_super: {
+            // ECMA-262 13.3.7.1: It is a Syntax Error if any source text
+            // matched by SuperCall or SuperProperty is not contained in a
+            // function whose [[HomeObject]] is not undefined — i.e., class
+            // methods, class field initializers, or object literal methods.
+            // Plain FunctionDeclaration / FunctionExpression bodies (and
+            // top-level code) have no [HomeObject]. Arrow functions inherit
+            // their enclosing super, so the flag stays unchanged when we
+            // enter one.
+            if (!superAllowed_) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: 'super' is only allowed in methods "
+                    "and class constructors",
+                    fileName_, tok.line));
+            }
             advance();
             auto node = std::make_unique<ast::SuperExpression>();
             setLocation(node.get(), tok);
@@ -1798,6 +1812,10 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     bool prevGenOuter = inGenerator_;
     inAsync_ = node->isAsync;
     inGenerator_ = node->isGenerator;
+    // ECMA-262 13.3.7.1: FunctionExpression has no [HomeObject], so
+    // SuperReference is forbidden in both params and body. Restored at end.
+    bool prevSuperAllowed = superAllowed_;
+    superAllowed_ = false;
 
     // Parameters
     node->parameters = parseParameterList();
@@ -1863,6 +1881,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     // Restore outer flags (the param-list scope).
     inAsync_ = prevAsyncOuter;
     inGenerator_ = prevGenOuter;
+    superAllowed_ = prevSuperAllowed;
 
     lexer_->setRegexAllowed(false);
     return node;

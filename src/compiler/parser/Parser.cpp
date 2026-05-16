@@ -1785,6 +1785,11 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
     bool prevGenOuter = inGenerator_;
     inAsync_ = node->isAsync;
     inGenerator_ = node->isGenerator;
+    // ECMA-262 13.3.7.1: FunctionDeclaration body has no [HomeObject], so
+    // SuperReference (super(...) or super.x) is forbidden inside both the
+    // params and the body. Save+set false here; restored at function end.
+    bool prevSuperAllowed = superAllowed_;
+    superAllowed_ = false;
 
     // Parameters
     node->parameters = parseParameterList();
@@ -1849,6 +1854,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
     // Restore the outer flags now that param-list + (optional) body are done.
     inAsync_ = prevAsyncOuter;
     inGenerator_ = prevGenOuter;
+    superAllowed_ = prevSuperAllowed;
 
     return node;
 }
@@ -2494,6 +2500,12 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
     // an outer scope). Body and validation handled in the body branch.
     int prevDirectSuper = directSuperCount_;
     directSuperCount_ = 0;
+    // ECMA-262 13.3.7.1: MethodDefinition body has [HomeObject], so
+    // SuperReference is allowed in both class methods and object literal
+    // methods. (parseClassDeclaration restricts ClassHeritage via
+    // currentClassHasHeritage_ to gate super(...) by isCtor-of-derived.)
+    bool prevSuperAllowed = superAllowed_;
+    superAllowed_ = true;
 
     // Type parameters
     method->typeParameters = parseTypeParameterList();
@@ -2588,6 +2600,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         }
     }
     directSuperCount_ = prevDirectSuper;
+    superAllowed_ = prevSuperAllowed;
 
     return method;
 }

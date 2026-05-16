@@ -199,6 +199,13 @@ private:
     // Used in parseMethodDefinition to validate the constructor's
     // HasDirectSuper invariant.
     bool currentClassHasHeritage_ = false;
+    // ECMA-262 13.3.7.1: SuperReference is only valid in a context with
+    // an associated [HomeObject]: class methods, class field initializers,
+    // and object literal methods. Plain FunctionDeclaration /
+    // FunctionExpression bodies do NOT have [HomeObject]. ArrowFunction
+    // inherits the surrounding super-binding lexically, so we don't toggle
+    // for arrows. Saved+restored across function-kind boundaries.
+    bool superAllowed_ = false;
 
     // Strict-mode helpers. Function/class bodies push the parent's
     // strictMode_ via StrictModeGuard; class bodies always force-elevate
