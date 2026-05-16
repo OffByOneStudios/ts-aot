@@ -580,7 +580,13 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     tmp_js = out_dir / rel.name
-    tmp_exe = tmp_js.with_suffix(get_exe_suffix())
+    # Prefix the exe basename with 't_' to bypass Windows UAC installer-
+    # detection heuristics. Filenames matching `*update*`, `*install*`,
+    # `*setup*`, `*patch*`, etc. trigger UAC elevation when launched,
+    # producing WinError 740 ("operation requires elevation") and a
+    # spurious crash status. Prefixing avoids the heuristic without
+    # altering test semantics. POSIX hosts are unaffected.
+    tmp_exe = (tmp_js.parent / ("t_" + tmp_js.stem)).with_suffix(get_exe_suffix())
 
     try:
         tmp_js.write_text(full_source, encoding='utf-8')
