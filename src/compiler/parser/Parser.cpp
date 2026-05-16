@@ -886,7 +886,11 @@ std::unique_ptr<ast::Parameter> Parser::parseParameter() {
     return param;
 }
 
-std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList() {
+// Forward declaration of file-static helper defined later in this file.
+static void collectBoundIdentNames(const ast::Node* n,
+                                   std::vector<std::pair<std::string, int>>& out);
+
+std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList(bool checkDuplicates) {
     std::vector<std::unique_ptr<ast::Parameter>> params;
     expect(TokenKind::OpenParen, "'('");
     // Per ECMA-262 14.1.2: It is a SyntaxError if IsSimpleParameterList of
@@ -947,6 +951,36 @@ std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList() {
         }
     }
     expect(TokenKind::CloseParen, "')'");
+
+    // ECMA-262 14.1.2 / 14.3.1: duplicate BoundNames in FormalParameters
+    // are a Syntax Error when EITHER (a) IsSimpleParameterList is false
+    // (so destructuring/default/rest params live here), OR (b) the
+    // surrounding code is strict mode (class bodies + 'use strict'). The
+    // inside-loop check only enumerates top-level Identifier names; this
+    // sweep enumerates BoundNames of nested binding patterns so
+    // `(x, [x])` / `([x, x])` / `(x, ...[x])` / `({a:x}, x)` etc. are
+    // correctly rejected. ArrowParameters always trigger via (a) since
+    // any param shape that introduces a duplicate is non-simple.
+    //
+    // Skipped when checkDuplicates=false (arrow speculative cover-grammar
+    // parse): the caller re-runs the check after `=>` is confirmed, so
+    // the parens-as-expression interpretation isn't poisoned.
+    if (checkDuplicates && (hasNonSimple || strictMode_)) {
+        std::vector<std::pair<std::string, int>> bound;
+        for (auto& p : params) {
+            if (!p) continue;
+            collectBoundIdentNames(p->name.get(), bound);
+        }
+        std::unordered_set<std::string> seen;
+        for (auto& entry : bound) {
+            if (!seen.insert(entry.first).second) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: duplicate parameter name '{}' is "
+                    "not allowed in this context",
+                    fileName_, entry.second, entry.first));
+            }
+        }
+    }
     return params;
 }
 

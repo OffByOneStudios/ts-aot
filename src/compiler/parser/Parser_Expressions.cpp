@@ -1,6 +1,7 @@
 #include "Parser.h"
 #include <stdexcept>
 #include <functional>
+#include <unordered_set>
 #include <fmt/format.h>
 #include <cstdlib>
 #include <cmath>
@@ -1222,7 +1223,12 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
     bool isArrow = false;
     std::vector<std::unique_ptr<ast::Parameter>> params;
     try {
-        params = parseParameterList();
+        // checkDuplicates=false: this is a speculative cover-grammar parse.
+        // If the trailing `=>` isn't there we restoreState and re-parse the
+        // parens as a CoverParenthesizedExpression — duplicate "params"
+        // are then meaningless. After `=>` is confirmed below we re-run
+        // the BoundNames duplicate sweep.
+        params = parseParameterList(/*checkDuplicates=*/false);
 
         // Optional return type annotation
         std::string returnType;
@@ -1239,6 +1245,56 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
     }
 
     if (isArrow) {
+        // Arrow confirmed. ECMA-262 14.3.1: BoundNames of ArrowParameters
+        // must not contain duplicates (unconditional). Run the deferred
+        // check now using collectBoundIdentNames on each param's pattern.
+        std::vector<std::pair<std::string, int>> bound;
+        for (auto& p : params) {
+            if (!p) continue;
+            if (auto* id = dynamic_cast<ast::Identifier*>(p->name.get())) {
+                bound.push_back({id->name, id->line});
+            } else if (auto* obj = dynamic_cast<ast::ObjectBindingPattern*>(p->name.get())) {
+                // Walk pattern. Reuse collectBoundIdentNames-style logic
+                // inline here since the helper is file-static in Parser.cpp.
+                std::function<void(const ast::Node*)> walk = [&](const ast::Node* n) {
+                    if (!n) return;
+                    if (auto* i = dynamic_cast<const ast::Identifier*>(n)) {
+                        bound.push_back({i->name, i->line});
+                    } else if (auto* be = dynamic_cast<const ast::BindingElement*>(n)) {
+                        walk(be->name.get());
+                    } else if (auto* o = dynamic_cast<const ast::ObjectBindingPattern*>(n)) {
+                        for (auto& e : o->elements) walk(e.get());
+                    } else if (auto* a = dynamic_cast<const ast::ArrayBindingPattern*>(n)) {
+                        for (auto& e : a->elements) walk(e.get());
+                    }
+                };
+                walk(obj);
+            } else if (auto* arr = dynamic_cast<ast::ArrayBindingPattern*>(p->name.get())) {
+                std::function<void(const ast::Node*)> walk = [&](const ast::Node* n) {
+                    if (!n) return;
+                    if (auto* i = dynamic_cast<const ast::Identifier*>(n)) {
+                        bound.push_back({i->name, i->line});
+                    } else if (auto* be = dynamic_cast<const ast::BindingElement*>(n)) {
+                        walk(be->name.get());
+                    } else if (auto* o = dynamic_cast<const ast::ObjectBindingPattern*>(n)) {
+                        for (auto& e : o->elements) walk(e.get());
+                    } else if (auto* a = dynamic_cast<const ast::ArrayBindingPattern*>(n)) {
+                        for (auto& e : a->elements) walk(e.get());
+                    }
+                };
+                walk(arr);
+            }
+        }
+        std::unordered_set<std::string> seen;
+        for (auto& entry : bound) {
+            if (!seen.insert(entry.first).second) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: duplicate parameter name '{}' is "
+                    "not allowed in this context",
+                    fileName_, entry.second, entry.first));
+            }
+        }
+
         // Arrow confirmed - body errors are real parse errors (don't catch)
         auto arrow = std::make_unique<ast::ArrowFunction>();
         setLocation(arrow.get(), startTok);

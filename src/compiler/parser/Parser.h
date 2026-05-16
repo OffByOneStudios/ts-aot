@@ -92,7 +92,12 @@ private:
 
     // --- Parameter parsing ---
     std::unique_ptr<ast::Parameter> parseParameter();
-    std::vector<std::unique_ptr<ast::Parameter>> parseParameterList();
+    // checkDuplicates=false suppresses the ECMA-262 14.1.2/14.3.1
+    // duplicate-BoundNames sweep so callers performing speculative cover-
+    // grammar parsing (parseArrowFunctionOrParenthesized) can defer the
+    // check until after `=>` is confirmed and re-run it themselves.
+    std::vector<std::unique_ptr<ast::Parameter>> parseParameterList(
+        bool checkDuplicates = true);
 
     // --- Type parameter parsing ---
     std::unique_ptr<ast::TypeParameter> parseTypeParameter();
