@@ -2102,6 +2102,9 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
     // invariant. Save+restore to handle nested classes correctly.
     bool prevClassHasHeritage = currentClassHasHeritage_;
     currentClassHasHeritage_ = hasHeritage;
+    // ECMA-262 15.7.1 / 15.7.2 AllPrivateIdentifiersValid: push a fresh
+    // class scope for collecting #name declarations and references.
+    classPrivateScopes_.push_back({});
     expect(TokenKind::OpenBrace, "'{'");
     int constructorCount = 0;
     // ECMA-262 15.7.1 Static Semantics: Early Errors — ClassBody.
@@ -2162,6 +2165,12 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
                     }
                     e.line = m->line;
                 }
+                // Record in AllPrivateIdentifiersValid scope regardless of
+                // ASCII (the duplicate guard above is for cross-encoding
+                // safety; resolution should still see the name).
+                if (!m->name.empty() && m->name[0] == '#' && !classPrivateScopes_.empty()) {
+                    classPrivateScopes_.back().declared.insert(m->name);
+                }
             } else if (auto* p = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
                 bool propIsAscii = true;
                 for (unsigned char c : p->name) if (c >= 0x80) { propIsAscii = false; break; }
@@ -2176,6 +2185,9 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
                     }
                     e.line = p->line;
                 }
+                if (!p->name.empty() && p->name[0] == '#' && !classPrivateScopes_.empty()) {
+                    classPrivateScopes_.back().declared.insert(p->name);
+                }
             }
             node->members.push_back(std::move(member));
         }
@@ -2184,6 +2196,26 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
     }
     expect(TokenKind::CloseBrace, "'}'");
     currentClassHasHeritage_ = prevClassHasHeritage;
+    // Validate AllPrivateIdentifiersValid for this class body. Pop scope
+    // first so unresolved refs can resolve against enclosing class scopes
+    // too (PrivateEnvironment chain).
+    {
+        auto scope = std::move(classPrivateScopes_.back());
+        classPrivateScopes_.pop_back();
+        for (auto& [name, line] : scope.unresolved) {
+            bool resolved = scope.declared.count(name) > 0;
+            if (!resolved) {
+                for (auto& outer : classPrivateScopes_) {
+                    if (outer.declared.count(name)) { resolved = true; break; }
+                }
+            }
+            if (!resolved) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: undeclared private name '{}'",
+                    fileName_, line, name));
+            }
+        }
+    }
 
     return node;
 }

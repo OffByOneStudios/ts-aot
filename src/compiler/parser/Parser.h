@@ -7,6 +7,7 @@
 #include <vector>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace ts::parser {
 
@@ -206,6 +207,17 @@ private:
     // inherits the surrounding super-binding lexically, so we don't toggle
     // for arrows. Saved+restored across function-kind boundaries.
     bool superAllowed_ = false;
+    // ECMA-262 15.7.1 / 15.7.2 Static Semantics: AllPrivateIdentifiersValid.
+    // Each entry is a single class body's PrivateBoundNames plus the
+    // unresolved `#x` references seen inside it. Class boundaries push
+    // and pop. On pop, unresolved refs are validated against the entire
+    // stack (inner classes inherit outer #names) and SyntaxError if any
+    // ref doesn't resolve.
+    struct ClassPrivateScope {
+        std::unordered_set<std::string> declared;
+        std::vector<std::pair<std::string, int>> unresolved;  // name, line
+    };
+    std::vector<ClassPrivateScope> classPrivateScopes_;
 
     // Strict-mode helpers. Function/class bodies push the parent's
     // strictMode_ via StrictModeGuard; class bodies always force-elevate

@@ -653,7 +653,13 @@ ast::ExprPtr Parser::parseCallExpression() {
             access->expression = std::move(expr);
             if (check(TokenKind::Hash)) {
                 advance();
+                int privLine = current_.line;
                 access->name = "#" + identifierName();
+                // ECMA-262 AllPrivateIdentifiersValid: record reference for
+                // later resolution against enclosing class scopes.
+                if (!classPrivateScopes_.empty()) {
+                    classPrivateScopes_.back().unresolved.push_back({access->name, privLine});
+                }
             } else {
                 access->name = identifierName();
             }
@@ -702,7 +708,11 @@ ast::ExprPtr Parser::parseCallExpression() {
                 setLocation(access.get(), expr->line, expr->column);
                 access->expression = std::move(expr);
                 access->isOptional = true;
+                int privLine = current_.line;
                 access->name = "#" + identifierName();
+                if (!classPrivateScopes_.empty()) {
+                    classPrivateScopes_.back().unresolved.push_back({access->name, privLine});
+                }
                 expr = std::move(access);
             } else {
                 // Optional property access: expr?.prop
@@ -1989,6 +1999,9 @@ ast::ExprPtr Parser::parseClassExpression() {
     // ECMA-262 15.7.1: same HasDirectSuper tracking as parseClassDeclaration.
     bool prevClassHasHeritage = currentClassHasHeritage_;
     currentClassHasHeritage_ = hasHeritage;
+    // ECMA-262 15.7.1 / 15.7.2 AllPrivateIdentifiersValid scope push,
+    // mirror of parseClassDeclaration.
+    classPrivateScopes_.push_back({});
     expect(TokenKind::OpenBrace, "'{'");
     // ECMA-262 15.7.1 Static Semantics: Early Errors — duplicate
     // private name detection. Mirrors parseClassDeclaration's logic;
@@ -2027,6 +2040,9 @@ ast::ExprPtr Parser::parseClassExpression() {
                     }
                     e.line = m->line;
                 }
+                if (!m->name.empty() && m->name[0] == '#' && !classPrivateScopes_.empty()) {
+                    classPrivateScopes_.back().declared.insert(m->name);
+                }
             } else if (auto* p = dynamic_cast<ast::PropertyDefinition*>(member.get())) {
                 bool propIsAscii = true;
                 for (unsigned char c : p->name) if (c >= 0x80) { propIsAscii = false; break; }
@@ -2041,6 +2057,9 @@ ast::ExprPtr Parser::parseClassExpression() {
                     }
                     e.line = p->line;
                 }
+                if (!p->name.empty() && p->name[0] == '#' && !classPrivateScopes_.empty()) {
+                    classPrivateScopes_.back().declared.insert(p->name);
+                }
             }
             node->members.push_back(std::move(member));
         }
@@ -2048,6 +2067,25 @@ ast::ExprPtr Parser::parseClassExpression() {
     }
     expect(TokenKind::CloseBrace, "'}'");
     currentClassHasHeritage_ = prevClassHasHeritage;
+    // AllPrivateIdentifiersValid validation for class expression body —
+    // mirror of parseClassDeclaration.
+    {
+        auto scope = std::move(classPrivateScopes_.back());
+        classPrivateScopes_.pop_back();
+        for (auto& [name, line] : scope.unresolved) {
+            bool resolved = scope.declared.count(name) > 0;
+            if (!resolved) {
+                for (auto& outer : classPrivateScopes_) {
+                    if (outer.declared.count(name)) { resolved = true; break; }
+                }
+            }
+            if (!resolved) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: undeclared private name '{}'",
+                    fileName_, line, name));
+            }
+        }
+    }
 
     return node;
 }
