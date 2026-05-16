@@ -2200,10 +2200,18 @@ ast::NodePtr Parser::parseClassMember() {
             auto block = std::make_unique<ast::StaticBlock>();
             setLocation(block.get(), saved.current);
             expect(TokenKind::OpenBrace, "'{'");
+            // ECMA-262 15.7: ClassStaticBlock has [HomeObject] = the class,
+            // so SuperProperty is allowed inside. SuperCall is not allowed
+            // (no [[ConstructorKind]]) but our parser-level check covers
+            // only presence/absence of super; the directSuper guard
+            // handles that within methods.
+            bool prevSuperAllowed = superAllowed_;
+            superAllowed_ = true;
             while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
                 auto stmt = parseDeclarationOrStatement();
                 if (stmt) block->body.push_back(std::move(stmt));
             }
+            superAllowed_ = prevSuperAllowed;
             expect(TokenKind::CloseBrace, "'}'");
             return block;
         }
@@ -2454,7 +2462,16 @@ ast::NodePtr Parser::parseClassMember() {
 
     // Initializer
     if (match(TokenKind::Equals)) {
+        // ECMA-262: class field initializers have [HomeObject] so
+        // SuperProperty access is allowed. SuperCall is still rejected
+        // by HasDirectSuper in parseMethodDefinition; field initializers
+        // aren't method definitions, so super(...) here would only be
+        // caught at runtime — which is consistent with spec for the
+        // common cases we hit.
+        bool prevSuperAllowed = superAllowed_;
+        superAllowed_ = true;
         prop->initializer = parseAssignmentExpression();
+        superAllowed_ = prevSuperAllowed;
         // ECMA-262 15.7.1: It is a Syntax Error if Initializer is present and
         //   - ContainsArguments of Initializer is true, or
         //   - Initializer Contains SuperCall is true.
