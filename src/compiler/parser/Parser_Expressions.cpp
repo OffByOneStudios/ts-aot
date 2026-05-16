@@ -1014,14 +1014,24 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             // import() or import.meta
             advance();
             if (match(TokenKind::Dot)) {
-                // import.meta
+                // ECMA-262 13.3.13 ImportMeta : import . meta — the only
+                // identifier permitted after `import.` is `meta`. Non-standard
+                // proposals (`import.defer`, etc.) are SyntaxErrors.
                 auto meta = std::make_unique<ast::PropertyAccessExpression>();
                 setLocation(meta.get(), tok);
                 auto importId = std::make_unique<ast::Identifier>();
                 importId->name = "import";
                 setLocation(importId.get(), tok);
                 meta->expression = std::move(importId);
-                meta->name = identifierName(); // "meta"
+                int identLine = current_.line;
+                std::string ident = identifierName();
+                if (ident != "meta") {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: 'import.{}' is not a valid "
+                        "MetaProperty (only 'import.meta' is permitted)",
+                        fileName_, identLine, ident));
+                }
+                meta->name = ident;
                 return meta;
             }
             if (check(TokenKind::OpenParen)) {
