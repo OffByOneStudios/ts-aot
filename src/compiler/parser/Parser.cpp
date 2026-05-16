@@ -1725,9 +1725,18 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
     // Name (optional for default exports)
     if (isIdentifierOrKeyword()) {
         node->name = identifierName();
-        // Track in lexical scope for redeclaration detection (block-scoped functions)
+        // Track in lexical scope for redeclaration detection.
+        // ECMA-262 Annex B.3.3 legacy hoisting / var-fn-merge only covers
+        // plain (sync-non-generator) FunctionDeclarations. Async functions,
+        // generators, and async-generators are strictly lex-scoped (same
+        // conflict rules as `let`/`const`/`class`). Use PDeclKind::Let for
+        // those so `{ async function f() {} function f() {} }` and similar
+        // patterns correctly error per spec.
         if (!node->name.empty()) {
-            declareLexicalName(node->name, PDeclKind::Function);
+            PDeclKind kind = (isAsync || node->isGenerator)
+                ? PDeclKind::Let
+                : PDeclKind::Function;
+            declareLexicalName(node->name, kind);
         }
     }
 
@@ -1938,6 +1947,15 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
             }
         }
         node->name = identifierName();
+        // ECMA-262 13.2.1.1 (Block early error) + 14.1.2: ClassDeclaration
+        // contributes to LexicallyDeclaredNames. Track the class name so
+        // `{ class f {} class f {} }`, `{ class f {} let f }`,
+        // `{ function f() {} class f {} }`, etc. all error per spec.
+        // Use PDeclKind::Let since Class is a strict lex declaration (same
+        // conflict rules as `let`).
+        if (!node->name.empty()) {
+            declareLexicalName(node->name, PDeclKind::Let);
+        }
     }
 
     // Type parameters
