@@ -545,6 +545,19 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
         rel = str(test_path.relative_to(TEST_DIR)).replace('\\', '/')
         if rel in SKIPPED_PATHS:
             return TestResult(test_path, "skip", "intentionally skipped (SM-specific spec divergence)")
+        # Prefix-based skip for entire directories of AOT-incompatible tests.
+        # eval-code dirs cover direct (`language/eval-code`) and Annex B
+        # legacy (`annexB/language/eval-code|function-code|global-code`)
+        # eval semantics. We don't support eval; these tests can't pass and
+        # some trigger Windows UAC installer-detection (WinError 740) when
+        # the linked .exe basename contains "update"/"install"/"setup",
+        # which the runner records as a spurious crash.
+        for prefix in ("language/eval-code/", "annexB/language/eval-code/",
+                       "annexB/language/function-code/",
+                       "annexB/language/global-code/"):
+            if rel.startswith(prefix):
+                return TestResult(test_path, "skip",
+                                  f"AOT-incompatible: {prefix} (eval/legacy)")
     except ValueError:
         pass
 
