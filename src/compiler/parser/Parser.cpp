@@ -2454,6 +2454,13 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
     method->access = access;
     method->decorators = std::move(decorators);
 
+    // ECMA-262 15.7.1: HasDirectSuper scoped to this MethodDefinition.
+    // Save+reset BEFORE parameter parsing so super(...) in default-value
+    // expressions of formal params is counted too (and not attributed to
+    // an outer scope). Body and validation handled in the body branch.
+    int prevDirectSuper = directSuperCount_;
+    directSuperCount_ = 0;
+
     // Type parameters
     method->typeParameters = parseTypeParameterList();
 
@@ -2479,11 +2486,6 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         functionDepth_++;
         int prevIter = iterationDepth_, prevSwitch = switchDepth_;
         iterationDepth_ = 0; switchDepth_ = 0;
-        // ECMA-262 15.7.1: HasDirectSuper scoped to this MethodDefinition
-        // body. Save the outer count and start at 0 so super(...) calls
-        // inside nested methods/object-literals/static-blocks don't leak.
-        int prevDirectSuper = directSuperCount_;
-        directSuperCount_ = 0;
         bool prevSawUseStrict = sawUseStrictDirective_;
         sawUseStrictDirective_ = false;
 
@@ -2514,37 +2516,6 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         }
         sawUseStrictDirective_ = prevSawUseStrict;
 
-        // ECMA-262 15.7.1 Static Semantics: Early Errors —
-        //   ClassElement : MethodDefinition
-        //     It is a Syntax Error if PropName of MethodDefinition is not
-        //     "constructor" and HasDirectSuper of MethodDefinition is true.
-        //   ClassTail : ClassHeritage_opt { ClassBody }
-        //     If ClassHeritage is not present and HasDirectSuper of the
-        //     constructor is true, it is a Syntax Error.
-        // We approximate PropName="constructor" via the parser-level name
-        // string and the absence of static/getter/setter modifiers; the
-        // heritage check uses currentClassHasHeritage_, set by
-        // parseClassDeclaration/parseClassExpression before walking members.
-        if (directSuperCount_ > 0) {
-            bool isCtor = (method->name == "constructor") &&
-                          !method->isStatic && !method->isGetter &&
-                          !method->isSetter && !method->isAsync &&
-                          !method->isGenerator;
-            if (!isCtor) {
-                throw std::runtime_error(fmt::format(
-                    "{}:{}: SyntaxError: 'super' call is only allowed in a "
-                    "derived class constructor",
-                    fileName_, method->line));
-            }
-            if (!currentClassHasHeritage_) {
-                throw std::runtime_error(fmt::format(
-                    "{}:{}: SyntaxError: 'super' call is only allowed in a "
-                    "class that extends another class",
-                    fileName_, method->line));
-            }
-        }
-        directSuperCount_ = prevDirectSuper;
-
         functionDepth_--;
         iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
         inAsync_ = prevAsync;
@@ -2553,6 +2524,36 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         method->hasBody = false;
         expectSemicolon();
     }
+
+    // ECMA-262 15.7.1 Static Semantics: Early Errors —
+    //   ClassElement : MethodDefinition
+    //     It is a Syntax Error if PropName of MethodDefinition is not
+    //     "constructor" and HasDirectSuper of MethodDefinition is true.
+    //   ClassTail : ClassHeritage_opt { ClassBody }
+    //     If ClassHeritage is not present and HasDirectSuper of the
+    //     constructor is true, it is a Syntax Error.
+    // Also forbids super(...) in PropertyDefinition MethodDefinition
+    // (object literal methods) since they have no [[ConstructorKind]].
+    // Run after both params and body so super(...) in either contributes.
+    if (directSuperCount_ > 0) {
+        bool isCtor = (method->name == "constructor") &&
+                      !method->isStatic && !method->isGetter &&
+                      !method->isSetter && !method->isAsync &&
+                      !method->isGenerator;
+        if (!isCtor) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'super' call is only allowed in a "
+                "derived class constructor",
+                fileName_, method->line));
+        }
+        if (!currentClassHasHeritage_) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'super' call is only allowed in a "
+                "class that extends another class",
+                fileName_, method->line));
+        }
+    }
+    directSuperCount_ = prevDirectSuper;
 
     return method;
 }
