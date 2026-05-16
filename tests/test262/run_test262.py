@@ -586,7 +586,11 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
     # producing WinError 740 ("operation requires elevation") and a
     # spurious crash status. Prefixing avoids the heuristic without
     # altering test semantics. POSIX hosts are unaffected.
-    tmp_exe = (tmp_js.parent / ("t_" + tmp_js.stem)).with_suffix(get_exe_suffix())
+    # NOTE: must NOT use Path.with_suffix on the stemmed path — many test
+    # filenames contain extra dots (e.g. S11.13.2_A4.6_T1.4.js) which
+    # with_suffix would chop, causing path collisions and "permission
+    # denied" link errors. Build the exe name as a plain string instead.
+    tmp_exe = tmp_js.parent / ("t_" + tmp_js.name[:-3] + get_exe_suffix())
 
     try:
         tmp_js.write_text(full_source, encoding='utf-8')
