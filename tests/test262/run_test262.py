@@ -545,19 +545,6 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
         rel = str(test_path.relative_to(TEST_DIR)).replace('\\', '/')
         if rel in SKIPPED_PATHS:
             return TestResult(test_path, "skip", "intentionally skipped (SM-specific spec divergence)")
-        # Prefix-based skip for entire directories of AOT-incompatible tests.
-        # eval-code dirs cover direct (`language/eval-code`) and Annex B
-        # legacy (`annexB/language/eval-code|function-code|global-code`)
-        # eval semantics. We don't support eval; these tests can't pass and
-        # some trigger Windows UAC installer-detection (WinError 740) when
-        # the linked .exe basename contains "update"/"install"/"setup",
-        # which the runner records as a spurious crash.
-        for prefix in ("language/eval-code/", "annexB/language/eval-code/",
-                       "annexB/language/function-code/",
-                       "annexB/language/global-code/"):
-            if rel.startswith(prefix):
-                return TestResult(test_path, "skip",
-                                  f"AOT-incompatible: {prefix} (eval/legacy)")
     except ValueError:
         pass
 
@@ -593,17 +580,17 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     tmp_js = out_dir / rel.name
-    # Prefix the exe basename with 't_' to bypass Windows UAC installer-
-    # detection heuristics. Filenames matching `*update*`, `*install*`,
-    # `*setup*`, `*patch*`, etc. trigger UAC elevation when launched,
-    # producing WinError 740 ("operation requires elevation") and a
-    # spurious crash status. Prefixing avoids the heuristic without
-    # altering test semantics. POSIX hosts are unaffected.
-    # NOTE: must NOT use Path.with_suffix on the stemmed path — many test
-    # filenames contain extra dots (e.g. S11.13.2_A4.6_T1.4.js) which
-    # with_suffix would chop, causing path collisions and "permission
-    # denied" link errors. Build the exe name as a plain string instead.
-    tmp_exe = tmp_js.parent / ("t_" + tmp_js.name[:-3] + get_exe_suffix())
+    # Build a hash-based exe basename to bypass Windows UAC installer-
+    # detection heuristics. UAC inspects the exe FILENAME and elevates
+    # any process whose basename matches *update*, *install*, *setup*,
+    # *patch*, etc. — many test262 filenames trigger this and the launch
+    # returns WinError 740 ("requested operation requires elevation"),
+    # which the runner records as a spurious crash. Hashing the basename
+    # eliminates the trigger words entirely. The original .js name stays
+    # alongside so the path remains debuggable. POSIX unaffected.
+    import hashlib
+    name_hash = hashlib.sha1(rel.as_posix().encode("utf-8")).hexdigest()[:16]
+    tmp_exe = tmp_js.parent / ("t" + name_hash + get_exe_suffix())
 
     try:
         tmp_js.write_text(full_source, encoding='utf-8')
