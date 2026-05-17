@@ -6028,8 +6028,34 @@ TsValue* ts_value_make_int(int64_t i) {
 
         TsMap* descMap = (TsMap*)descRaw;
 
-        // Get property key as string
-        TsString* propStr = (TsString*)ts_value_get_string(prop);
+        // Get property key as string. ECMA-262 ToPropertyKey accepts
+        // strings and symbols. For Symbol keys we encode them as
+        // `[<description>]` to match the rest of TsMap's symbol-key
+        // convention (see ts_object_set_prop_v site for the canonical
+        // form). ts_value_get_string on a Symbol throws; pre-check the
+        // nanbox + magic to avoid the throw and route through the symbol
+        // encoding instead.
+        TsString* propStr = nullptr;
+        {
+            uint64_t propNb = nanbox_from_tsvalue_ptr(prop);
+            if (nanbox_is_ptr(propNb)) {
+                void* ptr = nanbox_to_ptr(propNb);
+                if (ptr) {
+                    uint32_t pmagic = *(uint32_t*)ptr;
+                    if (pmagic == 0x53594D42) {  // TsSymbol::MAGIC "SYMB"
+                        TsSymbol* sym = (TsSymbol*)ptr;
+                        const char* desc = sym->description ? sym->description->ToUtf8() : "";
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "[%s]",
+                                 desc && *desc ? desc : "Symbol()");
+                        propStr = TsString::GetInterned(buf);
+                    }
+                }
+            }
+        }
+        if (!propStr) {
+            propStr = (TsString*)ts_value_get_string(prop);
+        }
         if (!propStr) {
             // Try number-to-string coercion
             uint64_t propNb = nanbox_from_tsvalue_ptr(prop);
