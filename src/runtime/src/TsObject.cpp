@@ -8545,14 +8545,20 @@ TsValue* ts_value_make_int(int64_t i) {
             const char* keyCStr = keyStr->ToUtf8();
             if (!keyCStr) return 0;
 
-            // Find the slot and set to undefined
+            // Find the slot and mark as deleted with NANBOX_DELETED.
+            // Spec requires hasOwnProperty(obj, key) to return false after
+            // a successful delete. Setting to NANBOX_UNDEFINED isn't enough
+            // — the slot name lives in the shape's propNames, so a later
+            // hasOwnProperty would still find it. The DELETED sentinel
+            // tombstones the slot; flat-object get/has/keys/enumeration
+            // all treat slots holding DELETED as absent.
             uint32_t shapeId = flat_object_shape_id(rawMap);
             ShapeDescriptor* desc = ts_shape_lookup(shapeId);
             if (desc) {
                 for (uint32_t i = 0; i < desc->numSlots; i++) {
                     if (strcmp(desc->propNames[i], keyCStr) == 0) {
                         uint64_t* slotPtr = (uint64_t*)((char*)rawMap + 16 + i * 8);
-                        *slotPtr = NANBOX_UNDEFINED;
+                        *slotPtr = NANBOX_DELETED;
                         return 1;
                     }
                 }
@@ -9521,9 +9527,11 @@ TsValue* ts_value_make_int(int64_t i) {
             uint32_t shapeId = flat_object_shape_id(obj);
             ShapeDescriptor* desc = ts_shape_lookup(shapeId);
             if (!desc) return ts_value_make_bool(false);
-            // Inline slot — enumerable per spec.
+            // Inline slot — enumerable per spec, unless tombstoned.
             for (uint32_t i = 0; i < desc->numSlots; i++) {
                 if (strcmp(desc->propNames[i], keyCStr) == 0) {
+                    uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
+                    if (val == NANBOX_DELETED) break;  // fall through to overflow/vtable
                     return ts_value_make_bool(true);
                 }
             }

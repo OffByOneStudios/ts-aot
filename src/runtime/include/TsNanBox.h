@@ -38,6 +38,13 @@ static constexpr uint64_t NANBOX_FALSE         = 0x0000000000000006ULL;
 // undefined by the caller (spec: HasProperty(arr, i) is false; Get(arr, i)
 // consults prototype chain, default undefined).
 static constexpr uint64_t NANBOX_HOLE          = 0x0000000000000008ULL;
+// DELETED is an internal sentinel for flat-object inline slots that have
+// been removed via `delete`. The shape can't be mutated (it's a constant
+// global), so we mark slots as deleted in-place. HasProperty / for-in /
+// keys / propertyIsEnumerable / getOwnPropertyDescriptor all skip these
+// slots; Get returns undefined; subsequent Set overwrites with the new
+// value (un-deleting the slot).
+static constexpr uint64_t NANBOX_DELETED       = 0x0000000000000004ULL;
 
 // === Encoding functions ===
 
@@ -70,6 +77,7 @@ inline bool nanbox_is_true(uint64_t v)      { return v == NANBOX_TRUE; }
 inline bool nanbox_is_false(uint64_t v)     { return v == NANBOX_FALSE; }
 inline bool nanbox_is_bool(uint64_t v)      { return v == NANBOX_TRUE || v == NANBOX_FALSE; }
 inline bool nanbox_is_hole(uint64_t v)      { return v == NANBOX_HOLE; }
+inline bool nanbox_is_deleted(uint64_t v)   { return v == NANBOX_DELETED; }
 
 // Special constants: undefined, null, true, false (all <= NANBOX_UNDEFINED)
 inline bool nanbox_is_special(uint64_t v)   { return v <= NANBOX_UNDEFINED; }

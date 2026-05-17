@@ -97,11 +97,20 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
     ShapeDescriptor* desc = ts_shape_lookup(shapeId);
     if (!desc) return (void*)(uintptr_t)NANBOX_UNDEFINED;
 
-    // Check inline slots
+    // Check inline slots. DELETED sentinel means the slot was removed via
+    // `delete` — treat as absent so vtable/overflow lookup can proceed
+    // (and ultimately undefined). This matches the spec where deleting a
+    // configurable own property removes it from the object entirely.
     int slot = flat_find_slot(desc, key);
     if (slot >= 0) {
         uint64_t val = *(uint64_t*)((char*)obj + 16 + slot * 8);
-        return (void*)(uintptr_t)val;
+        if (val != NANBOX_DELETED) {
+            return (void*)(uintptr_t)val;
+        }
+        // Slot tombstoned — fall through to overflow/vtable. Note: if a
+        // shape includes both a slot named X and a method named X
+        // (unusual but possible if the user re-adds), the method may now
+        // resolve. That matches the spec since the slot is fully gone.
     }
 
     // Check overflow map
@@ -288,8 +297,15 @@ extern "C" bool ts_flat_object_has_property(void* obj, const char* key) {
     ShapeDescriptor* desc = ts_shape_lookup(shapeId);
     if (!desc) return false;
 
-    // Check inline slots
-    if (flat_find_slot(desc, key) >= 0) return true;
+    // Check inline slots — but skip tombstoned (deleted) slots so that
+    // hasOwnProperty(obj, key) returns false after `delete obj[key]`.
+    int slotIdx = flat_find_slot(desc, key);
+    if (slotIdx >= 0) {
+        uint64_t val = *(uint64_t*)((char*)obj + 16 + slotIdx * 8);
+        if (val != NANBOX_DELETED) return true;
+        // Fall through to overflow lookup — a later Set could have stored
+        // the key there even though the inline slot is dead.
+    }
 
     // Check overflow map
     void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
@@ -315,6 +331,8 @@ extern "C" void* ts_flat_object_keys(void* obj) {
     TsArray* keys = TsArray::Create(desc->numSlots + 4);
 
     for (uint32_t i = 0; i < desc->numSlots; i++) {
+        uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
+        if (val == NANBOX_DELETED) continue;  // tombstoned by delete
         TsString* name = TsString::Create(desc->propNames[i]);
         keys->Push((int64_t)(uintptr_t)name);
     }
@@ -344,6 +362,7 @@ extern "C" void* ts_flat_object_values(void* obj) {
 
     for (uint32_t i = 0; i < desc->numSlots; i++) {
         uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
+        if (val == NANBOX_DELETED) continue;  // tombstoned by delete
         values->Push((int64_t)val);
     }
 
@@ -367,6 +386,9 @@ extern "C" void* ts_flat_object_to_map(void* obj) {
         // Object.keys / etc. Slots are pre-allocated by shape, so
         // NANBOX_UNDEFINED at this point reflects the field's value
         // (set explicitly by the constructor field-init pass).
+        // Skip DELETED — those slots were removed via `delete` and
+        // must not surface in the demoted TsMap.
+        if (val == NANBOX_DELETED) continue;
         TsValue tv = nanbox_to_tagged((TsValue*)(uintptr_t)val);
         map->Set(TsValue(TsString::Create(desc->propNames[i])), tv);
     }
@@ -398,10 +420,11 @@ extern "C" void* ts_flat_object_entries(void* obj) {
     TsArray* entries = TsArray::Create(desc->numSlots + 4);
 
     for (uint32_t i = 0; i < desc->numSlots; i++) {
+        uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
+        if (val == NANBOX_DELETED) continue;  // tombstoned by delete
         TsArray* pair = TsArray::Create(2);
         TsString* name = TsString::Create(desc->propNames[i]);
         pair->Push((int64_t)(uintptr_t)name);
-        uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
         pair->Push((int64_t)val);
         entries->Push((int64_t)(uintptr_t)pair);
     }
