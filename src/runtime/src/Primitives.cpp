@@ -9,6 +9,7 @@
 #include "TsMap.h"
 #include "TsSet.h"
 #include "TsBuffer.h"  // for TsTypedArray instanceof dispatch
+#include "TsFlatObject.h"  // for ShapeDescriptor / ts_shape_lookup in instanceof
 #include "TsNanBox.h"
 #include <cstdio>
 #include <cmath>
@@ -797,7 +798,43 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
     if (!rawObj) return false;
 
     // Check magic to find prototype chain
+    uint32_t magic0 = *(uint32_t*)rawObj;
     uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+
+    // Flat-object class instance: walk via ShapeDescriptor::constructorSlot
+    // → constructor.prototype → ... up the chain. The prototype map is a
+    // TsMap whose GetPrototype() returns Base.prototype (set by
+    // emitDeferredStaticInits for `class Derived extends Base`).
+    if (magic0 == 0x464C4154) {
+        uint32_t shapeId = flat_object_shape_id(rawObj);
+        ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+        if (desc && desc->constructorSlot) {
+            TsValue* ctorVal = *(TsValue**)desc->constructorSlot;
+            if (ctorVal) {
+                TsValue* protoVal = ts_object_get_property((void*)ctorVal, "prototype");
+                if (protoVal) {
+                    uint64_t pNb = nanbox_from_tsvalue_ptr(protoVal);
+                    if (nanbox_is_ptr(pNb)) {
+                        void* protoRaw = nanbox_to_ptr(pNb);
+                        // Walk: instance.[[Prototype]] = C.prototype; then
+                        // C.prototype.[[Prototype]] = Base.prototype; ...
+                        int depth = 0;
+                        while (protoRaw && depth < 100) {
+                            if (protoRaw == targetProto) return true;
+                            uint32_t pm = *(uint32_t*)((char*)protoRaw + 16);
+                            if (pm != 0x4D415053) break;
+                            TsMap* pm_map = (TsMap*)protoRaw;
+                            TsMap* next = pm_map->GetPrototype();
+                            protoRaw = next;
+                            depth++;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     if (magic16 == 0x4D415053) { // TsMap (user class, JS Map, error instance)
         TsMap* map = (TsMap*)rawObj;
         TsMap* proto = map->GetPrototype();

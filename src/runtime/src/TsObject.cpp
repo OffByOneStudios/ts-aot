@@ -5291,6 +5291,33 @@ TsValue* ts_value_make_int(int64_t i) {
             extern void* ts_get_global_Date();
             return getCtorPrototype(ts_get_global_Date());
         }
+        if (magic0 == 0x464C4154) { // FLAT_MAGIC — class instance
+            // Use ShapeDescriptor::constructorSlot (compiler-emitted
+            // back-pointer to __closure_cache_<ClassName>_constructor) to
+            // find the class's constructor, then return its `prototype`
+            // property. The slot may hold either a TsFunction or a
+            // TsClosure depending on how the constructor was lowered;
+            // ts_object_get_property handles both magic types.
+            // ECMA-262 §10.1.1 [[GetPrototypeOf]] for an ordinary object.
+            uint32_t shapeId = flat_object_shape_id(objRaw);
+            ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+            if (desc && desc->constructorSlot) {
+                TsValue* ctorVal = *(TsValue**)desc->constructorSlot;
+                if (ctorVal) {
+                    uint64_t cnb = nanbox_from_tsvalue_ptr(ctorVal);
+                    if (nanbox_is_ptr(cnb)) {
+                        void* ctorRaw = nanbox_to_ptr(cnb);
+                        TsValue* protoVal = ts_object_get_property(ctorRaw, "prototype");
+                        if (protoVal && !ts_value_is_undefined(protoVal)) {
+                            return protoVal;
+                        }
+                    }
+                }
+            }
+            // No back-pointer (e.g. object literal shape) — return null.
+            // TODO: fall back to Object.prototype for plain object literals.
+            return ts_value_make_null();
+        }
 
         // Check if obj is a TsMap
         uint32_t magic = *(uint32_t*)((char*)objRaw + 16);
@@ -5424,6 +5451,15 @@ TsValue* ts_value_make_int(int64_t i) {
         // Unbox obj if needed
         void* objRaw = ts_value_get_object(obj);
         if (!objRaw) objRaw = obj;
+
+        // Flat-object instances cannot have their [[Prototype]] mutated
+        // because the prototype is derived from ShapeDescriptor.constructorSlot
+        // (a static back-pointer to the class constructor's closure cache).
+        // Silently no-op for them — matches Object.setPrototypeOf returning
+        // the receiver per ECMA-262 19.1.2.22 (the value is unchanged).
+        if (*(uint32_t*)objRaw == 0x464C4154) {  // FLAT_MAGIC
+            return obj;
+        }
 
         // Check if obj is a TsMap or TsClosure
         uint32_t magic = *(uint32_t*)((char*)objRaw + 16);

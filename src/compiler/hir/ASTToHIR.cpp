@@ -2209,22 +2209,54 @@ void ASTToHIR::emitDeferredStaticInits() {
     };
     for (auto* hirClass : deferredClassPrototypes_) {
         if (!hirClass) continue;
-        if (hirClass->methods.empty() && hirClass->staticMethods.empty()) continue;
+        // Every class needs a real prototype object (not just classes with
+        // user-defined methods) so that `c.constructor === C` and
+        // `Object.getPrototypeOf(c) === C.prototype` hold per ECMA-262
+        // §15.7. Previously classes with only staticMethods (or no
+        // methods at all) skipped the prototype install entirely, leaving
+        // a default Function.prototype object with no constructor backref.
         std::string ctorName = hirClass->constructor
             ? hirClass->constructor->name
             : hirClass->name + "_constructor";
         auto ctorVal = builder_.createLoadFunction(ctorName);
-        if (!hirClass->methods.empty()) {
-            auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
-            for (auto& [methodKey, methodFunc] : hirClass->methods) {
-                if (!methodFunc) continue;
-                auto methodClosure = builder_.createLoadFunction(methodFunc->name);
-                installMethod(proto, methodKey, methodClosure);
-            }
-            // `prototype` itself stays writable+configurable but
-            // intentionally enumerable per spec — keep createSetPropStatic.
-            builder_.createSetPropStatic(ctorVal, "prototype", proto);
+
+        // Build the prototype map. Always create one — even for classes
+        // without methods — so the constructor backref and parent-prototype
+        // chain can be installed.
+        auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
+        for (auto& [methodKey, methodFunc] : hirClass->methods) {
+            if (!methodFunc) continue;
+            auto methodClosure = builder_.createLoadFunction(methodFunc->name);
+            installMethod(proto, methodKey, methodClosure);
         }
+
+        // ECMA-262 §15.7: `Class.prototype.constructor` is the class
+        // itself, with {writable:true, enumerable:false, configurable:true}.
+        // installMethod uses ts_object_set_method which writes with those
+        // exact descriptor flags.
+        installMethod(proto, "constructor", ctorVal);
+
+        // ECMA-262 §15.7.14 (ClassDefinitionEvaluation): if the class
+        // extends Base, set Object.getPrototypeOf(C.prototype) =
+        // Base.prototype. Without this, `(new Derived()) instanceof Base`
+        // is false and `Derived.prototype.method` doesn't fall through to
+        // Base.prototype.method via prototype-chain walks.
+        if (hirClass->baseClass) {
+            std::string baseCtorName = hirClass->baseClass->constructor
+                ? hirClass->baseClass->constructor->name
+                : hirClass->baseClass->name + "_constructor";
+            auto baseCtorVal = builder_.createLoadFunction(baseCtorName);
+            auto basePropName = builder_.createConstString("prototype");
+            auto baseProtoVal = builder_.createCall("ts_object_get_dynamic",
+                {baseCtorVal, basePropName}, HIRType::makeAny());
+            builder_.createCall("ts_object_setPrototypeOf",
+                {proto, baseProtoVal}, HIRType::makeVoid());
+        }
+
+        // `prototype` itself stays writable+configurable but intentionally
+        // enumerable per spec — keep createSetPropStatic.
+        builder_.createSetPropStatic(ctorVal, "prototype", proto);
+
         // Install static methods on the constructor itself so dynamic
         // access like `F.method()` (where `F` is a class-expression-bound
         // variable) resolves to the function. Class declarations have a
@@ -7237,6 +7269,20 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
             }
         }
 
+        // ECMA-262 §10.1.1: new C() sets instance.[[Prototype]] = C.prototype.
+        // For TsMap-backed instances (classes without a registered shape, or
+        // shape but no fields), the prototype slot lives on the TsMap and
+        // must be filled here. Flat-object instances no-op on this call (the
+        // prototype is derived from ShapeDescriptor.constructorSlot).
+        {
+            auto ctorVal = builder_.createLoadFunction(ctor->name);
+            auto protoKey = builder_.createConstString("prototype");
+            auto protoVal = builder_.createCall(
+                "ts_object_get_dynamic", {ctorVal, protoKey}, HIRType::makeAny());
+            builder_.createCall(
+                "ts_object_setPrototypeOf", {newObj, protoVal}, HIRType::makeVoid());
+        }
+
         // Call the constructor
         builder_.createCall(ctor->name, ctorArgs, HIRType::makeVoid());
     } else if (hirClass && !hirClass->constructor && specializations_) {
@@ -10389,9 +10435,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     // the function's default `prototype` slot (an empty object) and
     // direct accessor probes like `E.prototype['<key>']` return
     // undefined.
-    if (!hirClass->methods.empty() || !hirClass->staticMethods.empty()) {
-        deferredClassPrototypes_.push_back(hirClass);
-    }
+    // Every class needs a prototype init (not just classes with user-defined
+    // methods) so that `c.constructor === C`, `Object.getPrototypeOf(c) ===
+    // C.prototype`, and `extends` linkage all hold.
+    deferredClassPrototypes_.push_back(hirClass);
 
     // Restore class context
     currentClass_ = savedClass;
@@ -10416,7 +10463,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // never runs for top-level class expressions because the
             // node is not re-visited from a function context — the
             // let-decl statement lives in `module->ast->body` only).
-            if (!hirClass->methods.empty() || !hirClass->staticMethods.empty()) {
+            // Same widening as the declaration path — every class needs init.
+            {
                 bool already = false;
                 for (auto* c : deferredClassPrototypes_) if (c == hirClass) { already = true; break; }
                 if (!already) deferredClassPrototypes_.push_back(hirClass);
