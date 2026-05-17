@@ -2085,7 +2085,17 @@ extern "C" {
         if (index < 0 || (size_t)index >= (size_t)array->Length()) {
             return (void*)ts_value_make_undefined();
         }
-        return (void*)array->GetUnchecked(index);
+        int64_t slot = array->GetUnchecked(index);
+        // ECMA-262 §10.4.2.1 [[Get]] on a hole walks the prototype chain.
+        // For a plain Array.prototype that lookup returns undefined. We
+        // normalize NANBOX_HOLE → undefined here so `a[1] === undefined`
+        // is true for sparse arrays, while iteration that genuinely needs
+        // to distinguish holes (e.g. forEach) uses TsArray::IsHole()
+        // directly rather than reading through this path.
+        if ((uint64_t)slot == NANBOX_HOLE) {
+            return (void*)ts_value_make_undefined();
+        }
+        return (void*)slot;
     }
 
     void ts_array_set_unchecked(void* arr, int64_t index, void* value) {
