@@ -2270,10 +2270,49 @@ ast::NodePtr Parser::parseClassMember() {
             // handles that within methods.
             bool prevSuperAllowed = superAllowed_;
             superAllowed_ = true;
-            while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
-                auto stmt = parseDeclarationOrStatement();
-                if (stmt) block->body.push_back(std::move(stmt));
+            // ECMA-262 15.7: ClassStaticBlockBody is parsed with [Await=true,
+            // Yield=false]. `await` is therefore a reserved word inside a
+            // static block and cannot be used as IdentifierReference /
+            // BindingIdentifier (and `yield` is treated normally per the
+            // surrounding scope, but we override to false). The body is
+            // also not a function/loop/switch, so iterationDepth_/switchDepth_
+            // must be reset so a bare `break;`/`continue;` inside errors.
+            // activeLabels_ also doesn't carry across the static-block boundary.
+            bool prevAsync = inAsync_;
+            bool prevGen = inGenerator_;
+            inAsync_ = true;       // await reserved
+            inGenerator_ = false;  // yield not reserved (per spec)
+            int prevIter = iterationDepth_, prevSwitch = switchDepth_;
+            iterationDepth_ = 0;
+            switchDepth_ = 0;
+            std::vector<ActiveLabel> savedLabels;
+            savedLabels.swap(activeLabels_);
+            // try/catch to guarantee swap-back of activeLabels_ even if
+            // a contained parse throws. parseLabeledOrExpressionStatement's
+            // own try/catch does `activeLabels_.pop_back()` during unwind;
+            // if activeLabels_ is still empty (the swapped-out state) at
+            // that moment, the pop_back is undefined behavior. Swapping
+            // back here keeps activeLabels_ matching the outer scope's
+            // view at every catch site upstream.
+            try {
+                while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
+                    auto stmt = parseDeclarationOrStatement();
+                    if (stmt) block->body.push_back(std::move(stmt));
+                }
+            } catch (...) {
+                activeLabels_.swap(savedLabels);
+                iterationDepth_ = prevIter;
+                switchDepth_ = prevSwitch;
+                inAsync_ = prevAsync;
+                inGenerator_ = prevGen;
+                superAllowed_ = prevSuperAllowed;
+                throw;
             }
+            activeLabels_.swap(savedLabels);
+            iterationDepth_ = prevIter;
+            switchDepth_ = prevSwitch;
+            inAsync_ = prevAsync;
+            inGenerator_ = prevGen;
             superAllowed_ = prevSuperAllowed;
             expect(TokenKind::CloseBrace, "'}'");
             return block;
