@@ -4417,6 +4417,136 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
     setSourceLine(node);
     const std::string& op = node->op;
 
+    // Logical-assignment operators with short-circuit semantics
+    // (ECMA-262 §13.15.2): a ??= b, a ||= b, a &&= b.
+    // RHS must NOT evaluate when the assignment is skipped — and the
+    // assignment itself must be skipped (not just no-op'd) so that
+    // non-configurable properties aren't redefined etc.
+    //
+    //   a ??= b   →   if (a is nullish) a = b; return a
+    //   a ||= b   →   if (a is falsy)   a = b; return a
+    //   a &&= b   →   if (a is truthy)  a = b; return a
+    if (op == "??=" || op == "||=" || op == "&&=") {
+        // 1. Load LHS.
+        auto lhs = lowerExpression(node->left.get());
+        auto boxedLhs = boxValueIfNeeded(lhs);
+
+        // 2. Compute condition (true = perform assignment).
+        std::shared_ptr<HIRValue> shouldAssign;
+        if (op == "??=") {
+            shouldAssign = builder_.createCall(
+                "ts_value_is_nullish", {boxedLhs}, HIRType::makeBool());
+        } else {
+            // ||= or &&= : need truthiness conversion.
+            std::shared_ptr<HIRValue> isTruthy;
+            if (lhs->type && lhs->type->kind == HIRTypeKind::Bool) {
+                isTruthy = lhs;
+            } else {
+                isTruthy = builder_.createCall(
+                    "ts_value_to_bool", {boxedLhs}, HIRType::makeBool());
+            }
+            if (op == "&&=") {
+                shouldAssign = isTruthy;
+            } else {  // ||=
+                // shouldAssign = !isTruthy. ts_value_to_bool returns i1;
+                // emit XOR with constant true to get NOT.
+                auto trueConst = builder_.createConstBool(true);
+                shouldAssign = builder_.createXorI64(isTruthy, trueConst);
+            }
+        }
+
+        // 3. Branch structure.
+        int blockId = blockCounter_++;
+        auto* assignBlock = builder_.createBlock("lassign_rhs_" + std::to_string(blockId));
+        auto* mergeBlock = builder_.createBlock("lassign_merge_" + std::to_string(blockId));
+        auto* lhsBlock = builder_.getInsertBlock();
+
+        builder_.createCondBranch(shouldAssign, assignBlock, mergeBlock);
+
+        // 4. Assign block — lower RHS, store back, fall through to merge.
+        builder_.setInsertPoint(assignBlock);
+        currentBlock_ = assignBlock;
+        auto rhs = lowerExpression(node->right.get());
+        auto boxedRhs = boxValueIfNeeded(rhs);
+
+        // Inline store-back. Mirrors the LValue handling in the existing
+        // compound-assignment branch below. The three supported LHS forms
+        // cover the spec's AssignmentTarget enumeration: identifier,
+        // property access, element access. We box the rhs when storing
+        // into an Any-typed slot — the LHS variable's existing type is
+        // usually Any (since logical-assignment LHS is by definition a
+        // value that could be nullish/falsy/etc.), so writing a primitive
+        // Int64 directly into a ptr slot produces garbage on readback.
+        if (auto* ident = dynamic_cast<ast::Identifier*>(node->left.get())) {
+            // boxedRhs is used when the slot is Any/ptr-typed.
+            auto storeIntoSlot = [&](std::shared_ptr<HIRValue> slotPtr,
+                                     std::shared_ptr<HIRType> slotType) {
+                std::shared_ptr<HIRValue> toStore = rhs;
+                if (slotType && slotType->kind == HIRTypeKind::Any) {
+                    toStore = boxedRhs;
+                }
+                builder_.createStore(toStore, slotPtr, slotType);
+            };
+            if (currentFunction_ && isModuleGlobalVar(ident->name)) {
+                size_t scopeIdx = 0;
+                if (isCapturedVariable(ident->name, &scopeIdx)) {
+                    moduleGlobalsUsedByInnerByModule_[ident->name].insert(currentModulePath_);
+                    builder_.createStoreGlobal(modVarName(ident->name), boxedRhs);
+                } else if (auto* info = lookupVariableInfo(ident->name)) {
+                    if (info->isAlloca) {
+                        storeIntoSlot(info->value, info->elemType);
+                    }
+                    builder_.createStoreGlobal(modVarName(ident->name), boxedRhs);
+                }
+            } else {
+                size_t scopeIndex = 0;
+                if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
+                    auto* capInfo = lookupVariableInfo(ident->name);
+                    auto type = capInfo && capInfo->elemType ? capInfo->elemType : rhs->type;
+                    registerCapture(ident->name, type, scopeIndex);
+                    currentFunction_->hasClosure = true;
+                    builder_.createStoreCapture(ident->name, boxedRhs);
+                } else if (auto* info = lookupVariableInfo(ident->name)) {
+                    if (info->isAlloca) {
+                        storeIntoSlot(info->value, info->elemType);
+                        if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
+                            auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+                            builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, boxedRhs);
+                        }
+                    } else {
+                        auto allocaPtr = builder_.createAlloca(rhs->type, ident->name);
+                        builder_.createStore(rhs, allocaPtr, rhs->type);
+                        info->value = allocaPtr;
+                        info->elemType = rhs->type;
+                        info->isAlloca = true;
+                    }
+                }
+            }
+        } else if (auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get())) {
+            auto obj = lowerExpression(propAccess->expression.get());
+            auto propName = builder_.createConstString(propAccess->name);
+            builder_.createCall("ts_object_set_property",
+                {obj, propName, boxedRhs}, HIRType::makeVoid());
+        } else if (auto* elemAccess = dynamic_cast<ast::ElementAccessExpression*>(node->left.get())) {
+            auto arr = lowerExpression(elemAccess->expression.get());
+            auto idx = lowerExpression(elemAccess->argumentExpression.get());
+            builder_.createCall("ts_array_set",
+                {arr, idx, boxedRhs}, HIRType::makeVoid());
+        }
+
+        auto* finalAssignBlock = builder_.getInsertBlock();
+        builder_.createBranch(mergeBlock);
+
+        // 5. Merge — phi between original LHS (skipped path) and RHS (took path).
+        builder_.setInsertPoint(mergeBlock);
+        currentBlock_ = mergeBlock;
+        std::vector<std::pair<std::shared_ptr<HIRValue>, HIRBlock*>> phiIncoming;
+        phiIncoming.push_back(std::make_pair(boxedLhs, lhsBlock));
+        phiIncoming.push_back(std::make_pair(boxedRhs, finalAssignBlock));
+        lastValue_ = builder_.createPhi(HIRType::makeAny(), phiIncoming);
+        return;
+    }
+
     // Handle nullish coalescing with short-circuit semantics
     if (op == "??") {
         // Lower left side first
