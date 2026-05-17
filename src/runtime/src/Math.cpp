@@ -13,8 +13,8 @@ double ts_math_max(double a, double b) {
     return std::max(a, b);
 }
 
-int64_t ts_math_abs(int64_t a) {
-    return std::abs(a);
+double ts_math_abs(double a) {
+    return std::fabs(a);
 }
 
 int64_t ts_math_floor(double a) {
