@@ -71,6 +71,14 @@ SUITES = [
         'parallel_args': ['-j', '4'],  # capped — each test spawns a server subprocess
     },
     {
+        'name': 'Invariants',
+        'key': 'invariants',
+        'script': str(TESTS_DIR / 'invariants' / 'runner.py'),
+        'args': [],
+        'verbose_flag': '-v',
+        'parallel_args': ['-j', '8'],
+    },
+    {
         'name': 'test262',
         'key': 'test262',
         'script': str(TESTS_DIR / 'test262' / 'run_test262.py'),
@@ -147,6 +155,17 @@ def parse_results(output: str, suite_key: str) -> dict:
             passed = int(m.group(1))
         # Count all non-pass non-skip as failed
         for label in ('Failed', 'Compile Error', 'Timeout', 'Crash'):
+            m = re.search(rf'{label}:\s+(\d+)', clean)
+            if m:
+                failed += int(m.group(1))
+
+    elif suite_key == 'invariants':
+        # Invariants runner: "Passed: N", and any of Failed/Compile error/
+        # Crash/No output count as failed (each is a probable spec bug).
+        m = re.search(r'Passed:\s+(\d+)', clean)
+        if m:
+            passed = int(m.group(1))
+        for label in ('Failed', 'Compile error', 'Crash', 'No output'):
             m = re.search(rf'{label}:\s+(\d+)', clean)
             if m:
                 failed += int(m.group(1))
