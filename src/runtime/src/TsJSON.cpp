@@ -160,6 +160,11 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         if (desc) {
             for (uint32_t i = 0; i < desc->numSlots; i++) {
                 uint64_t val = *(uint64_t*)((char*)p + 16 + i * 8);
+                // Per ECMA-262 25.5.2.4 SerializeJSONProperty: undefined-valued
+                // own properties are OMITTED from the result object. Also skip
+                // hole/deleted tombstones so absent slots don't appear as null.
+                if (nanbox_is_undefined(val) || val == NANBOX_HOLE ||
+                    val == NANBOX_DELETED) continue;
                 j[desc->propNames[i]] = ts_to_json_internal((void*)(uintptr_t)val, visited);
             }
             // Check overflow map
