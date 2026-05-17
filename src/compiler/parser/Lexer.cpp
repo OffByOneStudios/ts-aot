@@ -932,6 +932,7 @@ Token Lexer::scanRegularExpression() {
 
     advance(); // opening /
 
+    int bodyStart = pos_;
     bool inCharClass = false;
     while (!isAtEnd()) {
         char c = peek();
@@ -953,10 +954,95 @@ Token Lexer::scanRegularExpression() {
             advance();
         }
     }
+    int bodyEnd = pos_ - 1;  // position of closing '/' (or end if unterminated)
+    if (bodyEnd < bodyStart) bodyEnd = bodyStart;
 
     // Scan flags: g, i, m, s, u, v, y, d
+    int flagStart = pos_;
     while (!isAtEnd() && isIdentPart(peek())) {
         advance();
+    }
+    int flagEnd = pos_;
+
+    // ECMA-262 22.2.1.4: UnicodePropertyEscape `\p{Name}` / `\p{Name=Value}` /
+    // `\P{...}` is only valid in Unicode mode (`u` or `v` flag). When that
+    // flag is present, the property escape must be syntactically well-formed:
+    //   - `\p` / `\P` must be immediately followed by `{`
+    //   - Content between braces must be non-empty
+    //   - May not begin with `^` or contain `=` with empty LHS
+    //   - `}` must close before regex body ends.
+    // This catches the grammar-extension-{unclosed,empty,unopened,
+    // circumflex-negation,separator-and-value-only} cluster (~18 tests).
+    // Full property NAME validation (binary vs non-binary, value lookup) is
+    // deferred — that needs an ICU property table; this commit handles
+    // structure only.
+    bool hasUnicodeFlag = false;
+    for (int i = flagStart; i < flagEnd; i++) {
+        char f = source_[i];
+        if (f == 'u' || f == 'v') { hasUnicodeFlag = true; break; }
+    }
+    if (hasUnicodeFlag) {
+        auto fail = [&](const char* msg, int errLine, int errCol) {
+            char buf[160];
+            snprintf(buf, sizeof(buf), "%d:%d: SyntaxError: %s",
+                     errLine, errCol, msg);
+            throw std::runtime_error(buf);
+        };
+        // Re-walk the body locating `\p` / `\P` escapes and validating.
+        int p = bodyStart;
+        while (p < bodyEnd) {
+            unsigned char c = (unsigned char)source_[p];
+            if (c == '\\' && p + 1 < bodyEnd) {
+                char nxt = source_[p + 1];
+                if (nxt == 'p' || nxt == 'P') {
+                    // Record source position approximately (line/col not
+                    // strictly tracked through bodyStart..bodyEnd — emit at
+                    // the regex's start line/col instead, which is correct
+                    // enough for test262's expected SyntaxError detection).
+                    int errLine = tokenStartLine_;
+                    int errCol = tokenStartColumn_;
+                    int q = p + 2;
+                    if (q >= bodyEnd || source_[q] != '{') {
+                        fail("'\\p' / '\\P' in Unicode regex requires '{...}'",
+                             errLine, errCol);
+                    }
+                    q++;  // past '{'
+                    int contentStart = q;
+                    while (q < bodyEnd && source_[q] != '}') {
+                        // Don't allow `/` or newline mid-escape — that means
+                        // the brace was never closed in this regex body.
+                        q++;
+                    }
+                    if (q >= bodyEnd) {
+                        fail("unterminated '\\p{...}' Unicode property escape",
+                             errLine, errCol);
+                    }
+                    int contentLen = q - contentStart;
+                    if (contentLen == 0) {
+                        fail("empty '\\p{}' Unicode property escape",
+                             errLine, errCol);
+                    }
+                    // Disallow leading '^' (negation belongs OUTSIDE on \P).
+                    if (source_[contentStart] == '^') {
+                        fail("'\\p{^...}' is not a valid Unicode property "
+                             "escape; use '\\P{...}' for negation",
+                             errLine, errCol);
+                    }
+                    // Disallow leading '=' (empty property name with value).
+                    if (source_[contentStart] == '=') {
+                        fail("'\\p{=value}' is not a valid Unicode property "
+                             "escape; the name before '=' must be non-empty",
+                             errLine, errCol);
+                    }
+                    p = q + 1;  // past '}'
+                    continue;
+                }
+                // Other escape: skip the escaped char.
+                p += 2;
+                continue;
+            }
+            p++;
+        }
     }
 
     return makeToken(TokenKind::RegularExpressionLiteral, start);
