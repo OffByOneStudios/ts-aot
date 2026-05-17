@@ -408,13 +408,34 @@ ConstantFoldingPass::ConstValue ConstantFoldingPass::foldIntArithmetic(
             return ConstValue::makeInt(a | b);
         case HIROpcode::XorI64:
             return ConstValue::makeInt(a ^ b);
-        case HIROpcode::ShlI64:
-            return ConstValue::makeInt(a << (b & 63));  // Mask shift amount
-        case HIROpcode::ShrI64:
-            return ConstValue::makeInt(a >> (b & 63));  // Arithmetic shift
-        case HIROpcode::UShrI64:
+        case HIROpcode::ShlI64: {
+            // ECMA-262 §13.10.3 ShiftLeft: ToInt32(lhs), ToUint32(rhs)&0x1F,
+            // result is a SIGNED 32-bit integer. `1 << 31` must yield
+            // -2147483648, not 2147483648. Truncate to int32 before the
+            // shift, then sign-extend back to int64 so the f64 conversion
+            // downstream preserves the negative value.
+            int32_t lhs32 = static_cast<int32_t>(a);
+            int32_t result32 = static_cast<int32_t>(
+                static_cast<uint32_t>(lhs32) << (b & 31));
+            return ConstValue::makeInt(static_cast<int64_t>(result32));
+        }
+        case HIROpcode::ShrI64: {
+            // ECMA-262 §13.10.4 SignedRightShift: ToInt32(lhs), arithmetic
+            // shift by rhs&0x1F. Operate on int32 so the result respects
+            // 32-bit sign semantics.
+            int32_t lhs32 = static_cast<int32_t>(a);
+            int32_t result32 = lhs32 >> (b & 31);
+            return ConstValue::makeInt(static_cast<int64_t>(result32));
+        }
+        case HIROpcode::UShrI64: {
+            // ECMA-262 §13.10.5 UnsignedRightShift: ToUint32(lhs), logical
+            // shift by rhs&0x1F. Result is an unsigned 32-bit integer; in
+            // i64 form that's a non-negative value in [0, 2^32-1].
+            uint32_t lhs32 = static_cast<uint32_t>(a);
+            uint32_t result32 = lhs32 >> (b & 31);
             return ConstValue::makeInt(static_cast<int64_t>(
-                static_cast<uint64_t>(a) >> (b & 63)));  // Logical shift
+                static_cast<uint64_t>(result32)));
+        }
         default:
             return ConstValue::unknown();
     }
