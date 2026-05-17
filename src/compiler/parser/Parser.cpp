@@ -3399,11 +3399,21 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
                 }
             }
             // It's a labeled statement. Annex B.3.2.1: FunctionDeclaration
-            // is allowed as LabelledItem in non-strict.
+            // is allowed as LabelledItem in non-strict, EXCEPT when the
+            // LabelledStatement is nested in an IterationStatement.
+            // ECMA-262 13.7.2.1/13.7.3.1/13.7.4.1 say:
+            //   It is a Syntax Error if IsLabelledFunction(Statement) is
+            //   true (where Statement is the iteration body).
+            // The check applies "regardless of the language mode", so we
+            // suppress the Annex B carveout whenever iterationDepth_ > 0.
+            // The recursive parseStatementOnly call for nested
+            // `label1: label2: function f(){}` re-enters this routine, which
+            // again sees iterationDepth_ > 0 and propagates the rejection.
             auto node = std::make_unique<ast::LabeledStatement>();
             setLocation(node.get(), line, col);
             node->label = decodedName;
-            node->statement = parseStatementOnly(/*allowAnnexBFunction=*/true);
+            bool allowAnnexB = (iterationDepth_ == 0);
+            node->statement = parseStatementOnly(allowAnnexB);
             return node;
         }
         restoreState(saved);
