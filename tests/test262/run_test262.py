@@ -687,6 +687,7 @@ class Test262Runner:
         self.category = args.category
         self.limit = args.limit
         self.save_baseline = args.save_baseline
+        self.auto_baseline = args.auto_baseline
         self.jobs = args.jobs
         self.timeout = args.timeout
         self.time_budget_min = args.time_budget_min
@@ -856,12 +857,25 @@ class Test262Runner:
             if not regressions:
                 print("\nNo regressions.")
 
+        # Auto-baseline: refresh when sweep was clean AND non-zero net improvement.
+        # `_n_new_passes` and `_n_regressions` are populated in the baseline-compare
+        # block above (when baseline exists). Empty baseline => no auto-refresh.
+        should_auto_save = (
+            self.auto_baseline
+            and baseline
+            and len(regressions) == 0
+            and len(new_passes) > 0
+        )
+
         # Save baseline
-        if self.save_baseline:
+        if self.save_baseline or should_auto_save:
             bl = {str(r.path.relative_to(TEST_DIR)): r.status
                   for r in results if r.status != "skip"}
             BASELINE_FILE.write_text(json.dumps(bl, indent=2, sort_keys=True))
-            print(f"\nBaseline saved to {BASELINE_FILE} ({len(bl)} entries)")
+            tag = "auto" if should_auto_save and not self.save_baseline else "saved"
+            print(f"\nBaseline {tag} to {BASELINE_FILE} "
+                  f"({len(bl)} entries; +{len(new_passes)} new passes, "
+                  f"{len(regressions)} regressions)")
 
         # Print failures in verbose mode
         if self.verbose:
@@ -1001,6 +1015,10 @@ def main():
                         help="Max number of tests to run")
     parser.add_argument("--save-baseline", action="store_true",
                         help="Save results as baseline")
+    parser.add_argument("--auto-baseline", action="store_true",
+                        help="Auto-save baseline after sweep if zero real regressions "
+                             "AND non-zero new passes (encourages refresh after clean "
+                             "commits; suppresses stale-baseline false-regression noise).")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Verbose output")
     parser.add_argument("--jobs", "-j", type=int, default=1,
