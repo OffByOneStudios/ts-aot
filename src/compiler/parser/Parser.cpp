@@ -332,6 +332,30 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
                     expr->line, expr->column));
             }
         }
+        // ECMA-262 13.15.5.1 — recursive validation: every element of
+        // an ArrayAssignmentPattern is itself a DestructuringAssignmentTarget
+        // (or AssignmentRestElement). Recurse into each element so e.g.
+        // `[[(x,y)]] = ...` (comma-expression inside nested target) and
+        // `[arguments] = []` (strict-reserved as target) error. Skip
+        // OmittedExpression (elision holes) and Initializer wrappers
+        // (BinaryExpression with op `=` is a DefaultedTarget; recurse into
+        // its left).
+        for (auto& elem : arr->elements) {
+            if (!elem) continue;
+            if (dynamic_cast<const ast::OmittedExpression*>(elem.get())) continue;
+            const ast::Node* target = elem.get();
+            if (auto* spread = dynamic_cast<const ast::SpreadElement*>(elem.get())) {
+                target = spread->expression.get();
+                if (!target) continue;
+            }
+            // Default value wrapper: `[a = 0]` — the AST stores `a = 0` as
+            // AssignmentExpression. Recurse into its left.
+            if (auto* assn = dynamic_cast<const ast::AssignmentExpression*>(target)) {
+                target = assn->left.get();
+                if (!target) continue;
+            }
+            validateAssignmentTarget(target, forCompoundAssign);
+        }
         return;
     }
     if (auto* obj = dynamic_cast<const ast::ObjectLiteralExpression*>(expr)) {
@@ -350,6 +374,38 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
                     "{}:{}: SyntaxError: rest property must be the last "
                     "property in an object assignment pattern",
                     expr->line, expr->column));
+            }
+        }
+        // Recursive validation of each property's target. Reject method/
+        // getter/setter members (only PropertyAssignment / shorthand / spread
+        // are valid in DestructuringAssignmentPattern).
+        for (auto& prop : obj->properties) {
+            if (!prop) continue;
+            if (auto* method = dynamic_cast<const ast::MethodDefinition*>(prop.get())) {
+                const char* kind = method->isGetter ? "getter"
+                                 : method->isSetter ? "setter" : "method";
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: object literal {} is not a valid "
+                    "destructuring target",
+                    method->line, method->column, kind));
+            }
+            if (auto* spread = dynamic_cast<const ast::SpreadElement*>(prop.get())) {
+                if (spread->expression) {
+                    validateAssignmentTarget(spread->expression.get(),
+                                              forCompoundAssign);
+                }
+                continue;
+            }
+            if (auto* pa = dynamic_cast<const ast::PropertyAssignment*>(prop.get())) {
+                if (pa->initializer) {
+                    const ast::Node* target = pa->initializer.get();
+                    // Default-value wrapper `{x: a = 0}` — recurse into LHS.
+                    if (auto* assn = dynamic_cast<const ast::AssignmentExpression*>(target)) {
+                        target = assn->left.get();
+                        if (!target) continue;
+                    }
+                    validateAssignmentTarget(target, forCompoundAssign);
+                }
             }
         }
         return;
