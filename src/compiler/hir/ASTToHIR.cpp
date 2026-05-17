@@ -10002,9 +10002,29 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
         // Handle property access (e.g., this.#count++ or obj.field++)
         auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(node->operand.get());
         if (prop) {
-            auto obj = lowerExpression(prop->expression.get());
-            std::string propName = prop->name;
-            builder_.createSetPropStatic(obj, propName, result);
+            // Same ClassName.staticField fast-path as the postfix variant.
+            // ECMA-262 §13.4 UpdateExpression: read, increment, write — the
+            // write must target the same storage location as the read; for a
+            // static class field that's the per-class _static_ LLVM global.
+            bool storedToStaticGlobal = false;
+            if (auto* classNameIdent = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                for (auto& cls : module_->classes) {
+                    if (cls->name == classNameIdent->name) {
+                        std::string globalName = cls->name + "_static_" + prop->name;
+                        auto it = staticPropertyGlobals_.find(globalName);
+                        if (it != staticPropertyGlobals_.end()) {
+                            builder_.createStore(result, it->second.first, it->second.second);
+                            storedToStaticGlobal = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            if (!storedToStaticGlobal) {
+                auto obj = lowerExpression(prop->expression.get());
+                std::string propName = prop->name;
+                builder_.createSetPropStatic(obj, propName, result);
+            }
         }
         lastValue_ = result;  // Prefix returns new value
     } else {
@@ -10125,9 +10145,33 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
         // Handle property access (e.g., this.#count++ or obj.field++)
         auto* prop = dynamic_cast<ast::PropertyAccessExpression*>(node->operand.get());
         if (prop) {
-            auto obj = lowerExpression(prop->expression.get());
-            std::string propName = prop->name;
-            builder_.createSetPropStatic(obj, propName, result);
+            // Static class field: ClassName.field++. Mirrors the regular
+            // assignment path (visitAssignmentExpression) which routes writes
+            // for `ClassName.field = ...` through the per-class
+            // `<ClassName>_static_<field>` LLVM global rather than the dynamic
+            // property setter. Without this branch, postfix `++` reads from
+            // the global (correctly) but `createSetPropStatic` writes only to
+            // the class object's dynamic property map, so subsequent reads
+            // through the same global stay at the old value.
+            bool storedToStaticGlobal = false;
+            if (auto* classNameIdent = dynamic_cast<ast::Identifier*>(prop->expression.get())) {
+                for (auto& cls : module_->classes) {
+                    if (cls->name == classNameIdent->name) {
+                        std::string globalName = cls->name + "_static_" + prop->name;
+                        auto it = staticPropertyGlobals_.find(globalName);
+                        if (it != staticPropertyGlobals_.end()) {
+                            builder_.createStore(result, it->second.first, it->second.second);
+                            storedToStaticGlobal = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            if (!storedToStaticGlobal) {
+                auto obj = lowerExpression(prop->expression.get());
+                std::string propName = prop->name;
+                builder_.createSetPropStatic(obj, propName, result);
+            }
         }
         // Postfix returns old value
         lastValue_ = oldValue;
