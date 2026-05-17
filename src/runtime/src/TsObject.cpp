@@ -6637,10 +6637,24 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue u; u.type = ValueType::UNDEFINED; u.i_val = 0;
                         desc->Set(setKey, u);
                     }
-                    // Read attrs from the named property slot (the data
-                    // slot under the same name carries the descriptor flags).
-                    uint8_t attrs = map->Has(propKey)
-                        ? map->GetPropertyAttrs(propKey) : 0;
+                    // Read attrs from the named property slot if a data
+                    // slot under the same name carries flags. Otherwise
+                    // read from the __getter_/__setter_ slot, where the
+                    // accessor was actually installed. For pure object-
+                    // literal accessors no data slot exists, so falling
+                    // back to 0 would report enumerable=configurable=false
+                    // — wrong per ECMA-262 §10.1.6.3 (object-literal
+                    // accessors default to enumerable+configurable).
+                    uint8_t attrs;
+                    if (map->Has(propKey)) {
+                        attrs = map->GetPropertyAttrs(propKey);
+                    } else if (hasGetter) {
+                        attrs = map->GetPropertyAttrs(gk);
+                    } else if (hasSetter) {
+                        attrs = map->GetPropertyAttrs(sk);
+                    } else {
+                        attrs = 0;
+                    }
                     TsValue enumKey; enumKey.type = ValueType::STRING_PTR;
                     enumKey.ptr_val = TsString::GetInterned("enumerable");
                     TsValue enumVal; enumVal.type = ValueType::BOOLEAN;
