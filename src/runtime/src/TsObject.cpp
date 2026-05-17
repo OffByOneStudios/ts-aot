@@ -7509,10 +7509,47 @@ TsValue* ts_value_make_int(int64_t i) {
         bool keyIsInt = nanbox_is_int32(keyNb) || nanbox_is_double(keyNb);
         int64_t keyIdx = keyIsInt ? nanbox_to_int64(keyNb) : 0;
         TsString* keyStr = nullptr;
+        // ECMA-262 §7.1.19 ToPropertyKey: Symbol keys stay Symbols, not
+        // ToString'd. The codegen at HIRToLLVM::lowerGetElem boxes ANY
+        // pointer-typed index via ts_value_make_string, which mis-tags
+        // TsSymbol pointers as STRING_PTR. Detect the misnamed Symbol
+        // here BEFORE attempting any string operation: if the pointer's
+        // magic is "SYMB", canonicalize to "[<desc>]" — the convention
+        // used by ts_object_set_prop_v (TsObject.cpp ~8275) so writes
+        // and reads agree on the storage key.
+        bool keyWasSymbol = false;
+        auto symKeyOrString = [&](void* p) -> TsString* {
+            if (!p) return nullptr;
+            if (*(uint32_t*)p == 0x53594D42) {  // TsSymbol::MAGIC "SYMB"
+                TsSymbol* sym = (TsSymbol*)p;
+                const char* desc = sym->description
+                    ? sym->description->ToUtf8() : "";
+                char buf[128];
+                snprintf(buf, sizeof(buf), "[%s]",
+                         desc && *desc ? desc : "Symbol()");
+                keyWasSymbol = true;
+                return TsString::GetInterned(buf);
+            }
+            return (TsString*)p;
+        };
         if (nanbox_is_string_ptr(keyNb)) {
-            keyStr = (TsString*)nanbox_to_ptr(keyNb);
+            keyStr = symKeyOrString(nanbox_to_ptr(keyNb));
         } else if (nanbox_is_ptr(keyNb) && !keyIsInt) {
-            keyStr = (TsString*)ts_value_get_string(key);
+            void* keyPtr = nanbox_to_ptr(keyNb);
+            if (keyPtr && *(uint32_t*)keyPtr == 0x53594D42) {
+                keyStr = symKeyOrString(keyPtr);
+            } else {
+                keyStr = (TsString*)ts_value_get_string(key);
+            }
+        }
+        // ECMA-262 §7.1.19 ToPropertyKey: for Symbol keys the codegen
+        // mis-tags the pointer as STRING_PTR. We canonicalized to the
+        // "[<desc>]" string form, but downstream TsMap::Get uses the
+        // ORIGINAL `key` for its hash. Re-box `key` to point at the
+        // canonical string so the map lookup hashes by content matching
+        // what ts_object_set_prop_v stored.
+        if (keyWasSymbol && keyStr) {
+            key = ts_value_make_string(keyStr);
         }
         // Per ES spec, obj[1] is equivalent to obj["1"] for non-array
         // objects. Convert numeric keys to string so flat-object and TsMap
