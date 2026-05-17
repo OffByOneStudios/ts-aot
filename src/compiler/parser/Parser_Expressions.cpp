@@ -1476,13 +1476,24 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             bool isGetter = false;
             bool isSetter = false;
 
-            // async
-            if (current_.kind == TokenKind::KW_async && !current_.hadNewlineBefore) {
+            // async — ECMA-262 MethodDefinition: AsyncMethod is recognised
+            // when the next non-newline token after `async` is a property
+            // name (identifier/keyword/`[`/`*`/string/number). The
+            // "no LineTerminator" restriction applies AFTER `async`
+            // (between `async` and the method name), not BEFORE it. So a
+            // newline before `async` itself — i.e., between `{` and `async`,
+            // or between one property and the next — does not disqualify
+            // the method definition form. Previously we required
+            // !hadNewlineBefore on the `async` token, which incorrectly
+            // demoted `{\n  async method() {} }` to a non-async method
+            // (`async` becoming the property name).
+            if (current_.kind == TokenKind::KW_async) {
                 auto saved = saveState();
                 advance();
-                if (isIdentifierOrKeyword() || check(TokenKind::OpenBracket) ||
-                    check(TokenKind::Star) || check(TokenKind::StringLiteral) ||
-                    check(TokenKind::NumericLiteral)) {
+                if (!current_.hadNewlineBefore &&
+                    (isIdentifierOrKeyword() || check(TokenKind::OpenBracket) ||
+                     check(TokenKind::Star) || check(TokenKind::StringLiteral) ||
+                     check(TokenKind::NumericLiteral))) {
                     isAsync = true;
                 } else {
                     restoreState(saved);
