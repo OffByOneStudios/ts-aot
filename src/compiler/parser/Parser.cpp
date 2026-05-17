@@ -657,6 +657,16 @@ bool Parser::declareLexicalName(const std::string& name, PDeclKind kind) {
         if (!strictMode_ && existing == PDeclKind::Function && kind == PDeclKind::Function) {
             return true;
         }
+        // ECMA-262 Annex B.3.4: in non-strict code, a CatchParameter that
+        // is a BindingIdentifier does NOT conflict with VarDeclaredNames of
+        // the catch Block. parseCatchClause pre-declares the catch
+        // parameter as PDeclKind::CatchParam; a subsequent `var x` here
+        // should be allowed in non-strict mode. (let / const / class /
+        // function declarations still conflict — they go into
+        // LexicallyDeclaredNames per the un-modified rule.)
+        if (!strictMode_ && existing == PDeclKind::CatchParam && kind == PDeclKind::Var) {
+            return true;
+        }
         // Everything else is a redeclaration error
         fprintf(stderr, "SyntaxError: Identifier '%s' has already been declared\n", name.c_str());
         errorCount_++;
@@ -3322,7 +3332,7 @@ ast::StmtPtr Parser::parseTryStatement() {
                         "parameter binding",
                         fileName_, entry.second, entry.first));
                 }
-                declareLexicalName(entry.first, PDeclKind::Let);
+                declareLexicalName(entry.first, PDeclKind::CatchParam);
             }
         }
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {

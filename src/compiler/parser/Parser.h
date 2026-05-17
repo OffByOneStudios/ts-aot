@@ -167,7 +167,7 @@ private:
 
     // --- Lexical scope tracking for redeclaration detection ---
     // Each scope maps names to their declaration kind
-    enum class PDeclKind { Var, Let, Const, Function };
+    enum class PDeclKind { Var, Let, Const, Function, CatchParam };
     struct LexicalScope {
         std::unordered_map<std::string, PDeclKind> names;
     };
