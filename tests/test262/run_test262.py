@@ -59,6 +59,7 @@ UNSUPPORTED_FEATURES: Set[str] = {
     "promise-try",
     "regexp-modifiers",
     "source-phase-imports",
+    "import-defer",
     "import-attributes",
     "import-assertions",
     "json-modules",
