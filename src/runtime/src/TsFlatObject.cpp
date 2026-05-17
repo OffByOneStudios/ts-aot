@@ -171,10 +171,11 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
     // Accessor (__getter_<key>) hits still call directly through the
     // vtable since accessors return computed values, not function objects
     // whose identity matters.
+    // Accessor (__getter_<key>) handler runs first — accessors return a
+    // computed value, not a function whose identity matters.
     if (desc->numMethods > 0 && desc->methodNames) {
         void** vtable = *(void***)((char*)obj + 8); // vtable pointer at offset 8
         if (vtable) {
-            // Build the getter-prefixed key once for the loop.
             std::string getterKey = std::string("__getter_") + key;
             for (uint32_t i = 0; i < desc->numMethods; i++) {
                 const char* mname = desc->methodNames[i];
@@ -182,41 +183,51 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
                 if (strcmp(mname, getterKey.c_str()) == 0) {
                     void* methodPtr = vtable[i + 1];
                     if (methodPtr) {
-                        // Call the getter directly with `obj` as `this` and
-                        // no further arguments. The lowered getter has the
-                        // signature: TsValue* getter(TsValue* this).
                         using GetterFn = void* (*)(void*);
                         return ((GetterFn)methodPtr)(obj);
                     }
                 }
             }
-            // Plain method-name resolution via prototype map (spec-correct
-            // identity). Falls through to BoundMethodCtx synthesis below
-            // if the constructor slot isn't set (e.g. shape registered for
-            // a class whose constructor closure hasn't been requested).
-            if (desc->constructorSlot) {
-                TsValue* ctorVal = *(TsValue**)desc->constructorSlot;
-                if (ctorVal) {
-                    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
-                    TsValue* protoVal = ts_object_get_property((void*)ctorVal, "prototype");
-                    if (protoVal) {
-                        uint64_t protoNb = nanbox_from_tsvalue_ptr(protoVal);
-                        if (nanbox_is_ptr(protoNb)) {
-                            void* protoObj = nanbox_to_ptr(protoNb);
-                            if (protoObj) {
-                                TsValue* method = ts_object_get_property(protoObj, key);
-                                uint64_t methodNb = nanbox_from_tsvalue_ptr(method);
-                                if (methodNb != NANBOX_UNDEFINED) {
-                                    return (void*)method;
-                                }
-                            }
+        }
+    }
+
+    // Prototype-chain lookup via ShapeDescriptor::constructorSlot (set by
+    // HIRToLLVM to the address of __closure_cache_<ClassName>_constructor).
+    // This handles BOTH:
+    //   - Class methods (`c.m` returns the same function as
+    //     `C.prototype.m`) — ECMA-262 §10.1.5 OrdinaryGet
+    //   - Non-method properties on the prototype chain like `constructor`,
+    //     methods inherited from a base class via Derived.prototype's
+    //     [[Prototype]] link (set in emitDeferredStaticInits).
+    // ts_object_get_property walks TsMap prototype chains automatically, so
+    // reading `key` from the prototype map cascades to Base.prototype, etc.
+    if (desc->constructorSlot) {
+        TsValue* ctorVal = *(TsValue**)desc->constructorSlot;
+        if (ctorVal) {
+            extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+            TsValue* protoVal = ts_object_get_property((void*)ctorVal, "prototype");
+            if (protoVal) {
+                uint64_t protoNb = nanbox_from_tsvalue_ptr(protoVal);
+                if (nanbox_is_ptr(protoNb)) {
+                    void* protoObj = nanbox_to_ptr(protoNb);
+                    if (protoObj) {
+                        TsValue* method = ts_object_get_property(protoObj, key);
+                        uint64_t methodNb = nanbox_from_tsvalue_ptr(method);
+                        if (methodNb != NANBOX_UNDEFINED) {
+                            return (void*)method;
                         }
                     }
                 }
             }
-            // Fallback for compatibility: synthesize BoundMethodCtx when
-            // the prototype path isn't available. This preserves behavior
-            // for shapes without a constructorSlot back-pointer.
+        }
+    }
+
+    // Fallback for compatibility: synthesize BoundMethodCtx when the
+    // prototype path isn't available. This preserves behavior for shapes
+    // without a constructorSlot back-pointer (object literals, edge cases).
+    if (desc->numMethods > 0 && desc->methodNames) {
+        void** vtable = *(void***)((char*)obj + 8);
+        if (vtable) {
             for (uint32_t i = 0; i < desc->numMethods; i++) {
                 const char* mname = desc->methodNames[i];
                 if (!mname) continue;
