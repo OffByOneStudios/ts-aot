@@ -1429,6 +1429,8 @@ extern "C" {
         return TsConsString::Create(strA, strB);
     }
 
+    static TsRegExp* unboxRegExp(void* arg);  // forward declaration
+
     void* ts_string_split(void* str, void* separator) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
@@ -1439,6 +1441,11 @@ extern "C" {
             TsArray* arr = TsArray::Create();
             arr->Push((int64_t)ts_value_make_string(s));
             return arr;
+        }
+        // Per ECMA-262 22.1.3.21 step 4: if separator has @@split (i.e. is a
+        // RegExp), call RegExp.prototype[@@split]. Detect regex by unboxing.
+        if (TsRegExp* re = unboxRegExp(separator)) {
+            return s->Split(re);
         }
         TsString* sep = ts_ensure_flat(separator);
         if (!sep) {
