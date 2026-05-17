@@ -663,6 +663,15 @@ struct OmittedExpression : Expression {
 
 struct ArrayLiteralExpression : Expression {
     std::vector<ExprPtr> elements;
+    // ECMA-262 13.15.5.1: ArrayAssignmentPattern's BindingRestElement /
+    // AssignmentRestElement must be the final element (no trailing comma
+    // permitted after rest). ArrayLiteral *does* allow a trailing comma
+    // after a SpreadElement (it's a legal ArrayLiteral), but if the
+    // literal is later reinterpreted as an AssignmentPattern the trailing
+    // comma is an early error. Parser sets this flag at literal-parse
+    // time so validateAssignmentTarget can reject the destructuring use
+    // without rejecting the regular array-literal use.
+    bool restHadTrailingComma = false;
     std::string getKind() const override { return "ArrayLiteralExpression"; }
     void accept(Visitor* visitor) override { visitor->visitArrayLiteralExpression(this); }
 };

@@ -308,12 +308,49 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
 
     // Object/Array literals — valid only as destructuring targets,
     // and only for plain `=` (not `+=` etc.).
-    if (dynamic_cast<const ast::ObjectLiteralExpression*>(expr) ||
-        dynamic_cast<const ast::ArrayLiteralExpression*>(expr)) {
+    if (auto* arr = dynamic_cast<const ast::ArrayLiteralExpression*>(expr)) {
         if (forCompoundAssign) {
             throw std::runtime_error(fmt::format(
                 "{}:{}: SyntaxError: destructuring pattern not allowed with compound assignment",
                 expr->line, expr->column));
+        }
+        // ECMA-262 13.15.5.1: AssignmentRestElement must be the final
+        // element. Reject (a) `[...x ,] = []` (trailing comma after rest),
+        // and (b) `[...x, y] = arr` (element after rest) — both legal as
+        // array literals, both early errors as AssignmentPattern.
+        if (arr->restHadTrailingComma) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: rest element may not have a trailing "
+                "comma in an assignment pattern",
+                expr->line, expr->column));
+        }
+        for (size_t i = 0; i + 1 < arr->elements.size(); ++i) {
+            if (dynamic_cast<const ast::SpreadElement*>(arr->elements[i].get())) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: rest element must be the last "
+                    "element in an array assignment pattern",
+                    expr->line, expr->column));
+            }
+        }
+        return;
+    }
+    if (auto* obj = dynamic_cast<const ast::ObjectLiteralExpression*>(expr)) {
+        if (forCompoundAssign) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: destructuring pattern not allowed with compound assignment",
+                expr->line, expr->column));
+        }
+        // ECMA-262 13.15.5.1: AssignmentRestProperty must be the final
+        // property and have NO trailing comma. Reject any SpreadElement
+        // that isn't the last property (`{...rest, b} = obj` etc.).
+        // Object literal stores spread as SpreadElement in properties[].
+        for (size_t i = 0; i + 1 < obj->properties.size(); ++i) {
+            if (dynamic_cast<const ast::SpreadElement*>(obj->properties[i].get())) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: rest property must be the last "
+                    "property in an object assignment pattern",
+                    expr->line, expr->column));
+            }
         }
         return;
     }

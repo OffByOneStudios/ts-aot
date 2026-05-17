@@ -1732,6 +1732,18 @@ ast::ExprPtr Parser::parseArrayLiteral() {
             setLocation(spread.get(), spreadTok);
             spread->expression = parseAssignmentExpression();
             node->elements.push_back(std::move(spread));
+            // Detect `[...x ,]` — comma after spread immediately before
+            // the closing bracket. Legal as array-literal but illegal as
+            // AssignmentPattern. Mark the node for the later check in
+            // validateAssignmentTarget.
+            if (check(TokenKind::Comma)) {
+                auto afterComma = saveState();
+                advance();
+                if (check(TokenKind::CloseBracket)) {
+                    node->restHadTrailingComma = true;
+                }
+                restoreState(afterComma);
+            }
         } else {
             node->elements.push_back(parseAssignmentExpression());
         }
