@@ -279,18 +279,19 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
                 "target of an assignment or update expression",
                 expr->line, expr->column));
         }
-        // ECMA-262 13.3.13 ImportMeta has AssignmentTargetType = invalid.
-        // `import.meta = 1` is a SyntaxError. Detect via the AST shape
-        // produced by parsePrimaryExpression's KW_import branch: an
-        // Identifier "import" left side with property name "meta".
-        if (p->name == "meta") {
-            if (auto* id = dynamic_cast<const ast::Identifier*>(p->expression.get())) {
-                if (id->name == "import") {
-                    throw std::runtime_error(fmt::format(
-                        "{}:{}: SyntaxError: 'import.meta' is not a valid "
-                        "assignment target",
-                        expr->line, expr->column));
-                }
+        // ECMA-262 13.3.13 ImportMeta and 13.3.12.2 NewTarget both have
+        // AssignmentTargetType = invalid. `import.meta = 1` and
+        // `new.target = 1` are SyntaxErrors. Detect via the AST shape
+        // produced by parsePrimaryExpression's KW_import / KW_new branches:
+        // an Identifier "import" or "new" left side with property name
+        // "meta" / "target" respectively.
+        if (auto* id = dynamic_cast<const ast::Identifier*>(p->expression.get())) {
+            if ((id->name == "import" && p->name == "meta") ||
+                (id->name == "new" && p->name == "target")) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '{}.{}' is not a valid "
+                    "assignment target",
+                    expr->line, expr->column, id->name, p->name));
             }
         }
         return;
