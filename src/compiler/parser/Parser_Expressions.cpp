@@ -1897,6 +1897,32 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
             "declare \"use strict\"",
             current_.line, current_.column));
     }
+    // ECMA-262 14.1.2: in strict-mode FunctionExpression, BoundNames of
+    // FormalParameters must not contain duplicates AND must not contain
+    // 'eval' or 'arguments'. parseParameterList only enforces this when
+    // strictMode_ is true at parse time, but when "use strict" appears
+    // in the body's directive prologue the function becomes strict
+    // retroactively. Re-validate the param BoundNames here.
+    if (sawUseStrictDirective_) {
+        std::unordered_set<std::string> seen;
+        for (auto& p : node->parameters) {
+            if (!p) continue;
+            if (auto* id = dynamic_cast<ast::Identifier*>(p->name.get())) {
+                if (id->name == "eval" || id->name == "arguments") {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: parameter '{}' is not allowed in "
+                        "strict-mode function",
+                        fileName_, id->line, id->name));
+                }
+                if (!seen.insert(id->name).second) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: duplicate parameter name '{}' is "
+                        "not allowed in strict-mode function",
+                        fileName_, id->line, id->name));
+                }
+            }
+        }
+    }
     // ECMA-262 14.1.5.3: BindingIdentifier of FunctionExpression with
     // a body containing "use strict" directive is also strict-mode
     // code. Re-check name === 'eval'/'arguments' after the body parses.
