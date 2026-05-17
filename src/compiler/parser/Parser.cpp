@@ -279,6 +279,20 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
                 "target of an assignment or update expression",
                 expr->line, expr->column));
         }
+        // ECMA-262 13.3.13 ImportMeta has AssignmentTargetType = invalid.
+        // `import.meta = 1` is a SyntaxError. Detect via the AST shape
+        // produced by parsePrimaryExpression's KW_import branch: an
+        // Identifier "import" left side with property name "meta".
+        if (p->name == "meta") {
+            if (auto* id = dynamic_cast<const ast::Identifier*>(p->expression.get())) {
+                if (id->name == "import") {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: 'import.meta' is not a valid "
+                        "assignment target",
+                        expr->line, expr->column));
+                }
+            }
+        }
         return;
     }
     if (auto* e = dynamic_cast<const ast::ElementAccessExpression*>(expr)) {
