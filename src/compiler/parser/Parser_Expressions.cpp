@@ -1344,7 +1344,44 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
         iterationDepth_ = 0; switchDepth_ = 0;
 
         if (check(TokenKind::OpenBrace)) {
-            arrow->body = parseBlockStatement();
+            // Parse arrow body manually so we can track the directive
+            // prologue ("use strict") for ECMA-262 14.3.1 early-error
+            // checks. parseBlockStatement returns a single AST node and
+            // doesn't surface prologue info.
+            //   "Static Semantics: Early Errors — ArrowFunction
+            //   It is a Syntax Error if ContainsUseStrict of ConciseBody is
+            //   true and IsSimpleParameterList of ArrowParameters is false."
+            bool prevSawUseStrict = sawUseStrictDirective_;
+            sawUseStrictDirective_ = false;
+            auto blockTok = current_;
+            expect(TokenKind::OpenBrace, "'{'");
+            auto block = std::make_unique<ast::BlockStatement>();
+            setLocation(block.get(), blockTok);
+            // Match parseBlockStatement: arrow body block has its own
+            // lexical scope so inner `let X` declarations don't collide
+            // with outer scope's bindings.
+            pushLexicalScope();
+            bool inPrologue = true;
+            while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
+                auto stmt = parseDeclarationOrStatement();
+                if (stmt) {
+                    if (inPrologue && !processPrologueDirective(stmt)) {
+                        inPrologue = false;
+                    }
+                    block->statements.push_back(std::move(stmt));
+                }
+            }
+            popLexicalScope();
+            expect(TokenKind::CloseBrace, "'}'");
+            arrow->body = std::move(block);
+            if (sawUseStrictDirective_ &&
+                !isParameterListSimple(arrow->parameters)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: ArrowFunction with non-simple "
+                    "parameter list may not declare 'use strict'",
+                    fileName_, blockTok.line));
+            }
+            sawUseStrictDirective_ = prevSawUseStrict;
         } else {
             arrow->body = parseAssignmentExpression();
         }
