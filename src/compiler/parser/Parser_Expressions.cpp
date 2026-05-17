@@ -667,10 +667,18 @@ ast::ExprPtr Parser::parseCallExpression() {
                 int privLine = current_.line;
                 access->name = "#" + identifierName();
                 // ECMA-262 AllPrivateIdentifiersValid: record reference for
-                // later resolution against enclosing class scopes.
-                if (!classPrivateScopes_.empty()) {
-                    classPrivateScopes_.back().unresolved.push_back({access->name, privLine});
+                // later resolution against enclosing class scopes. If there
+                // is NO enclosing class scope at all, the reference cannot
+                // possibly resolve — error immediately. This catches
+                // `something.#x` / `this.#x` at script/function/block level
+                // outside any class.
+                if (classPrivateScopes_.empty()) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: private name '{}' is not in "
+                        "scope; private names are only valid inside a class",
+                        fileName_, privLine, access->name));
                 }
+                classPrivateScopes_.back().unresolved.push_back({access->name, privLine});
             } else {
                 access->name = identifierName();
             }
@@ -721,9 +729,13 @@ ast::ExprPtr Parser::parseCallExpression() {
                 access->isOptional = true;
                 int privLine = current_.line;
                 access->name = "#" + identifierName();
-                if (!classPrivateScopes_.empty()) {
-                    classPrivateScopes_.back().unresolved.push_back({access->name, privLine});
+                if (classPrivateScopes_.empty()) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: private name '{}' is not in "
+                        "scope; private names are only valid inside a class",
+                        fileName_, privLine, access->name));
                 }
+                classPrivateScopes_.back().unresolved.push_back({access->name, privLine});
                 expr = std::move(access);
             } else {
                 // Optional property access: expr?.prop
