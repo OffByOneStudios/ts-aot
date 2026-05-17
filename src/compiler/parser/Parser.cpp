@@ -3295,6 +3295,36 @@ ast::StmtPtr Parser::parseTryStatement() {
         // catch block
         expect(TokenKind::OpenBrace, "'{'");
         pushLexicalScope();
+        // ECMA-262 14.15.2 Static Semantics: Early Errors —
+        //   CatchClause : catch ( CatchParameter ) Block
+        //   1. It is a Syntax Error if BoundNames of CatchParameter contains
+        //      any duplicate elements.
+        //   2. It is a Syntax Error if any element of the BoundNames of
+        //      CatchParameter also occurs in the LexicallyDeclaredNames of
+        //      Block.
+        //   3. It is a Syntax Error if any element of the BoundNames of
+        //      CatchParameter also occurs in the VarDeclaredNames of Block,
+        //      unless that VarDeclaredName comes from a hoisted
+        //      FunctionDeclaration (Annex B).
+        // Implementation: enumerate BoundNames of the catch binding, check
+        // for self-duplicates, and pre-declare each into the catch block's
+        // lexical scope (Let). Subsequent `let X` / `const X` / `class X` /
+        // `function X` inside the block will then conflict via the existing
+        // declareLexicalName redeclaration check.
+        if (node->catchClause->variable) {
+            std::vector<std::pair<std::string, int>> bound;
+            collectBoundIdentNames(node->catchClause->variable.get(), bound);
+            std::unordered_set<std::string> seen;
+            for (auto& entry : bound) {
+                if (!seen.insert(entry.first).second) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: duplicate name '{}' in catch "
+                        "parameter binding",
+                        fileName_, entry.second, entry.first));
+                }
+                declareLexicalName(entry.first, PDeclKind::Let);
+            }
+        }
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();
             if (stmt) node->catchClause->block.push_back(std::move(stmt));
