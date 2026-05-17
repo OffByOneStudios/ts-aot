@@ -2585,6 +2585,17 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
     // currentClassHasHeritage_ to gate super(...) by isCtor-of-derived.)
     bool prevSuperAllowed = superAllowed_;
     superAllowed_ = true;
+    // ECMA-262: the parameter list of an AsyncMethod / GeneratorMethod /
+    // AsyncGeneratorMethod is parsed under that method's [Await] / [Yield]
+    // flags. So `async foo(x = await)` / `async foo(await)` /
+    // `*foo(yield)` must see `await`/`yield` as reserved during the
+    // parameter parse, not as plain identifiers. Set the flags here
+    // (before parseParameterList) and restore at function end. Matches
+    // parseFunctionDeclaration's flag handling.
+    bool prevAsyncOuter = inAsync_;
+    bool prevGenOuter = inGenerator_;
+    inAsync_ = method->isAsync;
+    inGenerator_ = method->isGenerator;
 
     // Type parameters
     method->typeParameters = parseTypeParameterList();
@@ -2684,6 +2695,8 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
     }
     directSuperCount_ = prevDirectSuper;
     superAllowed_ = prevSuperAllowed;
+    inAsync_ = prevAsyncOuter;
+    inGenerator_ = prevGenOuter;
 
     return method;
 }
