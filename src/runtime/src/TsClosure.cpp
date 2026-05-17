@@ -172,6 +172,12 @@ void ts_closure_set_arity(TsClosure* closure, int32_t arity) {
     }
 }
 
+void ts_closure_set_rest_index(TsClosure* closure, int32_t idx) {
+    if (closure) {
+        closure->rest_param_index = idx;
+    }
+}
+
 void ts_closure_set_name(TsClosure* closure, void* name) {
     if (closure) {
         closure->name = (TsString*)name;

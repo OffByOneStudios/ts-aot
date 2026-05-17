@@ -4050,6 +4050,46 @@ TsValue* ts_value_make_int(int64_t i) {
         return nullptr;
     }
 
+    // ECMA-262 rest-parameter dispatch helper. When a TsClosure has
+    // rest_param_index >= 0, ts_call_N is invoked with the caller's full
+    // positional argv but the underlying function expects (fixed_args...,
+    // rest_array, padding...). This packs argv[rest_idx..argc-1] into a
+    // single TsArray, places it at position rest_idx, and pads remaining
+    // user-arg slots with undefined to fit the 4-arg padded FnPad ABI.
+    //
+    // Returns false if rest dispatch is N/A (caller falls through to
+    // normal direct call). When true, finalArgs[0..3] are populated.
+    static TsValue* ts_rest_pack_and_call(TsClosure* closure, int argc, TsValue** argv) {
+        int restIdx = closure->rest_param_index;
+        TsValue* u = ts_value_make_undefined();
+        TsValue* finalArgs[4] = { u, u, u, u };
+
+        // Copy leading literal args 0..min(restIdx, 4).
+        int leading = restIdx < 4 ? restIdx : 4;
+        for (int i = 0; i < leading; i++) {
+            finalArgs[i] = (i < argc) ? argv[i] : u;
+        }
+
+        // Build rest TsArray containing argv[restIdx..argc-1]. Empty array
+        // if argc <= restIdx (caller passed too few args). Per ECMA-262
+        // §10.2.10 IteratorBindingInitialization, a rest binding gets an
+        // empty array when no trailing args are supplied.
+        if (restIdx >= 0 && restIdx < 4) {
+            int restCount = argc > restIdx ? (argc - restIdx) : 0;
+            TsArray* restArr = TsArray::Create((size_t)(restCount > 0 ? restCount : 0));
+            for (int i = 0; i < restCount; i++) {
+                if (argv[restIdx + i]) {
+                    restArr->Push((int64_t)argv[restIdx + i]);
+                }
+            }
+            finalArgs[restIdx] = (TsValue*)ts_value_make_object(restArr);
+        }
+
+        typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
+        return ((FnPad)closure->func_ptr)(
+            closure, finalArgs[0], finalArgs[1], finalArgs[2], finalArgs[3]);
+    }
+
     // Helper to extract TsClosure from a boxed or raw value
     static TsClosure* ts_extract_closure(TsValue* boxedFunc) {
         if (!boxedFunc) return nullptr;
@@ -4074,6 +4114,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            // Rest-param path: pack trailing args (empty) into a TsArray.
+            if (closure->rest_param_index >= 0) {
+                return ts_rest_pack_and_call(closure, 0, nullptr);
+            }
             // Pad with undefined args - callee may expect more params than caller provides
             // (JS semantics: missing args are undefined)
             TsValue* u = ts_value_make_undefined();
@@ -4119,6 +4163,10 @@ TsValue* ts_value_make_int(int64_t i) {
             if (fp && ts_gc_base(fp)) {
                 return ts_value_make_undefined();
             }
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[1] = { arg1 };
+                return ts_rest_pack_and_call(closure, 1, argv);
+            }
             // Pad with undefined args - callee may expect more params than caller provides
             TsValue* u = ts_value_make_undefined();
             typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
@@ -4161,6 +4209,10 @@ TsValue* ts_value_make_int(int64_t i) {
             // Guard: func_ptr must be in executable memory (.text), not heap
             if (fp && ts_gc_base(fp)) {
                 return ts_value_make_undefined();
+            }
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[2] = { arg1, arg2 };
+                return ts_rest_pack_and_call(closure, 2, argv);
             }
             TsValue* u = ts_value_make_undefined();
             typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
@@ -4214,6 +4266,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[3] = { arg1, arg2, arg3 };
+                return ts_rest_pack_and_call(closure, 3, argv);
+            }
             // Pad with undefined args - callee may expect more params than caller provides
             TsValue* u = ts_value_make_undefined();
             typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
@@ -4248,6 +4304,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[4] = { arg1, arg2, arg3, arg4 };
+                return ts_rest_pack_and_call(closure, 4, argv);
+            }
             typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn4)closure->func_ptr)(closure, arg1, arg2, arg3, arg4);
         }
@@ -4279,6 +4339,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[5] = { arg1, arg2, arg3, arg4, arg5 };
+                return ts_rest_pack_and_call(closure, 5, argv);
+            }
             typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn5)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5);
         }
@@ -4310,6 +4374,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
+                return ts_rest_pack_and_call(closure, 6, argv);
+            }
             typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn6)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6);
         }
@@ -4341,6 +4409,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+                return ts_rest_pack_and_call(closure, 7, argv);
+            }
             typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn7)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
         }
@@ -4372,6 +4444,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first (raw closure pointer)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[8] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
+                return ts_rest_pack_and_call(closure, 8, argv);
+            }
             typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn8)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
         }
@@ -4403,6 +4479,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[9] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 };
+                return ts_rest_pack_and_call(closure, 9, argv);
+            }
             typedef TsValue* (*Fn9)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn9)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
         }
@@ -4434,6 +4514,10 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsClosure first
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
+            if (closure->rest_param_index >= 0) {
+                TsValue* argv[10] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 };
+                return ts_rest_pack_and_call(closure, 10, argv);
+            }
             typedef TsValue* (*Fn10)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
             return ((Fn10)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
         }

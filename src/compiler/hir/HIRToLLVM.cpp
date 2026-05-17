@@ -7665,6 +7665,7 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
     // (SIZE_MAX if all params are simple) carries this from ASTToHIR.
     {
         int32_t arity = 0;
+        int32_t restParamUserIdx = -1;  // for ts_closure_set_rest_index
         if (hirModule_) {
             for (const auto& hirFn : hirModule_->functions) {
                 if (hirFn->mangledName == funcName || hirFn->name == funcName) {
@@ -7682,6 +7683,21 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
                         }
                         arity++;
                         userIdx++;
+                    }
+                    // Compute rest-param's user-visible index (excluding
+                    // __closure__/this/__arg) for the runtime dispatch.
+                    if (hirFn->hasRestParam) {
+                        size_t uIdx = 0;
+                        for (size_t i = 0; i < hirFn->params.size(); i++) {
+                            const auto& p = hirFn->params[i];
+                            if (p.first == "__closure__" || p.first == "this" ||
+                                p.first.find("__arg") == 0) continue;
+                            if (i == hirFn->restParamIndex) {
+                                restParamUserIdx = (int32_t)uIdx;
+                                break;
+                            }
+                            uIdx++;
+                        }
                     }
                     break;
                 }
@@ -7702,6 +7718,20 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
             auto setArityFn = module_->getOrInsertFunction("ts_closure_set_arity", setArityFt);
             builder_->CreateCall(setArityFt, setArityFn.getCallee(),
                 { closure, llvm::ConstantInt::get(builder_->getInt32Ty(), arity) });
+            // Emit ts_closure_set_rest_index when the function has a rest
+            // parameter. The runtime uses this to pack trailing args into
+            // a TsArray before forwarding to the fixed-arity callee.
+            if (restParamUserIdx >= 0) {
+                auto setRestFt = llvm::FunctionType::get(
+                    builder_->getVoidTy(),
+                    { builder_->getPtrTy(), builder_->getInt32Ty() },
+                    false);
+                auto setRestFn = module_->getOrInsertFunction(
+                    "ts_closure_set_rest_index", setRestFt);
+                builder_->CreateCall(setRestFt, setRestFn.getCallee(),
+                    { closure, llvm::ConstantInt::get(
+                        builder_->getInt32Ty(), restParamUserIdx) });
+            }
         }
     }
 
@@ -8167,6 +8197,7 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     // Set the function arity (user-visible parameter count for Function.length)
     {
         int32_t arity = 0;
+        int32_t restParamUserIdx = -1;
         if (hirModule_) {
             for (const auto& hirFn : hirModule_->functions) {
                 if (hirFn->mangledName == funcName || hirFn->name == funcName) {
@@ -8184,6 +8215,19 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
                         arity++;
                         userIdx++;
                     }
+                    if (hirFn->hasRestParam) {
+                        size_t uIdx = 0;
+                        for (size_t i = 0; i < hirFn->params.size(); i++) {
+                            const auto& p = hirFn->params[i];
+                            if (p.first == "__closure__" || p.first == "this" ||
+                                p.first.find("__arg") == 0) continue;
+                            if (i == hirFn->restParamIndex) {
+                                restParamUserIdx = (int32_t)uIdx;
+                                break;
+                            }
+                            uIdx++;
+                        }
+                    }
                     break;
                 }
             }
@@ -8200,6 +8244,15 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         auto setArityFn = module_->getOrInsertFunction("ts_closure_set_arity", setArityFt);
         builder_->CreateCall(setArityFt, setArityFn.getCallee(),
             { gcPtrToRaw(closure), llvm::ConstantInt::get(builder_->getInt32Ty(), arity) });
+        if (restParamUserIdx >= 0) {
+            auto setRestFt = llvm::FunctionType::get(
+                builder_->getVoidTy(),
+                { builder_->getPtrTy(), builder_->getInt32Ty() },
+                false);
+            auto setRestFn = module_->getOrInsertFunction("ts_closure_set_rest_index", setRestFt);
+            builder_->CreateCall(setRestFt, setRestFn.getCallee(),
+                { gcPtrToRaw(closure), llvm::ConstantInt::get(builder_->getInt32Ty(), restParamUserIdx) });
+        }
     }
 
     // Set the function's display name on the closure for .name and .toString()

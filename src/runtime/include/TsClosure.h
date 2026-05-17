@@ -29,6 +29,11 @@ public:
     bool is_method = false;  // True for method trampolines (expect 'this' as arg 2)
     TsMap* properties = nullptr;  // For storing properties like .prototype
     int32_t arity = 0;           // Number of user-visible parameters (for Function.length)
+    // ECMA-262 rest-parameter dispatch. Set by ts_closure_set_rest_index when
+    // the underlying function declares `...rest`. -1 means no rest parameter.
+    // Used by ts_call_N to pack trailing args[rest_param_index..N-1] into a
+    // single TsArray before forwarding to the (fixed-arity) compiled function.
+    int32_t rest_param_index = -1;
 
     TsClosure() : func_ptr(nullptr), num_captures(0), cells(nullptr) {
         magic = 0x434C5352; // 'CLSR'
@@ -70,6 +75,12 @@ extern "C" {
 
     // Set the arity (user-visible parameter count) on a TsClosure
     void ts_closure_set_arity(TsClosure* closure, int32_t arity);
+
+    // Set the rest-parameter index on a TsClosure. idx is the zero-based
+    // position of the rest binding in the declared parameter list (excluding
+    // `__closure__`, `this`, hidden `__arg*`). Passing idx < 0 clears it.
+    // When set, ts_call_N packs trailing args into a TsArray before forwarding.
+    void ts_closure_set_rest_index(TsClosure* closure, int32_t idx);
 
     // Check if a pointer is a TsClosure (by checking magic number)
     bool ts_is_closure(void* ptr);
