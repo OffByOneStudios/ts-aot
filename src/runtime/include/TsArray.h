@@ -36,6 +36,13 @@ public:
     void SetUnchecked(size_t index, int64_t value) { ((int64_t*)elements)[index] = value; }
     void PushDouble(double value);  // Push a double value
     int64_t Length();
+    // ECMA-262 §10.4.2.4 ArraySetLength. Truncates when newLength < length,
+    // pads with NANBOX_HOLE when newLength > length. Returns false if any
+    // truncated slot is non-configurable (per spec); current impl returns
+    // true unconditionally since all our array slots are spec-default
+    // configurable. The runtime caller is responsible for any TypeError
+    // dispatch.
+    bool SetLength(size_t newLength);
     void Sort();
     int64_t IndexOf(int64_t value, size_t fromIndex = 0);
     int64_t LastIndexOf(int64_t value, int64_t fromIndex = -1); // -1 == iterate from end

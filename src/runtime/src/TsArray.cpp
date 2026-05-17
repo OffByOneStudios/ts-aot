@@ -367,6 +367,40 @@ int64_t TsArray::Length() {
     return length;
 }
 
+bool TsArray::SetLength(size_t newLength) {
+    if (newLength == length) return true;
+    if (newLength < length) {
+        // Truncate. Elements above newLength become unreachable; GC will
+        // collect them. We just decrement length; the slots stay in the
+        // backing buffer (capacity is unchanged) but iteration / Get /
+        // hasOwnProperty all bound on length so they're invisible.
+        length = newLength;
+        return true;
+    }
+    // Extend with holes. Reallocate the backing buffer if needed; new
+    // slots are NANBOX_HOLE so iteration (per IsHole()) skips them and
+    // hasOwnProperty(arr, i) returns false for them.
+    if (newLength > capacity) {
+        size_t newCapacity = capacity ? capacity : 4;
+        while (newCapacity < newLength) newCapacity *= 2;
+        void* newElements = ts_alloc(newCapacity * elementSize);
+        if (length > 0) {
+            std::memcpy(newElements, elements, length * elementSize);
+        }
+        elements = newElements;
+        ts_gc_write_barrier((void*)&this->elements, newElements);
+        ts_gc_write_barrier_range(newElements, length * elementSize);
+        capacity = newCapacity;
+    }
+    if (elementSize == 8) {
+        for (size_t i = length; i < newLength; i++) {
+            ((int64_t*)elements)[i] = (int64_t)NANBOX_HOLE;
+        }
+    }
+    length = newLength;
+    return true;
+}
+
 // JavaScript default sort: convert NaN-boxed elements to strings and compare lexicographically.
 // undefined values sort to the end.
 static const char* elementToSortString(int64_t elem, char* buf, size_t bufSize) {
