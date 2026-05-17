@@ -1855,6 +1855,9 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     functionDepth_++;
     int prevIter = iterationDepth_, prevSwitch = switchDepth_;
     iterationDepth_ = 0; switchDepth_ = 0;
+    // ECMA-262 8.6: label scope does not cross function-expression body.
+    std::vector<ActiveLabel> savedLabels;
+    savedLabels.swap(activeLabels_);
     bool prevSawUseStrict = sawUseStrictDirective_;
     sawUseStrictDirective_ = false;
 
@@ -1897,6 +1900,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
 
     functionDepth_--;
     iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
+    activeLabels_.swap(savedLabels);
     inAsync_ = prevAsync;
     inGenerator_ = prevGen;
     // Restore outer flags (the param-list scope).

@@ -1809,6 +1809,11 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         functionDepth_++;
         int prevIter = iterationDepth_, prevSwitch = switchDepth_;
         iterationDepth_ = 0; switchDepth_ = 0;
+        // ECMA-262 8.6 (ContainsUndefinedBreakTarget/ContinueTarget walks
+        // stop at function boundaries): a label in the outer scope is NOT
+        // visible inside the function body.
+        std::vector<ActiveLabel> savedLabels;
+        savedLabels.swap(activeLabels_);
         bool prevSawUseStrict = sawUseStrictDirective_;
         sawUseStrictDirective_ = false;
 
@@ -1845,6 +1850,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
 
         functionDepth_--;
         iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
+        activeLabels_.swap(savedLabels);
         inAsync_ = prevAsync;
         inGenerator_ = prevGen;
     } else {
@@ -2581,6 +2587,9 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         functionDepth_++;
         int prevIter = iterationDepth_, prevSwitch = switchDepth_;
         iterationDepth_ = 0; switchDepth_ = 0;
+        // ECMA-262 8.6: label scope does not cross function/method bodies.
+        std::vector<ActiveLabel> savedLabels;
+        savedLabels.swap(activeLabels_);
         bool prevSawUseStrict = sawUseStrictDirective_;
         sawUseStrictDirective_ = false;
 
@@ -2613,6 +2622,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
 
         functionDepth_--;
         iterationDepth_ = prevIter; switchDepth_ = prevSwitch;
+        activeLabels_.swap(savedLabels);
         inAsync_ = prevAsync;
         inGenerator_ = prevGen;
     } else {
@@ -3413,7 +3423,21 @@ ast::StmtPtr Parser::parseLabeledOrExpressionStatement() {
             setLocation(node.get(), line, col);
             node->label = decodedName;
             bool allowAnnexB = (iterationDepth_ == 0);
-            node->statement = parseStatementOnly(allowAnnexB);
+            // ECMA-262 14.13 / 14.14: push label so `break LABEL` /
+            // `continue LABEL` can verify LABEL is in scope. We don't yet
+            // know whether the labelled statement is an IterationStatement
+            // — that affects continue legality — so optimistically push
+            // isIteration=true. The iterationDepth_ tracking in
+            // parseContinueStatement still catches `continue` outside loops.
+            // (A future refinement could detect iteration-form lookahead.)
+            activeLabels_.push_back({decodedName, true});
+            try {
+                node->statement = parseStatementOnly(allowAnnexB);
+            } catch (...) {
+                activeLabels_.pop_back();
+                throw;
+            }
+            activeLabels_.pop_back();
             return node;
         }
         restoreState(saved);
@@ -3434,11 +3458,22 @@ ast::StmtPtr Parser::parseBreakStatement() {
     }
     // ECMA-262 14.13: unlabeled `break` requires an enclosing
     // IterationStatement or SwitchStatement; labeled `break` requires
-    // the label to be in scope (defer label validation).
+    // LABEL to be a label in scope of an enclosing statement.
     if (node->label.empty() && iterationDepth_ == 0 && switchDepth_ == 0) {
         throw std::runtime_error(fmt::format(
             "{}:{}: SyntaxError: 'break' must be inside a loop or switch",
             fileName_, startTok.line));
+    }
+    if (!node->label.empty()) {
+        bool found = false;
+        for (auto& l : activeLabels_) {
+            if (l.name == node->label) { found = true; break; }
+        }
+        if (!found) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: undefined label '{}'",
+                fileName_, startTok.line, node->label));
+        }
     }
     expectSemicolon();
     return node;
@@ -3456,11 +3491,23 @@ ast::StmtPtr Parser::parseContinueStatement() {
         advance();
     }
     // ECMA-262 14.13: `continue` (labeled or not) requires an
-    // enclosing IterationStatement.
+    // enclosing IterationStatement; labeled `continue` requires LABEL
+    // to be a label in scope of an enclosing IterationStatement.
     if (iterationDepth_ == 0) {
         throw std::runtime_error(fmt::format(
             "{}:{}: SyntaxError: 'continue' must be inside a loop",
             fileName_, startTok.line));
+    }
+    if (!node->label.empty()) {
+        bool found = false;
+        for (auto& l : activeLabels_) {
+            if (l.name == node->label) { found = true; break; }
+        }
+        if (!found) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: undefined label '{}'",
+                fileName_, startTok.line, node->label));
+        }
     }
     expectSemicolon();
     return node;

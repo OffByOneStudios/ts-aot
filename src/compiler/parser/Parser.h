@@ -207,6 +207,14 @@ private:
     // inherits the surrounding super-binding lexically, so we don't toggle
     // for arrows. Saved+restored across function-kind boundaries.
     bool superAllowed_ = false;
+    // ECMA-262 14.13 / 14.14: stack of active label names so that
+    // `break LABEL` / `continue LABEL` can verify LABEL is in scope.
+    // Each entry: { name, isIteration }. continue requires isIteration=true.
+    struct ActiveLabel {
+        std::string name;
+        bool isIteration;
+    };
+    std::vector<ActiveLabel> activeLabels_;
     // ECMA-262 15.7.1 / 15.7.2 Static Semantics: AllPrivateIdentifiersValid.
     // Each entry is a single class body's PrivateBoundNames plus the
     // unresolved `#x` references seen inside it. Class boundaries push
