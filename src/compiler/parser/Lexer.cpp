@@ -515,30 +515,44 @@ Token Lexer::scanIdentifierOrKeyword() {
     tokenStartLine_ = line_;
     tokenStartColumn_ = column_;
 
+    bool isFirstChar = true;
+    auto hexDigitValue = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return 0;
+    };
     while (!isAtEnd()) {
         char c = peek();
         if (((unsigned char)c) >= 0x80) {
-            // Decode the multibyte sequence and check Unicode ID_Continue.
-            // ZWJ / ZWNJ are explicitly allowed by isUnicodeIdentPartAt.
-            int n = isUnicodeIdentPartAt();
+            // Decode the multibyte sequence and check Unicode ID_Start (first)
+            // or ID_Continue (subsequent). ZWJ/ZWNJ are explicitly allowed by
+            // isUnicodeIdentPartAt.
+            int n = isFirstChar ? isUnicodeIdentStartAt() : isUnicodeIdentPartAt();
             if (n == 0) break;  // not an identifier code point — stop here
             for (int i = 0; i < n; i++) advance();
+            isFirstChar = false;
             continue;
         }
-        if (isIdentPart(c)) {
+        bool partOK = isFirstChar ? isIdentStart(c) : isIdentPart(c);
+        if (partOK) {
             advance();
+            isFirstChar = false;
         } else if (c == '\\' && peekAt(1) == 'u') {
-            // ES §12.6: Unicode escape sequence in identifier.
-            // Consume \uXXXX or \u{XXXX} as part of the identifier token.
-            // We accept any valid hex escape without checking the code point
-            // against Unicode ID_Start / ID_Continue — this is slightly
-            // permissive but correct for all real-world code and test262 tests.
+            // ES §12.6.1: Unicode escape sequence in identifier. The decoded
+            // code point must satisfy IdentifierStart (first char) or
+            // IdentifierPart (subsequent chars). ` `, `‍` at start,
+            // etc. are SyntaxErrors.
+            int escStartLine = line_;
+            int escStartCol = column_;
             advance(); // consume '\'
             advance(); // consume 'u'
+            uint32_t cp = 0;
             if (!isAtEnd() && peek() == '{') {
                 // \u{XXXX...} form
                 advance(); // consume '{'
                 while (!isAtEnd() && isHexDigit(peek())) {
+                    cp = cp * 16 + hexDigitValue(peek());
                     advance();
                 }
                 if (!isAtEnd() && peek() == '}') {
@@ -547,9 +561,29 @@ Token Lexer::scanIdentifierOrKeyword() {
             } else {
                 // \uXXXX form — exactly 4 hex digits
                 for (int i = 0; i < 4 && !isAtEnd() && isHexDigit(peek()); i++) {
+                    cp = cp * 16 + hexDigitValue(peek());
                     advance();
                 }
             }
+            // Validate the decoded code point against ID_Start / ID_Part.
+            // ASCII `$` and `_` are also valid IdentifierStart / Part per
+            // the spec table for completeness.
+            bool validStart = (cp == '$' || cp == '_') ||
+                              u_isIDStart((UChar32)cp) ||
+                              isUnicode16IdStart(cp);
+            bool validPart = validStart || cp == 0x200C || cp == 0x200D ||
+                             u_isIDPart((UChar32)cp) ||
+                             isUnicode16IdContinueOnly(cp);
+            bool ok = isFirstChar ? validStart : validPart;
+            if (!ok) {
+                char buf[160];
+                snprintf(buf, sizeof(buf),
+                    "%d:%d: SyntaxError: invalid identifier character "
+                    "U+%04X via Unicode escape",
+                    escStartLine, escStartCol, (unsigned)cp);
+                throw std::runtime_error(buf);
+            }
+            isFirstChar = false;
         } else {
             break;
         }
