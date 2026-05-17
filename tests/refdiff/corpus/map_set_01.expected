@@ -1,0 +1,10 @@
+size: 3
+get a: 1
+has b: true
+has z: false
+after delete size: 2
+a=1,c=3
+set size: 3
+has 1: true
+has 4: false
+after add 99 size: 4

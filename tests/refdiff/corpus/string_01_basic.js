@@ -1,0 +1,13 @@
+var s = "Hello, World!";
+console.log("length:", s.length);
+console.log("upper:", s.toUpperCase());
+console.log("lower:", s.toLowerCase());
+console.log("slice:", s.slice(7, 12));
+console.log("indexOf 'World':", s.indexOf("World"));
+console.log("includes 'lo':", s.includes("lo"));
+console.log("startsWith 'Hello':", s.startsWith("Hello"));
+console.log("endsWith '!':", s.endsWith("!"));
+console.log("repeat 2:", "ab".repeat(2));
+console.log("replace:", s.replace("World", "JS"));
+console.log("split:", s.split(", ").join("|"));
+console.log("trim:", "  hello  ".trim());

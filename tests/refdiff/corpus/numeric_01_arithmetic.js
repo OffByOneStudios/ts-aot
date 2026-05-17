@@ -1,0 +1,15 @@
+console.log(1 + 2);
+console.log(10 - 3);
+console.log(7 * 6);
+console.log(20 / 4);
+console.log(10 % 3);
+console.log(2 ** 10);
+console.log(-(-5));
+console.log(Math.floor(7.8));
+console.log(Math.ceil(7.2));
+console.log(Math.round(7.5));
+console.log(Math.abs(-9));
+console.log(Math.max(1, 5, 3));
+console.log(Math.min(1, 5, 3));
+console.log(Math.pow(2, 8));
+console.log(Math.sqrt(16));

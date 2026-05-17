@@ -1,0 +1,11 @@
+console.log("Infinity:", Infinity);
+console.log("-Infinity:", -Infinity);
+console.log("NaN:", NaN);
+console.log("1/0:", 1 / 0);
+console.log("-1/0:", -1 / 0);
+console.log("0/0:", 0 / 0);
+console.log("isNaN(NaN):", isNaN(NaN));
+console.log("isFinite(Infinity):", isFinite(Infinity));
+console.log("Number.isInteger(5):", Number.isInteger(5));
+console.log("Number.isInteger(5.5):", Number.isInteger(5.5));
+console.log("MAX_SAFE_INTEGER:", Number.MAX_SAFE_INTEGER);

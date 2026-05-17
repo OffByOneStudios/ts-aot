@@ -1,0 +1,11 @@
+Infinity: Infinity
+-Infinity: -Infinity
+NaN: NaN
+1/0: Infinity
+-1/0: -Infinity
+0/0: NaN
+isNaN(NaN): true
+isFinite(Infinity): false
+Number.isInteger(5): true
+Number.isInteger(5.5): false
+MAX_SAFE_INTEGER: 9007199254740991

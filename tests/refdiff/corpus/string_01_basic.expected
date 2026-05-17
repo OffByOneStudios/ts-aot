@@ -1,0 +1,12 @@
+length: 13
+upper: HELLO, WORLD!
+lower: hello, world!
+slice: World
+indexOf 'World': 7
+includes 'lo': true
+startsWith 'Hello': true
+endsWith '!': true
+repeat 2: abab
+replace: Hello, JS!
+split: Hello|World!
+trim: hello

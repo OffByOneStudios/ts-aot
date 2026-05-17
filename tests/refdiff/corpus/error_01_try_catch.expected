@@ -1,0 +1,7 @@
+caught: first
+name: Error
+instanceof Error: true
+typeof e: object
+is TypeError: true
+finally ran
+outer caught: nested!

@@ -1,0 +1,5 @@
+Rex barks
+Rex makes a sound
+name: Rex
+d instanceof Dog: true
+d instanceof Animal: true

@@ -1,0 +1,6 @@
+find > 3: 4
+findIndex > 3: 3
+some > 4: true
+every > 0: true
+includes 3: true
+includes 99: false

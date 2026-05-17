@@ -1,0 +1,8 @@
+keys: a,b,c
+values: 1,2,3
+entries: [["a",1],["b",2],["c",3]]
+merged: {"a":1,"b":99,"c":3,"d":4}
+hasOwn a: true
+hasOwn z: false
+isFrozen: true
+after attempted mutation: 1

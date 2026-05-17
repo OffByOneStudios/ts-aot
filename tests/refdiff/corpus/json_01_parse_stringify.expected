@@ -1,0 +1,12 @@
+stringified: {"name":"alice","age":30,"tags":["a","b","c"],"nested":{"v":1}}
+parsed.name: alice
+parsed.age: 30
+parsed.tags: a,b,c
+parsed.nested.v: 1
+stringify [1,2,3]: [1,2,3]
+stringify null: null
+stringify undef field: {"y":1}
+indent 2: {
+  "a": 1,
+  "b": 2
+}
