@@ -541,7 +541,7 @@ Token Lexer::scanIdentifierOrKeyword() {
         } else if (c == '\\' && peekAt(1) == 'u') {
             // ES §12.6.1: Unicode escape sequence in identifier. The decoded
             // code point must satisfy IdentifierStart (first char) or
-            // IdentifierPart (subsequent chars). ` `, `‍` at start,
+            // IdentifierPart (subsequent chars). U+0000, U+200D at start,
             // etc. are SyntaxErrors.
             int escStartLine = line_;
             int escStartCol = column_;
