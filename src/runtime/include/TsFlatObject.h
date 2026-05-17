@@ -24,6 +24,12 @@ struct ShapeDescriptor {
     const char** propNames; // Static array of C string property names (ordered by slot index)
     uint32_t numMethods;    // Number of vtable methods (0 for object literals)
     const char** methodNames; // Method names in vtable order (vtable[i+1] = method i)
+    // Optional back-pointer to the class's constructor closure slot — the
+    // address of the global __closure_cache_<ClassName>_constructor. When
+    // non-null, ts_flat_object_get_property can dereference *constructorSlot
+    // and read its `prototype` property to resolve methods, so that
+    // `c.m === C.prototype.m` per ECMA-262. null for object literals.
+    void** constructorSlot; // address of TsValue* slot (or nullptr)
 };
 
 #define MAX_SHAPES 4096

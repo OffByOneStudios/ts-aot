@@ -9507,6 +9507,39 @@ TsValue* ts_value_make_int(int64_t i) {
         TsMap* map = nullptr;
         uint32_t m0 = *(uint32_t*)obj;
         uint32_t m16 = *(uint32_t*)((char*)obj + 16);
+
+        // Flat object (class instance with shape). Class instance fields
+        // are spec-default enumerable (ECMA-262 §15.7 ClassFieldDefinition
+        // → DefinePropertyOrThrow with default desc). Method (vtable)
+        // entries are non-enumerable.
+        if (m0 == 0x464C4154) {  // FLAT_MAGIC
+            TsString* keyStr = (keyTV.type == ValueType::STRING_PTR)
+                ? (TsString*)keyTV.ptr_val : nullptr;
+            if (!keyStr) return ts_value_make_bool(false);
+            const char* keyCStr = ts_ensure_flat(keyStr)->ToUtf8();
+            if (!keyCStr) return ts_value_make_bool(false);
+            uint32_t shapeId = flat_object_shape_id(obj);
+            ShapeDescriptor* desc = ts_shape_lookup(shapeId);
+            if (!desc) return ts_value_make_bool(false);
+            // Inline slot — enumerable per spec.
+            for (uint32_t i = 0; i < desc->numSlots; i++) {
+                if (strcmp(desc->propNames[i], keyCStr) == 0) {
+                    return ts_value_make_bool(true);
+                }
+            }
+            // Overflow map — check stored attrs.
+            void* overflow = *(void**)((char*)obj + 16 + desc->numSlots * 8);
+            if (overflow) {
+                TsMap* om = (TsMap*)overflow;
+                if (om->Has(keyTV)) {
+                    uint8_t a = om->GetPropertyAttrs(keyTV);
+                    return ts_value_make_bool((a & 0x01) != 0);
+                }
+            }
+            // Vtable method — non-enumerable per spec.
+            return ts_value_make_bool(false);
+        }
+
         if (m16 == TsFunction::MAGIC) {
             map = ((TsFunction*)obj)->properties;
         } else if (m16 == 0x434C5352) {  // TsClosure

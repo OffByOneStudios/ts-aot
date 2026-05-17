@@ -442,13 +442,15 @@ void HIRToLLVM::createMainFunction() {
         );
         llvm::FunctionCallee registerFn = module_->getOrInsertFunction("ts_shape_register", registerFT);
 
-        // ShapeDescriptor struct type: { i32 magic, i32 numSlots, ptr propNames, i32 numMethods, ptr methodNames }
+        // ShapeDescriptor struct type:
+        // { i32 magic, i32 numSlots, ptr propNames, i32 numMethods, ptr methodNames, ptr constructorSlot }
         llvm::StructType* shapeDescTy = llvm::StructType::get(context_, {
             builder_->getInt32Ty(),  // magic
             builder_->getInt32Ty(),  // numSlots
             builder_->getPtrTy(),    // propNames
             builder_->getInt32Ty(),  // numMethods
-            builder_->getPtrTy()     // methodNames
+            builder_->getPtrTy(),    // methodNames
+            builder_->getPtrTy()     // constructorSlot (address of __closure_cache_<ClassName>_constructor; null for non-classes)
         });
 
         for (auto& shape : hirModule_->shapes) {
@@ -512,13 +514,27 @@ void HIRToLLVM::createMainFunction() {
                 }
             }
 
+            // Resolve constructor closure cache slot for class shapes.
+            // The cache global is `__closure_cache_<ClassName>_constructor`,
+            // created lazily by lowerFunction. Internal-linkage globals
+            // require AllowInternal=true on getGlobalVariable, otherwise
+            // it returns null and the back-pointer stays unset.
+            llvm::Constant* ctorSlotConst = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            if (!shape->className.empty()) {
+                std::string cacheName = "__closure_cache_" + shape->className + "_constructor";
+                if (auto* gv = module_->getGlobalVariable(cacheName, /*AllowInternal=*/true)) {
+                    ctorSlotConst = gv;
+                }
+            }
+
             // Emit ShapeDescriptor struct constant
             auto* descConst = llvm::ConstantStruct::get(shapeDescTy, {
                 llvm::ConstantInt::get(builder_->getInt32Ty(), 0x464C4154),  // magic
                 llvm::ConstantInt::get(builder_->getInt32Ty(), numSlots),     // numSlots
                 nameArrayGlobal,                                              // propNames
                 llvm::ConstantInt::get(builder_->getInt32Ty(), numMethods),   // numMethods
-                methodNameArrayGlobal                                         // methodNames
+                methodNameArrayGlobal,                                        // methodNames
+                ctorSlotConst                                                 // constructorSlot
             });
             auto* descGlobal = new llvm::GlobalVariable(
                 *module_, shapeDescTy, true,
