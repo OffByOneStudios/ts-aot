@@ -7658,23 +7658,39 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
     llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
     llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal });
 
-    // Set the function arity (user-visible parameter count, excluding __closure__ and hidden __arg params)
+    // Set the function arity. Per ECMA-262 §10.2.5 SetFunctionLength,
+    // function .length is the user-visible parameter count up to (but
+    // not including) the first parameter with a default initializer,
+    // a rest parameter, or a destructuring pattern. firstNonSimpleParamIndex
+    // (SIZE_MAX if all params are simple) carries this from ASTToHIR.
     {
         int32_t arity = 0;
         if (hirModule_) {
             for (const auto& hirFn : hirModule_->functions) {
                 if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                    // Count user-visible params, stopping at the first
+                    // non-simple one. paramIdx tracks position in user
+                    // params (excluding synthetic __closure__/__arg).
+                    size_t userIdx = 0;
                     for (const auto& p : hirFn->params) {
-                        if (p.first != "__closure__" && p.first.find("__arg") != 0) {
-                            arity++;
+                        if (p.first == "__closure__" || p.first == "this" ||
+                            p.first.find("__arg") == 0) {
+                            continue;
                         }
+                        if (userIdx >= hirFn->firstNonSimpleParamIndex) {
+                            break;
+                        }
+                        arity++;
+                        userIdx++;
                     }
                     break;
                 }
             }
         }
         if (arity == 0 && fn) {
-            // Fallback: count LLVM function params minus closure param
+            // Fallback: count LLVM function params minus closure param.
+            // Only used when hirModule_ lookup failed (rare — synthetic
+            // functions); spec-fidelity is sacrificed here for safety.
             int nParams = fn->arg_size();
             if (nParams > 1) arity = nParams - 1; // minus __closure__
         }
@@ -8154,10 +8170,19 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         if (hirModule_) {
             for (const auto& hirFn : hirModule_->functions) {
                 if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                    // Same per-spec arity rule as in createClosureForFunction
+                    // above — stop at first non-simple param.
+                    size_t userIdx = 0;
                     for (const auto& p : hirFn->params) {
-                        if (p.first != "__closure__" && p.first.find("__arg") != 0) {
-                            arity++;
+                        if (p.first == "__closure__" || p.first == "this" ||
+                            p.first.find("__arg") == 0) {
+                            continue;
                         }
+                        if (userIdx >= hirFn->firstNonSimpleParamIndex) {
+                            break;
+                        }
+                        arity++;
+                        userIdx++;
                     }
                     break;
                 }

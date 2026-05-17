@@ -1022,6 +1022,20 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     func->hasRestParam = true;
                 }
 
+                // ECMA-262 §10.2.5: function .length is the count of leading
+                // simple parameters (no default, no rest, no destructuring
+                // pattern). Record the first non-simple index so emit-time
+                // arity uses the correct value. SIZE_MAX (initial value)
+                // means all params are simple.
+                if (func->firstNonSimpleParamIndex == SIZE_MAX) {
+                    bool isDestructured =
+                        dynamic_cast<ast::ObjectBindingPattern*>(param->name.get()) ||
+                        dynamic_cast<ast::ArrayBindingPattern*>(param->name.get());
+                    if (param->initializer || param->isRest || isDestructured) {
+                        func->firstNonSimpleParamIndex = paramIdx;
+                    }
+                }
+
                 func->params.push_back({paramName, paramType});
             }
 
@@ -1377,6 +1391,16 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                         param->initializer.get()});
                 } else {
                     paramName = "param" + std::to_string(func->params.size());
+                }
+
+                // Track first non-simple param for ECMA-262 §10.2.5 fn.length.
+                if (func->firstNonSimpleParamIndex == SIZE_MAX) {
+                    bool isDestructured =
+                        dynamic_cast<ast::ObjectBindingPattern*>(param->name.get()) ||
+                        dynamic_cast<ast::ArrayBindingPattern*>(param->name.get());
+                    if (param->initializer || param->isRest || isDestructured) {
+                        func->firstNonSimpleParamIndex = paramIdx;
+                    }
                 }
 
                 func->params.push_back({paramName, paramType});
@@ -2614,6 +2638,16 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             if (paramType->kind != HIRTypeKind::Array) {
                 // Wrap in array type if not already
                 paramType = HIRType::makeArray(paramType, false);
+            }
+        }
+
+        // Track first non-simple param for ECMA-262 §10.2.5 fn.length.
+        if (func->firstNonSimpleParamIndex == SIZE_MAX) {
+            bool isDestructured =
+                dynamic_cast<ast::ObjectBindingPattern*>(param->name.get()) ||
+                dynamic_cast<ast::ArrayBindingPattern*>(param->name.get());
+            if (param->initializer || param->isRest || isDestructured) {
+                func->firstNonSimpleParamIndex = paramIdx;
             }
         }
 
@@ -8881,6 +8915,17 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         } else {
             paramName = "param" + std::to_string(func->params.size());
         }
+
+        // Track first non-simple param for ECMA-262 §10.2.5 fn.length.
+        if (func->firstNonSimpleParamIndex == SIZE_MAX) {
+            bool isDestructured =
+                dynamic_cast<ast::ObjectBindingPattern*>(param->name.get()) ||
+                dynamic_cast<ast::ArrayBindingPattern*>(param->name.get());
+            if (param->initializer || param->isRest || isDestructured) {
+                func->firstNonSimpleParamIndex = i;
+            }
+        }
+
         func->params.push_back({paramName, paramType});
     }
 
@@ -9150,6 +9195,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     func->params.push_back({"__closure__", HIRType::makePtr()});
 
     // Handle parameters
+    size_t feParamIdx = 0;
     for (auto& param : node->parameters) {
         auto paramType = param->type.empty()
             ? HIRType::makeAny()
@@ -9166,6 +9212,18 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         } else {
             paramName = "param" + std::to_string(func->params.size());
         }
+
+        // Track first non-simple param for ECMA-262 §10.2.5 fn.length.
+        if (func->firstNonSimpleParamIndex == SIZE_MAX) {
+            bool isDestructured =
+                dynamic_cast<ast::ObjectBindingPattern*>(param->name.get()) ||
+                dynamic_cast<ast::ArrayBindingPattern*>(param->name.get());
+            if (param->initializer || param->isRest || isDestructured) {
+                func->firstNonSimpleParamIndex = feParamIdx;
+            }
+        }
+        feParamIdx++;
+
         func->params.push_back({paramName, paramType});
     }
 
@@ -9528,6 +9586,7 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     // For getters/setters, force params to be Any (TsValue*) since they will be called
     // through the runtime's dynamic dispatch which passes TsValue* arguments
     bool forceAnyParams = node->isGetter || node->isSetter;
+    size_t mdParamIdx = 0;
     for (auto& param : node->parameters) {
         auto paramType = (forceAnyParams || param->type.empty())
             ? HIRType::makeAny()
@@ -9539,6 +9598,18 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         } else {
             paramName = "param" + std::to_string(func->params.size());
         }
+
+        // Track first non-simple param for ECMA-262 §10.2.5 fn.length.
+        if (func->firstNonSimpleParamIndex == SIZE_MAX) {
+            bool isDestructured =
+                dynamic_cast<ast::ObjectBindingPattern*>(param->name.get()) ||
+                dynamic_cast<ast::ArrayBindingPattern*>(param->name.get());
+            if (param->initializer || param->isRest || isDestructured) {
+                func->firstNonSimpleParamIndex = mdParamIdx;
+            }
+        }
+        mdParamIdx++;
+
         func->params.push_back({paramName, paramType});
     }
 

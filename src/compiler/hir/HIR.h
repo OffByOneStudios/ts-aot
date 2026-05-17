@@ -445,6 +445,11 @@ struct HIRFunction {
     bool hasClosure = false;            // True if this function captures variables
     bool hasRestParam = false;          // True if last parameter is a rest parameter (...args)
     size_t restParamIndex = 0;          // Index of the rest parameter (if hasRestParam is true)
+    // ECMA-262 §10.2.5 SetFunctionLength: function .length counts user-
+    // visible params up to (but not including) the first param with a
+    // default initializer or rest pattern. SIZE_MAX = no such param,
+    // so .length equals the full user-visible param count.
+    size_t firstNonSimpleParamIndex = SIZE_MAX;
 
     // Source location (for debug info)
     uint32_t sourceLine = 0;            // Line number of function definition
