@@ -1344,9 +1344,6 @@ void ts_pop_exception_handler() {
 
 void ts_throw(TsValue* exception) {
     currentException = exception;
-    fprintf(stderr, "[ts-aot] ts_throw: exceptionStack.size()=%zu module=%s\n",
-            exceptionStack.size(), g_current_module_init ? g_current_module_init : "<none>");
-    fflush(stderr);
     if (exceptionStack.empty()) {
         fprintf(stderr, "FATAL: Uncaught exception: ");
         ts_console_log_value(exception);

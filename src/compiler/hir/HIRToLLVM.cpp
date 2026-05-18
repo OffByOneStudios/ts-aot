@@ -1400,9 +1400,79 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         blockMap_[block.get()] = bb;
     }
 
-    // For async functions, branch from entry to the first HIR block
-    // (The entry block was created above based on the function type)
-    if (fn->isAsync && !fn->blocks.empty()) {
+    // For async functions, emit a top-level exception handler in the entry block
+    // before branching to the first HIR block. This converts any uncaught throw
+    // inside the function body into a promise rejection. With this in place,
+    // `lowerThrow` can use the normal ts_throw/longjmp path uniformly — user
+    // try/catch blocks install their own handlers on top of this one, so they
+    // intercept throws as expected; only truly uncaught throws walk up to this
+    // prologue handler and become a rejected promise. Skip for async generators
+    // (they don't use asyncPromise_; they yield Promises directly).
+    if (fn->isAsync && !fn->isGenerator && asyncPromise_ && !fn->blocks.empty()) {
+        llvm::BasicBlock* firstBlock = blockMap_[fn->blocks[0].get()];
+        llvm::BasicBlock* asyncRejectBB = llvm::BasicBlock::Create(
+            context_, "async.reject", llvmFunc);
+
+        // setjmp semantics require the frame to remain valid for longjmp,
+        // so the containing function must not be inlined.
+        llvmFunc->addFnAttr(llvm::Attribute::NoInline);
+
+        auto pushFn = getOrDeclareRuntimeFunction("ts_push_exception_handler",
+            builder_->getPtrTy(), {});
+        llvm::Value* jmpBuf = builder_->CreateCall(pushFn, {});
+
+#ifdef _WIN32
+        auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
+            builder_->getInt32Ty(),
+            { builder_->getPtrTy(), builder_->getPtrTy() });
+        if (auto* sjFn = llvm::dyn_cast<llvm::Function>(setjmpFn.getCallee())) {
+            sjFn->addFnAttr(llvm::Attribute::ReturnsTwice);
+        }
+        auto frameAddrFn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::frameaddress, { builder_->getPtrTy() });
+        llvm::Value* framePtr = builder_->CreateCall(
+            frameAddrFn, { builder_->getInt32(0) });
+        auto* setjmpCall = builder_->CreateCall(setjmpFn, { jmpBuf, framePtr });
+        setjmpCall->addFnAttr(llvm::Attribute::ReturnsTwice);
+        llvm::Value* setjmpResult = setjmpCall;
+#else
+        auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
+            builder_->getInt32Ty(), { builder_->getPtrTy() });
+        if (auto* sjFn = llvm::dyn_cast<llvm::Function>(setjmpFn.getCallee())) {
+            sjFn->addFnAttr(llvm::Attribute::ReturnsTwice);
+        }
+        auto* setjmpCallPosix = builder_->CreateCall(setjmpFn, { jmpBuf });
+        setjmpCallPosix->addFnAttr(llvm::Attribute::ReturnsTwice);
+        llvm::Value* setjmpResult = setjmpCallPosix;
+#endif
+        llvm::Value* isException = builder_->CreateICmpNE(setjmpResult,
+            llvm::ConstantInt::get(builder_->getInt32Ty(), 0));
+        builder_->CreateCondBr(isException, asyncRejectBB, firstBlock);
+
+        // async.reject: ts_throw has already popped its own handler before
+        // longjmp'ing here. Fetch the pending exception, reject the promise,
+        // clear the runtime exception slot, and return the rejected promise.
+        builder_->SetInsertPoint(asyncRejectBB);
+        auto getExcFn = getOrDeclareRuntimeFunction("ts_get_exception",
+            builder_->getPtrTy(), {});
+        llvm::Value* exc = builder_->CreateCall(getExcFn, {});
+
+        auto rejectFn = getOrDeclareRuntimeFunction("ts_promise_reject_internal",
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
+        builder_->CreateCall(rejectFn, { gcPtrToRaw(asyncPromise_), exc });
+
+        auto clearExcFn = getOrDeclareRuntimeFunction("ts_set_exception",
+            builder_->getVoidTy(), { builder_->getPtrTy() });
+        builder_->CreateCall(clearExcFn,
+            { llvm::ConstantPointerNull::get(builder_->getPtrTy()) });
+
+        auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
+            builder_->getPtrTy(), { builder_->getPtrTy() });
+        llvm::Value* boxedPromise = builder_->CreateCall(
+            makePromiseFn, { gcPtrToRaw(asyncPromise_) }, "rejected_promise");
+        builder_->CreateRet(boxedPromise);
+    } else if (fn->isAsync && !fn->blocks.empty()) {
+        // Async-generator (no asyncPromise_) path retains the simple br.
         llvm::BasicBlock* firstBlock = blockMap_[fn->blocks[0].get()];
         builder_->CreateBr(firstBlock);
     }
@@ -9156,6 +9226,12 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
             builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
         builder_->CreateCall(resolveFn, { gcPtrToRaw(asyncPromise_), boxedVal });
 
+        // Pop the prologue's catch-all handler before returning so its now-stale
+        // jmp_buf doesn't become the target of a later throw on this thread.
+        auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+            builder_->getVoidTy(), {});
+        builder_->CreateCall(popFn, {});
+
         // Return the promise (wrapped for boxing)
         auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
             builder_->getPtrTy(), { builder_->getPtrTy() });
@@ -9284,6 +9360,11 @@ void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
         auto resolveFn = getOrDeclareRuntimeFunction("ts_promise_resolve_internal",
             builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
         builder_->CreateCall(resolveFn, { gcPtrToRaw(asyncPromise_), undefinedVal });
+
+        // Pop the prologue's catch-all handler before returning.
+        auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+            builder_->getVoidTy(), {});
+        builder_->CreateCall(popFn, {});
 
         // Return the promise (wrapped for boxing)
         auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
@@ -9548,43 +9629,33 @@ void HIRToLLVM::lowerSetupTry(HIRInstruction* inst) {
 void HIRToLLVM::lowerThrow(HIRInstruction* inst) {
     llvm::Value* exception = getOperandValue(inst->operands[0]);
 
-    // For async functions, reject the promise instead of throwing
-    if (isAsyncFunction_ && asyncPromise_) {
-        // Box the exception if needed (mirror lowerReturn pattern)
-        llvm::Value* boxedException = exception;
-        if (!exception->getType()->isPointerTy()) {
-            if (exception->getType()->isIntegerTy(64)) {
-                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
-                    builder_->getPtrTy(), { builder_->getInt64Ty() });
-                boxedException = builder_->CreateCall(boxFn, { exception }, "boxed_exc_int");
-            } else if (exception->getType()->isDoubleTy()) {
-                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
-                    builder_->getPtrTy(), { builder_->getDoubleTy() });
-                boxedException = builder_->CreateCall(boxFn, { exception }, "boxed_exc_dbl");
-            } else if (exception->getType()->isIntegerTy(1)) {
-                auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
-                    builder_->getPtrTy(), { builder_->getInt1Ty() });
-                boxedException = builder_->CreateCall(boxFn, { exception }, "boxed_exc_bool");
-            }
+    // Box primitive exception values before handing off to the runtime, since
+    // ts_throw takes a TsValue* (the global currentException is a TsValue*).
+    if (!exception->getType()->isPointerTy()) {
+        if (exception->getType()->isIntegerTy(64)) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_int",
+                builder_->getPtrTy(), { builder_->getInt64Ty() });
+            exception = builder_->CreateCall(boxFn, { exception }, "boxed_exc_int");
+        } else if (exception->getType()->isDoubleTy()) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_double",
+                builder_->getPtrTy(), { builder_->getDoubleTy() });
+            exception = builder_->CreateCall(boxFn, { exception }, "boxed_exc_dbl");
+        } else if (exception->getType()->isIntegerTy(1)) {
+            auto boxFn = getOrDeclareRuntimeFunction("ts_value_make_bool",
+                builder_->getPtrTy(), { builder_->getInt1Ty() });
+            exception = builder_->CreateCall(boxFn, { exception }, "boxed_exc_bool");
         }
-
-        // Reject the promise with the exception
-        auto rejectFn = getOrDeclareRuntimeFunction("ts_promise_reject_internal",
-            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() });
-        builder_->CreateCall(rejectFn, { gcPtrToRaw(asyncPromise_), boxedException });
-
-        // Return the promise (same pattern as lowerReturn for async)
-        auto makePromiseFn = getOrDeclareRuntimeFunction("ts_value_make_promise",
-            builder_->getPtrTy(), { builder_->getPtrTy() });
-        llvm::Value* boxedPromise = builder_->CreateCall(makePromiseFn, { gcPtrToRaw(asyncPromise_) }, "rejected_promise");
-        builder_->CreateRet(boxedPromise);
-        return;
     }
 
-    // Non-async: regular throw via ts_throw (calls longjmp, does not return)
+    // Uniform path: ts_throw walks the exceptionStack. For an async function
+    // with no enclosing user try/catch, the prologue's catch-all handler
+    // (installed in lowerFunction) catches the throw and converts it into a
+    // promise rejection. For sync code or async code with user try/catch, the
+    // user's nearer handler runs first. lowerThrow no longer special-cases
+    // async functions.
     auto throwFn = getOrDeclareRuntimeFunction("ts_throw",
-        builder_->getVoidTy(), {builder_->getPtrTy()});
-    builder_->CreateCall(throwFn, {exception});
+        builder_->getVoidTy(), { builder_->getPtrTy() });
+    builder_->CreateCall(throwFn, { exception });
     builder_->CreateUnreachable();
 }
 
