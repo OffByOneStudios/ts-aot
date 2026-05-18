@@ -1414,8 +1414,14 @@ extern "C" {
                     "Cannot convert a Symbol value to a string"));
                 return TsString::Create(""); // unreachable
             }
-            uint8_t firstByte = *(uint8_t*)ptr;
-            if (firstByte <= 10) {
+            // Disambiguate NaN-boxed TsValue* from raw heap pointer by the
+            // POINTER VALUE, not the byte at the pointer's target. A heap
+            // pointer's first byte (vtable LSB) is link-time-arbitrary and
+            // can collide with NaN-box type tags. See path-length-codegen-
+            // bug.md / Group Q.
+            uintptr_t pAddr = (uintptr_t)ptr;
+            bool looksLikeNanBox = (pAddr <= 10) || ((pAddr >> 48) != 0);
+            if (looksLikeNanBox) {
                 TsString* result = (TsString*)ts_string_from_value((TsValue*)ptr);
                 if (result) return result;
             }

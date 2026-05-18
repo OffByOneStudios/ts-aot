@@ -916,9 +916,17 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
             return v;
         }
-        // Might be a boxed TsValue* - try to extract
-        uint8_t tag = *(uint8_t*)v;
-        if (tag <= 10) {
+        // Might be a boxed TsValue* - try to extract.
+        // Disambiguate via the POINTER VALUE, not the byte at the pointer's
+        // target: a real heap pointer's vtable LSB is link-time-arbitrary
+        // and can land in [0,10], the same range as NaN-box type tags
+        // (NANBOX_UNDEFINED=0x0A, NANBOX_HOLE=0x08, …). The previous
+        // `*(uint8_t*)v <= 10` heuristic produced false-positives in that
+        // case and routed heap objects through nanbox_from_tsvalue_ptr.
+        // See path-length-codegen-bug.md / Group Q for the longhand.
+        uintptr_t vAddr = (uintptr_t)v;
+        bool looksLikeNanBox = (vAddr <= 10) || ((vAddr >> 48) != 0);
+        if (looksLikeNanBox) {
             uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)v);
             if (!nanbox_is_number(nb) && !nanbox_is_special(nb)) {
                 void* ptr = nanbox_to_ptr(nb);
