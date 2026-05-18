@@ -2400,6 +2400,10 @@ extern "C" {
     }
 
     void* ts_array_flat(void* arr, int64_t depth) {
+        // ECMA-262 22.1.3.10: `arr.flat()` with no depth argument defaults to 1.
+        // HIRToLLVM passes INT64_MIN as the "missing arg" sentinel for variadic
+        // builtin lowerings, so convert that back to the spec default here.
+        if (depth == INT64_MIN) depth = 1;
         return ((TsArray*)arr)->Flat(depth);
     }
 
