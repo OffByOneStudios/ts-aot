@@ -2813,75 +2813,69 @@ void HIRToLLVM::lowerCmpNeI64(HIRInstruction* inst) {
     setValue(inst->result, result);
 }
 
+// Promote a (lhs, rhs) pair for an integer-typed ordering compare to
+// the right form. After ptr->i64 unboxing, if either side ends up f64
+// (a mismatch the SpecializationPass left in place when one operand
+// is a literal-folded constant that kept its f64 form), promote both
+// sides to f64 and return true so the caller emits FCmp* instead of
+// ICmpS*. ECMA-262 §7.2.13 Abstract Relational Comparison promotes
+// both operands to Number; matching either side's f64 form is the
+// spec-correct choice. Without this the verifier rejects the IR with
+// "Both operands to ICmp instruction are not of the same type".
+#define NORMALIZE_ORDERING_OPS(LHS, RHS) ([&]() -> bool {                       \
+    if ((LHS)->getType()->isPointerTy()) {                                       \
+        auto _u = getTsValueGetInt();                                            \
+        (LHS) = builder_->CreateCall(_u, {(LHS)}, "unbox_lhs");                   \
+    }                                                                            \
+    if ((RHS)->getType()->isPointerTy()) {                                       \
+        auto _u = getTsValueGetInt();                                            \
+        (RHS) = builder_->CreateCall(_u, {(RHS)}, "unbox_rhs");                   \
+    }                                                                            \
+    bool _lf = (LHS)->getType()->isDoubleTy();                                   \
+    bool _rf = (RHS)->getType()->isDoubleTy();                                   \
+    if (_lf || _rf) {                                                            \
+        if (!_lf) (LHS) = builder_->CreateSIToFP((LHS), builder_->getDoubleTy(), \
+            "lhs_to_f64");                                                       \
+        if (!_rf) (RHS) = builder_->CreateSIToFP((RHS), builder_->getDoubleTy(), \
+            "rhs_to_f64");                                                       \
+        return true;                                                             \
+    }                                                                            \
+    return false;                                                                \
+}())
+
 void HIRToLLVM::lowerCmpLtI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (lhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
-    }
-    if (rhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
-    }
-
-    llvm::Value* result = builder_->CreateICmpSLT(lhs, rhs, "lt");
+    llvm::Value* result = NORMALIZE_ORDERING_OPS(lhs, rhs)
+        ? builder_->CreateFCmpOLT(lhs, rhs, "flt")
+        : builder_->CreateICmpSLT(lhs, rhs, "lt");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerCmpLeI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (lhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
-    }
-    if (rhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
-    }
-
-    llvm::Value* result = builder_->CreateICmpSLE(lhs, rhs, "le");
+    llvm::Value* result = NORMALIZE_ORDERING_OPS(lhs, rhs)
+        ? builder_->CreateFCmpOLE(lhs, rhs, "fle")
+        : builder_->CreateICmpSLE(lhs, rhs, "le");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerCmpGtI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (lhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
-    }
-    if (rhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
-    }
-
-    llvm::Value* result = builder_->CreateICmpSGT(lhs, rhs, "gt");
+    llvm::Value* result = NORMALIZE_ORDERING_OPS(lhs, rhs)
+        ? builder_->CreateFCmpOGT(lhs, rhs, "fgt")
+        : builder_->CreateICmpSGT(lhs, rhs, "gt");
     setValue(inst->result, result);
 }
 
 void HIRToLLVM::lowerCmpGeI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
-
-    // Handle boxed values (pointers) by unboxing to i64
-    if (lhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        lhs = builder_->CreateCall(unboxFn, {lhs}, "unbox_lhs");
-    }
-    if (rhs->getType()->isPointerTy()) {
-        auto unboxFn = getTsValueGetInt();
-        rhs = builder_->CreateCall(unboxFn, {rhs}, "unbox_rhs");
-    }
-
-    llvm::Value* result = builder_->CreateICmpSGE(lhs, rhs, "ge");
+    llvm::Value* result = NORMALIZE_ORDERING_OPS(lhs, rhs)
+        ? builder_->CreateFCmpOGE(lhs, rhs, "fge")
+        : builder_->CreateICmpSGE(lhs, rhs, "ge");
     setValue(inst->result, result);
 }
 
