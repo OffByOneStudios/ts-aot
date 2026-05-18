@@ -1018,25 +1018,39 @@ TsValue* ts_promise_await(TsValue* promise) {
     if (pVal.type != ValueType::PROMISE_PTR || !pVal.ptr_val) return promise;
     TsPromise* p = (TsPromise*)pVal.ptr_val;
 
-    // If already settled, return value immediately
-    if (p->state != PromiseState::Pending) {
-        return nanbox_from_tagged(p->value);
-    }
+    // An `await` is intent to consume the result. If the promise is (or
+    // becomes) rejected, we'll throw the rejection value to the caller —
+    // whose try/catch or async-prologue handler is the actual rejection
+    // handler. Either way the rejection is handled, so don't fire the
+    // unhandled-rejection warning.
+    p->handled = true;
 
-    // Run both microtasks and event loop until the promise settles.
-    // This is needed because the promise may depend on I/O operations
-    // (e.g. fetch() needs DNS resolve + TCP connect via libuv).
-    uv_loop_t* loop = uv_default_loop();
-    while (p->state == PromiseState::Pending) {
-        ts_run_microtasks();
-        if (p->state != PromiseState::Pending) break;
-        // Run one event loop iteration to process I/O
-        if (uv_loop_alive(loop)) {
-            uv_run(loop, UV_RUN_ONCE);
+    // Run microtasks + libuv until settled. Pre-settled promises skip the
+    // loop. The promise may depend on I/O (fetch, setTimeout, etc.).
+    if (p->state == PromiseState::Pending) {
+        uv_loop_t* loop = uv_default_loop();
+        while (p->state == PromiseState::Pending) {
+            ts_run_microtasks();
+            if (p->state != PromiseState::Pending) break;
+            if (uv_loop_alive(loop)) {
+                uv_run(loop, UV_RUN_ONCE);
+            }
         }
     }
 
-    return nanbox_from_tagged(p->value);
+    TsValue* result = nanbox_from_tagged(p->value);
+    if (p->state == PromiseState::Rejected) {
+        // ts_throw longjmps to the topmost exception handler — the user's
+        // try/catch when available, otherwise the async function's prologue
+        // handler (installed by HIRToLLVM::lowerFunction) which converts the
+        // throw into a rejection on the outer promise. ts_throw does not
+        // return; control resumes at the matching setjmp landing pad. The
+        // post-call IR is dead at runtime but doesn't need a `noreturn`
+        // marker — setjmp's `returns_twice` attribute already tells LLVM
+        // not to reason linearly across this frame.
+        ts_throw(result);
+    }
+    return result;
 }
 
 void ts_async_await(TsValue* promise, AsyncContext* ctx) {
