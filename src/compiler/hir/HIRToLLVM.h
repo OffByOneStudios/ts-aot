@@ -38,7 +38,7 @@ class PathHandler;
 // Key responsibilities:
 // 1. Map HIR types to LLVM types
 // 2. Lower each HIR instruction to corresponding LLVM IR
-// 3. Handle GC operations (stub to Boehm GC initially)
+// 3. Handle GC operations (custom generational GC; see runtime/src/TsGC.cpp)
 // 4. Generate runtime function calls where needed
 //==============================================================================
 

@@ -213,8 +213,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `Map` | ✅ | |
 | `Set` | ✅ | |
-| `WeakMap` | ✅ | Implemented as Map (no true weak semantics with Boehm GC) |
-| `WeakSet` | ✅ | Implemented as Set (no true weak semantics with Boehm GC) |
+| `WeakMap` | ✅ | Implemented as Map (GC does not yet support weak references) |
+| `WeakSet` | ✅ | Implemented as Set (GC does not yet support weak references) |
 | `Map.prototype.get/set/has/delete` | ✅ | |
 | `Set.prototype.add/has/delete` | ✅ | |
 | `Map.prototype.forEach` | ✅ | |
@@ -398,8 +398,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `String.prototype.replaceAll()` | ✅ | |
 | `Promise.any()` | ✅ | |
-| `WeakRef` | ✅ | Strong reference with Boehm GC (deref() always returns target) |
-| `FinalizationRegistry` | ✅ | Best-effort no-op (Boehm GC limitation) |
+| `WeakRef` | ✅ | Strong reference; GC does not yet support weak refs (deref() always returns target) |
+| `FinalizationRegistry` | ✅ | Best-effort no-op (GC does not yet support finalizers) |
 | Logical assignment (`&&=`, `\|\|=`, `??=`) | ✅ | Short-circuit semantics |
 | Numeric separators (`1_000_000`) | ✅ | |
 

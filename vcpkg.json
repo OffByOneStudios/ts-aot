@@ -7,7 +7,6 @@
     "fmt",
     "cxxopts",
     "libuv",
-    "bdwgc",
     "icu",
     "catch2",
     "libsodium",

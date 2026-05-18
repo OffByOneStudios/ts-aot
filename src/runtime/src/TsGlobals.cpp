@@ -2416,9 +2416,10 @@ static void* makeIntlCtorStub(const char* name, int length,
 // =============================================================================
 //
 // Each instance is a TsMap with prototype = Collator.prototype. Holds the
-// icu::Collator* under a hidden "__icuCollator" key (leaked on GC since
-// Boehm doesn't track external ICU allocations — acceptable for short-
-// lived test262 use; finalizer is a future task).
+// icu::Collator* under a hidden "__icuCollator" key. The GC doesn't track
+// the external ICU allocation, and we have no finalizer support yet, so
+// these leak — acceptable for short-lived test262 use; finalizer is a
+// future task.
 
 static TsMap* g_intlCollatorProto = nullptr;  // Set during Intl init.
 

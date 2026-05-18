@@ -919,7 +919,7 @@ static void gc_scan_object(void* obj, size_t size) {
 //
 // Uses setjmp() to flush callee-saved registers (RBX, RBP, RSI, RDI, R12-R15)
 // to the stack, then scans from a local variable's address up to StackBase.
-// This matches the approach used by Boehm GC and other conservative collectors.
+// This is the standard approach used by conservative stack scanners.
 #ifdef _WIN32
 static void __declspec(noinline) gc_push_conservative_stack_roots() {
     // Flush callee-saved registers to the stack via setjmp.

@@ -3,8 +3,8 @@
 #include "TsObject.h"
 
 // TsWeakRef holds a reference to a target object.
-// Note: With Boehm GC, we cannot implement true weak reference semantics.
-// This is effectively a strong reference but can be distinguished by magic.
+// Note: ts-aot's GC does not currently support weak references, so this is
+// effectively a strong reference distinguished only by magic.
 // deref() returns the target or undefined if explicitly cleared.
 class TsWeakRef : public TsObject {
 public:
@@ -18,8 +18,8 @@ private:
 };
 
 // TsFinalizationRegistry allows registering cleanup callbacks for objects.
-// Note: With Boehm GC, finalizers may not be called reliably.
-// This provides a best-effort implementation using GC_register_finalizer.
+// Note: ts-aot's GC does not currently support finalizers, so the registry
+// stores callbacks but never invokes them (no-op best-effort).
 class TsFinalizationRegistry : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x46494E52; // "FINR"

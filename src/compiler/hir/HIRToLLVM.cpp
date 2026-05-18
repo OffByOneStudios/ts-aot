@@ -3505,7 +3505,7 @@ void HIRToLLVM::lowerInstanceOf(HIRInstruction* inst) {
 }
 
 //==============================================================================
-// GC Operations (Boehm GC Stubs)
+// GC Operations (custom generational GC; see runtime/src/TsGC.cpp)
 //==============================================================================
 
 void HIRToLLVM::lowerGCAlloc(HIRInstruction* inst) {
@@ -3565,7 +3565,7 @@ void HIRToLLVM::lowerGCStore(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerGCLoad(HIRInstruction* inst) {
-    // With Boehm GC, no read barrier needed - just a plain load
+    // Non-moving generational GC: no read barrier needed - just a plain load.
     auto type = getOperandType(inst->operands[0]);
     llvm::Type* llvmType = getLLVMType(type);
     llvm::Value* ptr = getOperandValue(inst->operands[1]);
@@ -3574,12 +3574,12 @@ void HIRToLLVM::lowerGCLoad(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerSafepoint(HIRInstruction* inst) {
-    // With Boehm GC, safepoints are no-ops
-    // Future: could call GC_safe_point() for cooperative collection
+    // TODO(gc): GC currently triggered at allocation; cooperative safepoints
+    // not yet wired. See runtime/src/TsGC.cpp.
 }
 
 void HIRToLLVM::lowerSafepointPoll(HIRInstruction* inst) {
-    // With Boehm GC, safepoint polls are no-ops
+    // TODO(gc): see lowerSafepoint — polls not yet emitted.
 }
 
 //==============================================================================

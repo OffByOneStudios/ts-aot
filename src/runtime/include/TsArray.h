@@ -139,7 +139,8 @@ public:
     // string-key write — `arr.foo = bar` stores into properties->Set("foo", bar).
     // Required for spec-compliant arrays since arrays are exotic objects with
     // both indexed elements AND arbitrary string-keyed properties.
-    // Boehm-GC scans this conservatively (no explicit barrier needed).
+    // Write barrier (`ts_gc_write_barrier`) tracks cross-generation pointers
+    // through `properties->Set(...)`; no extra barrier needed here.
     TsMap* properties = nullptr;
 };
 

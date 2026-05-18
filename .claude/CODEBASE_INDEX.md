@@ -13,7 +13,7 @@ Quick reference guide for navigating the TypeScript AOT compiler codebase.
 - **Language:** C++20
 - **Build:** CMake + vcpkg
 - **LLVM:** Version 18 (opaque pointers)
-- **GC:** Boehm (bdwgc)
+- **GC:** Custom generational (nursery + old gen, card table; `src/runtime/src/TsGC.cpp`)
 - **Async:** libuv event loop
 - **Strings:** ICU Unicode
 - **Lines of Code:** ~50k+ C++ (estimated)

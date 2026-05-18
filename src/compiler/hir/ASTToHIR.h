@@ -21,7 +21,7 @@ namespace ts::hir {
 // 1. Converts AST statements to HIR blocks with proper control flow
 // 2. Converts expressions to SSA values
 // 3. Generates HIR types from the analyzer's Type system
-// 4. Creates GC-aware allocation operations (stubs for Boehm initially)
+// 4. Creates GC-aware allocation operations (lowered to custom generational GC)
 //==============================================================================
 
 class ASTToHIR : public ast::Visitor {

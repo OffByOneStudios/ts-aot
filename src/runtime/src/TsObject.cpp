@@ -10639,7 +10639,7 @@ void* ts_builtin_lookup_special(const char* name) {
     }
 
     // ============================================================================
-    // WeakMap - implemented as TsWeakMap wrapper (no true weak semantics with Boehm GC)
+    // WeakMap - TsWeakMap wrapper (GC does not yet support weak refs; held strongly)
     // ============================================================================
 
     void* ts_weakmap_create() {
@@ -10708,7 +10708,7 @@ void* ts_builtin_lookup_special(const char* name) {
     }
 
     // ============================================================================
-    // WeakSet - implemented as TsWeakSet wrapper (no true weak semantics with Boehm GC)
+    // WeakSet - TsWeakSet wrapper (GC does not yet support weak refs; held strongly)
     // ============================================================================
 
     void* ts_weakset_create() {

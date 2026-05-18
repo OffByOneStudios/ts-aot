@@ -16,7 +16,7 @@
 extern "C" {
 
 // v8.getHeapStatistics() - returns stub heap statistics
-// Since we use Boehm GC, V8 heap stats are not meaningful
+// ts-aot's GC isn't V8, so these stats are placeholders.
 void* ts_v8_get_heap_statistics() {
     TsMap* stats = TsMap::Create();
 

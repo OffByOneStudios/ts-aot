@@ -311,14 +311,16 @@ extern "C" {
     TsValue* ts_object_groupBy(TsValue* iterable, TsValue* callbackFn);
     TsValue* ts_map_groupBy(TsValue* iterable, TsValue* callbackFn);
 
-    // WeakMap - implemented as regular Map (no true weak semantics with Boehm GC)
+    // WeakMap - implemented as regular Map; ts-aot's GC does not currently
+    // support weak references, so keys are held strongly.
     void* ts_weakmap_create();
     void* ts_weakmap_set(void* weakmap, void* key, TsValue* value);
     TsValue* ts_weakmap_get(void* weakmap, void* key);
     bool ts_weakmap_has(void* weakmap, void* key);
     bool ts_weakmap_delete(void* weakmap, void* key);
 
-    // WeakSet - implemented as regular Set (no true weak semantics with Boehm GC)
+    // WeakSet - implemented as regular Set; ts-aot's GC does not currently
+    // support weak references, so values are held strongly.
     void* ts_weakset_create();
     void* ts_weakset_add(void* weakset, void* value);
     bool ts_weakset_has(void* weakset, void* value);

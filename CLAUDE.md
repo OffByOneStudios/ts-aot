@@ -146,7 +146,7 @@ See `.claude/rules/` for detailed language-specific standards:
 **Language:** C++20
 **Build System:** CMake + vcpkg
 **LLVM Version:** 18 (opaque pointers)
-**Memory Management:** Boehm GC via `ts_alloc`
+**Memory Management:** Custom generational GC (`TsGC.cpp`) via `ts_alloc` → `ts_gc_alloc`. Block allocator with size classes, nursery + old gen, card-table write barriers, precise root pushing via LLVM stack maps.
 **Async I/O:** libuv
 **Strings:** TsString (ICU-based)
 

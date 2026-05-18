@@ -213,7 +213,7 @@ enum class HIROpcode {
     TypeOf,             // %r = typeof %val             (→ string)
     InstanceOf,         // %r = instanceof %val, %ctor  (→ bool)
 
-    // GC Operations (stub to Boehm initially)
+    // GC Operations (custom generational GC; see runtime/src/TsGC.cpp)
     GCAlloc,            // %r = gc.alloc <type>, <size>
     GCAllocArray,       // %r = gc.alloc.array <elem_type>, %len
     GCStore,            // gc.store %ptr, %val (write barrier)

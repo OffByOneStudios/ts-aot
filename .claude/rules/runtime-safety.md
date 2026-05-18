@@ -25,7 +25,7 @@ void* mem = ts_alloc(sizeof(TsMyClass));
 TsMyClass* obj = new (mem) TsMyClass();  // Placement new
 ```
 
-**Why:** The runtime uses Boehm GC. Objects allocated with `new`/`malloc` won't be tracked by the GC and will leak memory.
+**Why:** The runtime uses a custom generational GC (`src/runtime/src/TsGC.cpp`). Objects allocated with raw `new`/`malloc` aren't on the GC heap and won't be scanned — they leak and any GC pointers they contain are invisible to the collector.
 
 ## String Creation
 
