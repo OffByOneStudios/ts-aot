@@ -519,6 +519,17 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     moduleGlobalVarsByModule_[funcDecl->name].insert(currentModulePath_);
                     module_->globals[modVarName(funcDecl->name)] = HIRType::makeAny();
                 }
+            } else if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                // Top-level let/const are module-scoped (their "enclosing
+                // block" IS the module). They need to be __modvar_ globals so
+                // inner functions reading them across the module_init →
+                // user_main → callback path see the same storage. Without
+                // this, top-level `const stats = {...}` would be scalar-
+                // replaced inside __module_init and inner reads from
+                // user_main get NANBOX_UNDEFINED. (walkForVars below
+                // intentionally still skips let/const at nested-block depth
+                // since those are block-scoped per ECMA-262.)
+                registerModuleVar(varDecl);
             } else {
                 walkForVars(dynamic_cast<ast::Statement*>(stmt.get()));
             }
