@@ -131,12 +131,25 @@ void ts_closure_init_capture(TsClosure* closure, int64_t index, TsValue* initial
         ts_gc_write_barrier(&closure->cells[index], cell);
 }
 
-// Check if a pointer is a TsClosure (by checking magic number)
+// Check if a pointer is a TsClosure (by checking magic number).
+// Disambiguates raw TsClosure* from NaN-boxed TsValue* (small tag values
+// 0..10 like NANBOX_UNDEFINED=0x0A, NANBOX_HOLE=0x08 etc.). The disambiguator
+// MUST be applied to the pointer-as-integer, not to the first byte at the
+// pointer's target: a real heap pointer's vtable LSB is arbitrary and can
+// happen to land in [0,10] depending on link layout — when it does, the
+// previous heuristic `*(uint8_t*)ptr <= 10` reported false negatives and
+// every consumer (e.g. Array.prototype.filter taking the slow-path branch
+// instead of the closure fast-path) silently went wrong. This was the
+// path-length-dependent codegen bug surfaced 2026-05-18.
 bool ts_is_closure(void* ptr) {
     if (!ptr) return false;
-    // Check first byte - if it looks like a TsValue (0-10), it's not a raw closure
-    uint8_t firstByte = *(uint8_t*)ptr;
-    if (firstByte <= 10) return false;  // TsValue, not a raw object
+    uintptr_t addr = (uintptr_t)ptr;
+    // NaN-boxed sentinels (undefined, null, true, false, hole, deleted)
+    // all have addr ≤ 10. Real heap pointers are at addr ≥ 0x10000.
+    if (addr <= 10) return false;
+    // NaN-boxed numbers/strings have the top 16 bits set (canonical NaN).
+    // Real heap pointers have top 16 bits zero on x64 user-space.
+    if ((addr >> 48) != 0) return false;
     TsObject* obj = (TsObject*)ptr;
     return obj->magic == 0x434C5352; // 'CLSR'
 }
