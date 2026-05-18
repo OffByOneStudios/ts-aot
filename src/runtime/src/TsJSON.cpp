@@ -16,7 +16,12 @@
 #include <stdexcept>
 #include <cmath>
 
-using json = nlohmann::json;
+// ECMA-262 25.5.2 SerializeJSONObject step 6: emit keys in
+// [[OwnPropertyKeys]] order (insertion order for string keys). Default
+// nlohmann::ordered_json uses std::map which sorts alphabetically; switch to
+// ordered_json which preserves insertion order while keeping the same
+// API surface elsewhere in this file.
+using json = nlohmann::ordered_json;
 
 static TsValue json_to_ts(const json& j) {
     if (j.is_null()) return TsValue(nullptr);
@@ -62,9 +67,9 @@ static TsValue json_to_ts(const json& j) {
     return TsValue(nullptr);
 }
 
-static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited);
+static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visited);
 
-static nlohmann::json ts_value_to_json(TsValue v, std::set<void*>& visited) {
+static nlohmann::ordered_json ts_value_to_json(TsValue v, std::set<void*>& visited) {
     switch (v.type) {
         case ValueType::UNDEFINED: return nullptr;
         case ValueType::NUMBER_INT: return v.i_val;
@@ -87,7 +92,7 @@ static nlohmann::json ts_value_to_json(TsValue v, std::set<void*>& visited) {
     }
 }
 
-static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
+static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visited) {
     if (!p) return nullptr;
 
     // Decode NaN-boxed values
@@ -130,7 +135,7 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
     }
 
     if (magic == TsRegExp::MAGIC) {
-        return nlohmann::json::object();
+        return nlohmann::ordered_json::object();
     }
 
     if (magic == TsArray::MAGIC) {
@@ -139,7 +144,7 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         }
         visited.insert(p);
         TsArray* arr = (TsArray*)p;
-        nlohmann::json j = nlohmann::json::array();
+        nlohmann::ordered_json j = nlohmann::ordered_json::array();
         for (int64_t i = 0; i < arr->Length(); ++i) {
             // TsArray::Get returns raw int64_t, which might be a pointer or a boxed value
             j.push_back(ts_to_json_internal((void*)arr->Get(i), visited));
@@ -156,7 +161,7 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         visited.insert(p);
         uint32_t shapeId = flat_object_shape_id(p);
         ShapeDescriptor* desc = ts_shape_lookup(shapeId);
-        nlohmann::json j = nlohmann::json::object();
+        nlohmann::ordered_json j = nlohmann::ordered_json::object();
         if (desc) {
             for (uint32_t i = 0; i < desc->numSlots; i++) {
                 uint64_t val = *(uint64_t*)((char*)p + 16 + i * 8);
@@ -199,7 +204,7 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
         }
         visited.insert(p);
         TsMap* map = (TsMap*)p;
-        nlohmann::json j = nlohmann::json::object();
+        nlohmann::ordered_json j = nlohmann::ordered_json::object();
         TsArray* keys = (TsArray*)map->GetKeys();
         for (int64_t i = 0; i < keys->Length(); ++i) {
             // keys->Get(i) returns a NaN-boxed value (pointer to TsString)
@@ -227,10 +232,10 @@ static nlohmann::json ts_to_json_internal(void* p, std::set<void*>& visited) {
     }
 
     // Fallback: unknown object type
-    return nlohmann::json::object();
+    return nlohmann::ordered_json::object();
 }
 
-static nlohmann::json ts_to_json(void* p) {
+static nlohmann::ordered_json ts_to_json(void* p) {
     std::set<void*> visited;
     return ts_to_json_internal(p, visited);
 }
@@ -240,7 +245,7 @@ extern "C" {
         if (!json_str) return nullptr;
         TsString* s = (TsString*)json_str;
         try {
-            nlohmann::json j = nlohmann::json::parse(s->ToUtf8());
+            nlohmann::ordered_json j = nlohmann::ordered_json::parse(s->ToUtf8());
             TsValue val = json_to_ts(j);
             // Convert TsValue struct to NaN-boxed representation
             return (void*)nanbox_from_tagged(val);
@@ -251,11 +256,11 @@ extern "C" {
 
     void* ts_json_stringify(void* obj, void* replacer, void* space) {
         try {
-            nlohmann::json j = ts_to_json(obj);
+            nlohmann::ordered_json j = ts_to_json(obj);
 
             int indent = -1;
             if (space) {
-                nlohmann::json s = ts_to_json(space);
+                nlohmann::ordered_json s = ts_to_json(space);
                 if (s.is_number()) {
                     indent = s.get<int>();
                 } else if (s.is_string()) {
@@ -264,9 +269,9 @@ extern "C" {
             }
 
             if (replacer) {
-                nlohmann::json r = ts_to_json(replacer);
+                nlohmann::ordered_json r = ts_to_json(replacer);
                 if (r.is_array() && j.is_object()) {
-                    nlohmann::json filtered = nlohmann::json::object();
+                    nlohmann::ordered_json filtered = nlohmann::ordered_json::object();
                     for (auto& key : r) {
                         if (key.is_string()) {
                             std::string k = key.get<std::string>();
