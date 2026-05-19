@@ -106,8 +106,11 @@ def count_refdiff() -> dict | None:
     except Exception:
         return None
     # Parse the summary lines: "  Match: 19", "  Diff: 7", etc.
+    # The runner emits ANSI color codes around the numbers, so strip them first.
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
     counts: dict = {}
-    for line in out.stdout.splitlines():
+    for raw_line in out.stdout.splitlines():
+        line = ansi_re.sub("", raw_line)
         m = re.search(r"^\s+(Match|Diff|Crash|Compile error|Timeout|No-node skip|Total):\s+(\d+)", line)
         if m:
             key = m.group(1).lower().replace(" ", "_")
