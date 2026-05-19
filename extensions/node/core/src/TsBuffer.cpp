@@ -41,6 +41,31 @@ TsValue TsBuffer::GetPropertyVirtual(const char* key) {
         v.i_val = IsDetached() ? 1 : 0;
         return v;
     }
+    // Buffer.prototype.toString([encoding]) — decode bytes to a string.
+    // Without this, dynamic property access (e.g. `cp.spawnSync(...).stdout.toString()`)
+    // returned undefined because the static-typed path that resolves to
+    // ts_buffer_to_string only fires when the analyzer knows the receiver is
+    // a Buffer. ts_object_get_property on a Buffer dispatches here, and we
+    // need to return a callable for `.toString`.
+    if (strcmp(key, "toString") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        void* mem = ts_alloc(sizeof(TsFunction));
+        v.ptr_val = new (mem) TsFunction(
+            (void*)+[](void* ctx, TsValue* encodingV) -> TsValue* {
+                // encodingV may be NANBOX_UNDEFINED (0x0A) when called with no
+                // args via ts_call_with_this_0. ts_buffer_to_string would cast
+                // it to TsString* and dereference — crash. Pass nullptr instead.
+                void* enc = nullptr;
+                if (encodingV && !ts_value_is_nullish(encodingV)) {
+                    enc = ts_value_get_string(encodingV);
+                    if (!enc) enc = encodingV;
+                }
+                return (TsValue*)ts_buffer_to_string(ctx, enc);
+            },
+            this, FunctionType::COMPILED, 1);
+        return v;
+    }
     // ArrayBuffer.prototype.slice(start, end) — returns a new ArrayBuffer
     // containing a copy of the byte range. ctx is the receiver buffer.
     if (strcmp(key, "slice") == 0) {
