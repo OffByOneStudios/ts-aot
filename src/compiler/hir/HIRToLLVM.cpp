@@ -7722,6 +7722,48 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
     llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), 0);
     llvm::Value* closure = builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal });
 
+    // Mark as method-closure when this is a class method (HIRFunction
+    // referenced from some HIRClass::methods / staticMethods). Class
+    // methods have trampolines of shape `(closure, this)` that pass %1
+    // directly to the method's `this` param — exactly the shape
+    // ts_call_with_this_N produces in its is_method branch.
+    //
+    // Excluded: object-literal short-methods named `__method_X_N` —
+    // their trampoline treats %0 (closure) as `this` and %1 as the
+    // first user arg, so flipping them to is_method would mis-route
+    // args. They're handled by the older naming-prefix check in
+    // lowerLoadFunction (which sets is_method without changing the
+    // trampoline). True class methods need both the flag AND the
+    // trampoline's shape, which only matches HIRClass::methods.
+    if (hirModule_) {
+        bool isClassMethod = false;
+        for (const auto& cls : hirModule_->classes) {
+            for (const auto& kv : cls->methods) {
+                HIRFunction* m = kv.second;
+                if (m && (m->name == funcName || m->mangledName == funcName)) {
+                    isClassMethod = true; break;
+                }
+            }
+            if (isClassMethod) break;
+            for (const auto& kv : cls->staticMethods) {
+                HIRFunction* m = kv.second;
+                if (m && (m->name == funcName || m->mangledName == funcName)) {
+                    isClassMethod = true; break;
+                }
+            }
+            if (isClassMethod) break;
+        }
+        if (isClassMethod) {
+            auto setMethodFt = llvm::FunctionType::get(
+                builder_->getVoidTy(),
+                { builder_->getPtrTy() }, false);
+            auto setMethodFn = module_->getOrInsertFunction(
+                "ts_closure_set_method", setMethodFt);
+            builder_->CreateCall(setMethodFt, setMethodFn.getCallee(),
+                { gcPtrToRaw(closure) });
+        }
+    }
+
     // Set the function arity. Per ECMA-262 §10.2.5 SetFunctionLength,
     // function .length is the user-visible parameter count up to (but
     // not including) the first parameter with a default initializer,
@@ -8481,8 +8523,27 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         }
     }
 
-    // Mark method closures so ts_call_with_this_N passes thisArg correctly
-    if (funcName.find("__method_") == 0) {
+    // Mark method closures so ts_call_with_this_N passes thisArg as the
+    // first positional arg. Two cases:
+    //   1. `__method_` prefixed callbacks (object literal short-methods).
+    //   2. Any HIRFunction whose first parameter is named "this" — i.e.
+    //      a class method like `Point_toString(ptr %this)`. Without the
+    //      flag, calling `p.toString()` dynamically (when the type-
+    //      analyzer hasn't inferred a known class) reaches
+    //      ts_call_with_this_0's non-method branch and the method body
+    //      sees `this === undefined` (its first positional param).
+    bool isMethodClosure = funcName.find("__method_") == 0;
+    if (!isMethodClosure && hirModule_) {
+        for (const auto& hirFn : hirModule_->functions) {
+            if ((hirFn->name == funcName || hirFn->mangledName == funcName)
+                && !hirFn->params.empty()
+                && hirFn->params[0].first == "this") {
+                isMethodClosure = true;
+                break;
+            }
+        }
+    }
+    if (isMethodClosure) {
         auto setMethodFt = llvm::FunctionType::get(
             builder_->getVoidTy(),
             { builder_->getPtrTy() },
