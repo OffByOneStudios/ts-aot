@@ -644,6 +644,13 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // array2
             .build());
 
+    reg.registerLowering("ts_array_spread_into",
+        lowering("ts_array_spread_into")
+            .returnsPtr()
+            .ptrArg()      // accumulator array
+            .ptrArg()      // iterable (array, generator, or other)
+            .build());
+
     reg.registerLowering("ts_function_apply",
         lowering("ts_function_apply")
             .returnsPtr()

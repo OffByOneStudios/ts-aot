@@ -7698,10 +7698,13 @@ void ASTToHIR::visitArrayLiteralExpression(ast::ArrayLiteralExpression* node) {
 
         for (auto& elem : node->elements) {
             if (auto* spread = dynamic_cast<ast::SpreadElement*>(elem.get())) {
-                // Spread element: concatenate the spread array.
-                // ts_array_concat returns a NEW array, so we must capture it.
+                // Spread element in array literal: per ECMA-262 13.2.4.1
+                // SpreadElement evaluation uses the iterator protocol
+                // (@@iterator + next()), NOT Array.prototype.concat's
+                // IsConcatSpreadable. ts_array_spread_into handles both
+                // TsArray fast-path and generic iterables (generators, etc.).
                 auto spreadArr = lowerExpression(spread->expression.get());
-                auto concat = builder_.createCall("ts_array_concat", {reload(), spreadArr}, arrType);
+                auto concat = builder_.createCall("ts_array_spread_into", {reload(), spreadArr}, arrType);
                 store(concat);
             } else {
                 // Regular element: push it.

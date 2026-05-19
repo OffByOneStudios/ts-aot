@@ -9,6 +9,7 @@
 #include "TsFlatObject.h"
 #include "TsBuffer.h"
 #include "TsError.h"
+#include "TsPromise.h"
 #include "GC.h"
 #include "TsGC.h"
 #include <cstring>
@@ -3147,6 +3148,48 @@ extern "C" {
         }
         result->Push((int64_t)(uintptr_t)other);
         return result;
+    }
+
+    // Spread an iterable into an array (used for array-literal `[...iterable]`).
+    // Unlike ts_array_concat (which uses IsConcatSpreadable per ECMA-262
+    // 23.1.3.2 Array.prototype.concat), array-literal spread uses the
+    // iterator protocol (ECMA-262 13.2.4.1, SpreadElement evaluation):
+    // call @@iterator and loop next() until done.
+    //
+    // For TsArray inputs we still take the fast path; for generators and
+    // other iterables we iterate. Mutates `arr` in place and returns it.
+    void* ts_array_spread_into(void* arr, void* iterable) {
+        void* rawArr = ts_nanbox_safe_unbox(arr);
+        if (!rawArr) return arr;
+        if (*(uint32_t*)rawArr != TsArray::MAGIC) return arr;
+        TsArray* dst = (TsArray*)rawArr;
+
+        // Fast path: TsArray source.
+        void* rawIter = ts_nanbox_safe_unbox(iterable);
+        if (rawIter) {
+            uintptr_t p = (uintptr_t)rawIter;
+            if (p > 0x1000 && p < 0x0000800000000000ULL) {
+                uint32_t mg = *(uint32_t*)rawIter;
+                if (mg == TsArray::MAGIC) {
+                    TsArray* src = (TsArray*)rawIter;
+                    for (size_t i = 0; i < src->Length(); ++i) {
+                        dst->Push(src->Get(i));
+                    }
+                    return dst;
+                }
+            }
+        }
+
+        // Iterator protocol fallback.
+        TsValue* iterator = ts::ts_iterator_get((TsValue*)iterable);
+        if (!iterator) return dst;
+        for (;;) {
+            TsValue* result = ts::ts_iterator_next(iterator, nullptr);
+            if (!result || ts::ts_iterator_result_done(result)) break;
+            TsValue* val = ts::ts_iterator_result_value(result);
+            dst->Push((int64_t)(uintptr_t)val);
+        }
+        return dst;
     }
 
     bool ts_array_is_array(void* value) {
