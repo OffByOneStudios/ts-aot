@@ -5648,6 +5648,44 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         args.push_back(lowerExpression(arg.get()));
     }
 
+    // Spread arguments at the call site (`f(...a, b, ...c)`). Without
+    // expansion, ASTToHIR would pass each spread array as a single arg
+    // and the callee would see e.g. `[args[0]=arrayA, args[1]=arrayB]`
+    // when it expected `[args[0]=1, args[1]=2, ...]`. visitSpreadElement
+    // returns just the underlying expression's HIRValue (the array), so
+    // we detect spreads here and lower to a runtime apply: build a
+    // TsArray containing every argument expanded, then call
+    // ts_function_apply(callee, undefined, expandedArgs).
+    //
+    // Excludes super() (handled below; takes its own ctor path) and
+    // any case where there's no spread (preserve the fast direct-call
+    // paths below).
+    bool hasSpread = false;
+    for (auto& arg : node->arguments) {
+        if (dynamic_cast<ast::SpreadElement*>(arg.get())) { hasSpread = true; break; }
+    }
+    if (hasSpread && !dynamic_cast<ast::SuperExpression*>(node->callee.get())) {
+        auto anyArr = HIRType::makeArray(HIRType::makeAny(), false);
+        auto packed = builder_.createCall("ts_array_create", {}, anyArr);
+        for (size_t i = 0; i < node->arguments.size(); ++i) {
+            if (dynamic_cast<ast::SpreadElement*>(node->arguments[i].get())) {
+                // ts_array_concat returns a NEW array, capture it.
+                packed = builder_.createCall("ts_array_concat",
+                    {packed, boxValueIfNeeded(args[i])}, anyArr);
+            } else {
+                builder_.createCall("ts_array_push",
+                    {packed, boxValueIfNeeded(args[i])}, HIRType::makeInt64());
+            }
+        }
+        auto calleeVal = lowerExpression(node->callee.get());
+        auto undef = builder_.createConstUndefined();
+        lastValue_ = builder_.createCall(
+            "ts_function_apply",
+            {boxValueIfNeeded(calleeVal), undef, packed},
+            HIRType::makeAny());
+        return;
+    }
+
     // Handle super() call - calls parent class constructor
     auto* superExpr = dynamic_cast<ast::SuperExpression*>(node->callee.get());
     if (superExpr && currentClass_ && currentClass_->baseClass) {

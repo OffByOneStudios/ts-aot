@@ -5035,41 +5035,17 @@ TsValue* ts_value_make_int(int64_t i) {
         void* savedThis = ts_call_this_value;
         ts_call_this_value = thisArg;
 
-        // Handle closures - pass closure as first argument to preserve captured state.
-        // The thisArg is already saved in ts_call_this_value above, so functions
-        // can access 'this' via ts_get_call_this(). Closures need their own pointer
-        // as the first argument to access captured cells (ts_closure_get_cell).
-        // This matches the calling convention used by ts_call_N functions.
+        // Handle closures - delegate to ts_function_call which dispatches
+        // through ts_call_N (0..10), each of which respects the closure's
+        // rest_param_index and routes through ts_rest_pack_and_call when
+        // appropriate. The thisArg is propagated via ts_call_this_value
+        // (set above), so the callee can still read `this` if it uses
+        // ts_get_call_this(). The previous inline switch capped at 3 and
+        // its `default` branch dropped extra args — broke `apply` and
+        // spread-into-rest call sites.
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
-            TsValue* result;
-            switch (argc) {
-                case 0: {
-                    typedef TsValue* (*Fn)(void*);
-                    result = ((Fn)closure->func_ptr)(closure);
-                    break;
-                }
-                case 1: {
-                    typedef TsValue* (*Fn)(void*, TsValue*);
-                    result = ((Fn)closure->func_ptr)(closure, argv[0]);
-                    break;
-                }
-                case 2: {
-                    typedef TsValue* (*Fn)(void*, TsValue*, TsValue*);
-                    result = ((Fn)closure->func_ptr)(closure, argv[0], argv[1]);
-                    break;
-                }
-                case 3: {
-                    typedef TsValue* (*Fn)(void*, TsValue*, TsValue*, TsValue*);
-                    result = ((Fn)closure->func_ptr)(closure, argv[0], argv[1], argv[2]);
-                    break;
-                }
-                default: {
-                    typedef TsValue* (*Fn)(void*);
-                    result = ((Fn)closure->func_ptr)(closure);
-                    break;
-                }
-            }
+            TsValue* result = ts_function_call(boxedFunc, argc, argv);
             ts_call_this_value = savedThis;
             return result;
         }
@@ -5133,14 +5109,16 @@ TsValue* ts_value_make_int(int64_t i) {
         int64_t argc = ts_value_length(argsArray);
         if (argc < 0) argc = 0;
 
-        // Cap apply to 8 args for now to match ts_function_call
-        int64_t cappedArgc = argc > 8 ? 8 : argc;
+        // Cap to ts_call_N's maximum supported arity. ts_function_call
+        // dispatches through ts_call_0..ts_call_10; above 10 extra args
+        // get dropped with a warning.
+        int64_t cappedArgc = argc > 10 ? 10 : argc;
         std::vector<TsValue*> argv(static_cast<size_t>(cappedArgc), ts_value_make_undefined());
         for (int64_t i = 0; i < cappedArgc; ++i) {
             argv[static_cast<size_t>(i)] = (TsValue*)ts_value_get_element(argsArray, i);
         }
-        if (argc > 8) {
-            SPDLOG_WARN("ts_function_apply truncated args from {} to 8", argc);
+        if (argc > 10) {
+            SPDLOG_WARN("ts_function_apply truncated args from {} to 10", argc);
         }
         return ts_function_call_with_this(boxedFunc, thisArg, static_cast<int>(cappedArgc), argv.data());
     }

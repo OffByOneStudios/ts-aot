@@ -644,6 +644,14 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // array2
             .build());
 
+    reg.registerLowering("ts_function_apply",
+        lowering("ts_function_apply")
+            .returnsPtr()
+            .ptrArg()      // boxedFunc (callable)
+            .ptrArg()      // thisArg
+            .ptrArg()      // argsArray
+            .build());
+
     reg.registerLowering("ts_array_includes",
         lowering("ts_array_includes")
             .returnsBool()
