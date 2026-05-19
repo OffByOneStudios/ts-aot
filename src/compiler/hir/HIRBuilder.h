@@ -170,6 +170,17 @@ public:
         return result;
     }
 
+    // True C++ nullptr (not NaN-boxed). Used to clear pointer-typed allocas
+    // that hold raw runtime pointers (e.g., the closurePtr alloca for the
+    // for-let per-iteration binding fix).
+    std::shared_ptr<HIRValue> createConstRawNullPtr() {
+        auto result = createValue(HIRType::makePtr());
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::ConstRawNullPtr);
+        inst->result = result;
+        emit(std::move(inst));
+        return result;
+    }
+
     std::shared_ptr<HIRValue> createConstUndefined() {
         auto result = createValue(HIRType::makeAny());
         auto inst = std::make_unique<HIRInstruction>(HIROpcode::ConstUndefined);

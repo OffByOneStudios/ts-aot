@@ -181,6 +181,7 @@
   "golden_ir/typescript/functions/closure_capture_string_empty_check.ts": "pass",
   "golden_ir/typescript/functions/closure_class_arrow_this.ts": "pass",
   "golden_ir/typescript/functions/closure_currying.ts": "pass",
+  "golden_ir/typescript/functions/closure_for_let_per_iter.ts": "pass",
   "golden_ir/typescript/functions/closure_in_loop.ts": "pass",
   "golden_ir/typescript/functions/closure_multiple_captures.ts": "pass",
   "golden_ir/typescript/functions/closure_mutable_capture.ts": "pass",

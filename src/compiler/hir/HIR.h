@@ -134,6 +134,7 @@ enum class HIROpcode {
     ConstCString,       // %r = const.cstring "<value>" (raw C string pointer)
     ConstNull,          // %r = const.null
     ConstUndefined,     // %r = const.undefined
+    ConstRawNullPtr,    // %r = const.raw_nullptr (true C++ nullptr, not NaN-box)
 
     // Arithmetic (typed)
     AddI64,             // %r = add.i64 %a, %b

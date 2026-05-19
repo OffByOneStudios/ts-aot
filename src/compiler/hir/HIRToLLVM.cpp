@@ -1779,6 +1779,11 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::ConstCString:   lowerConstCString(inst); break;
         case HIROpcode::ConstNull:      lowerConstNull(inst); break;
         case HIROpcode::ConstUndefined: lowerConstUndefined(inst); break;
+        case HIROpcode::ConstRawNullPtr: {
+            llvm::Value* nullPtr = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+            setValue(inst->result, nullPtr);
+            break;
+        }
 
         // Integer arithmetic
         case HIROpcode::AddI64: lowerAddI64(inst); break;

@@ -3502,6 +3502,29 @@ void ASTToHIR::visitForStatement(ast::ForStatement* node) {
     // Update block
     builder_.setInsertPoint(updateBlock);
     currentBlock_ = updateBlock;
+
+    // ECMA-262 14.7.4.4 CreatePerIterationEnvironment: each iteration of
+    // `for (let i ...)` should create a fresh binding so closures created in
+    // the body snapshot THIS iter's value. Until we have full by-reference
+    // cells, simulate the per-iter semantics for vars declared in the for's
+    // init scope: clear closurePtr before the update step. This makes the
+    // update read/write the alloca directly (via the existing null-closure
+    // fallback) and leaves the captured closure's cell holding its body-time
+    // snapshot. Next iter's cond also reads via the cleared alloca, then the
+    // body re-creates a closure (new cell) for the new iter.
+    if (!scopes_.empty()) {
+        for (auto& kv : scopes_.back().variables) {
+            auto& info = kv.second;
+            if (info.isCapturedByNested && info.closurePtr) {
+                // Raw C++ nullptr — not NaN-boxed null (0x02). The
+                // LoadCaptureFromClosure runtime check tests for raw 0x0 to
+                // trigger the alloca fallback path.
+                auto nullVal = builder_.createConstRawNullPtr();
+                builder_.createStore(nullVal, info.closurePtr);
+            }
+        }
+    }
+
     if (node->incrementor) {
         lowerExpression(node->incrementor.get());
     }
@@ -8551,6 +8574,12 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
                             it->owningFunction->name.find("__module_init_") != 0 &&
                             it->owningFunction->name != "user_main" &&
                             it->owningFunction->name != "__synthetic_user_main") {
+                            isModuleInitVar = false;
+                        } else if (!it->isFunctionBoundary) {
+                            // Block-scoped (e.g. `for (let i ...)`, `if (let x ...)`)
+                            // even inside __synthetic_user_main / __module_init_.
+                            // Not a true module global — must use closure-capture
+                            // mechanism so per-iteration semantics work.
                             isModuleInitVar = false;
                         }
                         break;
