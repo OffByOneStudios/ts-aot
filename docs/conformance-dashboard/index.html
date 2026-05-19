@@ -5,6 +5,8 @@
 <title>ts-aot Conformance Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <style>
   :root {
     --bg: #0d1117;
@@ -93,13 +95,32 @@
     padding: 16px 18px;
   }
   .chart-card h3 {
-    margin: 0 0 12px 0;
+    margin: 0 0 4px 0;
     font-size: 14px;
     font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
+  .chart-card .hint {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .chart-card .reset-btn {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .chart-card .reset-btn:hover { background: rgba(88,166,255,0.10); }
   .chart-wrap {
     position: relative;
     height: 280px;
+    margin-top: 8px;
   }
   .chart-wide {
     grid-column: 1 / -1;
@@ -140,28 +161,45 @@
 
   <section class="charts">
     <div class="chart-card chart-wide">
-      <h3>test262 status over time</h3>
+      <h3>test262 status over time
+        <span><span class="hint">drag to zoom · wheel to zoom · shift+drag to pan</span>
+          <button class="reset-btn" data-reset="chart-test262-stacked">reset</button></span>
+      </h3>
       <div class="chart-wrap"><canvas id="chart-test262-stacked"></canvas></div>
     </div>
     <div class="chart-card">
-      <h3>test262 pass count</h3>
+      <h3>test262 pass count
+        <button class="reset-btn" data-reset="chart-test262-pass">reset</button>
+      </h3>
       <div class="chart-wrap"><canvas id="chart-test262-pass"></canvas></div>
     </div>
     <div class="chart-card">
-      <h3>refdiff matches</h3>
+      <h3>refdiff matches
+        <button class="reset-btn" data-reset="chart-refdiff">reset</button>
+      </h3>
       <div class="chart-wrap"><canvas id="chart-refdiff"></canvas></div>
     </div>
     <div class="chart-card">
-      <h3>regression suites</h3>
+      <h3>regression suites
+        <button class="reset-btn" data-reset="chart-suites">reset</button>
+      </h3>
       <div class="chart-wrap"><canvas id="chart-suites"></canvas></div>
     </div>
     <div class="chart-card">
-      <h3>conformance matrices (% implemented)</h3>
+      <h3>conformance matrices (% implemented)
+        <button class="reset-btn" data-reset="chart-conformance">reset</button>
+      </h3>
       <div class="chart-wrap"><canvas id="chart-conformance"></canvas></div>
     </div>
   </section>
 
   <div class="footnote">
+    <strong>Zoom:</strong> drag a rectangle on any chart to zoom in &middot;
+    mouse-wheel to zoom &middot; shift+drag to pan &middot; "reset" button
+    on each chart restores the auto-scaled view.
+    Y axes auto-scale to data range (line charts) — the stacked area starts
+    at 0 by definition; conformance % shows the full 0–100% band.
+    <br><br>
     Data source: <code>docs/conformance-dashboard/snapshots.jsonl</code>.
     Append a row with <code>python tools/conformance_snapshot.py</code>.
     Reload this page to pick up new data.
@@ -302,90 +340,113 @@ const TIME_X = {
   grid: { color: 'rgba(255,255,255,0.04)' },
 };
 
-function buildStacked(snaps) {
-  return new Chart(document.getElementById('chart-test262-stacked'), {
+// Per ECMA-262... wait, no — Chart.js scale config for line charts where
+// the variation is small relative to the magnitude (e.g. 17,137 → 17,920
+// against a Y axis starting at 0 makes the deltas look flat). Use
+// auto-scaling that hugs the data range with a small padding margin.
+const AUTOSCALE_Y = {
+  beginAtZero: false,
+  grace: '5%',
+  grid: { color: 'rgba(255,255,255,0.04)' },
+};
+
+// Zoom plugin config: drag a rectangle on the chart to zoom in, wheel
+// to zoom, shift+drag to pan. Per-chart options are merged into this.
+const ZOOM_OPTS = {
+  pan: {
+    enabled: true,
+    mode: 'xy',
+    modifierKey: 'shift',
+  },
+  zoom: {
+    drag: {
+      enabled: true,
+      backgroundColor: 'rgba(88,166,255,0.18)',
+      borderColor: 'rgba(88,166,255,0.6)',
+      borderWidth: 1,
+    },
+    wheel: { enabled: true, speed: 0.08 },
+    pinch: { enabled: true },
+    mode: 'xy',
+  },
+};
+
+function chartOptions(yScale = AUTOSCALE_Y, extra = {}) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: { x: TIME_X, y: yScale, ...((extra.scales) || {}) },
+    plugins: {
+      legend: { position: 'bottom' },
+      zoom: ZOOM_OPTS,
+      ...((extra.plugins) || {}),
+    },
+  };
+}
+
+const CHART_INSTANCES = {};
+
+function makeChart(canvasId, datasets, yScale = AUTOSCALE_Y, extraOpts = {}) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return null;
+  const chart = new Chart(ctx, {
     type: 'line',
-    data: {
-      datasets: [
-        { label: 'pass', data: timeData(snaps, FIELDS.test262_pass),
-          backgroundColor: COLOR.pass, borderColor: COLOR.pass, fill: 'stack', tension: 0.1, pointRadius: 3 },
-        { label: 'fail', data: timeData(snaps, FIELDS.test262_fail),
-          backgroundColor: COLOR.fail, borderColor: COLOR.fail, fill: 'stack', tension: 0.1, pointRadius: 3 },
-        { label: 'compile_error', data: timeData(snaps, FIELDS.test262_ce),
-          backgroundColor: COLOR.ce, borderColor: COLOR.ce, fill: 'stack', tension: 0.1, pointRadius: 3 },
-        { label: 'timeout', data: timeData(snaps, FIELDS.test262_timeout),
-          backgroundColor: COLOR.timeout, borderColor: COLOR.timeout, fill: 'stack', tension: 0.1, pointRadius: 3 },
-        { label: 'skip', data: timeData(snaps, FIELDS.test262_skip),
-          backgroundColor: COLOR.skip, borderColor: COLOR.skip, fill: 'stack', tension: 0.1, pointRadius: 3 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      scales: { x: TIME_X, y: { stacked: true, grid: { color: 'rgba(255,255,255,0.04)' } } },
-      plugins: { legend: { position: 'bottom' } },
-    },
+    data: { datasets },
+    options: chartOptions(yScale, extraOpts),
   });
+  CHART_INSTANCES[canvasId] = chart;
+  return chart;
+}
+
+function buildStacked(snaps) {
+  // Stacked area: Y starts at 0 by definition (stacked totals are
+  // additive). User can still zoom in to investigate a band of interest.
+  const STACK_Y = {
+    stacked: true,
+    beginAtZero: true,
+    grid: { color: 'rgba(255,255,255,0.04)' },
+  };
+  return makeChart('chart-test262-stacked', [
+    { label: 'pass', data: timeData(snaps, FIELDS.test262_pass),
+      backgroundColor: COLOR.pass, borderColor: COLOR.pass, fill: 'stack', tension: 0.1, pointRadius: 3 },
+    { label: 'fail', data: timeData(snaps, FIELDS.test262_fail),
+      backgroundColor: COLOR.fail, borderColor: COLOR.fail, fill: 'stack', tension: 0.1, pointRadius: 3 },
+    { label: 'compile_error', data: timeData(snaps, FIELDS.test262_ce),
+      backgroundColor: COLOR.ce, borderColor: COLOR.ce, fill: 'stack', tension: 0.1, pointRadius: 3 },
+    { label: 'timeout', data: timeData(snaps, FIELDS.test262_timeout),
+      backgroundColor: COLOR.timeout, borderColor: COLOR.timeout, fill: 'stack', tension: 0.1, pointRadius: 3 },
+    { label: 'skip', data: timeData(snaps, FIELDS.test262_skip),
+      backgroundColor: COLOR.skip, borderColor: COLOR.skip, fill: 'stack', tension: 0.1, pointRadius: 3 },
+  ], STACK_Y);
 }
 
 function buildPass(snaps) {
-  return new Chart(document.getElementById('chart-test262-pass'), {
-    type: 'line',
-    data: {
-      datasets: [{
-        label: 'pass', data: timeData(snaps, FIELDS.test262_pass),
-        borderColor: COLOR.pass, backgroundColor: 'rgba(63,185,80,0.15)',
-        fill: true, tension: 0.1, pointRadius: 3,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      scales: { x: TIME_X, y: { grid: { color: 'rgba(255,255,255,0.04)' } } },
-      plugins: { legend: { display: false } },
-    },
-  });
+  return makeChart('chart-test262-pass', [{
+    label: 'pass', data: timeData(snaps, FIELDS.test262_pass),
+    borderColor: COLOR.pass, backgroundColor: 'rgba(63,185,80,0.15)',
+    fill: true, tension: 0.1, pointRadius: 3,
+  }], AUTOSCALE_Y, { plugins: { legend: { display: false } } });
 }
 
 function buildRefdiff(snaps) {
-  return new Chart(document.getElementById('chart-refdiff'), {
-    type: 'line',
-    data: {
-      datasets: [
-        { label: 'match', data: timeData(snaps, FIELDS.refdiff_match),
-          borderColor: COLOR.match, backgroundColor: COLOR.match, tension: 0.1, pointRadius: 3 },
-        { label: 'diff', data: timeData(snaps, FIELDS.refdiff_diff),
-          borderColor: COLOR.diff, backgroundColor: COLOR.diff, tension: 0.1, pointRadius: 3 },
-        { label: 'crash', data: timeData(snaps, FIELDS.refdiff_crash),
-          borderColor: COLOR.crash, backgroundColor: COLOR.crash, tension: 0.1, pointRadius: 3 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      scales: { x: TIME_X, y: { grid: { color: 'rgba(255,255,255,0.04)' } } },
-      plugins: { legend: { position: 'bottom' } },
-    },
-  });
+  return makeChart('chart-refdiff', [
+    { label: 'match', data: timeData(snaps, FIELDS.refdiff_match),
+      borderColor: COLOR.match, backgroundColor: COLOR.match, tension: 0.1, pointRadius: 3 },
+    { label: 'diff', data: timeData(snaps, FIELDS.refdiff_diff),
+      borderColor: COLOR.diff, backgroundColor: COLOR.diff, tension: 0.1, pointRadius: 3 },
+    { label: 'crash', data: timeData(snaps, FIELDS.refdiff_crash),
+      borderColor: COLOR.crash, backgroundColor: COLOR.crash, tension: 0.1, pointRadius: 3 },
+  ]);
 }
 
 function buildSuites(snaps) {
-  return new Chart(document.getElementById('chart-suites'), {
-    type: 'line',
-    data: {
-      datasets: [
-        { label: 'golden_ir pass', data: timeData(snaps, FIELDS.golden_pass),
-          borderColor: COLOR.accent, backgroundColor: 'rgba(88,166,255,0.10)', tension: 0.1, pointRadius: 3 },
-        { label: 'node pass', data: timeData(snaps, FIELDS.node_pass),
-          borderColor: '#a371f7', backgroundColor: 'rgba(163,113,247,0.10)', tension: 0.1, pointRadius: 3 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      scales: { x: TIME_X, y: { grid: { color: 'rgba(255,255,255,0.04)' } } },
-      plugins: { legend: { position: 'bottom' } },
-    },
-  });
+  return makeChart('chart-suites', [
+    { label: 'golden_ir pass', data: timeData(snaps, FIELDS.golden_pass),
+      borderColor: COLOR.accent, backgroundColor: 'rgba(88,166,255,0.10)', tension: 0.1, pointRadius: 3 },
+    { label: 'node pass', data: timeData(snaps, FIELDS.node_pass),
+      borderColor: '#a371f7', backgroundColor: 'rgba(163,113,247,0.10)', tension: 0.1, pointRadius: 3 },
+  ]);
 }
 
 function buildConformance(snaps) {
@@ -395,31 +456,32 @@ function buildConformance(snaps) {
       if (i == null || t == null || t === 0) return null;
       return { x: s.timestamp, y: 100 * i / t };
     }).filter(p => p !== null);
-  return new Chart(document.getElementById('chart-conformance'), {
-    type: 'line',
-    data: {
-      datasets: [
-        { label: 'TypeScript features',
-          data: dataFor(FIELDS.ts_impl, FIELDS.ts_total),
-          borderColor: '#3178c6', backgroundColor: 'rgba(49,120,198,0.10)', tension: 0.1, pointRadius: 3 },
-        { label: 'ECMAScript features',
-          data: dataFor(FIELDS.es_impl, FIELDS.es_total),
-          borderColor: '#f7df1e', backgroundColor: 'rgba(247,223,30,0.10)', tension: 0.1, pointRadius: 3 },
-        { label: 'Node.js APIs',
-          data: dataFor(FIELDS.node_api_impl, FIELDS.node_api_total),
-          borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.10)', tension: 0.1, pointRadius: 3 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      scales: {
-        x: TIME_X,
-        y: { min: 0, max: 100, ticks: { callback: v => v + '%' },
-             grid: { color: 'rgba(255,255,255,0.04)' } },
-      },
-      plugins: { legend: { position: 'bottom' } },
-    },
+  // Percentages — show full 0–100 range; user can zoom into 90–100 band
+  // when most metrics live up there.
+  const PCT_Y = {
+    min: 0, max: 100,
+    ticks: { callback: v => v + '%' },
+    grid: { color: 'rgba(255,255,255,0.04)' },
+  };
+  return makeChart('chart-conformance', [
+    { label: 'TypeScript features',
+      data: dataFor(FIELDS.ts_impl, FIELDS.ts_total),
+      borderColor: '#3178c6', backgroundColor: 'rgba(49,120,198,0.10)', tension: 0.1, pointRadius: 3 },
+    { label: 'ECMAScript features',
+      data: dataFor(FIELDS.es_impl, FIELDS.es_total),
+      borderColor: '#f7df1e', backgroundColor: 'rgba(247,223,30,0.10)', tension: 0.1, pointRadius: 3 },
+    { label: 'Node.js APIs',
+      data: dataFor(FIELDS.node_api_impl, FIELDS.node_api_total),
+      borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.10)', tension: 0.1, pointRadius: 3 },
+  ], PCT_Y);
+}
+
+function wireResetButtons() {
+  document.querySelectorAll('.reset-btn[data-reset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const chart = CHART_INSTANCES[btn.dataset.reset];
+      if (chart && chart.resetZoom) chart.resetZoom();
+    });
   });
 }
 
@@ -432,6 +494,7 @@ function buildConformance(snaps) {
     buildRefdiff(snaps);
     buildSuites(snaps);
     buildConformance(snaps);
+    wireResetButtons();
   }
 })();
 </script>
