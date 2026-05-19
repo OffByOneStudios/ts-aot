@@ -6652,6 +6652,30 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             return;
         }
 
+        // RegExp(pattern[, flags]) — same semantics as `new RegExp(...)` per
+        // ECMA-262 §22.2.4.1 RegExp Constructor. Without this case, the call
+        // fell through to user-function resolution and the Monomorphizer
+        // generated an empty-body stub (RegExp_m<hash>_any → undefined),
+        // which silently broke libraries like lodash that do
+        // `var re = RegExp('...')` at module init.
+        if (ident->name == "RegExp") {
+            std::shared_ptr<HIRValue> patternArg;
+            std::shared_ptr<HIRValue> flagsArg;
+            if (!node->arguments.empty()) {
+                patternArg = lowerExpression(node->arguments[0].get());
+            } else {
+                patternArg = builder_.createConstString("");
+            }
+            if (node->arguments.size() >= 2) {
+                flagsArg = lowerExpression(node->arguments[1].get());
+            } else {
+                flagsArg = builder_.createConstNull();
+            }
+            lastValue_ = builder_.createCall("ts_regexp_create",
+                {patternArg, flagsArg}, HIRType::makeObject());
+            return;
+        }
+
         // Error constructors called as functions (without new) - same as new Error()
         if (ident->name == "Error" || ident->name == "TypeError" || ident->name == "RangeError" ||
             ident->name == "ReferenceError" || ident->name == "SyntaxError" || ident->name == "URIError" ||

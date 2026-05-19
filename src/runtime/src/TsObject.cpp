@@ -1127,7 +1127,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Forward declarations for prototype methods
-    static TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_object_toString_native(void* ctx, int argc, TsValue** argv);
     static TsValue* ts_object_valueOf_native(void* ctx, int argc, TsValue** argv);
@@ -9442,7 +9442,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // Prototype method implementations
     
     // Function.prototype.toString - returns "function name() { [native code] }" for compiled functions
-    static TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv) {
+    TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv) {
         if (ctx) {
             // ctx may be TsFunction* or TsClosure* - check magic to determine type
             TsObject* obj = (TsObject*)ctx;

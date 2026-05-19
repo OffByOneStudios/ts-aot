@@ -1375,16 +1375,27 @@ void* ts_get_global_Boolean() {
     return cached;
 }
 
+// Defined in TsObject.cpp — Function.prototype.toString returns the
+// "function NAME() { [native code] }" template required by libraries
+// (e.g. lodash) that introspect function source for native detection.
+extern "C" TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv);
+
 void* ts_get_global_Function() {
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = TsMap::Create();
         TsMap* proto = TsMap::Create();
 
-        // Function.prototype.call / apply / bind
+        // Function.prototype.call / apply / bind / toString
+        // toString is required for lodash (and many other libraries) which
+        // call Function.prototype.toString.call(fn) to inspect a function's
+        // source for native-code detection. Without an explicit toString on
+        // Function.prototype, the lookup falls through to Object.prototype.toString
+        // which returns "[object Function]" instead of "function NAME() { [native code] }".
         addMethod(proto, "call", (void*)ts_function_call_native);
         addMethod(proto, "apply", (void*)ts_function_apply_native);
         addMethod(proto, "bind", (void*)ts_function_bind_native);
+        addMethod(proto, "toString", (void*)ts_function_toString_native);
 
         // Set ctor.prototype = proto
         TsValue protoKey;
