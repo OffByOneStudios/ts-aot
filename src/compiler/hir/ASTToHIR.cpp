@@ -5807,6 +5807,42 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
 
         // Check if we can use a direct call for method invocation
 
+        // Case super: `super.method(...)` inside a class method. Walk the
+        // base-class chain (skipping currentClass_ itself, so an override
+        // doesn't shadow the parent's implementation) and emit a direct
+        // call to the resolved method with `this` from the current scope.
+        // ECMA-262 §13.3.7 GetSuperBase: super resolves to the home
+        // object's [[Prototype]], which for class methods is the parent
+        // prototype.
+        auto* superRecv = dynamic_cast<ast::SuperExpression*>(propAccess->expression.get());
+        if (superRecv && currentClass_ && currentClass_->baseClass) {
+            HIRClass* searchClass = currentClass_->baseClass;
+            while (searchClass) {
+                auto it = searchClass->methods.find(propAccess->name);
+                if (it != searchClass->methods.end() && it->second) {
+                    HIRFunction* method = it->second;
+                    std::vector<std::shared_ptr<HIRValue>> methodArgs;
+                    auto thisVal = lookupVariable("this");
+                    methodArgs.push_back(thisVal ? thisVal : builder_.createConstNull());
+                    for (auto& arg : args) methodArgs.push_back(arg);
+                    auto resultType = method->returnType;
+                    if (method->isGenerator) {
+                        resultType = HIRType::makeClass("Generator", 0);
+                    }
+                    lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
+                    return;
+                }
+                searchClass = searchClass->baseClass;
+            }
+            // Method not found in any user-defined base class. Fall back
+            // to dynamic dispatch on `this` — this handles methods
+            // inherited from a runtime/extension base (e.g. EventEmitter).
+            auto obj = lookupVariable("this");
+            if (!obj) obj = builder_.createConstNull();
+            lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
+            return;
+        }
+
         // Case 1: Method call on 'this' - we know the class statically
         auto* thisIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
         if (thisIdent && thisIdent->name == "this" && currentClass_) {
