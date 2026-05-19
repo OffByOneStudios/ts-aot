@@ -333,6 +333,27 @@ void* ts_get_global_Object() {
     // Promote to TsFunction so `typeof Object === "function"` and
     // `isConstructor(Object)` returns true.
     cached = wrapAsCallable(ctor, "Object", 1);
+
+    // Override the default undefined-returning body with the real
+    // Object(value) coercion. Used by patterns like
+    // `Object(value)` (identity for objects, boxes primitives) and the
+    // common lodash idiom `var nativeKeys = overArg(Object.keys, Object);
+    // function nativeKeys(o) { return Object.keys(Object(o)); }` — without
+    // a real body, Object(o) returned undefined and Object.keys(undefined)
+    // returned [].
+    extern void* ts_object_constructor(void* arg);
+    {
+        TsFunction* fn = (TsFunction*)ts_value_get_object((TsValue*)cached);
+        if (fn) {
+            fn->funcPtr = (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (argc < 1 || !argv) {
+                    extern void* ts_object_create_empty();
+                    return (TsValue*)ts_value_make_object(ts_object_create_empty());
+                }
+                return (TsValue*)ts_object_constructor((void*)argv[0]);
+            };
+        }
+    }
     return cached;
 }
 
