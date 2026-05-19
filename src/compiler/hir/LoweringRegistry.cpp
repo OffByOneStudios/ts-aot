@@ -1527,21 +1527,28 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .ptrArg()      // object
             .build());
 
+    // These runtime entry points return a boxed TsValue* (a NaN-box of
+    // bool, per ECMA-262 19.1.2.15/.16/.13). The earlier `.returnsBool()`
+    // produced `call i1 @ts_object_isFrozen(ptr)` — an ABI mismatch with
+    // the C-level signature `TsValue* ts_object_isFrozen(TsValue*)` that
+    // truncated the upper bits of the returned pointer to i1 and then
+    // sometimes fed the truncated bit back through downstream code as a
+    // pointer, AVing on `Object.isFrozen(frozen)`.
     reg.registerLowering("ts_object_isFrozen",
         lowering("ts_object_isFrozen")
-            .returnsBool()
+            .returnsPtr()
             .ptrArg()      // object
             .build());
 
     reg.registerLowering("ts_object_isSealed",
         lowering("ts_object_isSealed")
-            .returnsBool()
+            .returnsPtr()
             .ptrArg()      // object
             .build());
 
     reg.registerLowering("ts_object_isExtensible",
         lowering("ts_object_isExtensible")
-            .returnsBool()
+            .returnsPtr()
             .ptrArg()      // object
             .build());
 
