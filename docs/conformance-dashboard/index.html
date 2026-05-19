@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ts-aot Conformance Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #a371f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 {
+    margin: 0 0 4px 0;
+    font-size: 22px;
+    font-weight: 600;
+  }
+  header .sub {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  main {
+    padding: 24px 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .card h2 {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .card .big {
+    font-size: 32px;
+    font-weight: 600;
+    margin: 4px 0;
+  }
+  .card .delta {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .card .delta.up { color: var(--green); }
+  .card .delta.down { color: var(--red); }
+  .card .meta {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .charts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .chart-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .chart-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .chart-wrap {
+    position: relative;
+    height: 280px;
+  }
+  .chart-wide {
+    grid-column: 1 / -1;
+  }
+  .empty {
+    color: var(--muted);
+    font-style: italic;
+    padding: 40px;
+    text-align: center;
+  }
+  .footnote {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  code {
+    background: #1f2428;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+  @media (max-width: 900px) {
+    .charts { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ts-aot Conformance Dashboard</h1>
+  <div class="sub" id="header-sub">loading…</div>
+</header>
+
+<main>
+  <section class="grid" id="kpi-grid"></section>
+
+  <section class="charts">
+    <div class="chart-card chart-wide">
+      <h3>test262 status over time</h3>
+      <div class="chart-wrap"><canvas id="chart-test262-stacked"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>test262 pass count</h3>
+      <div class="chart-wrap"><canvas id="chart-test262-pass"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>refdiff matches</h3>
+      <div class="chart-wrap"><canvas id="chart-refdiff"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>regression suites</h3>
+      <div class="chart-wrap"><canvas id="chart-suites"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>conformance matrices (% implemented)</h3>
+      <div class="chart-wrap"><canvas id="chart-conformance"></canvas></div>
+    </div>
+  </section>
+
+  <div class="footnote">
+    Data source: <code>docs/conformance-dashboard/snapshots.jsonl</code>.
+    Append a row with <code>python tools/conformance_snapshot.py</code>.
+    Reload this page to pick up new data.
+  </div>
+</main>
+
+<script>
+const FIELDS = {
+  test262_pass: s => s?.test262?.pass,
+  test262_fail: s => s?.test262?.fail,
+  test262_skip: s => s?.test262?.skip,
+  test262_timeout: s => s?.test262?.timeout,
+  test262_ce: s => s?.test262?.compile_error,
+  test262_total: s => s?.test262?.total,
+  refdiff_match: s => s?.refdiff?.match,
+  refdiff_diff: s => s?.refdiff?.diff,
+  refdiff_crash: s => s?.refdiff?.crash,
+  refdiff_total: s => s?.refdiff?.total,
+  golden_pass: s => s?.golden_ir?.pass,
+  golden_total: s => s?.golden_ir?.total,
+  node_pass: s => s?.node?.pass,
+  node_total: s => s?.node?.total,
+  ts_impl: s => s?.typescript_features?.implemented,
+  ts_total: s => s?.typescript_features?.total,
+  es_impl: s => s?.ecmascript_features?.implemented,
+  es_total: s => s?.ecmascript_features?.total,
+  node_api_impl: s => s?.nodejs_apis?.implemented,
+  node_api_total: s => s?.nodejs_apis?.total,
+};
+
+const COLOR = {
+  pass: 'rgba(63, 185, 80, 0.7)',
+  fail: 'rgba(248, 81, 73, 0.7)',
+  skip: 'rgba(110, 118, 129, 0.5)',
+  ce: 'rgba(210, 153, 34, 0.7)',
+  timeout: 'rgba(163, 113, 247, 0.7)',
+  match: 'rgba(63, 185, 80, 0.9)',
+  diff: 'rgba(248, 81, 73, 0.9)',
+  crash: 'rgba(210, 153, 34, 0.9)',
+  accent: '#58a6ff',
+  text: '#c9d1d9',
+  border: '#30363d',
+};
+
+Chart.defaults.color = COLOR.text;
+Chart.defaults.borderColor = COLOR.border;
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+async function loadSnapshots() {
+  const res = await fetch('snapshots.jsonl');
+  if (!res.ok) return [];
+  const text = await res.text();
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try { rows.push(JSON.parse(line)); } catch (e) { console.warn(e, line); }
+  }
+  rows.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  return rows;
+}
+
+function fmtPct(n, total) {
+  if (n == null || total == null || total === 0) return '—';
+  return (100 * n / total).toFixed(1) + '%';
+}
+
+function fmtDelta(curr, prev) {
+  if (curr == null || prev == null) return '';
+  const d = curr - prev;
+  if (d === 0) return 'no change';
+  const arrow = d > 0 ? '▲' : '▼';
+  return `${arrow} ${Math.abs(d).toLocaleString()} vs prior`;
+}
+
+function deltaClass(curr, prev, goodIsUp = true) {
+  if (curr == null || prev == null || curr === prev) return '';
+  const up = curr > prev;
+  return (up === goodIsUp) ? 'up' : 'down';
+}
+
+function renderKPIs(snaps) {
+  const grid = document.getElementById('kpi-grid');
+  if (snaps.length === 0) {
+    grid.innerHTML = '<div class="empty">No snapshots yet. Run <code>python tools/conformance_snapshot.py</code> to capture the first.</div>';
+    return;
+  }
+  const latest = snaps[snaps.length - 1];
+  const prev = snaps.length > 1 ? snaps[snaps.length - 2] : null;
+
+  function card(title, getter, meta = '', goodIsUp = true, totalGetter = null) {
+    const curr = getter(latest);
+    const prevVal = prev ? getter(prev) : null;
+    const total = totalGetter ? totalGetter(latest) : null;
+    const pct = total ? ` (${fmtPct(curr, total)})` : '';
+    const delta = fmtDelta(curr, prevVal);
+    const dcls = deltaClass(curr, prevVal, goodIsUp);
+    return `
+      <div class="card">
+        <h2>${title}</h2>
+        <div class="big">${curr != null ? curr.toLocaleString() : '—'}${pct}</div>
+        <div class="delta ${dcls}">${delta}</div>
+        <div class="meta">${meta}</div>
+      </div>`;
+  }
+
+  grid.innerHTML = [
+    card('test262 pass', FIELDS.test262_pass,
+         `of ${FIELDS.test262_total(latest)?.toLocaleString()}`, true,
+         FIELDS.test262_total),
+    card('test262 compile-errors', FIELDS.test262_ce, '', false),
+    card('refdiff match', FIELDS.refdiff_match, '', true, FIELDS.refdiff_total),
+    card('golden_ir pass', FIELDS.golden_pass, '', true, FIELDS.golden_total),
+    card('node tests pass', FIELDS.node_pass, '', true, FIELDS.node_total),
+    card('TS features', FIELDS.ts_impl, 'runtime-relevant', true, FIELDS.ts_total),
+    card('ES features', FIELDS.es_impl, 'across all ES versions', true, FIELDS.es_total),
+    card('Node.js APIs', FIELDS.node_api_impl, 'across all modules', true, FIELDS.node_api_total),
+  ].join('');
+
+  const sub = document.getElementById('header-sub');
+  const git = latest.git || {};
+  sub.innerHTML = `latest snapshot: <code>${git.short || '?'}</code> &middot; ${latest.timestamp} &middot; ${snaps.length} data point${snaps.length === 1 ? '' : 's'} &middot; ${git.subject || ''}`;
+}
+
+function timeData(snaps, getter) {
+  const data = [];
+  for (const s of snaps) {
+    const v = getter(s);
+    if (v == null) continue;
+    data.push({ x: s.timestamp, y: v });
+  }
+  return data;
+}
+
+const TIME_X = {
+  type: 'time',
+  time: { unit: 'day', tooltipFormat: 'PP p' },
+  ticks: { autoSkip: true, maxRotation: 0 },
+  grid: { color: 'rgba(255,255,255,0.04)' },
+};
+
+function buildStacked(snaps) {
+  return new Chart(document.getElementById('chart-test262-stacked'), {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'pass', data: timeData(snaps, FIELDS.test262_pass),
+          backgroundColor: COLOR.pass, borderColor: COLOR.pass, fill: 'stack', tension: 0.1, pointRadius: 3 },
+        { label: 'fail', data: timeData(snaps, FIELDS.test262_fail),
+          backgroundColor: COLOR.fail, borderColor: COLOR.fail, fill: 'stack', tension: 0.1, pointRadius: 3 },
+        { label: 'compile_error', data: timeData(snaps, FIELDS.test262_ce),
+          backgroundColor: COLOR.ce, borderColor: COLOR.ce, fill: 'stack', tension: 0.1, pointRadius: 3 },
+        { label: 'timeout', data: timeData(snaps, FIELDS.test262_timeout),
+          backgroundColor: COLOR.timeout, borderColor: COLOR.timeout, fill: 'stack', tension: 0.1, pointRadius: 3 },
+        { label: 'skip', data: timeData(snaps, FIELDS.test262_skip),
+          backgroundColor: COLOR.skip, borderColor: COLOR.skip, fill: 'stack', tension: 0.1, pointRadius: 3 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: { x: TIME_X, y: { stacked: true, grid: { color: 'rgba(255,255,255,0.04)' } } },
+      plugins: { legend: { position: 'bottom' } },
+    },
+  });
+}
+
+function buildPass(snaps) {
+  return new Chart(document.getElementById('chart-test262-pass'), {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: 'pass', data: timeData(snaps, FIELDS.test262_pass),
+        borderColor: COLOR.pass, backgroundColor: 'rgba(63,185,80,0.15)',
+        fill: true, tension: 0.1, pointRadius: 3,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: TIME_X, y: { grid: { color: 'rgba(255,255,255,0.04)' } } },
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+function buildRefdiff(snaps) {
+  return new Chart(document.getElementById('chart-refdiff'), {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'match', data: timeData(snaps, FIELDS.refdiff_match),
+          borderColor: COLOR.match, backgroundColor: COLOR.match, tension: 0.1, pointRadius: 3 },
+        { label: 'diff', data: timeData(snaps, FIELDS.refdiff_diff),
+          borderColor: COLOR.diff, backgroundColor: COLOR.diff, tension: 0.1, pointRadius: 3 },
+        { label: 'crash', data: timeData(snaps, FIELDS.refdiff_crash),
+          borderColor: COLOR.crash, backgroundColor: COLOR.crash, tension: 0.1, pointRadius: 3 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: { x: TIME_X, y: { grid: { color: 'rgba(255,255,255,0.04)' } } },
+      plugins: { legend: { position: 'bottom' } },
+    },
+  });
+}
+
+function buildSuites(snaps) {
+  return new Chart(document.getElementById('chart-suites'), {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'golden_ir pass', data: timeData(snaps, FIELDS.golden_pass),
+          borderColor: COLOR.accent, backgroundColor: 'rgba(88,166,255,0.10)', tension: 0.1, pointRadius: 3 },
+        { label: 'node pass', data: timeData(snaps, FIELDS.node_pass),
+          borderColor: '#a371f7', backgroundColor: 'rgba(163,113,247,0.10)', tension: 0.1, pointRadius: 3 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: { x: TIME_X, y: { grid: { color: 'rgba(255,255,255,0.04)' } } },
+      plugins: { legend: { position: 'bottom' } },
+    },
+  });
+}
+
+function buildConformance(snaps) {
+  const dataFor = (impl, total) =>
+    snaps.map(s => {
+      const i = impl(s), t = total(s);
+      if (i == null || t == null || t === 0) return null;
+      return { x: s.timestamp, y: 100 * i / t };
+    }).filter(p => p !== null);
+  return new Chart(document.getElementById('chart-conformance'), {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'TypeScript features',
+          data: dataFor(FIELDS.ts_impl, FIELDS.ts_total),
+          borderColor: '#3178c6', backgroundColor: 'rgba(49,120,198,0.10)', tension: 0.1, pointRadius: 3 },
+        { label: 'ECMAScript features',
+          data: dataFor(FIELDS.es_impl, FIELDS.es_total),
+          borderColor: '#f7df1e', backgroundColor: 'rgba(247,223,30,0.10)', tension: 0.1, pointRadius: 3 },
+        { label: 'Node.js APIs',
+          data: dataFor(FIELDS.node_api_impl, FIELDS.node_api_total),
+          borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.10)', tension: 0.1, pointRadius: 3 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: TIME_X,
+        y: { min: 0, max: 100, ticks: { callback: v => v + '%' },
+             grid: { color: 'rgba(255,255,255,0.04)' } },
+      },
+      plugins: { legend: { position: 'bottom' } },
+    },
+  });
+}
+
+(async () => {
+  const snaps = await loadSnapshots();
+  renderKPIs(snaps);
+  if (snaps.length > 0) {
+    buildStacked(snaps);
+    buildPass(snaps);
+    buildRefdiff(snaps);
+    buildSuites(snaps);
+    buildConformance(snaps);
+  }
+})();
+</script>
+
+</body>
+</html>

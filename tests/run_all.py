@@ -347,6 +347,17 @@ def main():
 
     print_summary(results)
 
+    # Append a conformance snapshot so the dashboard time-series grows
+    # naturally. Best-effort: never fails the run.
+    snapshot_tool = Path(__file__).resolve().parent.parent / "tools" / "conformance_snapshot.py"
+    if snapshot_tool.exists():
+        try:
+            subprocess.run(
+                [sys.executable, str(snapshot_tool), "--no-refdiff"],
+                cwd=snapshot_tool.parent.parent, check=False, timeout=60)
+        except Exception as e:
+            print(f"\n[snapshot] skipped: {e}")
+
     all_passed = all(r['failed'] == 0 for r in results)
     return 0 if all_passed else 1
 
