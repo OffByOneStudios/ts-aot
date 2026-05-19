@@ -3793,9 +3793,13 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
         }
         llvm::Type* valType = val->getType();
 
-        // When storing to an Any-typed alloca (ptr), we need to box non-pointer values
-        // (inline NaN boxing - no heap allocation)
-        if (expectedType->kind == HIRTypeKind::Any && targetType->isPointerTy()) {
+        // When storing to ANY pointer-typed alloca (Any, String, Class, etc.), we
+        // need to NaN-box non-pointer values. Storing a raw double/i64 into a
+        // ptr-sized slot then loading as ptr would re-decode the raw bits as a
+        // NaN-boxed value (the unbiased double 5.0 = 0x4014... reads back as
+        // biased double 4.5). This widens the variable's effective storage to
+        // Any when a type-mismatched value is assigned (e.g., `var b = "x"; b = 5;`).
+        if (targetType->isPointerTy()) {
             if (valType->isIntegerTy(64)) {
                 val = emitInlineBoxInt(val);
             } else if (valType->isDoubleTy()) {
