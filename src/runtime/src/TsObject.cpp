@@ -5642,9 +5642,24 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) return obj;
 
-        // Convert flat objects to TsMap first
+        // Flat objects: freeze in place via shapeId flag bits. The previous
+        // demote-to-TsMap approach returned a new TsMap pointer but the
+        // caller still held the original flat-object pointer, so the freeze
+        // was effectively invisible.
         if (is_flat_object(rawPtr)) {
-            rawPtr = ts_flat_object_to_map(rawPtr);
+            flat_object_set_frozen(rawPtr);
+            // If there's an overflow map, freeze it too so existing dynamic
+            // properties also become read-only.
+            uint32_t sid = flat_object_shape_id(rawPtr);
+            if (ShapeDescriptor* desc = ts_shape_lookup(sid)) {
+                void* overflow = *(void**)((char*)rawPtr + 16 + desc->numSlots * 8);
+                if (overflow) {
+                    TsMap* overflowMap = (TsMap*)overflow;
+                    overflowMap->Freeze();
+                    overflowMap->PreventExtensions();
+                }
+            }
+            return obj;
         }
 
         // Check if it's a TsMap
@@ -5764,9 +5779,9 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
-        // Flat objects are never frozen (they haven't been converted)
+        // Flat objects: check the in-place frozen flag.
         if (is_flat_object(rawPtr)) {
-            return ts_value_make_bool(false);
+            return ts_value_make_bool(flat_object_is_frozen(rawPtr));
         }
 
         // Check if it's a TsMap

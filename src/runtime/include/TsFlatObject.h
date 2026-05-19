@@ -34,6 +34,21 @@ struct ShapeDescriptor {
 
 #define MAX_SHAPES 4096
 
+// Integrity-level flags stored in the upper bits of the shapeId word.
+// MAX_SHAPES (4096) fits in 12 bits, leaving the upper 20 bits free.
+//   bit 31: FROZEN          (also implies SEALED + NON_EXTENSIBLE)
+//   bit 30: SEALED          (also implies NON_EXTENSIBLE)
+//   bit 29: NON_EXTENSIBLE
+// Object.freeze / Object.seal / Object.preventExtensions set these in
+// place on a flat object instead of demoting to TsMap (the old approach
+// returned a NEW TsMap pointer but the caller still held the original
+// flat-object pointer, so the freeze was effectively invisible).
+static constexpr uint32_t FLAT_FLAG_FROZEN         = 0x80000000;
+static constexpr uint32_t FLAT_FLAG_SEALED         = 0x40000000;
+static constexpr uint32_t FLAT_FLAG_NON_EXTENSIBLE = 0x20000000;
+static constexpr uint32_t FLAT_FLAG_MASK           = 0xE0000000;
+static constexpr uint32_t FLAT_SHAPE_ID_MASK       = 0x1FFFFFFF;
+
 extern ShapeDescriptor* g_shape_table[MAX_SHAPES];
 extern uint32_t g_shape_count;
 
@@ -52,9 +67,30 @@ inline bool is_flat_object(void* obj) {
     return *(uint32_t*)obj == FLAT_MAGIC;
 }
 
-// Get shapeId from a flat object
+// Get shapeId from a flat object (masks off integrity-level flags)
 inline uint32_t flat_object_shape_id(void* obj) {
-    return *((uint32_t*)obj + 1);
+    return *((uint32_t*)obj + 1) & FLAT_SHAPE_ID_MASK;
+}
+
+// Integrity-level checks / setters for flat objects
+inline bool flat_object_is_frozen(void* obj) {
+    return (*((uint32_t*)obj + 1) & FLAT_FLAG_FROZEN) != 0;
+}
+inline bool flat_object_is_sealed(void* obj) {
+    return (*((uint32_t*)obj + 1) & (FLAT_FLAG_SEALED | FLAT_FLAG_FROZEN)) != 0;
+}
+inline bool flat_object_is_extensible(void* obj) {
+    return (*((uint32_t*)obj + 1) &
+            (FLAT_FLAG_NON_EXTENSIBLE | FLAT_FLAG_SEALED | FLAT_FLAG_FROZEN)) == 0;
+}
+inline void flat_object_set_frozen(void* obj) {
+    *((uint32_t*)obj + 1) |= (FLAT_FLAG_FROZEN | FLAT_FLAG_SEALED | FLAT_FLAG_NON_EXTENSIBLE);
+}
+inline void flat_object_set_sealed(void* obj) {
+    *((uint32_t*)obj + 1) |= (FLAT_FLAG_SEALED | FLAT_FLAG_NON_EXTENSIBLE);
+}
+inline void flat_object_set_non_extensible(void* obj) {
+    *((uint32_t*)obj + 1) |= FLAT_FLAG_NON_EXTENSIBLE;
 }
 
 // Get vtable pointer from a flat object

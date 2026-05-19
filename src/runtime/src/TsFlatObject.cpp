@@ -250,6 +250,11 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
 extern "C" void ts_flat_object_set_property(void* obj, const char* key, void* value) {
     if (!obj || !key) return;
 
+    // ECMA-262 9.1.9 [[Set]]: a frozen object silently ignores writes in
+    // non-strict mode (or throws in strict). For now, silently no-op writes
+    // to existing slots and reject new properties when frozen/sealed.
+    if (flat_object_is_frozen(obj)) return;
+
     uint32_t shapeId = flat_object_shape_id(obj);
     ShapeDescriptor* desc = ts_shape_lookup(shapeId);
     if (!desc) return;
@@ -262,6 +267,11 @@ extern "C" void ts_flat_object_set_property(void* obj, const char* key, void* va
         ts_gc_write_barrier(slotPtr, value);
         return;
     }
+
+    // Sealed/non-extensible objects can update existing inline slots but
+    // can't add new overflow properties. Bail out before reaching the
+    // overflow-map allocation below.
+    if (flat_object_is_sealed(obj)) return;
 
     // Check the vtable for a `__setter_<key>` entry. Class accessor
     // declarations register their setters under this prefixed key in the
