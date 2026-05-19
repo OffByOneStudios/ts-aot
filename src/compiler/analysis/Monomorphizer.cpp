@@ -546,9 +546,16 @@ void Monomorphizer::monomorphize(ast::Program* program, Analyzer& analyzer) {
             moduleInit->body.push_back(std::move(exportsDecl));
         }
 
-        // Inject __filename and __dirname for JavaScript modules
-        // These are CJS globals that many JS modules rely on
-        if (module->type == ModuleType::UntypedJavaScript || module->type == ModuleType::TypedJavaScript) {
+        // Inject __filename and __dirname for user modules (JS and TS).
+        // The analyzer declares these as String-typed identifiers (see
+        // Analyzer_Core.cpp ~line 70), but their VALUES were only injected
+        // for JS modules. TS user modules left them as undefined-typed
+        // allocas, which works as long as property access on undefined
+        // silently returns undefined — but spec-compliant null/undefined
+        // throw exposes the gap.
+        if (module->type == ModuleType::UntypedJavaScript ||
+            module->type == ModuleType::TypedJavaScript ||
+            module->type == ModuleType::TypeScript) {
             // __filename = "<absolute path to this file>"
             auto filenameDecl = std::make_unique<ast::VariableDeclaration>();
             auto filenameName = std::make_unique<ast::Identifier>();

@@ -387,7 +387,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         // because file-level variables need to be shared across functions.
         // Helper to register a single name as a module global
         auto registerModuleGlobalName = [&](const std::string& name, std::shared_ptr<HIRType> globalType) {
-            if (name.find("__") == 0 || name == "exports") return;
+            // Skip compiler-synthesized `__module_init_*`, `__synthetic_*`, and
+            // `exports` (handled separately). The CJS-style globals `__filename`
+            // and `__dirname` (injected by the Monomorphizer for user modules)
+            // ARE registered as module globals so inner functions can read them
+            // via @__modvar_X. Without this exemption, user_main reading
+            // `__filename` would see undefined.
+            if (name == "exports") return;
+            if (name.find("__") == 0 && name != "__filename" && name != "__dirname") return;
             moduleGlobalVarsByModule_[name].insert(currentModulePath_);
             module_->globals[modVarName(name)] = globalType;
         };
@@ -429,7 +436,11 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
 
             if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
                 // Simple variable: const x = ...
-                if (ident->name.find("__") == 0 || ident->name == "exports") return;
+                // Skip compiler-synthesized names but allow the CJS-style globals
+                // __filename and __dirname (injected by the Monomorphizer).
+                if (ident->name == "exports") return;
+                if (ident->name.find("__") == 0 &&
+                    ident->name != "__filename" && ident->name != "__dirname") return;
                 moduleVarDecls_[ident->name] = varDecl;
                 registerModuleGlobalName(ident->name, globalType);
             } else {
