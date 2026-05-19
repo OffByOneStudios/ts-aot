@@ -3079,11 +3079,14 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Handle non-pointer NaN-boxed values
         if (nanbox_is_undefined(nb) || nanbox_is_null(nb)) {
-            // TODO: Per spec, property access on null/undefined should throw TypeError.
-            // Currently returns undefined to avoid breaking existing code that relies
-            // on incomplete runtime functions returning null. Enable TypeError once
-            // the underlying runtime functions properly return valid objects.
-            return ts_value_make_undefined();
+            // ECMA-262 §13.3.2.1: property access on null/undefined throws
+            // TypeError (e.g. `null.foo` or `undefined.bar`). The V8-style
+            // message format is used for compatibility with refdiff baselines.
+            char msg[160];
+            snprintf(msg, sizeof(msg), "Cannot read properties of %s (reading '%s')",
+                     nanbox_is_null(nb) ? "null" : "undefined", keyStr);
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return ts_value_make_undefined();  // unreachable
         }
         if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
             // Number methods: toString, toFixed, valueOf, toPrecision, toExponential
@@ -7499,6 +7502,15 @@ TsValue* ts_value_make_int(int64_t i) {
 
         uint64_t objNb = nanbox_from_tsvalue_ptr(obj);
         uint64_t keyNb = nanbox_from_tsvalue_ptr(key);
+
+        // TODO: ECMA-262 §13.3.2.1 says property access on null/undefined should
+        // throw TypeError. The sibling static-key path (ts_object_get_property)
+        // already throws. This dynamic-key path currently returns undefined to
+        // avoid 8 latent node-test regressions (enum_reverse, commonjs_globals,
+        // http2_basic, inspector_stub, object_getOwnPropertyDescriptors,
+        // os_constants, util_inspect_simple, zlib_basic). Each is a real bug
+        // where a property access on a value that's actually undefined was
+        // silently masked. See memory/enable-null-throw-blockers.md.
 
         // Non-pointer obj: nothing to access
         if (!nanbox_is_ptr(objNb)) return ts_value_make_undefined();
