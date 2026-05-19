@@ -1,0 +1,67 @@
+{
+  "name": "timers",
+  "version": "1.0.0",
+  "modules": ["timers", "node:timers"],
+  "objects": {
+    "timers": {
+      "methods": {
+        "setTimeout": {
+          "call": "ts_set_timeout",
+          "hirName": "setTimeout",
+          "params": [
+            {"name": "callback", "type": "Function"},
+            {"name": "delay", "type": "number", "optional": true}
+          ],
+          "returns": "number",
+          "lowering": { "args": ["ptr", "i64"], "returns": "ptr" }
+        },
+        "setInterval": {
+          "call": "ts_set_interval",
+          "hirName": "setInterval",
+          "params": [
+            {"name": "callback", "type": "Function"},
+            {"name": "delay", "type": "number", "optional": true}
+          ],
+          "returns": "number",
+          "lowering": { "args": ["ptr", "i64"], "returns": "ptr" }
+        },
+        "setImmediate": {
+          "call": "ts_set_immediate",
+          "hirName": "setImmediate",
+          "params": [
+            {"name": "callback", "type": "Function"}
+          ],
+          "returns": "number",
+          "lowering": { "args": ["ptr"], "returns": "ptr" }
+        },
+        "clearTimeout": {
+          "call": "ts_clear_timer",
+          "hirName": "clearTimeout",
+          "params": [
+            {"name": "timerId", "type": "any"}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "clearInterval": {
+          "call": "ts_clear_timer",
+          "hirName": "clearInterval",
+          "params": [
+            {"name": "timerId", "type": "any"}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        },
+        "clearImmediate": {
+          "call": "ts_clear_timer",
+          "hirName": "clearImmediate",
+          "params": [
+            {"name": "timerId", "type": "any"}
+          ],
+          "returns": "void",
+          "lowering": { "args": ["ptr"], "returns": "void" }
+        }
+      }
+    }
+  }
+}
