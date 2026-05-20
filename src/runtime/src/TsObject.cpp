@@ -7505,8 +7505,28 @@ TsValue* ts_value_make_int(int64_t i) {
         // where a property access on a value that's actually undefined was
         // silently masked. See memory/enable-null-throw-blockers.md.
 
-        // Non-pointer obj: nothing to access
-        if (!nanbox_is_ptr(objNb)) return ts_value_make_undefined();
+        // Non-pointer obj: primitive number/bool still has prototype methods
+        // (toString, valueOf, ...). Delegate to ts_object_get_property which
+        // handles those primitives. Other non-pointer kinds (null/undefined
+        // here are silent-undef per the TODO above) fall through to the
+        // returning-undefined path.
+        if (!nanbox_is_ptr(objNb)) {
+            if (nanbox_is_int32(objNb) || nanbox_is_double(objNb) ||
+                nanbox_is_bool(objNb)) {
+                TsString* ks = nullptr;
+                if (nanbox_is_string_ptr(keyNb)) {
+                    ks = (TsString*)nanbox_to_ptr(keyNb);
+                } else if (nanbox_is_int32(keyNb) || nanbox_is_double(keyNb)) {
+                    int64_t iv = (int64_t)nanbox_to_int64(keyNb);
+                    ks = TsString::Create(std::to_string(iv).c_str());
+                }
+                if (ks) {
+                    const char* kc = ks->ToUtf8();
+                    if (kc) return ts_object_get_property(obj, kc);
+                }
+            }
+            return ts_value_make_undefined();
+        }
 
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return ts_value_make_undefined();
