@@ -4101,6 +4101,29 @@ TsValue* ts_value_make_int(int64_t i) {
             closure, finalArgs[0], finalArgs[1], finalArgs[2], finalArgs[3]);
     }
 
+    // Uniform 9-user-arg dispatch through the closure trampoline. All
+    // ts_call_N variants funnel through this signature so functions
+    // declared with up to 9 user params receive every slot — never
+    // reading stack garbage. Extra slots beyond the trampoline's
+    // declared arity are dropped by the callee per the Microsoft x64
+    // calling convention (caller cleans up).
+    static inline TsValue* call_closure_padded9(
+        TsClosure* closure,
+        TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4,
+        TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9) {
+        typedef TsValue* (*Fn9)(void*, TsValue*, TsValue*, TsValue*, TsValue*,
+                                       TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+        return ((Fn9)closure->func_ptr)(closure, a1, a2, a3, a4, a5, a6, a7, a8, a9);
+    }
+    static inline TsValue* call_funcptr_padded9(
+        void* fp, void* ctx,
+        TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4,
+        TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9) {
+        typedef TsValue* (*Fn9)(void*, TsValue*, TsValue*, TsValue*, TsValue*,
+                                       TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+        return ((Fn9)fp)(ctx, a1, a2, a3, a4, a5, a6, a7, a8, a9);
+    }
+
     // Helper to extract TsClosure from a boxed or raw value
     static TsClosure* ts_extract_closure(TsValue* boxedFunc) {
         if (!boxedFunc) return nullptr;
@@ -4129,11 +4152,8 @@ TsValue* ts_value_make_int(int64_t i) {
             if (closure->rest_param_index >= 0) {
                 return ts_rest_pack_and_call(closure, 0, nullptr);
             }
-            // Pad with undefined args - callee may expect more params than caller provides
-            // (JS semantics: missing args are undefined)
             TsValue* u = ts_value_make_undefined();
-            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((FnPad)closure->func_ptr)(closure, u, u, u, u);
+            return call_closure_padded9(closure, u, u, u, u, u, u, u, u, u);
         }
 
         // Check for Proxy
@@ -4149,18 +4169,14 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
         if (func->type == FunctionType::NATIVE) {
-            auto result = ((TsFunctionPtr)func->funcPtr)(func->context, 0, nullptr);
-            return result;
+            return ((TsFunctionPtr)func->funcPtr)(func->context, 0, nullptr);
         } else {
-            // Check if funcPtr is actually a TsClosure (wrapped via ts_value_make_function)
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
             TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((FnPad)innerClosure->func_ptr)(innerClosure, u, u, u, u);
+                return call_closure_padded9(innerClosure, u, u, u, u, u, u, u, u, u);
             }
-            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((FnPad)func->funcPtr)(func->context, u, u, u, u);
+            return call_funcptr_padded9(func->funcPtr, func->context, u, u, u, u, u, u, u, u, u);
         }
     }
 
@@ -4178,10 +4194,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue* argv[1] = { arg1 };
                 return ts_rest_pack_and_call(closure, 1, argv);
             }
-            // Pad with undefined args - callee may expect more params than caller provides
             TsValue* u = ts_value_make_undefined();
-            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((FnPad)closure->func_ptr)(closure, arg1, u, u, u);
+            return call_closure_padded9(closure, arg1, u, u, u, u, u, u, u, u);
         }
 
         // Check for Proxy
@@ -4203,11 +4217,9 @@ TsValue* ts_value_make_int(int64_t i) {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
             TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((FnPad)innerClosure->func_ptr)(innerClosure, arg1, u, u, u);
+                return call_closure_padded9(innerClosure, arg1, u, u, u, u, u, u, u, u);
             }
-            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((FnPad)func->funcPtr)(func->context, arg1, u, u, u);
+            return call_funcptr_padded9(func->funcPtr, func->context, arg1, u, u, u, u, u, u, u, u);
         }
     }
 
@@ -4226,8 +4238,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_rest_pack_and_call(closure, 2, argv);
             }
             TsValue* u = ts_value_make_undefined();
-            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((FnPad)fp)(closure, arg1, arg2, u, u);
+            return call_closure_padded9(closure, arg1, arg2, u, u, u, u, u, u, u);
         }
 
         // Check for Proxy
@@ -4249,8 +4260,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_undefined();
             }
             TsValue* argv[2] = { arg1, arg2 };
-            TsValue* result = ((TsFunctionPtr)fp)(func->context, 2, argv);
-            return result;
+            return ((TsFunctionPtr)fp)(func->context, 2, argv);
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
             TsValue* u = ts_value_make_undefined();
@@ -4259,16 +4269,13 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (fp && ts_gc_base(fp)) {
                     return ts_value_make_undefined();
                 }
-                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((FnPad)fp)(innerClosure, arg1, arg2, u, u);
+                return call_closure_padded9(innerClosure, arg1, arg2, u, u, u, u, u, u, u);
             }
             void* fp = func->funcPtr;
             if (fp && ts_gc_base(fp)) {
                 return ts_value_make_undefined();
             }
-            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            TsValue* result = ((FnPad)fp)(func->context, arg1, arg2, u, u);
-            return result;
+            return call_funcptr_padded9(fp, func->context, arg1, arg2, u, u, u, u, u, u, u);
         }
     }
 
@@ -4281,10 +4288,8 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue* argv[3] = { arg1, arg2, arg3 };
                 return ts_rest_pack_and_call(closure, 3, argv);
             }
-            // Pad with undefined args - callee may expect more params than caller provides
             TsValue* u = ts_value_make_undefined();
-            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((FnPad)closure->func_ptr)(closure, arg1, arg2, arg3, u);
+            return call_closure_padded9(closure, arg1, arg2, arg3, u, u, u, u, u, u);
         }
 
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
@@ -4302,25 +4307,22 @@ TsValue* ts_value_make_int(int64_t i) {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
             TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((FnPad)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, u);
+                return call_closure_padded9(innerClosure, arg1, arg2, arg3, u, u, u, u, u, u);
             }
-            typedef TsValue* (*FnPad)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((FnPad)func->funcPtr)(func->context, arg1, arg2, arg3, u);
+            return call_funcptr_padded9(func->funcPtr, func->context, arg1, arg2, arg3, u, u, u, u, u, u);
         }
     }
 
     TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
         ts_last_call_argc = 4;
-        // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             if (closure->rest_param_index >= 0) {
                 TsValue* argv[4] = { arg1, arg2, arg3, arg4 };
                 return ts_rest_pack_and_call(closure, 4, argv);
             }
-            typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn4)closure->func_ptr)(closure, arg1, arg2, arg3, arg4);
+            TsValue* u = ts_value_make_undefined();
+            return call_closure_padded9(closure, arg1, arg2, arg3, arg4, u, u, u, u, u);
         }
 
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
@@ -4336,26 +4338,24 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 4, argv);
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((Fn4)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4);
+                return call_closure_padded9(innerClosure, arg1, arg2, arg3, arg4, u, u, u, u, u);
             }
-            typedef TsValue* (*Fn4)(void*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn4)func->funcPtr)(func->context, arg1, arg2, arg3, arg4);
+            return call_funcptr_padded9(func->funcPtr, func->context, arg1, arg2, arg3, arg4, u, u, u, u, u);
         }
     }
 
     TsValue* ts_call_5(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
         ts_last_call_argc = 5;
-        // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             if (closure->rest_param_index >= 0) {
                 TsValue* argv[5] = { arg1, arg2, arg3, arg4, arg5 };
                 return ts_rest_pack_and_call(closure, 5, argv);
             }
-            typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn5)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5);
+            TsValue* u = ts_value_make_undefined();
+            return call_closure_padded9(closure, arg1, arg2, arg3, arg4, arg5, u, u, u, u);
         }
 
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
@@ -4371,26 +4371,24 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 5, argv);
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((Fn5)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5);
+                return call_closure_padded9(innerClosure, arg1, arg2, arg3, arg4, arg5, u, u, u, u);
             }
-            typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn5)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5);
+            return call_funcptr_padded9(func->funcPtr, func->context, arg1, arg2, arg3, arg4, arg5, u, u, u, u);
         }
     }
 
     TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
         ts_last_call_argc = 6;
-        // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             if (closure->rest_param_index >= 0) {
                 TsValue* argv[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
                 return ts_rest_pack_and_call(closure, 6, argv);
             }
-            typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn6)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6);
+            TsValue* u = ts_value_make_undefined();
+            return call_closure_padded9(closure, arg1, arg2, arg3, arg4, arg5, arg6, u, u, u);
         }
 
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
@@ -4406,26 +4404,24 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 6, argv);
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((Fn6)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6);
+                return call_closure_padded9(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6, u, u, u);
             }
-            typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn6)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6);
+            return call_funcptr_padded9(func->funcPtr, func->context, arg1, arg2, arg3, arg4, arg5, arg6, u, u, u);
         }
     }
 
     TsValue* ts_call_7(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
         ts_last_call_argc = 7;
-        // Check for TsClosure first (raw or boxed)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             if (closure->rest_param_index >= 0) {
                 TsValue* argv[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
                 return ts_rest_pack_and_call(closure, 7, argv);
             }
-            typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn7)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            TsValue* u = ts_value_make_undefined();
+            return call_closure_padded9(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, u, u);
         }
 
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
@@ -4441,26 +4437,24 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 7, argv);
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((Fn7)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+                return call_closure_padded9(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, u, u);
             }
-            typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn7)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            return call_funcptr_padded9(func->funcPtr, func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7, u, u);
         }
     }
 
     TsValue* ts_call_8(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
         ts_last_call_argc = 8;
-        // Check for TsClosure first (raw closure pointer)
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             if (closure->rest_param_index >= 0) {
                 TsValue* argv[8] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
                 return ts_rest_pack_and_call(closure, 8, argv);
             }
-            typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn8)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+            TsValue* u = ts_value_make_undefined();
+            return call_closure_padded9(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, u);
         }
 
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
@@ -4476,12 +4470,11 @@ TsValue* ts_value_make_int(int64_t i) {
             return ((TsFunctionPtr)func->funcPtr)(func->context, 8, argv);
         } else {
             TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+            TsValue* u = ts_value_make_undefined();
             if (innerClosure) {
-                typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-                return ((Fn8)innerClosure->func_ptr)(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+                return call_closure_padded9(innerClosure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, u);
             }
-            typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            return ((Fn8)func->funcPtr)(func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+            return call_funcptr_padded9(func->funcPtr, func->context, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, u);
         }
     }
 
