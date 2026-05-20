@@ -9472,6 +9472,32 @@ TsValue* ts_value_make_int(int64_t i) {
         // Try to get the object from context (could be boxed TsValue or raw pointer)
         void* obj = ts_nanbox_safe_unbox(ctx);
 
+        // ECMA-262 §7.1.18 ToPropertyKey: numeric keys coerce to string
+        // so hasOwnProperty(obj, 2) and hasOwnProperty(obj, "2") agree.
+        // Store/read paths already canonicalize on numeric input; here we
+        // do the same so all four object-kind branches see a string key.
+        {
+            TsValue keyTV0 = nanbox_to_tagged(argv[0]);
+            if (keyTV0.type == ValueType::NUMBER_INT) {
+                char buf[24];
+                snprintf(buf, sizeof(buf), "%lld", (long long)keyTV0.i_val);
+                argv[0] = ts_value_make_string(TsString::Create(buf));
+            } else if (keyTV0.type == ValueType::NUMBER_DBL) {
+                double d = keyTV0.d_val;
+                if (d == (double)(int64_t)d && d >= INT64_MIN && d <= INT64_MAX) {
+                    char buf[24];
+                    snprintf(buf, sizeof(buf), "%lld", (long long)d);
+                    argv[0] = ts_value_make_string(TsString::Create(buf));
+                } else {
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%g", d);
+                    argv[0] = ts_value_make_string(TsString::Create(buf));
+                }
+            } else if (keyTV0.type == ValueType::BOOLEAN) {
+                argv[0] = ts_value_make_string(TsString::Create(keyTV0.b_val ? "true" : "false"));
+            }
+        }
+
         // Handle flat objects
         if (obj && is_flat_object(obj)) {
             TsValue* keyVal = argv[0];
