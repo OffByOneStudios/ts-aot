@@ -3505,6 +3505,50 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (eeMethod) return eeMethod;
             }
 
+            // `new Map()` and `new Set()` instances aren't physically linked
+            // to Map.prototype / Set.prototype — Object.getPrototypeOf
+            // synthesizes the prototype from the global constructor, but
+            // the local prototype-chain walk above sees null. Method
+            // dispatch via dynamic lookup (`m.has(k)` when m is Any-typed,
+            // e.g. retrieved through a function property) goes through
+            // this exact path and needs the proto methods. Fall back to
+            // the global Map/Set prototype objects by lookup. Statically-
+            // typed receivers bypass this path via ts_map_has_fast and
+            // friends, which is why direct `m.has(k)` works while
+            // `fn.m.has(k)` did not.
+            if (map->IsExplicitMap()) {
+                extern void* ts_get_global_Map();
+                extern void* ts_get_global_Set();
+                auto tryProtoLookup = [&](void* ctor) -> TsValue* {
+                    if (!ctor) return nullptr;
+                    void* fraw = ts_value_get_object((TsValue*)ctor);
+                    if (!fraw) fraw = ctor;
+                    if (!fraw) return nullptr;
+                    uint32_t fmagic = *(uint32_t*)((char*)fraw + 16);
+                    if (fmagic != TsFunction::MAGIC) return nullptr;
+                    TsFunction* fctor = (TsFunction*)fraw;
+                    if (!fctor->properties) return nullptr;
+                    TsValue protoKey;
+                    protoKey.type = ValueType::STRING_PTR;
+                    protoKey.ptr_val = TsString::GetInterned("prototype");
+                    TsValue protoVal = fctor->properties->Get(protoKey);
+                    if (protoVal.type != ValueType::OBJECT_PTR || !protoVal.ptr_val) return nullptr;
+                    TsMap* proto = (TsMap*)protoVal.ptr_val;
+                    TsValue k;
+                    k.type = ValueType::STRING_PTR;
+                    k.ptr_val = TsString::GetInterned(keyStr);
+                    TsValue v = proto->Get(k);
+                    if (v.type != ValueType::UNDEFINED) return nanbox_from_tagged(v);
+                    return nullptr;
+                };
+                // Try Map.prototype first — most TsMaps with IsExplicitMap
+                // are Map instances. Set instances are also flagged
+                // explicit; the prototype-method names don't collide so
+                // either lookup is fine.
+                if (auto* v = tryProtoLookup(ts_get_global_Map())) return v;
+                if (auto* v = tryProtoLookup(ts_get_global_Set())) return v;
+            }
+
             return ts_value_make_undefined();
         }
 
