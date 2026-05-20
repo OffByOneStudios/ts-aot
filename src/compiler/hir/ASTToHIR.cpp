@@ -1327,6 +1327,21 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
 
+            // Pre-declare top-level let/const so nested FunctionDeclaration
+            // bodies (lowered in pass 1 below) can resolve outer-scope
+            // captures. Mirrors the same block in visitFunctionDeclaration.
+            for (auto& stmt : funcNode->body) {
+                if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+                    if (vd->varKind != ast::VarKind::Let && vd->varKind != ast::VarKind::Const) continue;
+                    auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get());
+                    if (!ident) continue;
+                    if (lookupVariableInfoInCurrentFunction(ident->name)) continue;
+                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
+                    builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
+                    defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
+                }
+            }
+
             // Create 'arguments' array-like object if the function body references 'arguments'.
             // Must be done at function entry (before any other code) because inner calls
             // will overwrite ts_last_call_argc, making lazy creation incorrect.
@@ -2905,6 +2920,28 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
             builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
             defineVariableAlloca(name, allocaVal, HIRType::makeAny());
+        }
+    }
+
+    // Pre-declare top-level `let` / `const` so nested FunctionDeclaration
+    // bodies (lowered in pass 1 below, BEFORE the let initializers run
+    // in pass 2) can resolve outer-scope captures. Without this,
+    // `function outer() { let count = 0; function inner() { count++; } }`
+    // lowers inner's body when `count` isn't yet in scope, so inner
+    // resolves `count` to const-undefined and the closure has no
+    // captures — outer's count stays 0 forever. Block-scoped lets
+    // nested inside if / loops are intentionally NOT pre-declared
+    // (they have their own block scope and would shadow the wrong
+    // way at the function level).
+    for (auto& stmt : node->body) {
+        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
+            if (vd->varKind != ast::VarKind::Let && vd->varKind != ast::VarKind::Const) continue;
+            auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get());
+            if (!ident) continue;
+            if (lookupVariableInfoInCurrentFunction(ident->name)) continue;
+            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
+            builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
+            defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
         }
     }
 
