@@ -2676,6 +2676,28 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         func->params.push_back({paramName, paramType});
     }
 
+    // If the function body uses 'arguments', add hidden __argN__ params
+    // so call args beyond the declared param count can flow through the
+    // trampoline into ts_create_arguments_from_params. Without this,
+    // top-level functions called with extra args see arguments[N]
+    // resolve to undefined because direct_0's LLVM signature has no
+    // slot to receive them.
+    {
+        bool bodyUsesArgs = false;
+        for (auto& stmt : node->body) {
+            if (containsArgumentsIdentifier(stmt.get())) {
+                bodyUsesArgs = true;
+                break;
+            }
+        }
+        if (bodyUsesArgs) {
+            while (func->params.size() < 10) {
+                std::string argName = "__arg" + std::to_string(func->params.size()) + "__";
+                func->params.push_back({argName, HIRType::makeAny()});
+            }
+        }
+    }
+
     // Use declared return type if available, otherwise default to Any
     func->returnType = node->returnType.empty()
         ? HIRType::makeAny()
@@ -9390,7 +9412,7 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
             }
         }
         if (bodyUsesArguments) {
-            while (func->params.size() < 5) {
+            while (func->params.size() < 10) {
                 std::string argName = "__arg" + std::to_string(func->params.size() - 1) + "__";
                 func->params.push_back({argName, HIRType::makeAny()});
             }
