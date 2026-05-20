@@ -104,6 +104,12 @@ StmtPtr parseStatement(const json& j) {
                     decl->name = parseNode(declJson["name"]);
                     if (declJson.contains("isExported")) decl->isExported = declJson["isExported"];
                     if (declJson.contains("type")) decl->type = declJson["type"];
+                    if (declJson.contains("varKind")) {
+                        std::string vk = declJson["varKind"];
+                        if (vk == "let") decl->varKind = VarKind::Let;
+                        else if (vk == "const") decl->varKind = VarKind::Const;
+                        else decl->varKind = VarKind::Var;
+                    }
                     if (declJson.contains("initializer") && !declJson["initializer"].is_null()) {
                         decl->initializer = parseExpression(declJson["initializer"]);
                     }
@@ -130,6 +136,12 @@ StmtPtr parseStatement(const json& j) {
                 node->isExported = declJson["isExported"];
             }
             if (declJson.contains("type")) node->type = declJson["type"];
+            if (declJson.contains("varKind")) {
+                std::string vk = declJson["varKind"];
+                if (vk == "let") node->varKind = VarKind::Let;
+                else if (vk == "const") node->varKind = VarKind::Const;
+                else node->varKind = VarKind::Var;
+            }
             if (declJson.contains("initializer") && !declJson["initializer"].is_null()) {
                 node->initializer = parseExpression(declJson["initializer"]);
             }
@@ -148,6 +160,12 @@ StmtPtr parseStatement(const json& j) {
             node->isExported = j["isExported"];
         }
         if (j.contains("type")) node->type = j["type"];
+        if (j.contains("varKind")) {
+            std::string vk = j["varKind"];
+            if (vk == "let") node->varKind = VarKind::Let;
+            else if (vk == "const") node->varKind = VarKind::Const;
+            else node->varKind = VarKind::Var;
+        }
         if (j.contains("initializer") && !j["initializer"].is_null()) {
             node->initializer = parseExpression(j["initializer"]);
         }

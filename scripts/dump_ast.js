@@ -396,10 +396,16 @@ function visitInternal(node) {
                 hasBody: !!node.body,
                 access: "public"
             };
-        case ts.SyntaxKind.VariableStatement:
+        case ts.SyntaxKind.VariableStatement: {
+            // Extract var/let/const from declarationList flags
+            const dlFlags = node.declarationList.flags;
+            const vk = (dlFlags & ts.NodeFlags.Const) ? "const"
+                     : (dlFlags & ts.NodeFlags.Let)   ? "let"
+                     : "var";
             // Handle all declarations in the statement (e.g., var a = 1, b = 2, c = 3)
             const declarations = node.declarationList.declarations.map(decl => ({
                 kind: "VariableDeclaration",
+                varKind: vk,
                 name: visit(decl.name),
                 isExported: isExported(node),
                 type: decl.type ? decl.type.getText(currentSourceFile) : "",
@@ -417,6 +423,7 @@ function visitInternal(node) {
                     declarations: declarations
                 };
             }
+        }
         case ts.SyntaxKind.ObjectBindingPattern:
         case ts.SyntaxKind.ArrayBindingPattern:
             return {
@@ -652,8 +659,13 @@ function visitInternal(node) {
             if (node.initializer) {
                 if (node.initializer.kind === ts.SyntaxKind.VariableDeclarationList) {
                     const decl = node.initializer.declarations[0];
+                    const dlFlags = node.initializer.flags;
+                    const vk = (dlFlags & ts.NodeFlags.Const) ? "const"
+                             : (dlFlags & ts.NodeFlags.Let)   ? "let"
+                             : "var";
                     init = {
                         kind: "VariableDeclaration",
+                        varKind: vk,
                         name: visit(decl.name),
                         initializer: decl.initializer ? visit(decl.initializer) : null
                     };
@@ -675,8 +687,13 @@ function visitInternal(node) {
             let forOfInit = null;
             if (node.initializer.kind === ts.SyntaxKind.VariableDeclarationList) {
                 const decl = node.initializer.declarations[0];
+                const dlFlags = node.initializer.flags;
+                const vk = (dlFlags & ts.NodeFlags.Const) ? "const"
+                         : (dlFlags & ts.NodeFlags.Let)   ? "let"
+                         : "var";
                 forOfInit = {
                     kind: "VariableDeclaration",
+                    varKind: vk,
                     name: visit(decl.name),
                     initializer: null // No initializer in for-of
                 };
@@ -692,8 +709,13 @@ function visitInternal(node) {
             let forInInit = null;
             if (node.initializer.kind === ts.SyntaxKind.VariableDeclarationList) {
                 const decl = node.initializer.declarations[0];
+                const dlFlags = node.initializer.flags;
+                const vk = (dlFlags & ts.NodeFlags.Const) ? "const"
+                         : (dlFlags & ts.NodeFlags.Let)   ? "let"
+                         : "var";
                 forInInit = {
                     kind: "VariableDeclaration",
+                    varKind: vk,
                     name: visit(decl.name),
                     initializer: null
                 };

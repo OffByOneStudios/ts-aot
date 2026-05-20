@@ -3010,6 +3010,8 @@ ast::StmtPtr Parser::parseForStatement() {
         // Parse first (and possibly only) declaration
         auto firstDecl = std::make_unique<ast::VariableDeclaration>();
         setLocation(firstDecl.get(), current_);
+        if (kwTok.kind == TokenKind::KW_let) firstDecl->varKind = ast::VarKind::Let;
+        else if (kwTok.kind == TokenKind::KW_const) firstDecl->varKind = ast::VarKind::Const;
         firstDecl->name = parseBindingNameOrPattern();
         // ECMA-262 13.3.1.1 / 14.7.5.1: BoundNames of LexicalDeclaration
         // may not contain "let", and the BoundNames of a ForDeclaration
@@ -3104,6 +3106,8 @@ ast::StmtPtr Parser::parseForStatement() {
         while (match(TokenKind::Comma)) {
             auto decl = std::make_unique<ast::VariableDeclaration>();
             setLocation(decl.get(), current_);
+            if (kwTok.kind == TokenKind::KW_let) decl->varKind = ast::VarKind::Let;
+            else if (kwTok.kind == TokenKind::KW_const) decl->varKind = ast::VarKind::Const;
             decl->name = parseBindingNameOrPattern();
             if (check(TokenKind::Colon)) {
                 decl->type = parseTypeAnnotation();

@@ -71,6 +71,97 @@ static void scanConstructorBodyForProperties(
 // Helper: Check if an AST expression contains a function/arrow (for var hoisting)
 //==============================================================================
 
+// ECMA-262 §14.3.2: collect all `var` declarations and `function`
+// declarations reachable from `node`, without crossing a nested
+// FunctionDeclaration / FunctionExpression / ArrowFunction boundary.
+// Used by visitFunctionDeclaration / spec lowering to pre-declare every
+// hoisted name on entry so assignments inside conditional branches bind
+// to the same function-scope slot.
+static void collectHoistedVarNames(ast::Node* node, std::vector<std::string>& out) {
+    if (!node) return;
+    // Stop at nested function bodies — they have their own VariableEnvironment.
+    if (dynamic_cast<ast::FunctionExpression*>(node)) return;
+    if (dynamic_cast<ast::FunctionDeclaration*>(node)) {
+        // Hoist the function name itself if it's a declaration.
+        auto* fd = static_cast<ast::FunctionDeclaration*>(node);
+        if (!fd->name.empty()) out.push_back(fd->name);
+        return;
+    }
+    if (dynamic_cast<ast::ArrowFunction*>(node)) return;
+    if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(node)) {
+        if (vd->varKind == ast::VarKind::Var) {
+            if (auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get())) {
+                out.push_back(ident->name);
+            }
+            // (binding patterns left to existing per-statement lowering)
+        }
+        if (vd->initializer) collectHoistedVarNames(vd->initializer.get(), out);
+        return;
+    }
+    if (auto* block = dynamic_cast<ast::BlockStatement*>(node)) {
+        for (auto& s : block->statements) collectHoistedVarNames(s.get(), out);
+        return;
+    }
+    if (auto* expr = dynamic_cast<ast::ExpressionStatement*>(node)) {
+        collectHoistedVarNames(expr->expression.get(), out);
+        return;
+    }
+    if (auto* ret = dynamic_cast<ast::ReturnStatement*>(node)) {
+        collectHoistedVarNames(ret->expression.get(), out);
+        return;
+    }
+    if (auto* ifStmt = dynamic_cast<ast::IfStatement*>(node)) {
+        collectHoistedVarNames(ifStmt->thenStatement.get(), out);
+        collectHoistedVarNames(ifStmt->elseStatement.get(), out);
+        return;
+    }
+    if (auto* whileStmt = dynamic_cast<ast::WhileStatement*>(node)) {
+        collectHoistedVarNames(whileStmt->body.get(), out);
+        return;
+    }
+    if (auto* forStmt = dynamic_cast<ast::ForStatement*>(node)) {
+        collectHoistedVarNames(forStmt->initializer.get(), out);
+        collectHoistedVarNames(forStmt->body.get(), out);
+        return;
+    }
+    if (auto* forOf = dynamic_cast<ast::ForOfStatement*>(node)) {
+        collectHoistedVarNames(forOf->initializer.get(), out);
+        collectHoistedVarNames(forOf->body.get(), out);
+        return;
+    }
+    if (auto* forIn = dynamic_cast<ast::ForInStatement*>(node)) {
+        collectHoistedVarNames(forIn->initializer.get(), out);
+        collectHoistedVarNames(forIn->body.get(), out);
+        return;
+    }
+    if (auto* sw = dynamic_cast<ast::SwitchStatement*>(node)) {
+        for (auto& cl : sw->clauses) {
+            if (auto* cc = dynamic_cast<ast::CaseClause*>(cl.get())) {
+                for (auto& s : cc->statements) collectHoistedVarNames(s.get(), out);
+            }
+            if (auto* dc = dynamic_cast<ast::DefaultClause*>(cl.get())) {
+                for (auto& s : dc->statements) collectHoistedVarNames(s.get(), out);
+            }
+        }
+        return;
+    }
+    if (auto* tryStmt = dynamic_cast<ast::TryStatement*>(node)) {
+        for (auto& s : tryStmt->tryBlock) collectHoistedVarNames(s.get(), out);
+        if (tryStmt->catchClause) {
+            for (auto& s : tryStmt->catchClause->block) collectHoistedVarNames(s.get(), out);
+        }
+        for (auto& s : tryStmt->finallyBlock) collectHoistedVarNames(s.get(), out);
+        return;
+    }
+    if (auto* labeled = dynamic_cast<ast::LabeledStatement*>(node)) {
+        collectHoistedVarNames(labeled->statement.get(), out);
+        return;
+    }
+    // Expressions that may contain statements — none in JS, but recurse into
+    // nested expressions that have child statements anyway. Most expression
+    // forms can't introduce hoisted vars at this level.
+}
+
 // Helper: Check if a function body uses the 'arguments' identifier.
 // Does NOT recurse into nested FunctionDeclaration/FunctionExpression (they have own arguments).
 // DOES recurse into ArrowFunction (arrow functions inherit outer arguments).
@@ -1215,55 +1306,24 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
 
-            // Variable hoisting for shared closure cells.
-            // When the function body has nested function declarations, pre-declare ALL
-            // vars so the first pass (function decl lowering) can detect them as captures.
-            // Without this, inner function declarations can't see outer variables that
-            // are declared after them in source order, breaking closure capture.
+            // ECMA-262 §14.3.2: hoist every `var` declaration in the
+            // function body — including those nested inside if/else,
+            // loops, try, switch — to the FunctionEnvironment. Without
+            // this, an assignment in branch B to a `var` declared in
+            // branch A binds to a fresh slot per branch (or the global
+            // object) and the surrounding function sees `undefined`.
+            // Also catches nested FunctionDeclarations so closures see
+            // them in source-order-independent ways.
             {
-                bool hasNestedFuncDecls = false;
+                std::vector<std::string> hoistedVars;
                 for (auto& stmt : funcNode->body) {
-                    if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
-                        hasNestedFuncDecls = true;
-                        break;
-                    }
+                    collectHoistedVarNames(stmt.get(), hoistedVars);
                 }
-                bool hoistAllVars = hasNestedFuncDecls;
-
-                for (auto& stmt : funcNode->body) {
-                    if (auto* block = dynamic_cast<ast::BlockStatement*>(stmt.get())) {
-                        if (hoistAllVars) {
-                            for (auto& inner : block->statements) {
-                                if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(inner.get())) {
-                                    if (auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get())) {
-                                        if (!lookupVariableInfoInCurrentFunction(ident->name)) {
-                                            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
-                                            builder_.createStore(builder_.createConstUndefined(), allocaVal);
-                                            defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        continue;
-                    }
-                    if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
-                        if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
-                            if (hoistAllVars) {
-                                if (!lookupVariableInfoInCurrentFunction(ident->name)) {
-                                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
-                                    builder_.createStore(builder_.createConstUndefined(), allocaVal);
-                                    defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
-                                }
-                            } else if (!lookupVariableInfoInCurrentFunction(ident->name) &&
-                                       varDecl->initializer && containsClosureExpression(varDecl->initializer.get())) {
-                                auto varType = HIRType::makeAny();
-                                auto allocaVal = builder_.createAlloca(varType, ident->name);
-                                builder_.createStore(builder_.createConstUndefined(), allocaVal, varType);
-                                defineVariableAlloca(ident->name, allocaVal, varType);
-                            }
-                        }
-                    }
+                for (auto& name : hoistedVars) {
+                    if (lookupVariableInfoInCurrentFunction(name)) continue;
+                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
+                    builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
+                    defineVariableAlloca(name, allocaVal, HIRType::makeAny());
                 }
             }
 
@@ -2829,65 +2889,22 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         }
     }
 
-    // Variable hoisting for shared closure cells.
-    // When the function body has nested function declarations, pre-declare ALL
-    // vars so the first pass (function decl lowering) can detect them as captures.
-    // Without this, inner function declarations can't see outer variables that
-    // are declared after them in source order, breaking closure capture.
+    // ECMA-262 §14.3.2: hoist every `var` declaration in the function
+    // body — including those buried inside if/else, loops, try, switch
+    // — to the enclosing FunctionEnvironment. Without this, assignments
+    // like `} else if (...) { result = x; }` after a `var result =`
+    // in a different branch bind to a fresh slot per branch (or the
+    // global object) and the surrounding function sees `undefined`.
     {
-        bool hasNestedFuncDecls = false;
+        std::vector<std::string> hoistedVars;
         for (auto& stmt : node->body) {
-            if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
-                hasNestedFuncDecls = true;
-                break;
-            }
-            // Also check inside BlockStatements (function body may be wrapped)
-            if (auto* block = dynamic_cast<ast::BlockStatement*>(stmt.get())) {
-                for (auto& inner : block->statements) {
-                    if (dynamic_cast<ast::FunctionDeclaration*>(inner.get())) {
-                        hasNestedFuncDecls = true;
-                        break;
-                    }
-                }
-                if (hasNestedFuncDecls) break;
-            }
+            collectHoistedVarNames(stmt.get(), hoistedVars);
         }
-        bool hoistAllVars = hasNestedFuncDecls;
-
-        for (auto& stmt : node->body) {
-            if (auto* block = dynamic_cast<ast::BlockStatement*>(stmt.get())) {
-                if (hoistAllVars) {
-                    for (auto& inner : block->statements) {
-                        if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(inner.get())) {
-                            if (auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get())) {
-                                if (!lookupVariableInfoInCurrentFunction(ident->name)) {
-                                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
-                                    builder_.createStore(builder_.createConstUndefined(), allocaVal);
-                                    defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
-                                }
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-            if (auto* varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get())) {
-                if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
-                    if (hoistAllVars) {
-                        if (!lookupVariableInfoInCurrentFunction(ident->name)) {
-                            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
-                            builder_.createStore(builder_.createConstUndefined(), allocaVal);
-                            defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
-                        }
-                    } else if (!lookupVariableInfo(ident->name) &&
-                               varDecl->initializer && containsClosureExpression(varDecl->initializer.get())) {
-                        auto varType = HIRType::makeAny();
-                        auto allocaVal = builder_.createAlloca(varType, ident->name);
-                        builder_.createStore(builder_.createConstUndefined(), allocaVal, varType);
-                        defineVariableAlloca(ident->name, allocaVal, varType);
-                    }
-                }
-            }
+        for (auto& name : hoistedVars) {
+            if (lookupVariableInfoInCurrentFunction(name)) continue;
+            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
+            builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
+            defineVariableAlloca(name, allocaVal, HIRType::makeAny());
         }
     }
 

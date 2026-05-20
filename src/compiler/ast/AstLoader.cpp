@@ -592,6 +592,12 @@ StmtPtr parseStatement(const json& j) {
             node->isExported = j["isExported"];
         }
         if (j.contains("type")) node->type = j["type"];
+        if (j.contains("varKind")) {
+            std::string vk = j["varKind"];
+            if (vk == "let") node->varKind = VarKind::Let;
+            else if (vk == "const") node->varKind = VarKind::Const;
+            else node->varKind = VarKind::Var;
+        }
         if (j.contains("initializer") && !j["initializer"].is_null()) {
             node->initializer = parseExpression(j["initializer"]);
         }
