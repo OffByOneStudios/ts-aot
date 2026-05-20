@@ -10217,6 +10217,13 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                 builder_.createSetPropStatic(obj, propName, result);
             }
         }
+        // Handle element access (e.g., obj[key]++, arr[i]++)
+        auto* elem = dynamic_cast<ast::ElementAccessExpression*>(node->operand.get());
+        if (elem) {
+            auto obj = lowerExpression(elem->expression.get());
+            auto key = lowerExpression(elem->argumentExpression.get());
+            builder_.createSetPropDynamic(obj, key, result);
+        }
         lastValue_ = result;  // Prefix returns new value
     } else {
         lastValue_ = operand;
@@ -10363,6 +10370,13 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                 std::string propName = prop->name;
                 builder_.createSetPropStatic(obj, propName, result);
             }
+        }
+        // Handle element access (e.g., obj[key]++, arr[i]++)
+        auto* elem = dynamic_cast<ast::ElementAccessExpression*>(node->operand.get());
+        if (elem) {
+            auto obj = lowerExpression(elem->expression.get());
+            auto key = lowerExpression(elem->argumentExpression.get());
+            builder_.createSetPropDynamic(obj, key, result);
         }
         // Postfix returns old value
         lastValue_ = oldValue;
