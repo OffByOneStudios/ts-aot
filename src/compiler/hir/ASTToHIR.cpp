@@ -3085,6 +3085,12 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         auto* existingInfo = lookupVariableInfo(node->name);
         if (existingInfo && existingInfo->isAlloca) {
             builder_.createStore(closureVal, existingInfo->value);
+            if (existingInfo->isCapturedByNested && existingInfo->closurePtr &&
+                existingInfo->captureIndex >= 0) {
+                auto closureValForUpdate = builder_.createLoad(HIRType::makeAny(), existingInfo->closurePtr);
+                builder_.createStoreCaptureFromClosure(
+                    closureValForUpdate, existingInfo->captureIndex, closureVal);
+            }
         } else {
             // No pre-created alloca, define the function name as a closure variable
             defineVariable(node->name, closureVal);
@@ -3126,6 +3132,15 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         auto* existingInfo = lookupVariableInfo(node->name);
         if (existingInfo && existingInfo->isAlloca) {
             builder_.createStore(closureVal, existingInfo->value);
+            // Same cell-update as the captures branch above: a later-source
+            // function decl already captured by an earlier nested closure
+            // needs the capture cell to see the assignment.
+            if (existingInfo->isCapturedByNested && existingInfo->closurePtr &&
+                existingInfo->captureIndex >= 0) {
+                auto closureValForUpdate = builder_.createLoad(HIRType::makeAny(), existingInfo->closurePtr);
+                builder_.createStoreCaptureFromClosure(
+                    closureValForUpdate, existingInfo->captureIndex, closureVal);
+            }
         } else {
             defineVariable(node->name, closureVal);
         }
