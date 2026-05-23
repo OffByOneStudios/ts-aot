@@ -6940,9 +6940,25 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         }
     }
 
+    // For receivers that are NOT statically known to be Arrays, skip the
+    // hardcoded array-method dispatches. The runtime fallback paths (which
+    // detect the brand) have signatures that lose extra args — e.g.
+    // ts_array_join(arr, sep) can't carry a third arg, so `_.join(arr, sep)`
+    // would silently drop `sep`. Better: emit a generic property-lookup +
+    // call_indirect when the receiver type is Any.
+    bool receiverIsArrayLike = false;
+    if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*valPtr && (*valPtr)->type) {
+            HIRTypeKind k = (*valPtr)->type->kind;
+            if (k == HIRTypeKind::Array) {
+                receiverIsArrayLike = true;
+            }
+        }
+    }
+
     // Handle common array methods on Any-typed values
     // This handles cases where MethodResolutionPass couldn't resolve due to Any type
-    if (methodName == "join") {
+    if (receiverIsArrayLike && methodName == "join") {
         // ts_array_join(void* arr, void* separator) -> TsString*
         // Box primitive separators so the call type matches the runtime sig.
         llvm::Value* separator = llvm::ConstantPointerNull::get(builder_->getPtrTy());
@@ -7051,7 +7067,7 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
-    if (methodName == "concat") {
+    if (receiverIsArrayLike && methodName == "concat") {
         // ts_array_concat(void* arr, void* other) returns a new array.
         // Variadic: arr.concat(a, b, c) iterates, chaining the result
         // through each call. Each arg may itself be an array (spreadable)

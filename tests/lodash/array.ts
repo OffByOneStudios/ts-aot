@@ -1,14 +1,4 @@
-// Lodash "Array" category — chunk, compact, concat, difference,
-// drop/take, fill, flatten, head/last/initial/tail, indexOf, join,
-// nth, reverse, slice, sortedIndex, uniq, without, zip.
-//
-// Skipped (known panics / unimplemented in ts-aot):
-//   intersection — "Array index out of bounds" runtime panic
-//   pull (mutates) — runtime panic on push to caller's array
-//
-// Runtime panics are uncatchable so they kill the whole test
-// process; the test runner records that as PANIC for the category
-// without affecting other categories.
+// Lodash "Array" category — full unskipped suite.
 
 function user_main(): number {
     const _ = require('./lodash.js');
@@ -44,12 +34,13 @@ function user_main(): number {
     eq(_.compact([0, 1, false, 2, "", 3, null, 4, undefined, NaN, 5]), [1, 2, 3, 4, 5], "compact strips falsy");
     eq(_.compact([]), [], "compact empty");
 
-    // SKIP: _.concat([...]) prepends a null in ts-aot — even the simplest
-    // form _.concat([1], [2]) returns [null, 1, 2]. The lodash rest-args
-    // dispatch through ts-aot's call ABI mis-passes the first arg.
+    // --- concat ---
+    eq(_.concat([1], 2, [3], [[4]]), [1, 2, 3, [4]], "concat shallow");
+    eq(_.concat([1], [2]), [1, 2], "concat two arrays");
 
-    // --- difference / union / xor (intersection skipped) ---
+    // --- difference / intersection / union / xor ---
     eq(_.difference([2, 1], [2, 3]), [1], "difference");
+    eq(_.intersection([2, 1], [2, 3]), [2], "intersection");
     eq(_.union([2], [1, 2]), [2, 1], "union");
     eq(_.xor([2, 1], [2, 3]), [1, 3], "xor");
 
@@ -81,13 +72,18 @@ function user_main(): number {
     bool(_.indexOf([1, 2, 1, 2], 2, 2), 3, "indexOf fromIndex");
     bool(_.lastIndexOf([1, 2, 1, 2], 2), 3, "lastIndexOf");
 
-    // SKIP: _.join(arr, sep) returns "" in ts-aot. Both with custom sep
-    // and default. Likely Array.prototype.join with separator argument
-    // is broken through the lodash dispatch path.
+    // --- join ---
+    bool(_.join(["a", "b", "c"], "~"), "a~b~c", "join custom sep");
+    bool(_.join(["a", "b", "c"]), "a,b,c", "join default sep");
 
     // --- nth ---
     bool(_.nth(["a", "b", "c", "d"], 1), "b", "nth 1");
     bool(_.nth(["a", "b", "c", "d"], -2), "c", "nth -2");
+
+    // --- pull ---
+    const arr1 = [1, 2, 3, 1, 2, 3];
+    _.pull(arr1, 2, 3);
+    eq(arr1, [1, 1], "pull mutates");
 
     // --- reverse ---
     eq(_.reverse([1, 2, 3]), [3, 2, 1], "reverse");

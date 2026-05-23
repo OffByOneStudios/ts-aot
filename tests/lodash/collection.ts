@@ -38,9 +38,7 @@ function user_main(): number {
         { name: "bob", age: 40 },
         { name: "carol", age: 35 },
     ];
-    // SKIP: _.find(users, callback) returns undefined in ts-aot even when
-    // a match exists. The predicate fn doesn't appear to be invoked
-    // through the lodash arity-binding path. Use findIndex which works:
+    bool(_.find(users, (u: any) => u.age === 40).name, "bob", "find by age");
     bool(_.findIndex(users, (u: any) => u.age === 35), 2, "findIndex by age");
     bool(_.find(users, (u: any) => u.age === 99), undefined, "find no match");
 

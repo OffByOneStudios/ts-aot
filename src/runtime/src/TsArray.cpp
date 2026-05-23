@@ -2541,6 +2541,18 @@ extern "C" {
                 magic = *(uint32_t*)rawArr;
             }
             if (magic != TsArray::MAGIC) {
+                // Non-Array receiver: prefer the receiver's own `join` property
+                // (lodash defines `lodash.join` and expects `_.join(arr, sep)`
+                // to dispatch to its wrapped function, not to Array.prototype.join).
+                extern TsValue* ts_object_get_property(void* obj, const char* key);
+                TsValue* joinProp = ts_object_get_property(rawArr, "join");
+                if (joinProp && !ts_value_is_undefined(joinProp)) {
+                    extern TsValue* ts_call_with_this_1(TsValue* fn, TsValue* thisArg, TsValue* arg1);
+                    TsValue* res = ts_call_with_this_1(joinProp, (TsValue*)arr, (TsValue*)separator);
+                    if (!res) return TsString::Create("");
+                    void* s = ts_value_get_string(res);
+                    return s ? s : (void*)TsString::Create("");
+                }
                 TsValue* argvBuf[1] = { (TsValue*)separator };
                 int argc = separator ? 1 : 0;
                 TsValue* res = ts_array_join_native(arr, argc, argvBuf);
@@ -3046,8 +3058,13 @@ extern "C" {
     void* ts_array_concat(void* arr, void* other) {
         // Unbox if arr is a TsValue* (boxed array)
         void* rawArr = ts_nanbox_safe_unbox(arr);
-        // Guard non-TsArray receivers — delegate to the native wrapper
-        // which handles spec-compliant array-like materialization.
+        // Guard non-TsArray receivers. The compiler emits ts_array_concat
+        // for any `x.concat(y)` call, but if `x` isn't actually an Array
+        // (e.g. lodash's `_.concat(...)` where `_` is the lodash function
+        // object that has its own `concat` property), we MUST look up
+        // `concat` on the receiver and call that, not coerce `x` into
+        // array-like form. Otherwise `_.concat([1], [2])` would unwrap
+        // `_` as if it were an array and produce nonsense.
         if (rawArr) {
             uintptr_t p = (uintptr_t)rawArr;
             uint32_t magic = 0;
@@ -3055,6 +3072,15 @@ extern "C" {
                 magic = *(uint32_t*)rawArr;
             }
             if (magic != TsArray::MAGIC) {
+                extern TsValue* ts_object_get_property(void* obj, const char* key);
+                TsValue* concatProp = ts_object_get_property(rawArr, "concat");
+                if (concatProp && !ts_value_is_undefined(concatProp)) {
+                    extern TsValue* ts_call_with_this_1(TsValue* fn, TsValue* thisArg, TsValue* arg1);
+                    TsValue* res = ts_call_with_this_1(concatProp, (TsValue*)arr, (TsValue*)other);
+                    return res ? (void*)ts_value_get_object(res) : nullptr;
+                }
+                // No `concat` property — fall back to array-like materialization
+                // (matches existing behavior for array-likes).
                 TsValue* argvBuf[1] = { (TsValue*)other };
                 TsValue* res = ts_array_concat_native(arr, 1, argvBuf);
                 return res ? (void*)ts_value_get_object(res) : (void*)ts_array_create();

@@ -10015,12 +10015,17 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_object(TsArray::Create(0));
         }
         if (argc == 1) {
-            // Array(n) creates array of length n
+            // ECMA-262 §23.1.1.1: `Array(len)` creates an array with
+            // length=len and capacity=len, filled with holes (sparse).
+            // Use CreateSized so the array actually has length=len —
+            // not just capacity. Without this, `Array(n)[i] = X` panics
+            // because i >= length=0. Lodash's `var caches = Array(othLength)`
+            // followed by `caches[i] = ...` is the canonical case.
             TsValue* val = argv[0];
             if (val) {
                 uint64_t nb = nanbox_from_tsvalue_ptr(val);
                 if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
-                    return ts_value_make_object(TsArray::Create(nanbox_to_int64(nb)));
+                    return ts_value_make_object(TsArray::CreateSized(nanbox_to_int64(nb)));
                 }
             }
         }
