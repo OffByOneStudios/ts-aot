@@ -54,7 +54,8 @@ function user_main(): number {
 
     eq(_.toLength(3.2), 3, "toLength 3.2");
     eq(_.toLength(-1), 0, "toLength -1");
-    eq(_.toLength(Infinity), Number.MAX_SAFE_INTEGER, "toLength Infinity");
+    // lodash.toLength caps at MAX_ARRAY_LENGTH (2^32-1), not MAX_SAFE_INTEGER
+    eq(_.toLength(Infinity), 4294967295, "toLength Infinity = MAX_ARRAY_LENGTH");
 
     eq(_.toSafeInteger(3.2), 3, "toSafeInteger 3.2");
     eq(_.toSafeInteger(Infinity), Number.MAX_SAFE_INTEGER, "toSafeInteger Infinity");
