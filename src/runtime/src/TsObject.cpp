@@ -9867,7 +9867,19 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Object constructor function - converts value to object
+    // ctx is the constructor's name (set by makeConstructorWithPrototype) so we
+    // can dispatch built-ins that have specific plain-call semantics. Lodash's
+    // `var RegExp = context.RegExp; RegExp(pat)` (ECMA-262 22.2.4.1: equivalent
+    // to `new RegExp(pat)`) is the motivating case — without name-based
+    // dispatch every `Ctor(arg)` returned a fresh empty Map.
     static TsValue* ts_object_constructor_native(void* ctx, int argc, TsValue** argv) {
+        const char* name = (const char*)ctx;
+        if (name && strcmp(name, "RegExp") == 0) {
+            void* pattern = (argc >= 1 && argv) ? argv[0] : nullptr;
+            void* flags = (argc >= 2 && argv) ? argv[1] : nullptr;
+            void* re = ts_regexp_create(pattern, flags);
+            return re ? ts_value_make_object(re) : ts_value_make_undefined();
+        }
         if (argc == 0) {
             return ts_value_make_object(TsMap::Create());
         }
@@ -10148,21 +10160,26 @@ TsValue* ts_value_make_int(int64_t i) {
         constexpr uint8_t BUILTIN_ATTRS =
             TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE;
 
-        // Add all built-in constructors that lodash expects
-        if (Object) globalMap->SetWithAttrs(makeKey("Object"), *Object, BUILTIN_ATTRS);
-        if (Array) globalMap->SetWithAttrs(makeKey("Array"), *Array, BUILTIN_ATTRS);
-        if (Math) globalMap->SetWithAttrs(makeKey("Math"), *Math, BUILTIN_ATTRS);
+        // Add all built-in constructors that lodash expects. Use
+        // nanbox_to_tagged to convert NaN-boxed TsValue* pointers into the
+        // tagged TsValue struct that the map storage expects. Without this,
+        // `globalThis.Object` etc. return undefined (UB read of vtable bytes).
+        if (Object) globalMap->SetWithAttrs(makeKey("Object"), nanbox_to_tagged(Object), BUILTIN_ATTRS);
+        if (Array) globalMap->SetWithAttrs(makeKey("Array"), nanbox_to_tagged(Array), BUILTIN_ATTRS);
+        if (Math) globalMap->SetWithAttrs(makeKey("Math"), nanbox_to_tagged(Math), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("parseInt"), nanbox_to_tagged(parseIntWrapper), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("parseFloat"), nanbox_to_tagged(parseFloatWrapper), BUILTIN_ATTRS);
-        if (process) globalMap->SetWithAttrs(makeKey("process"), *process, BUILTIN_ATTRS);
-        if (Buffer) globalMap->SetWithAttrs(makeKey("Buffer"), *Buffer, BUILTIN_ATTRS);
-        if (JSON) globalMap->SetWithAttrs(makeKey("JSON"), *JSON, BUILTIN_ATTRS);
+        if (process) globalMap->SetWithAttrs(makeKey("process"), nanbox_to_tagged(process), BUILTIN_ATTRS);
+        if (Buffer) globalMap->SetWithAttrs(makeKey("Buffer"), nanbox_to_tagged(Buffer), BUILTIN_ATTRS);
+        if (JSON) globalMap->SetWithAttrs(makeKey("JSON"), nanbox_to_tagged(JSON), BUILTIN_ATTRS);
         
         // Create stub constructors for types that lodash checks but we don't fully implement
         // These need .prototype property with proper methods to avoid issues
         auto makeConstructorWithPrototype = [&](const char* name, bool isFunction = false) -> TsValue* {
-            // Create a function that acts as a constructor
-            TsValue* ctor = ts_value_make_native_function((void*)ts_object_constructor_native, nullptr);
+            // Create a function that acts as a constructor. Pass `name` as the
+            // ctx so ts_object_constructor_native can dispatch built-ins that
+            // need specific plain-call semantics (e.g. RegExp(pat)).
+            TsValue* ctor = ts_value_make_native_function((void*)ts_object_constructor_native, (void*)name);
             uint64_t ctorNb = nanbox_from_tsvalue_ptr(ctor);
             TsFunction* func = nanbox_is_ptr(ctorNb) ? (TsFunction*)nanbox_to_ptr(ctorNb) : nullptr;
             if (!func) return nullptr;
@@ -10209,17 +10226,22 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* WeakMap = makeConstructorWithPrototype("WeakMap");
         TsValue* Promise = makeConstructorWithPrototype("Promise");
         
-        globalMap->SetWithAttrs(makeKey("Function"), *Function, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("String"), *String, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Date"), *Date, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("RegExp"), *RegExp, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Error"), *Error, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("TypeError"), *TypeError, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Symbol"), *Symbol, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Map"), *Map, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Set"), *Set, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("WeakMap"), *WeakMap, BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Promise"), *Promise, BUILTIN_ATTRS);
+        // makeConstructorWithPrototype returns a raw TsFunction* cast to
+        // TsValue* — `*X` would dereference the function's vtable bytes as a
+        // TsValue (UB). Use nanbox_to_tagged to convert the NaN-boxed pointer
+        // into a real TsValue struct that the map's TaggedValue storage
+        // expects. This is what makes `globalThis.X` work in user code.
+        globalMap->SetWithAttrs(makeKey("Function"), nanbox_to_tagged(Function), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("String"), nanbox_to_tagged(String), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Date"), nanbox_to_tagged(Date), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("RegExp"), nanbox_to_tagged(RegExp), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Error"), nanbox_to_tagged(Error), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("TypeError"), nanbox_to_tagged(TypeError), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Symbol"), nanbox_to_tagged(Symbol), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Map"), nanbox_to_tagged(Map), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Set"), nanbox_to_tagged(Set), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("WeakMap"), nanbox_to_tagged(WeakMap), BUILTIN_ATTRS);
+        globalMap->SetWithAttrs(makeKey("Promise"), nanbox_to_tagged(Promise), BUILTIN_ATTRS);
         
         // Also add prototype to Array and Object with proper methods
         TsValue protoKey = makeKey("prototype");
@@ -10267,8 +10289,8 @@ TsValue* ts_value_make_int(int64_t i) {
         global = ts_value_make_object(globalMap);
         globalThis = global;  // ES2020: globalThis is an alias for global
         // global.global === global, globalThis.globalThis === globalThis
-        globalMap->Set(makeKey("global"), *global);
-        globalMap->Set(makeKey("globalThis"), *global);
+        globalMap->Set(makeKey("global"), nanbox_to_tagged(global));
+        globalMap->Set(makeKey("globalThis"), nanbox_to_tagged(global));
     }
 
     void ts_module_register(TsValue* path, TsValue* exports) {

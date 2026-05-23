@@ -17,6 +17,7 @@
 #include "TsBuffer.h"  // for TsTypedArray
 #include "TsArray.h"   // for TsArray source in typed array constructors
 #include "TsBigInt.h"  // for BigInt.asIntN / asUintN
+#include "TsRegExp.h"  // for ts_regexp_create (plain-call RegExp(pattern))
 #include <unicode/unistr.h>
 #include <unicode/utypes.h>
 #include <unicode/locid.h>
@@ -1084,17 +1085,29 @@ static TsMap* makeSimpleConstructorGlobal(const char* name) {
 // ts_object_get_property(func, "prototype") finds it.
 static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
     if (!ctor) return nullptr;
-    // Stub body: return undefined. The spec says `Set()` without `new`
+    // Default body returns undefined. The spec says `Set()` without `new`
     // should throw TypeError, but we can't distinguish construct-context
     // calls (from Reflect.construct) from plain-call here, and most
     // test262 harness tests check isConstructor(X) which calls
     // Reflect.construct and expects NOT to throw. Runtime `new X()` goes
     // through compiler fast paths (ts_set_create, ts_map_create_explicit,
     // etc.) that bypass this body entirely.
+    //
+    // For the few built-ins where ECMA-262 specifies that plain-call IS
+    // valid (and equivalent to `new`), dispatch by name using ctx. Lodash's
+    // `RegExp = context.RegExp; RegExp(pat)` is the motivating case.
     auto body = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        const char* name = (const char*)ctx;
+        if (name && strcmp(name, "RegExp") == 0) {
+            // ECMA-262 22.2.4.1: RegExp(pat) is equivalent to new RegExp(pat).
+            void* pattern = (argc >= 1 && argv) ? argv[0] : nullptr;
+            void* flags = (argc >= 2 && argv) ? argv[1] : nullptr;
+            void* re = ts_regexp_create(pattern, flags);
+            return re ? ts_value_make_object(re) : ts_value_make_undefined();
+        }
         return ts_value_make_undefined();
     };
-    TsValue* fnVal = ts_value_make_native_function((void*)+body, nullptr);
+    TsValue* fnVal = ts_value_make_native_function((void*)+body, (void*)name);
     void* rawFn = ts_value_get_object(fnVal);
     if (!rawFn) return (void*)ctor;
     TsFunction* func = (TsFunction*)rawFn;
