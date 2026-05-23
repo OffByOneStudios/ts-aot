@@ -47,11 +47,12 @@ function user_main(): number {
 
     // --- Rounding ---
     eq(_.ceil(4.006), 5, "ceil");
-    // SKIP: ceil/floor/round with precision arg ignore the precision in
-    // ts-aot (uses 0). Documented divergence; basic forms work.
+    eq(_.ceil(6.004, 2), 6.01, "ceil precision");
     eq(_.floor(4.906), 4, "floor");
+    eq(_.floor(0.046, 2), 0.04, "floor precision");
     eq(_.round(4.006), 4, "round");
     eq(_.round(4.7), 5, "round 4.7");
+    eq(_.round(4.006, 2), 4.01, "round precision");
 
     // --- Number utilities ---
     eq(_.clamp(-10, -5, 5), -5, "clamp lower");

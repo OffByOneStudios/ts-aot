@@ -1052,8 +1052,21 @@ double ts_value_get_double(TsValue* v) {
         if (!ptr) return 0.0;
         uint32_t magic = *(uint32_t*)ptr;
         if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
-            try { return std::stod(ts_ensure_flat(ptr)->ToUtf8()); }
-            catch (...) { return std::numeric_limits<double>::quiet_NaN(); }
+            // ECMA-262 §7.1.4.1 StringToNumber: empty or whitespace-only
+            // strings convert to +0, not NaN. std::stod throws on empty
+            // input which we'd otherwise turn into NaN — wrong per spec.
+            // Trim ASCII whitespace and reject trailing non-whitespace
+            // characters to match StrUnsignedDecimalLiteral semantics.
+            const char* utf8 = ts_ensure_flat(ptr)->ToUtf8();
+            if (!utf8 || *utf8 == '\0') return 0.0;
+            const char* s = utf8;
+            while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+            if (*s == '\0') return 0.0;
+            char* end = nullptr;
+            double d = std::strtod(s, &end);
+            while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
+            if (*end != '\0') return std::numeric_limits<double>::quiet_NaN();
+            return d;
         }
         // ES5.1 §9.3 ToNumber on an object: call ToPrimitive with hint
         // "number", which invokes user-defined valueOf/toString. If that

@@ -6948,7 +6948,23 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // match. If neither lookup found a target, scan for an exact
             // base-name match against names of the form `<name>_<digits>$`
             // and use that.
-            if (!targetFunc) {
+            //
+            // EXCLUSION: skip this fallback when ident->name is a known
+            // global builtin (isFinite, parseInt, etc.). Bundled JS modules
+            // like lodash declare inner functions with these same names
+            // inside their IIFE wrappers (`function isFinite(value)` inside
+            // `runInContext`). The greedy scan would grab the inner function
+            // by base-name + `_<digits>` pattern and shadow the global.
+            // The known-globals branch below (lines ~7029-7062) handles the
+            // correct lookup against the runtime registration.
+            auto isBareGlobalIdent = [](const std::string& n) {
+                return n == "isFinite" || n == "isNaN" ||
+                       n == "parseInt" || n == "parseFloat" ||
+                       n == "encodeURI" || n == "encodeURIComponent" ||
+                       n == "decodeURI" || n == "decodeURIComponent" ||
+                       n == "eval";
+            };
+            if (!targetFunc && !isBareGlobalIdent(ident->name)) {
                 for (auto& f : module_->functions) {
                     const std::string& fn = f->name;
                     if (fn.size() <= ident->name.size() + 1) continue;
@@ -9611,49 +9627,30 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     }
 
     // JavaScript var hoisting for function expressions with nested func decls.
-    // Pre-declare var names so the first pass (function declarations) can find
-    // variable info to mark as isCapturedByNested for shared cell access.
-    // Safe for function expressions since all vars are Any/ptr type.
+    // Pre-declare ALL `var` names in the function body — including those
+    // nested in if/for/while/try blocks. ECMA-262 § 14.3.2: `var`
+    // declarations hoist to the enclosing function scope, not the block
+    // they appear in. Without recursive walking, code like
+    //
+    //   if (cond) { var x = 5; }
+    //   ... x ...
+    //
+    // resolves the outer `x` to the surrounding scope (potentially a
+    // wrong outer var or function) instead of the function-scoped local.
+    // Lodash's createFind closure depends on this for `var iteratee`
+    // declared inside an `if` branch.
     {
-        bool hasNestedFuncDecls = false;
+        std::vector<std::string> hoistedVars;
         for (auto& stmt : node->body) {
-            if (dynamic_cast<ast::FunctionDeclaration*>(stmt.get())) {
-                hasNestedFuncDecls = true;
-                break;
-            }
+            collectHoistedVarNames(stmt.get(), hoistedVars);
         }
-        if (!hasNestedFuncDecls) goto skip_var_hoisting;
-    }
-    for (auto& stmt : node->body) {
-        ast::VariableDeclaration* varDecl = nullptr;
-        if (stmt->getKind() == "VariableDeclaration") {
-            varDecl = dynamic_cast<ast::VariableDeclaration*>(stmt.get());
-        } else if (auto* block = dynamic_cast<ast::BlockStatement*>(stmt.get())) {
-            // Multi-variable declarations get wrapped in BlockStatement
-            for (auto& inner : block->statements) {
-                if (auto* vd = dynamic_cast<ast::VariableDeclaration*>(inner.get())) {
-                    if (auto* ident = dynamic_cast<ast::Identifier*>(vd->name.get())) {
-                        if (!lookupVariableInfoInCurrentFunction(ident->name)) {
-                            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
-                            builder_.createStore(builder_.createConstUndefined(), allocaVal);
-                            defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
-                        }
-                    }
-                }
-            }
-        }
-        if (varDecl) {
-            if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
-                if (!lookupVariableInfoInCurrentFunction(ident->name)) {
-                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), ident->name);
-                    builder_.createStore(builder_.createConstUndefined(), allocaVal);
-                    defineVariableAlloca(ident->name, allocaVal, HIRType::makeAny());
-                }
-            }
+        for (auto& name : hoistedVars) {
+            if (lookupVariableInfoInCurrentFunction(name)) continue;
+            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), name);
+            builder_.createStore(builder_.createConstUndefined(), allocaVal, HIRType::makeAny());
+            defineVariableAlloca(name, allocaVal, HIRType::makeAny());
         }
     }
-
-    skip_var_hoisting:
 
     // JavaScript function hoisting: pre-declare nested function names as variables.
     // This allows functions to be called before they appear in source order.
