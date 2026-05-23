@@ -53,11 +53,14 @@ function user_main(): number {
     eq(_.isObject(42), false, "isObject(42)");
     eq(_.isObject("abc"), false, "isObject('abc')");
 
-    // SKIP: isPlainObject({}) returns false in ts-aot — lodash's
-    // implementation checks Object.getPrototypeOf(value) === Object.prototype
-    // and ts-aot's prototype linkage for plain `{}` literals doesn't match
-    // the path lodash inspects. eq(_.isPlainObject({}), true, ...)
-    // SKIP: eq(_.isPlainObject({ a: 1 }), true, "isPlainObject({a:1})");
+    // _.isPlainObject({}) is blocked on `Object instanceof Object` returning
+    // false in ts-aot — the Object constructor's [[Prototype]] chain
+    // doesn't reach Object.prototype. Lodash's spec-faithful check uses
+    // `Ctor instanceof Ctor` as a discriminator. Object.getPrototypeOf({})
+    // === Object.prototype now works (commit fixed unification + back-
+    // pointer); the remaining gap is the constructor's own proto chain.
+    // // eq(_.isPlainObject({}), true, "isPlainObject({})");
+    // // eq(_.isPlainObject({ a: 1 }), true, "isPlainObject({a:1})");
     eq(_.isPlainObject([]), false, "isPlainObject([])");
     eq(_.isPlainObject(null), false, "isPlainObject(null)");
 
@@ -74,16 +77,12 @@ function user_main(): number {
 
     eq(_.isNaN(NaN), true, "isNaN(NaN)");
     eq(_.isNaN(0), false, "isNaN(0)");
-    // SKIP: _.isNaN('foo') returns true in ts-aot (should be false: lodash
-    // is strict). The short-circuit `isNumber(value) && value != +value`
-    // appears to be evaluating the right side anyway. eq(_.isNaN('foo'), false, ...)
+    eq(_.isNaN("foo"), false, "isNaN('foo')");
 
     eq(_.isFinite(42), true, "isFinite(42)");
     eq(_.isFinite(Infinity), false, "isFinite(Infinity)");
     eq(_.isFinite(NaN), false, "isFinite(NaN)");
-    // SKIP: _.isFinite('42') returns true in ts-aot (should be false:
-    // lodash.isFinite is strict, no string coercion). Same short-circuit
-    // issue as isNaN above. eq(_.isFinite('42'), false, ...)
+    eq(_.isFinite("42"), false, "isFinite('42') — strict, no coercion");
 
     eq(_.isInteger(42), true, "isInteger(42)");
     eq(_.isInteger(42.5), false, "isInteger(42.5)");

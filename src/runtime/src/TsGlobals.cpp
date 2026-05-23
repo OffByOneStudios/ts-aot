@@ -335,6 +335,20 @@ void* ts_get_global_Object() {
     // `isConstructor(Object)` returns true.
     cached = wrapAsCallable(ctor, "Object", 1);
 
+    // ECMA-262: Object.prototype.constructor === Object. Lodash's
+    // isPlainObject walks `proto.constructor` to identify plain objects,
+    // and Babel's transforms emit `obj.constructor` for super-class
+    // detection. Without this back-pointer `{}.constructor` is undefined.
+    {
+        TsValue ctorBackKey;
+        ctorBackKey.type = ValueType::STRING_PTR;
+        ctorBackKey.ptr_val = TsString::GetInterned("constructor");
+        TsValue ctorBackVal;
+        ctorBackVal.type = ValueType::FUNCTION_PTR;
+        ctorBackVal.ptr_val = cached;
+        proto->Set(ctorBackKey, ctorBackVal);
+    }
+
     // Override the default undefined-returning body with the real
     // Object(value) coercion. Used by patterns like
     // `Object(value)` (identity for objects, boxes primitives) and the

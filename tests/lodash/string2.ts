@@ -21,8 +21,7 @@ function user_main(): number {
     // --- parseInt ---
     eq(_.parseInt("08"), 8, "parseInt '08'");
     eq(_.parseInt("0x1a"), 26, "parseInt hex");
-    // SKIP: _.parseInt("10", 2) returns 10 not 2 — the radix argument is
-    // dropped through the lodash dispatch path. // eq(_.parseInt("10", 2), 2, ...)
+    eq(_.parseInt("10", 2), 2, "parseInt binary");
 
     // --- Aliases (functions == aliases) ---
     eq(_.first([1, 2, 3]), 1, "first aliases head");

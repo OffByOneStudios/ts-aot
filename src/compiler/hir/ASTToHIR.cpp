@@ -8637,9 +8637,30 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "Intl",
         };
         if (jsBuiltinGlobals.count(node->name)) {
-            SPDLOG_DEBUG("[IDENT] builtin global: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
-            lastValue_ = builder_.createLoadGlobal(node->name);
-            return;
+            // A local `function NAME(...) {...}` declaration MUST shadow the
+            // built-in global with the same name. Lodash relies on this:
+            // `function isNaN(value) {...}` inside its IIFE defines a strict
+            // isNaN, and `lodash.isNaN = isNaN` should bind to that local
+            // function — not the global ECMAScript isNaN. Without this
+            // check `_.isNaN("foo")` returns `true` (global's coercion-
+            // based answer) instead of lodash's strict `false`.
+            //
+            // We only honor FUNCTION-DECLARATION shadows (elemType.kind ==
+            // Function), not var/let/const shadows. The lodash bundle also
+            // has `var Object = context.Object, Array = context.Array, ...`
+            // which hoist to undefined before their assignments execute;
+            // honoring those shadows would resolve early `Object` references
+            // to undefined and break the bundle.
+            auto* localInfo = lookupVariableInfo(node->name);
+            bool localIsFunction = localInfo && localInfo->elemType &&
+                localInfo->elemType->kind == HIRTypeKind::Function;
+            if (!localIsFunction) {
+                SPDLOG_DEBUG("[IDENT] builtin global: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
+                lastValue_ = builder_.createLoadGlobal(node->name);
+                return;
+            }
+            SPDLOG_DEBUG("[IDENT] local fn shadows builtin: {} in func={}", node->name, currentFunction_ ? currentFunction_->name : "null");
+            // Fall through — local function declaration shadows the built-in.
         }
     }
 

@@ -5624,26 +5624,41 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
         return;
     }
 
-    // Handle parseInt(string, radix?) - redirect to ts_parseInt which handles both
-    // raw TsString* and boxed TsValue*. The radix arg is ignored (always base 10).
+    // Handle parseInt(string, radix?). Dispatch to ts_parseInt_radix which
+    // accepts an optional radix and handles ECMA-262 §19.2.5 semantics:
+    // - radix == 0 || undefined: auto-detect (0x prefix → 16, else 10)
+    // - radix == 16: strip 0x prefix if present
+    // - other radix: parse with that radix
+    // - returns NaN (boxed double) for unparseable
     if (funcName == "parseInt") {
         llvm::Value* arg = getOperandValue(inst->operands[1]);
-        // Ensure arg is a pointer (box if primitive)
+        // Box arg if primitive so runtime sees TsValue*
         if (arg->getType()->isIntegerTy(64)) {
             arg = builder_->CreateCall(getTsValueMakeInt(), { arg });
         } else if (arg->getType()->isDoubleTy()) {
             arg = builder_->CreateCall(getTsValueMakeDouble(), { arg });
         } else if (arg->getType()->isIntegerTy(1)) {
-            // ts_value_make_bool's canonical signature is ptr(i32)
             llvm::Value* widened = builder_->CreateZExt(arg, builder_->getInt32Ty());
             arg = builder_->CreateCall(getTsValueMakeBool(), { widened });
         } else if (arg->getType()->isIntegerTy(32)) {
             arg = builder_->CreateCall(getTsValueMakeBool(), { arg });
         }
+        // Radix: explicit arg or undefined sentinel.
+        llvm::Value* radixArg;
+        if (inst->operands.size() >= 3) {
+            radixArg = getOperandValue(inst->operands[2]);
+            if (radixArg->getType()->isIntegerTy(64)) {
+                radixArg = builder_->CreateCall(getTsValueMakeInt(), { radixArg });
+            } else if (radixArg->getType()->isDoubleTy()) {
+                radixArg = builder_->CreateCall(getTsValueMakeDouble(), { radixArg });
+            }
+        } else {
+            radixArg = llvm::ConstantPointerNull::get(builder_->getPtrTy());
+        }
         llvm::FunctionType* ft = llvm::FunctionType::get(
-            builder_->getInt64Ty(), { builder_->getPtrTy() }, false);
-        auto fn = module_->getOrInsertFunction("ts_parseInt", ft);
-        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg });
+            builder_->getPtrTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        auto fn = module_->getOrInsertFunction("ts_parseInt_radix", ft);
+        llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), { arg, radixArg });
         if (inst->result) {
             setValue(inst->result, result);
         }

@@ -787,9 +787,118 @@ TsValue* ts_value_make_int(int64_t i) {
         void* arg = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         return (TsValue*)ts_decode_uri(arg);
     }
+    // ECMA-262 §19.2.5: parseInt(string, radix).
+    //   - Trim leading whitespace.
+    //   - Accept optional sign.
+    //   - If radix is 0/undefined and string starts with "0x"/"0X", radix=16.
+    //   - Default radix is 10.
+    //   - Returns NaN if no digits could be parsed.
+    static double ts_parse_int_impl(TsValue* arg, TsValue* radixArg) {
+        // Coerce arg to string.
+        TsValue* sv = arg ? arg : ts_value_make_undefined();
+        uint64_t nbs = nanbox_from_tsvalue_ptr(sv);
+        // Numeric input: pass-through via ToString-then-parse is wasteful for
+        // integers, so handle integers directly.
+        if (nanbox_is_int32(nbs)) {
+            return (double)nanbox_to_int32(nbs);
+        }
+        // For everything else, coerce to string.
+        TsString* sStr = nullptr;
+        if (nanbox_is_string_ptr(nbs)) {
+            sStr = (TsString*)nanbox_to_ptr(nbs);
+        } else if (nanbox_is_ptr(nbs)) {
+            void* ptr = nanbox_to_ptr(nbs);
+            if (ptr) {
+                uint32_t magic = *(uint32_t*)ptr;
+                if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+                    sStr = ts_ensure_flat(ptr);
+                }
+            }
+        }
+        std::string s;
+        if (sStr) {
+            s = sStr->ToUtf8();
+        } else if (nanbox_is_double(nbs)) {
+            double d = nanbox_to_double(nbs);
+            if (std::isnan(d) || std::isinf(d)) return std::nan("");
+            char buf[64]; std::snprintf(buf, sizeof(buf), "%g", d);
+            s = buf;
+        } else {
+            return std::nan("");
+        }
+
+        // Trim leading whitespace.
+        size_t i = 0;
+        while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' ||
+                                 s[i] == '\r' || s[i] == '\v' || s[i] == '\f')) {
+            i++;
+        }
+        if (i >= s.size()) return std::nan("");
+
+        // Optional sign.
+        bool negative = false;
+        if (s[i] == '+' || s[i] == '-') {
+            negative = (s[i] == '-');
+            i++;
+        }
+
+        // Determine radix.
+        int radix = 0;
+        if (radixArg) {
+            uint64_t rnb = nanbox_from_tsvalue_ptr(radixArg);
+            if (nanbox_is_int32(rnb)) radix = nanbox_to_int32(rnb);
+            else if (nanbox_is_double(rnb)) {
+                double d = nanbox_to_double(rnb);
+                if (!std::isnan(d) && !std::isinf(d)) radix = (int)d;
+            }
+        }
+        bool stripPrefix = (radix == 0 || radix == 16);
+        if (stripPrefix && i + 1 < s.size() && s[i] == '0' && (s[i+1] == 'x' || s[i+1] == 'X')) {
+            radix = 16;
+            i += 2;
+        } else if (radix == 0) {
+            radix = 10;
+        }
+        if (radix < 2 || radix > 36) return std::nan("");
+
+        // Parse digits.
+        double result = 0.0;
+        size_t start = i;
+        while (i < s.size()) {
+            char c = s[i];
+            int digit;
+            if (c >= '0' && c <= '9') digit = c - '0';
+            else if (c >= 'a' && c <= 'z') digit = c - 'a' + 10;
+            else if (c >= 'A' && c <= 'Z') digit = c - 'A' + 10;
+            else break;
+            if (digit >= radix) break;
+            result = result * radix + digit;
+            i++;
+        }
+        if (i == start) return std::nan("");
+        return negative ? -result : result;
+    }
     static TsValue* builtin_parseInt_native(void* ctx, int argc, TsValue** argv) {
         TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
-        return (TsValue*)ts_value_make_int(ts_number_parseInt(arg));
+        TsValue* radix = (argc >= 2 && argv) ? argv[1] : nullptr;
+        double d = ts_parse_int_impl(arg, radix);
+        if (std::isnan(d)) return ts_value_make_double(d);
+        // Integer if it fits in int32, else double.
+        if (d >= INT32_MIN && d <= INT32_MAX && d == std::floor(d)) {
+            return ts_value_make_int((int64_t)d);
+        }
+        return ts_value_make_double(d);
+    }
+
+    // C-linkage entry point invoked from compiled JS for `parseInt(str, radix?)`.
+    // radix may be null (== undefined). Returns boxed Number (int or double).
+    extern "C" TsValue* ts_parseInt_radix(TsValue* arg, TsValue* radix) {
+        double d = ts_parse_int_impl(arg, radix);
+        if (std::isnan(d)) return ts_value_make_double(d);
+        if (d >= INT32_MIN && d <= INT32_MAX && d == std::floor(d)) {
+            return ts_value_make_int((int64_t)d);
+        }
+        return ts_value_make_double(d);
     }
     static TsValue* builtin_parseFloat_native(void* ctx, int argc, TsValue** argv) {
         TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
@@ -5444,27 +5553,14 @@ TsValue* ts_value_make_int(int64_t i) {
                 return getCtorPrototype(ts_get_global_Map());
             }
             // Plain object literals: return Object.prototype per spec.
-            // The Object constructor's .prototype is created by the
-            // global init in TsObject.cpp.
-            extern TsValue* globalThis;
-            if (globalThis) {
-                void* gtRaw = ts_value_get_object(globalThis);
-                if (gtRaw) {
-                    uint32_t gtMagic = *(uint32_t*)((char*)gtRaw + 16);
-                    if (gtMagic == TsMap::MAGIC) {
-                        TsMap* gt = (TsMap*)gtRaw;
-                        TsValue objKey;
-                        objKey.type = ValueType::STRING_PTR;
-                        objKey.ptr_val = TsString::GetInterned("Object");
-                        TsValue objCtor = gt->Get(objKey);
-                        if (objCtor.type == ValueType::FUNCTION_PTR ||
-                            objCtor.type == ValueType::OBJECT_PTR) {
-                            return getCtorPrototype(nanbox_from_tagged(objCtor));
-                        }
-                    }
-                }
-            }
-            return ts_value_make_null();
+            // Use ts_get_global_Object() — the same Object constructor that
+            // JS code sees as the bare `Object` identifier (via load_global).
+            // Going through globalThis.Object would return a DIFFERENT
+            // Object constructor (set up separately in ts_runtime_init),
+            // so `Object.getPrototypeOf({}) === Object.prototype` would be
+            // false.
+            extern void* ts_get_global_Object();
+            return getCtorPrototype(ts_get_global_Object());
         }
         if (magic == 0x53455453) { // TsSet "SETS"
             extern void* ts_get_global_Set();
@@ -7350,8 +7446,18 @@ TsValue* ts_value_make_int(int64_t i) {
         uint64_t nba = nanbox_from_tsvalue_ptr(a);
         uint64_t nbb = nanbox_from_tsvalue_ptr(b);
 
-        // Fast path: identical bit patterns
-        if (nba == nbb) return ts_value_make_bool(true);
+        // Fast path: identical bit patterns. BUT: NaN never loose-equals NaN
+        // (ECMA-262 § Abstract Equality, step 1.a: if x is NaN, return false).
+        // Skip the bit-pattern fast path if either side is NaN — the number
+        // case below will then use IEEE 754 `==` which correctly returns
+        // false for NaN-vs-NaN.
+        if (nba == nbb) {
+            if (nanbox_is_double(nba)) {
+                double d = nanbox_to_double(nba);
+                if (d != d) return ts_value_make_bool(false);  // NaN
+            }
+            return ts_value_make_bool(true);
+        }
 
         // null == undefined
         bool a_nullish = nanbox_is_undefined(nba) || nanbox_is_null(nba);
@@ -9175,8 +9281,15 @@ TsValue* ts_value_make_int(int64_t i) {
     extern "C" int64_t ts_parseInt(void* value);
 
     TsValue* ts_parseInt_native(void* context, int argc, TsValue** argv) {
-        if (argc < 1) return ts_value_make_int(0);
-        return ts_value_make_int(ts_parseInt(argv[0]));
+        // Reuse the spec-compliant impl from builtin_parseInt_native.
+        TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
+        TsValue* radix = (argc >= 2 && argv) ? argv[1] : nullptr;
+        double d = ts_parse_int_impl(arg, radix);
+        if (std::isnan(d)) return ts_value_make_double(d);
+        if (d >= INT32_MIN && d <= INT32_MAX && d == std::floor(d)) {
+            return ts_value_make_int((int64_t)d);
+        }
+        return ts_value_make_double(d);
     }
 
     TsValue* ts_parseFloat_native(void* context, int argc, TsValue** argv) {
@@ -9919,8 +10032,10 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_object(arr);
     }
 
-    // isNaN(value) - returns true if value is NaN
-    TsValue* ts_isNaN_native(int argc, TsValue** argv, void* context) {
+    // isNaN(value) - returns true if value is NaN.
+    // Parameter order MUST be (ctx, argc, argv) to match the native-function
+    // calling convention used by ts_call_N (func->funcPtr(func->context, argc, argv)).
+    TsValue* ts_isNaN_native(void* context, int argc, TsValue** argv) {
         if (argc < 1 || !argv[0]) {
             return ts_value_make_bool(true); // undefined is NaN
         }
@@ -9942,8 +10057,10 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_bool(true);
     }
 
-    // isFinite(value) - returns true if value is finite
-    TsValue* ts_isFinite_native(int argc, TsValue** argv, void* context) {
+    // isFinite(value) - returns true if value is finite.
+    // Parameter order MUST be (ctx, argc, argv) to match the native-function
+    // calling convention.
+    TsValue* ts_isFinite_native(void* context, int argc, TsValue** argv) {
         if (argc < 1 || !argv[0]) {
             return ts_value_make_bool(false); // undefined is not finite
         }
@@ -10164,7 +10281,21 @@ TsValue* ts_value_make_int(int64_t i) {
         // nanbox_to_tagged to convert NaN-boxed TsValue* pointers into the
         // tagged TsValue struct that the map storage expects. Without this,
         // `globalThis.Object` etc. return undefined (UB read of vtable bytes).
-        if (Object) globalMap->SetWithAttrs(makeKey("Object"), nanbox_to_tagged(Object), BUILTIN_ATTRS);
+        // Use `ts_get_global_Object()` (the lazy-cached TsFunction in
+        // TsGlobals.cpp) as the canonical Object constructor — this is what
+        // bare `Object` resolves to via load_global, so `globalThis.Object`
+        // MUST be the same value or `Object.getPrototypeOf({}) === Object.prototype`
+        // is false (the prototype chain points back to the lazy-cached
+        // Object, but globalThis.Object would be a different TsFunction).
+        // Lodash's isPlainObject relies on this identity.
+        extern void* ts_get_global_Object();
+        void* unifiedObject = ts_get_global_Object();
+        if (unifiedObject) {
+            TsValue uo;
+            uo.type = ValueType::FUNCTION_PTR;
+            uo.ptr_val = unifiedObject;
+            globalMap->SetWithAttrs(makeKey("Object"), uo, BUILTIN_ATTRS);
+        }
         if (Array) globalMap->SetWithAttrs(makeKey("Array"), nanbox_to_tagged(Array), BUILTIN_ATTRS);
         if (Math) globalMap->SetWithAttrs(makeKey("Math"), nanbox_to_tagged(Math), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("parseInt"), nanbox_to_tagged(parseIntWrapper), BUILTIN_ATTRS);
