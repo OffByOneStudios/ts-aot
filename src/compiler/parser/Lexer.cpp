@@ -1233,7 +1233,19 @@ std::string Lexer::getStringValue(std::string_view rawToken) {
                         if (c >= 'A' && c <= 'F') return c - 'A' + 10;
                         return 0;
                     };
-                    result += (char)(hexVal(hi) * 16 + hexVal(lo));
+                    // \xHH is the character with code unit HH (0..255).
+                    // result is UTF-8, so a code unit >= 0x80 needs a
+                    // 2-byte encoding — raw 0xE9 alone is an invalid
+                    // UTF-8 lead byte that later decoders replace with
+                    // U+FFFD, breaking string equality with the same
+                    // character written as a literal "é".
+                    int cp = hexVal(hi) * 16 + hexVal(lo);
+                    if (cp < 0x80) {
+                        result += (char)cp;
+                    } else {
+                        result += (char)(0xC0 | (cp >> 6));
+                        result += (char)(0x80 | (cp & 0x3F));
+                    }
                     i += 2;
                 }
                 break;
@@ -1381,7 +1393,16 @@ std::string Lexer::processTemplateEscapes(std::string_view text) {
                         if (c >= 'A' && c <= 'F') return c - 'A' + 10;
                         return 0;
                     };
-                    result += (char)(hexVal(text[i + 1]) * 16 + hexVal(text[i + 2]));
+                    // See string-literal \x note above: emit proper
+                    // UTF-8 for cp >= 0x80 so the result matches what
+                    // the literal character would produce.
+                    int cp = hexVal(text[i + 1]) * 16 + hexVal(text[i + 2]);
+                    if (cp < 0x80) {
+                        result += (char)cp;
+                    } else {
+                        result += (char)(0xC0 | (cp >> 6));
+                        result += (char)(0x80 | (cp & 0x3F));
+                    }
                     i += 2;
                 }
                 break;

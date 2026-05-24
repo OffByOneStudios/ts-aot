@@ -74,10 +74,11 @@ function user_main(): number {
     eq(_.words("fooBarBaz").length, 3, "words count");
     eq(_.words("fred barney pebbles")[0], "fred", "words first");
 
-    // SKIP: _.deburr returns "dundefinedjundefined vu" — the deburredLetters
-    // char map lookup returns undefined for the accented chars. The map is
-    // populated correctly at lodash init; access via charCodeAt may be
-    // off-by-one. // eq(_.deburr("déjà vu"), "deja vu", ...)
+    // --- deburr (strip accents/diacritics) ---
+    eq(_.deburr("déjà vu"), "deja vu", "deburr déjà vu");
+    eq(_.deburr("naïve"), "naive", "deburr naïve");
+    eq(_.deburr("café"), "cafe", "deburr café");
+    eq(_.deburr("é"), "e", "deburr single é");
 
     // --- truncate ---
     eq(_.truncate("hi-diddly-ho there, neighborino", { length: 12 }), "hi-diddly...", "truncate length");
