@@ -1873,6 +1873,27 @@ void ASTToHIR::defineVariableAlloca(const std::string& name, std::shared_ptr<HIR
     }
 }
 
+// Broadcast a write to every closure cell that captures this variable. The
+// primary cell (info.closurePtr / info.captureIndex) is updated first, then
+// each entry in info.additionalCaptures. Without this, when multiple nested
+// closures capture the same variable (lodash captures `upperFirst` from
+// many helpers), an assignment to the var would only update the first
+// closure's cell, leaving subsequent ones holding stale values.
+void ASTToHIR::broadcastCaptureWrite(VariableInfo* info,
+                                     std::shared_ptr<HIRValue> newValue) {
+    if (!info || !info->isCapturedByNested) return;
+    if (info->closurePtr && info->captureIndex >= 0) {
+        auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
+        builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, newValue);
+    }
+    for (const auto& cap : info->additionalCaptures) {
+        if (cap.first && cap.second >= 0) {
+            auto closureVal = builder_.createLoad(HIRType::makeAny(), cap.first);
+            builder_.createStoreCaptureFromClosure(closureVal, cap.second, newValue);
+        }
+    }
+}
+
 ASTToHIR::VariableInfo* ASTToHIR::lookupVariableInfo(const std::string& name) {
     // Search from innermost to outermost scope
     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
@@ -3060,21 +3081,28 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
 
         auto closureVal = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
 
-        // Mark captured variables as "captured by nested"
+        // Mark captured variables as "captured by nested" and register the
+        // closure cell so later writes can propagate. When a variable is
+        // captured by MULTIPLE nested closures (e.g., lodash's `upperFirst`
+        // referenced from many helper closures), record each one in
+        // additionalCaptures — write sites iterate all of them so every
+        // closure sees the assignment.
         int captureIdx = 0;
         for (const auto& cap : innerCaptures) {
             const std::string& capName = cap.first;
             size_t scopeIndex = 0;
             if (!isCapturedVariable(capName, &scopeIndex)) {
                 auto* info = lookupVariableInfo(capName);
-                if (info && !info->isCapturedByNested) {
-                    info->isCapturedByNested = true;
-                    // Store closure pointer in an alloca to ensure SSA dominance
-                    // (closure may be created in try block but accessed from catch block)
+                if (info) {
                     auto closureAlloca = builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
                     builder_.createStore(closureVal, closureAlloca);
-                    info->closurePtr = closureAlloca;
-                    info->captureIndex = captureIdx;
+                    if (!info->isCapturedByNested) {
+                        info->isCapturedByNested = true;
+                        info->closurePtr = closureAlloca;
+                        info->captureIndex = captureIdx;
+                    } else {
+                        info->additionalCaptures.emplace_back(closureAlloca, captureIdx);
+                    }
                 }
             }
             captureIdx++;
@@ -3085,12 +3113,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         auto* existingInfo = lookupVariableInfo(node->name);
         if (existingInfo && existingInfo->isAlloca) {
             builder_.createStore(closureVal, existingInfo->value);
-            if (existingInfo->isCapturedByNested && existingInfo->closurePtr &&
-                existingInfo->captureIndex >= 0) {
-                auto closureValForUpdate = builder_.createLoad(HIRType::makeAny(), existingInfo->closurePtr);
-                builder_.createStoreCaptureFromClosure(
-                    closureValForUpdate, existingInfo->captureIndex, closureVal);
-            }
+            broadcastCaptureWrite(existingInfo, closureVal);
         } else {
             // No pre-created alloca, define the function name as a closure variable
             defineVariable(node->name, closureVal);
@@ -3132,15 +3155,7 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         auto* existingInfo = lookupVariableInfo(node->name);
         if (existingInfo && existingInfo->isAlloca) {
             builder_.createStore(closureVal, existingInfo->value);
-            // Same cell-update as the captures branch above: a later-source
-            // function decl already captured by an earlier nested closure
-            // needs the capture cell to see the assignment.
-            if (existingInfo->isCapturedByNested && existingInfo->closurePtr &&
-                existingInfo->captureIndex >= 0) {
-                auto closureValForUpdate = builder_.createLoad(HIRType::makeAny(), existingInfo->closurePtr);
-                builder_.createStoreCaptureFromClosure(
-                    closureValForUpdate, existingInfo->captureIndex, closureVal);
-            }
+            broadcastCaptureWrite(existingInfo, closureVal);
         } else {
             defineVariable(node->name, closureVal);
         }
@@ -3236,12 +3251,10 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
             if (varType->kind != HIRTypeKind::Any) {
                 existingInfo->elemType = varType;
             }
-            // If this variable is captured by a nested closure, also update the cell
-            // so the closure sees the new value (e.g., var interval = setInterval(...))
-            if (existingInfo->isCapturedByNested && existingInfo->closurePtr && existingInfo->captureIndex >= 0) {
-                auto closureVal = builder_.createLoad(HIRType::makeAny(), existingInfo->closurePtr);
-                builder_.createStoreCaptureFromClosure(closureVal, existingInfo->captureIndex, initValue);
-            }
+            // If this variable is captured by nested closures, propagate the
+            // assignment to every capture cell (lodash declares many helpers
+            // that all capture the same forward-referenced var).
+            broadcastCaptureWrite(existingInfo, initValue);
         } else {
             auto allocaPtr = builder_.createAlloca(varType, ident->name);
             builder_.createStore(initValue, allocaPtr, varType);
@@ -4679,10 +4692,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
                 } else if (auto* info = lookupVariableInfo(ident->name)) {
                     if (info->isAlloca) {
                         storeIntoSlot(info->value, info->elemType);
-                        if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
-                            auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
-                            builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, boxedRhs);
-                        }
+                        broadcastCaptureWrite(info, boxedRhs);
                     } else {
                         auto allocaPtr = builder_.createAlloca(rhs->type, ident->name);
                         builder_.createStore(rhs, allocaPtr, rhs->type);
@@ -5368,11 +5378,7 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
             auto* info = lookupVariableInfo(ident->name);
             if (info && info->isAlloca) {
                 builder_.createStore(result, info->value, info->elemType);
-                // If this variable is captured by a nested closure, also update the cell
-                if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
-                    auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
-                    builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
-                }
+                broadcastCaptureWrite(info, result);
             } else if (info) {
                 // Direct value - promote to alloca for mutability
                 auto allocaPtr = builder_.createAlloca(result->type, ident->name);
@@ -5495,12 +5501,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         if (info && info->isAlloca) {
             // Emit store to the alloca, with type info for coercion
             builder_.createStore(rhs, info->value, info->elemType);
-            // If this variable is captured by a nested closure, also update the cell
-            // so the closure sees the new value (e.g., interval = setInterval(...))
-            if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
-                auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
-                builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, rhs);
-            }
+            broadcastCaptureWrite(info, rhs);
         } else if (info) {
             // Direct value - promote to alloca for mutability
             // Create new alloca and store
@@ -5679,10 +5680,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 auto* info = lookupVariableInfo(tgt->name);
                 if (info && info->isAlloca) {
                     builder_.createStore(value, info->value, info->elemType);
-                    if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
-                        auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
-                        builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, value);
-                    }
+                    broadcastCaptureWrite(info, value);
                 } else if (info) {
                     auto allocaPtr = builder_.createAlloca(value->type, tgt->name);
                     builder_.createStore(value, allocaPtr, value->type);
@@ -10245,11 +10243,7 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                     auto* info = lookupVariableInfo(ident->name);
                     if (info && info->isAlloca) {
                         builder_.createStore(result, info->value, info->elemType);
-                        // If captured by nested closure, also update the cell
-                        if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
-                            auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
-                            builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
-                        }
+                        broadcastCaptureWrite(info, result);
                         // If used by inner function AND module global, also update __modvar_
                         if (isModuleGlobalUsedByInner(ident->name)) {
                             builder_.createStoreGlobal(modVarName(ident->name), result);
@@ -10395,11 +10389,7 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                     auto* info = lookupVariableInfo(ident->name);
                     if (info && info->isAlloca) {
                         builder_.createStore(result, info->value, info->elemType);
-                        // If captured by nested closure, also update the cell
-                        if (info->isCapturedByNested && info->closurePtr && info->captureIndex >= 0) {
-                            auto closureVal = builder_.createLoad(HIRType::makeAny(), info->closurePtr);
-                            builder_.createStoreCaptureFromClosure(closureVal, info->captureIndex, result);
-                        }
+                        broadcastCaptureWrite(info, result);
                         // If used by inner function AND module global, also update __modvar_
                         if (isModuleGlobalUsedByInner(ident->name)) {
                             builder_.createStoreGlobal(modVarName(ident->name), result);

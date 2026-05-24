@@ -82,8 +82,18 @@ private:
         // Closure capture tracking: when a variable is captured by a nested function,
         // we need to also access it via the closure's cell in the outer function.
         bool isCapturedByNested = false;
-        std::shared_ptr<HIRValue> closurePtr = nullptr;  // The closure that owns the cell
+        // The closure that owns the cell. Kept as a single ptr for the
+        // primary capturer (used by READ sites — any cell is fine since all
+        // copies are kept in sync by writes). The full list of all closures
+        // capturing this variable lives in additionalCaptures and is iterated
+        // by WRITE sites so every cell stays current.
+        std::shared_ptr<HIRValue> closurePtr = nullptr;
         int captureIndex = -1;  // Index of this variable in the closure's captures array
+        // Additional capturers beyond the primary. Each entry is the alloca
+        // holding the closure pointer + its capture index for this variable.
+        // Populated when a second/third/... nested closure also captures this
+        // var (e.g., lodash's `upperFirst` captured by many helper closures).
+        std::vector<std::pair<std::shared_ptr<HIRValue>, int>> additionalCaptures;
     };
     struct Scope {
         std::map<std::string, VariableInfo> variables;
@@ -467,6 +477,7 @@ private:
     VariableInfo* lookupVariableInfo(const std::string& name);
     VariableInfo* lookupVariableInfoInCurrentFunction(const std::string& name);
     std::shared_ptr<HIRValue> lookupVariable(const std::string& name);
+    void broadcastCaptureWrite(VariableInfo* info, std::shared_ptr<HIRValue> newValue);
 
     // Closure capture helpers
     // Looks up a variable and determines if it's captured from an outer function
