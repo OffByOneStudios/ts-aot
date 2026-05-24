@@ -7552,8 +7552,33 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         }
     }
 
-    // Check if this is an extension type with a constructor (e.g., URL, URLSearchParams)
-    if (!hirClass) {
+    // Check if this is an extension type with a constructor (e.g., URL, URLSearchParams).
+    // SKIP the extension lookup if the user has defined a function declaration with
+    // the same name — that user function shadows the extension. Lodash's
+    // `runInContext` declares `function Hash() {...}` which would otherwise resolve
+    // to the crypto.Hash extension and throw "Illegal constructor".
+    //
+    // We deliberately do NOT shadow on a generic variable binding: patterns like
+    // `var EventEmitter = events.EventEmitter; new EventEmitter()` need to resolve
+    // to the extension's constructor, not to the variable's runtime value.
+    bool userShadowsExtension = false;
+    if (ident) {
+        for (const auto& f : module_->functions) {
+            if (f->name == ident->name || f->displayName == ident->name) {
+                userShadowsExtension = true;
+                break;
+            }
+        }
+        if (!userShadowsExtension && specializations_) {
+            for (const auto& spec : *specializations_) {
+                if (spec.originalName == ident->name) {
+                    userShadowsExtension = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (!hirClass && !userShadowsExtension) {
         auto& extReg = ext::ExtensionRegistry::instance();
         const ext::TypeDefinition* extType = extReg.findType(className);
         if (extType) {
@@ -7612,13 +7637,18 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
     } else if (hirClass && hirClass->shape) {
         // Class with shape but no properties (no flat object)
         newObj = builder_.createNewObject(hirClass->shape.get());
-    } else if (!hirClass && (ident || dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get()))) {
-        // Unknown class OR property-access expression - treat as a constructor
-        // function call.  Examples:
+    } else if (!hirClass && (ident
+                              || dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())
+                              || dynamic_cast<ast::BinaryExpression*>(node->expression.get())
+                              || dynamic_cast<ast::ParenthesizedExpression*>(node->expression.get()))) {
+        // Unknown class — treat as a constructor function call. Examples:
         //   - `new Foo()` where Foo is `function Foo() {...}` from imported JS
         //   - `new Array.prototype.concat([])` (property-access into a built-in
         //     prototype method, which is a non-constructor and must throw via
         //     the runtime `is_constructor` check).
+        //   - `new (memoize.Cache || MapCache)()` (computed-receiver pattern
+        //     used by lodash; receiver is a logical-or BinaryExpression wrapped
+        //     in parens, not an Identifier/PropertyAccess).
         // ts_new_from_constructor_N performs the [[Construct]] dispatch and
         // throws TypeError if the target's is_constructor flag is false.
         if (ident) {

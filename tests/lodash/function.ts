@@ -78,6 +78,15 @@ function user_main(): number {
     eq(_.flow([addOne, double])(3), 8, "flow left-to-right (3+1)*2");
     eq(_.flowRight([addOne, double])(3), 7, "flowRight right-to-left (3*2)+1");
 
+    // --- memoize (caches by first-arg key via MapCache) ---
+    var memoCalls: number = 0;
+    const mDouble = _.memoize((n: number) => { memoCalls++; return n * 2; });
+    eq(mDouble(5), 10, "memoize first call returns value");
+    eq(mDouble(5), 10, "memoize repeat call returns cached");
+    eq(mDouble(7), 14, "memoize new key returns new value");
+    eq(mDouble(5), 10, "memoize repeat hits cache after intervening");
+    eq(memoCalls, 2, "memoize invoked underlying fn exactly once per unique key");
+
     if (state.failed === 0) {
         console.log("OK: function (" + state.passed + " passed)");
         return 0;
