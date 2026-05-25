@@ -8359,6 +8359,19 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     llvm::Value* numCapturesVal = llvm::ConstantInt::get(builder_->getInt64Ty(), numCaptures);
     llvm::Value* closure = rawToGCPtr(builder_->CreateCall(closureCreateFt, closureCreate.getCallee(), { funcPtrToUse, numCapturesVal }));
 
+    // DEBUG (compile-time gated by TS_EMIT_CLOSURE_NAMES): register the ACTUAL
+    // function body `fn` (where ts_closure_get_cell calls originate) with its
+    // mangled name so TS_CLOSURE_PROVENANCE can symbolicate return addresses to
+    // a real source-mappable id (e.g. __fn_expr_1042). Only emitted in
+    // instrumented builds → zero impact on normal compiles.
+    if (std::getenv("TS_EMIT_CLOSURE_NAMES")) {
+        auto regFt = llvm::FunctionType::get(
+            builder_->getVoidTy(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
+        auto regFn = module_->getOrInsertFunction("ts_closure_register_debug_name", regFt);
+        llvm::Constant* nameStr = builder_->CreateGlobalStringPtr(funcName, "dbgfn");
+        builder_->CreateCall(regFt, regFn.getCallee(), { (llvm::Value*)fn, nameStr });
+    }
+
     // Set the function arity (user-visible parameter count for Function.length)
     {
         int32_t arity = 0;

@@ -41,6 +41,17 @@ static void prov_register_func(void* funcPtr, const char* name) {
         (*g_funcAddrNames)[a] = _strdup(name);
 }
 
+// Compiler-emitted (only under -DTS_EMIT_CLOSURE_NAMES build / env at compile
+// time) registration of a function's MANGLED name (e.g. "__fn_expr_1042").
+// Overwrites the JS-name entry so anonymous functions get a useful id in the
+// [PROV] symbolization. Always registers (the call only exists in instrumented
+// builds), allocating the map if needed.
+extern "C" void ts_closure_register_debug_name(void* funcPtr, const char* name) {
+    if (!funcPtr || !name) return;
+    if (!g_funcAddrNames) g_funcAddrNames = new std::map<uintptr_t, const char*>();
+    (*g_funcAddrNames)[(uintptr_t)funcPtr] = _strdup(name);
+}
+
 // Resolve a code address to "<name>+0xNNN" of the nearest registered entry.
 static const char* prov_symbolize(void* addr, char* buf, size_t buflen) {
     if (!g_funcAddrNames || g_funcAddrNames->empty()) { snprintf(buf, buflen, "?"); return buf; }
