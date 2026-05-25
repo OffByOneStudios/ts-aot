@@ -19,21 +19,26 @@ Goal: make ts-aot compile + run lodash 4.17.21's **own** QUnit test suite
 | File | Committed? | Purpose |
 |------|-----------|---------|
 | `qunit_shim.js` | yes | Minimal QUnit + assert, tallies pass/fail, supports async via libuv drain |
-| `harness.js` | yes | Entry: pre-sets `global.QUnit/_/lodashStable`, requires test.js, runs queue |
-| `setup.py` | yes | Fetches `test.js` (git tag) + copies `lodash.js`; both gitignored |
+| `setup.py` | yes | Fetches `test.js` (git tag), copies `lodash.js`, generates `entry.js` |
 | `test.js` | no | lodash 4.17.21 `test/test.js` (fetched) |
 | `lodash.js` | no | the 4.17.21 bundle under test (copied from `../lodash.js`) |
+| `entry.js` | no | generated compile entry: shim + prelude(set globals) + test.js + epilogue |
+
+`entry.js` is a **single concatenated module** rather than a harness that
+`require()`s test.js, because ts-aot inits required modules eagerly at
+startup (dependency-first) — so a separate harness's `global._ = ...` would
+run *after* test.js's init. One module makes source order authoritative.
 
 ## Run
 
 ```bash
-python tests/lodash/upstream/setup.py        # fetch test.js + lodash.js
+python tests/lodash/upstream/setup.py        # fetch test.js, copy lodash.js, write entry.js
 
 # Node reference (validates the shim): expect ~6790/6794
-node tests/lodash/upstream/harness.js
+node tests/lodash/upstream/entry.js
 
 # ts-aot (the actual target):
-build/src/compiler/Release/ts-aot.exe tests/lodash/upstream/harness.js -o tmp/lu.exe
+build/src/compiler/Release/ts-aot.exe tests/lodash/upstream/entry.js -o tmp/lu.exe
 tmp/lu.exe                                    # prints LODASH-QUNIT PASS/FAIL/TOTAL
 ```
 
@@ -42,13 +47,15 @@ tmp/lu.exe                                    # prints LODASH-QUNIT PASS/FAIL/TO
 - **Node baseline**: 6794 assertions, 0 fail (via qunit-extras).
 - **Shim fidelity under Node**: 6790 pass / 4 fail (99.94%) — the 4 are
   exotic deepEqual/async edge cases in the shim, not lodash bugs.
-- **ts-aot**: the full 44k-line harness now **COMPILES** (after fixing the
+- **ts-aot**: the full 44k-line `entry.js` **COMPILES** (after fixing the
   `.push()` static-misdispatch for Object + Any receivers — commits `3aaa0a9`
-  and the Any follow-up). It **runs into lodash init and crashes** on the
-  next bug: cross-module `global.X` doesn't round-trip (a `global.foo` set in
-  one module reads `undefined` in a `require()`d module), so test.js's
-  `root.lodashStable` is undefined → `interopRequire(...).noConflict()` →
-  TypeError. Repro `tmp/xmod/`. See memory `[[lodash-upstream-testjs-harness]]`.
+  + `c82ae5d`). The single-module `entry.js` clears the module-init-ordering
+  issue (globals set before test.js body runs). It now **runs into lodash
+  init and crashes** on: `TypeError: Method Map.prototype.get called on
+  incompatible receiver` — from lodash's internal `MapCache`/`Hash` setup
+  (test.js `mapCaches` IIFE ~line 347 pokes lodash internals that wrap a real
+  `Map`). Next bug: a ts-aot Map brand-check / lodash-Map interaction. See
+  memory `[[lodash-upstream-testjs-harness]]`.
 
 ## AOT-incompatible tests (expected irreducible SKIPs)
 

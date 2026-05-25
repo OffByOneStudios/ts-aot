@@ -132,3 +132,4 @@ build*
 # Lodash upstream suite — fetched on demand, not vendored
 tests/lodash/upstream/test.js
 tests/lodash/upstream/lodash.js
+tests/lodash/upstream/entry.js
