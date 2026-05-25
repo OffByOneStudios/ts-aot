@@ -9,9 +9,48 @@
 #include "../include/TsNanBox.h"
 #include <new>
 #include <cstdio>
+#include <cstring>
+#include <map>
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
+
+// Debug-only function-address registry for TS_CLOSURE_PROVENANCE. Maps each
+// generated function's ENTRY address (closure->func_ptr) to its name, captured
+// at MakeClosure time via ts_closure_set_name. symbolize_addr() resolves an
+// arbitrary code address (e.g. a return address) to the nearest function entry
+// at or below it — naming the function that contains the address. Only built
+// up when TS_CLOSURE_PROVENANCE is set (avoid overhead otherwise).
+static std::map<uintptr_t, const char*>* g_funcAddrNames = nullptr;
+static bool g_prov_enabled_checked = false;
+static bool g_prov_enabled = false;
+
+static bool prov_enabled() {
+    if (!g_prov_enabled_checked) {
+        g_prov_enabled = (getenv("TS_CLOSURE_PROVENANCE") != nullptr);
+        g_prov_enabled_checked = true;
+    }
+    return g_prov_enabled;
+}
+
+static void prov_register_func(void* funcPtr, const char* name) {
+    if (!prov_enabled() || !funcPtr || !name) return;
+    if (!g_funcAddrNames) g_funcAddrNames = new std::map<uintptr_t, const char*>();
+    uintptr_t a = (uintptr_t)funcPtr;
+    if (g_funcAddrNames->find(a) == g_funcAddrNames->end())
+        (*g_funcAddrNames)[a] = _strdup(name);
+}
+
+// Resolve a code address to "<name>+0xNNN" of the nearest registered entry.
+static const char* prov_symbolize(void* addr, char* buf, size_t buflen) {
+    if (!g_funcAddrNames || g_funcAddrNames->empty()) { snprintf(buf, buflen, "?"); return buf; }
+    uintptr_t a = (uintptr_t)addr;
+    auto it = g_funcAddrNames->upper_bound(a); // first entry > a
+    if (it == g_funcAddrNames->begin()) { snprintf(buf, buflen, "<before-first>"); return buf; }
+    --it; // largest entry <= a
+    snprintf(buf, buflen, "%s+0x%llX", it->second, (unsigned long long)(a - it->first));
+    return buf;
+}
 
 TsClosure* TsClosure::Create(void* funcPtr, int64_t numCaptures) {
     void* mem = ts_alloc(sizeof(TsClosure));
@@ -78,12 +117,13 @@ TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
 #elif defined(__GNUC__)
             retaddr = __builtin_return_address(0);
 #endif
-            // retaddr is in the caller (the generated function F whose
-            // __closure is bad). RVA = retaddr - module_base maps to F via the
-            // IR function list / a dumpbin /symbols on the exe.
-            fprintf(stderr, "[PROV] not-a-closure %p idx=%lld ret=%p | m0=%08X(%s) m8=%08X(%s) m16=%08X(%s) m20=%08X(%s) m24=%08X(%s)\n",
-                    (void*)closure, (long long)index, retaddr,
-                    rd(0),a0, rd(8),a8, rd(16),a16, rd(20),a20, rd(24),a24);
+            // Resolve retaddr (in the caller F) to the nearest registered
+            // function entry — names the function whose code holds the bad
+            // ts_closure_get_cell call.
+            char sym[256];
+            prov_symbolize(retaddr, sym, sizeof(sym));
+            fprintf(stderr, "[PROV] not-a-closure %p idx=%lld in=%s | m0=%08X m16=%08X m24=%08X\n",
+                    (void*)closure, (long long)index, sym, rd(0), rd(16), rd(24));
             fflush(stderr);
         }
         fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p has bad magic 0x%08X (expected CLSR), index=%lld\n",
@@ -225,6 +265,11 @@ void ts_closure_set_rest_index(TsClosure* closure, int32_t idx) {
 void ts_closure_set_name(TsClosure* closure, void* name) {
     if (closure) {
         closure->name = (TsString*)name;
+        // Register func_ptr -> name for provenance symbolication (debug only).
+        if (prov_enabled() && closure->func_ptr && name &&
+            ((TsString*)name)->magic == TsString::MAGIC) {
+            prov_register_func(closure->func_ptr, ((TsString*)name)->ToUtf8());
+        }
         // Per ES spec: Function.name is {value, writable:false, enumerable:false, configurable:true}.
         // Always install as own-property so verifyProperty(fn, "name", ...)
         // and Object.getOwnPropertyDescriptor(fn, "name") work correctly,
