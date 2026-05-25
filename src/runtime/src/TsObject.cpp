@@ -5073,6 +5073,43 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
+        // Built-in collection constructors reached through an aliased/dynamic
+        // reference (e.g. lodash's `var Map = getNative(root,'Map'); new Map`)
+        // arrive here instead of the compiler's `new Map()` fast path. Their
+        // wrapAsCallable body returns undefined, so the generic path below
+        // would yield a plain object WITHOUT the [[MapData]]/[[SetData]] brand
+        // — then `.get`/`.set`/`.add` throw "incompatible receiver". Detect
+        // the constructor by name and build the properly branded instance
+        // (these creators set the brand; Map/Set also accept an iterable).
+        {
+            extern void* ts_map_create_from_iterable(TsValue* iterable);
+            extern void* ts_set_create_from_iterable(TsValue* iterable);
+            void* raw = ts_value_get_object(constructorFn);
+            if (raw && *(uint32_t*)((char*)raw + 16) == TsFunction::MAGIC) {
+                TsFunction* tf = (TsFunction*)raw;
+                const char* nm = tf->name ? tf->name->ToUtf8() : nullptr;
+                if (nm) {
+                    TsValue* it = (argc >= 1 && argv) ? argv[0] : nullptr;
+                    if (strcmp(nm, "Map") == 0) {
+                        void* m = ts_map_create_from_iterable(it);
+                        return m ? ts_value_make_object(m) : ts_value_make_undefined();
+                    }
+                    if (strcmp(nm, "Set") == 0) {
+                        void* s = ts_set_create_from_iterable(it);
+                        return s ? ts_value_make_object(s) : ts_value_make_undefined();
+                    }
+                    if (strcmp(nm, "WeakMap") == 0) {
+                        void* m = ts_weakmap_create();
+                        return m ? ts_value_make_object(m) : ts_value_make_undefined();
+                    }
+                    if (strcmp(nm, "WeakSet") == 0) {
+                        void* s = ts_weakset_create();
+                        return s ? ts_value_make_object(s) : ts_value_make_undefined();
+                    }
+                }
+            }
+        }
+
         // 1. Create a new TsMap object
         TsMap* newObj = TsMap::Create();
 
