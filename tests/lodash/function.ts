@@ -1,7 +1,8 @@
 // Lodash "Function" category — expanded after the composeArgs OOB
 // root cause was closed by 2026-05-23 fixes (var-hoisting recursion +
-// isFinite shadow exclusion). Memoize still skipped (MapCache.has
-// always-false — separate prototype-linkage bug).
+// isFinite shadow exclusion). Memoize unblocked 2026-05-23 by the
+// new(expr) constructor fallback + user-function-decl shadow on
+// extension type lookup.
 
 function user_main(): number {
     const _ = require('./lodash.js');
