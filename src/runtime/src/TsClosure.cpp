@@ -55,6 +55,25 @@ TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
     }
     // Validate closure magic
     if (closure->magic != 0x434C5352) {
+        // PROVENANCE INSTRUMENTATION (TS_CLOSURE_PROVENANCE=1): the pointer is
+        // a valid heap address but not a closure. Dump magics at every object
+        // offset to identify what it actually is (cell? function? other? or
+        // zeroed). Helps localize the mis-passed __closure (lodash BUG 4).
+        if (getenv("TS_CLOSURE_PROVENANCE")) {
+            char* p = (char*)closure;
+            auto rd = [&](int off) -> uint32_t { return *(uint32_t*)(p + off); };
+            auto name4 = [](uint32_t m, char* out) {
+                out[0]=(char)(m&0xFF); out[1]=(char)((m>>8)&0xFF);
+                out[2]=(char)((m>>16)&0xFF); out[3]=(char)((m>>24)&0xFF); out[4]=0;
+                for (int i=0;i<4;i++) if (out[i]<32||out[i]>126) out[i]='.';
+            };
+            char a0[5],a8[5],a16[5],a20[5],a24[5];
+            name4(rd(0),a0); name4(rd(8),a8); name4(rd(16),a16); name4(rd(20),a20); name4(rd(24),a24);
+            fprintf(stderr, "[PROV] not-a-closure %p idx=%lld | m0=%08X(%s) m8=%08X(%s) m16=%08X(%s) m20=%08X(%s) m24=%08X(%s)\n",
+                    (void*)closure, (long long)index,
+                    rd(0),a0, rd(8),a8, rd(16),a16, rd(20),a20, rd(24),a24);
+            fflush(stderr);
+        }
         fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p has bad magic 0x%08X (expected CLSR), index=%lld\n",
                 (void*)closure, closure->magic, (long long)index);
         fflush(stderr);
