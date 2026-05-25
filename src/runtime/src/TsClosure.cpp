@@ -9,6 +9,9 @@
 #include "../include/TsNanBox.h"
 #include <new>
 #include <cstdio>
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 
 TsClosure* TsClosure::Create(void* funcPtr, int64_t numCaptures) {
     void* mem = ts_alloc(sizeof(TsClosure));
@@ -69,8 +72,17 @@ TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
             };
             char a0[5],a8[5],a16[5],a20[5],a24[5];
             name4(rd(0),a0); name4(rd(8),a8); name4(rd(16),a16); name4(rd(20),a20); name4(rd(24),a24);
-            fprintf(stderr, "[PROV] not-a-closure %p idx=%lld | m0=%08X(%s) m8=%08X(%s) m16=%08X(%s) m20=%08X(%s) m24=%08X(%s)\n",
-                    (void*)closure, (long long)index,
+            void* retaddr = nullptr;
+#if defined(_MSC_VER)
+            retaddr = _ReturnAddress();
+#elif defined(__GNUC__)
+            retaddr = __builtin_return_address(0);
+#endif
+            // retaddr is in the caller (the generated function F whose
+            // __closure is bad). RVA = retaddr - module_base maps to F via the
+            // IR function list / a dumpbin /symbols on the exe.
+            fprintf(stderr, "[PROV] not-a-closure %p idx=%lld ret=%p | m0=%08X(%s) m8=%08X(%s) m16=%08X(%s) m20=%08X(%s) m24=%08X(%s)\n",
+                    (void*)closure, (long long)index, retaddr,
                     rd(0),a0, rd(8),a8, rd(16),a16, rd(20),a20, rd(24),a24);
             fflush(stderr);
         }
