@@ -49,6 +49,16 @@ static bool g_gc_verbose = false;
 // after the card-table scan and reports any missed nursery pointers.
 static bool g_verify_cards = false;
 
+// GC stress mode: TS_GC_STRESS=N forces a full collection every Nth heap
+// allocation (N=1 → every alloc). This shakes out missing-root / write-
+// barrier bugs deterministically — anything reachable only via an
+// un-rooted slot is collected the instant it's allocated, so the next use
+// hits freed (rezeroed) memory immediately rather than intermittently.
+// Implies nursery-disabled so EVERY object flows through the synchronized
+// small/large trigger. Debug-only: extremely slow.
+static uint64_t g_gc_stress = 0;        // 0 = off; else collect every Nth alloc
+static uint64_t g_gc_stress_counter = 0;
+
 // Minor GC nursery root callback: when non-null, gc_mark_ptr/ts_gc_mark_object
 // will invoke this for nursery pointers (instead of ignoring them).
 // Set during scanner callback invocation in gc_mark_nursery_live().
@@ -621,6 +631,10 @@ static void* gc_alloc_small(size_t size) {
 
     size_t alloc_size = SIZE_CLASSES[class_idx];
 
+    // GC stress: force a full collect every Nth alloc (debug; see g_gc_stress).
+    if (g_gc_stress && !g_in_collection && (++g_gc_stress_counter % g_gc_stress) == 0) {
+        gc_collect_internal();
+    }
     // Check GC trigger threshold
     if (g_heap->total_allocated + alloc_size > g_heap->gc_threshold) {
         gc_collect_internal();
@@ -666,6 +680,10 @@ static void* gc_alloc_small(size_t size) {
 static void* gc_alloc_large(size_t size) {
     size_t total = sizeof(LargeObjHeader) + size;
 
+    // GC stress: force a full collect every Nth alloc (debug; see g_gc_stress).
+    if (g_gc_stress && !g_in_collection && (++g_gc_stress_counter % g_gc_stress) == 0) {
+        gc_collect_internal();
+    }
     // Check GC trigger
     if (g_heap->total_allocated + size > g_heap->gc_threshold) {
         gc_collect_internal();
@@ -1367,8 +1385,22 @@ static void gc_init() {
         if (mb > 0) g_max_heap_size = mb * 1024 * 1024;
     }
 
+    // GC stress mode: collect every Nth allocation to flush out rooting /
+    // write-barrier bugs. Forces nursery off so every object goes through the
+    // synchronized small/large allocation trigger.
+    const char* stress_env = getenv("TS_GC_STRESS");
+    if (stress_env) {
+        long n = atol(stress_env);
+        if (n > 0) {
+            g_gc_stress = (uint64_t)n;
+            fprintf(stderr, "[TsGC] STRESS mode: full collect every %llu alloc(s); nursery disabled\n",
+                    (unsigned long long)g_gc_stress);
+            fflush(stderr);
+        }
+    }
+
     // Initialize nursery (bump-pointer allocator for short-lived objects)
-    bool nursery_disabled = false;
+    bool nursery_disabled = (g_gc_stress > 0);
     const char* nursery_env = getenv("TS_GC_NURSERY");
     if (nursery_env && strcmp(nursery_env, "0") == 0) {
         nursery_disabled = true;
