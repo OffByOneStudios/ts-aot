@@ -6629,10 +6629,14 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
     // This path handles edge cases (e.g., const c = console; c.log(...)).
     // Guard: skip if the receiver is a known Object type (user-defined object literal, not console).
     bool receiverIsObject = false;
+    bool receiverIsAny = false;
     if (auto* valPtr = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
-        if (*valPtr && (*valPtr)->type &&
-            (*valPtr)->type->kind == HIRTypeKind::Object) {
-            receiverIsObject = true;
+        if (*valPtr && (*valPtr)->type) {
+            if ((*valPtr)->type->kind == HIRTypeKind::Object) {
+                receiverIsObject = true;
+            } else if ((*valPtr)->type->kind == HIRTypeKind::Any) {
+                receiverIsAny = true;
+            }
         }
     }
     if (!receiverIsObject &&
@@ -6999,7 +7003,7 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
-    if (methodName == "push" && !receiverIsObject) {
+    if (methodName == "push" && !receiverIsObject && !receiverIsAny) {
         // ts_array_push(void* arr, void* value) -> int64_t (new length)
         // Variadic: arr.push(a, b, c) emits N sequential calls and returns
         // the length from the final call.
