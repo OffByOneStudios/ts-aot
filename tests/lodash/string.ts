@@ -26,15 +26,7 @@ function user_main(): number {
     eq(_.snakeCase("fooBarBaz"), "foo_bar_baz", "snakeCase from camel");
     eq(_.snakeCase("Foo Bar"), "foo_bar", "snakeCase from words");
 
-    // SKIP: _.startCase returns "undefined undefined undefined". Phase 2
-    // diagnosis (2026-05-23): the createCompounder callback captures
-    // `upperFirst` from runInContext scope at IIFE-init time, before
-    // `var upperFirst = createCaseFirst(...)` is assigned. ts-aot's
-    // closure capture-by-value snapshots the undefined alloca, and the
-    // partial broadcast fix in commit efa4733 doesn't reach across
-    // factory boundaries. Needs the closure-cell-by-reference refactor
-    // (see [[closure-cell-by-reference-plan]] / [[multi-capturer-cell-broadcast-partial]]).
-    // // eq(_.startCase("fooBarBaz"), "Foo Bar Baz", ...)
+    eq(_.startCase("fooBarBaz"), "Foo Bar Baz", "startCase");
     eq(_.lowerCase("fooBarBaz"), "foo bar baz", "lowerCase");
     eq(_.upperCase("fooBarBaz"), "FOO BAR BAZ", "upperCase");
 

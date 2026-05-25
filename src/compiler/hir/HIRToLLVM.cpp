@@ -8530,7 +8530,79 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         llvm::BasicBlock* currentBB = builder_->GetInsertBlock();
         bool canShareCell = !capVarName.empty() && capturedVarCells_.count(cellKey) &&
                             capturedVarCells_[cellKey].second == currentBB;
-        if (canShareCell) {
+
+        // Cross-frame cell sharing (closure-cell-by-reference, Phase 4 plan
+        // Step 1+2): if the captured value chains back from a
+        // `ts_cell_get(cell)` call, the variable already lives in a cell we
+        // can share. This makes inner closures created inside a factory
+        // share the same cell as the factory's own captured slot, so a
+        // later assignment to the variable in the outermost scope (via
+        // broadcastCaptureWrite -> ts_cell_set) is visible to every nested
+        // closure.
+        //
+        // Repro this fixes: `function makeFn(){ return function(){use v} }`
+        // followed by `var v = ...` later in source — the inner closure
+        // used to capture v's value-at-makeFn-call-time (undefined). Now
+        // it captures the SAME cell, so the later `v = ...` flows through.
+        llvm::Value* existingCellFromChain = nullptr;
+        {
+            llvm::Value* probe = capturedValue;
+            // Walk through GC pin alloca load/store pairs (the GC pinning
+            // pass inserts these to keep GC roots stable across calls).
+            for (int hop = 0; hop < 6 && probe; ++hop) {
+                if (auto* call = llvm::dyn_cast<llvm::CallInst>(probe)) {
+                    auto* callee = call->getCalledFunction();
+                    if (callee && callee->getName() == "ts_cell_get" &&
+                        call->arg_size() >= 1) {
+                        existingCellFromChain = call->getArgOperand(0);
+                        break;
+                    }
+                    // Unbox helpers wrap the loaded cell value; chase them.
+                    if (callee && (callee->getName() == "ts_value_make_object" ||
+                                   callee->getName() == "ts_value_get_object")) {
+                        if (call->arg_size() >= 1) {
+                            probe = call->getArgOperand(0);
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                if (auto* loadInst = llvm::dyn_cast<llvm::LoadInst>(probe)) {
+                    llvm::Value* ptr = loadInst->getPointerOperand();
+                    if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(ptr)) {
+                        // gc.pin allocas — find the store that defined the load's value
+                        if (alloca->getName().starts_with("gc.pin") ||
+                            alloca->getName().starts_with("gc.reload")) {
+                            llvm::Value* found = nullptr;
+                            for (auto* user : alloca->users()) {
+                                if (auto* st = llvm::dyn_cast<llvm::StoreInst>(user)) {
+                                    if (st->getPointerOperand() == alloca) {
+                                        found = st->getValueOperand();
+                                        // last store wins
+                                    }
+                                }
+                            }
+                            if (found && found != probe) {
+                                probe = found;
+                                continue;
+                            }
+                        }
+                    }
+                    break;
+                }
+                break;
+            }
+        }
+
+        if (existingCellFromChain) {
+            // Share the existing cell directly. No boxing, no new cell.
+            builder_->CreateCall(setCellFt, setCell.getCallee(),
+                { gcPtrToRaw(closure), indexVal, existingCellFromChain });
+            // Cache for any later closures in the same block capturing same var.
+            if (!capVarName.empty()) {
+                capturedVarCells_[cellKey] = { existingCellFromChain, currentBB };
+            }
+        } else if (canShareCell) {
             // Reuse the existing cell from a previously created closure in the same block
             llvm::Value* existingCell = capturedVarCells_[cellKey].first;
             builder_->CreateCall(setCellFt, setCell.getCallee(), { gcPtrToRaw(closure), indexVal, existingCell });

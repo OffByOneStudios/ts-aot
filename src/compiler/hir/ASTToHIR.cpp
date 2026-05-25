@@ -9439,7 +9439,12 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
 
         // Mark each captured variable in the outer scope as "captured by nested"
-        // so subsequent reads/writes in the outer function also use the cell
+        // so subsequent reads/writes in the outer function also use the cell.
+        // When MULTIPLE function expressions / arrows capture the same outer
+        // var (e.g., lodash's `upperFirst` referenced from camelCase, kebabCase,
+        // snakeCase, startCase, upperCase callbacks), record each additional
+        // closure in info->additionalCaptures so broadcastCaptureWrite reaches
+        // every one when the var is later assigned.
         int captureIdx = 0;
         for (const auto& cap : innerCaptures) {
             const std::string& capName = cap.first;
@@ -9447,14 +9452,16 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
             if (!isCapturedVariable(capName, &scopeIndex)) {
                 // Variable is in this function's scope, mark it as captured
                 auto* info = lookupVariableInfo(capName);
-                if (info && !info->isCapturedByNested) {
-                    info->isCapturedByNested = true;
-                    // Store closure pointer in an alloca to ensure SSA dominance
-                    // (closure may be created in try block but accessed from catch block)
+                if (info) {
                     auto closureAlloca = builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
                     builder_.createStore(lastValue_, closureAlloca);
-                    info->closurePtr = closureAlloca;
-                    info->captureIndex = captureIdx;
+                    if (!info->isCapturedByNested) {
+                        info->isCapturedByNested = true;
+                        info->closurePtr = closureAlloca;
+                        info->captureIndex = captureIdx;
+                    } else {
+                        info->additionalCaptures.emplace_back(closureAlloca, captureIdx);
+                    }
                 }
             }
             captureIdx++;
@@ -9823,7 +9830,8 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         lastValue_ = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
 
         // Mark each captured variable in the outer scope as "captured by nested"
-        // so subsequent reads/writes in the outer function also use the cell
+        // so subsequent reads/writes in the outer function also use the cell.
+        // See visitArrowFunction for the multi-capturer rationale.
         int captureIdx = 0;
         for (const auto& cap : innerCaptures) {
             const std::string& capName = cap.first;
@@ -9831,13 +9839,16 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
             if (!isCapturedVariable(capName, &scopeIndex)) {
                 // Variable is in this function's scope, mark it as captured
                 auto* info = lookupVariableInfo(capName);
-                if (info && !info->isCapturedByNested) {
-                    info->isCapturedByNested = true;
-                    // Store closure pointer in an alloca to ensure SSA dominance
+                if (info) {
                     auto closureAlloca = builder_.createAlloca(HIRType::makeAny(), capName + "$closure");
                     builder_.createStore(lastValue_, closureAlloca);
-                    info->closurePtr = closureAlloca;
-                    info->captureIndex = captureIdx;
+                    if (!info->isCapturedByNested) {
+                        info->isCapturedByNested = true;
+                        info->closurePtr = closureAlloca;
+                        info->captureIndex = captureIdx;
+                    } else {
+                        info->additionalCaptures.emplace_back(closureAlloca, captureIdx);
+                    }
                 }
             }
             captureIdx++;
