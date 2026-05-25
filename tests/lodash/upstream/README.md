@@ -42,12 +42,13 @@ tmp/lu.exe                                    # prints LODASH-QUNIT PASS/FAIL/TO
 - **Node baseline**: 6794 assertions, 0 fail (via qunit-extras).
 - **Shim fidelity under Node**: 6790 pass / 4 fail (99.94%) — the 4 are
   exotic deepEqual/async edge cases in the shim, not lodash bugs.
-- **ts-aot**: does not yet compile the full harness. First blocker was the
-  `.push()` static-dispatch bug (fixed for Object receivers in `3aaa0a9`).
-  Remaining: `Any`-typed receivers calling array methods (lodash's `_()`
-  chain wrapper) still force-dispatch to `ts_array_push` — needs a runtime
-  is-array check or unconditional dynamic dispatch. See memory
-  `[[lodash-upstream-testjs-harness]]`.
+- **ts-aot**: the full 44k-line harness now **COMPILES** (after fixing the
+  `.push()` static-misdispatch for Object + Any receivers — commits `3aaa0a9`
+  and the Any follow-up). It **runs into lodash init and crashes** on the
+  next bug: cross-module `global.X` doesn't round-trip (a `global.foo` set in
+  one module reads `undefined` in a `require()`d module), so test.js's
+  `root.lodashStable` is undefined → `interopRequire(...).noConflict()` →
+  TypeError. Repro `tmp/xmod/`. See memory `[[lodash-upstream-testjs-harness]]`.
 
 ## AOT-incompatible tests (expected irreducible SKIPs)
 
