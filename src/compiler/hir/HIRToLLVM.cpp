@@ -3908,12 +3908,21 @@ void HIRToLLVM::lowerNewObject(HIRInstruction* inst) {
 
     llvm::Value* result;
 
-    // Check if we can stack-allocate this object
-    bool canStackAlloc = !inst->escapes &&
-                         !isAsyncFunction_ &&
-                         !isGeneratorFunction_ &&
-                         stackAllocCount_ < kMaxStackAllocObjects &&
-                         (stackAllocBytes_ + kSizeOfTsMap) <= kMaxStackAllocBytes;
+    // Stack-alloc is disabled for shapeless (empty `{}`) objects. The escape
+    // analysis sometimes misses stores-via-call-through-closure (e.g.,
+    // lodash's `nested[key] = newValue` where the property set is buried
+    // inside `assignValue(...)`'s body across a CallIndirect through a
+    // closure cell). For an empty `{}` inside a loop body, stack-alloc puts
+    // the alloca at the function entry and EVERY iteration reuses the same
+    // memory — so `obj.x = {}` then `obj.x.y = {}` end up writing both keys
+    // onto the same stack object, with obj.x and obj.x.y aliased. Repro:
+    // `_.set({}, "x.y.z", 99)` returns malformed result.
+    //
+    // Shapeless objects benefit from stack-alloc the least (no SROA, just
+    // bump-pointer), so disabling here gives up little perf and removes a
+    // sharp edge. Flat objects with shape (lowerNewFlatObject) still get
+    // stack-alloc + SROA — those paths are bounded by the property set.
+    bool canStackAlloc = false;
 
     if (canStackAlloc) {
         // Stack allocate: emit alloca at function entry block

@@ -40,10 +40,13 @@ function user_main(): number {
     bool(_.has(obj, "a.b.c"), true, "has deep");
     bool(_.has(obj, "a.b.x"), false, "has missing");
 
-    // SKIP: _.set({}, "x.y.z", 99) doesn't create the nested path in
-    // ts-aot — subsequent _.get returns undefined. Likely the inner
-    // baseSet path-traversal allocates new objects but doesn't link them.
-    // const obj2 = _.set({}, "x.y.z", 99);
+    // --- set (deep path creation) ---
+    eq(_.set({}, "x.y.z", 99), { x: { y: { z: 99 } } }, "set deep path");
+    eq(_.set({}, "a.b.c.d", 7), { a: { b: { c: { d: 7 } } } }, "set 4 levels");
+    const obj2 = _.set({ existing: 1 }, "x.y", 5);
+    eq(obj2, { existing: 1, x: { y: 5 } }, "set with existing keys");
+    eq(_.get(_.set({}, "deep.nested.path", "value"), "deep.nested.path"),
+       "value", "set then get round-trip");
 
     // --- pick / omit / pickBy / omitBy ---
     eq(_.pick({ a: 1, b: 2, c: 3 }, ["a", "c"]), { a: 1, c: 3 }, "pick");
