@@ -6999,10 +6999,16 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
-    if (methodName == "push") {
+    if (methodName == "push" && !receiverIsObject) {
         // ts_array_push(void* arr, void* value) -> int64_t (new length)
         // Variadic: arr.push(a, b, c) emits N sequential calls and returns
         // the length from the final call.
+        // Guard: a receiver of statically-known Object type (object literal
+        // with its own `push` method, e.g. a lodash chain wrapper) must NOT
+        // be force-dispatched to the native array push — it threads the i64
+        // length result as the next call's receiver, producing invalid IR
+        // (`ts_array_push(i64, ptr)`). Such receivers fall through to the
+        // dynamic property-dispatch path below.
         llvm::FunctionType* ft = llvm::FunctionType::get(
             builder_->getInt64Ty(), { builder_->getPtrTy(), builder_->getPtrTy() }, false);
         llvm::FunctionCallee fn = module_->getOrInsertFunction("ts_array_push", ft);
