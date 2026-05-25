@@ -129,3 +129,6 @@ tests/test262/.smoke_baseline.json
 
 
 build*
+# Lodash upstream suite — fetched on demand, not vendored
+tests/lodash/upstream/test.js
+tests/lodash/upstream/lodash.js
