@@ -71,14 +71,21 @@ static const char* prov_symbolize(void* addr, char* buf, size_t buflen) {
 }
 
 TsClosure* TsClosure::Create(void* funcPtr, int64_t numCaptures) {
-    void* mem = ts_alloc(sizeof(TsClosure));
+    // Tenure closures (and their cell-pointer arrays) directly into the old
+    // generation. Closures are long-lived function objects held across many
+    // allocations during init; nursery promotion MOVES them, but a live
+    // reference held only transiently on the stack / in a register at minor-GC
+    // time is not always tracked precisely, leaving a stale (then-zeroed)
+    // pointer that later reads as magic 0. Old-gen objects never move.
+    void* mem = ts_gc_alloc_old_gen(sizeof(TsClosure));
     TsClosure* closure = new (mem) TsClosure();
     closure->func_ptr = funcPtr;
     closure->num_captures = numCaptures;
 
     if (numCaptures > 0) {
-        // Allocate array for cell pointers
-        closure->cells = (TsCell**)ts_alloc(numCaptures * sizeof(TsCell*));
+        // Allocate array for cell pointers (also tenured — it holds GC pointers
+        // to cells and must not move out from under a transient reference).
+        closure->cells = (TsCell**)ts_gc_alloc_old_gen(numCaptures * sizeof(TsCell*));
         for (int64_t i = 0; i < numCaptures; ++i) {
             closure->cells[i] = nullptr;
         }

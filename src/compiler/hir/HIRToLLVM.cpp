@@ -308,9 +308,16 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
     // Create main entry point
     createMainFunction();
 
-    // Register __modvar_ globals as GC roots so the garbage collector
-    // scans them. Without this, closures stored in module-level variables
-    // can be collected during module initialization.
+    // Register GC-root globals so the garbage collector scans them. Without
+    // this, GC pointers stored in module-level data-segment globals can be
+    // collected — or, under the moving nursery, left pointing at a stale
+    // (promoted, then zeroed) nursery address. Two families need rooting:
+    //   __modvar_*        — module-level let/const/var bindings
+    //   __closure_cache_* — per-function cached closure identity (function
+    //                       declarations share one closure object). These are
+    //                       long-lived and frequently promoted, so an
+    //                       unregistered cache slot becomes a dangling pointer
+    //                       to a zeroed nursery slot after a minor GC.
     {
         llvm::FunctionType* regFt = llvm::FunctionType::get(
             llvm::Type::getVoidTy(context_), {llvm::PointerType::get(context_, 0)}, false);
@@ -324,7 +331,8 @@ std::unique_ptr<llvm::Module> HIRToLLVM::lower(HIRModule* hirModule, const std::
         llvm::IRBuilder<> ctorBuilder(ctorBB);
 
         for (auto& gv : module_->globals()) {
-            if (gv.getName().starts_with("__modvar_")) {
+            if (gv.getName().starts_with("__modvar_") ||
+                gv.getName().starts_with("__closure_cache_")) {
                 ctorBuilder.CreateCall(regFt, regFn.getCallee(), {&gv});
             }
         }

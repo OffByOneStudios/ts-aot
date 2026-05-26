@@ -5,7 +5,13 @@
 #include <cstdio>
 
 TsCell* TsCell::Create(TsValue* initialValue) {
-    void* mem = ts_alloc(sizeof(TsCell));
+    // Tenure cells directly into the old generation. Cells back captured
+    // variables and are long-lived; nursery promotion MOVES them, but a live
+    // reference held only transiently on the stack / in a register at minor-GC
+    // time is not always tracked precisely, leaving a stale (then-zeroed)
+    // pointer. Old-gen objects never move, so references stay valid. (Same
+    // reasoning TsString/TsRegExp already use ts_gc_alloc_old_gen.)
+    void* mem = ts_gc_alloc_old_gen(sizeof(TsCell));
     TsCell* cell = new (mem) TsCell();
     cell->value = initialValue;
     // Write barrier: initialValue may be a nursery pointer
