@@ -6386,8 +6386,28 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 // A local `function assert(){}` should NOT be treated as the Node assert
                 // module. Only check for function-typed locals to avoid shadowing
                 // `var path = require('path')` which IS the module.
+                // A function PARAMETER named like a Node module shadows the
+                // builtin: it holds a user value, not the module. This is the
+                // common QUnit/test pattern `function(assert){ assert.deepEqual
+                // (...) }` where `assert` is the harness's own object — routing it
+                // to the node assert builtin (which exit(1)s on failure) is wrong.
+                // A real `var/const path = require('path')` alias is NEVER a
+                // parameter, so this does not disturb module aliases. Walk every
+                // enclosing function on the scope stack so a CAPTURED parameter
+                // (e.g. `assert` used inside a nested `forEach` callback) is also
+                // caught, not just a direct parameter of the current function.
+                if (!isLocalVarShadow) {
+                    for (auto& sc : scopes_) {
+                        if (!sc.owningFunction) continue;
+                        for (auto& p : sc.owningFunction->params) {
+                            if (p.first == classNameIdent->name) { isLocalVarShadow = true; break; }
+                        }
+                        if (isLocalVarShadow) break;
+                    }
+                }
                 if (!isLocalVarShadow) {
                     auto* varInfo = lookupVariableInfo(classNameIdent->name);
+                    // Keep the existing function-typed-local shadow.
                     if (varInfo && varInfo->elemType &&
                         varInfo->elemType->kind == HIRTypeKind::Function) {
                         isLocalVarShadow = true;
