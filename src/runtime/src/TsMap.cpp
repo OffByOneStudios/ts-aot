@@ -93,29 +93,42 @@ void TsMap::SetWithAttrs(TsValue key, TsValue value, uint8_t attrs) {
     }
 }
 
+// A corrupt/null backing hash table (impl < 0x10000) indicates the TsMap was
+// not properly initialized or its impl field was clobbered. TsMap::Set already
+// guards this; the read paths must too, or they segfault dereferencing a null
+// TsHashTable (e.g. find_slot reading [impl+0x20] with impl==0).
 TsValue TsMap::Get(TsValue key) {
+    if ((uintptr_t)impl < 0x10000) {
+        TsValue undef; undef.type = ValueType::UNDEFINED; undef.ptr_val = nullptr;
+        return undef;
+    }
     return ((TsHashTable*)impl)->Get(key);
 }
 
 bool TsMap::Has(TsValue key) {
+    if ((uintptr_t)impl < 0x10000) return false;
     return ((TsHashTable*)impl)->Has(key);
 }
 
 bool TsMap::Delete(TsValue key) {
     if (frozen || sealed) return false;
+    if ((uintptr_t)impl < 0x10000) return false;
     return ((TsHashTable*)impl)->Delete(key);
 }
 
 void TsMap::Clear() {
     if (frozen || sealed) return;
+    if ((uintptr_t)impl < 0x10000) return;
     ((TsHashTable*)impl)->Clear();
 }
 
 int64_t TsMap::Size() {
+    if ((uintptr_t)impl < 0x10000) return 0;
     return static_cast<int64_t>(((TsHashTable*)impl)->Size());
 }
 
 void* TsMap::GetKeys() {
+    if ((uintptr_t)impl < 0x10000) return TsArray::Create(0);
     auto* ht = (TsHashTable*)impl;
     TsArray* keys = TsArray::Create(ht->Size());
     ht->ForEach([&](const TsValue& key, const TsValue& val) {
@@ -125,6 +138,7 @@ void* TsMap::GetKeys() {
 }
 
 void* TsMap::GetEnumerableKeys() {
+    if ((uintptr_t)impl < 0x10000) return TsArray::Create(0);
     auto* ht = (TsHashTable*)impl;
     TsArray* keys = TsArray::Create(ht->Size());
     ht->ForEachEnumerable([&](const TsValue& key, const TsValue& val) {
@@ -141,14 +155,17 @@ void* TsMap::GetEnumerableKeys() {
 }
 
 uint8_t TsMap::GetPropertyAttrs(TsValue key) {
+    if ((uintptr_t)impl < 0x10000) return 0;
     return ((TsHashTable*)impl)->GetAttrs(key);
 }
 
 void TsMap::SetPropertyAttrs(TsValue key, uint8_t attrs) {
+    if ((uintptr_t)impl < 0x10000) return;
     ((TsHashTable*)impl)->SetAttrs(key, attrs);
 }
 
 void* TsMap::GetValues() {
+    if ((uintptr_t)impl < 0x10000) return TsArray::Create(0);
     auto* ht = (TsHashTable*)impl;
     TsArray* values = TsArray::Create(ht->Size());
     ht->ForEach([&](const TsValue& key, const TsValue& val) {
@@ -158,6 +175,7 @@ void* TsMap::GetValues() {
 }
 
 void* TsMap::GetEntries() {
+    if ((uintptr_t)impl < 0x10000) return TsArray::Create(0);
     auto* ht = (TsHashTable*)impl;
     TsArray* entries = TsArray::Create(ht->Size());
     ht->ForEach([&](const TsValue& key, const TsValue& val) {
