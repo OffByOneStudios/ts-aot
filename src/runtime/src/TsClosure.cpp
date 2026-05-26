@@ -11,9 +11,16 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
+
+// Debug-only set of every closure-object address ts_closure_create ever
+// returned. Lets ts_closure_get_cell answer: was this bad pointer EVER a real
+// closure (→ zeroed later) or NEVER created (→ a non-closure passed as
+// __closure, a calling-convention bug)? Built only under TS_CLOSURE_PROVENANCE.
+static std::set<uintptr_t>* g_createdClosures = nullptr;
 
 // Debug-only function-address registry for TS_CLOSURE_PROVENANCE. Maps each
 // generated function's ENTRY address (closure->func_ptr) to its name, captured
@@ -85,7 +92,12 @@ TsClosure* TsClosure::Create(void* funcPtr, int64_t numCaptures) {
 extern "C" {
 
 TsClosure* ts_closure_create(void* funcPtr, int64_t numCaptures) {
-    return TsClosure::Create(funcPtr, numCaptures);
+    TsClosure* c = TsClosure::Create(funcPtr, numCaptures);
+    if (prov_enabled()) {
+        if (!g_createdClosures) g_createdClosures = new std::set<uintptr_t>();
+        g_createdClosures->insert((uintptr_t)c);
+    }
+    return c;
 }
 
 void ts_closure_set_cell(TsClosure* closure, int64_t index, TsCell* cell) {
@@ -137,8 +149,11 @@ TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
                     (void*)closure, (long long)index, sym, rd(0), rd(16), rd(24));
             fflush(stderr);
         }
-        fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p has bad magic 0x%08X (expected CLSR), index=%lld\n",
-                (void*)closure, closure->magic, (long long)index);
+        const char* prov = "";
+        if (g_createdClosures)
+            prov = g_createdClosures->count((uintptr_t)closure) ? " [WAS-CREATED→zeroed]" : " [NEVER-CREATED→non-closure]";
+        fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p has bad magic 0x%08X (expected CLSR), index=%lld%s\n",
+                (void*)closure, closure->magic, (long long)index, prov);
         fflush(stderr);
         return nullptr;
     }
