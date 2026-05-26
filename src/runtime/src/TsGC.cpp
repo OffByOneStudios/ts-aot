@@ -49,6 +49,23 @@ static bool g_gc_verbose = false;
 // after the card-table scan and reports any missed nursery pointers.
 static bool g_verify_cards = false;
 
+// Forwarding verification: TS_GC_VERIFY_FORWARD=1 runs a post-forwarding scan
+// at the end of each minor GC (before nursery reset). It looks for any pointer
+// that STILL references a promoted (now-dead) nursery object — i.e. a holder
+// slot that the fixup phases failed to update. It scans the GC heap + global
+// roots (expected clean) AND re-runs the mark-only scanners (which can mark but
+// not forward their own slots) to name the exact asymmetric registry holding a
+// stale pointer. Debug-only.
+static bool g_verify_forward = false;
+static size_t g_verify_forward_leaks = 0;     // count surfaced by scanner re-run
+static int g_verify_forward_cur_scanner = -1; // index of scanner being checked
+
+// TS_GC_PROMOTE_ALL=1: during minor GC, mark EVERY nursery object live, so all
+// survive promotion and nothing is wiped. Diagnostic-only: if this makes a
+// crash disappear, the crash is an UNDER-MARKING (missing-root) bug — a live
+// object was deemed dead and wiped while still referenced.
+static bool g_promote_all = false;
+
 // GC stress mode: TS_GC_STRESS=N forces a full collection every Nth heap
 // allocation (N=1 → every alloc). This shakes out missing-root / write-
 // barrier bugs deterministically — anything reachable only via an
@@ -1362,6 +1379,12 @@ static void gc_init() {
     if (getenv("TS_GC_VERIFY_CARDS")) {
         g_verify_cards = true;
     }
+    if (getenv("TS_GC_VERIFY_FORWARD")) {
+        g_verify_forward = true;
+    }
+    if (getenv("TS_GC_PROMOTE_ALL")) {
+        g_promote_all = true;
+    }
 
     // Tunable GC parameters via environment variables
     const char* threshold_env = getenv("TS_GC_MIN_THRESHOLD_MB");
@@ -1874,6 +1897,23 @@ static void gc_mark_nursery_live() {
         }
     };
 
+    // Diagnostic: TS_GC_PROMOTE_ALL marks EVERY nursery object live.
+    if (g_promote_all) {
+        for (size_t i = 0; i < nursery_objects.size(); i++) {
+            uint64_t* prefix = (uint64_t*)nursery_objects[i].prefix_ptr;
+            if (!nursery_is_marked(*prefix)) {
+                nursery_set_marked(prefix);
+                marked_count++;
+            }
+        }
+        if (g_gc_verbose) {
+            fprintf(stderr, "[TsGC] PROMOTE_ALL: marked all %zu nursery objects live\n",
+                    nursery_objects.size());
+            fflush(stderr);
+        }
+        return;
+    }
+
     // Root source 1: Pinned objects (stack roots) — already pinned by Phase 0
     for (size_t i = 0; i < nursery_objects.size(); i++) {
         uint64_t raw = *(uint64_t*)nursery_objects[i].prefix_ptr;
@@ -2111,6 +2151,37 @@ static void gc_pin_nursery_stack_roots() {
 
     for (uintptr_t p = scan_start; p + sizeof(void*) <= stack_high; p += sizeof(void*)) {
         pin_if_nursery(*(uintptr_t*)p);
+    }
+}
+
+// TS_GC_VERIFY_FORWARD redirect: installed into g_minor_gc_nursery_mark while
+// the mark-only scanners are re-run AFTER forwarding. Each nursery pointer a
+// scanner surfaces is checked against the (still-live) forwarding table; if it
+// maps to a promoted object, the scanner is holding the stale nursery address
+// and never forwarded it — a leak. Names the offending scanner + object magic.
+static void gc_verify_forward_scanner_redirect(void* ptr) {
+    if (!is_nursery_ptr(ptr)) return;
+    void* fwd = ts_gc_minor_lookup_forward(ptr);
+    if (fwd == ptr) return;  // pinned (legitimately still nursery) — not a leak
+    g_verify_forward_leaks++;
+    if (g_verify_forward_leaks <= 40) {
+        uint32_t magic = 0;
+        // Promoted copy lives at fwd; object magic sits at byte offset 8.
+        if (fwd) magic = *(uint32_t*)((char*)fwd + 8);
+        const char* tag = "?";
+        switch (magic) {
+            case 0x434C5352: tag = "CLSR(closure)"; break;
+            case 0x43454C4C: tag = "CELL"; break;
+            default: break;
+        }
+        void* cb = (g_verify_forward_cur_scanner >= 0 &&
+                    (size_t)g_verify_forward_cur_scanner < g_heap->scanners.size())
+                       ? (void*)g_heap->scanners[g_verify_forward_cur_scanner].callback
+                       : nullptr;
+        fprintf(stderr, "[TsGC] VERIFY-FWD: scanner #%d (cb=%p) holds STALE nursery ptr %p "
+                        "(promoted->%p magic=0x%08X %s)\n",
+                g_verify_forward_cur_scanner, cb, ptr, fwd, magic, tag);
+        fflush(stderr);
     }
 }
 
@@ -2505,6 +2576,207 @@ static void gc_minor_collect_internal() {
         fixup_ptr(fin.callback);
         fixup_ptr(fin.held_value);
         fixup_ptr(fin.unregister_token);
+    }
+
+    // Phase 5v: Forwarding verification (TS_GC_VERIFY_FORWARD=1).
+    // Runs AFTER all fixup phases but BEFORE the nursery reset, while the
+    // forwarding table is still valid and the promoted objects' old nursery
+    // copies still exist. Finds any pointer that still references a promoted
+    // (soon-to-be-dead) nursery object — i.e. a holder slot the fixups missed.
+    if (g_verify_forward && !forwarding.empty()) {
+        // Part A: GC heap + global roots. Two failure categories:
+        //   (1) STALE: candidate was promoted but this slot wasn't forwarded.
+        //       Phase 3 full-scans old-gen + Phase 4 forwards roots → expect 0.
+        //   (2) DANGLING: candidate points to a nursery object that is neither
+        //       forwarded (promoted) nor pinned → it was deemed DEAD and will be
+        //       wiped at Phase 6, yet this slot still references it. This is the
+        //       use-after-free: a live old-gen → nursery edge the MARK phase
+        //       missed (so the target was never promoted).
+        size_t heap_leaks = 0;
+        size_t dangling = 0;
+        auto report_word = [&](uintptr_t p, const char* region) {
+            void* candidate = *(void**)p;
+            if (!candidate) return;
+            if ((uintptr_t)candidate < 4096) return;
+            if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) return;
+            if (!is_nursery_ptr(candidate)) return;
+            void* fwd = lookup_forward(candidate);
+            if (fwd != candidate) {
+                heap_leaks++;
+                if (heap_leaks <= 40) {
+                    uint32_t magic = fwd ? *(uint32_t*)((char*)fwd + 8) : 0;
+                    fprintf(stderr, "[TsGC] VERIFY-FWD: %s slot %p holds STALE nursery ptr %p "
+                                    "(promoted->%p magic=0x%08X)\n",
+                            region, (void*)p, candidate, fwd, magic);
+                    fflush(stderr);
+                }
+                return;
+            }
+            // Not forwarded — pinned (OK) or dead-but-referenced (DANGLING)?
+            void* nbase = nursery_find_base(candidate);
+            if (!nbase) return;
+            uint64_t prefix = *(uint64_t*)((char*)nbase - NURSERY_SIZE_PREFIX);
+            if (nursery_is_pinned(prefix)) return;  // legitimately stays in nursery
+            // Dead (unmarked / unpinned) but still referenced → the bug.
+            dangling++;
+            if (dangling <= 40) {
+                uint32_t tgt_magic = *(uint32_t*)((char*)candidate + 8);
+                // Describe the HOLDER object so we can name the registry/struct.
+                uint32_t holder_magic = 0;
+                void* holder = gc_find_base((void*)p);
+                if (holder) holder_magic = *(uint32_t*)((char*)holder + 8);
+                fprintf(stderr, "[TsGC] VERIFY-FWD: %s slot %p (holder=%p magic=0x%08X) "
+                                "-> DEAD nursery obj %p magic=0x%08X marked=%d\n",
+                        region, (void*)p, holder, holder_magic,
+                        candidate, tgt_magic, (int)nursery_is_marked(prefix));
+                fflush(stderr);
+            }
+        };
+        for (size_t sc = 0; sc < NUM_SIZE_CLASSES; sc++) {
+            for (BlockHeader* bh = g_heap->block_lists[sc]; bh; bh = bh->next) {
+                if (!bh->block_mem || bh->live_count == 0) continue;
+                uintptr_t bstart = (uintptr_t)bh->block_mem;
+                for (size_t slot = 0; slot < bh->slot_count; slot++) {
+                    if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
+                    uintptr_t s = bstart + slot * bh->slot_size;
+                    uintptr_t e = s + bh->slot_size;
+                    for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                        report_word(p, "old-gen");
+                    }
+                }
+            }
+        }
+        for (LargeObjHeader* lo = g_heap->large_sentinel.next;
+             lo != &g_heap->large_sentinel; lo = lo->next) {
+            if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
+            uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
+            uintptr_t e = s + lo->data_size;
+            for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
+                report_word(p, "large-obj");
+            }
+        }
+        for (void** root : g_heap->global_roots) {
+            if (root) report_word((uintptr_t)root, "global-root");
+        }
+
+        // Part A2: scan LIVE nursery survivors (pinned objects that stay in the
+        // nursery) for pointers to DEAD nursery objects. Part A only covers
+        // old-gen + roots; a pinned survivor holding a dead-object pointer is a
+        // BFS/marking gap (holder marked, referent not traced) and is invisible
+        // to the old-gen scan. Promoted survivors live in old-gen (covered by A).
+        {
+            char* nbase = (char*)g_nursery.region;
+            size_t noff = 0;
+            while (noff + NURSERY_SIZE_PREFIX <= g_nursery.high_water) {
+                uint64_t raw = *(uint64_t*)(nbase + noff);
+                size_t osz = nursery_get_size(raw);
+                if (osz == 0) { noff += 8; continue; }
+                if (osz > NURSERY_MAX_OBJ_SIZE) break;
+                if (nursery_is_pinned(raw)) {
+                    uintptr_t s = (uintptr_t)(nbase + noff + NURSERY_SIZE_PREFIX);
+                    for (uintptr_t p = s; p + sizeof(void*) <= s + osz; p += sizeof(void*)) {
+                        report_word(p, "nursery-pinned");
+                    }
+                }
+                noff += NURSERY_SIZE_PREFIX + osz;
+            }
+            fprintf(stderr, "[TsGC] VERIFY-FWD: nursery region [%p..%p) high_water=%zu\n",
+                    g_nursery.region, (char*)g_nursery.region + g_nursery.high_water,
+                    g_nursery.high_water);
+            fflush(stderr);
+        }
+
+        // Part C: brute-force scan of the ENTIRE committed process address space
+        // for any pointer to a PROMOTED nursery object. This covers off-GC-heap
+        // holders the targeted scans miss — data-segment globals, malloc'd C++
+        // structures, etc. Heavy, but a one-shot diagnostic that definitively
+        // names the region holding the unforwarded pointer.
+#ifdef _WIN32
+        {
+            size_t proc_stale = 0;
+            uintptr_t nlo = (uintptr_t)g_nursery.region;
+            uintptr_t nhi = nlo + g_nursery.region_size;
+            // Identify the CURRENT thread stack so we can skip it: Phase 0 already
+            // pins from it, and at this point it also contains the GC's own live
+            // frames (loop temporaries holding nursery pointers) which would be
+            // false positives. A real missed stack root would be pinned already,
+            // or live on ANOTHER thread's stack (still scanned below).
+            volatile int stack_marker = 0;
+            uintptr_t cur_stack_addr = (uintptr_t)&stack_marker;
+            uintptr_t addr = 0x10000;
+            MEMORY_BASIC_INFORMATION mbi;
+            while (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == sizeof(mbi)) {
+                uintptr_t region_base = (uintptr_t)mbi.BaseAddress;
+                uintptr_t region_end = region_base + mbi.RegionSize;
+                bool writable = (mbi.State == MEM_COMMIT) &&
+                    (mbi.Protect & (PAGE_READWRITE | PAGE_WRITECOPY |
+                                    PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+                // Skip the nursery region itself (its stale internal ptrs are not holders).
+                bool is_nursery_region = (region_base >= nlo && region_base < nhi);
+                // Skip the current thread's stack region (Phase 0 owns it; GC frames
+                // here are false positives).
+                bool is_cur_stack = (cur_stack_addr >= region_base && cur_stack_addr < region_end);
+                if (writable && !is_nursery_region && !is_cur_stack) {
+                    for (uintptr_t p = region_base; p + sizeof(void*) <= region_end; p += sizeof(void*)) {
+                        void* candidate = *(void**)p;
+                        if ((uintptr_t)candidate < 4096) continue;
+                        if ((uintptr_t)candidate > 0x00007FFFFFFFFFFF) continue;
+                        if (!is_nursery_ptr(candidate)) continue;
+                        void* fwd = lookup_forward(candidate);
+                        if (fwd == candidate) continue;  // pinned
+                        proc_stale++;
+                        if (proc_stale <= 40) {
+                            uint32_t magic = fwd ? *(uint32_t*)((char*)fwd + 8) : 0;
+                            void* gcbase = gc_find_base((void*)p);
+                            fprintf(stderr, "[TsGC] VERIFY-FWD PROC: slot %p (region %p-%p prot=0x%X gc=%s) "
+                                            "-> nursery %p promoted->%p magic=0x%08X\n",
+                                    (void*)p, (void*)region_base, (void*)region_end, mbi.Protect,
+                                    gcbase ? "yes" : "NO", candidate, fwd, magic);
+                            fflush(stderr);
+                        }
+                    }
+                }
+                addr = region_end;
+                if (addr < region_base) break;  // overflow guard
+            }
+            if (proc_stale) {
+                fprintf(stderr, "[TsGC] VERIFY-FWD PROC: %zu stale nursery ptrs across process memory\n", proc_stale);
+                fflush(stderr);
+            }
+        }
+#endif
+
+        // Part B: re-run the mark-only scanners. They surface pointer VALUES
+        // (no slot address), so they can mark/promote but never forward their
+        // own registry slot — the suspected asymmetry. Any surfaced pointer
+        // that maps to a promoted object is a stale holder; this names which
+        // scanner (and object kind) owns it.
+        size_t scanner_leaks = 0;
+        if (!g_heap->scanners.empty()) {
+            g_current_forwarding = &forwarding;
+            g_verify_forward_leaks = 0;
+            g_minor_gc_nursery_mark = gc_verify_forward_scanner_redirect;
+            for (size_t i = 0; i < g_heap->scanners.size(); i++) {
+                g_verify_forward_cur_scanner = (int)i;
+                g_heap->scanners[i].callback(g_heap->scanners[i].context);
+            }
+            g_minor_gc_nursery_mark = nullptr;
+            g_verify_forward_cur_scanner = -1;
+            g_current_forwarding = nullptr;
+            scanner_leaks = g_verify_forward_leaks;
+        }
+
+        if (heap_leaks || scanner_leaks || dangling) {
+            fprintf(stderr, "[TsGC] VERIFY-FWD SUMMARY: %zu GC-heap/root stale, "
+                            "%zu dangling (dead-but-referenced), "
+                            "%zu mark-only-scanner stale (of %zu forwarded)\n",
+                    heap_leaks, dangling, scanner_leaks, forwarding.size());
+            fflush(stderr);
+        } else if (g_gc_verbose) {
+            fprintf(stderr, "[TsGC] VERIFY-FWD: clean (%zu forwarded, no stale/dangling holders)\n",
+                    forwarding.size());
+            fflush(stderr);
+        }
     }
 
     if (g_gc_verbose) { fprintf(stderr, "[TsGC] minor GC: entering Phase 6\n"); fflush(stderr); }
