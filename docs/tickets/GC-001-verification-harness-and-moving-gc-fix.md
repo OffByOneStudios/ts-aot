@@ -100,6 +100,19 @@ are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated)
   Validate incrementally with the gc-suite differential + INV-1 + golden_ir/node/
   test262. This is multi-session/large; the bounded alternative that is already
   WORKING is to keep tenuring movable types (Phase 3a-style) under the harness.
+  ⚠️ CRITICAL CONSTRAINT (2026-05-27): ts-aot **NaN-boxes** `any` values (object
+  pointers packed into i64/double via ptrtoint/inttoptr — 43 sites). RS4GC only
+  relocates POINTER-typed addrspace(1) SSA values; a NaN-boxed pointer living in
+  an i64 is INVISIBLE to RS4GC, and the inttoptr that unpacks it yields a fresh
+  untracked addrspace(0) pointer. **The lodash systemic corruption is in `any`-
+  typed (NaN-boxed) object literals**, so statepoints — even fully migrated —
+  would NOT root them and would NOT fix the lodash bug. (This is also why BUG 4
+  closures were cured by TENURING, not statepoints.) Implication: statepoints can
+  precisely root only TYPED object pointers; curing the NaN-boxed `any` case needs
+  EITHER de-NaN-boxing object refs (huge language/runtime change) OR a NaN-box-
+  aware root scheme OR continued tenuring. So Phase 3b is NOT sufficient on its own
+  for the headline lodash success criterion — tenuring (or de-NaN-boxing) is still
+  required for `any` values. Weigh this before committing to the 322-site migration.
 - The separate lodash early-init crash (NURSERY=0-reproducible) — needs its own
   investigation before lodash can quantify the fix.
 
