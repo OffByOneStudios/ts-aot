@@ -1111,8 +1111,17 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
     // valid (and equivalent to `new`), dispatch by name using ctx. Lodash's
     // `RegExp = context.RegExp; RegExp(pat)` is the motivating case.
     auto body = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+        // ctx normally holds the constructor *name* literal (set below), but
+        // ts_call_with_this_* (.call/.apply/method dispatch) overrides a native
+        // function's context with the `this` receiver. When one of these wrapped
+        // globals is invoked with a non-pointer `this` (e.g. a NaN-boxed number),
+        // ctx is no longer the name. Guard: only treat ctx as the name when it is
+        // a canonical, readable pointer — small ints (< 0x10000) and NaN-boxed
+        // numbers (>= user-space ceiling) would otherwise fault in strcmp.
         const char* name = (const char*)ctx;
-        if (name && strcmp(name, "RegExp") == 0) {
+        uintptr_t caddr = (uintptr_t)ctx;
+        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&
+            strcmp(name, "RegExp") == 0) {
             // ECMA-262 22.2.4.1: RegExp(pat) is equivalent to new RegExp(pat).
             void* pattern = (argc >= 1 && argv) ? argv[0] : nullptr;
             void* flags = (argc >= 2 && argv) ? argv[1] : nullptr;

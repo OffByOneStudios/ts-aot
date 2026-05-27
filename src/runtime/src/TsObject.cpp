@@ -9804,6 +9804,38 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
                 return ts_value_make_bool(false);
             }
+            // TsRegExpMatchArray (RMAT): standalone class, NOT a TsArray
+            // subclass, but its first fields mirror TsArray's layout
+            // (magic@0, elements@8, length@16). It's a dense array (no holes,
+            // no string side-map) with extra own props index/input/groups.
+            // dynamic_cast below would UB on its vtable-less layout.
+            if (m0 == 0x524D4154) { // TsRegExpMatchArray::MAGIC "RMAT"
+                size_t rmatLen = *(size_t*)((char*)obj + 16);
+                TsValue* keyVal = argv[0];
+                TsValue keyTV = nanbox_to_tagged(keyVal);
+                if (keyTV.type == ValueType::NUMBER_INT ||
+                    keyTV.type == ValueType::NUMBER_DBL) {
+                    int64_t idx = (keyTV.type == ValueType::NUMBER_INT)
+                        ? keyTV.i_val : (int64_t)keyTV.d_val;
+                    return ts_value_make_bool(idx >= 0 && (size_t)idx < rmatLen);
+                }
+                if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+                    TsString* ks = (TsString*)keyTV.ptr_val;
+                    const char* kc = ks->ToUtf8();
+                    if (kc) {
+                        char* endp = nullptr;
+                        unsigned long idx = strtoul(kc, &endp, 10);
+                        if (endp && *endp == '\0' && kc[0] != '\0') {
+                            return ts_value_make_bool((size_t)idx < rmatLen);
+                        }
+                        if (!strcmp(kc, "length") || !strcmp(kc, "index") ||
+                            !strcmp(kc, "input") || !strcmp(kc, "groups")) {
+                            return ts_value_make_bool(true);
+                        }
+                    }
+                }
+                return ts_value_make_bool(false);
+            }
             // TsString: magic 0x53545247. dynamic_cast below would also UB.
             if (m0 == 0x53545247) return ts_value_make_bool(false);
         }
@@ -9849,7 +9881,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
             uint32_t magic0 = *(uint32_t*)ptr;
             if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) tag = "String";
-            else if (magic0 == 0x41525259) tag = "Array";
+            else if (magic0 == 0x41525259 || magic0 == 0x524D4154) tag = "Array";  // TsArray "ARRY" or TsRegExpMatchArray "RMAT" (both non-polymorphic — must tag here before the dynamic_cast fallthrough)
             else if (magic0 == 0x52454758) tag = "RegExp";
             else if (magic0 == 0x44415445) tag = "Date";  // TsDate "DATE"
             else if (magic0 == 0x42494749) tag = "BigInt";  // TsBigInt 'BIGI' — not a TsObject, must check before dynamic_cast
