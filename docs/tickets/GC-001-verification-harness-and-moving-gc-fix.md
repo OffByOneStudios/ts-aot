@@ -41,14 +41,20 @@ are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated)
 - The object-literal corruption does NOT reproduce in a minimal single-forced-GC
   program (matches prior sessions). The reliable detectors are the DIFFERENTIAL
   check + INV-1 abort + the lodash harness.
-- The lodash upstream harness currently hits an **early init crash** that is
+- The lodash upstream harness currently hits an **early init failure** that is
   NOT the moving-GC bug: it reproduces with `TS_GC_NURSERY=0` AND on the pre-3a
-  build (so it is pre-existing and not a 3a regression). This blocks end-to-end
-  lodash assertion-density measurement until that separate crash is fixed.
-  Under nursery-ON the crash shows a corrupted CLSR (closure) magic, implying
-  OTHER movable types (TsArray element buffers, TsString headers, TsBigInt,
-  shapeless TsMap) still corrupt — i.e. tenuring is whack-a-mole and Phase 3b
-  (precise minor-GC roots) is the real general cure.
+  build (pre-existing, not a 3a regression). With `TS_GC_NURSERY=0` it terminates
+  via a C++/JS exception (`0xe06d7363`) during init — i.e. an uncaught throw /
+  logic bug, NOT memory corruption — so it belongs to the lodash effort
+  ([[lodash-upstream-testjs-harness]]), not the moving-GC fix. It blocks
+  end-to-end lodash assertion-density measurement until fixed. Under nursery-ON
+  the failure instead surfaces a corrupted CLSR magic (an access violation),
+  implying OTHER movable types (TsArray element buffers, TsString headers,
+  TsBigInt, shapeless TsMap) still corrupt under the moving nursery — i.e.
+  per-type tenuring is whack-a-mole and Phase 3b (precise minor-GC roots) is the
+  real general cure. The gc-suite differential programs for arrays/strings/sets
+  pass at their current scale, so the surviving corruption needs full-harness
+  scale to manifest (consistent with the object-literal case).
 
 **Remaining:**
 - Phase 2: the full parameterized type×holder×trigger matrix + shadow-heap
