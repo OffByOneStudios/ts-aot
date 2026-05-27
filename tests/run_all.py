@@ -79,6 +79,14 @@ SUITES = [
         'parallel_args': ['-j', '8'],
     },
     {
+        'name': 'GC',
+        'key': 'gc',
+        'script': str(TESTS_DIR / 'gc' / 'runner.py'),
+        'args': [],
+        'verbose_flag': '-v',
+        'parallel_args': ['-j', '6'],
+    },
+    {
         'name': 'test262',
         'key': 'test262',
         'script': str(TESTS_DIR / 'test262' / 'run_test262.py'),
@@ -166,6 +174,17 @@ def parse_results(output: str, suite_key: str) -> dict:
         if m:
             passed = int(m.group(1))
         for label in ('Failed', 'Compile error', 'Crash', 'No output'):
+            m = re.search(rf'{label}:\s+(\d+)', clean)
+            if m:
+                failed += int(m.group(1))
+
+    elif suite_key == 'gc':
+        # GC runner: "Passed: N"; Failed/Differential/Crash-abort/Compile error
+        # all count as failures (each is a moving-GC correctness signal).
+        m = re.search(r'Passed:\s+(\d+)', clean)
+        if m:
+            passed = int(m.group(1))
+        for label in ('Failed', 'Differential', r'Crash/abort', 'Compile error'):
             m = re.search(rf'{label}:\s+(\d+)', clean)
             if m:
                 failed += int(m.group(1))
