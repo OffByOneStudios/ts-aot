@@ -1,8 +1,62 @@
 # GC-001 — Comprehensive GC Verification Harness + Fix the Moving-GC Corruption
 
-**Status:** OPEN (goal prompt — drives a multi-session effort)
+**Status:** IN PROGRESS (Phase 1 + Phase 3a landed; Phase 2 + Phase 3b remain)
 **Created:** 2026-05-27
 **Owner:** (GC initiative)
+**Branch:** `gc-001-verification-harness`
+
+---
+
+## Progress log
+
+### 2026-05-27 — Phase 1 (harness) + Phase 3a (object-literal tenuring) landed
+
+**Phase 1 — verification harness core (DONE, commits c5ecec4 / f680ec8 / ccdcd97):**
+- **1a** TS-callable builtins wired through the analyzer + ASTToHIR (handled at
+  the TOP of the bare-identifier call path so the analyzer's FunctionType
+  registration can't divert them to a weak undefined stub) + HIRToLLVM generic-
+  call ABI (double/bool/void returns): `__ts_gc_minor`, `__ts_gc_major`,
+  `__ts_gc_is_nursery`, `__ts_gc_collection_count`, `__ts_gc_live_size`,
+  `__ts_gc_verify`. Runtime: `ts_gc_dbg_*` + `ts_gc_verify_now()`.
+- **1b** `TS_GC_VERIFY=N` levels (1=report, 2=abort-on-INV-1-violation,
+  3=deep Part B/C). INV-1 (the existing Phase 5v post-forwarding scan) now
+  ABORTS under N>=2. Heavy Part B (scanner re-run) + Part C (full-process
+  VirtualQuery, faults on guard pages) gated behind `g_verify_forward_deep`
+  so the on-demand verify runs only the safe old-gen+roots+pinned scan.
+- **1c** `tests/gc/` suite: runner.py runs each program under default /
+  TS_GC_NURSERY=0 / TS_GC_VERIFY=2 (+`--stress`), enforcing a PASS contract,
+  a **differential** (moving-GC stdout must byte-match the NURSERY=0 baseline)
+  and INV-1-no-abort. 6 programs spanning object-type × holder × trigger.
+  Registered as the `gc` suite in `tests/run_all.py`. All green.
+
+**Phase 3a — the fix (DONE, commit 6aee00d):** tenure escaping object-literal /
+flat-object headers to old-gen (`ts_flat_object_create`, and the
+`lowerNewFlatObject` heap path's inlined `__ts_nursery_alloc` → `ts_gc_alloc_old_gen`).
+Non-escaping objects still stack/SROA; shapeless `{}` (`TsMap::Create`) left in
+nursery. Validated: gc-suite differential-clean, golden_ir 266/278 + node 295/297
+(no regressions), test262 object clusters clean (3 built-ins/Object "regressions"
+are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated).
+
+**Key finding — minimal repro is insufficient & lodash has a separate blocker:**
+- The object-literal corruption does NOT reproduce in a minimal single-forced-GC
+  program (matches prior sessions). The reliable detectors are the DIFFERENTIAL
+  check + INV-1 abort + the lodash harness.
+- The lodash upstream harness currently hits an **early init crash** that is
+  NOT the moving-GC bug: it reproduces with `TS_GC_NURSERY=0` AND on the pre-3a
+  build (so it is pre-existing and not a 3a regression). This blocks end-to-end
+  lodash assertion-density measurement until that separate crash is fixed.
+  Under nursery-ON the crash shows a corrupted CLSR (closure) magic, implying
+  OTHER movable types (TsArray element buffers, TsString headers, TsBigInt,
+  shapeless TsMap) still corrupt — i.e. tenuring is whack-a-mole and Phase 3b
+  (precise minor-GC roots) is the real general cure.
+
+**Remaining:**
+- Phase 2: the full parameterized type×holder×trigger matrix + shadow-heap
+  fuzzer + revived Catch2 white-box tests.
+- Phase 3b: precise minor-GC stack-map roots (the general cure for ALL movable
+  types) — high risk, do incrementally with the Phase-1 harness as safety net.
+- The separate lodash early-init crash (NURSERY=0-reproducible) — needs its own
+  investigation before lodash can quantify the fix.
 
 ---
 
