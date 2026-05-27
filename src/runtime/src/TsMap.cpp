@@ -24,6 +24,18 @@ TsValueEqual TsHashTable::equal_;
 void* TsMap_VTable[2] = { nullptr, nullptr };
 extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
 
+// BUG 7: correct an off-by-8 receiver. A valid C++ TsMap has its C++ vftable at
+// offset 0; an off-by-8 pointer (pointing at the `vtable` member, offset 8) has
+// the runtime TsMap_VTable there. That sentinel is unique to the off-by-8 case
+// (no correctly-based map stores TsMap_VTable at offset 0), so it is safe to
+// rebase by -8. Returns `this` unchanged for a correct receiver.
+TsMap* TsMap::self() {
+    if ((uintptr_t)this >= 0x10000 && *(void**)this == (void*)TsMap_VTable) {
+        return (TsMap*)((char*)this - 8);
+    }
+    return this;
+}
+
 TsMap* TsMap::Create() {
     void* mem = ts_alloc(sizeof(TsMap));
     TsMap* map = new(mem) TsMap();
@@ -51,6 +63,7 @@ TsMap::TsMap() {
 }
 
 void TsMap::Set(TsValue key, TsValue value) {
+    { TsMap* m = self(); if (m != this) { m->Set(key, value); return; } }
     // Guard: skip if impl is corrupt (GC may have collected this TsMap)
     if ((uintptr_t)impl < 0x10000) return;
     if (frozen) return;
@@ -78,6 +91,7 @@ void TsMap::Set(TsValue key, TsValue value) {
 }
 
 void TsMap::SetWithAttrs(TsValue key, TsValue value, uint8_t attrs) {
+    { TsMap* m = self(); if (m != this) { m->SetWithAttrs(key, value, attrs); return; } }
     if ((uintptr_t)impl < 0x10000) return;
     if (frozen) return;
     if (sealed || !extensible) {
@@ -98,6 +112,7 @@ void TsMap::SetWithAttrs(TsValue key, TsValue value, uint8_t attrs) {
 // guards this; the read paths must too, or they segfault dereferencing a null
 // TsHashTable (e.g. find_slot reading [impl+0x20] with impl==0).
 TsValue TsMap::Get(TsValue key) {
+    { TsMap* m = self(); if (m != this) return m->Get(key); }
     if ((uintptr_t)impl < 0x10000) {
         TsValue undef; undef.type = ValueType::UNDEFINED; undef.ptr_val = nullptr;
         return undef;
@@ -106,28 +121,33 @@ TsValue TsMap::Get(TsValue key) {
 }
 
 bool TsMap::Has(TsValue key) {
+    { TsMap* m = self(); if (m != this) return m->Has(key); }
     if ((uintptr_t)impl < 0x10000) return false;
     return ((TsHashTable*)impl)->Has(key);
 }
 
 bool TsMap::Delete(TsValue key) {
+    { TsMap* m = self(); if (m != this) return m->Delete(key); }
     if (frozen || sealed) return false;
     if ((uintptr_t)impl < 0x10000) return false;
     return ((TsHashTable*)impl)->Delete(key);
 }
 
 void TsMap::Clear() {
+    { TsMap* m = self(); if (m != this) { m->Clear(); return; } }
     if (frozen || sealed) return;
     if ((uintptr_t)impl < 0x10000) return;
     ((TsHashTable*)impl)->Clear();
 }
 
 int64_t TsMap::Size() {
+    { TsMap* m = self(); if (m != this) return m->Size(); }
     if ((uintptr_t)impl < 0x10000) return 0;
     return static_cast<int64_t>(((TsHashTable*)impl)->Size());
 }
 
 void* TsMap::GetKeys() {
+    { TsMap* m = self(); if (m != this) return m->GetKeys(); }
     if ((uintptr_t)impl < 0x10000) return TsArray::Create(0);
     auto* ht = (TsHashTable*)impl;
     TsArray* keys = TsArray::Create(ht->Size());
@@ -138,6 +158,7 @@ void* TsMap::GetKeys() {
 }
 
 void* TsMap::GetEnumerableKeys() {
+    { TsMap* m = self(); if (m != this) return m->GetEnumerableKeys(); }
     if ((uintptr_t)impl < 0x10000) return TsArray::Create(0);
     auto* ht = (TsHashTable*)impl;
     TsArray* keys = TsArray::Create(ht->Size());
@@ -155,16 +176,19 @@ void* TsMap::GetEnumerableKeys() {
 }
 
 uint8_t TsMap::GetPropertyAttrs(TsValue key) {
+    { TsMap* m = self(); if (m != this) return m->GetPropertyAttrs(key); }
     if ((uintptr_t)impl < 0x10000) return 0;
     return ((TsHashTable*)impl)->GetAttrs(key);
 }
 
 void TsMap::SetPropertyAttrs(TsValue key, uint8_t attrs) {
+    { TsMap* m = self(); if (m != this) { m->SetPropertyAttrs(key, attrs); return; } }
     if ((uintptr_t)impl < 0x10000) return;
     ((TsHashTable*)impl)->SetAttrs(key, attrs);
 }
 
 void* TsMap::GetValues() {
+    { TsMap* m = self(); if (m != this) return m->GetValues(); }
     if ((uintptr_t)impl < 0x10000) return TsArray::Create(0);
     auto* ht = (TsHashTable*)impl;
     TsArray* values = TsArray::Create(ht->Size());
@@ -175,6 +199,7 @@ void* TsMap::GetValues() {
 }
 
 void* TsMap::GetEntries() {
+    { TsMap* m = self(); if (m != this) return m->GetEntries(); }
     if ((uintptr_t)impl < 0x10000) return TsArray::Create(0);
     auto* ht = (TsHashTable*)impl;
     TsArray* entries = TsArray::Create(ht->Size());

@@ -31,6 +31,14 @@ public:
     
     void* impl; // Pointer to TsHashTable - public for inline IR helpers
 
+    // BUG 7: some receivers arrive off-by-8 — a pointer to the `vtable` member
+    // (offset 8) instead of the C++ object base. A correct base has the C++
+    // vftable at offset 0; an off-by-8 pointer has the runtime TsMap_VTable
+    // there. self() detects that unique sentinel and returns the corrected
+    // base so member access reads the right fields. (The upstream source of
+    // the +8 is scale/GC-dependent and tracked separately.)
+    TsMap* self();
+
     // Prototype chain support
     TsMap* GetPrototype() const { return prototype; }
     void SetPrototype(TsMap* proto) {
