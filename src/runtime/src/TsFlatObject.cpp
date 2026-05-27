@@ -58,7 +58,13 @@ extern "C" void* ts_flat_object_create(uint32_t shapeId) {
     if (!desc) return nullptr;
 
     uint32_t totalSize = 16 + desc->numSlots * 8 + 8;  // header(8) + vtable(8) + slots + overflow ptr
-    void* mem = ts_gc_alloc(totalSize);
+    // GC-001 Phase 3a: tenure object literals to old-gen so they never move.
+    // The minor GC roots the stack conservatively-only, so a flat object held
+    // solely in a callee-saved register / unspilled slot across a minor GC is
+    // promoted (moved) without its holder being forwarded -> stale pointer ->
+    // blanked fields. Old-gen objects never move, sidestepping the defect
+    // (same mechanism that fixed closures/cells in BUG 4). See [[GC-001]].
+    void* mem = ts_gc_alloc_old_gen(totalSize);
 
     // Write header
     *(uint32_t*)mem = FLAT_MAGIC;

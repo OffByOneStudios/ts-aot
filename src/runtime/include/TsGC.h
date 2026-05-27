@@ -57,6 +57,13 @@ void ts_gc_write_barrier_range(void* start, size_t size);  // Dirty cards for bu
 // Use for STL container allocators whose internal pointer updates bypass write barriers.
 void* ts_gc_alloc_old_gen(size_t size);
 
+// GC verification-harness entry points (GC-001). Back the __ts_gc_* builtins
+// callable from compiled TS. Doubles so JS number semantics line up.
+double ts_gc_dbg_collection_count();          // collections so far
+double ts_gc_dbg_live_size();                 // bytes surviving last GC
+bool   ts_gc_dbg_is_nursery(void* boxed);     // is value's object in nursery?
+double ts_gc_verify_now();                    // verified minor GC; #violations
+
 // Minor GC fixup callback: called during minor GC to fix up nursery pointers
 // in external data structures (caches, registries) not covered by card table.
 // Use ts_gc_minor_lookup_forward() inside the callback to resolve nursery pointers.

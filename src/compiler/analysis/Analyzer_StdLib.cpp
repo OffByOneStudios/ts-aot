@@ -56,6 +56,25 @@ Analyzer::Analyzer() {
     gcType->returnType = std::make_shared<Type>(TypeKind::Void);
     symbols.define("gc", gcType);
 
+    // GC verification-harness builtins (GC-001). These let compiled TS drive
+    // and inspect the collector so a single allocation + single forced GC can
+    // reproduce moving-GC corruption deterministically.
+    auto gcVoidFn = std::make_shared<FunctionType>();
+    gcVoidFn->returnType = std::make_shared<Type>(TypeKind::Void);
+    symbols.define("__ts_gc_minor", gcVoidFn);  // force minor (nursery) GC
+    symbols.define("__ts_gc_major", gcVoidFn);  // force full GC
+
+    auto gcIsNurseryFn = std::make_shared<FunctionType>();
+    gcIsNurseryFn->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
+    gcIsNurseryFn->returnType = std::make_shared<Type>(TypeKind::Boolean);
+    symbols.define("__ts_gc_is_nursery", gcIsNurseryFn);  // is value in nursery?
+
+    auto gcIntFn = std::make_shared<FunctionType>();
+    gcIntFn->returnType = std::make_shared<Type>(TypeKind::Double);
+    symbols.define("__ts_gc_collection_count", gcIntFn);  // collections so far
+    symbols.define("__ts_gc_live_size", gcIntFn);         // bytes surviving last GC
+    symbols.define("__ts_gc_verify", gcIntFn);            // verified minor GC; #violations
+
     // Register timers module (re-exports of global timer functions)
     auto timersModule = std::make_shared<ObjectType>();
     timersModule->fields["setTimeout"] = setTimeoutType;

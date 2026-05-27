@@ -6564,6 +6564,52 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     // Handle direct function call
     auto* ident = dynamic_cast<ast::Identifier*>(node->callee.get());
     if (ident) {
+        // GC verification-harness builtins (GC-001). Handled FIRST so the
+        // analyzer's FunctionType registration can't divert them to a weak
+        // undefined-returning stub. Drive/inspect the collector from compiled
+        // TS so a single allocation + forced GC reproduces moving-GC corruption.
+        if (ident->name == "__ts_gc_minor") {
+            lastValue_ = builder_.createCall("ts_gc_minor_collect", {}, HIRType::makeVoid());
+            return;
+        }
+        if (ident->name == "__ts_gc_major") {
+            lastValue_ = builder_.createCall("ts_gc_force_collect", {}, HIRType::makeVoid());
+            return;
+        }
+        if (ident->name == "__ts_gc_collection_count") {
+            lastValue_ = builder_.createCall("ts_gc_dbg_collection_count", {}, HIRType::makeFloat64());
+            return;
+        }
+        if (ident->name == "__ts_gc_live_size") {
+            lastValue_ = builder_.createCall("ts_gc_dbg_live_size", {}, HIRType::makeFloat64());
+            return;
+        }
+        if (ident->name == "__ts_gc_verify") {
+            // Runs a verified minor GC; returns the number of invariant violations.
+            lastValue_ = builder_.createCall("ts_gc_verify_now", {}, HIRType::makeFloat64());
+            return;
+        }
+        if (ident->name == "__ts_gc_is_nursery") {
+            if (args.empty()) { lastValue_ = builder_.createConstBool(false); return; }
+            // Box the argument to a TsValue* so the runtime can unbox uniformly.
+            auto arg = args[0];
+            std::shared_ptr<HIRValue> boxed;
+            if (arg->type) {
+                switch (arg->type->kind) {
+                    case HIRTypeKind::Int64:  boxed = builder_.createBoxInt(arg); break;
+                    case HIRTypeKind::Float64: boxed = builder_.createBoxFloat(arg); break;
+                    case HIRTypeKind::Bool:   boxed = builder_.createBoxBool(arg); break;
+                    case HIRTypeKind::String: boxed = builder_.createBoxString(arg); break;
+                    case HIRTypeKind::Any:    boxed = arg; break;
+                    default:                  boxed = builder_.createBoxObject(arg); break;
+                }
+            } else {
+                boxed = builder_.createBoxObject(arg);
+            }
+            lastValue_ = builder_.createCall("ts_gc_dbg_is_nursery", {boxed}, HIRType::makeBool());
+            return;
+        }
+
         // First check if this is a captured variable from an outer function
         size_t scopeIndex = 0;
         if (currentFunction_ && isCapturedVariable(ident->name, &scopeIndex)) {
