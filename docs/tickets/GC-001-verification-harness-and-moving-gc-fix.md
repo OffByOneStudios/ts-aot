@@ -100,19 +100,24 @@ are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated)
   Validate incrementally with the gc-suite differential + INV-1 + golden_ir/node/
   test262. This is multi-session/large; the bounded alternative that is already
   WORKING is to keep tenuring movable types (Phase 3a-style) under the harness.
-  ⚠️ CRITICAL CONSTRAINT (2026-05-27): ts-aot **NaN-boxes** `any` values (object
-  pointers packed into i64/double via ptrtoint/inttoptr — 43 sites). RS4GC only
-  relocates POINTER-typed addrspace(1) SSA values; a NaN-boxed pointer living in
-  an i64 is INVISIBLE to RS4GC, and the inttoptr that unpacks it yields a fresh
-  untracked addrspace(0) pointer. **The lodash systemic corruption is in `any`-
-  typed (NaN-boxed) object literals**, so statepoints — even fully migrated —
-  would NOT root them and would NOT fix the lodash bug. (This is also why BUG 4
-  closures were cured by TENURING, not statepoints.) Implication: statepoints can
-  precisely root only TYPED object pointers; curing the NaN-boxed `any` case needs
-  EITHER de-NaN-boxing object refs (huge language/runtime change) OR a NaN-box-
-  aware root scheme OR continued tenuring. So Phase 3b is NOT sufficient on its own
-  for the headline lodash success criterion — tenuring (or de-NaN-boxing) is still
-  required for `any` values. Weigh this before committing to the 322-site migration.
+  NaN-box note (CORRECTED 2026-05-27): an earlier note here claimed NaN-boxing
+  makes object pointers invisible to RS4GC. That was WRONG. `nanbox_ptr(p)`
+  (TsNanBox.h:64) returns the raw pointer unchanged — ts-aot's pointer tag is
+  "top 16 bits = 0", so a NaN-boxed object pointer is BIT-IDENTICAL to its raw
+  address (passes `is_nursery_ptr`) and flows as a pointer-typed value (RS4GC can
+  track it if kept addrspace(1)). The actual corruption (BUG 4) is a FORWARDING
+  gap for **register-resident holders** — proven because `TS_GC_PROMOTE_ALL`
+  (mark everything) does NOT fix it (so it's not under-marking) — a pointer live
+  only in a callee-saved register at the GC instant is scanned by neither the
+  conservative stack walk nor Phase 7, so after the object moves the register
+  still holds the old (soon-zeroed) address. Statepoints/RS4GC ARE the right
+  engine-grade fix for this (they enumerate live GC pointers incl. register
+  locations at each safepoint — the same thing V8/SpiderMonkey/JSC safepoint
+  tables do). They root nothing TODAY only because of the addrspace(0) laundering
+  at ~322 call sites, NOT because of NaN-boxing. The one real NaN-box wrinkle is
+  narrow: a value `ptrtoint`'d to i64 and held across a safepoint as an integer is
+  untracked (so the tag-check/boxing helpers must avoid holding the integer form
+  across calls); an object ref held as a pointer-typed value is fine.
 - The separate lodash early-init crash (NURSERY=0-reproducible) — needs its own
   investigation before lodash can quantify the fix.
 
