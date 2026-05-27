@@ -110,7 +110,54 @@ are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated)
   array_of_objlits 0→60; 7/9 tests/gc programs (objects/arrays/strings/maps/sets/
   nested) verify + 38-102 roots + run correctly under --gc-statepoints. Default
   build green (golden_ir 266/278, node 295/297).
-  STEP 3 (next): (a) closure_cells_survive / closure_queue produce roots (168/188)
+  STEP 3 PROGRESS (2026-05-27):
+  • 3a DONE (commit): closures/nested-fn GC returns were lost under statepoints
+    (OBJ-LOST/CLO-LOST) because HIRToLLVM gcPtrToRaw laundered GC values to
+    addrspace(0) and stored them into locals (invisible to RS4GC). Made gcPtrToRaw
+    a no-op (boundary pass handles casts). ALL 9 tests/gc programs now PASS under
+    --gc-statepoints with roots recorded (44-236). Default build green.
+  • 3b WIRED but INEFFECTIVE (honest finding): added ts_gc_push_precise_stack_roots()
+    to the minor GC mark phase. BUT the precise stack-walk (push_precise_roots_win64,
+    GCRoots.cpp) reports "0 safepoints, 0 roots" at GC time for EVERY collection —
+    even programs whose stack map has 120 safepoints / 86 roots. So the GC-time
+    return addresses (RtlVirtualUnwind ctx.Rip) never match the stack-map keys
+    (`functions[].address + instrOffset + imageBase`). This is a PRE-EXISTING bug
+    affecting BOTH full and minor precise rooting — precise rooting has never
+    actually found roots from the GC-triggered context. Likely return-address-vs-
+    statepoint-address (call-length) or image-base/ASLR relocation mismatch in the
+    parse/lookup. NEXT: instrument ctx.Rip vs nearest stackmap key, fix the
+    address arithmetic so lookup matches, then precise rooting becomes effective.
+    UPDATE (same day, deeper dig): the stack-map address computation in
+    StackMap.cpp WAS wrong — it added imageBase to `functions[].address` (already
+    loader-relocated absolute), producing invalid 0xFFEC.. keys (>48-bit) → every
+    lookup missed → 0 roots (a SAFE no-op). Removing the imageBase addition moved
+    the keys into valid image space, BUT (a) the safepoint offsets still don't
+    align with where user code executes (range 0x101C-0x1770 vs user frames at
+    +0x31A63) AND (b) enabling root extraction with the now-valid-ish addresses
+    made the STILL-BUGGY extract_root_pointer read wrong slots and CORRUPT 2 of 9
+    gc programs (9/9 -> 7/9). So precise rooting is doubly broken (address offsets
+    + root extraction) and was REVERTED to the safe 0-roots no-op. CONCLUSION:
+    precise stack-map rooting does NOT work and is NOT what fixes the corruption.
+    The moving-GC corruption fix under statepoints comes ENTIRELY from RS4GC
+    SPILLING live GC pointers to stack slots at safepoints + the existing
+    conservative minor-GC scan + Phase 7 (which catch the spilled pointers) — this
+    is a legitimate, sufficient fix (no register-only-resident live pointer can
+    exist across a safepoint once RS4GC spills). 9/9 gc programs PASS under
+    --gc-statepoints. The 3b precise-consumption call is wired (committed) but
+    no-ops until the address-offset + extraction bugs are fixed (a separate,
+    multi-step PE/COFF stack-map debugging task — NOT required for correctness).
+    CAVEAT unchanged: the corruption fix is UNPROVEN (no minimal repro fails;
+    needs the lodash differential once lodash's separate early-init crash is fixed).
+  • CORRECTNESS CAVEAT: the 9/9 statepoints PASS comes from RS4GC SPILLING live GC
+    pointers to stack slots at safepoints + the existing conservative minor scan +
+    Phase 7 — NOT from precise stack-map consumption (which no-ops). AND the
+    moving-GC corruption fix remains UNPROVEN under statepoints because no minimal
+    repro reproduces the corruption (the gc programs pass conservatively too); the
+    real proof needs the 0-safepoints fix + a differential on a corruption-prone
+    workload (lodash, once its separate early-init crash is resolved).
+
+  (original step-3 follow-ups, now superseded by the above:)
+  • (a) closure_cells_survive / closure_queue produce roots (168/188)
   but CORRUPT closures under statepoints — function-pointer / closure-cell dispatch
   interaction with the addrspace migration (Agent C flagged function-ptr addrspace
   risk); (b) make the MINOR GC consume the precise stack-map roots (today
