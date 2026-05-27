@@ -4042,9 +4042,16 @@ void HIRToLLVM::lowerNewFlatObject(HIRInstruction* inst) {
         stackAllocCount_++;
         stackAllocBytes_ += totalSize;
     } else {
-        // Heap allocation: call module-level nursery bump allocator (inlined by LLVM)
+        // GC-001 Phase 3a: tenure escaping object literals to old-gen instead of
+        // the moving nursery. The minor GC roots the stack conservatively-only,
+        // so a flat object held solely in a callee-saved register / unspilled
+        // slot across a minor GC gets promoted (moved) without its holder being
+        // forwarded -> stale pointer -> blanked fields (the lodash systemic bug).
+        // Old-gen never moves, sidestepping the defect. Stack-allocatable (non-
+        // escaping) flat objects above still use the fast nursery/stack path.
         llvm::Value* sizeVal = llvm::ConstantInt::get(builder_->getInt64Ty(), totalSize);
-        auto allocFn = getOrCreateNurseryAllocFn();
+        auto allocFn = getOrDeclareRuntimeFunction(
+            "ts_gc_alloc_old_gen", builder_->getPtrTy(), {builder_->getInt64Ty()});
         result = rawToGCPtr(builder_->CreateCall(allocFn, {sizeVal}));
     }
 
