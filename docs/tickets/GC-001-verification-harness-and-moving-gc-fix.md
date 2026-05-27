@@ -61,6 +61,18 @@ are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated)
   fuzzer + revived Catch2 white-box tests.
 - Phase 3b: precise minor-GC stack-map roots (the general cure for ALL movable
   types) — high risk, do incrementally with the Phase-1 harness as safety net.
+  FEASIBILITY (scanned 2026-05-27): the statepoint path already EXISTS but is
+  default-OFF behind `--gc-statepoints` (`CodeGenerator.h` `enableGCStatepoints_`,
+  `Driver.h`): when enabled, HIRToLLVM emits GC pointers in `addrspace(1)`
+  (HIRToLLVM.cpp:40 + rawToGCPtr/gcToRawPtr at :101/:107), CodeGenerator runs
+  `RewriteStatepointsForGC` + adds deopt bundles + fixes LLVM-18.1 gc.relocate
+  off-by-one (CodeGenerator.cpp:187/337-363), and `TsAotGC` (`UseRS4GC=true`) is
+  the strategy. So Phase 3b == turn this on by default and make it robust
+  (addrspace-1 correctness across all opcodes, RS4GC over the whole module,
+  minor GC consuming the stack maps via `ts_gc_push_precise_stack_roots`), then
+  drive out regressions with the gc-suite + golden_ir + node + test262. It is a
+  whole-codegen flag-flip-and-fix — start it only when it can be finished/reverted
+  cleanly in-session.
 - The separate lodash early-init crash (NURSERY=0-reproducible) — needs its own
   investigation before lodash can quantify the fix.
 
