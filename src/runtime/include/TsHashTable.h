@@ -113,6 +113,7 @@ public:
         while (cap < initial_capacity) cap <<= 1;
         ht->capacity_ = cap;
         ht->grow_thresh_ = cap - cap / 8;  // 87.5%
+        ht->tombstones_ = 0;
         // Layout: ctrl_[cap] + attrs_[cap] + entries_[cap * sizeof(Entry)]
         size_t alloc_size = cap + cap + cap * sizeof(Entry);
         void* buf = ts_gc_alloc_old_gen(alloc_size);
@@ -132,9 +133,14 @@ public:
             return;
         }
 
-        // New key — default attributes (enumerable+writable+configurable)
-        if (size_ >= grow_thresh_) {
-            size_t new_cap = capacity_ < 256 ? capacity_ * 4 : capacity_ * 2;
+        // New key — default attributes (enumerable+writable+configurable).
+        // Count tombstones toward the load: a table full of tombstones with no
+        // EMPTY slot would hang find_slot. When mostly tombstones, rehash at the
+        // SAME capacity to reclaim them; only grow when live entries dominate.
+        if (size_ + tombstones_ >= grow_thresh_) {
+            size_t new_cap = (size_ > capacity_ / 2)
+                ? (capacity_ < 256 ? capacity_ * 4 : capacity_ * 2)
+                : capacity_;
             rehash(new_cap);
         }
 
@@ -150,8 +156,10 @@ public:
             return;
         }
 
-        if (size_ >= grow_thresh_) {
-            size_t new_cap = capacity_ < 256 ? capacity_ * 4 : capacity_ * 2;
+        if (size_ + tombstones_ >= grow_thresh_) {
+            size_t new_cap = (size_ > capacity_ / 2)
+                ? (capacity_ < 256 ? capacity_ * 4 : capacity_ * 2)
+                : capacity_;
             rehash(new_cap);
         }
 
@@ -190,6 +198,7 @@ public:
         entries_[idx].key = TsValue();
         entries_[idx].value = TsValue();
         size_--;
+        tombstones_++;
         return true;
     }
 
@@ -198,6 +207,7 @@ public:
         std::memset(attrs_, 0, capacity_);
         std::memset(entries_, 0, capacity_ * sizeof(Entry));
         size_ = 0;
+        tombstones_ = 0;
     }
 
     size_t Size() const { return size_; }
@@ -259,6 +269,10 @@ private:
     size_t size_;
     size_t capacity_;
     size_t grow_thresh_;
+    size_t tombstones_;   // CTRL_DELETED slot count; counted toward growth so
+                          // an EMPTY slot always remains. Without this, churn
+                          // (insert/delete with a low live count) can leave zero
+                          // EMPTY slots and find_slot's probe never terminates.
 
     static TsValueHash hasher_;
     static TsValueEqual equal_;
@@ -280,7 +294,11 @@ private:
         uint8_t h2 = h2_from_hash(hash);
         size_t idx = h1_from_hash(hash);
 
-        for (;;) {
+        // Safety cap: a missing key in a table with no CTRL_EMPTY slot (all
+        // live + tombstones) would otherwise probe forever. After a full sweep
+        // the key is provably absent — return NOT_FOUND. The tombstone-aware
+        // growth above normally keeps an EMPTY slot, so this rarely triggers.
+        for (size_t probes = 0; probes < capacity_; probes++) {
             uint8_t c = ctrl_[idx];
 
             if (c == CTRL_EMPTY) return NOT_FOUND;
@@ -292,6 +310,7 @@ private:
             // Linear probe — skip deleted and non-matching slots
             idx = (idx + 1) & (capacity_ - 1);
         }
+        return NOT_FOUND;
     }
 
     void store_entry(size_t slot, const TsValue& key, const TsValue& value) {
@@ -332,6 +351,7 @@ private:
             }
         }
         size_ = count;
+        tombstones_ = 0;  // fresh table holds only live entries
     }
 
     // Insert an entry known to not exist in the table.
@@ -345,6 +365,7 @@ private:
             uint8_t c = ctrl_[idx];
 
             if (c == CTRL_EMPTY || c == CTRL_DELETED) {
+                if (c == CTRL_DELETED && tombstones_ > 0) tombstones_--;  // reclaimed
                 ctrl_[idx] = h2;
                 attrs_[idx] = attrs;
                 store_entry(idx, key, value);
