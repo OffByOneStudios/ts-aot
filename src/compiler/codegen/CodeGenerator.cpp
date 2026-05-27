@@ -28,6 +28,7 @@
 #include <llvm/Transforms/Instrumentation/InstrProfiling.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/InstrTypes.h>
+#include <llvm/IR/IRBuilder.h>
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -145,6 +146,141 @@ static void addDeoptBundles(llvm::Module& M) {
     }
     if (modified > 0) {
         SPDLOG_INFO("Added deopt bundles to {} calls for RS4GC", modified);
+    }
+}
+
+/// GC-001 Phase 3b step 2: normalize the runtime-call boundary to addrspace(0).
+///
+/// Step 1 made ALL pointers addrspace(1) under --gc-statepoints, including the
+/// signatures of external runtime functions (the C ABI), which (a) mismatches
+/// addrspace(0) string-literal globals passed to `const char*` params and
+/// (b) is the wrong model (per the GC-001 decision: GC VALUES are addrspace(1),
+/// the C boundary is addrspace(0)). This pass rewrites every external DECLARATION
+/// (no body; not an intrinsic) so its pointer params/return are addrspace(0), and
+/// inserts addrspacecasts at each call site: args (1)->(0) before the call, the
+/// pointer result (0)->(1) after. The original addrspace(1) arg values are left
+/// untouched (only throwaway casts are added), so they remain live across the
+/// call and RS4GC still relocates them. User functions (with bodies) keep their
+/// addrspace(1) signatures — user->user calls stay addrspace(1) and are rooted.
+static void normalizeRuntimeBoundaryAddrSpaces(llvm::Module& M) {
+    llvm::LLVMContext& ctx = M.getContext();
+    llvm::Type* p0 = llvm::PointerType::get(ctx, 0);
+    auto toP0 = [&](llvm::Type* t) -> llvm::Type* {
+        auto* pt = llvm::dyn_cast<llvm::PointerType>(t);
+        return (pt && pt->getAddressSpace() != 0) ? p0 : t;
+    };
+
+    // Collect candidate external declarations first (we mutate the module).
+    llvm::SmallVector<llvm::Function*, 64> candidates;
+    for (auto& F : M) {
+        if (!F.isDeclaration() || F.isIntrinsic()) continue;
+        if (F.getName().starts_with("llvm.")) continue;
+        // Only rewrite if some pointer param/return is in a non-zero addrspace.
+        llvm::FunctionType* ft = F.getFunctionType();
+        bool needs = toP0(ft->getReturnType()) != ft->getReturnType();
+        for (llvm::Type* pty : ft->params()) needs |= (toP0(pty) != pty);
+        if (!needs) continue;
+        // Only rewrite if every use is a direct call to F (no function-pointer uses).
+        bool onlyCalls = true;
+        for (llvm::User* U : F.users()) {
+            auto* CB = llvm::dyn_cast<llvm::CallBase>(U);
+            if (!CB || CB->getCalledOperand() != &F) { onlyCalls = false; break; }
+        }
+        if (!onlyCalls) continue;
+        candidates.push_back(&F);
+    }
+
+    unsigned rewritten = 0, callsFixed = 0;
+    for (llvm::Function* F : candidates) {
+        llvm::FunctionType* oldFT = F->getFunctionType();
+        llvm::SmallVector<llvm::Type*, 8> newParams;
+        for (llvm::Type* pty : oldFT->params()) newParams.push_back(toP0(pty));
+        llvm::Type* newRet = toP0(oldFT->getReturnType());
+        llvm::FunctionType* newFT =
+            llvm::FunctionType::get(newRet, newParams, oldFT->isVarArg());
+
+        std::string name = F->getName().str();
+        F->setName(name + ".as1sig");
+        llvm::Function* newF = llvm::Function::Create(
+            newFT, F->getLinkage(), name, &M);
+        newF->setAttributes(F->getAttributes());
+        newF->setCallingConv(F->getCallingConv());
+
+        // Rewrite every call site.
+        llvm::SmallVector<llvm::CallBase*, 16> calls;
+        for (llvm::User* U : F->users())
+            if (auto* CB = llvm::dyn_cast<llvm::CallBase>(U)) calls.push_back(CB);
+        for (llvm::CallBase* CB : calls) {
+            llvm::IRBuilder<> b(CB);
+            llvm::SmallVector<llvm::Value*, 8> newArgs;
+            for (unsigned i = 0; i < CB->arg_size(); ++i) {
+                llvm::Value* a = CB->getArgOperand(i);
+                auto* apt = llvm::dyn_cast<llvm::PointerType>(a->getType());
+                if (apt && apt->getAddressSpace() != 0)
+                    a = b.CreateAddrSpaceCast(a, p0, "gc.arg.raw");
+                newArgs.push_back(a);
+            }
+            llvm::SmallVector<llvm::OperandBundleDef, 2> bundles;
+            CB->getOperandBundlesAsDefs(bundles);
+            llvm::CallInst* newCall = b.CreateCall(newFT, newF, newArgs, bundles);
+            newCall->setCallingConv(CB->getCallingConv());
+            // Reconcile result type: new call returns addrspace(0); old uses may
+            // expect addrspace(1).
+            llvm::Value* repl = newCall;
+            if (CB->getType() != newCall->getType()) {
+                if (CB->getType()->isPointerTy() && newCall->getType()->isPointerTy())
+                    repl = b.CreateAddrSpaceCast(newCall, CB->getType(), "gc.ret.gc");
+            }
+            if (!CB->use_empty()) CB->replaceAllUsesWith(repl);
+            CB->eraseFromParent();
+            callsFixed++;
+        }
+        F->eraseFromParent();
+        rewritten++;
+    }
+
+    // Phase 2: reconcile EVERY call to an external declaration (including those
+    // that were already addrspace(0) — e.g. ts_console_log_value declared via a
+    // handler with raw getPtrTy). For each pointer arg whose addrspace differs
+    // from the callee's declared param addrspace, insert an addrspacecast right
+    // before the call. Idempotent: calls already fixed in Phase 1 pass through
+    // unchanged. The original addrspace(1) values stay live for RS4GC.
+    unsigned phase2 = 0;
+    for (auto& F : M) {
+        for (auto& I : llvm::instructions(F)) {
+            auto* CB = llvm::dyn_cast<llvm::CallBase>(&I);
+            if (!CB) continue;
+            llvm::Function* callee = CB->getCalledFunction();
+            if (!callee || !callee->isDeclaration() || callee->isIntrinsic()) continue;
+            if (callee->getName().starts_with("llvm.")) continue;
+            llvm::FunctionType* ft = callee->getFunctionType();
+            llvm::IRBuilder<> b(CB);
+            unsigned nfixed = ft->getNumParams();
+            for (unsigned i = 0; i < CB->arg_size(); ++i) {
+                llvm::Value* a = CB->getArgOperand(i);
+                auto* apt = llvm::dyn_cast<llvm::PointerType>(a->getType());
+                if (!apt) continue;
+                // Determine the expected addrspace: declared param for fixed args,
+                // else addrspace(0) for varargs (C ABI).
+                unsigned want = (i < nfixed)
+                    ? (llvm::isa<llvm::PointerType>(ft->getParamType(i))
+                         ? llvm::cast<llvm::PointerType>(ft->getParamType(i))->getAddressSpace()
+                         : apt->getAddressSpace())
+                    : 0u;
+                if (apt->getAddressSpace() != want) {
+                    llvm::Value* c = b.CreateAddrSpaceCast(
+                        a, llvm::PointerType::get(ctx, want), "gc.arg.cast");
+                    CB->setArgOperand(i, c);
+                    phase2++;
+                }
+            }
+        }
+    }
+
+    if (rewritten > 0 || phase2 > 0) {
+        SPDLOG_INFO("GC boundary: normalized {} runtime decls to addrspace(0), "
+                    "fixed {} call sites (phase1) + {} arg casts (phase2)",
+                    rewritten, callsFixed, phase2);
     }
 }
 
@@ -339,6 +475,9 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
     // RS4GC rewrites calls with "deopt" bundles into gc.statepoint + gc.relocate
     // and generates the .llvm_stackmaps section for precise stack scanning.
     if (enableGCStatepoints_) {
+        // (GC boundary normalization already ran at the top of emitObjectFile,
+        // before the pre-optimization verify.)
+
         // Add empty "deopt"() bundles to all calls in gc-attributed functions.
         // RS4GC requires these to generate operand-bundle-based statepoints
         // with correct gc.relocate indices.
@@ -387,6 +526,14 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
 }
 
 bool CodeGenerator::emitObjectFile(const std::string& filename, const std::string& optLevel) {
+    // GC-001 step 2: normalize the runtime-call boundary to addrspace(0) BEFORE the
+    // pre-optimization verify below — step 1 left external decls with addrspace(1)
+    // pointer params (which mismatch addrspace(0) string-literal globals), so the
+    // module is not yet valid until this runs.
+    if (enableGCStatepoints_) {
+        normalizeRuntimeBoundaryAddrSpaces(*module);
+    }
+
     std::string errorStr;
     llvm::raw_string_ostream os(errorStr);
     if (llvm::verifyModule(*module, &os)) {
