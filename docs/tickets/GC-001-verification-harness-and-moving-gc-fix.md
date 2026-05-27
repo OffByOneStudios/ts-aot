@@ -75,11 +75,34 @@ are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated)
     (b) Residual laundering: `ts_value_make_string(%gc.to.raw)` passes an
         addrspace(0) laundered arg to an addrspace(1) param — remove the
         gcPtrToRaw laundering on GC args (keep them addrspace(1)).
-  DECISION NEEDED next session: per-param GC classification (a table/heuristic over
-  runtime fns) vs uniform-addrspace(1)-including-globals. Then: module verifies →
-  RS4GC relocate count + `[StackMap]` root count go 0→N (the milestone) → make the
-  MINOR GC consume the precise roots → drive out gc-suite/golden_ir/node/test262
-  regressions. Default build stays the green safety invariant throughout.
+  DECISION MADE (2026-05-27, 4 research agents incl. Julia/RS4GC precedent):
+  **per-VALUE classification with an addrspace(0) C-ABI boundary; NO per-param table.**
+  Decisive RS4GC fact (LLVM statepoint docs): RS4GC relocates an addrspace(1) value
+  iff it is LIVE ACROSS the call — it does NOT require call ARGUMENTS to be
+  addrspace(1). Correct design (OPPOSITE direction from step 1's signature change):
+    • GC-managed VALUES inside compiled code = addrspace(1) (step 1 already does this);
+    • runtime fn SIGNATURES (pointer params/returns) = addrspace(0) (real C ABI),
+      via ONE canonical declarer so getOrInsertFunction's one-signature-per-name cache
+      stays consistent — NO per-param GC table (the boundary is uniformly addrspace 0,
+      dissolving the GC-vs-raw-char* ambiguity that would otherwise need a table);
+    • at each call: addrspacecast GC pointer ARGS (1)->(0) sunk right before the call,
+      KEEP the addrspace(1) originals live across it (so they enter gc-live/gc.relocate),
+      cast pointer RETURNS (0)->(1);
+    • function pointers, globals, vtables, constants stay addrspace(0) (not roots).
+  REJECTED: uniform-addrspace(1)-incl-globals (function-ptr/global relocation risk,
+  not what real frontends do); per-function GC-mask table (unnecessary given the
+  addrspace-0 boundary).
+  DEEP TENSION (flag for later): RS4GC ideally wants addrspace(1) NON-INTEGRAL (`ni:1`)
+  so the optimizer can't fold int<->ptr and drop liveness — but non-integral FORBIDS
+  ptrtoint/inttoptr, which ts-aot NaN-boxing uses on object refs (48 sites). So `ni:1`
+  is incompatible with current NaN-box codegen without Julia's intrinsic-confined
+  int<->ptr + custom late-lowering pass (weeks). NEAR-TERM: integral addrspace(1)
+  (no ni:1), validate roots empirically (harness differential + count); escalate to
+  Julia-style only if liveness proves fragile.
+  STEP 2 (next): revert runtime SIGNATURES to addrspace(0) via the canonical declarer
+  + boundary casts in createRuntimeCall. Then: module verifies → RS4GC relocate /
+  `[StackMap]` root count 0→N (milestone) → MINOR GC consumes the precise roots →
+  drive out gc-suite/golden_ir/node/test262 regressions. Default build stays green.
 
 **Remaining:**
 - Phase 2: the full parameterized type×holder×trigger matrix + shadow-heap
