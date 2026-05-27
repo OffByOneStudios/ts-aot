@@ -73,6 +73,33 @@ are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated)
   drive out regressions with the gc-suite + golden_ir + node + test262. It is a
   whole-codegen flag-flip-and-fix — start it only when it can be finished/reverted
   cleanly in-session.
+  DIAGNOSIS (2026-05-27, why `--gc-statepoints` roots nothing today): with the
+  flag on, the build compiles and runs, RS4GC runs over the deopt-bundled calls
+  and the module verifies — BUT `[StackMap] Parsed N safepoints with 0 GC root
+  locations` and NO "Fixed N gc.relocate indices" → **RS4GC produces ZERO
+  gc.relocates**, so precise rooting is a complete no-op. Root cause: RS4GC only
+  relocates `addrspace(1)` SSA values that are LIVE ACROSS a statepoint, but
+  HIRToLLVM's `createRuntimeCall` (and the codegen generally) **launders every GC
+  pointer back to raw `addrspace(0)` via `gcPtrToRaw` before each call** and
+  re-derives from the return — so no addrspace(1) value ever spans a call. The
+  GC pointers also live in `gc.pin` allocas (mem2reg promotes them at O2, but the
+  addrspace(1) SSA value's only use is the immediate cast-to-raw, so it is dead
+  before the call). Compounding: `createRuntimeCall` is used at ONLY 1 site;
+  ~322 call sites build their own FunctionType with `getPtrTy()` (addrspace 0)
+  and pass laundered raw args; and the DataLayout is the target default (addrspace
+  1 NOT marked non-integral `ni:1`).
+  → Making statepoints actually root is therefore a PERVASIVE runtime-call-ABI
+  migration, not a flag flip: (1) DataLayout: mark addrspace-1 non-integral when
+  statepoints on; (2) a CENTRAL runtime-fn declaration+call helper that, under
+  statepoints, declares GC-pointer params as addrspace(1) and passes addrspace(1)
+  args (the C ABI is identical — addrspace is IR-only) WITHOUT laundering, so GC
+  values stay addrspace(1) live-across-statepoint; (3) migrate all ~322 call
+  sites to it (the verifier requires one consistent signature per runtime fn, so
+  this must be all-or-nothing per function); (4) make the MINOR GC consume the
+  stack-map roots (`ts_gc_push_precise_stack_roots`, currently full-GC-only).
+  Validate incrementally with the gc-suite differential + INV-1 + golden_ir/node/
+  test262. This is multi-session/large; the bounded alternative that is already
+  WORKING is to keep tenuring movable types (Phase 3a-style) under the harness.
 - The separate lodash early-init crash (NURSERY=0-reproducible) — needs its own
   investigation before lodash can quantify the fix.
 
