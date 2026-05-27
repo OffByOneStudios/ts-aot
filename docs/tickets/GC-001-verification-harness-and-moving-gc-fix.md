@@ -99,10 +99,24 @@ are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated)
   int<->ptr + custom late-lowering pass (weeks). NEAR-TERM: integral addrspace(1)
   (no ni:1), validate roots empirically (harness differential + count); escalate to
   Julia-style only if liveness proves fragile.
-  STEP 2 (next): revert runtime SIGNATURES to addrspace(0) via the canonical declarer
-  + boundary casts in createRuntimeCall. Then: module verifies → RS4GC relocate /
-  `[StackMap]` root count 0→N (milestone) → MINOR GC consumes the precise roots →
-  drive out gc-suite/golden_ir/node/test262 regressions. Default build stays green.
+  STEP 2 DONE (commit cf4d06e): implemented as a CENTRALIZED IR pass
+  `normalizeRuntimeBoundaryAddrSpaces` (CodeGenerator.cpp), run at the top of
+  emitObjectFile under --gc-statepoints only (default build untouched), NOT by
+  editing 322 sites. Phase 1 rewrites external runtime DECLARATIONS to addrspace(0)
+  pointer params/return + rebuilds call sites with arg (1)->(0)/result (0)->(1)
+  casts; Phase 2 reconciles arg addrspaces at ALL external-decl calls (incl. those
+  already addrspace(0) via handlers). Original addrspace(1) values stay live →
+  RS4GC relocates them. MILESTONE HIT: root count 0→N — trivial 0→18,
+  array_of_objlits 0→60; 7/9 tests/gc programs (objects/arrays/strings/maps/sets/
+  nested) verify + 38-102 roots + run correctly under --gc-statepoints. Default
+  build green (golden_ir 266/278, node 295/297).
+  STEP 3 (next): (a) closure_cells_survive / closure_queue produce roots (168/188)
+  but CORRUPT closures under statepoints — function-pointer / closure-cell dispatch
+  interaction with the addrspace migration (Agent C flagged function-ptr addrspace
+  risk); (b) make the MINOR GC consume the precise stack-map roots (today
+  ts_gc_push_precise_stack_roots feeds only the full GC — TsGC.cpp:1078); then
+  validate the gc-suite differential under statepoints, drive out golden_ir/node/
+  test262 regressions, and measure lodash. Default build stays the green invariant.
 
 **Remaining:**
 - Phase 2: the full parameterized type×holder×trigger matrix + shadow-heap
