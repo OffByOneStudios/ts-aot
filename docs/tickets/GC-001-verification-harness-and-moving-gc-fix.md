@@ -56,6 +56,31 @@ are pre-existing stale-baseline artifacts on the shapeless `{}` path, unrelated)
   pass at their current scale, so the surviving corruption needs full-harness
   scale to manifest (consistent with the object-literal case).
 
+**Phase 3b migration progress (2026-05-27):**
+- STEP 1 DONE (commit on branch): replaced all 639 `builder_->getPtrTy()` in
+  HIRToLLVM with `getGCPtrTy()` (addrspace(1) under --gc-statepoints, else
+  addrspace(0)). Default-safe by construction (byte-identical IR with statepoints
+  off; golden_ir/gc-suite green). Fixed `gcPtrToRaw` to target addrspace(0)
+  explicitly. Under the flag, GC pointers now flow addrspace(1) through the ~322
+  ad-hoc call sites.
+- NEXT SUB-PROBLEM (precisely characterized): the blanket migration is too coarse.
+  The statepoints-on module now fails the verifier with "Call parameter type does
+  not match function signature" in two classes:
+    (a) RAW-pointer params wrongly made addrspace(1): e.g. `ts_string_create(const
+        char*)` — its arg is a global string-literal constant `@0` (addrspace 0),
+        but the param is now addrspace(1). Raw `char*`/buffer params (and the
+        string/data GLOBALS feeding them) must EITHER stay addrspace(0) (needs a
+        per-param GC mask: which runtime params are GC ptrs vs raw) OR the globals
+        must also be emitted addrspace(1) for a fully-uniform model.
+    (b) Residual laundering: `ts_value_make_string(%gc.to.raw)` passes an
+        addrspace(0) laundered arg to an addrspace(1) param — remove the
+        gcPtrToRaw laundering on GC args (keep them addrspace(1)).
+  DECISION NEEDED next session: per-param GC classification (a table/heuristic over
+  runtime fns) vs uniform-addrspace(1)-including-globals. Then: module verifies →
+  RS4GC relocate count + `[StackMap]` root count go 0→N (the milestone) → make the
+  MINOR GC consume the precise roots → drive out gc-suite/golden_ir/node/test262
+  regressions. Default build stays the green safety invariant throughout.
+
 **Remaining:**
 - Phase 2: the full parameterized type×holder×trigger matrix + shadow-heap
   fuzzer + revived Catch2 white-box tests.
