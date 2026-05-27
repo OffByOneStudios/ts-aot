@@ -2095,6 +2095,18 @@ static void gc_mark_nursery_live() {
             entry.callback(entry.context);
         }
 
+        // GC-001 step 3b: consume PRECISE stack-map roots in the MINOR GC.
+        // With --gc-statepoints, RS4GC records the exact stack-slot/register
+        // locations of live GC pointers at each call safepoint. The full GC
+        // already calls this; doing it here (while g_minor_gc_nursery_mark routes
+        // marks to the nursery) marks nursery objects referenced from those
+        // precise roots so they are promoted rather than wiped — a precise
+        // complement to the conservative Phase-0 pin. No-op if no statepoints
+        // (g_has_statepoints false). The promoted objects' stack slots are then
+        // forwarded by Phase 7. ts_gc_mark_object routes through gc_mark_ptr,
+        // which honors the nursery-mark hook for nursery pointers.
+        ts_gc_push_precise_stack_roots();
+
         g_minor_gc_nursery_mark = nullptr;
 
         // Add newly-marked objects to worklist for BFS tracing
