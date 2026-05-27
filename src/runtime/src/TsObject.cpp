@@ -5040,6 +5040,12 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_function_call(boxedFunc, static_cast<int>(argc), argv);
     }
 
+    // Forward decl: the canonical Array() constructor (defined later in this
+    // TU). Used by the dynamic-`new` slow path so `new array.constructor(n)`
+    // — where the constructor was obtained dynamically and happens to be the
+    // Array built-in — produces a real TsArray instead of a plain object.
+    static TsValue* ts_array_constructor_native(void* ctx, int argc, TsValue** argv);
+
     // Helper for "new ConstructorFunction(...args)" in the slow path.
     // Creates a new object, sets its prototype from constructor.prototype,
     // calls the constructor with this=newObject, and returns the new object.
@@ -5105,6 +5111,13 @@ TsValue* ts_value_make_int(int64_t i) {
                     if (strcmp(nm, "WeakSet") == 0) {
                         void* s = ts_weakset_create();
                         return s ? ts_value_make_object(s) : ts_value_make_undefined();
+                    }
+                    if (strcmp(nm, "Array") == 0) {
+                        // ECMA-262 §23.1.1.1 — `new Array(n)` (single number)
+                        // yields a length-n sparse array; `new Array(...items)`
+                        // yields [items]. lodash initCloneArray relies on this:
+                        // `new array.constructor(array.length)`.
+                        return ts_array_constructor_native(nullptr, argc, argv);
                     }
                 }
             }
