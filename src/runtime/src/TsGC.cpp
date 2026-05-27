@@ -67,6 +67,17 @@ static int g_verify_forward_cur_scanner = -1; // index of scanner being checked
 // (Part A old-gen+roots, Part A2 pinned survivors). (GC-001)
 static bool g_verify_forward_deep = false;
 
+// Unified verification knob (GC-001): TS_GC_VERIFY=N.
+//   N>=1  run the INV-1 no-stale-pointer scan after every minor GC (report)
+//   N>=2  ABORT on any INV-1 violation (holder+target magic), like Go gccheckmark
+//   N>=3  also run the deep Part B/C scans
+// The old TS_GC_VERIFY_FORWARD / TS_GC_VERIFY_CARDS flags remain as aliases.
+static int  g_gc_verify_level = 0;
+// When set, an INV-1 violation aborts the process (deterministic failure).
+// Driven by TS_GC_VERIFY>=2; NOT set by the on-demand ts_gc_verify_now(),
+// which instead returns the violation count for the TS program to assert on.
+static bool g_verify_abort = false;
+
 // Total INV-1 (no-stale-pointer) violations found by the most recent verified
 // minor GC. Populated at the end of Phase 5v; read back by ts_gc_verify_now()
 // so compiled TS (__ts_gc_verify()) can assert on it. (GC-001)
@@ -1394,6 +1405,15 @@ static void gc_init() {
     if (getenv("TS_GC_VERIFY_FORWARD")) {
         g_verify_forward = true;
         g_verify_forward_deep = true;  // env explicitly wants the heavy Part B/C scans
+    }
+    // Unified verify knob (GC-001). TS_GC_VERIFY=N, N>=1.
+    if (const char* vlvl = getenv("TS_GC_VERIFY")) {
+        int n = atoi(vlvl);
+        if (n < 1) n = 1;  // presence implies at least level 1
+        g_gc_verify_level = n;
+        if (n >= 1) g_verify_forward = true;        // INV-1 scan after each minor GC
+        if (n >= 2) g_verify_abort = true;          // abort on violation
+        if (n >= 3) g_verify_forward_deep = true;   // heavy Part B/C scans
     }
     if (getenv("TS_GC_PROMOTE_ALL")) {
         g_promote_all = true;
@@ -2790,6 +2810,18 @@ static void gc_minor_collect_internal() {
                             "%zu mark-only-scanner stale (of %zu forwarded)\n",
                     heap_leaks, dangling, scanner_leaks, forwarding.size());
             fflush(stderr);
+            // INV-1 assert mode (TS_GC_VERIFY>=2): a stale/dangling holder after
+            // minor GC is a moving-GC correctness bug. Fail loudly and immediately
+            // (like Go's gccheckmark) so the harness catches it deterministically.
+            // The on-demand ts_gc_verify_now() leaves g_verify_abort off and
+            // returns the count instead.
+            if (g_verify_abort) {
+                fprintf(stderr, "[TsGC] INV-1 FAILED: %zu stale/dangling holder(s) "
+                                "survive minor GC — aborting (TS_GC_VERIFY>=2)\n",
+                        g_verify_total_violations);
+                fflush(stderr);
+                abort();
+            }
         } else if (g_gc_verbose) {
             fprintf(stderr, "[TsGC] VERIFY-FWD: clean (%zu forwarded, no stale/dangling holders)\n",
                     forwarding.size());
@@ -3045,11 +3077,14 @@ double ts_gc_verify_now() {
     if (!g_heap || !g_nursery.enabled) return 0.0;
     nursery_sync_from_exported();
     std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
-    bool saved = g_verify_forward;
+    bool savedFwd = g_verify_forward;
+    bool savedAbort = g_verify_abort;
     g_verify_forward = true;
+    g_verify_abort = false;  // verify_now reports a count; it never aborts
     g_verify_total_violations = 0;
     gc_minor_collect_internal();
-    g_verify_forward = saved;
+    g_verify_forward = savedFwd;
+    g_verify_abort = savedAbort;
     return (double)g_verify_total_violations;
 }
 
