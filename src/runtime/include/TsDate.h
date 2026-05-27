@@ -62,6 +62,13 @@ private:
     
     uint32_t magic = MAGIC;
     int64_t ms; // Milliseconds since epoch
+    // Pad so the object is >= 32 bytes. The runtime's generic value-dispatch
+    // reads a type magic at offset 16 (and sometimes 20/24) on any heap object;
+    // a 16-byte TsDate would over-read past its end and AV at heap/page
+    // boundaries (e.g. lodash cloning large Date arrays). Zero padding matches
+    // no magic, so those probes correctly fall through. Unused otherwise.
+    uint64_t _hdr_pad0 = 0;
+    uint64_t _hdr_pad1 = 0;
 };
 
 extern "C" {

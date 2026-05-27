@@ -7322,10 +7322,27 @@ TsValue* ts_value_make_int(int64_t i) {
         // by callers) or recursive (Closures — a function's valueOf returns
         // itself). We specifically target plain objects, arrays, and maps.
         uint32_t magic0 = *(uint32_t*)obj;
+        // Function identified at offset 0; skip (its valueOf returns itself).
+        if (magic0 == 0x46554E43) return val;
+        // TsDate has no own-property hash table: routing it through the generic
+        // valueOf/toString lookup below calls ts_object_get_property, which
+        // mis-casts it to TsMap and crashes in find_slot. Resolve the Date's
+        // primitive directly per ECMA-262 Date[@@toPrimitive]: number hint ->
+        // time value (NaN for an invalid Date); string/default -> date string.
+        if (magic0 == TsDate::MAGIC) {
+            TsDate* d = (TsDate*)obj;
+            if (hint == 1) {  // number
+                int64_t t = d->GetTime();
+                return (t == TsDate::INVALID)
+                    ? ts_value_make_double(std::numeric_limits<double>::quiet_NaN())
+                    : ts_value_make_double((double)t);
+            }
+            TsString* s = d->ToString();
+            return ts_value_make_string(s ? s : TsString::Create(""));
+        }
         uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
         // Closure = function; skip (its valueOf returns itself)
         if (magic16 == 0x434C5352) return val;
-        if (magic0 == 0x46554E43) return val;
         if (magic16 == 0x46554E43) return val;
         // BigInt/Symbol have their own primitive semantics
         if (magic16 == 0x42494749) return val;  // BigInt
