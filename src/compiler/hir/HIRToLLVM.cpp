@@ -5891,6 +5891,17 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
                 paramTypes.push_back(builder_->getInt64Ty());
                 retType = builder_->getVoidTy();
             }
+            // GC verification-harness builtins (GC-001): doubles / bool / void.
+            if (funcName == "ts_gc_dbg_collection_count" ||
+                funcName == "ts_gc_dbg_live_size" ||
+                funcName == "ts_gc_verify_now") {
+                retType = builder_->getDoubleTy();   // double()
+            } else if (funcName == "ts_gc_dbg_is_nursery") {
+                retType = builder_->getInt1Ty();     // bool(ptr)
+            } else if (funcName == "ts_gc_minor_collect" ||
+                       funcName == "ts_gc_force_collect") {
+                retType = builder_->getVoidTy();     // void()
+            }
             // Runtime symbols (prefix `ts_`) come from libtsruntime and must
             // be ExternalLinkage so the linker resolves them. Anything else
             // reaching this fallback is a user-defined / monomorphized call

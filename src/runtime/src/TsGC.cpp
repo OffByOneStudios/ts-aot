@@ -60,6 +60,18 @@ static bool g_verify_forward = false;
 static size_t g_verify_forward_leaks = 0;     // count surfaced by scanner re-run
 static int g_verify_forward_cur_scanner = -1; // index of scanner being checked
 
+// Deep verification extras (Part C full-process VirtualQuery scan + Part B
+// scanner re-run). Heavy and can fault on guard pages, so they are OFF unless
+// TS_GC_VERIFY_FORWARD=1 explicitly requests them. The on-demand verify
+// (ts_gc_verify_now / __ts_gc_verify()) runs only the safe INV-1 scan
+// (Part A old-gen+roots, Part A2 pinned survivors). (GC-001)
+static bool g_verify_forward_deep = false;
+
+// Total INV-1 (no-stale-pointer) violations found by the most recent verified
+// minor GC. Populated at the end of Phase 5v; read back by ts_gc_verify_now()
+// so compiled TS (__ts_gc_verify()) can assert on it. (GC-001)
+static size_t g_verify_total_violations = 0;
+
 // TS_GC_PROMOTE_ALL=1: during minor GC, mark EVERY nursery object live, so all
 // survive promotion and nothing is wiped. Diagnostic-only: if this makes a
 // crash disappear, the crash is an UNDER-MARKING (missing-root) bug — a live
@@ -1381,6 +1393,7 @@ static void gc_init() {
     }
     if (getenv("TS_GC_VERIFY_FORWARD")) {
         g_verify_forward = true;
+        g_verify_forward_deep = true;  // env explicitly wants the heavy Part B/C scans
     }
     if (getenv("TS_GC_PROMOTE_ALL")) {
         g_promote_all = true;
@@ -2680,19 +2693,21 @@ static void gc_minor_collect_internal() {
                 }
                 noff += NURSERY_SIZE_PREFIX + osz;
             }
-            fprintf(stderr, "[TsGC] VERIFY-FWD: nursery region [%p..%p) high_water=%zu\n",
-                    g_nursery.region, (char*)g_nursery.region + g_nursery.high_water,
-                    g_nursery.high_water);
-            fflush(stderr);
+            if (g_verify_forward_deep || g_gc_verbose) {
+                fprintf(stderr, "[TsGC] VERIFY-FWD: nursery region [%p..%p) high_water=%zu\n",
+                        g_nursery.region, (char*)g_nursery.region + g_nursery.high_water,
+                        g_nursery.high_water);
+                fflush(stderr);
+            }
         }
 
         // Part C: brute-force scan of the ENTIRE committed process address space
         // for any pointer to a PROMOTED nursery object. This covers off-GC-heap
         // holders the targeted scans miss — data-segment globals, malloc'd C++
-        // structures, etc. Heavy, but a one-shot diagnostic that definitively
-        // names the region holding the unforwarded pointer.
+        // structures, etc. Heavy, and can fault on PAGE_GUARD pages, so it only
+        // runs in deep mode (TS_GC_VERIFY_FORWARD=1), never the on-demand verify.
 #ifdef _WIN32
-        {
+        if (g_verify_forward_deep) {
             size_t proc_stale = 0;
             uintptr_t nlo = (uintptr_t)g_nursery.region;
             uintptr_t nhi = nlo + g_nursery.region_size;
@@ -2752,7 +2767,7 @@ static void gc_minor_collect_internal() {
         // that maps to a promoted object is a stale holder; this names which
         // scanner (and object kind) owns it.
         size_t scanner_leaks = 0;
-        if (!g_heap->scanners.empty()) {
+        if (g_verify_forward_deep && !g_heap->scanners.empty()) {
             g_current_forwarding = &forwarding;
             g_verify_forward_leaks = 0;
             g_minor_gc_nursery_mark = gc_verify_forward_scanner_redirect;
@@ -2765,6 +2780,9 @@ static void gc_minor_collect_internal() {
             g_current_forwarding = nullptr;
             scanner_leaks = g_verify_forward_leaks;
         }
+
+        // Record for ts_gc_verify_now() (__ts_gc_verify() in compiled TS).
+        g_verify_total_violations = heap_leaks + dangling + scanner_leaks;
 
         if (heap_leaks || scanner_leaks || dangling) {
             fprintf(stderr, "[TsGC] VERIFY-FWD SUMMARY: %zu GC-heap/root stale, "
@@ -2995,6 +3013,44 @@ void ts_gc_minor_collect() {
     std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
     gc_minor_collect_internal();
     // gc_minor_collect_internal already calls nursery_sync_to_exported()
+}
+
+// ---------------------------------------------------------------------------
+// GC verification-harness entry points (GC-001).
+// These back the __ts_gc_* builtins so compiled TS can drive and inspect the
+// collector. ts_value_get_object unboxes a NaN-boxed/heap-boxed value.
+// ---------------------------------------------------------------------------
+extern "C" void* ts_value_get_object(void* val);
+
+double ts_gc_dbg_collection_count() {
+    return (double)ts_gc_collection_count();
+}
+
+double ts_gc_dbg_live_size() {
+    return (double)ts_gc_live_size();
+}
+
+// __ts_gc_is_nursery(obj): is the value's backing object currently in the
+// nursery? Returns false for non-pointer values.
+bool ts_gc_dbg_is_nursery(void* boxed) {
+    if (!boxed) return false;
+    void* raw = ts_value_get_object(boxed);
+    if (!raw) raw = boxed;  // already a raw pointer
+    return ts_gc_is_nursery(raw);
+}
+
+// __ts_gc_verify(): run a verified minor GC and return the number of INV-1
+// (no-stale-pointer-after-minor-GC) violations detected. 0 == clean.
+double ts_gc_verify_now() {
+    if (!g_heap || !g_nursery.enabled) return 0.0;
+    nursery_sync_from_exported();
+    std::lock_guard<std::mutex> lock(g_heap->gc_mutex);
+    bool saved = g_verify_forward;
+    g_verify_forward = true;
+    g_verify_total_violations = 0;
+    gc_minor_collect_internal();
+    g_verify_forward = saved;
+    return (double)g_verify_total_violations;
 }
 
 void ts_gc_write_barrier(void* slot_addr, void* stored_value) {
