@@ -98,12 +98,16 @@ llvm::Value* HIRToLLVM::boxPrimitiveToPtr(llvm::Value* val) {
 }
 
 llvm::Value* HIRToLLVM::gcPtrToRaw(llvm::Value* val) {
-    if (!enableGCStatepoints_ || !val->getType()->isPointerTy()) return val;
-    if (val->getType()->getPointerAddressSpace() == 0) return val;
-    // Target addrspace 0 explicitly (NOT getGCPtrTy(), which is addrspace 1 when
-    // statepoints are on — that would be a same-addrspace cast / no laundering).
-    return builder_->CreateAddrSpaceCast(
-        val, llvm::PointerType::get(context_, 0), "gc.to.raw");
+    // No-op in BOTH modes. Default mode never reached the cast anyway (the old
+    // code short-circuited on !enableGCStatepoints_), so this is byte-identical
+    // for the default build. Under --gc-statepoints, the centralized
+    // normalizeRuntimeBoundaryAddrSpaces pass inserts the addrspace(1)->(0) casts
+    // at runtime-call boundaries; laundering here additionally STORED the
+    // addrspace(0) result into local slots, hiding GC values from RS4GC — after a
+    // collection the addrspace(0) local was a stale pointer (the OBJ-LOST/CLO-LOST
+    // bug for nested-function GC return values). Keeping values addrspace(1) lets
+    // RS4GC root and relocate them.
+    return val;
 }
 
 llvm::Value* HIRToLLVM::rawToGCPtr(llvm::Value* val) {
