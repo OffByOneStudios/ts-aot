@@ -5328,11 +5328,22 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_keys(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
-        // Unbox if needed
+        // Unbox if needed. ts_value_get_object returns null for non-object
+        // NaN-boxed primitives (number / bool / undefined / null). Per
+        // ECMA-262 §19.1.2.16, Object.keys(primitive) ToObjects to a wrapper
+        // whose own-property set is empty (the wrapper's accessible members
+        // live on its prototype). Falling back to `rawPtr = obj` here would
+        // treat the NaN-box bits (e.g. 0xFFFE000000000001 for int 1) as a
+        // heap pointer and deref into garbage for the magic-at-offset-0
+        // dispatch below — lodash _.isEmpty(1) calls Object.keys(1) and hit
+        // this. Strings retain their pointer via nanbox_is_string_ptr, so
+        // ts_value_get_object returns the TsString* for them — they still
+        // reach the magic0=STRG branch.
         void* rawPtr = ts_value_get_object(obj);
-        if (!rawPtr) rawPtr = obj;
+        if (!rawPtr) return ts_value_make_array(TsArray::Create(0));
 
-        // Guard against small integer values (NaN-boxed ints, undefined, null)
+        // Guard against small integer values stored directly (undefined=0,
+        // null=1, etc.) that aren't NaN-boxed.
         if ((uintptr_t)rawPtr < 0x10000) return ts_value_make_array(TsArray::Create(0));
 
         // Check string — for...in on a string enumerates character indices
@@ -9864,7 +9875,8 @@ TsValue* ts_value_make_int(int64_t i) {
             if (m0 == 0x53545247 ||  // TsString "STRG"
                 m0 == 0x44415445 ||  // TsDate "DATE"
                 m0 == 0x52454758 ||  // TsRegExp "REGX"
-                m0 == 0x42494749) {  // TsBigInt "BIGI"
+                m0 == 0x42494749 ||  // TsBigInt "BIGI"
+                m0 == 0x53594D42) {  // TsSymbol "SYMB"
                 return ts_value_make_bool(false);
             }
         }
@@ -9914,6 +9926,7 @@ TsValue* ts_value_make_int(int64_t i) {
             else if (magic0 == 0x52454758) tag = "RegExp";
             else if (magic0 == 0x44415445) tag = "Date";  // TsDate "DATE"
             else if (magic0 == 0x42494749) tag = "BigInt";  // TsBigInt 'BIGI' — not a TsObject, must check before dynamic_cast
+            else if (magic0 == 0x53594D42) tag = "Symbol";  // TsSymbol "SYMB" — magic is at OFFSET 0 per TsSymbol.h (the magic16 check below was unreachable for actual symbols)
             else if (magic0 == 0x464C4154) {
                 tag = "Object";
                 // TODO: flat objects could also hold toStringTag in overflow map
