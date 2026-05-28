@@ -178,6 +178,20 @@ static const size_t CARD_TABLE_SIZE = (size_t)1 << 21;         // 2M entries (mo
 
 static uint8_t* g_card_table = nullptr;       // malloc'd (not GC-managed)
 
+// GC-001 Phase C: immortal-builtin tenuring. While this depth counter is
+// non-zero, ts_gc_alloc routes allocations straight to the old generation
+// instead of the moving nursery. Bracket runtime init and the lazy builtin
+// getters with ts_gc_push_tenure()/ts_gc_pop_tenure() so the built-in graph
+// (Object/Array/prototypes/etc., reached by the compiler via cached
+// extern "C" TsValue* .data bindings) is born immortal and never moves —
+// so those .data bindings and globalMap entries stay permanently valid
+// across minor GC. A depth counter (not a bool) lets nested/lazy getters
+// compose. User-function/object allocation runs with depth==0 (normal
+// nursery semantics) — this does NOT tenure user code.
+extern "C" int g_gc_tenure_depth = 0;
+extern "C" void ts_gc_push_tenure() { g_gc_tenure_depth++; }
+extern "C" void ts_gc_pop_tenure()  { if (g_gc_tenure_depth > 0) g_gc_tenure_depth--; }
+
 // Non-GC slot tracking: slots outside card table coverage that hold nursery pointers.
 // Safety net for any memory not covered by the card table (e.g., malloc'd structures).
 static std::vector<void**> g_non_gc_nursery_slots;
@@ -1543,7 +1557,9 @@ void* ts_gc_alloc(size_t size) {
     if (size == 0) size = 8; // Minimum allocation
 
     // ---- Nursery fast path: no mutex, bump pointer in fragment ----
-    if (g_nursery.enabled && size <= NURSERY_MAX_OBJ_SIZE) {
+    // Skipped while tenuring (g_gc_tenure_depth>0) so immortal builtins go
+    // straight to old-gen and never move — see g_gc_tenure_depth above.
+    if (g_nursery.enabled && g_gc_tenure_depth == 0 && size <= NURSERY_MAX_OBJ_SIZE) {
         // Sync cursor from exported globals (compiler inline path may have bumped it)
         nursery_sync_from_exported();
 

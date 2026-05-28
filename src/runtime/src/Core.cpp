@@ -1604,8 +1604,14 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     // 1.2 Initialize ICU data (loads external .dat file if not embedded)
     ts_icu_init(argc > 0 ? argv[0] : nullptr);
 
-    // 1.5 Initialize Runtime Globals
+    // 1.5 Initialize Runtime Globals.
+    // GC-001 Phase C: tenure all builtin allocations to old-gen so the
+    // immortal builtin graph (Object/Array/prototypes/etc., reached by the
+    // compiler via cached extern "C" TsValue* .data bindings) never moves and
+    // those bindings stay valid across minor GC.
+    ts_gc_push_tenure();
     ts_runtime_init();
+    ts_gc_pop_tenure();
 
     // 2. Initialize Event Loop
     ts_loop_init();

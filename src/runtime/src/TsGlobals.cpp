@@ -33,6 +33,19 @@
 #include <cmath>
 #include <cstdio>
 
+// GC-001 Phase C: RAII guard that routes allocations to the old generation for
+// its lifetime (ts_gc_push_tenure/pop). Placed at the entry of every
+// ts_get_global_* lazy builtin getter so the immortal builtin prototype graph
+// (Object/Array/Map/Set/Date/RegExp/Promise/... prototypes) is born in old-gen
+// and never moves. That keeps the compiler-cached extern "C" TsValue* .data
+// bindings and prototype method-resolution valid across a minor GC. The
+// cached-return fast path of each getter does no allocation, so the scope is a
+// harmless no-op there; the depth counter lets getters that call other getters
+// nest correctly.
+extern "C" void ts_gc_push_tenure();
+extern "C" void ts_gc_pop_tenure();
+namespace { struct TenureScope { TenureScope() { ts_gc_push_tenure(); } ~TenureScope() { ts_gc_pop_tenure(); } }; }
+
 extern "C" {
 
 // Forward declarations for native wrapper functions
@@ -245,6 +258,7 @@ static TsValue* object_fromEntries_native(void* ctx, int argc, TsValue** argv) {
 }
 
 void* ts_get_global_Object() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (cached) return cached;
 
@@ -401,6 +415,7 @@ static TsValue* array_of_native_wrap(void* ctx, int argc, TsValue** argv) {
 }
 
 void* ts_get_global_Array() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (cached) return cached;
 
@@ -598,6 +613,7 @@ STRING_PROTO_METHOD(valueOf)
 extern "C" double ts_to_number(TsValue* v);
 
 void* ts_get_global_String() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         // String() as a callable function: converts argument to string.
@@ -785,6 +801,7 @@ void* ts_get_global_Error();
 // Returns a TsFunction that, when called via `new`, creates an error TsMap
 // with .message, .name, and .stack properties.
 static void* makeErrorConstructor(const char* errorName) {
+    TenureScope _tenure;
     // Create the constructor as a native function
     auto constructorFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
         // ctx is the error name string (TsString*)
@@ -901,6 +918,7 @@ static void* makeErrorConstructor(const char* errorName) {
 }
 
 void* ts_get_global_Error() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         cached = makeErrorConstructor("Error");
@@ -951,6 +969,7 @@ void* ts_get_global_Error() {
 }
 
 void* ts_get_global_AggregateError() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         // AggregateError(errors, message?) — subclass of Error with
@@ -1041,6 +1060,7 @@ void* ts_get_global_AggregateError() {
 // JSON global
 // ========================================
 void* ts_get_global_JSON() {
+    TenureScope _tenure;
     static TsMap* cached = nullptr;
     if (cached) return cached;
 
@@ -1226,6 +1246,7 @@ static double ts_number_data_of(void* ctx) {
 extern "C" void* ts_number_to_string(double value, int64_t radix);
 
 void* ts_get_global_Number() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         auto numberFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
@@ -1371,6 +1392,7 @@ static bool ts_boolean_data_of(void* ctx) {
 }
 
 void* ts_get_global_Boolean() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         auto boolFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
@@ -1438,6 +1460,7 @@ void* ts_get_global_Boolean() {
 extern "C" TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv);
 
 void* ts_get_global_Function() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = TsMap::Create();
@@ -1472,6 +1495,7 @@ extern "C" void* ts_date_prototype_build_map();
 extern "C" void ts_date_constructor_populate(void* ctor);
 
 void* ts_get_global_Date() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = TsMap::Create();
@@ -1509,6 +1533,7 @@ extern "C" {
 }
 
 void* ts_get_global_RegExp() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         cached = wrapAsCallable(makeSimpleConstructorGlobal("RegExp"), "RegExp", 2);
@@ -1568,6 +1593,7 @@ static TsValue* promise_any_native(void* ctx, int argc, TsValue** argv) {
 }
 
 void* ts_get_global_Promise() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("Promise");
@@ -1595,42 +1621,49 @@ void* ts_get_global_Promise() {
 }
 
 void* ts_get_global_TypeError() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("TypeError");
     return cached;
 }
 
 void* ts_get_global_RangeError() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("RangeError");
     return cached;
 }
 
 void* ts_get_global_ReferenceError() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("ReferenceError");
     return cached;
 }
 
 void* ts_get_global_SyntaxError() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("SyntaxError");
     return cached;
 }
 
 void* ts_get_global_URIError() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("URIError");
     return cached;
 }
 
 void* ts_get_global_EvalError() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("EvalError");
     return cached;
 }
 
 void* ts_get_global_Symbol() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("Symbol");
@@ -1699,6 +1732,7 @@ extern "C" {
 }
 
 void* ts_get_global_Map() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("Map");
@@ -1781,6 +1815,7 @@ void* ts_get_global_Map() {
 }
 
 void* ts_get_global_Set() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("Set");
@@ -1838,6 +1873,7 @@ void* ts_get_global_Set() {
 }
 
 void* ts_get_global_WeakMap() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("WeakMap");
@@ -1874,6 +1910,7 @@ void* ts_get_global_WeakMap() {
 }
 
 void* ts_get_global_WeakSet() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("WeakSet");
@@ -1991,6 +2028,7 @@ static TsValue* reflect_preventExtensions_native(void* ctx, int argc, TsValue** 
 }
 
 void* ts_get_global_Reflect() {
+    TenureScope _tenure;
     static TsMap* cached = nullptr;
     if (!cached) {
         cached = makeSimpleConstructorGlobal("Reflect");
@@ -2012,6 +2050,7 @@ void* ts_get_global_Reflect() {
 }
 
 void* ts_get_global_Proxy() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("Proxy"), "Proxy", 2);
     return cached;
@@ -2025,6 +2064,7 @@ void* ts_get_global_Proxy() {
 // plus .name / .length own-property checks.
 
 void* ts_get_global_ArrayBuffer() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("ArrayBuffer");
@@ -2115,6 +2155,7 @@ void* ts_get_global_ArrayBuffer() {
 }
 
 void* ts_get_global_DataView() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("DataView");
@@ -2192,12 +2233,14 @@ void* ts_get_global_DataView() {
 }
 
 void* ts_get_global_SharedArrayBuffer() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("SharedArrayBuffer"), "SharedArrayBuffer", 1);
     return cached;
 }
 
 void* ts_get_global_BigInt() {
+    TenureScope _tenure;
     // Spec: BigInt is a constructor (isConstructor === true) but `new BigInt(x)`
     // throws TypeError. Call-as-function `BigInt(x)` coerces to bigint.
     static void* cached = nullptr;
@@ -2344,18 +2387,21 @@ void* ts_get_global_BigInt() {
 }
 
 void* ts_get_global_GeneratorFunction() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("GeneratorFunction"), "GeneratorFunction", 1);
     return cached;
 }
 
 void* ts_get_global_AsyncFunction() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("AsyncFunction"), "AsyncFunction", 1);
     return cached;
 }
 
 void* ts_get_global_AsyncGeneratorFunction() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("AsyncGeneratorFunction"), "AsyncGeneratorFunction", 1);
     return cached;
@@ -2367,6 +2413,7 @@ void* ts_get_global_AsyncGeneratorFunction() {
 // ========================================
 
 void* ts_get_global_console() {
+    TenureScope _tenure;
     // Console methods are handled specially in HIR->LLVM lowering.
     // For untyped JS, return a sentinel — console.log etc. are lowered directly.
     static const char sentinel[] = "console";
@@ -2387,6 +2434,7 @@ extern "C" TsValue* Buffer;
 extern "C" TsValue* globalThis;
 
 void* ts_get_global_Math() {
+    TenureScope _tenure;
     return (void*)Math;
 }
 
@@ -2932,6 +2980,7 @@ static TsValue* intlCollatorCtorBody(void* ctx, int argc, TsValue** argv) {
 }
 
 void* ts_get_global_Intl() {
+    TenureScope _tenure;
     static TsMap* cached = nullptr;
     if (cached) return cached;
     cached = TsMap::Create();
@@ -3104,14 +3153,17 @@ void* ts_get_global_Intl() {
 }
 
 void* ts_get_global_Buffer() {
+    TenureScope _tenure;
     return (void*)Buffer;
 }
 
 void* ts_get_global_process() {
+    TenureScope _tenure;
     return (void*)process;
 }
 
 void* ts_get_global_globalThis() {
+    TenureScope _tenure;
     return (void*)globalThis;
 }
 
@@ -3193,6 +3245,7 @@ extern "C" void* ts_typed_array_create_i8(int64_t length);
 // indexed reads, map each value, return a new typed array (Int8Array for
 // now; full spec would dispatch on ctx receiver kind).
 static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) {
+    TenureScope _tenure;
     if (argc < 1 || !argv || !argv[0]) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "TypedArray.from: source is required"));
@@ -3427,6 +3480,7 @@ static TsTypedArray* requireTypedArrayOrThrow(void* ctx, const char* methodName)
 }
 
 void* ts_get_global_TypedArray() {
+    TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) {
         // %TypedArray% throws if called directly. We model it as a stub that returns undefined.

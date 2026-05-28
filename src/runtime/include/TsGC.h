@@ -16,6 +16,13 @@ void* ts_gc_base(void* ptr);
 // Realloc for tommath (BigInt): allocate new, copy, abandon old.
 void* ts_gc_realloc(void* ptr, size_t old_size, size_t new_size);
 
+// Immortal-builtin tenuring (GC-001 Phase C). While pushed, ts_gc_alloc routes
+// to the old generation so objects never move. Bracket runtime init and lazy
+// builtin getters so the built-in graph (reached via cached extern "C"
+// TsValue* .data bindings) stays permanently valid across minor GC.
+extern "C" void ts_gc_push_tenure();
+extern "C" void ts_gc_pop_tenure();
+
 // Global root registration: location is a pointer-to-pointer that the GC
 // will dereference during mark phase to find live objects.
 void ts_gc_register_root(void** location);
