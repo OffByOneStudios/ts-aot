@@ -27,6 +27,73 @@ TsMyClass* obj = new (mem) TsMyClass();  // Placement new
 
 **Why:** The runtime uses a custom generational GC (`src/runtime/src/TsGC.cpp`). Objects allocated with raw `new`/`malloc` aren't on the GC heap and won't be scanned — they leak and any GC pointers they contain are invisible to the collector.
 
+## ⛔ GC Rooting of C++ Containers (MANDATORY — and fix on sight)
+
+**POLICY: any persistent C++ container that holds GC pointers MUST be made
+visible to the collector. When you find one that isn't, FIX IT — don't leave it.**
+
+A `std::vector` / `std::function` / `std::deque` / `std::unordered_map` (or any
+malloc-backed C++ structure) that stores `TsValue` / `TsObject*` / `TsString*` /
+`TsPromise*` / closures / GC-allocated task structs is **invisible to the GC**.
+Its backing lives in malloc memory, so the conservative object-field scan never
+follows it. A GC that runs between *storing* a GC pointer there and *using* it
+will **collect or move** the target → stale pointer → nondeterministic
+crash / data corruption. This is NOT moving-GC forwarding corruption (that
+verifies clean); it is a *rooting* gap. Symptoms: intermittent crashes/wrong
+results that vary run-to-run, reproduce under `TS_GC_NURSERY=0`, and are
+invisible to `TS_GC_VERIFY=2`.
+
+**❌ WRONG (holder the GC can't see):**
+```cpp
+static std::vector<std::function<void()>> microtasks;            // hides captured GC ptr
+struct TsPromise { std::vector<Callback> callbacks; };           // GC ptrs in malloc backing
+```
+
+**✅ CORRECT — register a mark-scanner + a minor-GC fixup over the container:**
+```cpp
+// 1. Store explicit GC pointers (not type-erased) so they can be marked/forwarded.
+struct Entry { void (*cb)(void*); void* data; };   // data is a GC pointer
+static std::vector<Entry> g_queue;
+
+// 2. Mark phase: keep each stored GC pointer (and its transitive graph) alive.
+static void queue_gc_scan(void*) {
+    for (auto& e : g_queue)
+        if ((uintptr_t)e.data >= 4096 && (uintptr_t)e.data <= 0x00007FFFFFFFFFFFULL)
+            ts_gc_mark_object(e.data);
+}
+// 3. Minor GC: rewrite each stored pointer to its promoted (old-gen) address.
+static void queue_gc_fixup(void*) {
+    for (auto& e : g_queue)
+        if (e.data) { void* f = ts_gc_minor_lookup_forward(e.data); if (f) e.data = f; }
+}
+// 4. Register both ONCE (lazily on first use). Scanners run in BOTH minor and
+//    full GC mark; the fixup runs during minor-GC pointer fixup.
+ts_gc_register_scanner(queue_gc_scan, nullptr);
+ts_gc_register_minor_fixup(queue_gc_fixup, nullptr);
+```
+
+Rules:
+- **Both** a scanner (marking, so the target isn't collected) **and** a minor
+  fixup (forwarding, so the stored pointer isn't stale after promotion) are
+  required. A scanner without a fixup still corrupts when the target is
+  promoted.
+- For containers of GC *objects* whose fields are themselves GC pointers (e.g.
+  promise `callbacks`), mark/forward those inner fields too.
+- Prune entries when they become dead so the registry doesn't pin garbage
+  forever.
+- Alternative for hot, simple cases: store the data in GC memory (`ts_alloc`) or
+  a `TsArray`/`TsMap` so the normal object scan reaches it; or `ts_gc_register_root(&slot)`
+  for a single stable slot.
+
+Already-rooted examples to copy: microtask queue (`EventLoop.cpp`), promise
+callbacks (`TsPromise.cpp`), string caches / `g_module_cache` /
+`g_native_object_props` (`TsObject.cpp`/`TsString.cpp`), process handler vectors
+(`Core.cpp`). See memory `gc-unscanned-cpp-containers.md`.
+
+Diagnose suspected instances with `TS_GC_NURSERY=0` (still crashes ⇒ rooting gap,
+not moving-GC) and by grepping `src/runtime` for `std::vector|std::function|
+std::deque|unordered_map` of `TsValue`/`TsObject`/`Ts*`-pointer types.
+
 ## String Creation
 
 **❌ WRONG:**
