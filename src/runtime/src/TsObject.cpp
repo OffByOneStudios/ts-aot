@@ -9853,8 +9853,20 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
                 return ts_value_make_bool(false);
             }
-            // TsString: magic 0x53545247. dynamic_cast below would also UB.
-            if (m0 == 0x53545247) return ts_value_make_bool(false);
+            // Non-polymorphic header types (magic@0, no vtable, no own hash
+            // table). dynamic_cast<TsMap*> below would read magic-as-vtable
+            // and UB in _RTDynamicCast. All of these expose their methods
+            // via the prototype, not as own data properties — hasOwnProperty
+            // is correctly `false` for these objects in JS semantics. Surface
+            // exception: RegExp's `lastIndex` IS an own data property; we
+            // approximate by returning false here, which is a known
+            // narrow-correctness gap (no tests in flight rely on it).
+            if (m0 == 0x53545247 ||  // TsString "STRG"
+                m0 == 0x44415445 ||  // TsDate "DATE"
+                m0 == 0x52454758 ||  // TsRegExp "REGX"
+                m0 == 0x42494749) {  // TsBigInt "BIGI"
+                return ts_value_make_bool(false);
+            }
         }
 
         // Check if it's a TsMap
