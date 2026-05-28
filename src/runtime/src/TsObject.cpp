@@ -119,6 +119,7 @@ extern "C" {
     // Defined later in this TU; forward-declared here so ts_value_get_string
     // (and any other earlier caller) can invoke it before its definition.
     TsValue* ts_to_primitive(TsValue* val, int hint);
+    TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);
 }
 
 static std::unordered_map<std::string, TsValue*> g_module_cache;
@@ -5126,27 +5127,22 @@ TsValue* ts_value_make_int(int64_t i) {
         // 1. Create a new TsMap object
         TsMap* newObj = TsMap::Create();
 
-        // 2. Get constructor.prototype and set it as the new object's prototype
+        // 2. Box the new object as 'this'
+        TsValue* thisArg = ts_value_make_object(newObj);
+
+        // 3. Set [[Prototype]] from constructor.prototype. Reuse
+        //    ts_object_setPrototypeOf, which handles BOTH TsMap prototypes and
+        //    FLAT-OBJECT prototypes (object literals, e.g. `Foo.prototype = {a:1}`
+        //    or `Foo.prototype = obj`) — it converts a flat proto to a map and
+        //    does cycle detection. The old code only linked prototypes whose
+        //    magic was MAPS, so a flat-object prototype was silently dropped and
+        //    `new Foo()` instances inherited nothing (lodash `_.omit` inherited-
+        //    keyed-properties test: `Foo.prototype = object; _.omit(new Foo, ...)`).
         TsString* protoKey = TsString::Create("prototype");
         TsValue* protoVal = ts_object_get_dynamic(constructorFn, ts_value_make_string(protoKey));
         if (protoVal && !ts_value_is_undefined(protoVal) && !ts_value_is_null(protoVal)) {
-            uint64_t protoNb = nanbox_from_tsvalue_ptr(protoVal);
-            if (nanbox_is_ptr(protoNb)) {
-                void* protoRaw = nanbox_to_ptr(protoNb);
-                if (protoRaw) {
-                    // Check if it's a TsMap (check magic at standard offsets)
-                    uint32_t m16 = *(uint32_t*)((char*)protoRaw + 16);
-                    uint32_t m20 = *(uint32_t*)((char*)protoRaw + 20);
-                    uint32_t m24 = *(uint32_t*)((char*)protoRaw + 24);
-                    if (m16 == 0x4D415053 || m20 == 0x4D415053 || m24 == 0x4D415053) {
-                        newObj->SetPrototype((TsMap*)protoRaw);
-                    }
-                }
-            }
+            ts_object_setPrototypeOf(thisArg, protoVal);
         }
-
-        // 3. Box the new object as 'this'
-        TsValue* thisArg = ts_value_make_object(newObj);
 
         // 4. Call the constructor with this = new object
         // Guard: if constructor is not callable (e.g., TsMap stub), store args as .message
@@ -5621,7 +5617,22 @@ TsValue* ts_value_make_int(int64_t i) {
             // so `Object.getPrototypeOf({}) === Object.prototype` would be
             // false.
             extern void* ts_get_global_Object();
-            return getCtorPrototype(ts_get_global_Object());
+            TsValue* objProtoVal = getCtorPrototype(ts_get_global_Object());
+            // ECMA-262 §20.1.3: Object.prototype's own [[Prototype]] is null.
+            // Object.prototype is itself a plain TsMap with no stored
+            // prototype and IsExplicitMap()==false, so without this guard it
+            // would fall into this same branch and return *itself* — an
+            // infinite self-cycle. That cycle hangs any consumer that walks
+            // the chain via `while (o) o = getPrototypeOf(o)` (e.g. lodash
+            // getSymbolsIn / getAllKeysIn, exercised by `_.omit`). Plain
+            // object literals never hit this (they carry FLAT magic and
+            // return null earlier), but a TsMap instance whose [[Prototype]]
+            // resolves up to Object.prototype does.
+            if (objProtoVal) {
+                void* opRaw = ts_value_get_object(objProtoVal);
+                if (opRaw && opRaw == objRaw) return ts_value_make_null();
+            }
+            return objProtoVal;
         }
         if (magic == 0x53455453) { // TsSet "SETS"
             extern void* ts_get_global_Set();
