@@ -246,14 +246,25 @@ std::unique_ptr<HIRInstruction> SpecializationPass::specializeNeg(HIRInstruction
     if (isBigInt(resType) || isBigInt(t)) {
         return makeCall("ts_bigint_neg", inst, HIRType::makeBigInt());
     }
-    if (isFloat64(resType) || isFloat64(t)) {
+    // Float64 path is mandatory whenever the operand is Any: the runtime
+    // value could be a huge double outside the int64 range, and the NegI64
+    // codegen does FPToSI on it (UB -> INT64_MIN -> -INT64_MIN overflows
+    // back to INT64_MIN). ECMA-262 §13.5.6 unary minus = ToNumber + IEEE
+    // negate; integer specialization is only safe when the operand is
+    // PROVABLY int. lodash baseFill with start=-Infinity hits this:
+    // toInteger(-Infinity) returns -1.79e+308 (a double), then -start
+    // must stay double or the comparison branches wrong and the fill loops
+    // forever. NegF64 unboxes pointers via ts_value_get_double, so the
+    // Any-typed slow path is handled.
+    if (isFloat64(resType) || isFloat64(t) || isAny(t)) {
         return makeTypedBinary(HIROpcode::NegF64, inst, HIRType::makeFloat64());
     }
-    if (isInt64(resType) || isInt64(t)) {
+    if (isInt64(resType) && isInt64(t)) {
         return makeTypedBinary(HIROpcode::NegI64, inst, HIRType::makeInt64());
     }
     if (isAny(resType) && isAny(t)) {
-        return makeCall("ts_value_neg", inst, HIRType::makeAny());
+        // Covered by the isAny(t) branch above; kept for symmetry.
+        return makeTypedBinary(HIROpcode::NegF64, inst, HIRType::makeFloat64());
     }
 
     SPDLOG_WARN("SpecializationPass: could not specialize neg (result={}, operand={})",
