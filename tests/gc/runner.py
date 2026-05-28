@@ -183,6 +183,12 @@ def main() -> int:
     ap.add_argument("-j", "--jobs", type=int, default=4, help="Parallel jobs (default 4)")
     ap.add_argument("-t", "--timeout", type=int, default=30, help="Per-run timeout (s)")
     ap.add_argument("--stress", action="store_true", help="Also run the TS_GC_STRESS=1 config")
+    ap.add_argument("--include-broken", action="store_true",
+                    help="Also run programs/expected_broken/* — programs distilled from "
+                         "known unfixed GC bugs (currently the moving-GC corruption). These "
+                         "WILL fail differentially under default nursery; they're the testbed "
+                         "for an in-progress GC fix, not a regression signal. Move them back "
+                         "into programs/ once the fix lands.")
     args = ap.parse_args()
 
     if not COMPILER.exists():
@@ -197,6 +203,10 @@ def main() -> int:
         configs.update(STRESS_CONFIG)
 
     progs = sorted(PROGRAMS_DIR.glob("*.js"))
+    if args.include_broken:
+        broken_dir = PROGRAMS_DIR / "expected_broken"
+        if broken_dir.exists():
+            progs.extend(sorted(broken_dir.glob("*.js")))
     if args.filter:
         progs = [p for p in progs if args.filter in p.name]
     if not progs:
