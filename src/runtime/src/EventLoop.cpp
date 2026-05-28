@@ -3,6 +3,7 @@
 #include "TsPromise.h"
 #include "TsMap.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <uv.h>
 #include <vector>
 #include <functional>
@@ -107,20 +108,65 @@ extern "C" void ts_process_next_tick(TsValue* callback) {
     }, callback);
 }
 
-static std::vector<std::function<void()>> microtasks;
+// Microtask queue. CRITICAL: the `data` pointer is almost always a GC-allocated
+// object (PromiseResolveTask / PromiseCallbackTask holding a TsPromise + value,
+// or a callback closure). The queue must therefore be a GC ROOT SOURCE — a GC
+// running between enqueue and drain would otherwise collect or move the task,
+// leaving a dangling/stale `data` and crashing ts_promise_settle_microtask.
+// Previously this stored type-erased std::function lambdas in a malloc'd vector
+// the collector never scanned -> nondeterministic use-after-free under GC
+// pressure (the lodash-harness crashes). Now we store explicit (cb, data)
+// entries and register a GC mark-scanner + minor-GC fixup over them.
+struct MicrotaskEntry { void (*cb)(void*); void* data; };
+static std::vector<MicrotaskEntry> microtasks;
+static size_t microtask_drain_pos = 0;   // entries [0, pos) already executed
+static bool microtasks_gc_registered = false;
+
+static inline bool microtask_data_is_heap_ptr(void* p) {
+    uintptr_t v = (uintptr_t)p;
+    return v >= 4096 && v <= 0x00007FFFFFFFFFFFULL;
+}
+
+// Mark scanner: keep every pending (and in-flight) task's `data` alive. Marking
+// the task object transitively keeps its promise/value/callback alive via the
+// normal field trace. Run entries are harmless to mark (over-approximation).
+static void microtasks_gc_scan(void* /*ctx*/) {
+    for (auto& e : microtasks) {
+        if (microtask_data_is_heap_ptr(e.data)) ts_gc_mark_object(e.data);
+    }
+}
+
+// Minor-GC fixup: after promotion, rewrite each `data` to its new old-gen
+// address so the queued pointer stays valid.
+static void microtasks_gc_fixup(void* /*ctx*/) {
+    for (auto& e : microtasks) {
+        if (microtask_data_is_heap_ptr(e.data)) {
+            void* fwd = ts_gc_minor_lookup_forward(e.data);
+            if (fwd) e.data = fwd;
+        }
+    }
+}
 
 extern "C" void ts_queue_microtask(void (*callback)(void*), void* data) {
-    microtasks.push_back([callback, data]() { callback(data); });
+    if (!microtasks_gc_registered) {
+        microtasks_gc_registered = true;
+        ts_gc_register_scanner(microtasks_gc_scan, nullptr);
+        ts_gc_register_minor_fixup(microtasks_gc_fixup, nullptr);
+    }
+    microtasks.push_back({ callback, data });
 }
 
 void ts_run_microtasks() {
-    while (!microtasks.empty()) {
-        std::vector<std::function<void()>> current = std::move(microtasks);
-        microtasks.clear();
-        for (auto& task : current) {
-            task();
-        }
+    // Index-based drain so the global `microtasks` vector remains the live,
+    // GC-scanned store for the whole drain (callbacks may enqueue more, and a
+    // GC may run inside any callback). Entries stay in the vector until the
+    // drain finishes, so the scanner/fixup always see pending entries.
+    while (microtask_drain_pos < microtasks.size()) {
+        MicrotaskEntry e = microtasks[microtask_drain_pos++];
+        e.cb(e.data);
     }
+    microtasks.clear();
+    microtask_drain_pos = 0;
 }
 
 extern "C" void ts_loop_run() {
