@@ -1985,6 +1985,11 @@ extern "C" {
                 return ts_value_make_int(val);
             }
         }
+        // Generic (PackedAny/HoleyAny) path: `val` is NaN-boxed, so NANBOX_HOLE
+        // is unambiguous (unlike the SMI/Double fast paths). A hole reads as
+        // undefined; otherwise the 0x08 sentinel leaks via ts_object_get_dynamic
+        // (`array[i]` on an any-typed array) -> "unknown" / pointer crash.
+        if ((uint64_t)val == NANBOX_HOLE) return ts_value_make_undefined();
         return (TsValue*)val;
     }
 
