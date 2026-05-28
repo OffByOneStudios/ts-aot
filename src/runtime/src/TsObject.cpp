@@ -159,12 +159,34 @@ static struct NativePropsScanner {
             }
         }, nullptr);
         ts_gc_register_minor_fixup([](void*) {
-            for (auto& [key, val] : g_native_object_props) {
+            // Forward both the VALUE (property-bag TsMap) and the KEY (native
+            // object pointer). Keys are NOT marked by the scanner (this is a weak
+            // side-table — marking would pin dead native objects forever), but a
+            // key that SURVIVED and was promoted out of the nursery MUST be
+            // re-pointed to its new old-gen address. Otherwise the stale old
+            // nursery address lingers in the table; when that slot is reused by a
+            // different object (e.g. a TsString) a lookup on the reused address
+            // returns this dead object's TsMap -> type confusion (a TsString
+            // header read as an object pointer) -> crash. unordered_map keys are
+            // immutable, so collect (newKey,val) for moved keys and reinsert.
+            std::vector<std::pair<void*, TsMap*>> reinserts;
+            for (auto it = g_native_object_props.begin(); it != g_native_object_props.end(); ) {
+                void* key = it->first;
+                TsMap* val = it->second;
                 if (val) {
-                    void* fixed = ts_gc_minor_lookup_forward(val);
-                    if (fixed != val) val = (TsMap*)fixed;
+                    void* fixedVal = ts_gc_minor_lookup_forward(val);
+                    if (fixedVal && fixedVal != val) val = (TsMap*)fixedVal;
+                }
+                void* fixedKey = ts_gc_minor_lookup_forward(key);
+                if (fixedKey && fixedKey != key) {
+                    reinserts.emplace_back(fixedKey, val);
+                    it = g_native_object_props.erase(it);
+                } else {
+                    it->second = val;  // value may have been forwarded
+                    ++it;
                 }
             }
+            for (auto& kv : reinserts) g_native_object_props[kv.first] = kv.second;
         }, nullptr);
     }
 } g_native_props_scanner;
