@@ -9324,16 +9324,30 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_double(r);
     }
 
+    // Math.floor/ceil return a Number. The int fast-path is only valid for a
+    // finite, in-int64-range result; (int64_t)Infinity / NaN / huge is UB and
+    // produces INT64_MIN (observed as -9.22e18 — broke lodash _.ceil/_.floor on
+    // Infinity via the indirect `func = Math.ceil; func(x)` call). Return a
+    // double for non-finite / out-of-range so Infinity/-Infinity/NaN/huge round
+    // correctly.
+    static inline TsValue* ts_math_round_result(double r) {
+        if (!std::isfinite(r) ||
+            r < -9223372036854775808.0 || r >= 9223372036854775808.0) {
+            return ts_value_make_double(r);
+        }
+        return ts_value_make_int((int64_t)r);
+    }
+
     TsValue* ts_math_floor_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         double x = ts_value_get_double(argv[0]);
-        return ts_value_make_int((int64_t)std::floor(x));
+        return ts_math_round_result(std::floor(x));
     }
 
     TsValue* ts_math_ceil_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         double x = ts_value_get_double(argv[0]);
-        return ts_value_make_int((int64_t)std::ceil(x));
+        return ts_math_round_result(std::ceil(x));
     }
 
     TsValue* ts_math_abs_native(void* context, int argc, TsValue** argv) {
