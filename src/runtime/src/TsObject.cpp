@@ -5317,6 +5317,35 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object static methods
     
     // Object.keys(obj) - returns array of string keys
+    // Build Object.values / Object.entries output for a function/closure's
+    // side-property TsMap, restricted to ENUMERABLE own keys (so non-enumerable
+    // built-ins like `name`/`length`/`prototype` are excluded — matching
+    // Object.keys). `entries`=false → values array; true → [key,value] pairs.
+    static TsValue* ts_func_props_view(TsMap* props, bool entries) {
+        extern void* ts_map_enumerable_keys(void*);
+        if (!props) return ts_value_make_array(TsArray::Create(0));
+        TsArray* keys = (TsArray*)ts_map_enumerable_keys(props);
+        int64_t n = keys ? keys->Length() : 0;
+        TsArray* out = TsArray::Create(n);
+        for (int64_t i = 0; i < n; i++) {
+            TsValue* keyBoxed = (TsValue*)(uintptr_t)(uint64_t)keys->Get(i);
+            TsString* ks = (TsString*)ts_value_get_string(keyBoxed);
+            if (!ks) continue;
+            TsValue kv; kv.type = ValueType::STRING_PTR; kv.ptr_val = ks;
+            TsValue v = props->Get(kv);
+            TsValue* vBoxed = nanbox_from_tagged(v);
+            if (entries) {
+                TsArray* pair = TsArray::Create(2);
+                pair->Push((int64_t)(uintptr_t)keyBoxed);
+                pair->Push((int64_t)(uintptr_t)vBoxed);
+                out->Push((int64_t)(uintptr_t)ts_value_make_array(pair));
+            } else {
+                out->Push((int64_t)(uintptr_t)vBoxed);
+            }
+        }
+        return ts_value_make_array(out);
+    }
+
     TsValue* ts_object_keys(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
@@ -5363,6 +5392,27 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_array(ts_map_enumerable_keys(rawPtr));
         }
 
+        // Function / closure objects store their own properties in a side
+        // TsMap. Object.keys/for-in/`in` must enumerate them too — lodash
+        // assigns ~300 methods onto the `lodash` function and relies on
+        // keys(lodash) (mixin) to copy them to the wrapper prototype.
+        if (magic == 0x46554E43) { // TsFunction::MAGIC "FUNC"
+            TsMap* props = ((TsFunction*)rawPtr)->properties;
+            if (props) {
+                extern void* ts_map_enumerable_keys(void*);
+                return ts_value_make_array(ts_map_enumerable_keys(props));
+            }
+            return ts_value_make_array(TsArray::Create(0));
+        }
+        if (magic == 0x434C5352) { // TsClosure::MAGIC "CLSR"
+            TsMap* props = ((TsClosure*)rawPtr)->properties;
+            if (props) {
+                extern void* ts_map_enumerable_keys(void*);
+                return ts_value_make_array(ts_map_enumerable_keys(props));
+            }
+            return ts_value_make_array(TsArray::Create(0));
+        }
+
         // Check if this is a Proxy - only attempt dynamic_cast on known TsObject types
         // (TsString, TsArray, etc. are NOT TsObject subclasses — dynamic_cast crashes)
         if (magic == 0x50524F58) { // TsProxy::MAGIC "PROX"
@@ -5393,9 +5443,15 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_values(rawPtr));
         }
+        if (magic == 0x46554E43) { // TsFunction::MAGIC "FUNC"
+            return ts_func_props_view(((TsFunction*)rawPtr)->properties, false);
+        }
+        if (magic == 0x434C5352) { // TsClosure::MAGIC "CLSR"
+            return ts_func_props_view(((TsClosure*)rawPtr)->properties, false);
+        }
         return ts_value_make_array(TsArray::Create(0));
     }
-    
+
     // Object.entries(obj) - returns array of [key, value] pairs
     TsValue* ts_object_entries(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
@@ -5412,6 +5468,12 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_entries(rawPtr));
+        }
+        if (magic == 0x46554E43) { // TsFunction::MAGIC "FUNC"
+            return ts_func_props_view(((TsFunction*)rawPtr)->properties, true);
+        }
+        if (magic == 0x434C5352) { // TsClosure::MAGIC "CLSR"
+            return ts_func_props_view(((TsClosure*)rawPtr)->properties, true);
         }
 
         return ts_value_make_array(TsArray::Create(0));
@@ -8903,8 +8965,23 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             return false;
         }
-        // Non-TsObject types at offset 16 — return early
-        if (magic16 == 0x434C5352) return false; // TsClosure
+        // TsClosure — check its properties map (user functions are closures;
+        // the `in` operator must see assigned props, mirroring hasOwnProperty).
+        if (magic16 == 0x434C5352) { // TsClosure::MAGIC
+            TsClosure* cl = (TsClosure*)rawObj;
+            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            if (keyStr) {
+                if (cl->properties) {
+                    TsValue keyVal; keyVal.type = ValueType::STRING_PTR; keyVal.ptr_val = keyStr;
+                    if (cl->properties->Has(keyVal)) return true;
+                }
+                const char* k = keyStr->ToUtf8();
+                if (k && (strcmp(k, "name") == 0 || strcmp(k, "length") == 0 ||
+                          strcmp(k, "bind") == 0 || strcmp(k, "call") == 0 ||
+                          strcmp(k, "apply") == 0 || strcmp(k, "prototype") == 0)) return true;
+            }
+            return false;
+        }
         if (magic16 == 0x42494749 || magic16 == 0x53594D42) return false; // BigInt, Symbol
 
         // Check side-map for dynamically assigned properties on native objects

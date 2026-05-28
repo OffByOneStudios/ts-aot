@@ -15,6 +15,15 @@ TsValue* ts_bound_function_call(void* ctx, int argc, TsValue** argv) {
         return ts_value_make_undefined();
     }
 
+    // Defensive: if ctx is not a real TsBoundFunction (e.g. `new boundFn()`
+    // misroutes the constructor's `this` here instead of the bound context),
+    // boundArgCount is garbage and `ts_alloc(8 * totalArgc)` aborts the
+    // process. Bail gracefully on an implausible count rather than crash.
+    if (bound->boundArgCount < 0 || bound->boundArgCount > 65535) {
+        return ts_value_make_undefined();
+    }
+    if (argc < 0 || argc > 65535) argc = 0;
+
     // Calculate total argument count: bound args + call args
     int totalArgc = bound->boundArgCount + argc;
 
