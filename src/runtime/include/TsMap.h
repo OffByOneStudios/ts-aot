@@ -42,6 +42,15 @@ public:
     // Prototype chain support
     TsMap* GetPrototype() const { return prototype; }
     void SetPrototype(TsMap* proto) {
+        // A map's [[Prototype]] is a TsMap* or null — never a tagged primitive.
+        // Reject a non-heap value (e.g. 0x07 = NaN-boxed `true`): storing it
+        // would later crash the prototype-chain walk (ts_object_get_property)
+        // when it deref's `currentMap->Get(...)` on the bogus pointer. This is
+        // the correct no-op for an invalid proto, and prevents a known
+        // nondeterministic-GC-induced crash from propagating a clobbered value.
+        if (proto && (uintptr_t)proto < 0x10000) {
+            return;
+        }
         prototype = proto;
         if (proto) ts_gc_write_barrier((void*)&this->prototype, proto);
     }

@@ -3954,7 +3954,24 @@ TsValue* ts_value_make_int(int64_t i) {
                 k.type = ValueType::STRING_PTR;
                 k.ptr_val = TsString::GetInterned(keyStr);
                 TsMap* currentMap = closure->properties;
+                int __clsr_iter = 0;
                 while (currentMap) {
+                    // Guard: a prototype-chain link must be a heap TsMap* or
+                    // null. A tagged primitive (e.g. 0x07 = boolean true) means
+                    // closure->properties (iter 0) or a prototype link (iter N)
+                    // was clobbered (see SetPrototype reject + the GC residual).
+                    // Bail rather than deref the bogus pointer in TsMap::Get.
+                    if ((uintptr_t)currentMap < 0x10000) {
+                        if (getenv("TS_CLSR_TRACE")) {
+                            static int __n = 0;
+                            if (__n++ < 40) {
+                                fprintf(stderr, "[CLSR] bad currentMap=%p iter=%d key='%s' closure=%p props=%p\n",
+                                        (void*)currentMap, __clsr_iter, keyStr, obj, (void*)closure->properties);
+                                fflush(stderr);
+                            }
+                        }
+                        break;
+                    }
                     // Check for getter
                     std::string getterKey = std::string("__getter_") + keyStr;
                     TsValue gk;
@@ -3972,6 +3989,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         return nanbox_from_tagged(val);
                     }
                     currentMap = currentMap->GetPrototype();
+                    __clsr_iter++;
                 }
             }
             // Handle .prototype - lazily create like TsFunction
