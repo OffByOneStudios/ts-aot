@@ -117,6 +117,21 @@ TsValue TsMap::Get(TsValue key) {
         TsValue undef; undef.type = ValueType::UNDEFINED; undef.ptr_val = nullptr;
         return undef;
     }
+    if (!((TsHashTable*)impl)->looks_valid()) {
+        // Residual GC-staleness diagnostic: a corrupt impl means this TsMap (or
+        // its holder) is stale. Print whether `this` is a valid TsMap (magic@16
+        // == MAPS) vs a garbage object, plus impl, to name the source. Bounded.
+        if (getenv("TS_MAP_CORRUPT_TRACE")) {
+            static int n = 0;
+            if (n++ < 20) {
+                fprintf(stderr, "[TsMap] CORRUPT-GET this=%p magic@16=0x%08X impl=%p self=%p\n",
+                        (void*)this, *(uint32_t*)((char*)this + 16), impl, (void*)self());
+                fflush(stderr);
+            }
+        }
+        TsValue undef; undef.type = ValueType::UNDEFINED; undef.ptr_val = nullptr;
+        return undef;
+    }
     return ((TsHashTable*)impl)->Get(key);
 }
 

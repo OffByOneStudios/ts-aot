@@ -262,6 +262,22 @@ public:
 
     static constexpr size_t NOT_FOUND = (size_t)-1;
 
+    // Cheap structural sanity check. A stale/corrupt TsMap (e.g. a moved
+    // nursery map whose holder wasn't forwarded, read back from wiped/reused
+    // memory) yields an `impl` that passes a bare non-null check but whose
+    // fields are garbage -> find_slot faults reading ctrl_[idx]. These
+    // invariants hold for every table built by Create(): capacity_ is a
+    // non-zero power of two, ctrl_ is a heap pointer, and the single-buffer
+    // layout puts entries_ exactly at ctrl_ + 2*capacity_.
+    bool looks_valid() const {
+        if (capacity_ == 0 || capacity_ > (size_t(1) << 28)) return false;
+        if (capacity_ & (capacity_ - 1)) return false;            // not power of two
+        uintptr_t c = (uintptr_t)ctrl_;
+        if (c < 0x10000 || c > 0x00007FFFFFFFFFFFULL) return false;
+        if ((uintptr_t)entries_ != c + capacity_ + capacity_) return false;
+        return true;
+    }
+
 private:
     uint8_t* ctrl_;
     uint8_t* attrs_;   // Property attributes, parallel to ctrl_ (1 byte per slot)
@@ -290,6 +306,10 @@ private:
     }
 
     size_t find_slot(const TsValue& key) const {
+        // Stale/corrupt table guard: a garbage ctrl_/capacity_ would otherwise
+        // fault here reading ctrl_[idx]. Treat a corrupt table as "key absent"
+        // rather than crashing the process (residual GC-staleness symptom).
+        if (!looks_valid()) return NOT_FOUND;
         size_t hash = hasher_(key);
         uint8_t h2 = h2_from_hash(hash);
         size_t idx = h1_from_hash(hash);
