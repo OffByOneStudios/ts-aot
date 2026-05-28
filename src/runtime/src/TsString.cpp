@@ -1437,6 +1437,10 @@ extern "C" {
 
     static TsRegExp* unboxRegExp(void* arg);  // forward declaration
 
+    // Defined in TsGlobals.cpp; declared here for the primitive-separator
+    // ToString path below.
+    void* ts_number_to_string(double value, int64_t radix);
+
     void* ts_string_split(void* str, void* separator) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
@@ -1452,6 +1456,27 @@ extern "C" {
         // RegExp), call RegExp.prototype[@@split]. Detect regex by unboxing.
         if (TsRegExp* re = unboxRegExp(separator)) {
             return s->Split(re);
+        }
+        // A NaN-boxed primitive separator (number/bool/null) is NOT a heap
+        // pointer; ts_ensure_flat would dereference it and crash. This path is
+        // reached by the compiler's typed `str.split(num)` fast path, which
+        // passes the raw nanbox. Per spec the separator is ToString'd.
+        if (!nanbox_is_ptr(sepNb)) {
+            TsString* sepStr = nullptr;
+            if (nanbox_is_null(sepNb)) {
+                sepStr = TsString::Create("null");
+            } else if (nanbox_is_bool(sepNb)) {
+                sepStr = TsString::Create(nanbox_to_bool(sepNb) ? "true" : "false");
+            } else if (nanbox_is_int32(sepNb)) {
+                sepStr = (TsString*)ts_number_to_string((double)nanbox_to_int32(sepNb), 10);
+            } else if (nanbox_is_double(sepNb)) {
+                sepStr = (TsString*)ts_number_to_string(nanbox_to_double(sepNb), 10);
+            }
+            if (sepStr) return s->Split(sepStr);
+            // Unknown primitive: fall back to [S] (non-crashing).
+            TsArray* arr = TsArray::Create();
+            arr->Push((int64_t)ts_value_make_string(s));
+            return arr;
         }
         TsString* sep = ts_ensure_flat(separator);
         if (!sep) {

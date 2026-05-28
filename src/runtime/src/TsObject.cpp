@@ -1413,20 +1413,16 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_string_split_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        if (argc >= 1 && argv && argv[0]) {
-            // Check if separator is a RegExp
-            void* rawSep = ts_value_get_object((TsValue*)argv[0]);
-            if (!rawSep) rawSep = (void*)argv[0];
-            uint32_t magic = *(uint32_t*)rawSep;
-            if (magic == 0x52454758) { // TsRegExp::MAGIC ("REGX")
-                return ts_value_make_object(ts_string_split_regexp(str, rawSep));
-            }
-            // String separator
-            void* sep = ts_value_get_string(argv[0]);
-            if (!sep) sep = (void*)argv[0];
-            return ts_value_make_object(ts_string_split(str, sep));
+        // ECMA-262 22.1.3.23: an undefined separator yields a single-element
+        // array of the whole string. Also covers `argc == 0`. Everything else
+        // (RegExp, string, or a primitive to be ToString'd) is delegated to
+        // ts_string_split, which is the single robust separator-coercion site
+        // (it also backs the compiler's typed `str.split(x)` fast path).
+        if (argc < 1 || !argv || !argv[0] ||
+            ts_value_is_undefined((TsValue*)argv[0])) {
+            return ts_value_make_object(ts_string_split(str, nullptr));
         }
-        return ts_value_make_object(ts_string_split(str, nullptr));
+        return ts_value_make_object(ts_string_split(str, (void*)argv[0]));
     }
     // Helper: check if a TsValue is callable (closure or function)
     static bool ts_value_is_callable(TsValue* val) {
