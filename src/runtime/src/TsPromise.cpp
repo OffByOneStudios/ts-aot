@@ -2,7 +2,9 @@
 #include "TsRuntime.h"
 #include "TsArray.h"
 #include "TsMap.h"
+#include "TsGC.h"
 #include <uv.h>
+#include <vector>
 #include <iostream>
 #include <cstdio>
 
@@ -1331,6 +1333,70 @@ extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
 
 } // extern "C"
 
+// --- GC rooting for pending promise callbacks ---------------------------------
+// TsPromise::callbacks is a std::vector whose backing is malloc'd C++ memory the
+// collector never scans. Each Callback holds GC pointers (onFulfilled/onRejected/
+// onFinally TsValues + nextPromise). A GC between then()/finally() and settle
+// would collect or move those -> stale -> crash in ts_promise_run_callback.
+// Maintain a registry of promises that currently hold pending callbacks; a GC
+// mark-scanner marks those pointers (keeping them live) and a minor-GC fixup
+// forwards them after promotion. Entries are pruned once a promise's callbacks
+// drain (settle clears them). Same pattern as the microtask-queue rooting.
+static std::vector<TsPromise*> g_promises_with_cb;
+static bool g_promise_cb_gc_registered = false;
+
+static inline bool prom_is_heap_val(const TsValue& v) {
+    return v.ptr_val && (v.type == ValueType::OBJECT_PTR ||
+                         v.type == ValueType::FUNCTION_PTR ||
+                         v.type == ValueType::PROMISE_PTR ||
+                         v.type == ValueType::STRING_PTR ||
+                         v.type == ValueType::ARRAY_PTR ||
+                         v.type == ValueType::SYMBOL_PTR);
+}
+
+static void promise_cb_gc_scan(void*) {
+    size_t w = 0;
+    for (size_t i = 0; i < g_promises_with_cb.size(); i++) {
+        TsPromise* p = g_promises_with_cb[i];
+        if (!p || p->callbacks.empty()) continue;  // drained -> drop from registry
+        g_promises_with_cb[w++] = p;
+        ts_gc_mark_object(p);
+        for (auto& cb : p->callbacks) {
+            if (prom_is_heap_val(cb.onFulfilled)) ts_gc_mark_object(cb.onFulfilled.ptr_val);
+            if (prom_is_heap_val(cb.onRejected))  ts_gc_mark_object(cb.onRejected.ptr_val);
+            if (prom_is_heap_val(cb.onFinally))   ts_gc_mark_object(cb.onFinally.ptr_val);
+            if (cb.nextPromise) ts_gc_mark_object(cb.nextPromise);
+        }
+    }
+    g_promises_with_cb.resize(w);
+}
+
+static void promise_cb_gc_fixup(void*) {
+    auto fwd_val = [](TsValue& v) {
+        if (v.ptr_val) { void* f = ts_gc_minor_lookup_forward(v.ptr_val); if (f) v.ptr_val = f; }
+    };
+    for (auto*& p : g_promises_with_cb) {
+        if (!p) continue;
+        p = (TsPromise*)ts_gc_minor_lookup_forward(p);  // forward the registry slot
+        for (auto& cb : p->callbacks) {
+            fwd_val(cb.onFulfilled); fwd_val(cb.onRejected); fwd_val(cb.onFinally);
+            if (cb.nextPromise) cb.nextPromise = (TsPromise*)ts_gc_minor_lookup_forward(cb.nextPromise);
+        }
+    }
+}
+
+// Call right after pushing a Callback onto promise->callbacks.
+static inline void ts_promise_track_pending(TsPromise* p) {
+    if (!g_promise_cb_gc_registered) {
+        g_promise_cb_gc_registered = true;
+        ts_gc_register_scanner(promise_cb_gc_scan, nullptr);
+        ts_gc_register_minor_fixup(promise_cb_gc_fixup, nullptr);
+    }
+    // Add on the empty->non-empty transition (callers invoke after push_back,
+    // so size==1 means this is the first pending callback).
+    if (p->callbacks.size() == 1) g_promises_with_cb.push_back(p);
+}
+
 TsPromise* TsPromise::then(TsValue onFulfilled, TsValue onRejected) {
     handled = true;
     Callback cb;
@@ -1348,6 +1414,7 @@ TsPromise* TsPromise::then(TsValue onFulfilled, TsValue onRejected) {
         ts_queue_microtask(ts_promise_callback_microtask, task);
     } else {
         callbacks.push_back(cb);
+        ts_promise_track_pending(this);
     }
     return cb.nextPromise;
 }
@@ -1373,6 +1440,7 @@ TsPromise* TsPromise::finally(TsValue onFinally) {
         ts_queue_microtask(ts_promise_callback_microtask, task);
     } else {
         callbacks.push_back(cb);
+        ts_promise_track_pending(this);
     }
     return cb.nextPromise;
 }
@@ -1394,6 +1462,7 @@ void TsPromise::then_async(AsyncContext* asyncCtx) {
         ts_queue_microtask(ts_promise_callback_microtask, task);
     } else {
         callbacks.push_back(cb);
+        ts_promise_track_pending(this);
     }
 }
 
