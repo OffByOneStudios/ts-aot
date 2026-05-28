@@ -120,6 +120,22 @@ void TsArray::InitInPlace(void* mem, size_t initialCapacity) {
 }
 
 TsArray* TsArray::CreateSized(size_t size) {
+    // Huge sizes (e.g. `new Array(2.1e9)`) must NOT eager-allocate the backing
+    // buffer or we OOM. Create a sparse array: small dense buffer, logical
+    // length = size, all indices read as holes via readSlot. The TsArray ctor
+    // caps its eager allocation at kMaxDenseElements.
+    if (size > kMaxDenseElements) {
+        void* mem = ts_alloc(sizeof(TsArray));
+        TsArray* arr = new(mem) TsArray(4, 8);  // small dense buffer
+        // Hole-fill the small dense buffer so its in-range slots read as
+        // holes (everything is a hole until written); beyond capacity is
+        // implicit-hole via readSlot.
+        int64_t* slots = (int64_t*)arr->elements;
+        for (size_t i = 0; i < arr->capacity; ++i) slots[i] = (int64_t)NANBOX_HOLE;
+        arr->length = size;                     // sparse: length >> capacity
+        arr->elementKind_ = ElementKind::HoleyAny;
+        return arr;
+    }
     void* mem = ts_alloc(sizeof(TsArray));
     TsArray* arr = new(mem) TsArray(size, 8);
     arr->length = size;
@@ -145,7 +161,7 @@ bool TsArray::IsHole(size_t index) const {
         elementKind_ == ElementKind::HoleyDouble) {
         return false;
     }
-    int64_t raw = ((int64_t*)elements)[index];
+    int64_t raw = readSlot(index);
     return (uint64_t)raw == NANBOX_HOLE;
 }
 
@@ -182,7 +198,7 @@ TsValue* TsArray::GetElementBoxed(size_t index) {
         }
     }
 
-    int64_t val = ((int64_t*)elements)[index];
+    int64_t val = readSlot(index);
     ElementKind kind = elementKind_;
 
     // V8-style SMI: stored as raw int
@@ -277,7 +293,7 @@ double TsArray::GetElementDouble(size_t index) {
     }
 
     // Generic array - element is a NaN-boxed value
-    uint64_t nb = (uint64_t)((int64_t*)elements)[index];
+    uint64_t nb = (uint64_t)readSlot(index);
     return nanbox_to_number(nb);
 }
 
@@ -341,27 +357,106 @@ int64_t TsArray::Shift() {
     return result;
 }
 
+// Capacity-safe element read. For a dense array (index < capacity) this is
+// identical to the raw slot. For a sparse array, an index in [capacity, length)
+// is a hole unless present in the overflow store. Callers interpret the
+// returned raw int64 per element kind (sparse arrays are always HoleyAny, so
+// the value is a NaN-boxed uint64 / NANBOX_HOLE).
+int64_t TsArray::readSlot(size_t index) const {
+    if (index < capacity) {
+        return ((int64_t*)elements)[index];
+    }
+    if (sparseElements) {
+        TsMap* se = sparseElements;  // pointee is non-const in this const method
+        TsValue key((int64_t)index);
+        if (se->Has(key)) {
+            TsValue v = se->Get(key);
+            return (int64_t)(uintptr_t)nanbox_from_tagged(v);
+        }
+    }
+    return (int64_t)NANBOX_HOLE;
+}
+
+// Capacity-safe element write. Dense slot if index < capacity; bounded dense
+// growth if index < kMaxDenseElements; otherwise spill to the sparse store.
+// Never eager-allocates more than kMaxDenseElements slots, so it cannot OOM on
+// a huge sparse index. Assumes 8-byte slots (specialized arrays stay dense and
+// never reach the index >= capacity branches).
+void TsArray::writeSlot(size_t index, int64_t value) {
+    if (index < capacity) {
+        ((int64_t*)elements)[index] = value;
+        ts_gc_write_barrier(&((int64_t*)elements)[index], (void*)value);
+        return;
+    }
+    if (index < kMaxDenseElements) {
+        // Bounded dense growth: reallocate to cover `index`, hole-fill the gap.
+        size_t oldCap = capacity;
+        size_t newCapacity = oldCap ? oldCap : 4;
+        while (newCapacity <= index) newCapacity *= 2;
+        if (newCapacity > kMaxDenseElements) newCapacity = kMaxDenseElements;
+        void* newElements = ts_alloc(newCapacity * elementSize);
+        if (oldCap > 0) std::memcpy(newElements, elements, oldCap * elementSize);
+        for (size_t i = oldCap; i < newCapacity; i++) {
+            ((int64_t*)newElements)[i] = (int64_t)NANBOX_HOLE;
+        }
+        elements = newElements;
+        ts_gc_write_barrier((void*)&this->elements, newElements);
+        ts_gc_write_barrier_range(newElements, oldCap * elementSize);
+        capacity = newCapacity;
+        if (elementKind_ != ElementKind::HoleyAny) elementKind_ = ElementKind::HoleyAny;
+        ((int64_t*)elements)[index] = value;
+        ts_gc_write_barrier(&((int64_t*)elements)[index], (void*)value);
+        return;
+    }
+    // Far sparse region: spill to the overflow store (keyed by integer index).
+    if (elementKind_ != ElementKind::HoleyAny) elementKind_ = ElementKind::HoleyAny;
+    if (!sparseElements) {
+        sparseElements = TsMap::Create();
+        ts_gc_write_barrier(&this->sparseElements, sparseElements);
+    }
+    TsValue key((int64_t)index);
+    TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)(uint64_t)value);
+    sparseElements->Set(key, v);
+}
+
 int64_t TsArray::Get(size_t index) {
     if (index >= length) {
         // JavaScript behavior: return undefined (0) for out-of-bounds access
         return 0;
     }
     if (elementSize != 8) return 0;
-    return ((int64_t*)elements)[index];
+    return readSlot(index);
 }
 
 void TsArray::Set(size_t index, int64_t value) {
-    if (index >= length) {
-        if (index == length) {
-            Push(value);
-            return;
-        }
-        ts_panic("Array index out of bounds");
+    if (elementSize != 8) {
+        // Specialized (non-8-byte) arrays stay dense; preserve legacy behavior.
+        if (index < length) return;  // (legacy: silent no-op past length)
+        return;
     }
-    if (elementSize != 8) return;
-    ((int64_t*)elements)[index] = value;
-    // Write barrier: value may be a pointer to a nursery object
-    ts_gc_write_barrier(&((int64_t*)elements)[index], (void*)value);
+    if (index < length) {
+        // In-range: dense slot if index < capacity, else the sparse region of
+        // a capped array. writeSlot handles the write barrier.
+        writeSlot(index, value);
+        return;
+    }
+    if (index == length && length < kMaxDenseElements) {
+        Push(value);
+        return;
+    }
+    // Extend with a gap: holes for [length, index), value at index. Route
+    // through writeSlot so allocation stays bounded (sparse store beyond
+    // kMaxDenseElements) instead of panicking or OOM-growing the dense buffer.
+    size_t oldLen = length;
+    length = index + 1;
+    if (elementKind_ != ElementKind::HoleyAny) elementKind_ = ElementKind::HoleyAny;
+    // Hole-fill the part of the gap that lies in the current dense buffer;
+    // slots beyond capacity are implicit holes (readSlot) or hole-filled by
+    // writeSlot's bounded grow. Avoids exposing stale slot bytes as values.
+    for (size_t i = oldLen; i < index && i < capacity; i++) {
+        ((int64_t*)elements)[i] = (int64_t)NANBOX_HOLE;
+    }
+    writeSlot(index, value);
 }
 
 int64_t TsArray::Length() {
@@ -375,6 +470,35 @@ bool TsArray::SetLength(size_t newLength) {
         // collect them. We just decrement length; the slots stay in the
         // backing buffer (capacity is unchanged) but iteration / Get /
         // hasOwnProperty all bound on length so they're invisible.
+        length = newLength;
+        // Drop any sparse-store entries at or beyond the new length.
+        if (sparseElements) {
+            // Cheap correctness: clear the whole store if everything is now
+            // out of range; otherwise leave entries (reads bound on length so
+            // stale high entries are invisible, and a later re-extend would
+            // legitimately re-expose them only if they're < the new length).
+            if (newLength <= capacity) {
+                sparseElements = nullptr;
+            }
+        }
+        return true;
+    }
+    // Extend. If the new length is beyond the dense-growth ceiling, become a
+    // SPARSE array: set the logical length but DO NOT eager-allocate the
+    // backing (that is the `a.length = 2.1e9` -> 17GB OOM). Indices in
+    // [capacity, length) read as holes via readSlot; writes spill to the
+    // sparse store. Force HoleyAny so getters take the NaN-box hole path.
+    if (newLength > kMaxDenseElements) {
+        elementKind_ = ElementKind::HoleyAny;
+        // Hole-fill the dense slots that are now in logical range
+        // [length, capacity); without this they'd read back as stale bytes
+        // (the buffer from Create() isn't hole-initialized). Slots beyond
+        // capacity are implicit holes via readSlot.
+        if (elementSize == 8) {
+            for (size_t i = length; i < capacity; i++) {
+                ((int64_t*)elements)[i] = (int64_t)NANBOX_HOLE;
+            }
+        }
         length = newLength;
         return true;
     }
@@ -2086,7 +2210,7 @@ extern "C" {
         if (index < 0 || (size_t)index >= (size_t)array->Length()) {
             return (void*)ts_value_make_undefined();
         }
-        int64_t slot = array->GetUnchecked(index);
+        int64_t slot = array->readSlot(index);
         // ECMA-262 §10.4.2.1 [[Get]] on a hole walks the prototype chain.
         // For a plain Array.prototype that lookup returns undefined. We
         // normalize NANBOX_HOLE → undefined here so `a[1] === undefined`
@@ -2153,17 +2277,12 @@ extern "C" {
         size_t idx = (size_t)index;
         size_t len = (size_t)array->Length();
 
-        if (idx < len) {
-            // Within bounds - direct write (Set handles write barrier)
-            array->Set(idx, (int64_t)value);
-        } else {
-            // JS semantics: grow array, fill gaps with undefined
-            int64_t undef = 0x0A; // NaN-boxed undefined
-            while ((size_t)array->Length() < idx) {
-                array->Push(undef);
-            }
-            array->Push((int64_t)value);
-        }
+        // Both in-range and gap-extend go through Set, which fills the gap
+        // [len, idx) with holes and bounds allocation (sparse store beyond
+        // kMaxDenseElements). The previous Push-until-idx loop OOM'd for a
+        // large idx (e.g. `a.length=1e9; a[5e8]=x`).
+        (void)len;
+        array->Set(idx, (int64_t)value);
     }
 
     int64_t ts_array_length(void* arr) {
@@ -3523,7 +3642,9 @@ extern "C" {
             return;
         }
 
-        int64_t raw_val = array->GetUnchecked(index);
+        // Capacity-safe read: for a sparse array an index in [capacity, length)
+        // is a hole / sparse-store entry, not an in-bounds dense slot.
+        int64_t raw_val = array->readSlot(index);
         ElementKind kind = array->GetElementKind();
 
         // ==== V8-style element kind fast paths ====
@@ -3559,6 +3680,12 @@ extern "C" {
         // Decode using NaN-box helpers.
         uint64_t nb = (uint64_t)raw_val;
 
+        // A hole (sparse region or unwritten slot) reads as undefined.
+        if (nb == NANBOX_HOLE) {
+            *out_type = (uint8_t)ValueType::UNDEFINED;
+            *out_value = 0;
+            return;
+        }
         if (nanbox_is_undefined(nb)) {
             *out_type = (uint8_t)ValueType::UNDEFINED;
             *out_value = 0;

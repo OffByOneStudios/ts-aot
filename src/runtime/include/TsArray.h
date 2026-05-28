@@ -21,6 +21,16 @@ enum class ElementKind : uint8_t {
 class TsArray {
 public:
     static constexpr uint32_t MAGIC = 0x41525259; // "ARRY"
+
+    // Ceiling for eager / automatic dense backing growth. A logical `length`
+    // may exceed this (sparse array); indices in [capacity, length) are holes
+    // unless present in `sparseElements`. SetLength / CreateSized never
+    // eager-allocate beyond this, and element writes past it spill to the
+    // sparse store rather than growing the dense buffer. Prevents OOM on
+    // `a.length = 2.1e9` while keeping normal arrays fully dense. ~67M elems
+    // (512MB) — far above any realistic dense array, far below the 2^32 cap.
+    static constexpr size_t kMaxDenseElements = (size_t)1 << 26;
+
     static TsArray* Create(size_t initialCapacity = 4);
     static TsArray* CreateSized(size_t size);
     static TsArray* CreateSpecialized(size_t size, size_t elementSize, bool isDouble = false);
@@ -116,6 +126,16 @@ public:
         return originalReceiver ? originalReceiver : (void*)this;
     }
 
+    // True when the logical length exceeds the physical dense backing, i.e.
+    // indices in [capacity, length) are holes unless in `sparseElements`.
+    bool isSparse() const { return length > capacity; }
+    // Capacity-safe element read: dense slot if index < capacity, else the
+    // sparse store, else NANBOX_HOLE. Callers must already know index < length.
+    int64_t readSlot(size_t index) const;
+    // Capacity-safe element write: dense if index < capacity; grow dense if
+    // index < kMaxDenseElements; otherwise spill to the sparse store.
+    void writeSlot(size_t index, int64_t value);
+
 private:
     TsArray(size_t initialCapacity, size_t elementSize = 8);
 
@@ -142,6 +162,13 @@ public:
     // Write barrier (`ts_gc_write_barrier`) tracks cross-generation pointers
     // through `properties->Set(...)`; no extra barrier needed here.
     TsMap* properties = nullptr;
+
+    // Sparse element overflow store for huge / sparse arrays. Lazily created
+    // when an element write lands at an index >= kMaxDenseElements (or in the
+    // [capacity, length) hole region of a capped array). Integer-keyed; holds
+    // NaN-boxed values. nullptr for the common dense case. GC-scanned via the
+    // conservative full old-gen slot walk (no explicit barrier wiring needed).
+    TsMap* sparseElements = nullptr;
 };
 
 extern "C" {

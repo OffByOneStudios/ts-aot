@@ -194,7 +194,12 @@ private:
     static constexpr int kMaxStackAllocObjects = 4;
     static constexpr int kMaxStackAllocBytes = 512;
     static constexpr int kSizeOfTsMap = 64;
-    static constexpr int kSizeOfTsArray = 64;  // bumped to fit `properties` field
+    // MUST be >= sizeof(TsArray) in src/runtime/include/TsArray.h. Escape-
+    // analysis stack-allocates this many bytes then the runtime ctor
+    // placement-news a TsArray into it; if too small the ctor scribbles past
+    // the slot (stack corruption). 72 = magic+pad, elements, length, capacity,
+    // elementSize, 3 bools+pad, originalReceiver, properties, sparseElements.
+    static constexpr int kSizeOfTsArray = 72;  // fits `properties` + `sparseElements`
 
     // For async functions
     bool isAsyncFunction_ = false;
