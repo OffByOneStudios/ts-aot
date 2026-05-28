@@ -9988,18 +9988,27 @@ TsValue* ts_value_make_int(int64_t i) {
                         default: tag = "Object"; break;
                     }
                 }
-                else {
-                    TsFunction* func = dynamic_cast<TsFunction*>((TsObject*)ptr);
-                    if (func) tag = "Function";
-                    else {
-                        TsMap* m = dynamic_cast<TsMap*>((TsObject*)ptr);
-                        if (m) {
-                            // Distinguish explicit Map from plain object literal.
-                            if (m->IsExplicitMap()) tag = "Map";
-                            else { tag = "Object"; mapForTag = m; }
-                        }
-                    }
+                else if (magic16 == TsFunction::MAGIC) { // 0x46554E43 "FUNC"
+                    tag = "Function";
                 }
+                else if (magic16 == 0x4D415053) { // TsMap "MAPS"
+                    TsMap* m = (TsMap*)ptr;
+                    // Distinguish explicit Map from plain object literal.
+                    if (m->IsExplicitMap()) tag = "Map";
+                    else { tag = "Object"; mapForTag = m; }
+                }
+                // else: unknown / native-polymorphic / corrupt pointer. Leave
+                // tag = "Object" and do NOT dynamic_cast. Earlier this branch
+                // ran dynamic_cast<TsFunction*>/<TsMap*>, but dynamic_cast on a
+                // value that is not a genuine polymorphic TsObject makes
+                // _RTDynamicCast deref the first word as a vtable -> AV. The
+                // first word cannot be sanity-checked reliably (a NaN-box
+                // pattern such as 0x0002000000000000 looks pointer-like).
+                // Observed: lodash assert.deepEqual on _.setWith/_.update
+                // results calls Object.prototype.toString on stack temporaries
+                // whose first word is a tagged value. All real heap types are
+                // already covered by the magic checks above, so falling back to
+                // "[object Object]" is correct for the remainder.
             }
         }
 
