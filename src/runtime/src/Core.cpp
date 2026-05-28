@@ -1600,6 +1600,25 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
         for (auto* v : message_handlers) ts_gc_mark_object(v);
         for (auto* v : disconnect_handlers) ts_gc_mark_object(v);
     }, nullptr);
+    // Minor-GC fixup: these handler vectors are malloc-backed std::vector — the
+    // scanner above keeps the callbacks live, but a promoted (moved) callback
+    // would leave a stale pointer in the vector without this forwarding pass.
+    // (GC-rooting policy: scanner AND fixup are both required.)
+    ts_gc_register_minor_fixup([](void*) {
+        auto fwd_vec = [](std::vector<TsValue*>& vec) {
+            for (auto*& v : vec) {
+                if (v) { void* f = ts_gc_minor_lookup_forward(v); if (f) v = (TsValue*)f; }
+            }
+        };
+        fwd_vec(exit_handlers);
+        fwd_vec(before_exit_handlers);
+        fwd_vec(uncaught_exception_handlers);
+        fwd_vec(warning_handlers);
+        fwd_vec(sigint_handlers);
+        fwd_vec(sigterm_handlers);
+        fwd_vec(message_handlers);
+        fwd_vec(disconnect_handlers);
+    }, nullptr);
 
     // 1.2 Initialize ICU data (loads external .dat file if not embedded)
     ts_icu_init(argc > 0 ? argv[0] : nullptr);
