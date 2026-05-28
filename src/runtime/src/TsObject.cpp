@@ -7592,6 +7592,26 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_bool(ts_bigint_eq(na_as_bi, (void*)bbi));
         }
 
+        // ECMA-262 §7.2.15 Abstract Equality: ToPrimitive coercion applies
+        // ONLY when exactly one operand is an Object and the other is a
+        // primitive (Number/String/BigInt/Symbol). When BOTH operands are
+        // Objects there is no coercion step — the result is reference
+        // equality, and since the identical-pointer fast path above already
+        // returned true, two distinct objects are simply not equal. Coercing
+        // both (as the old code did) is not only spec-wrong but dangerous: for
+        // a self-referential array, ToPrimitive -> Array.prototype.toString ->
+        // join recurses forever (lodash isEqual compares cyclic arrays via
+        // `arrStacked == other`). Guard it.
+        auto is_object_operand = [](uint64_t nb) -> bool {
+            if (!nanbox_is_ptr(nb) || nanbox_is_string_ptr(nb)) return false;
+            void* p = nanbox_to_ptr(nb);
+            if (!p) return false;
+            return *(uint32_t*)p != 0x42494749;  // exclude BigInt "BIGI" (primitive)
+        };
+        if (is_object_operand(nba) && is_object_operand(nbb)) {
+            return ts_value_make_bool(false);
+        }
+
         // ES5.1 §11.9.3 steps 8-9: asymmetric loose equality between an
         // object and a Number/String coerces the object via ToPrimitive.
         // Apply to both sides conservatively; if the result is still
