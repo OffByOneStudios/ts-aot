@@ -1962,11 +1962,25 @@ static void gc_mark_nursery_live() {
         if (root && *root) mark_nursery_obj(*root);
     }
 
-    // Root source 3: Old-gen → nursery pointers (card-table guided block scan)
-    // Uses modular card indexing: for each allocated old-gen slot, check if its
-    // card is dirty, and if so scan the slot for nursery pointers.
-    // This avoids address reconstruction issues with modular indexing.
-    if (g_card_table) {
+    // Root source 3: Old-gen → nursery pointers (FULL old-gen block scan).
+    //
+    // This MUST be a full scan, NOT card-table-guided, and it MUST be
+    // symmetric with the Phase 3 fixup scan below (which is already full).
+    // Rationale: container types (TsMap/TsHashTable bucket arrays, TsArray
+    // elements buffers, and tenured headers) store nursery pointers into
+    // old-gen slots without a reliable write barrier on every mutation site,
+    // so the card table is an UNDER-approximation of old-gen→nursery edges.
+    // If mark were card-guided while fixup is full, a non-barriered edge is:
+    //   - missed by mark  → the nursery target is treated dead → wiped, and
+    //   - found by fixup  → not in the forwarding table → assumed "pinned" →
+    //     the old-gen slot is left pointing at now-dead nursery memory.
+    // That asymmetry is exactly the moving-GC corruption (VERIFY-FWD reports
+    // "old-gen slot -> DEAD nursery obj marked=0"). Making mark a full scan
+    // — the same coverage the fixup already pays for — closes it. The cost is
+    // one extra full old-gen walk per minor GC (same order as the existing
+    // fixup walk); correctness first until per-container write barriers are
+    // complete enough to trust the card table as an exact remembered set.
+    {
         for (size_t sc = 0; sc < NUM_SIZE_CLASSES; sc++) {
             for (BlockHeader* bh = g_heap->block_lists[sc]; bh; bh = bh->next) {
                 if (!bh->block_mem || bh->live_count == 0) continue;
@@ -1974,8 +1988,6 @@ static void gc_mark_nursery_live() {
                 for (size_t slot = 0; slot < bh->slot_count; slot++) {
                     if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
                     uintptr_t s = bstart + slot * bh->slot_size;
-                    // Check if any card covering this slot is dirty
-                    if (!card_range_is_dirty(s, bh->slot_size)) continue;
                     uintptr_t e = s + bh->slot_size;
                     for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
                         void* c = *(void**)p;
@@ -1990,7 +2002,6 @@ static void gc_mark_nursery_live() {
              lo != &g_heap->large_sentinel; lo = lo->next) {
             if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
             uintptr_t s = (uintptr_t)lo + sizeof(LargeObjHeader);
-            if (!card_range_is_dirty(s, lo->data_size)) continue;
             uintptr_t e = s + lo->data_size;
             for (uintptr_t p = s; p + sizeof(void*) <= e; p += sizeof(void*)) {
                 void* c = *(void**)p;
