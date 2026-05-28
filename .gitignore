@@ -133,3 +133,6 @@ build*
 tests/lodash/upstream/test.js
 tests/lodash/upstream/lodash.js
 tests/lodash/upstream/entry.js
+tests/lodash/upstream/.lodash_results.jsonl
+tests/lodash/upstream/entry*.exe
+tests/lodash/upstream/entry*.pdb

@@ -134,8 +134,17 @@
   // (assigned per-assert below via prototype-less object; add here)
 
   function runAll() {
+    // Progress markers (parsed by tests/lodash/upstream/runner.py).
+    // Printed BEFORE the test body so a crash/hang during the body still
+    // leaves the test's name + queue position on stdout. One line per test —
+    // ~3000 lines total, line-buffered (newline triggers flush in the
+    // runtime). On crash/hang the last @@PROGRESS is the executed floor.
+    console.log('@@RUNALL_START total=' + queue.length);
     for (var i = 0; i < queue.length; i++) {
       var t = queue[i];
+      console.log('@@PROGRESS ' + (i + 1) + '/' + queue.length +
+                  ' pass=' + totalPass + ' fail=' + totalFail +
+                  ' module=' + t.module + ' test=' + t.name);
       var hooks = moduleHooks[t.module] || {};
       var assert = makeAssert();
       assert.throws = assert.raises;
@@ -147,6 +156,8 @@
         record(false, '[' + t.module + '] ' + t.name + ' THREW: ' + (e && e.message ? e.message : e));
       }
     }
+    console.log('@@RUNALL_END executed=' + queue.length +
+                ' pass=' + totalPass + ' fail=' + totalFail);
     syncDone = true;
     maybeFinish();
   }
