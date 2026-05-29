@@ -3572,8 +3572,14 @@ TsValue* ts_value_make_int(int64_t i) {
             magic16 == 0x4147454E || magic20 == 0x4147454E || magic24 == 0x4147454E) {   // TsAsyncGenerator "AGEN"
             TsMap* map = (TsMap*)obj;
 
-            // Handle Map .size property (computed, not stored as key-value)
-            if (strcmp(keyStr, "size") == 0) {
+            // `.size` is a computed accessor ONLY for a real Map/Set. A plain
+            // object / class instance is also a TsMap internally, but there
+            // "size" is an ordinary own data property — returning the entry
+            // count would shadow it (broke lodash Hash/ListCache/MapCache/Stack,
+            // which all track this.size, and any user object with a `size`
+            // field). Gate on IsExplicitMap so plain objects fall through to the
+            // normal own-property lookup below.
+            if (strcmp(keyStr, "size") == 0 && map->IsExplicitMap()) {
                 return ts_value_make_int(map->Size());
             }
 
@@ -8391,8 +8397,9 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
-        // Handle Map/Set .size property (computed, not stored)
-        if (keyStr) {
+        // Handle Map/Set .size — computed ONLY for a real Map/Set; on a plain
+        // object "size" is an own data property (see static path above).
+        if (keyStr && map->IsExplicitMap()) {
             const char* k = keyStr->ToUtf8();
             if (k && strcmp(k, "size") == 0) {
                 return ts_value_make_int(map->Size());
