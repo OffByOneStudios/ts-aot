@@ -7770,7 +7770,20 @@ TsValue* ts_value_make_int(int64_t i) {
         a = ts_to_primitive(a, 0);
         b = ts_to_primitive(b, 0);
 
-        // Coerce to numbers
+        // ECMA-262 §7.2.15: after ToPrimitive, the recursive abstract-equality
+        // step compares String vs String by CHARACTERS, not ToNumber. The old
+        // code jumped straight to a numeric comparison, so e.g.
+        // `/a/g == "/a/g"` (regexp ToPrimitive -> "/a/g") and `[1] == "1"`
+        // became NaN == NaN -> false. Compare strings by content first.
+        uint64_t na2 = nanbox_from_tsvalue_ptr(a);
+        uint64_t nb2 = nanbox_from_tsvalue_ptr(b);
+        if (nanbox_is_string_ptr(na2) && nanbox_is_string_ptr(nb2)) {
+            TsString* s1 = (TsString*)nanbox_to_ptr(na2);
+            TsString* s2 = (TsString*)nanbox_to_ptr(nb2);
+            return ts_value_make_bool(s1->Equals(s2));
+        }
+
+        // Otherwise coerce to numbers (handles bool/number/string-number mixes).
         return ts_value_make_bool(nanbox_extract_double(a) == nanbox_extract_double(b));
     }
 
