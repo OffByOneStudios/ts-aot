@@ -8196,6 +8196,21 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic16 == TsFunction::MAGIC) {
             TsFunction* func = (TsFunction*)rawObj;
 
+            // ECMA-262: an OWN property always shadows the inherited
+            // Function.prototype method. Check own props BEFORE the bind/call/
+            // apply/toString/name/length builtins -- lodash assigns its own
+            // `_.bind`/`_.keys`/etc on the (callable) lodash object, and
+            // `_.bind` must resolve to lodash's bind, not Function.prototype.bind
+            // (which made `_.bind(fn,thisArg)` bind lodash itself -> wrapper
+            // returned a lodash object "[object Object]"). The static-key path
+            // (ts_object_get_property) already checks own props first.
+            if (func->properties) {
+                TsValue ownv = func->properties->Get(nanbox_to_tagged(key));
+                if (ownv.type != ValueType::UNDEFINED) {
+                    return nanbox_from_tagged(ownv);
+                }
+            }
+
             // Handle Function.prototype methods (bind, call, apply)
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
@@ -8266,6 +8281,14 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check if this is a TsClosure and get its properties
         if (magic16 == 0x434C5352) { // TsClosure::MAGIC ("CLSR")
             TsClosure* closure = (TsClosure*)rawObj;
+            // OWN property shadows the Function.prototype builtins (see the
+            // TsFunction branch above) -- e.g. lodash's own `_.bind`.
+            if (closure->properties) {
+                TsValue ownv = closure->properties->Get(nanbox_to_tagged(key));
+                if (ownv.type != ValueType::UNDEFINED) {
+                    return nanbox_from_tagged(ownv);
+                }
+            }
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) {
