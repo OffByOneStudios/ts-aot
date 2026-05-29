@@ -3070,6 +3070,14 @@ TsValue* ts_value_make_int(int64_t i) {
         int32_t result = RegExp_test(re, str);
         return (TsValue*)ts_value_make_bool(result != 0);
     }
+    extern "C" TsValue* ts_regexp_tostring_native(void* ctx, int argc, TsValue** argv) {
+        TsRegExp* re = (TsRegExp*)ctx;
+        // RegExp.prototype.toString: "/" + source + "/" + flags.
+        // ts_string_from_value already builds this for the REGX magic.
+        extern void* ts_string_from_value(TsValue* val);
+        TsValue* boxed = (TsValue*)ts_value_make_object(re);
+        return (TsValue*)ts_value_make_string(ts_string_from_value(boxed));
+    }
     extern "C" TsValue* ts_regexp_exec_native(void* ctx, int argc, TsValue** argv) {
         TsRegExp* re = (TsRegExp*)ctx;
         void* str = (argc >= 1 && argv && argv[0]) ? (void*)argv[0] : nullptr;
@@ -3324,6 +3332,9 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "exec") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_exec_native, re, "exec", 1);
+            }
+            if (strcmp(keyStr, "toString") == 0) {
+                return makeNamedNativeFunction((void*)ts_regexp_tostring_native, re, "toString", 0);
             }
             return ts_value_make_undefined();
         }

@@ -1965,6 +1965,18 @@ extern "C" {
             if (magic == 0x53545247) return ptr; // TsString
             if (magic == TsConsString::MAGIC) return ((TsConsString*)ptr)->Flatten(); // Flatten cons string
             if (magic == 0x41525259) return TsString::GetInterned("[object Array]");
+            if (magic == 0x52454758) { // TsRegExp "REGX": "/" + source + "/" + flags
+                TsRegExp* re = (TsRegExp*)ptr;
+                TsString* src = re->GetSource();
+                TsString* flags = re->GetFlags();
+                if (!src) src = TsString::Create("(?:)");
+                if (!flags) flags = TsString::Create("");
+                TsString* slash = TsString::Create("/");
+                TsString* out = TsString::Concat(slash, src);
+                out = TsString::Concat(out, slash);
+                out = TsString::Concat(out, flags);
+                return out;
+            }
             if (magic == 0x42494749) { // TsBigInt
                 // BigInt toString would need special handling
                 return TsString::GetInterned("[object BigInt]");
