@@ -2,6 +2,8 @@
 #include "../HIR.h"
 #include <spdlog/spdlog.h>
 #include <queue>
+#include <set>
+#include <vector>
 
 namespace ts::hir {
 
@@ -392,21 +394,46 @@ void EscapeAnalysisPass::propagateEscapeThroughPhis(HIRFunction& func) {
 
                 if (!phiEscapes) continue;
 
-                // The Phi result escapes — propagate back to all incoming allocations.
-                // Follow through pass-through instructions (BoxObject, Copy, etc.)
-                // to find the original allocation.
-                for (auto& [inVal, inBlock] : inst->phiIncoming) {
-                    if (!inVal) continue;
-
-                    // Walk back through pass-through instructions to find the allocation
-                    HIRValue* curVal = inVal.get();
-                    HIRInstruction* defInst = nullptr;
-                    for (int depth = 0; depth < 8; ++depth) {
-                        auto defIt = definingInst_.find(curVal);
-                        if (defIt == definingInst_.end()) break;
-                        defInst = defIt->second;
-                        if (isAllocationOpcode(defInst->opcode)) break;
-                        // Follow through pass-through opcodes
+                // The Phi result escapes — propagate back to ALL transitively
+                // reachable incoming allocations. Worklist BFS that follows
+                // pass-through ops (Box*/UnboxObject/Copy) AND recurses through
+                // NESTED PHIs. A linear depth-limited walk (the old code) missed
+                // the common loop pattern `nv = cond?[]:{}; nested[key]=nv;
+                // nested=nested[key]` where the ternary phi feeds another
+                // (loop-carried) phi before reaching the escaping use — so the
+                // array/object literal was wrongly stack-allocated and became a
+                // dangling pointer after the function returned (lodash baseSet).
+                {
+                    std::vector<HIRValue*> work;
+                    std::set<HIRValue*> seen;
+                    for (auto& [inVal, inBlock] : inst->phiIncoming) {
+                        if (inVal) work.push_back(inVal.get());
+                    }
+                    while (!work.empty()) {
+                        HIRValue* cur = work.back();
+                        work.pop_back();
+                        if (!cur || seen.count(cur)) continue;
+                        seen.insert(cur);
+                        auto defIt = definingInst_.find(cur);
+                        if (defIt == definingInst_.end()) continue;
+                        HIRInstruction* defInst = defIt->second;
+                        if (isAllocationOpcode(defInst->opcode)) {
+                            if (!defInst->escapes) {
+                                defInst->escapes = true;
+                                changed = true;
+                                SPDLOG_DEBUG("EscapeAnalysis: {} escapes via phi in {}",
+                                    defInst->result->name, func.name);
+                            }
+                            continue;
+                        }
+                        // Recurse through a nested Phi: enqueue its incomings.
+                        if (defInst->opcode == HIROpcode::Phi) {
+                            for (auto& [pv, pb] : defInst->phiIncoming) {
+                                if (pv) work.push_back(pv.get());
+                            }
+                            continue;
+                        }
+                        // Follow single-input pass-through ops.
                         if (defInst->opcode == HIROpcode::BoxObject ||
                             defInst->opcode == HIROpcode::BoxInt ||
                             defInst->opcode == HIROpcode::BoxFloat ||
@@ -414,22 +441,12 @@ void EscapeAnalysisPass::propagateEscapeThroughPhis(HIRFunction& func) {
                             defInst->opcode == HIROpcode::BoxString ||
                             defInst->opcode == HIROpcode::UnboxObject ||
                             defInst->opcode == HIROpcode::Copy) {
-                            // These take one input operand — follow it
                             if (!defInst->operands.empty()) {
                                 if (auto* v = std::get_if<std::shared_ptr<HIRValue>>(&defInst->operands[0])) {
-                                    curVal = v->get();
-                                    continue;
+                                    work.push_back(v->get());
                                 }
                             }
                         }
-                        break;  // Not a pass-through, stop
-                    }
-
-                    if (defInst && isAllocationOpcode(defInst->opcode) && !defInst->escapes) {
-                        defInst->escapes = true;
-                        changed = true;
-                        SPDLOG_DEBUG("EscapeAnalysis: {} escapes via phi in {}",
-                            defInst->result->name, func.name);
                     }
                 }
             }
