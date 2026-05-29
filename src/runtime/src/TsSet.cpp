@@ -469,6 +469,17 @@ TsValue* ts_set_entries_iter_wrapper(void* context, int argc, TsValue** argv) {
     return (TsValue*)ts_create_set_iterator(pairs);
 }
 
+// Set.prototype.forEach(callback[, thisArg]). Dynamic (any-typed receiver)
+// dispatch lands here; the static path uses a compiler fast path. Without
+// this, `set.forEach` on an any-typed value was undefined -- lodash baseClone
+// `value.forEach(...)` silently copied nothing, so _.clone(set) was empty.
+TsValue* ts_set_forEach_wrapper(void* context, TsValue* callback, TsValue* thisArg) {
+    void* rawCtx = requireSet(context, "forEach");
+    if (!rawCtx) return ts_value_make_undefined();
+    ts_set_forEach(rawCtx, (void*)callback, (void*)thisArg);
+    return ts_value_make_undefined();
+}
+
 // Helper: create a TsFunction with name, arity, and properties TsMap
 static TsValue* makeSetMethod(void* funcPtr, void* ctx, const char* methodName, int arity) {
     TsValue* val = ts_value_make_function(funcPtr, ctx);
@@ -508,6 +519,8 @@ TsValue* ts_set_get_property(void* obj, void* propName) {
         return makeSetMethod((void*)ts_set_values_iter_wrapper, obj, name, 0);
     } else if (strcmp(name, "entries") == 0) {
         return makeSetMethod((void*)ts_set_entries_iter_wrapper, obj, "entries", 0);
+    } else if (strcmp(name, "forEach") == 0) {
+        return makeSetMethod((void*)ts_set_forEach_wrapper, obj, "forEach", 1);
     } else if (strcmp(name, "constructor") == 0) {
         // Set.prototype.constructor === Set. Enables `s.constructor === Set`
         // and lodash baseClone `new set.constructor`.
