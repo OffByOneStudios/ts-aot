@@ -790,21 +790,46 @@ static TsMap* buildIteratorPrototype(const char* tagStr) {
     return proto;
 }
 
+// These three iterator-prototype singletons live in plain C++ statics and are
+// reached by iterator objects via their prototype field. A static TsMap* is
+// invisible to the GC's object scan, so a nursery-allocated prototype here was
+// a rooting gap: with no live iterator referencing it at GC time, the proto map
+// was moved/collected and the stale static then handed a dangling pointer to
+// SetPrototype (observed: iter->prototype = &interned "next" string + 0x10 ->
+// crash/hang in the prototype-chain walk). Fix = immortal-tenure the singleton
+// (old-gen, never moves) AND register the static as a GC root (full GC keeps it
+// alive even when no iterator currently references it) — the same belt-and-
+// suspenders the eager builtins use. See gc-unscanned-cpp-containers memory.
 static TsMap* g_array_iterator_prototype = nullptr;
 TsMap* getArrayIteratorPrototype() {
-    if (!g_array_iterator_prototype) g_array_iterator_prototype = buildIteratorPrototype("Array Iterator");
+    if (!g_array_iterator_prototype) {
+        ts_gc_push_tenure();
+        g_array_iterator_prototype = buildIteratorPrototype("Array Iterator");
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_array_iterator_prototype);
+    }
     return g_array_iterator_prototype;
 }
 
 static TsMap* g_map_iterator_prototype = nullptr;
 TsMap* getMapIteratorPrototype() {
-    if (!g_map_iterator_prototype) g_map_iterator_prototype = buildIteratorPrototype("Map Iterator");
+    if (!g_map_iterator_prototype) {
+        ts_gc_push_tenure();
+        g_map_iterator_prototype = buildIteratorPrototype("Map Iterator");
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_map_iterator_prototype);
+    }
     return g_map_iterator_prototype;
 }
 
 static TsMap* g_set_iterator_prototype = nullptr;
 TsMap* getSetIteratorPrototype() {
-    if (!g_set_iterator_prototype) g_set_iterator_prototype = buildIteratorPrototype("Set Iterator");
+    if (!g_set_iterator_prototype) {
+        ts_gc_push_tenure();
+        g_set_iterator_prototype = buildIteratorPrototype("Set Iterator");
+        ts_gc_pop_tenure();
+        ts_gc_register_root((void**)&g_set_iterator_prototype);
+    }
     return g_set_iterator_prototype;
 }
 
