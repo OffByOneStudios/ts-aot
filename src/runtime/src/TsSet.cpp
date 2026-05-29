@@ -508,6 +508,12 @@ TsValue* ts_set_get_property(void* obj, void* propName) {
         return makeSetMethod((void*)ts_set_values_iter_wrapper, obj, name, 0);
     } else if (strcmp(name, "entries") == 0) {
         return makeSetMethod((void*)ts_set_entries_iter_wrapper, obj, "entries", 0);
+    } else if (strcmp(name, "constructor") == 0) {
+        // Set.prototype.constructor === Set. Enables `s.constructor === Set`
+        // and lodash baseClone `new set.constructor`.
+        extern void* ts_get_global_Set();
+        void* ctor = ts_get_global_Set();
+        if (ctor) return (TsValue*)ts_value_make_object(ctor);
     }
 
     return ts_value_make_undefined();

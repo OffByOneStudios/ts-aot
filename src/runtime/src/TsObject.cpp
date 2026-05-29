@@ -3600,6 +3600,17 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ts_value_make_int(map->Size());
             }
 
+            // A real Map's `.constructor` is Map (inherited from Map.prototype,
+            // which ts-aot doesn't populate with a constructor back-ref). Gated
+            // on IsExplicitMap so plain objects / class instances fall through
+            // to their own prototype-chain constructor below. Enables
+            // `m.constructor === Map` and lodash baseClone `new map.constructor`.
+            if (strcmp(keyStr, "constructor") == 0 && map->IsExplicitMap()) {
+                extern void* ts_get_global_Map();
+                void* ctor = ts_get_global_Map();
+                if (ctor) return (TsValue*)ts_value_make_object(ctor);
+            }
+
             // Walk the prototype chain looking for the property
             TsMap* currentMap = map;
             while (currentMap != nullptr) {
@@ -5135,6 +5146,85 @@ TsValue* ts_value_make_int(int64_t i) {
                             "is not a constructor"));
                         return ts_value_make_undefined();  // unreachable
                     }
+                }
+            }
+        }
+
+        // Built-in constructor GLOBALS (Map/Set/Date/RegExp/Array/...) are
+        // represented as makeSimpleConstructorGlobal TsMap objects, NOT
+        // TsFunctions, so the name-based dispatch below (which requires
+        // TsFunction::MAGIC) misses them entirely when reached via a runtime
+        // value (`new object.constructor(...)` in lodash baseClone, or
+        // `var M = root.Map; new M`). Dispatch by POINTER IDENTITY against the
+        // known globals first. Without this, `new <Map global>()` fell through
+        // to the generic path -> plain object with no [[MapData]] brand.
+        {
+            extern void* ts_get_global_Map();
+            extern void* ts_get_global_Set();
+            extern void* ts_get_global_WeakMap();
+            extern void* ts_get_global_WeakSet();
+            extern void* ts_get_global_Array();
+            extern void* ts_get_global_Date();
+            extern void* ts_get_global_RegExp();
+            extern void* ts_map_create_from_iterable(TsValue* iterable);
+            extern void* ts_set_create_from_iterable(TsValue* iterable);
+            extern void* ts_weakmap_create();
+            extern void* ts_weakset_create();
+            void* rawCtor = ts_value_get_object(constructorFn);
+            if (!rawCtor) rawCtor = nanbox_is_ptr(nanbox_from_tsvalue_ptr(constructorFn))
+                ? nanbox_to_ptr(nanbox_from_tsvalue_ptr(constructorFn)) : nullptr;
+            if (rawCtor) {
+                auto isGlobal = [&](void*(*getter)()) -> bool {
+                    void* g = getter(); if (!g) return false;
+                    void* gr = ts_value_get_object((TsValue*)g);
+                    if (!gr) gr = g;
+                    return gr == rawCtor;
+                };
+                TsValue* it = (argc >= 1 && argv) ? argv[0] : nullptr;
+                if (isGlobal(ts_get_global_Map)) {
+                    void* m = ts_map_create_from_iterable(it);
+                    return m ? ts_value_make_object(m) : ts_value_make_undefined();
+                }
+                if (isGlobal(ts_get_global_Set)) {
+                    void* s = ts_set_create_from_iterable(it);
+                    return s ? ts_value_make_object(s) : ts_value_make_undefined();
+                }
+                if (isGlobal(ts_get_global_WeakMap)) {
+                    void* m = ts_weakmap_create();
+                    return m ? ts_value_make_object(m) : ts_value_make_undefined();
+                }
+                if (isGlobal(ts_get_global_WeakSet)) {
+                    void* s = ts_weakset_create();
+                    return s ? ts_value_make_object(s) : ts_value_make_undefined();
+                }
+                if (isGlobal(ts_get_global_Array)) {
+                    return ts_array_constructor_native(nullptr, argc, argv);
+                }
+                if (isGlobal(ts_get_global_RegExp)) {
+                    extern void* ts_regexp_create(void* pattern, void* flags);
+                    TsValue* pat = (argc >= 1 && argv) ? argv[0] : nullptr;
+                    TsValue* fl  = (argc >= 2 && argv) ? argv[1] : nullptr;
+                    void* re = ts_regexp_create(pat, fl);
+                    return re ? ts_value_make_object(re) : ts_value_make_undefined();
+                }
+                if (isGlobal(ts_get_global_Date)) {
+                    extern void* ts_date_create();
+                    extern void* ts_date_create_ms(int64_t ms);
+                    extern void* ts_date_create_str(void* str);
+                    extern void* ts_date_create_parts(double, double, double,
+                                                       double, double, double, double);
+                    if (argc == 0) return ts_value_make_object(ts_date_create());
+                    if (argc == 1 && it) {
+                        uint64_t anb = nanbox_from_tsvalue_ptr(it);
+                        if (nanbox_is_string_ptr(anb))
+                            return ts_value_make_object(ts_date_create_str(it));
+                        return ts_value_make_object(ts_date_create_ms((int64_t)ts_to_number(it)));
+                    }
+                    double p[7] = {0, 0, 1, 0, 0, 0, 0};
+                    for (int i = 0; i < 7 && i < argc; ++i)
+                        if (argv && argv[i]) p[i] = ts_to_number(argv[i]);
+                    return ts_value_make_object(
+                        ts_date_create_parts(p[0], p[1], p[2], p[3], p[4], p[5], p[6]));
                 }
             }
         }
@@ -8519,6 +8609,12 @@ TsValue* ts_value_make_int(int64_t i) {
             const char* k = keyStr->ToUtf8();
             if (k && strcmp(k, "size") == 0) {
                 return ts_value_make_int(map->Size());
+            }
+            // A real Map's `.constructor` is Map (mirror of the static path).
+            if (k && strcmp(k, "constructor") == 0) {
+                extern void* ts_get_global_Map();
+                void* ctor = ts_get_global_Map();
+                if (ctor) return (TsValue*)ts_value_make_object(ctor);
             }
         }
 
