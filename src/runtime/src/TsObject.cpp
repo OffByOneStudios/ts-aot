@@ -3377,6 +3377,12 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for TsDate (magic at offset 0)
         if (magic0 == 0x44415445) { // TsDate::MAGIC ("DATE")
             TsDate* date = (TsDate*)obj;
+            if (strcmp(keyStr, "constructor") == 0) {
+                extern void* ts_get_global_Date();
+                void* ctor = ts_get_global_Date();
+                return ctor ? (TsValue*)ts_value_make_object(ctor)
+                            : ts_value_make_undefined();
+            }
             if (strcmp(keyStr, "getTime") == 0) return makeNamedNativeFunction((void*)ts_date_getTime_native, date, "getTime", 0);
             if (strcmp(keyStr, "getFullYear") == 0) return makeNamedNativeFunction((void*)ts_date_getFullYear_native, date, "getFullYear", 0);
             if (strcmp(keyStr, "getMonth") == 0) return makeNamedNativeFunction((void*)ts_date_getMonth_native, date, "getMonth", 0);
@@ -5172,6 +5178,44 @@ TsValue* ts_value_make_int(int64_t i) {
                         // yields [items]. lodash initCloneArray relies on this:
                         // `new array.constructor(array.length)`.
                         return ts_array_constructor_native(nullptr, argc, argv);
+                    }
+                    // RegExp/Date reached through an aliased constructor (e.g.
+                    // lodash baseClone: `new object.constructor(...)` for
+                    // initCloneByTag / cloneRegExp). The generic path builds a
+                    // plain TsMap without the REGX/DATE brand, so source/flags
+                    // and valueOf break. Dispatch to the native factory.
+                    if (strcmp(nm, "RegExp") == 0) {
+                        extern void* ts_regexp_create(void* pattern, void* flags);
+                        TsValue* pat = (argc >= 1 && argv) ? argv[0] : nullptr;
+                        TsValue* fl  = (argc >= 2 && argv) ? argv[1] : nullptr;
+                        void* re = ts_regexp_create(pat, fl);
+                        return re ? ts_value_make_object(re) : ts_value_make_undefined();
+                    }
+                    if (strcmp(nm, "Date") == 0) {
+                        extern void* ts_date_create();
+                        extern void* ts_date_create_ms(int64_t ms);
+                        extern void* ts_date_create_str(void* str);
+                        extern void* ts_date_create_parts(double, double, double,
+                                                           double, double, double, double);
+                        if (argc == 0) return ts_value_make_object(ts_date_create());
+                        if (argc == 1 && it) {
+                            uint64_t anb = nanbox_from_tsvalue_ptr(it);
+                            // ECMA-262 §21.4.2.1: a single String arg is parsed;
+                            // anything else is coerced via ToNumber (a Date arg
+                            // uses its [[DateValue]] via valueOf -> ms).
+                            if (nanbox_is_string_ptr(anb)) {
+                                return ts_value_make_object(ts_date_create_str(it));
+                            }
+                            return ts_value_make_object(
+                                ts_date_create_ms((int64_t)ts_to_number(it)));
+                        }
+                        // argc >= 2: (year, month, day=1, h=0, mi=0, s=0, ms=0)
+                        double p[7] = {0, 0, 1, 0, 0, 0, 0};
+                        for (int i = 0; i < 7 && i < argc; ++i) {
+                            if (argv && argv[i]) p[i] = ts_to_number(argv[i]);
+                        }
+                        return ts_value_make_object(
+                            ts_date_create_parts(p[0], p[1], p[2], p[3], p[4], p[5], p[6]));
                     }
                 }
             }
