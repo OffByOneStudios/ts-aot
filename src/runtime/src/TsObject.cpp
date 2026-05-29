@@ -7847,6 +7847,25 @@ TsValue* ts_value_make_int(int64_t i) {
         }
     }
 
+    // ECMA-262 §7.1.19 ToPropertyKey -> ToString for a non-string/non-symbol
+    // PRIMITIVE key (int32, double incl. NaN/±Infinity, boolean, null,
+    // undefined). Returns the canonical property-name string, or nullptr if the
+    // key is a pointer type the caller handles itself (string/symbol/object).
+    // Used by BOTH the dynamic get and set paths so obj[null], obj[false],
+    // obj[NaN] etc. read back what was written (lodash Hash stores primitive
+    // keys as properties on an Object.create(null) backing).
+    static TsString* primitive_key_to_string(uint64_t keyNb) {
+        if (nanbox_is_int32(keyNb))
+            return TsString::Create(std::to_string(nanbox_to_int32(keyNb)).c_str());
+        if (nanbox_is_bool(keyNb))
+            return TsString::Create(nanbox_to_bool(keyNb) ? "true" : "false");
+        if (nanbox_is_null(keyNb))      return TsString::Create("null");
+        if (nanbox_is_undefined(keyNb)) return TsString::Create("undefined");
+        if (nanbox_is_double(keyNb))
+            return (TsString*)ts_number_to_string(nanbox_to_double(keyNb), 10);
+        return nullptr;
+    }
+
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
 
@@ -7940,9 +7959,16 @@ TsValue* ts_value_make_int(int64_t i) {
         // integer keys directly via keyIdx and return before reaching this.
         // Also rebuild the NaN-boxed `key` pointer so downstream
         // nanbox_to_tagged(key) produces {type: STRING_PTR} for TsMap::Get.
-        if (!keyStr && keyIsInt) {
-            keyStr = TsString::Create(std::to_string(keyIdx).c_str());
-            key = ts_value_make_string(keyStr);
+        if (!keyStr) {
+            // Coerce any remaining primitive key (int/double incl. NaN/Inf,
+            // boolean, null, undefined) to its ECMA property-name string. The
+            // object branches below (flat/TsMap/etc.) key off keyStr; the
+            // array/string branches still use keyIsInt/keyIdx for indexing.
+            // This matches the set path so obj[null]/obj[false]/obj[NaN] round-
+            // trip (was: bool/null/undefined got no key; NaN/Inf got a garbage
+            // integer string).
+            keyStr = primitive_key_to_string(keyNb);
+            if (keyStr) key = ts_value_make_string(keyStr);
         }
 
         // Check magic to determine object type
@@ -8442,6 +8468,19 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return;
 
+        // Coerce primitive non-numeric keys (null/undefined/boolean) to their
+        // canonical property-name string up front, so every downstream path
+        // (flat object, proxy, set_prop_v) stores under the same key the get
+        // path reads. Numbers are left alone: set_prop_v routes integer keys to
+        // array/typed-array indexing before its own ToString coercion.
+        {
+            uint64_t kNb = nanbox_from_tsvalue_ptr(key);
+            if (nanbox_is_null(kNb) || nanbox_is_undefined(kNb) || nanbox_is_bool(kNb)) {
+                TsString* ks = primitive_key_to_string(kNb);
+                if (ks) key = ts_value_make_string(ks);
+            }
+        }
+
         // Check flat object (magic at offset 0)
         uint32_t magic0_sd = *(uint32_t*)rawObj;
         if (magic0_sd == 0x464C4154) { // FLAT_MAGIC
@@ -8700,15 +8739,10 @@ TsValue* ts_value_make_int(int64_t i) {
         } else if (key.type == ValueType::NUMBER_INT) {
             keyStr = TsString::Create(std::to_string(key.i_val).c_str());
         } else if (key.type == ValueType::NUMBER_DBL) {
-            // Use the JS-style double-to-string for property keys
-            char buf[64];
-            double d = key.d_val;
-            if (d == (int64_t)d && d >= -999999999 && d <= 999999999) {
-                snprintf(buf, sizeof(buf), "%lld", (long long)(int64_t)d);
-            } else {
-                snprintf(buf, sizeof(buf), "%.17g", d);
-            }
-            keyStr = TsString::Create(buf);
+            // JS ToString for the property key: integer-valued -> "N",
+            // NaN -> "NaN", ±Infinity -> "Infinity"/"-Infinity" (the old
+            // %.17g path produced "nan"/"inf", mismatching the get path).
+            keyStr = (TsString*)ts_number_to_string(key.d_val, 10);
         } else if (key.type == ValueType::BOOLEAN) {
             keyStr = TsString::Create(key.i_val ? "true" : "false");
         }
