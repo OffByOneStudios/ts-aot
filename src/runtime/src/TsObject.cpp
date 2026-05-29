@@ -5425,6 +5425,31 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_array(arr);
         }
 
+        // Check array (magic at offset 0). Own enumerable keys = present index
+        // strings (holes skipped, per ECMA-262 Object.keys) followed by custom
+        // string-keyed own properties from the side map (`arr.foo = 1`). Without
+        // this an array fell through to the empty default, so Object.keys /
+        // for-in / getOwnPropertyNames returned [] for arrays (the lodash
+        // "keys methods" cluster: keys for custom properties on arrays, etc.).
+        if (magic0 == 0x41525259) { // TsArray "ARRY"
+            TsArray* a = (TsArray*)rawPtr;
+            int64_t len = a->Length();
+            TsArray* out = TsArray::Create(0);
+            for (int64_t i = 0; i < len; i++) {
+                if (a->IsHole((size_t)i)) continue;
+                out->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::FromInt(i)));
+            }
+            if (a->properties) {
+                extern void* ts_map_enumerable_keys(void*);
+                TsArray* extra = (TsArray*)ts_map_enumerable_keys(a->properties);
+                if (extra) {
+                    int64_t n = extra->Length();
+                    for (int64_t i = 0; i < n; i++) out->Push(extra->Get((size_t)i));
+                }
+            }
+            return ts_value_make_array(out);
+        }
+
         // Check flat object (magic at offset 0)
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
             return ts_value_make_array((TsArray*)ts_flat_object_keys(rawPtr));
