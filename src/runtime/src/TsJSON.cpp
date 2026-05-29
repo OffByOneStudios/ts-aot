@@ -146,8 +146,17 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
         TsArray* arr = (TsArray*)p;
         nlohmann::ordered_json j = nlohmann::ordered_json::array();
         for (int64_t i = 0; i < arr->Length(); ++i) {
-            // TsArray::Get returns raw int64_t, which might be a pointer or a boxed value
-            j.push_back(ts_to_json_internal((void*)arr->Get(i), visited));
+            // TsArray::Get returns raw int64_t, which might be a pointer or a boxed value.
+            // ECMA-262 25.5.2: array holes (and undefined) serialize as `null`.
+            // Without the hole guard, the NANBOX_HOLE sentinel was dereferenced
+            // as a pointer (crash) for sparse arrays, e.g. `JSON.stringify([,,5])`
+            // or lodash `_.set({}, 'a[2]', v)`.
+            uint64_t raw = (uint64_t)arr->Get(i);
+            if (raw == (uint64_t)NANBOX_HOLE || nanbox_is_undefined(raw)) {
+                j.push_back(nullptr);
+                continue;
+            }
+            j.push_back(ts_to_json_internal((void*)raw, visited));
         }
         visited.erase(p);
         return j;
