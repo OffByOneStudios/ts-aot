@@ -23,8 +23,94 @@ struct PromiseTimerData {
     TsValue* resolveValue;  // Optional value to resolve with
 };
 
+// ── GC rooting for pending timers ──────────────────────────────────────────
+// TimerData/PromiseTimerData are malloc'd and stashed in libuv handle->data,
+// so their GC pointers (the boxed callback / promise / resolve value) are
+// INVISIBLE to the collector. A GC between scheduling a timer and its callback
+// firing would move/collect the callback, leaving data->callback stale ->
+// ts_call_0(stale) invokes a moved/freed closure -> stale captured key ->
+// crash in find_slot (seen in lodash's qunit setTimeout-driven test harness via
+// uv__run_timers). Same unscanned-container class as the microtask queue. Fix:
+// a registry of live timers + a GC mark-scanner (keep callbacks alive) and a
+// minor-GC fixup (forward the field after promotion). See gc-unscanned-cpp-
+// containers memory.
+static std::vector<TimerData*> g_live_timers;
+static std::vector<PromiseTimerData*> g_live_promise_timers;
+static bool g_timers_gc_registered = false;
+
+static inline bool timer_ptr_is_heap(void* p) {
+    uintptr_t v = (uintptr_t)p;
+    return v >= 4096 && v <= 0x00007FFFFFFFFFFFULL;
+}
+
+static void timers_gc_scan(void* /*ctx*/) {
+    for (TimerData* t : g_live_timers) {
+        if (t && timer_ptr_is_heap(t->callback)) ts_gc_mark_object(t->callback);
+    }
+    for (PromiseTimerData* t : g_live_promise_timers) {
+        if (!t) continue;
+        if (timer_ptr_is_heap(t->promise)) ts_gc_mark_object(t->promise);
+        if (timer_ptr_is_heap(t->resolveValue)) ts_gc_mark_object(t->resolveValue);
+    }
+}
+
+static void timers_gc_fixup(void* /*ctx*/) {
+    for (TimerData* t : g_live_timers) {
+        if (t && timer_ptr_is_heap(t->callback)) {
+            void* fwd = ts_gc_minor_lookup_forward(t->callback);
+            if (fwd) t->callback = (TsValue*)fwd;
+        }
+    }
+    for (PromiseTimerData* t : g_live_promise_timers) {
+        if (!t) continue;
+        if (timer_ptr_is_heap(t->promise)) {
+            void* fwd = ts_gc_minor_lookup_forward(t->promise);
+            if (fwd) t->promise = (TsPromise*)fwd;
+        }
+        if (timer_ptr_is_heap(t->resolveValue)) {
+            void* fwd = ts_gc_minor_lookup_forward(t->resolveValue);
+            if (fwd) t->resolveValue = (TsValue*)fwd;
+        }
+    }
+}
+
+static void timers_gc_ensure_registered() {
+    if (g_timers_gc_registered) return;
+    g_timers_gc_registered = true;
+    ts_gc_register_scanner(timers_gc_scan, nullptr);
+    ts_gc_register_minor_fixup(timers_gc_fixup, nullptr);
+}
+
+static void timers_track(TimerData* t) {
+    timers_gc_ensure_registered();
+    g_live_timers.push_back(t);
+}
+static void timers_untrack(TimerData* t) {
+    for (size_t i = 0; i < g_live_timers.size(); i++) {
+        if (g_live_timers[i] == t) {
+            g_live_timers[i] = g_live_timers.back();
+            g_live_timers.pop_back();
+            return;
+        }
+    }
+}
+static void promise_timers_track(PromiseTimerData* t) {
+    timers_gc_ensure_registered();
+    g_live_promise_timers.push_back(t);
+}
+static void promise_timers_untrack(PromiseTimerData* t) {
+    for (size_t i = 0; i < g_live_promise_timers.size(); i++) {
+        if (g_live_promise_timers[i] == t) {
+            g_live_promise_timers[i] = g_live_promise_timers.back();
+            g_live_promise_timers.pop_back();
+            return;
+        }
+    }
+}
+
 static void on_timer_close(uv_handle_t* handle) {
     TimerData* data = (TimerData*)handle->data;
+    timers_untrack(data);
     delete data;
     free(handle);
 }
@@ -53,6 +139,7 @@ extern "C" TsValue* ts_set_timeout(TsValue* callback, int64_t delay) {
     data->isInterval = false;
 
     timer->data = data;
+    timers_track(data);
     uv_timer_start(timer, on_timer_callback, delay, 0);
 
     return ts_value_make_int((int64_t)timer);
@@ -68,6 +155,7 @@ extern "C" TsValue* ts_set_interval(TsValue* callback, int64_t delay) {
     data->isInterval = true;
     
     timer->data = data;
+    timers_track(data);
     uv_timer_start(timer, on_timer_callback, delay, delay);
     
     return ts_value_make_int((int64_t)timer);
@@ -97,6 +185,7 @@ extern "C" TsValue* ts_set_immediate(TsValue* callback) {
     data->isInterval = false;
     
     timer->data = data;
+    timers_track(data);
     uv_timer_start(timer, on_timer_callback, 0, 0);  // Zero delay = immediate
     
     return ts_value_make_int((int64_t)timer);
@@ -194,6 +283,7 @@ extern "C" void ts_loop_init() {
 
 static void on_promise_timer_close(uv_handle_t* handle) {
     PromiseTimerData* data = (PromiseTimerData*)handle->data;
+    promise_timers_untrack(data);
     delete data;
     free(handle);
 }
@@ -227,6 +317,7 @@ extern "C" TsValue* ts_timers_promises_setTimeout(int64_t delay, TsValue* value)
     data->resolveValue = value;
 
     timer->data = data;
+    promise_timers_track(data);
     uv_timer_start(timer, on_promise_timer_callback, delay, 0);
 
     return ts_value_make_promise(promise);  // Use PROMISE_PTR type for await
@@ -245,6 +336,7 @@ extern "C" TsValue* ts_timers_promises_setImmediate(TsValue* value) {
     data->resolveValue = value;
 
     timer->data = data;
+    promise_timers_track(data);
     uv_timer_start(timer, on_promise_timer_callback, 0, 0);  // Zero delay = immediate
 
     return ts_value_make_promise(promise);  // Use PROMISE_PTR type for await
