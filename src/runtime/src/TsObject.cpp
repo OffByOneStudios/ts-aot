@@ -8707,6 +8707,22 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     // Generic dynamic property/element set - handles both arrays and maps/objects
+    // ECMA-262 array index: the canonical string form of a uint32 in
+    // [0, 2^32-1). "0","1","42" qualify; "01"," 1","-1","1.0","4294967295"
+    // do not. Returns true and writes *out on success.
+    static bool parse_canonical_array_index(const char* s, int64_t* out) {
+        if (!s || !*s) return false;
+        if (s[0] == '0') { if (s[1] != '\0') return false; *out = 0; return true; }
+        uint64_t v = 0;
+        for (const char* p = s; *p; ++p) {
+            if (*p < '0' || *p > '9') return false;
+            v = v * 10 + (uint64_t)(*p - '0');
+            if (v >= 0xFFFFFFFFULL) return false;  // must be < 2^32-1
+        }
+        *out = (int64_t)v;
+        return true;
+    }
+
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) {
         if (!obj || !key || !value) return;
 
@@ -8717,6 +8733,26 @@ TsValue* ts_value_make_int(int64_t i) {
 
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return;
+
+        // Array element write via a STRING key that is a canonical array index
+        // (e.g. arr["1"]=v -- lodash baseSet writes parsed path segments as
+        // strings). Without this the key is stored as a side-map property
+        // instead of the element, so `arr[1]` reads stale. The GET path
+        // already coerces string indices on arrays, so SET must match.
+        if (*(uint32_t*)rawObj == 0x41525259) {  // TsArray "ARRY"
+            uint64_t kNb = nanbox_from_tsvalue_ptr(key);
+            if (nanbox_is_ptr(kNb)) {
+                void* kp = nanbox_to_ptr(kNb);
+                if (kp && ts_is_any_string(kp)) {
+                    const char* ks = ts_ensure_flat(kp)->ToUtf8();
+                    int64_t idx;
+                    if (ks && parse_canonical_array_index(ks, &idx)) {
+                        ((TsArray*)rawObj)->Set(idx, (int64_t)value);
+                        return;
+                    }
+                }
+            }
+        }
 
         // Coerce primitive non-numeric keys (null/undefined/boolean) to their
         // canonical property-name string up front, so every downstream path
