@@ -4263,70 +4263,34 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
         }
     }
 
-    // Detect if any case uses string literals
-    bool hasStringCases = false;
+    // Classify the case expressions to pick a lowering strategy:
+    //   - all numeric literals -> dense integer switch (fast path)
+    //   - all string literals  -> ts_string_eq if-else chain (cheap value eq)
+    //   - anything else (identifiers, member access, mixed types) -> general
+    //     strict-equality (===) if-else chain. JS evaluates case expressions
+    //     top-to-bottom and stops at the first strict-equal match; the chain
+    //     models exactly that. The previous code only emitted comparisons for
+    //     StringLiteral/NumericLiteral case labels and SILENTLY DROPPED any
+    //     non-literal case (e.g. `case dateTag:` where dateTag is a variable),
+    //     so such cases never matched and fell through -- breaking lodash's
+    //     equalByTag (tag constants) and any switch over computed values.
+    bool anyCaseExpr = false, allNumeric = true, allString = true;
     for (auto& clause : node->clauses) {
         auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());
         if (caseClause && caseClause->expression) {
-            if (dynamic_cast<ast::StringLiteral*>(caseClause->expression.get())) {
-                hasStringCases = true;
-                break;
-            }
+            anyCaseExpr = true;
+            if (!dynamic_cast<ast::NumericLiteral*>(caseClause->expression.get())) allNumeric = false;
+            if (!dynamic_cast<ast::StringLiteral*>(caseClause->expression.get())) allString = false;
         }
     }
 
-    if (hasStringCases) {
-        // Lower string switch to if-else chain with string comparisons.
-        // switchVal may be boxed (any/TsValue*) from get_prop.static.
-        // HIRToLLVM's ts_string_eq handler already extracts raw TsString*
-        // from boxed values via ts_value_get_string, so this is safe.
-        size_t blockIdx = 0;
-        for (auto& clause : node->clauses) {
-            auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());
-
-            if (caseClause && caseClause->expression && blockIdx < caseBlocks.size()) {
-                auto* strLit = dynamic_cast<ast::StringLiteral*>(caseClause->expression.get());
-                if (strLit) {
-                    auto caseStr = builder_.createConstString(strLit->value);
-                    auto cmpResult = builder_.createCall("ts_string_eq",
-                        {switchVal, caseStr}, HIRType::makeBool());
-
-                    // Determine the "next check" block
-                    HIRBlock* nextCheckBlock = nullptr;
-                    for (size_t j = blockIdx + 1; j < node->clauses.size(); ++j) {
-                        auto* nextCase = dynamic_cast<ast::CaseClause*>(node->clauses[j].get());
-                        if (nextCase && nextCase->expression) {
-                            nextCheckBlock = createBlock("switch.check");
-                            break;
-                        }
-                    }
-                    if (!nextCheckBlock) nextCheckBlock = defaultBlock;
-
-                    builder_.createCondBranch(cmpResult, caseBlocks[blockIdx], nextCheckBlock);
-
-                    // Continue emitting checks from the next check block
-                    builder_.setInsertPoint(nextCheckBlock);
-                    currentBlock_ = nextCheckBlock;
-                }
-            }
-            blockIdx++;
-        }
-
-        // If we're in a check block (not the default block itself) without
-        // a terminator, branch to default. The last condbr's false branch
-        // already points to defaultBlock, so this only applies if some case
-        // had a non-string expression and was skipped.
-        if (!hasTerminator() && currentBlock_ != defaultBlock) {
-            builder_.createBranch(defaultBlock);
-        }
-    } else {
-        // Build integer switch cases
+    if (anyCaseExpr && allNumeric) {
+        // Dense integer switch.
         std::vector<std::pair<int64_t, HIRBlock*>> cases;
         size_t blockIdx = 0;
         for (auto& clause : node->clauses) {
             auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());
             if (caseClause && caseClause->expression) {
-                // Try to get constant value
                 auto* numLit = dynamic_cast<ast::NumericLiteral*>(caseClause->expression.get());
                 if (numLit && blockIdx < caseBlocks.size()) {
                     cases.push_back({static_cast<int64_t>(numLit->value), caseBlocks[blockIdx]});
@@ -4334,8 +4298,61 @@ void ASTToHIR::visitSwitchStatement(ast::SwitchStatement* node) {
             }
             blockIdx++;
         }
-
         builder_.createSwitch(switchVal, defaultBlock, cases);
+    } else {
+        // If-else comparison chain. switchVal may be boxed (any/TsValue*).
+        // For all-string-literal switches keep ts_string_eq (HIRToLLVM's
+        // handler unboxes via ts_value_get_string). Otherwise evaluate each
+        // case expression at runtime and compare with full === semantics.
+        bool useStringEq = anyCaseExpr && allString;
+        std::shared_ptr<HIRValue> boxedSwitch;
+        if (!useStringEq) boxedSwitch = boxValueIfNeeded(switchVal);
+
+        size_t blockIdx = 0;
+        for (auto& clause : node->clauses) {
+            auto* caseClause = dynamic_cast<ast::CaseClause*>(clause.get());
+
+            if (caseClause && caseClause->expression && blockIdx < caseBlocks.size()) {
+                std::shared_ptr<HIRValue> cmpResult;
+                if (useStringEq) {
+                    auto* strLit = dynamic_cast<ast::StringLiteral*>(caseClause->expression.get());
+                    auto caseStr = builder_.createConstString(strLit->value);
+                    cmpResult = builder_.createCall("ts_string_eq",
+                        {switchVal, caseStr}, HIRType::makeBool());
+                } else {
+                    // Evaluate the case expression in the current check block
+                    // so side effects occur in order and only until a match.
+                    auto caseVal = lowerExpression(caseClause->expression.get());
+                    auto boxedCase = boxValueIfNeeded(caseVal);
+                    cmpResult = builder_.createCall("ts_value_strict_eq",
+                        {boxedSwitch, boxedCase}, HIRType::makeAny());
+                }
+
+                // Determine the "next check" block
+                HIRBlock* nextCheckBlock = nullptr;
+                for (size_t j = blockIdx + 1; j < node->clauses.size(); ++j) {
+                    auto* nextCase = dynamic_cast<ast::CaseClause*>(node->clauses[j].get());
+                    if (nextCase && nextCase->expression) {
+                        nextCheckBlock = createBlock("switch.check");
+                        break;
+                    }
+                }
+                if (!nextCheckBlock) nextCheckBlock = defaultBlock;
+
+                builder_.createCondBranch(cmpResult, caseBlocks[blockIdx], nextCheckBlock);
+
+                // Continue emitting checks from the next check block
+                builder_.setInsertPoint(nextCheckBlock);
+                currentBlock_ = nextCheckBlock;
+            }
+            blockIdx++;
+        }
+
+        // If we're in a check block (not the default block itself) without a
+        // terminator, branch to default.
+        if (!hasTerminator() && currentBlock_ != defaultBlock) {
+            builder_.createBranch(defaultBlock);
+        }
     }
 
     // Generate code for each case
