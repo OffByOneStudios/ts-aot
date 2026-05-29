@@ -99,6 +99,16 @@ static bool g_promote_all = false;
 static uint64_t g_gc_stress = 0;        // 0 = off; else collect every Nth alloc
 static uint64_t g_gc_stress_counter = 0;
 
+// TS_PROTO_VERIFY=1: at GC entry/exit, walk every live map and assert its
+// `prototype` field is null or a live TsMap. Catches the residual where a
+// live map's prototype is clobbered to garbage (0x07 / a "STRG" header from a
+// reused freed slot) — invisible to INV-1, which only flags stale nursery
+// pointers. =2 also aborts on the first violation (with entry/exit labels, so
+// we learn whether the corruption was introduced by THIS GC or by the mutator
+// between GCs).
+static bool g_proto_verify = false;
+static bool g_proto_verify_abort = false;
+
 // Minor GC nursery root callback: when non-null, gc_mark_ptr/ts_gc_mark_object
 // will invoke this for nursery pointers (instead of ignoring them).
 // Set during scanner callback invocation in gc_mark_nursery_live().
@@ -678,6 +688,7 @@ static void* alloc_from_block(BlockHeader* bh) {
 // Forward declarations
 static void gc_collect_internal();
 static void gc_minor_collect_internal();
+static void gc_verify_prototypes(const char* when);
 
 static void* gc_alloc_small(size_t size) {
     int class_idx = find_size_class(size);
@@ -1366,6 +1377,7 @@ static void gc_sweep_phase() {
 static void gc_collect_internal() {
     if (!g_heap) return;
 
+    gc_verify_prototypes("full-entry");
     g_heap->collection_count++;
     g_in_collection = true;
 
@@ -1378,6 +1390,7 @@ static void gc_collect_internal() {
     auto t2 = std::chrono::high_resolution_clock::now();
 
     g_in_collection = false;
+    gc_verify_prototypes("full-exit");
 
     // NOTE: Do NOT clear the forwarding table after full GC!
     // The stack may still hold stale nursery pointers that need to be
@@ -1431,6 +1444,10 @@ static void gc_init() {
     }
     if (getenv("TS_GC_PROMOTE_ALL")) {
         g_promote_all = true;
+    }
+    if (const char* pv = getenv("TS_PROTO_VERIFY")) {
+        g_proto_verify = true;
+        if (atoi(pv) >= 2) g_proto_verify_abort = true;
     }
 
     // Tunable GC parameters via environment variables
@@ -2257,9 +2274,88 @@ static void gc_verify_forward_scanner_redirect(void* ptr) {
     }
 }
 
+// Prototype-chain invariant verifier (TS_PROTO_VERIFY). Walks every live GC
+// object; for each TsMap (magic@0x10 == "MAPS") whose `prototype` field (@0x28)
+// is non-null, asserts the prototype is a live heap object that is itself a
+// map. A violation = a live map's prototype was clobbered to garbage. `when`
+// labels the call site (e.g. "minor-entry"/"minor-exit") so we can tell whether
+// a given GC introduced the corruption or the mutator did between GCs.
+static void gc_verify_prototypes(const char* when) {
+    if (!g_proto_verify || !g_heap) return;
+    const uint32_t MAPS = 0x4D415053;  // "MAPS" (TsObject::magic @ +0x10)
+    size_t bad = 0;
+    auto check_map = [&](void* obj) {
+        if (!obj) return;
+        if (*(uint32_t*)((char*)obj + 0x10) != MAPS) return;   // not a TsMap
+        void* proto = *(void**)((char*)obj + 0x28);            // TsMap::prototype
+        if (!proto) return;                                    // null is fine
+        void* pbase = gc_find_base(proto);                     // live heap obj?
+        bool live = (pbase == proto);
+        bool isMap = live && (*(uint32_t*)((char*)proto + 0x10) == MAPS);
+        if (!isMap && ++bad <= 30) {
+            const char* loc = "old-gen-or-other";
+            uintptr_t nlo = (uintptr_t)g_nursery.region;
+            uintptr_t nhw = nlo + g_nursery.high_water;
+            uintptr_t nhi = nlo + g_nursery.region_size;
+            if ((uintptr_t)proto >= nlo && (uintptr_t)proto < nhi) {
+                loc = ((uintptr_t)proto >= nhw) ? "nursery-beyond-highwater"
+                    : (pbase ? "nursery-mid-object" : "nursery-gap-or-dead");
+            }
+            // Bytes currently at proto (readable if in committed nursery/heap).
+            uint64_t w0 = 0, w1 = 0, w2 = 0;
+            if ((uintptr_t)proto >= nlo && (uintptr_t)proto + 24 <= nhi) {
+                w0 = *(uint64_t*)proto; w1 = *(uint64_t*)((char*)proto + 8);
+                w2 = *(uint64_t*)((char*)proto + 16);
+            }
+            bool objNursery = ((uintptr_t)obj >= nlo && (uintptr_t)obj < nhi);
+            fprintf(stderr, "[PROTO] %s: map %p(%s) prototype=%p %s nbase=%p "
+                    "bytes=[%016llx %016llx %016llx]\n",
+                    when, obj, objNursery ? "nursery" : "oldgen", proto, loc, pbase,
+                    (unsigned long long)w0, (unsigned long long)w1, (unsigned long long)w2);
+            fflush(stderr);
+        }
+    };
+    // Old-gen small slots
+    for (size_t sc = 0; sc < NUM_SIZE_CLASSES; sc++) {
+        for (BlockHeader* bh = g_heap->block_lists[sc]; bh; bh = bh->next) {
+            if (!bh->block_mem || bh->live_count == 0) continue;
+            uintptr_t bstart = (uintptr_t)bh->block_mem;
+            for (size_t slot = 0; slot < bh->slot_count; slot++) {
+                if (!(bh->allocated_bits[slot / 8] & (1 << (slot % 8)))) continue;
+                check_map((void*)(bstart + slot * bh->slot_size));
+            }
+        }
+    }
+    // Large objects
+    for (LargeObjHeader* lo = g_heap->large_sentinel.next;
+         lo != &g_heap->large_sentinel; lo = lo->next) {
+        if (lo->data_size == 0 || lo->data_size > (size_t)2 * 1024 * 1024 * 1024) continue;
+        check_map((void*)((char*)lo + sizeof(LargeObjHeader)));
+    }
+    // Nursery live objects
+    if (g_nursery.enabled && g_nursery.region) {
+        char* nb = (char*)g_nursery.region;
+        size_t off = 0;
+        while (off + NURSERY_SIZE_PREFIX <= g_nursery.high_water) {
+            uint64_t raw = *(uint64_t*)(nb + off);
+            size_t osz = nursery_get_size(raw);
+            if (osz == 0) { off += 8; continue; }
+            if (osz > NURSERY_MAX_OBJ_SIZE) break;
+            check_map((void*)(nb + off + NURSERY_SIZE_PREFIX));
+            off += NURSERY_SIZE_PREFIX + osz;
+        }
+    }
+    if (bad) {
+        fprintf(stderr, "[PROTO] %s: %zu map(s) with corrupt prototype\n", when, bad);
+        fflush(stderr);
+        if (g_proto_verify_abort) abort();
+    }
+}
+
 static void gc_minor_collect_internal() {
     if (!g_nursery.enabled || g_nursery.high_water == 0) return;
 
+    gc_verify_prototypes("minor-entry");
     auto t0 = std::chrono::high_resolution_clock::now();
 
     // Before promotion, ensure old-gen has room.
@@ -3074,6 +3170,8 @@ static void gc_minor_collect_internal() {
 
     // Sync exported globals so compiler inline path picks up new cursor/limit
     nursery_sync_to_exported();
+
+    gc_verify_prototypes("minor-exit");
 }
 
 extern "C" { // Resume extern "C" for public API
