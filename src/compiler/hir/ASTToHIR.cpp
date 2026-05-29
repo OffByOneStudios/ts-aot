@@ -7220,6 +7220,28 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         return;
     }
 
+    // Computed method call: obj[key](args). The receiver MUST be bound as
+    // `this` — the generic indirect call below would call obj[key] with no
+    // receiver (e.g. `o['bump']()` ran with this=undefined → NaN; lodash
+    // `getMapData(...)['delete'](key)` silently no-op'd). Mirror the dot-method
+    // path but with a dynamic key: fetch obj[key], then invoke via
+    // ts_call_with_this_N(func, obj, ...args). (Static obj.method() is handled
+    // by the PropertyAccess block above.)
+    if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(node->callee.get())) {
+        if (args.size() <= 8) {
+            auto obj = lowerExpression(ea->expression.get());
+            auto boxedObj = boxValueIfNeeded(obj);
+            auto keyVal = lowerExpression(ea->argumentExpression.get());
+            auto func = builder_.createCall("ts_object_get_dynamic",
+                {boxedObj, boxValueIfNeeded(keyVal)}, HIRType::makeAny());
+            std::vector<std::shared_ptr<HIRValue>> callArgs = {func, boxedObj};
+            for (auto& a : args) callArgs.push_back(boxValueIfNeeded(a));
+            std::string callFn = "ts_call_with_this_" + std::to_string(args.size());
+            lastValue_ = builder_.createCall(callFn, callArgs, HIRType::makeAny());
+            return;
+        }
+    }
+
     // Generic case - callee is an expression (IIFE, function expression, etc.)
     // Lower the callee expression to get the function/closure pointer
     auto calleeVal = lowerExpression(node->callee.get());
