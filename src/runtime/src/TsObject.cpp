@@ -8635,6 +8635,37 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         if (result.type == ValueType::UNDEFINED) {
+            // For a real Map (IsExplicitMap) whose prototype chain doesn't
+            // include Map.prototype (e.g. created via ts_map_create_from_iterable
+            // with no proto link — lodash baseClone's cloned maps), resolve
+            // get/set/has/delete/forEach/entries/keys/values from the global
+            // Map.prototype. The static path (ts_object_get_property) already
+            // does this; without it here, dynamic `map.get` on an any-typed
+            // receiver returned undefined (cloneDeep(map) result methods were
+            // inaccessible). Mirror that fallback.
+            if (keyStr && map->IsExplicitMap()) {
+                extern void* ts_get_global_Map();
+                void* ctor = ts_get_global_Map();
+                if (ctor) {
+                    void* fraw = ts_value_get_object((TsValue*)ctor);
+                    if (!fraw) fraw = ctor;
+                    if (fraw && *(uint32_t*)((char*)fraw + 16) == TsFunction::MAGIC) {
+                        TsFunction* fctor = (TsFunction*)fraw;
+                        if (fctor->properties) {
+                            TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+                            protoKey.ptr_val = TsString::GetInterned("prototype");
+                            TsValue protoVal = fctor->properties->Get(protoKey);
+                            if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+                                TsMap* proto = (TsMap*)protoVal.ptr_val;
+                                TsValue mk; mk.type = ValueType::STRING_PTR;
+                                mk.ptr_val = keyStr;
+                                TsValue mv = proto->Get(mk);
+                                if (mv.type != ValueType::UNDEFINED) return nanbox_from_tagged(mv);
+                            }
+                        }
+                    }
+                }
+            }
             // If not found in the map, check Object.prototype methods
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
