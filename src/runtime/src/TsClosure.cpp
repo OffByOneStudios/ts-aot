@@ -167,18 +167,28 @@ TsCell* ts_closure_get_cell(TsClosure* closure, int64_t index) {
     TsCell* cell = closure->getCell(index);
     if (cell) {
         uintptr_t cellAddr = (uintptr_t)cell;
-        if (cellAddr < 0x10000 || (cellAddr >> 48) != 0) {
-            const char* nameStr = (closure->name && closure->name->magic == TsString::MAGIC) ? closure->name->ToUtf8() : "<anon>";
-            fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p cell[%lld]=%p is NOT valid pointer, name='%s'\n",
-                    (void*)closure, (long long)index, (void*)cell, nameStr);
-            fflush(stderr);
-            return nullptr;
-        }
-        // Validate cell magic
-        if (cell->magic != 0x43454C4C) {
-            const char* nameStr = (closure->name && closure->name->magic == TsString::MAGIC) ? closure->name->ToUtf8() : "<anon>";
-            fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p cell[%lld]=%p has bad magic 0x%08X (expected CELL), name='%s'\n",
-                    (void*)closure, (long long)index, (void*)cell, cell->magic, nameStr);
+        // Crash-safe validation. A closure's cells array (an old-gen block) can
+        // be freed-and-reused while the closure still references it (a GC
+        // rooting gap surfacing under lodash, where the block came back holding
+        // NaN-boxed doubles), so `cell` may be a tagged primitive OR a stale
+        // pointer into a decommitted block. NEVER deref `cell` or `closure->name`
+        // without first confirming they are live heap objects, or the validator
+        // itself faults (the actual observed crash, TsClosure.cpp:171/178). On
+        // any failure return nullptr — the caller reads the captured slot as
+        // undefined (a wrong result for that read) instead of crashing, so the
+        // run completes.
+        bool cellLive = !(cellAddr < 0x10000 || (cellAddr >> 48) != 0)
+                        && ts_gc_is_heap_object(cell);
+        if (!cellLive || cell->magic != 0x43454C4C) {
+            // closure->name is itself possibly stale — guard before deref.
+            const char* nameStr = (closure->name && ts_gc_is_heap_object(closure->name)
+                                   && closure->name->magic == TsString::MAGIC)
+                                      ? closure->name->ToUtf8() : "<anon>";
+            uint32_t cellMagic = cellLive ? cell->magic : 0;
+            fprintf(stderr, "[BUG] ts_closure_get_cell: closure=%p cell[%lld]=%p invalid "
+                            "(live=%d magic=0x%08X), name='%s'\n",
+                    (void*)closure, (long long)index, (void*)cell,
+                    (int)cellLive, cellMagic, nameStr);
             fflush(stderr);
             return nullptr;
         }

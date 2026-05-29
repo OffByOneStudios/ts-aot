@@ -55,6 +55,7 @@ size_t ts_gc_collection_count();
 
 // Nursery support
 bool ts_gc_is_nursery(void* ptr);     // Check if pointer is in nursery
+bool ts_gc_is_heap_object(void* ptr); // True iff ptr is a currently-allocated GC object (crash-safe deref guard)
 void ts_gc_nursery_info(void** out_base, size_t* out_size);
 void ts_gc_minor_collect();            // Trigger minor (nursery) collection
 void ts_gc_write_barrier(void* slot_addr, void* stored_value);  // Card-marking barrier

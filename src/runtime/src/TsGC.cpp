@@ -1864,6 +1864,21 @@ bool ts_gc_is_nursery(void* ptr) {
     return is_nursery_ptr(ptr);
 }
 
+// True iff `ptr` points into a CURRENTLY-ALLOCATED GC object (nursery live
+// object, old-gen small slot, or large object). Returns false for freed /
+// decommitted slots, tagged primitives, and non-heap addresses. Cheap in
+// steady state (rebuild_descriptors is dirty-flag-guarded → two binary
+// searches). Use to make defensive deref paths crash-safe: validate a pointer
+// before reading its header when it may be stale (e.g. a closure cell array
+// whose backing block was freed and reused). gc_find_base returns the
+// containing object's base, checking the slot's allocated bit.
+bool ts_gc_is_heap_object(void* ptr) {
+    if (!g_heap || !ptr) return false;
+    uintptr_t v = (uintptr_t)ptr;
+    if (v < 0x10000 || (v >> 48) != 0) return false;  // tagged / non-canonical
+    return gc_find_base(ptr) != nullptr;
+}
+
 void ts_gc_nursery_info(void** out_base, size_t* out_size) {
     if (out_base) *out_base = g_nursery.region;
     if (out_size) *out_size = g_nursery.region_size;
