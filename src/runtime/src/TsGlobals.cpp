@@ -3210,12 +3210,37 @@ void* ts_get_global_globalThis() {
 // Node.js module globals — use builtin module system
 // ========================================
 
-static void* getModuleGlobal(const char* name) {
+// Cached builtin Node module objects (path/fs/os/...). Held ONLY here, so the
+// GC must scan this map or the (tenured) module objects get swept when no live
+// JS reference is on the stack. Same class as the builtin-global getter caches.
+extern "C" void ts_gc_register_scanner(void (*)(void*), void*);
+extern "C" void ts_gc_register_minor_fixup(void (*)(void*), void*);
+extern "C" void ts_gc_mark_object(void*);
+extern "C" void* ts_gc_minor_lookup_forward(void*);
+static std::unordered_map<std::string, void*>& moduleGlobalCache() {
     static std::unordered_map<std::string, void*> cache;
+    return cache;
+}
+static void* getModuleGlobal(const char* name) {
+    auto& cache = moduleGlobalCache();
     auto it = cache.find(name);
     if (it != cache.end()) return it->second;
-    void* mod = ts_get_builtin_module(name);
+    void* mod;
+    { TenureScope _tenure; mod = ts_get_builtin_module(name); }
     cache[name] = mod;
+    static bool registered = false;
+    if (!registered) {
+        registered = true;
+        ts_gc_register_scanner([](void*) {
+            for (auto& kv : moduleGlobalCache())
+                if ((uintptr_t)kv.second >= 4096 && (uintptr_t)kv.second <= 0x00007FFFFFFFFFFFULL)
+                    ts_gc_mark_object(kv.second);
+        }, nullptr);
+        ts_gc_register_minor_fixup([](void*) {
+            for (auto& kv : moduleGlobalCache())
+                if (kv.second) { void* f = ts_gc_minor_lookup_forward(kv.second); if (f) kv.second = f; }
+        }, nullptr);
+    }
     return mod;
 }
 
