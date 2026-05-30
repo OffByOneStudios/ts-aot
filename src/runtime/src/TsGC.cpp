@@ -1379,6 +1379,11 @@ static void gc_sweep_phase() {
 // its elements buffer) is marked. Catches "live object freed" use-after-free. --
 static void* g_gc_watch_obj = nullptr;
 static void* g_gc_watch_elems = nullptr;
+// Whether g_gc_watch_obj was marked (reachable) at the most recent full GC.
+// Exposed to JS via __ts_gc_watch_alive() so a gc-suite test can assert that an
+// object held only by a container survived a forced collection — a robust,
+// reuse-immune signal (marking is decided during GC, not by post-GC slot reuse).
+static bool g_gc_watch_last_marked = false;
 
 // Return true iff ptr is the base of a currently-MARKED small/large GC object.
 static bool gc_is_marked(void* ptr) {
@@ -1413,6 +1418,7 @@ static void gc_watch_check_after_mark() {
     if (!g_gc_watch_obj) return;
     void* raw = g_gc_watch_obj;
     bool om = gc_is_marked(raw);
+    g_gc_watch_last_marked = om;
     uint32_t magic = ((uintptr_t)raw > 4096) ? *(uint32_t*)raw : 0;
     void* curElems = (magic == 0x41525259) ? *(void**)((char*)raw + 8) : nullptr;
     bool em = curElems ? gc_is_marked(curElems) : true;
@@ -1473,6 +1479,14 @@ void ts_gc_dbg_watch(void* boxed) {
     fprintf(stderr, "[WATCH] registered obj=%p elems=%p magic=0x%08X len=%zu e[0..2]=%p %p %p\n",
             g_gc_watch_obj, g_gc_watch_elems, raw ? *(uint32_t*)raw : 0, len, e0, e1, e2);
     fflush(stderr);
+    g_gc_watch_last_marked = true;  // assume live until a GC says otherwise
+}
+
+// __ts_gc_watch_alive(): true iff the watched object was MARKED (reachable) at
+// the most recent full GC. After dropping all JS refs + __ts_gc_major(), this
+// returns false iff the holding container failed to keep it alive.
+bool ts_gc_dbg_watch_alive() {
+    return g_gc_watch_last_marked;
 }
 
 static void gc_collect_internal() {

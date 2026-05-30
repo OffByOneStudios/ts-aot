@@ -6645,6 +6645,10 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             lastValue_ = builder_.createCall("ts_gc_dbg_watch", {boxed}, HIRType::makeVoid());
             return;
         }
+        if (ident->name == "__ts_gc_watch_alive") {
+            lastValue_ = builder_.createCall("ts_gc_dbg_watch_alive", {}, HIRType::makeBool());
+            return;
+        }
         if (ident->name == "__ts_dbg_bits") {
             if (args.empty()) { lastValue_ = builder_.createConstBool(false); return; }
             auto arg = args[0];
