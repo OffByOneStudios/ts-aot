@@ -70,6 +70,8 @@ void* ts_gc_alloc_old_gen(size_t size);
 double ts_gc_dbg_collection_count();          // collections so far
 double ts_gc_dbg_live_size();                 // bytes surviving last GC
 bool   ts_gc_dbg_is_nursery(void* boxed);     // is value's object in nursery?
+void   ts_gc_dbg_watch(void* boxed);          // watch obj+elems liveness each GC
+void   ts_dbg_bits(void* boxed);              // dump raw 64-bit bits + tag + magic
 double ts_gc_verify_now();                    // verified minor GC; #violations
 
 // Minor GC fixup callback: called during minor GC to fix up nursery pointers

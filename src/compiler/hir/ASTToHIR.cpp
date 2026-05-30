@@ -6626,6 +6626,44 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             lastValue_ = builder_.createCall("ts_gc_dbg_is_nursery", {boxed}, HIRType::makeBool());
             return;
         }
+        if (ident->name == "__ts_gc_watch") {
+            if (args.empty()) { lastValue_ = builder_.createConstBool(false); return; }
+            auto arg = args[0];
+            std::shared_ptr<HIRValue> boxed;
+            if (arg->type) {
+                switch (arg->type->kind) {
+                    case HIRTypeKind::Int64:  boxed = builder_.createBoxInt(arg); break;
+                    case HIRTypeKind::Float64: boxed = builder_.createBoxFloat(arg); break;
+                    case HIRTypeKind::Bool:   boxed = builder_.createBoxBool(arg); break;
+                    case HIRTypeKind::String: boxed = builder_.createBoxString(arg); break;
+                    case HIRTypeKind::Any:    boxed = arg; break;
+                    default:                  boxed = builder_.createBoxObject(arg); break;
+                }
+            } else {
+                boxed = builder_.createBoxObject(arg);
+            }
+            lastValue_ = builder_.createCall("ts_gc_dbg_watch", {boxed}, HIRType::makeVoid());
+            return;
+        }
+        if (ident->name == "__ts_dbg_bits") {
+            if (args.empty()) { lastValue_ = builder_.createConstBool(false); return; }
+            auto arg = args[0];
+            std::shared_ptr<HIRValue> boxed;
+            if (arg->type) {
+                switch (arg->type->kind) {
+                    case HIRTypeKind::Int64:  boxed = builder_.createBoxInt(arg); break;
+                    case HIRTypeKind::Float64: boxed = builder_.createBoxFloat(arg); break;
+                    case HIRTypeKind::Bool:   boxed = builder_.createBoxBool(arg); break;
+                    case HIRTypeKind::String: boxed = builder_.createBoxString(arg); break;
+                    case HIRTypeKind::Any:    boxed = arg; break;
+                    default:                  boxed = builder_.createBoxObject(arg); break;
+                }
+            } else {
+                boxed = builder_.createBoxObject(arg);
+            }
+            lastValue_ = builder_.createCall("ts_dbg_bits", {boxed}, HIRType::makeVoid());
+            return;
+        }
 
         // First check if this is a captured variable from an outer function
         size_t scopeIndex = 0;

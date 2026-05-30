@@ -1374,6 +1374,107 @@ static void gc_sweep_phase() {
 // Full Collection
 // ============================================================================
 
+// ---- GC watch diagnostic: __ts_gc_watch(obj) registers a pointer; at each
+// full GC (after marking, before sweep) we report whether it (and, for arrays,
+// its elements buffer) is marked. Catches "live object freed" use-after-free. --
+static void* g_gc_watch_obj = nullptr;
+static void* g_gc_watch_elems = nullptr;
+
+// Return true iff ptr is the base of a currently-MARKED small/large GC object.
+static bool gc_is_marked(void* ptr) {
+    if (!ptr) return false;
+    uintptr_t addr = (uintptr_t)ptr;
+    rebuild_descriptors();
+    auto& descs = g_heap->block_descriptors;
+    if (!descs.empty()) {
+        size_t lo = 0, hi = descs.size();
+        while (lo < hi) { size_t mid = lo + (hi - lo) / 2; if (descs[mid].base <= addr) lo = mid + 1; else hi = mid; }
+        if (lo > 0) {
+            const BlockDescriptor& d = descs[lo - 1];
+            if (addr >= d.base && addr < d.end) {
+                size_t idx = (addr - d.base) / d.slot_size;
+                if (idx < d.header->slot_count && bitmap_get(d.header->allocated_bits, idx))
+                    return bitmap_get(d.header->mark_bits, idx);
+                return false;
+            }
+        }
+    }
+    rebuild_large_descriptors();
+    auto& ld = g_heap->large_descriptors;
+    if (!ld.empty()) {
+        size_t lo = 0, hi = ld.size();
+        while (lo < hi) { size_t mid = lo + (hi - lo) / 2; if (ld[mid].base <= addr) lo = mid + 1; else hi = mid; }
+        if (lo > 0) { const LargeObjDescriptor& d = ld[lo - 1]; if (addr >= d.base && addr < d.end) return d.header->marked; }
+    }
+    return false;
+}
+
+static void gc_watch_check_after_mark() {
+    if (!g_gc_watch_obj) return;
+    void* raw = g_gc_watch_obj;
+    bool om = gc_is_marked(raw);
+    uint32_t magic = ((uintptr_t)raw > 4096) ? *(uint32_t*)raw : 0;
+    void* curElems = (magic == 0x41525259) ? *(void**)((char*)raw + 8) : nullptr;
+    bool em = curElems ? gc_is_marked(curElems) : true;
+    static const bool verbose = getenv("TS_GC_WATCH_VERBOSE") != nullptr;
+    if (om && em && !verbose) return;  // default: only report a problem
+    void *e0=nullptr,*e1=nullptr,*e2=nullptr;
+    size_t len = 0;
+    if (magic == 0x41525259) {
+        len = *(size_t*)((char*)raw + 16);
+        if (curElems) { e0=((void**)curElems)[0]; e1=((void**)curElems)[1]; e2=((void**)curElems)[2]; }
+    }
+    fprintf(stderr, "[WATCH] coll#%zu obj=%p om=%d magic=0x%08X len=%zu elems=%p(orig=%p chg=%d) em=%d  e[0..2]=%p %p %p%s\n",
+            g_heap->collection_count, raw, om, magic, len, curElems, g_gc_watch_elems,
+            (curElems != g_gc_watch_elems), em, e0, e1, e2,
+            (!om ? "  <-- OBJECT SWEPT" : !em ? "  <-- ELEMS SWEPT" : ""));
+    fflush(stderr);
+}
+
+extern "C" void* ts_value_get_object(void* val);
+
+// __ts_dbg_bits(v): dump a value's raw 64-bit encoding, its NaN-box tag class,
+// and (if a heap pointer) the magic words at offset 0 and 16. For pinning
+// bit-level corruption of a value (e.g. a builtin function losing its tag).
+void ts_dbg_bits(void* boxed) {
+    uint64_t raw = (uint64_t)(uintptr_t)boxed;
+    const char* cls = "ptr?";
+    bool isPtr = (raw & 0xFFFF000000000000ULL) == 0 && raw > 0x0A;
+    if ((raw & 0xFFFE000000000000ULL) == 0xFFFE000000000000ULL) cls = "int32";
+    else if (raw & 0xFFFE000000000000ULL) cls = "double";
+    else if (raw == 0x0A) cls = "undefined";
+    else if (raw == 0x02) cls = "null";
+    else if (raw == 0x06 || raw == 0x07) cls = "bool";
+    else if (isPtr) cls = "ptr";
+    uint32_t m0 = 0, m16 = 0;
+    if (isPtr) { m0 = *(uint32_t*)(uintptr_t)raw; m16 = *(uint32_t*)((char*)(uintptr_t)raw + 16); }
+    fprintf(stderr, "[BITS] raw=0x%016llX class=%s magic@0=0x%08X magic@16=0x%08X\n",
+            (unsigned long long)raw, cls, m0, m16);
+    fflush(stderr);
+}
+
+void ts_gc_dbg_watch(void* boxed) {
+    void* raw = ts_value_get_object(boxed);
+    if (!raw) raw = boxed;
+    g_gc_watch_obj = raw;
+    g_gc_watch_elems = nullptr;
+    // If it's a TsArray (magic 'ARRY' = 0x41525259 at offset 0), grab elements ptr (offset 8).
+    if (raw && (uintptr_t)raw > 4096) {
+        uint32_t magic = *(uint32_t*)raw;
+        if (magic == 0x41525259) {
+            g_gc_watch_elems = *(void**)((char*)raw + 8);
+        }
+    }
+    void *e0=nullptr,*e1=nullptr,*e2=nullptr; size_t len=0;
+    if (g_gc_watch_elems) {
+        len = *(size_t*)((char*)raw + 16);
+        e0=((void**)g_gc_watch_elems)[0]; e1=((void**)g_gc_watch_elems)[1]; e2=((void**)g_gc_watch_elems)[2];
+    }
+    fprintf(stderr, "[WATCH] registered obj=%p elems=%p magic=0x%08X len=%zu e[0..2]=%p %p %p\n",
+            g_gc_watch_obj, g_gc_watch_elems, raw ? *(uint32_t*)raw : 0, len, e0, e1, e2);
+    fflush(stderr);
+}
+
 static void gc_collect_internal() {
     if (!g_heap) return;
 
@@ -1383,6 +1484,7 @@ static void gc_collect_internal() {
 
     auto t0 = std::chrono::high_resolution_clock::now();
     gc_mark_phase();
+    gc_watch_check_after_mark();
     auto t1 = std::chrono::high_resolution_clock::now();
     gc_process_weak_refs();
     gc_process_finalizers();
