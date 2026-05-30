@@ -48,7 +48,8 @@ struct TsAsyncGenerator : public TsMap {
     static constexpr uint32_t MAGIC = 0x4147454E; // "AGEN"
     AsyncContext* ctx;
     bool done = false;
-    std::vector<TsPromise*> nextQueue;
+    // (removed dead `nextQueue` — never written/read; async gens use
+    //  ctx->pendingNextPromise, a GC-scanned field of AsyncContext.)
 
     TsAsyncGenerator(AsyncContext* ctx);
     TsPromise* next(TsValue* value = nullptr);
