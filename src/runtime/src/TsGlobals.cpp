@@ -44,6 +44,12 @@
 // nest correctly.
 extern "C" void ts_gc_push_tenure();
 extern "C" void ts_gc_pop_tenure();
+// Root the cached builtin-global pointers so the collector keeps the (tenured,
+// non-moving) builtin function objects alive. Without this, a cached builtin is
+// reachable only via this unscanned C++ static and gets SWEPT when no live JS
+// reference is on the stack at GC time (e.g. `String` passed as a param across
+// a forced GC → its memory reused → typeof "string", uncallable).
+extern "C" void ts_gc_register_root(void** location);
 namespace { struct TenureScope { TenureScope() { ts_gc_push_tenure(); } ~TenureScope() { ts_gc_pop_tenure(); } }; }
 
 extern "C" {
@@ -348,6 +354,7 @@ void* ts_get_global_Object() {
     // Promote to TsFunction so `typeof Object === "function"` and
     // `isConstructor(Object)` returns true.
     cached = wrapAsCallable(ctor, "Object", 1);
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
 
     // ECMA-262: Object.prototype.constructor === Object. Lodash's
     // isPlainObject walks `proto.constructor` to identify plain objects,
@@ -479,6 +486,7 @@ void* ts_get_global_Array() {
     // Promote to TsFunction so typeof Array === "function" and
     // isConstructor(Array) returns true.
     cached = wrapAsCallable(ctorMap, "Array", 1);
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
 
     // proto.constructor = Array (per spec — Array.prototype.constructor === Array).
     // Must be done after wrapAsCallable so we have the TsFunction reference.
@@ -785,6 +793,7 @@ void* ts_get_global_String() {
         addMethod(ctorFunc->properties, "raw", (void*)+stringRawFn, 1);
 
         cached = (void*)ctorVal;
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -922,6 +931,7 @@ void* ts_get_global_Error() {
     static void* cached = nullptr;
     if (!cached) {
         cached = makeErrorConstructor("Error");
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
         // ES2024: Error.isError(x) — true iff x is an Error instance.
         // Accept objects whose prototype chain contains Error.prototype.
         void* ctorRaw = ts_value_get_object((TsValue*)cached);
@@ -1052,6 +1062,7 @@ void* ts_get_global_AggregateError() {
         ctorFunc->properties->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
 
         cached = (void*)ctorVal;
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1065,6 +1076,7 @@ void* ts_get_global_JSON() {
     if (cached) return cached;
 
     cached = TsMap::Create();
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     addMethod(cached, "stringify", (void*)ts_json_stringify_native, 3);
     addMethod(cached, "parse", (void*)ts_json_parse_native, 2);
     // Symbol.toStringTag so Object.prototype.toString.call(JSON) === "[object JSON]"
@@ -1367,6 +1379,7 @@ void* ts_get_global_Number() {
         addMethod(ctorFunc->properties, "isSafeInteger", (void*)ts_number_isSafeInteger_native,   1);
 
         cached = (void*)ctorVal;
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1450,6 +1463,7 @@ void* ts_get_global_Boolean() {
 
         ctorFunc->name = TsString::Create("Boolean");
         cached = (void*)ctorVal;
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1487,6 +1501,7 @@ void* ts_get_global_Function() {
         ctor->Set(protoKey, protoVal);
 
         cached = wrapAsCallable(ctor, "Function", 1);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1522,6 +1537,7 @@ void* ts_get_global_Date() {
         ts_date_constructor_populate(ctor);
 
         cached = wrapAsCallable(ctor, "Date", 7);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1537,6 +1553,7 @@ void* ts_get_global_RegExp() {
     static void* cached = nullptr;
     if (!cached) {
         cached = wrapAsCallable(makeSimpleConstructorGlobal("RegExp"), "RegExp", 2);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
         // Populate RegExp.prototype with the spec-required methods so that
         // `RegExp.prototype.exec`, `.test`, etc. are accessible with proper
         // name/length own-properties — required by test262.
@@ -1616,6 +1633,7 @@ void* ts_get_global_Promise() {
             proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
         }
         cached = wrapAsCallable(ctor, "Promise", 1);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1624,6 +1642,7 @@ void* ts_get_global_TypeError() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("TypeError");
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -1631,6 +1650,7 @@ void* ts_get_global_RangeError() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("RangeError");
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -1638,6 +1658,7 @@ void* ts_get_global_ReferenceError() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("ReferenceError");
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -1645,6 +1666,7 @@ void* ts_get_global_SyntaxError() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("SyntaxError");
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -1652,6 +1674,7 @@ void* ts_get_global_URIError() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("URIError");
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -1659,6 +1682,7 @@ void* ts_get_global_EvalError() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = makeErrorConstructor("EvalError");
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -1711,6 +1735,7 @@ void* ts_get_global_Symbol() {
         }, 1);
 
         cached = wrapAsCallable(ctor, "Symbol", 0);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1810,6 +1835,7 @@ void* ts_get_global_Map() {
         }, 2);
 
         cached = wrapAsCallable(ctor, "Map", 0);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1868,6 +1894,7 @@ void* ts_get_global_Set() {
         });
 
         cached = wrapAsCallable(ctor, "Set", 0);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1905,6 +1932,7 @@ void* ts_get_global_WeakMap() {
             return ts_map_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
         cached = wrapAsCallable(ctor, "WeakMap", 0);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -1934,6 +1962,7 @@ void* ts_get_global_WeakSet() {
             return ts_set_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
         cached = wrapAsCallable(ctor, "WeakSet", 0);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -2032,6 +2061,7 @@ void* ts_get_global_Reflect() {
     static TsMap* cached = nullptr;
     if (!cached) {
         cached = makeSimpleConstructorGlobal("Reflect");
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
         addMethod(cached, "apply",        (void*)ts_reflect_apply_native, 3);
         addMethod(cached, "construct",    (void*)ts_reflect_construct_native, 2);
         addMethod(cached, "get",          (void*)reflect_get_native, 2);
@@ -2053,6 +2083,7 @@ void* ts_get_global_Proxy() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("Proxy"), "Proxy", 2);
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -2150,6 +2181,7 @@ void* ts_get_global_ArrayBuffer() {
         }
 
         cached = wrapAsCallable(ctor, "ArrayBuffer", 1);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -2228,6 +2260,7 @@ void* ts_get_global_DataView() {
             (void)requireDataView;
         }
         cached = wrapAsCallable(ctor, "DataView", 1);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -2236,6 +2269,7 @@ void* ts_get_global_SharedArrayBuffer() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("SharedArrayBuffer"), "SharedArrayBuffer", 1);
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -2382,6 +2416,7 @@ void* ts_get_global_BigInt() {
             return (TsValue*)out;
         }, 2);
         cached = wrapAsCallable(ctor, "BigInt", 1);
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
 }
@@ -2390,6 +2425,7 @@ void* ts_get_global_GeneratorFunction() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("GeneratorFunction"), "GeneratorFunction", 1);
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -2397,6 +2433,7 @@ void* ts_get_global_AsyncFunction() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("AsyncFunction"), "AsyncFunction", 1);
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -2404,6 +2441,7 @@ void* ts_get_global_AsyncGeneratorFunction() {
     TenureScope _tenure;
     static void* cached = nullptr;
     if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("AsyncGeneratorFunction"), "AsyncGeneratorFunction", 1);
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }
 
@@ -2984,6 +3022,7 @@ void* ts_get_global_Intl() {
     static TsMap* cached = nullptr;
     if (cached) return cached;
     cached = TsMap::Create();
+    { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
 
     // Intl.getCanonicalLocales(locales) — ECMA-402 §8.2.1.
     // Minimal: if input is a string, canonicalize via ICU and return [tag].
@@ -3862,6 +3901,7 @@ void* ts_get_global_##CName() {                                                 
             return (TsValue*)RuntimeFn(length);                                         \
         };                                                                              \
         cached = makeTypedArrayCtor(#JsName, fn, ts_get_global_TypedArray());           \
+        { static bool _r=false; if(!_r){ _r=true; ts_gc_register_root((void**)&cached); } } \
     }                                                                                   \
     return cached;                                                                      \
 }
