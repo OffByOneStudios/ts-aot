@@ -9695,6 +9695,12 @@ TsValue* ts_value_make_int(int64_t i) {
             r < -9223372036854775808.0 || r >= 9223372036854775808.0) {
             return ts_value_make_double(r);
         }
+        // Preserve negative zero: (int64_t)(-0.0) == 0 would drop the sign, so
+        // Math.floor/ceil/round/trunc(-0) must return a double -0 (per spec
+        // and lodash's `should preserve the sign of 0`).
+        if (r == 0.0 && std::signbit(r)) {
+            return ts_value_make_double(r);
+        }
         return ts_value_make_int((int64_t)r);
     }
 
