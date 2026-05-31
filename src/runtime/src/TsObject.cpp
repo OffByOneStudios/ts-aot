@@ -3782,7 +3782,13 @@ TsValue* ts_value_make_int(int64_t i) {
                 char* endptr;
                 long index = strtol(keyStr, &endptr, 10);
                 if (*endptr == '\0' && index >= 0 && (size_t)index < arr->Length()) {
-                    return (TsValue*)(uintptr_t)arr->Get((size_t)index);
+                    // Normalize sparse holes to real undefined — otherwise the
+                    // NANBOX_HOLE (0x08) sentinel leaks and ToString's to
+                    // "unknown" (e.g. `'' + sparseArr['1']`), and lodash's
+                    // dense iteration over arrays propagates the hole.
+                    uint64_t ev = (uint64_t)(uintptr_t)arr->Get((size_t)index);
+                    if (ev == NANBOX_HOLE) return ts_value_make_undefined();
+                    return (TsValue*)(uintptr_t)ev;
                 }
             }
             // User-defined string-keyed property — look up the lazy side map.
