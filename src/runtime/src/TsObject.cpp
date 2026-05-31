@@ -3462,6 +3462,13 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int(match->Length());
             }
+            // A match array is an Array exotic object; `.constructor` is Array.
+            // lodash initCloneArray does `new array.constructor(length)` then
+            // copies .index/.input — without this it was `new undefined(...)`.
+            if (strcmp(keyStr, "constructor") == 0) {
+                extern void* ts_get_global_Array();
+                return (TsValue*)ts_get_global_Array();
+            }
             // Check for numeric index - delegate to underlying matches array
             char* endptr;
             long index = strtol(keyStr, &endptr, 10);

@@ -3345,11 +3345,16 @@ extern "C" {
     bool ts_array_is_array(void* value) {
         if (!value) return false;
 
-        // Decode NaN-boxed value
+        // Decode NaN-boxed value. Mirror ts_array_isArray: a RegExp match array
+        // (RMAT) is an Array exotic object, and arrays can arrive boxed as
+        // OBJECT_PTR. Without this, lodash's `Array.isArray(/x/.exec(...))`
+        // returned false -> baseClone skipped initCloneArray -> match-array
+        // clone lost .index/.input/elements.
         TsValue decoded = nanbox_to_tagged((TsValue*)value);
-        if (decoded.type == ValueType::ARRAY_PTR && decoded.ptr_val) {
-            uint32_t* magic_ptr = (uint32_t*)decoded.ptr_val;
-            return *magic_ptr == TsArray::MAGIC;
+        if (decoded.type == ValueType::ARRAY_PTR) return true;
+        if (decoded.type == ValueType::OBJECT_PTR && decoded.ptr_val) {
+            uint32_t magic = *(uint32_t*)decoded.ptr_val;
+            return magic == TsArray::MAGIC || magic == 0x524D4154; // TsRegExpMatchArray
         }
 
         return false;
