@@ -9943,7 +9943,8 @@ TsValue* ts_value_make_int(int64_t i) {
         void* raw = nanbox_to_ptr(nb);
         if (!raw) return ts_value_make_bool(false);
         uint32_t magic = *(uint32_t*)raw;
-        return ts_value_make_bool(magic == 0x41525259);
+        // ARRY or RMAT (a RegExp match array is an Array exotic object).
+        return ts_value_make_bool(magic == 0x41525259 || magic == 0x524D4154);
     }
 
     TsValue* ts_math_random_native(void* context, int argc, TsValue** argv) {
