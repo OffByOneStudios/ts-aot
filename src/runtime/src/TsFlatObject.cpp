@@ -348,7 +348,15 @@ extern "C" bool ts_flat_object_has_property(void* obj, const char* key) {
     return false;
 }
 
-extern "C" void* ts_flat_object_keys(void* obj) {
+// Defined in TsObject.cpp: true iff a property-key string is the internal
+// storage key for a user Symbol ("\x01@@sym\x01<index>").
+extern "C" int ts_is_user_symbol_storage_key(const char* k);
+extern "C" void* ts_value_get_string(TsValue* v);
+
+// symbolsOnly=false -> the string-keyed own properties (Object.keys / for-in),
+// excluding user-symbol storage keys. symbolsOnly=true -> only user-symbol
+// storage keys (for Object.getOwnPropertySymbols).
+static void* flat_object_keys_impl(void* obj, bool symbolsOnly) {
     if (!obj) return TsArray::Create(0);
 
     uint32_t shapeId = flat_object_shape_id(obj);
@@ -360,6 +368,8 @@ extern "C" void* ts_flat_object_keys(void* obj) {
     for (uint32_t i = 0; i < desc->numSlots; i++) {
         uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
         if (val == NANBOX_DELETED) continue;  // tombstoned by delete
+        bool isSym = ts_is_user_symbol_storage_key(desc->propNames[i]) != 0;
+        if (isSym != symbolsOnly) continue;
         TsString* name = TsString::Create(desc->propNames[i]);
         keys->Push((int64_t)(uintptr_t)name);
     }
@@ -370,12 +380,26 @@ extern "C" void* ts_flat_object_keys(void* obj) {
         TsArray* overflowKeys = (TsArray*)ts_map_keys(overflow);
         if (overflowKeys) {
             for (int64_t i = 0; i < overflowKeys->Length(); i++) {
-                keys->Push(overflowKeys->Get(i));
+                int64_t boxed = overflowKeys->Get(i);
+                void* sp = ts_value_get_string((TsValue*)(intptr_t)boxed);
+                const char* kc = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
+                bool isSym = kc && ts_is_user_symbol_storage_key(kc) != 0;
+                if (isSym != symbolsOnly) continue;
+                keys->Push(boxed);
             }
         }
     }
 
     return keys;
+}
+
+extern "C" void* ts_flat_object_keys(void* obj) {
+    return flat_object_keys_impl(obj, false);
+}
+
+// Own user-Symbol storage keys (as strings) of a flat object.
+extern "C" void* ts_flat_object_symbol_keys(void* obj) {
+    return flat_object_keys_impl(obj, true);
 }
 
 extern "C" void* ts_flat_object_values(void* obj) {

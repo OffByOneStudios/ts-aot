@@ -426,9 +426,37 @@ void* ts_map_keys(void* map) {
     return ((TsMap*)map)->GetKeys();
 }
 
-void* ts_map_enumerable_keys(void* map) {
+// Defined in TsObject.cpp.
+extern "C" int ts_is_user_symbol_storage_key(const char* k);
+extern "C" void* ts_value_get_string(TsValue* v);
+
+// Partition an object's enumerable own property keys into string keys
+// (symbolsOnly=false) and user-Symbol storage keys (symbolsOnly=true). User
+// symbols are stored under "\x01@@sym\x01<index>" marker strings; Object.keys /
+// for-in must exclude them, Object.getOwnPropertySymbols collects them.
+static void* map_enumerable_keys_filtered(void* map, bool symbolsOnly) {
     if (!map) return nullptr;
-    return ((TsMap*)map)->GetEnumerableKeys();
+    TsArray* all = (TsArray*)((TsMap*)map)->GetEnumerableKeys();
+    if (!all) return all;
+    TsArray* out = TsArray::Create(0);
+    for (int64_t i = 0; i < all->Length(); i++) {
+        int64_t boxed = all->Get(i);
+        void* sp = ts_value_get_string((TsValue*)(intptr_t)boxed);
+        const char* kc = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
+        bool isSym = kc && ts_is_user_symbol_storage_key(kc) != 0;
+        if (isSym != symbolsOnly) continue;
+        out->Push(boxed);
+    }
+    return out;
+}
+
+void* ts_map_enumerable_keys(void* map) {
+    return map_enumerable_keys_filtered(map, false);
+}
+
+// Own user-Symbol storage keys (as strings) of an object-backing map.
+void* ts_map_symbol_keys(void* map) {
+    return map_enumerable_keys_filtered(map, true);
 }
 
 void* ts_map_values(void* map) {

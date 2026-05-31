@@ -281,14 +281,11 @@ void* ts_get_global_Object() {
     addMethod(ctor, "getOwnPropertyDescriptor", (void*)ts_object_getOwnPropertyDescriptor_native, 2);
     addMethod(ctor, "getOwnPropertyDescriptors", (void*)ts_object_getOwnPropertyDescriptors_native);
     addMethod(ctor, "getOwnPropertyNames", (void*)ts_object_getOwnPropertyNames_native);
-    // Object.getOwnPropertySymbols — minimal stub returning empty array.
-    // Full impl would walk own-keys for Symbol-typed keys (TsMap currently
-    // stores them as strings keyed off `[Symbol.<name>]` canonicalized
-    // form). Stub satisfies test262 name/length checks.
-    addMethod(ctor, "getOwnPropertySymbols", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
-        extern void* ts_array_create();
-        return ts_value_make_object(ts_array_create());
-    }, 1);
+    // Object.getOwnPropertySymbols — returns the object's own user-Symbol keys.
+    // User symbols are stored under "\x01@@sym\x01<index>" marker strings; the
+    // impl in TsObject.cpp gathers those and maps them back to Symbol objects.
+    extern TsValue* ts_object_getOwnPropertySymbols_native(void* context, int argc, TsValue** argv);
+    addMethod(ctor, "getOwnPropertySymbols", (void*)ts_object_getOwnPropertySymbols_native, 1);
     addMethod(ctor, "getPrototypeOf", (void*)ts_object_getPrototypeOf_native);
     addMethod(ctor, "setPrototypeOf", (void*)ts_object_setPrototypeOf_native, 2);
     addMethod(ctor, "freeze", (void*)ts_object_freeze_native);

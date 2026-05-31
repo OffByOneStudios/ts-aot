@@ -1075,9 +1075,10 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     // Marker prefix for user-symbol storage keys. SOH (0x01) cannot begin a
     // real JS identifier/array-index key used in practice.
-    static const char* const TS_SYM_KEY_PREFIX = "\x01@@sym\x01";
+    static const char* const TS_SYM_KEY_PREFIX = "\x01@@sym\x01";  // 7 bytes
+    static const size_t TS_SYM_KEY_PREFIX_LEN = 7;
     static bool ts_is_user_symbol_key(const char* k) {
-        return k && k[0] == '\x01' && strncmp(k, TS_SYM_KEY_PREFIX, 8) == 0;
+        return k && k[0] == '\x01' && strncmp(k, TS_SYM_KEY_PREFIX, TS_SYM_KEY_PREFIX_LEN) == 0;
     }
     // Canonical storage-key string for a Symbol used as a property key.
     static TsString* ts_symbol_storage_key(TsSymbol* sym) {
@@ -1096,9 +1097,17 @@ TsValue* ts_value_make_int(int64_t i) {
     // Recover the Symbol object from a user-symbol storage key (or null).
     static TsSymbol* ts_user_symbol_from_key(const char* k) {
         if (!ts_is_user_symbol_key(k)) return nullptr;
-        uint32_t idx = (uint32_t)strtoul(k + 8, nullptr, 10);
+        uint32_t idx = (uint32_t)strtoul(k + TS_SYM_KEY_PREFIX_LEN, nullptr, 10);
         if (idx < g_user_symbols.size()) return g_user_symbols[idx];
         return nullptr;
+    }
+    // Cross-TU accessors (used by the keys-enumeration filtering in
+    // TsMap/TsFlatObject and by Object.getOwnPropertySymbols in TsGlobals).
+    extern "C" int ts_is_user_symbol_storage_key(const char* k) {
+        return ts_is_user_symbol_key(k) ? 1 : 0;
+    }
+    extern "C" void* ts_user_symbol_for_storage_key(const char* k) {
+        return (void*)ts_user_symbol_from_key(k);
     }
 
     // ToPropertyKey-style coercion for property STORAGE lookup (not ToString):
@@ -9679,6 +9688,48 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_getOwnPropertyNames_native(void* context, int argc, TsValue** argv) {
         if (argc < 1) return ts_value_make_array(TsArray::Create(0));
         return ts_object_getOwnPropertyNames(argv[0]);
+    }
+
+    // Object.getOwnPropertySymbols(obj): the own user-Symbol keys. User symbols
+    // are stored under "\x01@@sym\x01<index>" marker strings; gather those keys
+    // and map each back to its Symbol via the registry (ts_user_symbol_from_key).
+    extern "C" void* ts_flat_object_symbol_keys(void* obj);
+    extern "C" void* ts_map_symbol_keys(void* map);
+    extern TsValue* ts_value_make_symbol(void* s);
+    TsValue* ts_object_getOwnPropertySymbols_native(void* context, int argc, TsValue** argv) {
+        TsArray* result = TsArray::Create(0);
+        if (argc < 1 || !argv[0]) return ts_value_make_array(result);
+        void* rawPtr = ts_value_get_object(argv[0]);
+        if (!rawPtr || (uintptr_t)rawPtr < 0x10000) return ts_value_make_array(result);
+
+        TsArray* symKeys = nullptr;
+        uint32_t magic0 = *(uint32_t*)rawPtr;
+        if (magic0 == 0x464C4154) {                 // FLAT_MAGIC
+            symKeys = (TsArray*)ts_flat_object_symbol_keys(rawPtr);
+        } else if (magic0 == 0x41525259) {          // TsArray "ARRY"
+            TsArray* a = (TsArray*)rawPtr;
+            if (a->properties) symKeys = (TsArray*)ts_map_symbol_keys(a->properties);
+        } else {
+            uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
+            if (magic16 == 0x4D415053) {            // TsMap "MAPS"
+                symKeys = (TsArray*)ts_map_symbol_keys(rawPtr);
+            } else if (magic16 == 0x46554E43) {     // TsFunction "FUNC"
+                TsMap* p = ((TsFunction*)rawPtr)->properties;
+                if (p) symKeys = (TsArray*)ts_map_symbol_keys(p);
+            } else if (magic16 == 0x434C5352) {     // TsClosure "CLSR"
+                TsMap* p = ((TsClosure*)rawPtr)->properties;
+                if (p) symKeys = (TsArray*)ts_map_symbol_keys(p);
+            }
+        }
+        if (symKeys) {
+            for (int64_t i = 0; i < symKeys->Length(); i++) {
+                void* sp = ts_value_get_string((TsValue*)(uintptr_t)symKeys->Get(i));
+                const char* kc = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
+                TsSymbol* sym = ts_user_symbol_from_key(kc);
+                if (sym) result->Push((int64_t)(uintptr_t)ts_value_make_symbol(sym));
+            }
+        }
+        return ts_value_make_array(result);
     }
 
     TsValue* ts_object_getPrototypeOf_native(void* context, int argc, TsValue** argv) {
