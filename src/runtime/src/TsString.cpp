@@ -1964,6 +1964,24 @@ extern "C" {
             uint32_t magic = *(uint32_t*)ptr;
             if (magic == 0x53545247) return ptr; // TsString
             if (magic == TsConsString::MAGIC) return ((TsConsString*)ptr)->Flatten(); // Flatten cons string
+            if (magic == 0x524D4154) { // TsRegExpMatchArray "RMAT": ToString = Array join(",")
+                // exec() returns a match array; String(m)/`''+m`/RegExp flags
+                // arg must join the captures (lodash cloneRegExp does
+                // `new RegExp(src, reFlags.exec(re))` and ToStrings the result).
+                TsRegExpMatchArray* ma = (TsRegExpMatchArray*)ptr;
+                int64_t n = ma->Length();
+                TsString* out = TsString::Create("");
+                for (int64_t i = 0; i < n; i++) {
+                    if (i > 0) out = TsString::Concat(out, TsString::GetInterned(","));
+                    void* ev = ma->Get((size_t)i);
+                    if (!ev) continue;
+                    uint64_t enb = nanbox_from_tsvalue_ptr((TsValue*)ev);
+                    if (nanbox_is_undefined(enb) || nanbox_is_null(enb)) continue; // join: -> ""
+                    TsString* es = (TsString*)ts_string_from_value((TsValue*)ev);
+                    if (es) out = TsString::Concat(out, es);
+                }
+                return out;
+            }
             if (magic == 0x41525259) return TsString::GetInterned("[object Array]");
             if (magic == 0x52454758) { // TsRegExp "REGX": "/" + source + "/" + flags
                 TsRegExp* re = (TsRegExp*)ptr;
