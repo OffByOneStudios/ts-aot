@@ -5329,6 +5329,21 @@ TsValue* ts_value_make_int(int64_t i) {
                     return ts_value_make_object(
                         ts_date_create_parts(p[0], p[1], p[2], p[3], p[4], p[5], p[6]));
                 }
+                {
+                    extern void* ts_get_global_ArrayBuffer();
+                    if (isGlobal(ts_get_global_ArrayBuffer)) {
+                        // `new <ArrayBuffer global>(byteLength)` reached via a
+                        // runtime value (lodash cloneArrayBuffer:
+                        // `new arrayBuffer.constructor(byteLength)`). The
+                        // wrapAsCallable body produces a non-buffer, so build a
+                        // real TsBuffer here.
+                        extern void* ts_arraybuffer_create(int64_t length);
+                        int64_t len = (argc >= 1 && it) ? (int64_t)ts_to_number(it) : 0;
+                        if (len < 0) len = 0;
+                        void* ab = ts_arraybuffer_create(len);
+                        return ab ? ts_value_make_object(ab) : ts_value_make_undefined();
+                    }
+                }
             }
         }
 
