@@ -5220,6 +5220,20 @@ TsValue* ts_value_make_int(int64_t i) {
     // Array built-in — produces a real TsArray instead of a plain object.
     static TsValue* ts_array_constructor_native(void* ctx, int argc, TsValue** argv);
 
+    // Typed-array create-on-buffer entry points (defined in TsGlobals.cpp via
+    // DEFINE_TYPED_ARRAY_NEW). File-scope for the indirect-new dispatch below.
+    extern "C" {
+        void* ts_typed_array_new_i8(TsValue*, int64_t, int64_t);
+        void* ts_typed_array_new_u8(TsValue*, int64_t, int64_t);
+        void* ts_typed_array_new_clamped(TsValue*, int64_t, int64_t);
+        void* ts_typed_array_new_i16(TsValue*, int64_t, int64_t);
+        void* ts_typed_array_new_u16(TsValue*, int64_t, int64_t);
+        void* ts_typed_array_new_i32(TsValue*, int64_t, int64_t);
+        void* ts_typed_array_new_u32(TsValue*, int64_t, int64_t);
+        void* ts_typed_array_new_f32(TsValue*, int64_t, int64_t);
+        void* ts_typed_array_new_f64(TsValue*, int64_t, int64_t);
+    }
+
     // Helper for "new ConstructorFunction(...args)" in the slow path.
     // Creates a new object, sets its prototype from constructor.prototype,
     // calls the constructor with this=newObject, and returns the new object.
@@ -5330,6 +5344,42 @@ TsValue* ts_value_make_int(int64_t i) {
                         ts_date_create_parts(p[0], p[1], p[2], p[3], p[4], p[5], p[6]));
                 }
                 {
+                    // Indirect `new <TypedArray global>(buffer, byteOffset, length)`
+                    // (lodash cloneTypedArray). ONLY intercept the BUFFER form
+                    // (arg0 is a TsBuffer) — the length/array forms already work
+                    // via the generic path and were regressed by a broader gate.
+                    TsValue* a0 = (argc >= 1 && argv) ? argv[0] : nullptr;
+                    void* a0raw = a0 ? ts_value_get_object(a0) : nullptr;
+                    bool a0IsBuffer = false;
+                    if (a0raw && (uintptr_t)a0raw > 0x1000)
+                        a0IsBuffer = (*(uint32_t*)((char*)a0raw + 16) == 0x42554646);
+                    if (a0IsBuffer) {
+                        extern void* ts_get_global_Int8Array(); extern void* ts_get_global_Uint8Array();
+                        extern void* ts_get_global_Uint8ClampedArray(); extern void* ts_get_global_Int16Array();
+                        extern void* ts_get_global_Uint16Array(); extern void* ts_get_global_Int32Array();
+                        extern void* ts_get_global_Uint32Array(); extern void* ts_get_global_Float32Array();
+                        extern void* ts_get_global_Float64Array();
+                        struct TAEntry { void*(*g)(); void*(*n)(TsValue*, int64_t, int64_t); };
+                        const TAEntry taTable[] = {
+                            { ts_get_global_Int8Array, ts_typed_array_new_i8 },
+                            { ts_get_global_Uint8Array, ts_typed_array_new_u8 },
+                            { ts_get_global_Uint8ClampedArray, ts_typed_array_new_clamped },
+                            { ts_get_global_Int16Array, ts_typed_array_new_i16 },
+                            { ts_get_global_Uint16Array, ts_typed_array_new_u16 },
+                            { ts_get_global_Int32Array, ts_typed_array_new_i32 },
+                            { ts_get_global_Uint32Array, ts_typed_array_new_u32 },
+                            { ts_get_global_Float32Array, ts_typed_array_new_f32 },
+                            { ts_get_global_Float64Array, ts_typed_array_new_f64 },
+                        };
+                        for (const auto& e : taTable) {
+                            if (isGlobal(e.g)) {
+                                int64_t bo = (argc >= 2 && argv && argv[1]) ? (int64_t)ts_to_number(argv[1]) : 0;
+                                int64_t bl = (argc >= 3 && argv && argv[2]) ? (int64_t)ts_to_number(argv[2]) : -1;
+                                void* r = e.n(a0, bo, bl);
+                                return r ? ts_value_make_object(r) : ts_value_make_undefined();
+                            }
+                        }
+                    }
                     extern void* ts_get_global_ArrayBuffer();
                     if (isGlobal(ts_get_global_ArrayBuffer)) {
                         // `new <ArrayBuffer global>(byteLength)` reached via a
