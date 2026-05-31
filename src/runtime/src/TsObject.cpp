@@ -7075,6 +7075,20 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
+        // Canonicalize a Symbol key to its "\x01@@sym\x01<i>" storage-key string
+        // so symbol property descriptors resolve (getOwnPropertyDescriptor(o,
+        // sym) returned null, which broke lodash clone of symbol properties).
+        {
+            uint64_t pNb = nanbox_from_tsvalue_ptr(prop);
+            if (nanbox_is_ptr(pNb)) {
+                void* pp = nanbox_to_ptr(pNb);
+                if (pp && *(uint32_t*)pp == 0x53594D42) { // TsSymbol "SYMB"
+                    TsString* sk = ts_symbol_storage_key((TsSymbol*)pp);
+                    if (sk) prop = ts_value_make_string(sk);
+                }
+            }
+        }
+
         // Convert flat object to TsMap
         if (is_flat_object(rawPtr)) {
             rawPtr = ts_flat_object_to_map(rawPtr);
@@ -10721,7 +10735,14 @@ TsValue* ts_value_make_int(int64_t i) {
 
         TsValue* keyVal = argv[0];
         if (!keyVal) return ts_value_make_bool(false);
-        TsValue keyTV = nanbox_to_tagged(keyVal);
+        // Canonicalize the key (Symbol -> its "\x01@@sym\x01<i>" storage-key
+        // string) so symbol keys resolve to the slot they were stored under;
+        // propertyIsEnumerable(sym) was always false (lodash getSymbols filters
+        // by this, so cloneDeep dropped symbol properties).
+        TsValue keyTV;
+        TsString* pieKeyStr = ts_property_key_string(keyVal);
+        if (pieKeyStr) { keyTV.type = ValueType::STRING_PTR; keyTV.ptr_val = pieKeyStr; }
+        else keyTV = nanbox_to_tagged(keyVal);
 
         // Resolve the underlying TsMap. TsFunction / TsClosure / TsArray
         // store user-defined props on a side `properties` TsMap; otherwise
