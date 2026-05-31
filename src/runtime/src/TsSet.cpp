@@ -19,6 +19,27 @@
 void* TsSet_VTable[2] = { nullptr, nullptr };
 extern "C" TsValue* ts_set_get_property(void* obj, void* propName);
 
+// ECMA-262 SameValueZero for Set keys: numeric keys compare by value
+// regardless of int/double representation; -0 and +0 are the same key (Set.add
+// normalizes -0 to +0); NaN equals NaN. The backing hash table keys off the
+// TsValue representation, so the same integer as NUMBER_INT vs NUMBER_DBL
+// (e.g. `2.5+2.5`) hashed to different slots -> `new Set([5,5.0]).size` was 2,
+// and `-0` did not collide with `0`. Canonicalize an integer-valued double
+// (incl. -0) to NUMBER_INT; non-integers / NaN keep NUMBER_DBL. (Iteration order
+// is now seq-based, so this no longer perturbs Set iteration order.)
+static inline TsValue ts_set_canon_key(TsValue v) {
+    if (v.type == ValueType::NUMBER_DBL) {
+        double d = v.d_val;
+        if (d == 0.0) {                      // +0 and -0 -> int 0
+            v.type = ValueType::NUMBER_INT; v.i_val = 0;
+        } else if (d == (double)(int64_t)d &&
+                   d >= -9007199254740992.0 && d <= 9007199254740992.0) {
+            v.type = ValueType::NUMBER_INT; v.i_val = (int64_t)d;
+        }
+    }
+    return v;
+}
+
 TsSet* TsSet::Create() {
     void* mem = ts_alloc(sizeof(TsSet));
     TsSet* set = new(mem) TsSet();
@@ -37,6 +58,7 @@ TsSet::TsSet() {
 }
 
 void TsSet::Add(TsValue value) {
+    value = ts_set_canon_key(value);
     // For Set, store value as key with UNDEFINED as the map value
     TsValue undef;
     undef.type = ValueType::UNDEFINED;
@@ -45,11 +67,11 @@ void TsSet::Add(TsValue value) {
 }
 
 bool TsSet::Has(TsValue value) {
-    return ((TsHashTable*)impl)->Has(value);
+    return ((TsHashTable*)impl)->Has(ts_set_canon_key(value));
 }
 
 bool TsSet::Delete(TsValue value) {
-    return ((TsHashTable*)impl)->Delete(value);
+    return ((TsHashTable*)impl)->Delete(ts_set_canon_key(value));
 }
 
 void TsSet::Clear() {
