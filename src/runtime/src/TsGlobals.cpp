@@ -364,7 +364,10 @@ void* ts_get_global_Object() {
         TsValue ctorBackVal;
         ctorBackVal.type = ValueType::FUNCTION_PTR;
         ctorBackVal.ptr_val = cached;
-        proto->Set(ctorBackKey, ctorBackVal);
+        // Non-enumerable per ECMA-262 20.1.2.1 — plain Set made it enumerable,
+        // so it leaked into Object.keys(Object.prototype) / for-in over the
+        // prototype chain (writable|configurable, not enumerable).
+        proto->SetWithAttrs(ctorBackKey, ctorBackVal, 0x02 | 0x04);
     }
 
     // Override the default undefined-returning body with the real
