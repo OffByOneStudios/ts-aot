@@ -10283,6 +10283,22 @@ TsValue* ts_value_make_int(int64_t i) {
             // both indexed slots and a side-map for string keys. dynamic_cast
             // below would read a non-TsObject vtable and UB; intercept here.
             uint32_t m0 = *(uint32_t*)obj;
+            // TsString / TsConsString: index in [0,length) and "length" are own
+            // properties (string-index hasOwnProperty — lodash arrayLikeKeys
+            // uses hasOwnProperty.call(str, i) so `_.keys('ab')` works).
+            if (m0 == 0x53545247 || m0 == 0x434F4E53) { // "STRG" / "CONS"
+                TsValue keyTV = nanbox_to_tagged(argv[0]);
+                if (keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+                    const char* k = ((TsString*)keyTV.ptr_val)->ToUtf8();
+                    if (k) {
+                        if (!strcmp(k, "length")) return ts_value_make_bool(true);
+                        char* ep; long idx = strtol(k, &ep, 10);
+                        if (*ep == '\0' && idx >= 0 && idx < ts_string_like_length(obj))
+                            return ts_value_make_bool(true);
+                    }
+                }
+                return ts_value_make_bool(false);
+            }
             if (m0 == 0x41525259) { // TsArray::MAGIC "ARRY"
                 TsArray* arr = (TsArray*)obj;
                 TsValue* keyVal = argv[0];
