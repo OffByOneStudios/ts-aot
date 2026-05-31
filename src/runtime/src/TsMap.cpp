@@ -446,6 +446,11 @@ static void* map_keys_filtered(void* map, bool symbolsOnly, bool allKeys) {
         int64_t boxed = all->Get(i);
         void* sp = ts_value_get_string((TsValue*)(intptr_t)boxed);
         const char* kc = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
+        // Hidden internal slots ([[NumberData]]/[[StringData]]/[[BooleanData]]
+        // on primitive wrapper objects) must never appear in Object.keys /
+        // for-in / getOwnPropertySymbols.
+        if (kc && (!strcmp(kc, "__NumberData") || !strcmp(kc, "__StringData") ||
+                   !strcmp(kc, "__BooleanData"))) continue;
         bool isSym = kc && ts_is_user_symbol_storage_key(kc) != 0;
         if (isSym != symbolsOnly) continue;
         out->Push(boxed);
