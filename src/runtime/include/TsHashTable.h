@@ -15,6 +15,8 @@
 #include <cstring>
 #include <functional>
 #include <cmath>
+#include <vector>
+#include <algorithm>
 #include "TsObject.h"
 #include "TsBigInt.h"
 
@@ -93,6 +95,10 @@ public:
     struct Entry {
         TsValue key;
         TsValue value;
+        uint64_t seq;   // insertion order, for ECMA-262 Map/Set iteration order.
+                        // A plain counter (never a heap pointer); the GC's
+                        // conservative scan validates words via gc_find_base, so
+                        // any value here is safe (ignored as a non-pointer).
     };
 
     static constexpr uint8_t CTRL_EMPTY   = 0x00;
@@ -222,22 +228,20 @@ public:
     // Iterate all live entries. Callback receives (const TsValue& key, const TsValue& value).
     template<typename F>
     void ForEach(F&& fn) const {
-        for (size_t i = 0; i < capacity_; i++) {
-            uint8_t c = ctrl_[i];
-            if (c != CTRL_EMPTY && c != CTRL_DELETED) {
-                fn(entries_[i].key, entries_[i].value);
-            }
+        std::vector<size_t> order;
+        collect_ordered(order);
+        for (size_t i : order) {
+            fn(entries_[i].key, entries_[i].value);
         }
     }
 
-    // Iterate only enumerable live entries.
+    // Iterate only enumerable live entries, in insertion order.
     template<typename F>
     void ForEachEnumerable(F&& fn) const {
-        for (size_t i = 0; i < capacity_; i++) {
-            uint8_t c = ctrl_[i];
-            if (c != CTRL_EMPTY && c != CTRL_DELETED && (attrs_[i] & ATTR_ENUMERABLE)) {
-                fn(entries_[i].key, entries_[i].value);
-            }
+        std::vector<size_t> order;
+        collect_ordered(order);
+        for (size_t i : order) {
+            if (attrs_[i] & ATTR_ENUMERABLE) fn(entries_[i].key, entries_[i].value);
         }
     }
 
@@ -285,6 +289,7 @@ private:
     size_t size_;
     size_t capacity_;
     size_t grow_thresh_;
+    uint64_t insert_seq_ = 0;  // monotonic insertion counter for iteration order
     size_t tombstones_;   // CTRL_DELETED slot count; counted toward growth so
                           // an EMPTY slot always remains. Without this, churn
                           // (insert/delete with a low live count) can leave zero
@@ -366,7 +371,8 @@ private:
         for (size_t i = 0; i < old_capacity; i++) {
             uint8_t c = old_ctrl[i];
             if (c != CTRL_EMPTY && c != CTRL_DELETED) {
-                insert_entry(old_entries[i].key, old_entries[i].value, old_attrs[i]);
+                insert_entry(old_entries[i].key, old_entries[i].value, old_attrs[i],
+                             (int64_t)old_entries[i].seq);
                 count++;
             }
         }
@@ -376,7 +382,10 @@ private:
 
     // Insert an entry known to not exist in the table.
     // Caller must ensure there is room (size_ < grow_thresh_).
-    void insert_entry(const TsValue& key, const TsValue& value, uint8_t attrs = ATTR_DEFAULT) {
+    // seq < 0 → assign a fresh insertion order; otherwise preserve the given
+    // seq (used by rehash so iteration order survives a grow/compaction).
+    void insert_entry(const TsValue& key, const TsValue& value, uint8_t attrs = ATTR_DEFAULT,
+                      int64_t seq = -1) {
         size_t hash = hasher_(key);
         uint8_t h2 = h2_from_hash(hash);
         size_t idx = h1_from_hash(hash);
@@ -389,11 +398,26 @@ private:
                 ctrl_[idx] = h2;
                 attrs_[idx] = attrs;
                 store_entry(idx, key, value);
+                entries_[idx].seq = (seq < 0) ? insert_seq_++ : (uint64_t)seq;
                 return;
             }
 
             idx = (idx + 1) & (capacity_ - 1);
         }
+    }
+
+    // Collect live slot indices in insertion (seq) order. Used by the ordered
+    // iteration helpers below so Map/Set visit entries in insertion order
+    // (ECMA-262 24.1.3.5 / 24.2.3.5), independent of hash/slot layout.
+    void collect_ordered(std::vector<size_t>& out) const {
+        out.clear();
+        for (size_t i = 0; i < capacity_; i++) {
+            uint8_t c = ctrl_[i];
+            if (c != CTRL_EMPTY && c != CTRL_DELETED) out.push_back(i);
+        }
+        std::sort(out.begin(), out.end(), [this](size_t a, size_t b) {
+            return entries_[a].seq < entries_[b].seq;
+        });
     }
 };
 
