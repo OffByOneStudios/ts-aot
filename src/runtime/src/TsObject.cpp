@@ -9750,6 +9750,20 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t arrMagic = *(uint32_t*)rawMap;
         if (arrMagic == 0x41525259) { // TsArray::MAGIC ("ARRY")
             TsArray* arr = (TsArray*)rawMap;
+            // A canonical in-range index deletes the indexed element by turning
+            // it into a hole (so hasOwnProperty/`in` become false), not by
+            // touching the string-key side map. `delete [1,2,3][1]` => [1,<hole>,3].
+            TsString* dks = (TsString*)ts_value_get_string((TsValue*)keyArg);
+            const char* dkc = dks ? dks->ToUtf8() : nullptr;
+            if (dkc) {
+                char* dend = nullptr;
+                long didx = strtol(dkc, &dend, 10);
+                if (dend != dkc && *dend == '\0' && didx >= 0 &&
+                    didx < arr->Length()) {
+                    if (!arr->IsHole((size_t)didx)) arr->SetHole((size_t)didx);
+                    return 1;
+                }
+            }
             if (!arr->properties) return 1; // non-existent
             TsValue kv = nanbox_to_tagged((TsValue*)keyArg);
             if (arr->properties->Has(kv)) {
