@@ -1038,6 +1038,31 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_string_from_value(v);
     }
 
+    // ToPropertyKey-style coercion for property STORAGE lookup (not ToString):
+    // a Symbol key canonicalizes to the "[<desc>]" form used by the get/set
+    // paths (ts_object_get_dynamic / ts_object_set_prop_v) so that delete/has
+    // agree with how the property was stored. Unlike ts_value_get_string this
+    // NEVER throws on a Symbol — `delete obj[sym]`, `_.omit(obj,[sym])` etc.
+    // were aborting whole test bodies with "Cannot convert a Symbol value to a
+    // string". (The "[desc]" scheme collides for same-description symbols and
+    // does not surface via getOwnPropertySymbols — a fuller symbol-keyed store
+    // is future work — but it makes the common single-symbol case work.)
+    static TsString* ts_property_key_string(TsValue* key) {
+        if (!key) return nullptr;
+        uint64_t nb = nanbox_from_tsvalue_ptr(key);
+        if (nanbox_is_ptr(nb)) {
+            void* p = nanbox_to_ptr(nb);
+            if (p && *(uint32_t*)p == 0x53594D42) { // TsSymbol::MAGIC "SYMB"
+                TsSymbol* sym = (TsSymbol*)p;
+                const char* desc = sym->description ? sym->description->ToUtf8() : "";
+                char buf[128];
+                snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
+                return TsString::GetInterned(buf);
+            }
+        }
+        return (TsString*)ts_value_get_string(key);
+    }
+
     // Extract raw string pointer WITHOUT flattening CONS strings.
     // Like ts_value_get_string but preserves TsConsString* as-is.
     // Used by string concat to avoid O(n) flatten on each += operation.
@@ -8858,7 +8883,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return;
 
-        TsString* keyStr = (TsString*)ts_value_get_string(key);
+        TsString* keyStr = ts_property_key_string(key);
         if (!keyStr) return;
         TsValue keyTagged;
         keyTagged.type = ValueType::STRING_PTR;
@@ -9299,7 +9324,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check for flat object (no C++ vtable — dynamic_cast would crash)
         uint32_t magic0 = *(uint32_t*)rawObj;
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
-            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            TsString* keyStr = ts_property_key_string(key);
             if (!keyStr) return false;
             const char* k = keyStr->ToUtf8();
             if (!k) return false;
@@ -9333,7 +9358,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 return proxy->has(key);
             }
 
-            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            TsString* keyStr = ts_property_key_string(key);
             if (!keyStr) return false;
 
             TsMap* map = (TsMap*)rawObj;
@@ -9355,7 +9380,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic16 == 0x46554E43) { // TsFunction::MAGIC
             TsFunction* func = (TsFunction*)rawObj;
             if (func->properties) {
-                TsString* keyStr = (TsString*)ts_value_get_string(key);
+                TsString* keyStr = ts_property_key_string(key);
                 if (keyStr) {
                     TsValue keyVal;
                     keyVal.type = ValueType::STRING_PTR;
@@ -9364,7 +9389,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
             }
             // Also check built-in function properties
-            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            TsString* keyStr = ts_property_key_string(key);
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k && (strcmp(k, "name") == 0 || strcmp(k, "length") == 0 ||
@@ -9377,7 +9402,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // the `in` operator must see assigned props, mirroring hasOwnProperty).
         if (magic16 == 0x434C5352) { // TsClosure::MAGIC
             TsClosure* cl = (TsClosure*)rawObj;
-            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            TsString* keyStr = ts_property_key_string(key);
             if (keyStr) {
                 if (cl->properties) {
                     TsValue keyVal; keyVal.type = ValueType::STRING_PTR; keyVal.ptr_val = keyStr;
@@ -9396,7 +9421,7 @@ TsValue* ts_value_make_int(int64_t i) {
         {
             TsMap* props = getNativeProps(rawObj);
             if (props) {
-                TsString* keyStr = (TsString*)ts_value_get_string(key);
+                TsString* keyStr = ts_property_key_string(key);
                 if (keyStr) {
                     TsValue keyVal;
                     keyVal.type = ValueType::STRING_PTR;
@@ -9432,7 +9457,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 return proxy->deleteProperty(key);
             }
 
-            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            TsString* keyStr = ts_property_key_string(key);
             if (!keyStr) return false;
 
             TsMap* map = (TsMap*)rawObj;
@@ -9458,7 +9483,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 ? ((TsFunction*)rawObj)->properties
                 : ((TsClosure*)rawObj)->properties;
             if (!props) return true;  // nothing to delete, treat as success
-            TsString* keyStr = (TsString*)ts_value_get_string(key);
+            TsString* keyStr = ts_property_key_string(key);
             if (!keyStr) return false;
             TsValue keyVal; keyVal.type = ValueType::STRING_PTR;
             keyVal.ptr_val = keyStr;
@@ -9495,7 +9520,7 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic0 = *(uint32_t*)rawMap;
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
             // Decode key string
-            TsString* keyStr = (TsString*)ts_value_get_string((TsValue*)keyArg);
+            TsString* keyStr = ts_property_key_string((TsValue*)keyArg);
             if (!keyStr) return 0;
             const char* keyCStr = keyStr->ToUtf8();
             if (!keyCStr) return 0;
@@ -9576,7 +9601,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsMap* map = (TsMap*)rawMap;
 
         // Decode key via nanbox
-        TsString* keyStr = (TsString*)ts_value_get_string((TsValue*)keyArg);
+        TsString* keyStr = ts_property_key_string((TsValue*)keyArg);
         if (!keyStr) return 0;
 
         // Create proper TsValue key for map delete
