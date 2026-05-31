@@ -5780,6 +5780,29 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == 0x4D415053) { // TsMap::MAGIC
             // Object.keys() returns only enumerable own properties
             extern void* ts_map_enumerable_keys(void*);
+            TsMap* m = (TsMap*)rawPtr;
+            // Primitive String wrapper (TsMap with __StringData): its own
+            // enumerable keys are the character indices '0'..'length-1' first,
+            // then any other own enumerable string props (ECMA-262 String
+            // exotic OwnPropertyKeys order).
+            {
+                TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+                sdKey.ptr_val = TsString::GetInterned("__StringData");
+                TsValue sd = m->Get(sdKey);
+                if (sd.type == ValueType::STRING_PTR && sd.ptr_val) {
+                    TsString* str = (TsString*)sd.ptr_val;
+                    int64_t len = str->Length();
+                    TsArray* out = TsArray::Create(0);
+                    for (int64_t i = 0; i < len; i++) {
+                        out->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::FromInt(i)));
+                    }
+                    TsArray* extra = (TsArray*)ts_map_enumerable_keys(rawPtr);
+                    if (extra) {
+                        for (int64_t i = 0; i < extra->Length(); i++) out->Push(extra->Get((size_t)i));
+                    }
+                    return ts_value_make_array(out);
+                }
+            }
             return ts_value_make_array(ts_map_enumerable_keys(rawPtr));
         }
 
@@ -8855,6 +8878,31 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
+        // Primitive String wrapper (`new String('ab')` is a TsMap with a hidden
+        // __StringData slot): expose the boxed string's `length` and character
+        // indices as own data properties, so `s.length`, `s[0]`, Object.keys(s)
+        // and for-in behave like a real String object (ECMA-262 22.1.3.1 / the
+        // exotic index getters). Methods already resolve via String.prototype.
+        if (keyStr) {
+            TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+            sdKey.ptr_val = TsString::GetInterned("__StringData");
+            TsValue sd = map->Get(sdKey);
+            if (sd.type == ValueType::STRING_PTR && sd.ptr_val) {
+                TsString* str = (TsString*)sd.ptr_val;
+                const char* k = keyStr->ToUtf8();
+                if (k) {
+                    if (strcmp(k, "length") == 0) {
+                        return ts_value_make_int(str->Length());
+                    }
+                    char* endp = nullptr;
+                    long idx = strtol(k, &endp, 10);
+                    if (endp && *endp == '\0' && idx >= 0 && idx < str->Length()) {
+                        return ts_value_make_string(str->CharAt((int64_t)idx));
+                    }
+                }
+            }
+        }
+
         // Handle Map/Set .size — computed ONLY for a real Map/Set; on a plain
         // object "size" is an own data property (see static path above).
         if (keyStr && map->IsExplicitMap()) {
@@ -10727,6 +10775,25 @@ TsValue* ts_value_make_int(int64_t i) {
         // Get the property key as TsValue and check if the property exists
         TsValue* keyVal = argv[0];
         TsValue keyTV = nanbox_to_tagged(keyVal);
+        // Primitive String wrapper (TsMap with __StringData): `length` and the
+        // character indices are own data properties (lodash arrayLikeKeys filters
+        // candidate keys via hasOwnProperty, so these must report true).
+        {
+            TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+            sdKey.ptr_val = TsString::GetInterned("__StringData");
+            TsValue sd = map->Get(sdKey);
+            if (sd.type == ValueType::STRING_PTR && sd.ptr_val &&
+                keyTV.type == ValueType::STRING_PTR && keyTV.ptr_val) {
+                const char* k = ((TsString*)keyTV.ptr_val)->ToUtf8();
+                if (k) {
+                    int64_t slen = ((TsString*)sd.ptr_val)->Length();
+                    if (!strcmp(k, "length")) return ts_value_make_bool(true);
+                    char* endp = nullptr; long idx = strtol(k, &endp, 10);
+                    if (endp && *endp == '\0' && idx >= 0 && idx < slen)
+                        return ts_value_make_bool(true);
+                }
+            }
+        }
         bool result = map->Has(keyTV);
         return ts_value_make_bool(result);
     }
@@ -12063,8 +12130,34 @@ void* ts_builtin_lookup_special(const char* name) {
             return TsMap::Create();
         }
 
-        // If already a pointer (object/array/etc), return as-is
+        // If already a pointer (object/array/etc), return as-is — EXCEPT a
+        // primitive string, which ToObjects to a String wrapper (TsMap with the
+        // hidden __StringData slot + String.prototype, same shape as
+        // `new String(x)`). ECMA-262 7.1.18. Without this `Object('a')` returned
+        // the raw primitive, so `Object('a').a = 1` was a no-op and
+        // `_.keys(Object('a'))` missed the char indices.
         if (nanbox_is_ptr(nb)) {
+            void* raw = nanbox_to_ptr(nb);
+            uint32_t m0 = raw ? *(uint32_t*)raw : 0;
+            if (m0 == 0x53545247 || m0 == 0x434F4E53) { // TsString "STRG" / TsConsString "CONS"
+                extern void* ts_get_global_String();
+                void* g = ts_get_global_String();
+                void* gctor = ts_value_get_object((TsValue*)g);
+                if (!gctor) gctor = g;
+                TsValue* protoVal = gctor ? ts_object_get_property(gctor, "prototype") : nullptr;
+                TsMap* m = TsMap::Create();
+                TsValue dk; dk.type = ValueType::STRING_PTR;
+                dk.ptr_val = TsString::GetInterned("__StringData");
+                TsValue dv; dv.type = ValueType::STRING_PTR; dv.ptr_val = (TsString*)raw;
+                m->Set(dk, dv);
+                if (protoVal) {
+                    void* praw = ts_value_get_object(protoVal);
+                    if (praw && *(uint32_t*)((char*)praw + 16) == 0x4D415053) {
+                        m->SetPrototype((TsMap*)praw);
+                    }
+                }
+                return m;
+            }
             return arg;
         }
 
