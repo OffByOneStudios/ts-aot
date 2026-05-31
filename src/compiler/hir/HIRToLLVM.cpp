@@ -7864,9 +7864,11 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
     {
         int32_t arity = 0;
         int32_t restParamUserIdx = -1;  // for ts_closure_set_rest_index
+        bool foundHirFn = false;
         if (hirModule_) {
             for (const auto& hirFn : hirModule_->functions) {
                 if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                    foundHirFn = true;
                     // Count user-visible params, stopping at the first
                     // non-simple one. paramIdx tracks position in user
                     // params (excluding synthetic __closure__/__arg).
@@ -7901,10 +7903,13 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
                 }
             }
         }
-        if (arity == 0 && fn) {
+        if (!foundHirFn && arity == 0 && fn) {
             // Fallback: count LLVM function params minus closure param.
             // Only used when hirModule_ lookup failed (rare — synthetic
             // functions); spec-fidelity is sacrificed here for safety.
+            // Gated on !foundHirFn so a legitimately 0-arity function (e.g.
+            // `function(){ return arguments.length; }`, whose padded __argN__
+            // params would otherwise inflate arg_size) keeps its real .length.
             int nParams = fn->arg_size();
             if (nParams > 1) arity = nParams - 1; // minus __closure__
         }
@@ -8409,9 +8414,11 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     {
         int32_t arity = 0;
         int32_t restParamUserIdx = -1;
+        bool foundHirFn = false;
         if (hirModule_) {
             for (const auto& hirFn : hirModule_->functions) {
                 if (hirFn->mangledName == funcName || hirFn->name == funcName) {
+                    foundHirFn = true;
                     // Same per-spec arity rule as in createClosureForFunction
                     // above — stop at first non-simple param.
                     size_t userIdx = 0;
@@ -8443,8 +8450,10 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
                 }
             }
         }
-        if (arity == 0 && fn) {
-            // Fallback: count LLVM function params minus closure param
+        if (!foundHirFn && arity == 0 && fn) {
+            // Fallback only when hirModule_ lookup failed (synthetic fns); a
+            // legitimately 0-arity function (e.g. one using `arguments` with
+            // padded __argN__ params) keeps its real .length.
             int nParams = fn->arg_size();
             if (nParams > 1) arity = nParams - 1;
         }
