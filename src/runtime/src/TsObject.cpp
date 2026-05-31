@@ -8837,6 +8837,8 @@ TsValue* ts_value_make_int(int64_t i) {
         return true;
     }
 
+    extern "C" void RegExp_set_lastIndex(void* re, int64_t index);
+
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value) {
         if (!obj || !key || !value) return;
 
@@ -8847,6 +8849,25 @@ TsValue* ts_value_make_int(int64_t i) {
 
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return;
+
+        // RegExp.lastIndex is a writable data property backed by the TsRegExp
+        // field (the getter reads it directly), NOT the side-map — so
+        // `re.lastIndex = N` must route to the field or it silently no-ops.
+        // lodash cloneRegExp preserves lastIndex and stateful /g/ exec relies
+        // on it.
+        if (*(uint32_t*)rawObj == 0x52454758) {  // TsRegExp "REGX"
+            uint64_t kNb = nanbox_from_tsvalue_ptr(key);
+            if (nanbox_is_ptr(kNb)) {
+                void* kp = nanbox_to_ptr(kNb);
+                if (kp && ts_is_any_string(kp)) {
+                    const char* ks = ts_ensure_flat(kp)->ToUtf8();
+                    if (ks && strcmp(ks, "lastIndex") == 0) {
+                        RegExp_set_lastIndex(rawObj, ts_value_get_int(value));
+                        return;
+                    }
+                }
+            }
+        }
 
         // Array element write via a STRING key that is a canonical array index
         // (e.g. arr["1"]=v -- lodash baseSet writes parsed path segments as
