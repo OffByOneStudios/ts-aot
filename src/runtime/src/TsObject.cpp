@@ -5816,7 +5816,51 @@ TsValue* ts_value_make_int(int64_t i) {
         // Not a map - return empty array
         return ts_value_make_array(TsArray::Create(0));
     }
-    
+
+    // for-in enumeration: own enumerable string keys PLUS inherited enumerable
+    // string keys from the prototype chain (deduped, first occurrence wins).
+    // ECMA-262 14.7.5.9. Object.keys (own only) is the wrong source for
+    // `for (k in obj)` when obj has a prototype with enumerable properties
+    // (Object.create({a:1}); a `new Foo()` whose Foo.prototype has enumerable
+    // methods; lodash keysIn/assignIn/defaults). Built-in and function/class
+    // prototype `constructor` back-pointers are non-enumerable so they do not
+    // appear here.
+    TsValue* ts_object_for_in_keys(TsValue* obj) {
+        TsValue* ownVal = ts_object_keys(obj);
+        TsArray* result = (TsArray*)ts_value_get_object(ownVal);
+        if (!result) return ownVal;
+
+        std::unordered_map<std::string, char> seen;
+        for (int64_t i = 0; i < result->Length(); i++) {
+            void* sp = ts_value_get_string((TsValue*)(uintptr_t)result->Get(i));
+            if (sp) { const char* k = ((TsString*)sp)->ToUtf8(); if (k) seen[k] = 1; }
+        }
+
+        TsValue* cur = ts_object_getPrototypeOf(obj);
+        for (int depth = 0; cur && depth < 100; depth++) {
+            uint64_t pnb = nanbox_from_tsvalue_ptr(cur);
+            if (nanbox_is_null(pnb) || nanbox_is_undefined(pnb)) break;
+            if (!ts_value_get_object(cur)) break;
+            TsValue* pkVal = ts_object_keys(cur);
+            TsArray* pk = (TsArray*)ts_value_get_object(pkVal);
+            if (pk) {
+                for (int64_t i = 0; i < pk->Length(); i++) {
+                    int64_t boxed = pk->Get(i);
+                    void* sp = ts_value_get_string((TsValue*)(uintptr_t)boxed);
+                    if (!sp) continue;
+                    const char* kc = ((TsString*)sp)->ToUtf8();
+                    if (!kc) continue;
+                    std::string k(kc);
+                    if (seen.count(k)) continue;
+                    seen[k] = 1;
+                    result->Push(boxed);
+                }
+            }
+            cur = ts_object_getPrototypeOf(cur);
+        }
+        return ts_value_make_array(result);
+    }
+
     // Object.values(obj) - returns array of values
     TsValue* ts_object_values(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
@@ -8561,7 +8605,9 @@ TsValue* ts_value_make_int(int64_t i) {
                     ctorKey.ptr_val = TsString::GetInterned("constructor");
                     TsValue ctorVal; ctorVal.type = ValueType::FUNCTION_PTR;
                     ctorVal.ptr_val = func;
-                    proto->Set(ctorKey, ctorVal);
+                    // F.prototype.constructor is non-enumerable (so it never
+                    // leaks into for-in over instances).
+                    proto->SetWithAttrs(ctorKey, ctorVal, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
                     TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
                     protoKey.ptr_val = TsString::GetInterned("prototype");
                     TsValue protoStruct; protoStruct.type = ValueType::OBJECT_PTR;
@@ -8661,7 +8707,8 @@ TsValue* ts_value_make_int(int64_t i) {
                     ctorKey.ptr_val = TsString::GetInterned("constructor");
                     TsValue ctorVal; ctorVal.type = ValueType::OBJECT_PTR;
                     ctorVal.ptr_val = closure;
-                    proto->Set(ctorKey, ctorVal);
+                    // .prototype.constructor back-pointer is non-enumerable.
+                    proto->SetWithAttrs(ctorKey, ctorVal, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
                     TsValue protoStruct;
                     protoStruct.type = ValueType::OBJECT_PTR;
                     protoStruct.ptr_val = proto;

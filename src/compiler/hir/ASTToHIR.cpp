@@ -4126,8 +4126,9 @@ void ASTToHIR::visitForInStatement(ast::ForInStatement* node) {
     auto* objExpr = dynamic_cast<ast::Expression*>(node->expression.get());
     auto obj = objExpr ? lowerExpression(objExpr) : createValue(HIRType::makeObject());
 
-    // Get keys array: Object.keys(obj)
-    auto keys = builder_.createCall("ts_object_keys", {obj}, HIRType::makeArray(HIRType::makeString()));
+    // Get keys array: own + inherited enumerable string keys (for-in walks the
+    // prototype chain, unlike Object.keys which is own-only).
+    auto keys = builder_.createCall("ts_object_for_in_keys", {obj}, HIRType::makeArray(HIRType::makeString()));
 
     // Get array length
     auto length = builder_.createArrayLength(keys);
