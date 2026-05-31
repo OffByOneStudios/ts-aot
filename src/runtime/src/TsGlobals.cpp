@@ -789,6 +789,12 @@ void* ts_get_global_String() {
         };
         addMethod(ctorFunc->properties, "raw", (void*)+stringRawFn, 1);
 
+        // String.prototype.constructor = String (was unset; broke lodash
+        // cloneByTag `new value.constructor(value)`).
+        { TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("constructor");
+          TsValue cv; cv.type = ValueType::OBJECT_PTR; cv.ptr_val = ts_value_get_object(ctorVal);
+          proto->SetWithAttrs(ck, cv, 0x02 | 0x04); }
+
         cached = (void*)ctorVal;
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -1375,6 +1381,13 @@ void* ts_get_global_Number() {
         addMethod(ctorFunc->properties, "isInteger",     (void*)ts_number_isInteger_native,       1);
         addMethod(ctorFunc->properties, "isSafeInteger", (void*)ts_number_isSafeInteger_native,   1);
 
+        // Number.prototype.constructor = Number. Was unset, so
+        // `(new Number(x)).constructor` read undefined and lodash cloneNumber
+        // `new value.constructor(value)` failed.
+        { TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("constructor");
+          TsValue cv; cv.type = ValueType::OBJECT_PTR; cv.ptr_val = ts_value_get_object(ctorVal);
+          proto->SetWithAttrs(ck, cv, 0x02 | 0x04 /* writable|configurable, non-enumerable */); }
+
         cached = (void*)ctorVal;
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -1459,6 +1472,11 @@ void* ts_get_global_Boolean() {
         addMethod(proto, "valueOf",  (void*)+boolProtoValueOf,  0);
 
         ctorFunc->name = TsString::Create("Boolean");
+        // Boolean.prototype.constructor = Boolean (was unset; broke lodash
+        // cloneByTag `new value.constructor(value)`).
+        { TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("constructor");
+          TsValue cv; cv.type = ValueType::OBJECT_PTR; cv.ptr_val = ts_value_get_object(ctorVal);
+          proto->SetWithAttrs(ck, cv, 0x02 | 0x04); }
         cached = (void*)ctorVal;
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
