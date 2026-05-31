@@ -91,11 +91,12 @@
     } catch (e) { return '<unstringifiable ' + (typeof v) + '>'; }
   }
 
+  var curTest = '';
   function record(pass, msg) {
     if (pass) { totalPass++; }
     else {
       totalFail++;
-      if (failMsgs.length < 60) failMsgs.push(msg || '(no message)');
+      if (failMsgs.length < 1000) failMsgs.push(curTest + ' || ' + (msg || '(no message)'));
     }
   }
 
@@ -145,6 +146,7 @@
       console.log('@@PROGRESS ' + (i + 1) + '/' + queue.length +
                   ' pass=' + totalPass + ' fail=' + totalFail +
                   ' module=' + t.module + ' test=' + t.name);
+      curTest = '[' + t.module + '] ' + t.name;
       var hooks = moduleHooks[t.module] || {};
       var assert = makeAssert();
       assert.throws = assert.raises;

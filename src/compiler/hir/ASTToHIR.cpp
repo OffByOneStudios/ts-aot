@@ -8655,9 +8655,12 @@ void ASTToHIR::visitPropertyAssignment(ast::PropertyAssignment* node) {
             builder_.createSetPropDynamic(obj, keyVal, val);
         }
     } else {
-        // PropertyAssignment has name (string) directly
+        // PropertyAssignment has name (string) directly. The empty string is a
+        // valid property key ({ '': v }); computed/spread keys are handled in
+        // the branch above, so a non-computed PropertyAssignment with an empty
+        // name is an intentional '' key — emit it (previously dropped).
         std::string propName = node->name;
-        if (!propName.empty() && obj) {
+        if (obj) {
             builder_.createSetPropStatic(obj, propName, val);
         }
     }
