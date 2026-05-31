@@ -494,7 +494,8 @@ void* ts_get_global_Array() {
     ctorKey.ptr_val = TsString::GetInterned("constructor");
     TsValue ctorRefVal; ctorRefVal.type = ValueType::FUNCTION_PTR;
     ctorRefVal.ptr_val = ts_value_get_object((TsValue*)cached);
-    proto->Set(ctorKey, ctorRefVal);
+    // Non-enumerable per ECMA-262 23.1.2.2 (Array.prototype.constructor).
+    proto->SetWithAttrs(ctorKey, ctorRefVal, 0x02 | 0x04);
 
     return cached;
 }
