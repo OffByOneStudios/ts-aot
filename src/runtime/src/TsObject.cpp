@@ -1038,26 +1038,81 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_string_from_value(v);
     }
 
+    // === User-symbol property-key storage ===
+    //
+    // Symbol property keys are stored in the object's string-keyed map under a
+    // canonical string. WELL-KNOWN symbols (Symbol.iterator, Symbol.toPrimitive,
+    // ... — description starts with "Symbol.") keep the legacy "[<desc>]" form
+    // because the iteration / toPrimitive / hasInstance protocol machinery looks
+    // them up by that literal string (e.g. "[Symbol.iterator]") in many files.
+    //
+    // USER symbols (Symbol('x')) instead key off a STABLE per-symbol index into
+    // a GC-rooted registry, encoded as "\x01@@sym\x01<index>". This (a) fixes the
+    // same-description collision (`o[Symbol('x')]` vs `o[Symbol('x')]` were one
+    // slot), (b) is moving-GC-safe (the index is stable; the symbol pointer in
+    // the registry is marked + forwarded), and (c) lets getOwnPropertySymbols
+    // recover the real Symbol object from the index. The \x01 (SOH) prefix makes
+    // these keys distinguishable from any real JS string key so Object.keys /
+    // for-in / JSON enumeration can skip them.
+    static std::vector<TsSymbol*> g_user_symbols;
+    static bool g_user_symbols_rooted = false;
+    static uint32_t ts_user_symbol_index(TsSymbol* sym) {
+        if (!g_user_symbols_rooted) {
+            g_user_symbols_rooted = true;
+            ts_gc_register_scanner([](void*) {
+                for (TsSymbol* s : g_user_symbols)
+                    if (s) ts_gc_mark_object(s);
+            }, nullptr);
+            ts_gc_register_minor_fixup([](void*) {
+                for (TsSymbol*& s : g_user_symbols)
+                    if (s) { void* f = ts_gc_minor_lookup_forward(s); if (f) s = (TsSymbol*)f; }
+            }, nullptr);
+        }
+        for (size_t i = 0; i < g_user_symbols.size(); i++)
+            if (g_user_symbols[i] == sym) return (uint32_t)i;
+        g_user_symbols.push_back(sym);
+        return (uint32_t)(g_user_symbols.size() - 1);
+    }
+    // Marker prefix for user-symbol storage keys. SOH (0x01) cannot begin a
+    // real JS identifier/array-index key used in practice.
+    static const char* const TS_SYM_KEY_PREFIX = "\x01@@sym\x01";
+    static bool ts_is_user_symbol_key(const char* k) {
+        return k && k[0] == '\x01' && strncmp(k, TS_SYM_KEY_PREFIX, 8) == 0;
+    }
+    // Canonical storage-key string for a Symbol used as a property key.
+    static TsString* ts_symbol_storage_key(TsSymbol* sym) {
+        const char* desc = sym && sym->description ? sym->description->ToUtf8() : "";
+        if (desc && strncmp(desc, "Symbol.", 7) == 0) {
+            // Well-known symbol: keep legacy "[Symbol.xxx]" form.
+            char buf[128];
+            snprintf(buf, sizeof(buf), "[%s]", desc);
+            return TsString::GetInterned(buf);
+        }
+        uint32_t idx = ts_user_symbol_index(sym);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s%u", TS_SYM_KEY_PREFIX, idx);
+        return TsString::GetInterned(buf);
+    }
+    // Recover the Symbol object from a user-symbol storage key (or null).
+    static TsSymbol* ts_user_symbol_from_key(const char* k) {
+        if (!ts_is_user_symbol_key(k)) return nullptr;
+        uint32_t idx = (uint32_t)strtoul(k + 8, nullptr, 10);
+        if (idx < g_user_symbols.size()) return g_user_symbols[idx];
+        return nullptr;
+    }
+
     // ToPropertyKey-style coercion for property STORAGE lookup (not ToString):
-    // a Symbol key canonicalizes to the "[<desc>]" form used by the get/set
-    // paths (ts_object_get_dynamic / ts_object_set_prop_v) so that delete/has
-    // agree with how the property was stored. Unlike ts_value_get_string this
-    // NEVER throws on a Symbol — `delete obj[sym]`, `_.omit(obj,[sym])` etc.
-    // were aborting whole test bodies with "Cannot convert a Symbol value to a
-    // string". (The "[desc]" scheme collides for same-description symbols and
-    // does not surface via getOwnPropertySymbols — a fuller symbol-keyed store
-    // is future work — but it makes the common single-symbol case work.)
+    // a Symbol key canonicalizes to its storage-key string (see above) so that
+    // get/set/has/delete all agree. Unlike ts_value_get_string this NEVER throws
+    // on a Symbol — `delete obj[sym]`, `_.omit(obj,[sym])` etc. were aborting
+    // whole test bodies with "Cannot convert a Symbol value to a string".
     static TsString* ts_property_key_string(TsValue* key) {
         if (!key) return nullptr;
         uint64_t nb = nanbox_from_tsvalue_ptr(key);
         if (nanbox_is_ptr(nb)) {
             void* p = nanbox_to_ptr(nb);
             if (p && *(uint32_t*)p == 0x53594D42) { // TsSymbol::MAGIC "SYMB"
-                TsSymbol* sym = (TsSymbol*)p;
-                const char* desc = sym->description ? sym->description->ToUtf8() : "";
-                char buf[128];
-                snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
-                return TsString::GetInterned(buf);
+                return ts_symbol_storage_key((TsSymbol*)p);
             }
         }
         return (TsString*)ts_value_get_string(key);
@@ -6677,12 +6732,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (ptr) {
                     uint32_t pmagic = *(uint32_t*)ptr;
                     if (pmagic == 0x53594D42) {  // TsSymbol::MAGIC "SYMB"
-                        TsSymbol* sym = (TsSymbol*)ptr;
-                        const char* desc = sym->description ? sym->description->ToUtf8() : "";
-                        char buf[128];
-                        snprintf(buf, sizeof(buf), "[%s]",
-                                 desc && *desc ? desc : "Symbol()");
-                        propStr = TsString::GetInterned(buf);
+                        propStr = ts_symbol_storage_key((TsSymbol*)ptr);
                     }
                 }
             }
@@ -8148,14 +8198,8 @@ TsValue* ts_value_make_int(int64_t i) {
         auto symKeyOrString = [&](void* p) -> TsString* {
             if (!p) return nullptr;
             if (*(uint32_t*)p == 0x53594D42) {  // TsSymbol::MAGIC "SYMB"
-                TsSymbol* sym = (TsSymbol*)p;
-                const char* desc = sym->description
-                    ? sym->description->ToUtf8() : "";
-                char buf[128];
-                snprintf(buf, sizeof(buf), "[%s]",
-                         desc && *desc ? desc : "Symbol()");
                 keyWasSymbol = true;
-                return TsString::GetInterned(buf);
+                return ts_symbol_storage_key((TsSymbol*)p);
             }
             return (TsString*)p;
         };
@@ -8968,11 +9012,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (ptr) {
                 uint32_t pmagic = *(uint32_t*)ptr;
                 if (pmagic == 0x53594D42) {  // TsSymbol::MAGIC "SYMB"
-                    TsSymbol* sym = (TsSymbol*)ptr;
-                    const char* desc = sym->description ? sym->description->ToUtf8() : "";
-                    char buf[128];
-                    snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
-                    keyStr = TsString::GetInterned(buf);
+                    keyStr = ts_symbol_storage_key((TsSymbol*)ptr);
                 } else {
                     keyStr = (TsString*)ptr;
                 }
@@ -8982,11 +9022,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (ptr) {
                 uint32_t pmagic = *(uint32_t*)ptr;
                 if (pmagic == 0x53594D42) {
-                    TsSymbol* sym = (TsSymbol*)ptr;
-                    const char* desc = sym->description ? sym->description->ToUtf8() : "";
-                    char buf[128];
-                    snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
-                    keyStr = TsString::GetInterned(buf);
+                    keyStr = ts_symbol_storage_key((TsSymbol*)ptr);
                 }
             }
         } else if (key.type == ValueType::NUMBER_INT) {
@@ -9061,11 +9097,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (ptr) {
                 uint32_t pmagic = *(uint32_t*)ptr;
                 if (pmagic == 0x53594D42) {  // TsSymbol::MAGIC "SYMB"
-                    TsSymbol* sym = (TsSymbol*)ptr;
-                    const char* desc = sym->description ? sym->description->ToUtf8() : "";
-                    char buf[128];
-                    snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
-                    keyStr = TsString::GetInterned(buf);
+                    keyStr = ts_symbol_storage_key((TsSymbol*)ptr);
                 } else {
                     keyStr = (TsString*)ptr;
                 }
@@ -9076,11 +9108,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (ptr) {
                 uint32_t pmagic = *(uint32_t*)ptr;
                 if (pmagic == 0x53594D42) {  // TsSymbol::MAGIC
-                    TsSymbol* sym = (TsSymbol*)ptr;
-                    const char* desc = sym->description ? sym->description->ToUtf8() : "";
-                    char buf[128];
-                    snprintf(buf, sizeof(buf), "[%s]", desc && *desc ? desc : "Symbol()");
-                    keyStr = TsString::GetInterned(buf);
+                    keyStr = ts_symbol_storage_key((TsSymbol*)ptr);
                 }
             }
         } else if (key.type == ValueType::NUMBER_INT) {
