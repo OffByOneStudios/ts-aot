@@ -8061,6 +8061,11 @@ TsValue* ts_value_make_int(int64_t i) {
         return nullptr;
     }
 
+    // Defined later (near ts_object_set_dynamic); forward-declared so the
+    // string element-access branch below can map a canonical-index string
+    // key to a character index.
+    static bool parse_canonical_array_index(const char* s, int64_t* out);
+
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
 
@@ -8218,7 +8223,22 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
-                if (k) return ts_object_get_property(rawObj, k);
+                if (k) {
+                    // A canonical array-index STRING key indexes the character:
+                    // 'abc'['0'] === 'abc'[0] === 'a'. The integer-key fast path
+                    // above only fires for numeric keys; string keys (e.g.
+                    // lodash copyObject reading source[key] with key="0") reached
+                    // named-property lookup and returned undefined.
+                    int64_t sidx;
+                    if (parse_canonical_array_index(k, &sidx)) {
+                        TsString* str = ts_ensure_flat(rawObj);
+                        if (sidx >= 0 && sidx < str->Length()) {
+                            return ts_value_make_string(str->CharAt(sidx));
+                        }
+                        return ts_value_make_undefined();
+                    }
+                    return ts_object_get_property(rawObj, k);
+                }
             }
             return ts_value_make_undefined();
         }
