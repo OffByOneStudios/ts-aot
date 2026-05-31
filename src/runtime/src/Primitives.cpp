@@ -837,6 +837,20 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
 
     if (magic16 == 0x4D415053) { // TsMap (user class, JS Map, error instance)
         TsMap* map = (TsMap*)rawObj;
+        // A real Map instance (`new Map()`) carries the IsExplicitMap brand;
+        // plain object literals are also TsMap but do NOT. `m instanceof Map`
+        // was false (Map is not in g_builtin_checks, and adding it there would
+        // wrongly match `{} instanceof Map`). Brand-check against Map.prototype.
+        if (map->IsExplicitMap()) {
+            void* g = ts_get_global_Map();
+            if (g) {
+                TsValue* gp = ts_object_get_property(g, "prototype");
+                if (gp) {
+                    uint64_t pnb = nanbox_from_tsvalue_ptr(gp);
+                    if (nanbox_is_ptr(pnb) && nanbox_to_ptr(pnb) == targetProto) return true;
+                }
+            }
+        }
         TsMap* proto = map->GetPrototype();
         int depth = 0;
         while (proto && depth < 100) {
