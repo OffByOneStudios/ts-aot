@@ -11999,7 +11999,37 @@ void* ts_builtin_lookup_special(const char* name) {
             return arg;
         }
 
-        // Primitives: wrap in empty object (simplified - real JS wraps in Number/String/Boolean objects)
+        // ECMA-262 7.1.18 ToObject: a Number/Boolean primitive becomes a
+        // wrapper object whose [[Prototype]] is Number.prototype /
+        // Boolean.prototype, carrying the hidden [[NumberData]]/[[BooleanData]]
+        // slot so ToPrimitive(wrapper) recovers the value (same shape as
+        // `new Number(x)`/`new Boolean(x)`). Previously every primitive was
+        // wrapped in a bare object, so `Object(-0) + ''` was "[object Object]"
+        // and `1/Object(-0)` was NaN (broke lodash's sign-of-`0` set tests).
+        if (nanbox_is_number(nb) || nanbox_is_bool(nb)) {
+            bool isBool = nanbox_is_bool(nb);
+            void* g = isBool ? ts_get_global_Boolean() : ts_get_global_Number();
+            void* gctor = ts_value_get_object((TsValue*)g);
+            if (!gctor) gctor = g;
+            TsValue* protoVal = gctor ? ts_object_get_property(gctor, "prototype") : nullptr;
+            TsMap* m = TsMap::Create();
+            TsValue dk; dk.type = ValueType::STRING_PTR;
+            dk.ptr_val = TsString::GetInterned(isBool ? "__BooleanData" : "__NumberData");
+            TsValue dv;
+            if (isBool) { dv.type = ValueType::BOOLEAN; dv.i_val = nanbox_to_bool(nb) ? 1 : 0; }
+            else { dv.type = ValueType::NUMBER_DBL; dv.d_val = nanbox_to_number(nb); }
+            m->Set(dk, dv);
+            if (protoVal) {
+                void* praw = ts_value_get_object(protoVal);
+                if (praw && *(uint32_t*)((char*)praw + 16) == 0x4D415053 /* TsMap */) {
+                    m->SetPrototype((TsMap*)praw);
+                }
+            }
+            return m;
+        }
+
+        // String/Symbol primitives arrive as heap pointers and are handled by
+        // the nanbox_is_ptr branch above; any remaining primitive → bare object.
         return TsMap::Create();
     }
 
