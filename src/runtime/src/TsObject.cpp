@@ -3265,6 +3265,14 @@ TsValue* ts_value_make_int(int64_t i) {
                     // For OBJECT_PTR/STRING_PTR, the implicit conversion works
                     return result;
                 }
+                // ArrayBuffer instances don't walk their prototype for unknown
+                // keys, so `(new ArrayBuffer()).constructor` read undefined and
+                // lodash cloneArrayBuffer `new arrayBuffer.constructor(n)` broke.
+                if (magic16 == 0x42554646 && keyStr &&
+                    strcmp(keyStr, "constructor") == 0) {
+                    extern void* ts_get_global_ArrayBuffer();
+                    return (TsValue*)ts_get_global_ArrayBuffer();
+                }
             }
             // Virtual-inheritance classes (stream classes) have TsObject::magic at a large offset
             // (not offset 16) due to MSVC's virtual base layout. We can't use (TsObject*)obj cast

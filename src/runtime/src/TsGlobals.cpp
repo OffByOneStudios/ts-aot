@@ -2178,6 +2178,22 @@ void* ts_get_global_ArrayBuffer() {
         }
 
         cached = wrapAsCallable(ctor, "ArrayBuffer", 1);
+        // Wire ArrayBuffer.prototype.constructor = ArrayBuffer (the callable
+        // global, `cached` — NOT the inner ctor map). It was unset, so
+        // `(new ArrayBuffer()).constructor` read undefined and lodash
+        // cloneArrayBuffer `new arrayBuffer.constructor(byteLength)` produced
+        // garbage. Non-enumerable per ECMA-262.
+        {
+            TsValue pk; pk.type = ValueType::STRING_PTR; pk.ptr_val = TsString::GetInterned("prototype");
+            TsValue pv = ctor->Get(pk);
+            if (pv.type == ValueType::OBJECT_PTR && pv.ptr_val && cached) {
+                TsMap* abProto = (TsMap*)pv.ptr_val;
+                TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("constructor");
+                TsValue cv; cv.type = ValueType::OBJECT_PTR; cv.ptr_val = cached;
+                constexpr uint8_t ATTR_WRITABLE = 0x02, ATTR_CONFIGURABLE = 0x04;
+                abProto->SetWithAttrs(ck, cv, ATTR_WRITABLE | ATTR_CONFIGURABLE);
+            }
+        }
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
     return cached;
