@@ -434,9 +434,12 @@ extern "C" void* ts_value_get_string(TsValue* v);
 // (symbolsOnly=false) and user-Symbol storage keys (symbolsOnly=true). User
 // symbols are stored under "\x01@@sym\x01<index>" marker strings; Object.keys /
 // for-in must exclude them, Object.getOwnPropertySymbols collects them.
-static void* map_enumerable_keys_filtered(void* map, bool symbolsOnly) {
+static void* map_keys_filtered(void* map, bool symbolsOnly, bool allKeys) {
     if (!map) return nullptr;
-    TsArray* all = (TsArray*)((TsMap*)map)->GetEnumerableKeys();
+    // Object.keys/for-in use ENUMERABLE keys; Object.getOwnPropertySymbols
+    // returns ALL own symbols regardless of enumerability (ECMA-262 §20.1.2.10).
+    TsArray* all = (TsArray*)(allKeys ? ((TsMap*)map)->GetKeys()
+                                      : ((TsMap*)map)->GetEnumerableKeys());
     if (!all) return all;
     TsArray* out = TsArray::Create(0);
     for (int64_t i = 0; i < all->Length(); i++) {
@@ -451,12 +454,12 @@ static void* map_enumerable_keys_filtered(void* map, bool symbolsOnly) {
 }
 
 void* ts_map_enumerable_keys(void* map) {
-    return map_enumerable_keys_filtered(map, false);
+    return map_keys_filtered(map, false, false);
 }
 
 // Own user-Symbol storage keys (as strings) of an object-backing map.
 void* ts_map_symbol_keys(void* map) {
-    return map_enumerable_keys_filtered(map, true);
+    return map_keys_filtered(map, true, true);
 }
 
 void* ts_map_values(void* map) {
