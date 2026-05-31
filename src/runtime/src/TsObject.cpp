@@ -8136,7 +8136,17 @@ TsValue* ts_value_make_int(int64_t i) {
             if (keyPtr && *(uint32_t*)keyPtr == 0x53594D42) {
                 keyStr = symKeyOrString(keyPtr);
             } else {
-                keyStr = (TsString*)ts_value_get_string(key);
+                // ECMA-262 §7.1.19 ToPropertyKey -> ToString for non-symbol
+                // object keys: obj[{}] === obj["[object Object]"]. The old
+                // ts_value_get_string returned the raw object pointer (a
+                // non-string), so an object key never matched the
+                // "[object Object]" slot it was stored under (lodash Hash
+                // with `{}` keys read undefined / has()=false). Re-box `key`
+                // to the canonical string too, since the TsMap lookup below
+                // hashes by `key` (mirrors the Symbol re-box).
+                extern void* ts_string_from_value(TsValue* val);
+                keyStr = (TsString*)ts_string_from_value(key);
+                if (keyStr) key = ts_value_make_string(keyStr);
             }
         }
         // ECMA-262 §7.1.19 ToPropertyKey: for Symbol keys the codegen
@@ -9037,6 +9047,18 @@ TsValue* ts_value_make_int(int64_t i) {
             keyStr = (TsString*)ts_number_to_string(key.d_val, 10);
         } else if (key.type == ValueType::BOOLEAN) {
             keyStr = TsString::Create(key.i_val ? "true" : "false");
+        }
+        // ECMA-262 §7.1.19 ToPropertyKey -> ToString for non-symbol object/
+        // array keys: obj[{}] = v  ===  obj["[object Object]"] = v. Without
+        // this the set was silently dropped (keyStr stayed null), so e.g.
+        // lodash's internal Hash with `{}` keys stored nothing and has()
+        // returned false. Symbol keys are handled above; ts_string_from_value
+        // throws only for symbols, so it is safe here.
+        if (!keyStr && key.ptr_val &&
+            (key.type == ValueType::OBJECT_PTR ||
+             key.type == ValueType::ARRAY_PTR)) {
+            extern void* ts_string_from_value(TsValue* val);
+            keyStr = (TsString*)ts_string_from_value(&key);
         }
         if (!keyStr) return value;
         // Update the key TsValue itself to string form so downstream TsMap
