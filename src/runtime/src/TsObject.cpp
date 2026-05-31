@@ -9486,6 +9486,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Non-TsObject types at offset 0 — return early without dynamic_cast
         if (magic0 == 0x53545247 || magic0 == 0x434F4E53) return false; // TsString, TsConsString
         if (magic0 == 0x41525259) { // TsArray
+            TsArray* arr = (TsArray*)rawObj;
             TsString* keyStr2 = (TsString*)ts_value_get_string(key);
             if (!keyStr2) return false;
             const char* k = keyStr2->ToUtf8();
@@ -9493,7 +9494,17 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(k, "length") == 0) return true;
             char* end = nullptr;
             long idx = strtol(k, &end, 10);
-            if (end != k && *end == '\0' && idx >= 0 && idx < ts_array_length(rawObj)) return true;
+            if (end != k && *end == '\0' && idx >= 0 && idx < ts_array_length(rawObj)) {
+                // An in-bounds index is a present own property only if it is
+                // not a hole. `var a=[]; a[2]=5; 0 in a` must be false.
+                return !arr->IsHole((size_t)idx);
+            }
+            // Non-index string key (e.g. `a.foo`): check the array's
+            // string-keyed side map so `'foo' in arr` reflects assignments.
+            if (arr->properties) {
+                TsValue kv; kv.type = ValueType::STRING_PTR; kv.ptr_val = keyStr2;
+                if (arr->properties->Has(kv)) return true;
+            }
             return false;
         }
         if (magic0 == 0x4D415053 || magic0 == 0x53455453) return false; // TsMap/TsSet at offset 0
