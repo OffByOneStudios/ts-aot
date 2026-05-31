@@ -6150,25 +6150,22 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_create(TsValue* proto) {
         // Create a new empty map
         TsMap* newObj = TsMap::Create();
+        TsValue* thisVal = ts_value_make_object(newObj);
 
         // If proto is null/undefined, return object with no prototype
         if (!proto || ts_value_is_nullish(proto)) {
             newObj->SetPrototype(nullptr);
-            return ts_value_make_object(newObj);
+            return thisVal;
         }
 
-        // Unbox proto if needed
-        void* protoRaw = ts_value_get_object(proto);
-        if (!protoRaw) protoRaw = proto;
-
-        // Check if proto is a TsMap
-        uint32_t magic = *(uint32_t*)((char*)protoRaw + 16);
-        if (magic == 0x4D415053) { // TsMap::MAGIC
-            TsMap* protoMap = (TsMap*)protoRaw;
-            newObj->SetPrototype(protoMap);
-        }
-
-        return ts_value_make_object(newObj);
+        // Link the prototype via ts_object_setPrototypeOf, which handles BOTH
+        // TsMap and FLAT-object prototypes (object literals — it converts a
+        // flat proto to a map). The old code only matched magic-at-+16 == MAPS,
+        // so a flat-object prototype was silently dropped: Object.create({a:1})
+        // inherited nothing (src.a undefined, getPrototypeOf !== proto). This is
+        // the same path `new Foo()` uses for Foo.prototype.
+        ts_object_setPrototypeOf(thisVal, proto);
+        return thisVal;
     }
 
     // Object.setPrototypeOf(obj, proto) - sets the prototype of an object
