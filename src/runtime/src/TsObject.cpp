@@ -10868,7 +10868,20 @@ TsValue* ts_value_make_int(int64_t i) {
                     TsMap* m = (TsMap*)ptr;
                     // Distinguish explicit Map from plain object literal.
                     if (m->IsExplicitMap()) tag = "Map";
-                    else { tag = "Object"; mapForTag = m; }
+                    else {
+                        // Primitive wrapper objects (new String/Number/Boolean,
+                        // Object(prim)) carry a hidden data slot — brand them
+                        // per ECMA-262 20.1.3.6 etc. so Object.prototype.toString
+                        // returns [object String]/[object Number]/[object Boolean]
+                        // (lodash isString/isNumber/isBoolean use this).
+                        TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned("__StringData");
+                        TsValue nk; nk.type = ValueType::STRING_PTR; nk.ptr_val = TsString::GetInterned("__NumberData");
+                        TsValue bk; bk.type = ValueType::STRING_PTR; bk.ptr_val = TsString::GetInterned("__BooleanData");
+                        if (m->Has(sk)) tag = "String";
+                        else if (m->Has(nk)) tag = "Number";
+                        else if (m->Has(bk)) tag = "Boolean";
+                        else { tag = "Object"; mapForTag = m; }
+                    }
                 }
                 // else: unknown / native-polymorphic / corrupt pointer. Leave
                 // tag = "Object" and do NOT dynamic_cast. Earlier this branch
