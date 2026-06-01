@@ -3897,6 +3897,13 @@ TsValue* ts_value_make_int(int64_t i) {
                 return arrayCtor ? (TsValue*)ts_value_make_object(arrayCtor)
                                  : ts_value_make_undefined();
             }
+            // Object.prototype methods inherited by arrays. The array branch
+            // is a method-name allowlist that never fell through to
+            // Object.prototype, so `arr.hasOwnProperty(k)` resolved to
+            // undefined and calling it yielded undefined (not a boolean) for
+            // every key. The native already handles a TsArray receiver
+            // (elements + the string-keyed `properties` side map + "length").
+            if (strcmp(keyStr, "hasOwnProperty") == 0) return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, arr, "hasOwnProperty", 1);
             // P0: Extremely common methods
             if (strcmp(keyStr, "map") == 0) return makeNamedNativeFunction((void*)ts_array_map_native, arr, "map", 1);
             if (strcmp(keyStr, "filter") == 0) return makeNamedNativeFunction((void*)ts_array_filter_native, arr, "filter", 1);
