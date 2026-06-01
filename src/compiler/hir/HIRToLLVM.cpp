@@ -4903,6 +4903,11 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
                 }
             }
         }
+        // Preserve the original key (pre-i64-coercion) so the dynamic path can
+        // ToPropertyKey-coerce a boolean/double key correctly (obj[false] ==
+        // obj["false"], obj[NaN] == obj["NaN"]); the int-coerced form would
+        // mangle them (false->0, NaN->garbage).
+        llvm::Value* origIdx = idx;
         // Coerce non-i64 numeric/boolean indices up-front. Boolean
         // indices (`x[true]`) come through as i1; smaller integer
         // widths (i32) need extension; doubles (numeric literals)
@@ -4955,14 +4960,24 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
             auto fn = getTsArrayGet();
             result = builder_->CreateCall(fn, {arr, idx});
         } else {
-            // Dynamic property access with numeric key: convert number to string
-            // Convert idx to i64 if double
-            if (idx->getType()->isDoubleTy()) {
-                idx = builder_->CreateFPToSI(idx, builder_->getInt64Ty(), "idx_to_i64");
+            // Dynamic property access with a non-string key: box the ORIGINAL
+            // key by its type so the runtime applies ToPropertyKey (a boolean
+            // or NaN/Inf double becomes "true"/"false"/"NaN"/... not a mangled
+            // integer index).
+            llvm::Value* boxedIdx;
+            if (origIdx->getType()->isIntegerTy(1)) {
+                llvm::Value* w = builder_->CreateZExt(origIdx, builder_->getInt32Ty());
+                boxedIdx = builder_->CreateCall(getTsValueMakeBool(), {w});
+            } else if (origIdx->getType()->isDoubleTy()) {
+                boxedIdx = builder_->CreateCall(getTsValueMakeDouble(), {origIdx});
+            } else {
+                // Integer key — box as int (canonical numeric index string).
+                llvm::Value* iv = idx;
+                if (iv->getType()->isDoubleTy()) {
+                    iv = builder_->CreateFPToSI(iv, builder_->getInt64Ty(), "idx_to_i64");
+                }
+                boxedIdx = builder_->CreateCall(getTsValueMakeInt(), {iv});
             }
-            // Box the integer index as a TsValue*
-            auto boxIdxFn = getTsValueMakeInt();
-            llvm::Value* boxedIdx = builder_->CreateCall(boxIdxFn, {idx});
 
             auto ft = llvm::FunctionType::get(getGCPtrTy(),
                                               {getGCPtrTy(), getGCPtrTy()}, false);
@@ -5014,8 +5029,34 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
         }
     }
 
+    // A boolean or double key on a NON-array receiver must go through the
+    // dynamic setter so the runtime applies ToPropertyKey/ToString
+    // (obj[false] === obj["false"], obj[NaN] === obj["NaN"]). The array
+    // fast path below coerces such keys to an integer index (false->0,
+    // NaN/Inf->garbage, all colliding), which is correct only for real
+    // arrays. Known indexed collections (array / typed array / buffer /
+    // string) keep the fast integer path so typed `number[]` indexing stays
+    // fast; object / any receivers divert.
+    bool receiverIsIndexed = false;
+    if (auto* hv = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[0])) {
+        if (*hv && (*hv)->type) {
+            auto rk = (*hv)->type->kind;
+            if (rk == HIRTypeKind::Array || rk == HIRTypeKind::String) {
+                receiverIsIndexed = true;
+            } else if (rk == HIRTypeKind::Class) {
+                const std::string& cn = (*hv)->type->className;
+                if (cn == "Buffer" || cn.find("Array") != std::string::npos) {
+                    receiverIsIndexed = true;
+                }
+            }
+        }
+    }
+    bool keyIsBoolOrDouble = idx->getType()->isIntegerTy(1) || idx->getType()->isDoubleTy();
+    bool useDynamicKey = idx->getType()->isPointerTy() ||
+                         (keyIsBoolOrDouble && !receiverIsIndexed);
+
     // Check if index is a string/pointer (dynamic property access) vs numeric (array index)
-    if (idx->getType()->isPointerTy()) {
+    if (useDynamicKey) {
         // Dynamic property set: obj[stringKey] = val - call ts_object_set_dynamic
         // Per ECMA-262 PutValue, the receiver is ToObject'd. We can't model
         // that fully here, but we must at least box primitive receivers so
@@ -5034,9 +5075,18 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
                 arr = builder_->CreateIntToPtr(arr, getGCPtrTy());
             }
         }
-        // Box the string key to TsValue* since ts_object_set_dynamic expects TsValue* args
-        auto boxKeyFn = getTsValueMakeString();
-        llvm::Value* boxedKey = builder_->CreateCall(boxKeyFn, {idx});
+        // Box the key to TsValue* by its type (string / boolean / double).
+        // ts_object_set_dynamic then ToPropertyKey-coerces it (and dispatches
+        // array-index for genuine array receivers via the magic check).
+        llvm::Value* boxedKey;
+        if (idx->getType()->isIntegerTy(1)) {
+            llvm::Value* w = builder_->CreateZExt(idx, builder_->getInt32Ty());
+            boxedKey = builder_->CreateCall(getTsValueMakeBool(), {w});
+        } else if (idx->getType()->isDoubleTy()) {
+            boxedKey = builder_->CreateCall(getTsValueMakeDouble(), {idx});
+        } else {
+            boxedKey = builder_->CreateCall(getTsValueMakeString(), {idx});
+        }
 
         // Box the value too if it's a raw pointer (could be TsString* from const.string)
         // We need to check the HIR type of the value operand to determine the right boxing
@@ -5047,7 +5097,7 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
             if (inst->operands.size() > 2) {
                 if (auto* hirVal = std::get_if<std::shared_ptr<HIRValue>>(&inst->operands[2])) {
                     if (*hirVal && (*hirVal)->type && (*hirVal)->type->kind == HIRTypeKind::String) {
-                        boxedVal = builder_->CreateCall(boxKeyFn, {val});
+                        boxedVal = builder_->CreateCall(getTsValueMakeString(), {val});
                         boxedAsString = true;
                     }
                 }
