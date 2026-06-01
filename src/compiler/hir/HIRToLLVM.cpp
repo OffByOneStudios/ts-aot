@@ -7147,8 +7147,14 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
-    if (methodName == "unshift") {
+    if (methodName == "unshift" && !receiverIsObject && !receiverIsAny) {
         // ts_array_unshift(void* arr, void* value) -> int64_t (new length)
+        // Guard (mirrors push above): a statically-known Object/any receiver
+        // with its own `unshift` method (e.g. a lodash lazy-wrapper, which
+        // assigns Array method names onto its prototype and returns `this`
+        // for chaining) must NOT be force-dispatched to native array unshift —
+        // that threads the i64 length as the receiver and discards the
+        // wrapper. Such receivers fall through to dynamic property dispatch.
         // Per ES spec, arr.unshift(a, b, c) prepends so that a is at index 0.
         // Each single-arg unshift prepends one element at index 0. To match
         // spec ordering, iterate the args in REVERSE so that the first arg
@@ -7223,8 +7229,11 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
         return;
     }
 
-    if (methodName == "splice") {
+    if (methodName == "splice" && !receiverIsObject && !receiverIsAny) {
         // splice(start, deleteCount, ...items)
+        // Guard (mirrors push/unshift): a statically-known Object/any receiver
+        // with its own `splice` method (e.g. a lodash lazy-wrapper) must fall
+        // through to dynamic property dispatch rather than native array splice.
         // ts_array_splice(arr, start, deleteCount, items) expects items
         // as a TsArray*. Pack operands[4..] into a temp TsArray, then call.
         auto getBoxed = [&](size_t opIdx) -> llvm::Value* {
