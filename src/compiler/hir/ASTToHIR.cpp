@@ -7751,8 +7751,14 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
                     ? *extType->constructor->hirName
                     : extType->constructor->call;
 
-                // The constructor is a static factory function that returns the object
-                lastValue_ = builder_.createCall(hirName, args, HIRType::makePtr());
+                // The constructor is a static factory function that returns the
+                // object. Type the result as the extension CLASS (not an untyped
+                // ptr) so downstream member access / indexing dispatches against
+                // the right runtime shape — e.g. `new Buffer(..)[i]` must lower
+                // to ts_buffer_read_uint8, not ts_array_get_unchecked (which
+                // reads a TsBuffer as a TsArray and crashes). Mirrors how the
+                // static factory `Buffer.from(..)` is typed (extTypeRefToHIR).
+                lastValue_ = builder_.createCall(hirName, args, HIRType::makeClass(className, 0));
                 return;
             }
             // Phase 9i Bug 3: extension type exists but its contract has no

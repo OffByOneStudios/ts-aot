@@ -6,6 +6,15 @@
   "types": {
     "Buffer": {
       "kind": "class",
+      "constructor": {
+        "call": "ts_buffer_construct",
+        "hirName": "ts_buffer_construct",
+        "params": [
+          {"name": "arg", "type": "any"},
+          {"name": "encoding", "type": "any", "optional": true}
+        ],
+        "lowering": { "args": ["ptr", "ptr"], "returns": "ptr" }
+      },
       "properties": {
         "length": {
           "type": "int",

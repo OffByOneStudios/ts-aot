@@ -1094,6 +1094,47 @@ extern "C" {
         return TsBuffer::FromArrayBuffer(arrayBuffer, byteOffset, length);
     }
 
+    // Deprecated `new Buffer(arg[, encoding])` constructor. Node still supports
+    // it (with a deprecation warning); it dispatches on the argument type the
+    // same way Buffer.from / Buffer.alloc do:
+    //   new Buffer(number)      -> zero-filled buffer of that size
+    //   new Buffer(array)       -> Buffer.from(array)  (byte values)
+    //   new Buffer(buffer)      -> copy of the source buffer
+    //   new Buffer(string, enc) -> Buffer.from(string, encoding)
+    void* ts_buffer_construct(void* arg, void* arg2) {
+        if (!arg) return TsBuffer::Create(0);
+        uint64_t bits = (uint64_t)(uintptr_t)arg;
+        // Number form: new Buffer(size). (Node's deprecated ctor returns
+        // UNINITIALIZED memory; we zero-fill for deterministic behavior.)
+        if (nanbox_is_number(bits)) {
+            int64_t n = nanbox_to_int64(bits);
+            return TsBuffer::Create((size_t)(n < 0 ? 0 : n));
+        }
+        // Pointer forms: unbox a NaN-boxed object, else treat as a raw pointer.
+        void* raw = ts_nanbox_safe_unbox(arg);
+        if (!raw) raw = arg;
+        if ((uint64_t)(uintptr_t)raw < 0x10000) return TsBuffer::Create(0);
+        // Dispatch by object magic. NEVER dynamic_cast here: a TsString* has a
+        // different layout/RTTI and dynamic_cast<TsBuffer*> on one crashes in
+        // _RTDynamicCast. Compare the magic word directly instead.
+        uint32_t magic = *(uint32_t*)raw;
+        if (magic == 0x41525259) return TsBuffer::FromArray(raw);            // "ARRY"
+        if (magic == TsBuffer::MAGIC) return TsBuffer::FromBuffer((TsBuffer*)raw); // "BUFF"
+        // Otherwise treat as a string. Only honor `encoding` when arg2 safely
+        // unboxes to an actual TsString (a missing optional arg may arrive as
+        // undefined/garbage — never deref it as a string blindly).
+        TsString* enc = nullptr;
+        if (arg2 && !nanbox_is_number((uint64_t)(uintptr_t)arg2)) {
+            void* e = ts_nanbox_safe_unbox(arg2);
+            if (!e) e = arg2;
+            if ((uint64_t)(uintptr_t)e >= 0x10000 && (((uint64_t)(uintptr_t)e) >> 48) == 0 &&
+                *(uint32_t*)e == TsString::MAGIC) {
+                enc = (TsString*)e;
+            }
+        }
+        return TsBuffer::FromString((TsString*)raw, enc);
+    }
+
     void* ts_buffer_concat(void* list, int64_t totalLength) {
         return TsBuffer::Concat(list, totalLength);
     }
