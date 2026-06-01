@@ -7913,8 +7913,15 @@ TsValue* ts_value_make_int(int64_t i) {
         // by callers) or recursive (Closures — a function's valueOf returns
         // itself). We specifically target plain objects, arrays, and maps.
         uint32_t magic0 = *(uint32_t*)obj;
-        // Function identified at offset 0; skip (its valueOf returns itself).
-        if (magic0 == 0x46554E43) return val;
+        // A function/closure is NOT skipped: per ECMA-262 7.1.1.1
+        // OrdinaryToPrimitive it must consult toString (a function with an
+        // overridden `toString`, e.g. lodash test fixtures' `fn.toString =
+        // () => 'fn'`, must stringify to 'fn', not "[object Object]"/""). The
+        // generic valueOf/toString block below is safe for functions: with the
+        // default/number hint it tries valueOf first, which returns the
+        // function itself (non-primitive) and is skipped, then toString. Only
+        // the (now removed) early-return shortcut prevented this. (Native
+        // function at offset 0 falls through the same way.)
         // TsDate has no own-property hash table: routing it through the generic
         // valueOf/toString lookup below calls ts_object_get_property, which
         // mis-casts it to TsMap and crashes in find_slot. Resolve the Date's
@@ -7932,9 +7939,8 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_string(s ? s : TsString::Create(""));
         }
         uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
-        // Closure = function; skip (its valueOf returns itself)
-        if (magic16 == 0x434C5352) return val;
-        if (magic16 == 0x46554E43) return val;
+        // Closure/function (offset 16): not skipped — see note above; the
+        // generic toString/valueOf block handles overridden `toString`.
         // BigInt/Symbol have their own primitive semantics
         if (magic16 == 0x42494749) return val;  // BigInt
         if (magic16 == 0x53594D42) return val;  // Symbol
