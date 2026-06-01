@@ -1802,6 +1802,24 @@ extern "C" {
                 magic = *(uint32_t*)rawArr;
             }
             if (magic != TsArray::MAGIC) {
+                // Non-Array receiver: the compiler may have mis-dispatched a
+                // method call on a variable whose STATIC type was Array but
+                // whose runtime value is a different object — e.g. lodash
+                // baseUniq's `var seen = result; ...; seen = new SetCache();
+                // seen.push(x)`. `seen.push` is statically bound to Array.push
+                // (because `seen` was inferred Array), so it lands here. Prefer
+                // the receiver's OWN `push` method so its side effects happen on
+                // the real object; otherwise ts_array_push_native materializes a
+                // throwaway temp array and the push is lost (uniq/uniqBy large-
+                // array dedup silently failed). Mirrors the ts_array_join/concat
+                // non-array workarounds above.
+                extern TsValue* ts_object_get_property(void* obj, const char* key);
+                TsValue* ownPush = ts_object_get_property(rawArr, "push");
+                if (ownPush && !ts_value_is_undefined(ownPush)) {
+                    extern TsValue* ts_call_with_this_1(TsValue* fn, TsValue* thisArg, TsValue* arg1);
+                    ts_call_with_this_1(ownPush, (TsValue*)arr, (TsValue*)value);
+                    return;
+                }
                 TsValue* argvBuf[1] = { (TsValue*)value };
                 ts_array_push_native(arr, 1, argvBuf);
                 return;
