@@ -9619,6 +9619,24 @@ TsValue* ts_value_make_int(int64_t i) {
         return value;
     }
 
+    // Names that every ordinary object inherits from Object.prototype. The `in`
+    // operator (which walks the prototype chain) must report these as present
+    // even on our prototype-less representations (flat objects, plain TsMaps
+    // whose chain doesn't reach a materialized Object.prototype). All are
+    // non-enumerable, so this does NOT affect for-in / Object.keys (which gate
+    // on enumerability separately). Per ECMA-262 `'toString' in {}` === true.
+    // lodash's isEqual equalObjects relies on `'constructor' in object` being
+    // true to run its constructor discriminator.
+    static bool is_object_prototype_member(const char* k) {
+        return strcmp(k, "constructor") == 0 ||
+               strcmp(k, "hasOwnProperty") == 0 ||
+               strcmp(k, "isPrototypeOf") == 0 ||
+               strcmp(k, "propertyIsEnumerable") == 0 ||
+               strcmp(k, "toLocaleString") == 0 ||
+               strcmp(k, "toString") == 0 ||
+               strcmp(k, "valueOf") == 0;
+    }
+
     bool ts_object_has_prop(TsValue* obj, TsValue* key) {
         if (!obj || !key) return false;
         void* rawObj = ts_value_get_object(obj);
@@ -9631,7 +9649,10 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!keyStr) return false;
             const char* k = keyStr->ToUtf8();
             if (!k) return false;
-            return ts_flat_object_has_property(rawObj, k);
+            if (ts_flat_object_has_property(rawObj, k)) return true;
+            // Inherited from Object.prototype (flat objects have no explicit
+            // prototype link, so the chain walk below never reaches it).
+            return is_object_prototype_member(k);
         }
 
         // Non-TsObject types at offset 0 — return early without dynamic_cast
@@ -9686,6 +9707,12 @@ TsValue* ts_value_make_int(int64_t i) {
                     return true;
                 }
                 currentMap = currentMap->GetPrototype();
+            }
+            // Inherited from Object.prototype if the chain didn't already
+            // include it (plain `{}`-style TsMaps don't link to a materialized
+            // Object.prototype). Non-enumerable, so for-in is unaffected.
+            if (const char* k = keyStr->ToUtf8()) {
+                if (is_object_prototype_member(k)) return true;
             }
             return false;
         }
