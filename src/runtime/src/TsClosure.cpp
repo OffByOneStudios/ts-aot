@@ -245,6 +245,30 @@ void ts_closure_init_capture(TsClosure* closure, int64_t index, TsValue* initial
         ts_gc_write_barrier(&closure->cells[index], cell);
 }
 
+// Share ONE cell across every closure that captures the same outer variable.
+// `slot` points to a caller-owned (stack/entry-alloca) TsCell* that is the
+// canonical shared cell for a given captured variable within a function. The
+// FIRST closure to capture the variable finds *slot == null, creates the cell
+// (seeded with initialValue), and publishes it into *slot. Every subsequent
+// closure finds *slot already populated and merely points its own capture
+// index at that SAME cell. This guarantees that a write through any closure's
+// cell (or the parent's primary cell, which is one of these) is visible to all
+// the others — fixing the multi-closure capture desync where each closure used
+// to get its own cell and the parent read only the first one.
+void ts_closure_share_or_init_cell(TsClosure* closure, int64_t index,
+                                   TsCell** slot, TsValue* initialValue) {
+    if (!closure) return;
+    TsCell* cell = slot ? *slot : nullptr;
+    if (!cell) {
+        cell = ts_cell_create(initialValue);
+        if (slot) *slot = cell;
+    }
+    closure->setCell(index, cell);
+    // Write barrier: cell pointer stored into closure's cells array
+    if (closure->cells && index >= 0 && index < closure->num_captures)
+        ts_gc_write_barrier(&closure->cells[index], cell);
+}
+
 // Check if a pointer is a TsClosure (by checking magic number).
 // Disambiguates raw TsClosure* from NaN-boxed TsValue* (small tag values
 // 0..10 like NANBOX_UNDEFINED=0x0A, NANBOX_HOLE=0x08 etc.). The disambiguator

@@ -955,6 +955,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     blockMap_.clear();
     closureParam_ = nullptr;
     capturedVarCells_.clear();
+    capturedVarCellSlots_.clear();
     flatObjectShapes_.clear();
     scalarReplacedObjects_.clear();
     asyncPromise_ = nullptr;
@@ -8627,6 +8628,61 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     );
     auto getCell = module_->getOrInsertFunction("ts_closure_get_cell", getCellFt);
 
+    // ts_closure_share_or_init_cell(TsClosure*, int64_t index, TsCell** slot,
+    //                               TsValue* initialValue) -> void
+    // Shares one cell (held in *slot) across all closures that capture the same
+    // outer variable; creates it lazily on first use. The slot is an
+    // entry-block alloca so it dominates every block.
+    auto shareCellFt = llvm::FunctionType::get(
+        builder_->getVoidTy(),
+        { getGCPtrTy(), builder_->getInt64Ty(), builder_->getPtrTy(), getGCPtrTy() },
+        false
+    );
+    auto shareCell = module_->getOrInsertFunction("ts_closure_share_or_init_cell", shareCellFt);
+
+    // Get-or-create the per-function entry-block alloca (TsCell**) that holds
+    // the canonical shared cell for a captured variable. Entry-block placement
+    // makes it dominate every block; null-initialized so the first closure to
+    // run creates the cell. The slot's address escapes to the runtime helper,
+    // which keeps the alloca in memory (no mem2reg) so the conservative GC
+    // stack scanner sees — and pins — the live cell across GC points.
+    auto getOrCreateCellSlot =
+        [&](const std::pair<std::string, llvm::Value*>& key) -> llvm::AllocaInst* {
+        auto it = capturedVarCellSlots_.find(key);
+        if (it != capturedVarCellSlots_.end()) return it->second;
+        llvm::AllocaInst* slot;
+        {
+            llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+            llvm::BasicBlock* entryBB = &currentFunction_->getEntryBlock();
+            builder_->SetInsertPoint(entryBB, entryBB->getFirstInsertionPt());
+            slot = builder_->CreateAlloca(getGCPtrTy(), nullptr, key.first + "$cellslot");
+            builder_->CreateStore(llvm::Constant::getNullValue(getGCPtrTy()), slot);
+        }
+        capturedVarCellSlots_[key] = slot;
+        return slot;
+    };
+
+    // Box a captured value into a TsValue* per its LLVM type (the cell seed).
+    auto boxCapturedValue = [&](llvm::Value* capturedValue) -> llvm::Value* {
+        llvm::Type* valType = capturedValue->getType();
+        if (valType->isIntegerTy(64)) {
+            return builder_->CreateCall(makeIntFt, makeInt.getCallee(), { capturedValue });
+        } else if (valType->isDoubleTy()) {
+            return builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { capturedValue });
+        } else if (valType->isIntegerTy(1)) {
+            auto makeBool = getTsValueMakeBool();
+            llvm::Value* extended = builder_->CreateZExt(capturedValue, builder_->getInt32Ty(), "bool_ext");
+            return builder_->CreateCall(makeBool, { extended });
+        } else if (valType->isIntegerTy(32)) {
+            llvm::Value* extended = builder_->CreateSExt(capturedValue, builder_->getInt64Ty(), "i32_ext");
+            return builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
+        } else if (valType->isPointerTy()) {
+            return builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { gcPtrToRaw(capturedValue) });
+        }
+        // Default: box as object (may fail for non-pointer types)
+        return builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
+    };
+
     // Initialize each capture cell with its value
     for (size_t i = 0; i < numCaptures; ++i) {
         llvm::Value* capturedValue = getOperandValue(inst->operands[i + 1]);
@@ -8738,47 +8794,50 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             // Share the existing cell directly. No boxing, no new cell.
             builder_->CreateCall(setCellFt, setCell.getCallee(),
                 { gcPtrToRaw(closure), indexVal, existingCellFromChain });
-            // Cache for any later closures in the same block capturing same var.
+            // Publish into the cross-block slot so sibling closures that capture
+            // the same variable in OTHER basic blocks converge on this same cell.
             if (!capVarName.empty()) {
+                llvm::AllocaInst* slot = getOrCreateCellSlot(cellKey);
+                builder_->CreateStore(existingCellFromChain, slot);
                 capturedVarCells_[cellKey] = { existingCellFromChain, currentBB };
             }
-        } else if (canShareCell) {
-            // Reuse the existing cell from a previously created closure in the same block
-            llvm::Value* existingCell = capturedVarCells_[cellKey].first;
-            builder_->CreateCall(setCellFt, setCell.getCallee(), { gcPtrToRaw(closure), indexVal, existingCell });
-        } else {
-            // Get the type of the captured value to box it properly
-            // Use LLVM type as the primary source of truth
-            llvm::Value* boxedValue = nullptr;
-            llvm::Type* valType = capturedValue->getType();
-
-            if (valType->isIntegerTy(64)) {
-                boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { capturedValue });
-            } else if (valType->isDoubleTy()) {
-                boxedValue = builder_->CreateCall(makeDoubleFt, makeDouble.getCallee(), { capturedValue });
-            } else if (valType->isIntegerTy(1)) {
-                // Boolean - use ts_value_make_bool with i32
-                auto makeBool = getTsValueMakeBool();
-                llvm::Value* extended = builder_->CreateZExt(capturedValue, builder_->getInt32Ty(), "bool_ext");
-                boxedValue = builder_->CreateCall(makeBool, { extended });
-            } else if (valType->isIntegerTy(32)) {
-                // i32 - extend to i64 and use makeInt
-                llvm::Value* extended = builder_->CreateSExt(capturedValue, builder_->getInt64Ty(), "i32_ext");
-                boxedValue = builder_->CreateCall(makeIntFt, makeInt.getCallee(), { extended });
-            } else if (valType->isPointerTy()) {
-                // For pointers/objects, box as object
-                boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { gcPtrToRaw(capturedValue) });
+        } else if (!capVarName.empty() && capturedVarCells_.count(cellKey)) {
+            // A PREVIOUS closure (a different MakeClosure site) already created
+            // the cell for this exact binding. Make THIS closure share the very
+            // same cell so writes propagate between them and to the parent.
+            //   - same basic block  -> reuse the cached SSA cell directly (the
+            //     legacy fast path; also the correct per-iteration cell inside a
+            //     loop body, where the cached cell is re-evaluated each pass).
+            //   - different block    -> load the cell from the dominating slot
+            //     the first capturer published it into. ts_closure_share_or_init_cell
+            //     reads *slot (the shared cell) and, only if the first capturer
+            //     never ran on this path (slot still null), creates one.
+            if (capturedVarCells_[cellKey].second == currentBB) {
+                llvm::Value* existingCell = capturedVarCells_[cellKey].first;
+                builder_->CreateCall(setCellFt, setCell.getCallee(),
+                    { gcPtrToRaw(closure), indexVal, existingCell });
             } else {
-                // Default: box as object (may fail for non-pointer types)
-                boxedValue = builder_->CreateCall(makeObjectFt, makeObject.getCallee(), { capturedValue });
+                llvm::Value* boxedValue = boxCapturedValue(capturedValue);
+                llvm::AllocaInst* slot = getOrCreateCellSlot(cellKey);
+                builder_->CreateCall(shareCellFt, shareCell.getCallee(),
+                    { gcPtrToRaw(closure), indexVal, slot, boxedValue });
+                llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { gcPtrToRaw(closure), indexVal });
+                capturedVarCells_[cellKey] = { cell, currentBB };
             }
-
-            // Initialize the capture: ts_closure_init_capture(closure, index, boxedValue)
+        } else {
+            // FIRST (or only) closure to capture this variable. Create a fresh
+            // per-EXECUTION cell via ts_closure_init_capture — crucial for loop
+            // bodies, where this MakeClosure is lowered once but runs each
+            // iteration and must yield a distinct cell per iteration (for-let
+            // semantics). Then publish the cell into the dominating slot so a
+            // LATER, different closure capturing the same binding (in another
+            // block) can converge on it.
+            llvm::Value* boxedValue = boxCapturedValue(capturedValue);
             builder_->CreateCall(initCaptureFt, initCapture.getCallee(), { gcPtrToRaw(closure), indexVal, boxedValue });
-
-            // Store the cell for sharing with subsequent closures in the same block
             if (!capVarName.empty()) {
                 llvm::Value* cell = builder_->CreateCall(getCellFt, getCell.getCallee(), { gcPtrToRaw(closure), indexVal });
+                llvm::AllocaInst* slot = getOrCreateCellSlot(cellKey);
+                builder_->CreateStore(cell, slot);
                 capturedVarCells_[cellKey] = { cell, currentBB };
             }
         }

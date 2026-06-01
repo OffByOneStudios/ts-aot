@@ -182,6 +182,17 @@ private:
     std::map<std::pair<std::string, llvm::Value*>,
              std::pair<llvm::Value*, llvm::BasicBlock*>> capturedVarCells_;
 
+    // Per-function entry-block alloca (TsCell**) holding the canonical SHARED
+    // cell for a captured variable. Keyed identically to capturedVarCells_
+    // (capture name + source alloca/value). Because the slot is an entry-block
+    // alloca it dominates every block, so closures capturing the same variable
+    // in DIFFERENT basic blocks (e.g. across if/else or sequential statements
+    // separated by calls) can all converge on one cell via
+    // ts_closure_share_or_init_cell — fixing the multi-cell write desync that
+    // the same-basic-block constraint of capturedVarCells_ could not cover.
+    std::map<std::pair<std::string, llvm::Value*>, llvm::AllocaInst*>
+        capturedVarCellSlots_;
+
     // HIR module pointer (set during lower())
     HIRModule* hirModule_ = nullptr;
 

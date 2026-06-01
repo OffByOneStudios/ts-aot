@@ -73,6 +73,13 @@ extern "C" {
     // This is a convenience function that combines ts_cell_create and ts_closure_set_cell
     void ts_closure_init_capture(TsClosure* closure, int64_t index, TsValue* initialValue);
 
+    // Share one cell across all closures capturing the same outer variable.
+    // *slot is the canonical shared TsCell* (caller-owned entry alloca); the
+    // first caller creates+publishes it, later callers reuse it. See the .cpp
+    // for the full rationale (multi-closure capture desync fix).
+    void ts_closure_share_or_init_cell(TsClosure* closure, int64_t index,
+                                       TsCell** slot, TsValue* initialValue);
+
     // Set the arity (user-visible parameter count) on a TsClosure
     void ts_closure_set_arity(TsClosure* closure, int32_t arity);
 
