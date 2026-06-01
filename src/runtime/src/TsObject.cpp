@@ -8454,9 +8454,24 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return ts_value_make_undefined();
 
-        // Decode key
-        bool keyIsInt = nanbox_is_int32(keyNb) || nanbox_is_double(keyNb);
-        int64_t keyIdx = keyIsInt ? nanbox_to_int64(keyNb) : 0;
+        // Decode key. Only a CANONICAL non-negative integer index takes the
+        // element fast path below; a fractional double (1.1) or a negative
+        // number is NOT an array index (ECMA-262: ToString(ToUint32(1.1))="1"
+        // ≠"1.1"), so it must fall through to the string-property path (keyStr
+        // is built by primitive_key_to_string further down → "1.1"/"-1") to
+        // mirror ts_object_set_prop_v's set side. Previously `nanbox_to_int64`
+        // truncated 1.1→1 and treated -1 as element index, so `a[1.1]`/`a[-1]`
+        // read the wrong element / undefined instead of the stored property.
+        bool keyIsInt = false;
+        int64_t keyIdx = 0;
+        if (nanbox_is_int32(keyNb)) {
+            keyIdx = nanbox_to_int64(keyNb);
+            keyIsInt = (keyIdx >= 0);
+        } else if (nanbox_is_double(keyNb)) {
+            double kd = nanbox_to_double(keyNb);
+            int64_t ki = (int64_t)kd;
+            if (kd == (double)ki && ki >= 0) { keyIdx = ki; keyIsInt = true; }
+        }
         TsString* keyStr = nullptr;
         // ECMA-262 §7.1.19 ToPropertyKey: Symbol keys stay Symbols, not
         // ToString'd. The codegen at HIRToLLVM::lowerGetElem boxes ANY
@@ -9414,9 +9429,24 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = obj.ptr_val;
         if (!rawObj) return value;
 
-        // If key is a number, try array access
-        if (key.type == ValueType::NUMBER_INT || key.type == ValueType::NUMBER_DBL) {
-            int64_t idx = (key.type == ValueType::NUMBER_INT) ? key.i_val : (int64_t)key.d_val;
+        // If key is a number, try array access — but ONLY when it's a
+        // canonical integer index. A fractional double like 1.1 is NOT an
+        // array index (ECMA-262: ToString(ToUint32(1.1))="1"≠"1.1"); casting
+        // it to (int64_t)1.1==1 wrongly created element[1] (+ a hole, growing
+        // length). Integer-valued doubles (2.0) and ints still index;
+        // negatives flow to ts_array_set_v which routes them to the string
+        // `properties` side map. Non-integer doubles fall through to the
+        // ToString path below → stored as the string property "1.1".
+        bool keyIsArrayIndex = false;
+        int64_t idx = 0;
+        if (key.type == ValueType::NUMBER_INT) {
+            idx = key.i_val;
+            keyIsArrayIndex = true;
+        } else if (key.type == ValueType::NUMBER_DBL) {
+            idx = (int64_t)key.d_val;
+            keyIsArrayIndex = (key.d_val == (double)idx);  // integer-valued only
+        }
+        if (keyIsArrayIndex) {
             uint32_t magic = *(uint32_t*)rawObj;
             if (magic == 0x41525259) { // TsArray::MAGIC
                 ts_array_set_v(rawObj, idx, value);
