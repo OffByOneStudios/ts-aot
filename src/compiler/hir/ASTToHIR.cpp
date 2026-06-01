@@ -5297,17 +5297,27 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // Compute the operation
         bool eitherAny = isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get());
         if (op == "+=") {
+            // Mirror the binary `+` path exactly so that `x += y` lowers
+            // identically to `x = x + y`. Emitting a low-level StringConcat
+            // directly here is wrong when an operand is Any/boxed (e.g.
+            // `arr[i] += ''` where arr[i] is a dynamic value): StringConcat
+            // assumes string operands and reads a boxed number as a string
+            // pointer → garbage. The generic Add goes through
+            // SpecializationPass, which routes Any+String through the runtime
+            // coercing add (ts_value_add) just like the binary `+` operator.
+            std::shared_ptr<HIRType> resultType;
             if (isString(lhs, node->left.get()) || isString(rhs, node->right.get())) {
-                result = builder_.createStringConcat(lhs, rhs);
+                resultType = HIRType::makeString();
             } else if (useBigInt) {
-                result = builder_.createCall("ts_bigint_add", {lhs, rhs}, HIRType::makeObject());
-            } else if (eitherAny) {
-                result = builder_.createCall("ts_value_add", {lhs, rhs}, HIRType::makeAny());
+                resultType = HIRType::makeBigInt();
+            } else if (isAnyOrNullish(lhs, node->left.get()) && isAnyOrNullish(rhs, node->right.get())) {
+                resultType = HIRType::makeAny();
             } else if (useFloat) {
-                result = builder_.createAddF64(lhs, rhs);
+                resultType = HIRType::makeFloat64();
             } else {
-                result = builder_.createAddI64(lhs, rhs);
+                resultType = HIRType::makeInt64();
             }
+            result = builder_.createAdd(lhs, rhs, resultType);
         } else if (op == "-=") {
             if (useBigInt) {
                 result = builder_.createCall("ts_bigint_sub", {lhs, rhs}, HIRType::makeObject());
@@ -5431,8 +5441,13 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         if (elemAccess) {
             auto arr = lowerExpression(elemAccess->expression.get());
             auto idx = lowerExpression(elemAccess->argumentExpression.get());
-            std::vector<std::shared_ptr<HIRValue>> args = {arr, idx, boxValueIfNeeded(result)};
-            builder_.createCall("ts_array_set", args, HIRType::makeVoid());
+            // Use createSetElem (same as the simple-assignment path in
+            // visitAssignmentExpression) so the value is boxed correctly by
+            // type. The previous manual `ts_array_set` + boxValueIfNeeded(result)
+            // wrapped a String result via ts_value_make_object → a TsString
+            // stored as a generic object, so readback/typeof was wrong
+            // (e.g. `arr[i] += ''` produced undefined instead of the string).
+            builder_.createSetElem(arr, idx, result);
             lastValue_ = result;
             return;
         }
