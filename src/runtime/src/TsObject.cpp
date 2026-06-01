@@ -11431,8 +11431,21 @@ TsValue* ts_value_make_int(int64_t i) {
         globalMap->SetWithAttrs(makeKey("Error"), nanbox_to_tagged(Error), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("TypeError"), nanbox_to_tagged(TypeError), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("Symbol"), nanbox_to_tagged(Symbol), BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Map"), nanbox_to_tagged(Map), BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Set"), nanbox_to_tagged(Set), BUILTIN_ATTRS);
+        // Map/Set: register the REAL constructors (ts_get_global_Map/Set), not
+        // the local stubs above. Otherwise `globalThis.Map !== Map` and
+        // `new globalThis.Map()` produces a broken Map (size undefined) — lodash's
+        // test harness builds Maps/Sets via `root.Map`/`root.Set` (== globalThis),
+        // so every such Map/Set was inert (isEqual/isEmpty/size/map-caches THREW).
+        {
+            extern void* ts_get_global_Map();
+            extern void* ts_get_global_Set();
+            void* realMap = ts_get_global_Map();
+            void* realSet = ts_get_global_Set();
+            globalMap->SetWithAttrs(makeKey("Map"),
+                realMap ? nanbox_to_tagged((TsValue*)realMap) : nanbox_to_tagged(Map), BUILTIN_ATTRS);
+            globalMap->SetWithAttrs(makeKey("Set"),
+                realSet ? nanbox_to_tagged((TsValue*)realSet) : nanbox_to_tagged(Set), BUILTIN_ATTRS);
+        }
         globalMap->SetWithAttrs(makeKey("WeakMap"), nanbox_to_tagged(WeakMap), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("Promise"), nanbox_to_tagged(Promise), BUILTIN_ATTRS);
         
