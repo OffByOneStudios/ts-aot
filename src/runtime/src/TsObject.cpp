@@ -1532,11 +1532,25 @@ TsValue* ts_value_make_int(int64_t i) {
         // (RegExp, string, or a primitive to be ToString'd) is delegated to
         // ts_string_split, which is the single robust separator-coercion site
         // (it also backs the compiler's typed `str.split(x)` fast path).
+        void* resultArr;
         if (argc < 1 || !argv || !argv[0] ||
             ts_value_is_undefined((TsValue*)argv[0])) {
-            return ts_value_make_object(ts_string_split(str, nullptr));
+            resultArr = ts_string_split(str, nullptr);
+        } else {
+            resultArr = ts_string_split(str, (void*)argv[0]);
         }
-        return ts_value_make_object(ts_string_split(str, (void*)argv[0]));
+        // ECMA-262 22.1.3.23: the optional `limit` truncates the result to at
+        // most `limit` elements (`'a-b-c'.split('-', 2)` === ['a','b']). The
+        // limit was previously ignored; lodash `_.split(str, sep, limit)`
+        // forwards it to String.prototype.split.
+        if (argc >= 2 && argv[1] && !ts_value_is_undefined((TsValue*)argv[1]) && resultArr) {
+            int64_t limit = ts_value_get_int((TsValue*)argv[1]);
+            if (limit >= 0) {
+                TsArray* arr = (TsArray*)resultArr;
+                if (arr->Length() > limit) arr->SetLength((size_t)limit);
+            }
+        }
+        return ts_value_make_object(resultArr);
     }
     // Helper: check if a TsValue is callable (closure or function)
     static bool ts_value_is_callable(TsValue* val) {
