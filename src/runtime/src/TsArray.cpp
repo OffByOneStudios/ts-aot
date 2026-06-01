@@ -2236,7 +2236,20 @@ extern "C" {
         }
 
         TsArray* array = (TsArray*)raw;
-        if (index < 0 || (size_t)index >= (size_t)array->Length()) {
+        constexpr int64_t kMaxArrayIndex = 0xFFFFFFFELL;
+        if (index < 0 || index > kMaxArrayIndex) {
+            // Negative / out-of-range numeric keys are NOT array elements —
+            // the SET path (ts_array_set, ~line 2122) installs them in the
+            // string-keyed `properties` side map. Mirror that here so
+            // `a[-1]=v; a[-1]` reads back `v` instead of undefined. Use a
+            // STRING key so the property getter doesn't re-enter a numeric
+            // array fast path. (Indices in [length, kMaxArrayIndex] remain
+            // element reads → hole → undefined, matching the set side.)
+            void* keyStr = ts_int_to_string(index, 10);
+            const char* keyC = ((TsString*)keyStr)->ToUtf8();
+            return (void*)ts_object_get_property(raw, keyC);
+        }
+        if ((size_t)index >= (size_t)array->Length()) {
             return (void*)ts_value_make_undefined();
         }
         int64_t slot = array->readSlot(index);
@@ -2285,7 +2298,6 @@ extern "C" {
         }
 
         TsArray* array = (TsArray*)raw;
-        if (index < 0) return;
 
         // ECMA-262: A property name P is an array index iff
         // ToString(ToUint32(P)) === P AND ToUint32(P) !== 2^32-1.
@@ -2296,7 +2308,13 @@ extern "C" {
         // String key avoids recursion through ts_object_set_prop_v's
         // numeric-key fast-path back into ts_array_set_v.
         constexpr int64_t kMaxArrayIndex = 0xFFFFFFFELL;  // 2^32 - 2
-        if (index > kMaxArrayIndex) {
+        if (index < 0 || index > kMaxArrayIndex) {
+            // Negative and out-of-range numeric keys are NOT array elements:
+            // install them in the string-keyed `properties` side map (the
+            // get side mirrors this). Previously `if (index < 0) return;`
+            // silently DROPPED negative writes (`a[-1]=v` was lost). Casting
+            // a negative index to size_t below would also force a runaway
+            // grow→OOM, so this guard must precede the element path.
             void* keyStr = ts_int_to_string(index, 10);
             TsValue* keyBoxed = ts_value_make_string(keyStr);
             ts_object_set_property(raw, keyBoxed, value);
