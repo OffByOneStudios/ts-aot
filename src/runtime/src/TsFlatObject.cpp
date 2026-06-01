@@ -144,16 +144,14 @@ extern "C" void* ts_flat_object_get_property(void* obj, const char* key) {
         TsString* keyStr = TsString::Create(key);
         TsValue result = map->Get(TsValue(keyStr));
         if (result.type != ValueType::UNDEFINED) {
-            // Convert TaggedValue back to NaN-boxed TsValue*
-            if (result.type == ValueType::NUMBER_INT) {
-                return (void*)(uintptr_t)nanbox_int32((int32_t)result.i_val);
-            } else if (result.type == ValueType::NUMBER_DBL) {
-                return (void*)(uintptr_t)nanbox_double(result.d_val);
-            } else if (result.type == ValueType::BOOLEAN) {
-                return (void*)(uintptr_t)nanbox_bool(result.i_val != 0);
-            } else if (result.ptr_val) {
-                return (void*)(uintptr_t)nanbox_ptr(result.ptr_val);
-            }
+            // Convert TaggedValue back to a NaN-boxed TsValue*. Use the shared
+            // tagged->nanbox converter so EVERY type round-trips — the old
+            // per-type ladder (int/double/bool/ptr) silently dropped a stored
+            // `null` (its ptr_val is 0, so the `else if (result.ptr_val)` arm
+            // failed) and returned undefined. So `var o={a:1}; o.c=null; o.c`
+            // read undefined instead of null (broke lodash _.assign of nullish
+            // source values, which then compared unequal under _.isEqual).
+            return (void*)nanbox_from_tagged(result);
         }
     }
 
