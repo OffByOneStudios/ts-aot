@@ -10146,8 +10146,19 @@ TsValue* ts_value_make_int(int64_t i) {
         void* raw = nanbox_to_ptr(nb);
         if (!raw) return ts_value_make_bool(false);
         uint32_t magic = *(uint32_t*)raw;
-        // ARRY or RMAT (a RegExp match array is an Array exotic object).
-        return ts_value_make_bool(magic == 0x41525259 || magic == 0x524D4154);
+        // ARRY or RMAT (a RegExp match array is an Array exotic object). But an
+        // `arguments` object is a branded TsArray that is array-LIKE yet NOT an
+        // Array — Array.isArray(arguments) must be false. This is the callable
+        // first-class `Array.isArray` value (lodash captures it as `isArray`);
+        // it must agree with the compiler's direct-lowered ts_array_is_array,
+        // which already excludes arguments. Without this, lodash `_.isArray`
+        // diverged from `Array.isArray` and baseMergeDeep took the array clone
+        // branch for an arguments source -> `_.merge({},{v:args}).v` became
+        // [1,2,3] instead of the plain object {0:1,1:2,2:3}.
+        if (magic == 0x41525259) { // ARRY
+            return ts_value_make_bool(!((TsArray*)raw)->isArguments);
+        }
+        return ts_value_make_bool(magic == 0x524D4154); // RMAT
     }
 
     TsValue* ts_math_random_native(void* context, int argc, TsValue** argv) {
