@@ -7802,6 +7802,7 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         newObj = builder_.createNewObject(hirClass->shape.get());
     } else if (!hirClass && (ident
                               || dynamic_cast<ast::PropertyAccessExpression*>(node->expression.get())
+                              || dynamic_cast<ast::ElementAccessExpression*>(node->expression.get())
                               || dynamic_cast<ast::BinaryExpression*>(node->expression.get())
                               || dynamic_cast<ast::ParenthesizedExpression*>(node->expression.get()))) {
         // Unknown class — treat as a constructor function call. Examples:
@@ -7809,6 +7810,12 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         //   - `new Array.prototype.concat([])` (property-access into a built-in
         //     prototype method, which is a non-constructor and must throw via
         //     the runtime `is_constructor` check).
+        //   - `new holder[key]()` (computed-member receiver, e.g. lodash's
+        //     `new mapCaches[kind]()` cache-interface tests) — the constructor
+        //     is resolved dynamically by ElementAccess and dispatched through
+        //     ts_new_from_constructor_N so `this` is bound and the prototype is
+        //     linked. Without this, it fell to the plain-dynamic-object
+        //     fallback: the ctor never ran and methods saw the wrong `this`.
         //   - `new (memoize.Cache || MapCache)()` (computed-receiver pattern
         //     used by lodash; receiver is a logical-or BinaryExpression wrapped
         //     in parens, not an Identifier/PropertyAccess).
