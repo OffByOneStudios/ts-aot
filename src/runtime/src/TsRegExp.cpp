@@ -1,4 +1,5 @@
 #include "TsRegExp.h"
+#include <cstdio>
 #include "TsConsString.h"
 #include "TsArray.h"
 #include "TsMap.h"
@@ -108,6 +109,152 @@ void TsRegExp::parseNamedGroups() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// JS surrogate-half / \u{...} escape normalization for ICU.
+//
+// ICU's regex engine matches on CODE POINTS: a valid surrogate pair in the
+// subject is one supplementary code point, so JS patterns written with UTF-16
+// surrogate-half escapes (V8 legacy semantics) can never match. ICU also does
+// not understand JS's ES6 \u{...} extended escape. lodash's reUnicode family
+// is built entirely from surrogate-half constructs:
+//   \ud83c[\udde6-\uddff]              (regional indicator high + low range)
+//   [\ud800-\udbff][\udc00-\udfff]     (any surrogate pair)
+//   [...\ud800-\udfff...]              (reHasUnicode "has a surrogate" detector)
+// This pass rewrites exactly those constructs (plus \u{...}) into ICU's
+// \x{...} code-point escape, matching V8 semantics. Everything else is copied
+// through byte-for-byte so existing patterns are unaffected.
+// See memory/icu-regex-codepoint-vs-codeunit.md.
+
+static inline int reHexDigit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// Parse a \uHHHH or \u{H..H} escape at s[i] (s[i] must be '\\'). On success
+// returns the code point (>= 0) and sets *len to total chars consumed
+// (including the backslash); returns -1 if s[i..] is not a \u escape.
+static long reParseUnicodeEscape(const std::string& s, size_t i, size_t* len) {
+    if (i + 1 >= s.size() || s[i] != '\\' || s[i + 1] != 'u') return -1;
+    size_t j = i + 2;
+    if (j < s.size() && s[j] == '{') {
+        long v = 0; int n = 0; size_t k = j + 1;
+        for (; k < s.size() && s[k] != '}'; ++k) {
+            int d = reHexDigit(s[k]); if (d < 0) return -1;
+            v = v * 16 + d; if (v > 0x10FFFF) return -1; ++n;
+        }
+        if (n == 0 || k >= s.size() || s[k] != '}') return -1;
+        *len = (k + 1) - i; return v;
+    }
+    if (j + 4 > s.size()) return -1;
+    long v = 0;
+    for (int t = 0; t < 4; ++t) { int d = reHexDigit(s[j + t]); if (d < 0) return -1; v = v * 16 + d; }
+    *len = (j + 4) - i; return v;
+}
+
+static inline bool reIsHighSurr(long v) { return v >= 0xD800 && v <= 0xDBFF; }
+static inline bool reIsLowSurr(long v)  { return v >= 0xDC00 && v <= 0xDFFF; }
+static inline long reCombine(long hi, long lo) {
+    return 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00);
+}
+static void reAppendCp(std::string& out, long cp) {
+    char buf[16]; snprintf(buf, sizeof(buf), "\\x{%lX}", cp); out += buf;
+}
+
+// Parse a low-surrogate range class "[\uLO1-\uLO2]" (or single "[\uLO]") at
+// s[i]. On success returns true with lo1/lo2 and *len = chars consumed.
+static bool reParseLowSurrClass(const std::string& s, size_t i, long* lo1, long* lo2, size_t* len) {
+    if (i >= s.size() || s[i] != '[') return false;
+    size_t p = i + 1, l1;
+    long a = reParseUnicodeEscape(s, p, &l1);
+    if (!reIsLowSurr(a)) return false;
+    p += l1; long b = a;
+    if (p < s.size() && s[p] == '-') {
+        size_t l2; long c = reParseUnicodeEscape(s, p + 1, &l2);
+        if (!reIsLowSurr(c)) return false;
+        b = c; p += 1 + l2;
+    }
+    if (p >= s.size() || s[p] != ']') return false;
+    *lo1 = a; *lo2 = b; *len = (p + 1) - i; return true;
+}
+
+// At s[i]=='[', try to match [\uHI1-\uHI2][\uLO1-\uLO2] (any surrogate pair) and
+// emit the code-point range class. Returns chars consumed, or 0 if no match.
+static size_t reTrySurrPairClass(const std::string& s, size_t i, std::string& out) {
+    size_t hp = i + 1, hl1;
+    long h1 = reParseUnicodeEscape(s, hp, &hl1);
+    if (!reIsHighSurr(h1)) return 0;
+    size_t q = hp + hl1; long h2 = h1;
+    if (q < s.size() && s[q] == '-') {
+        size_t hl2; long hh = reParseUnicodeEscape(s, q + 1, &hl2);
+        if (!reIsHighSurr(hh)) return 0;
+        h2 = hh; q += 1 + hl2;
+    }
+    if (q >= s.size() || s[q] != ']') return 0;
+    long lo1, lo2; size_t lowLen;
+    if (!reParseLowSurrClass(s, q + 1, &lo1, &lo2, &lowLen)) return 0;
+    out += '['; reAppendCp(out, reCombine(h1, lo1)); out += '-';
+    reAppendCp(out, reCombine(h2, lo2)); out += ']';
+    return (q + 1 + lowLen) - i;
+}
+
+// Handle one \u escape (value v, length len) at s[i]. Returns chars consumed.
+static size_t reEmitUnicodeEscape(const std::string& s, size_t i, size_t len,
+                                  long v, bool inClass, std::string& out) {
+    bool extended = (i + 2 < s.size() && s[i + 2] == '{');
+    if (extended) { reAppendCp(out, v); return len; }      // \u{..} -> \x{..}
+    if (reIsHighSurr(v)) {
+        // \uHI\uLO  -> single supplementary code point
+        size_t l2; long lo = reParseUnicodeEscape(s, i + len, &l2);
+        if (reIsLowSurr(lo)) { reAppendCp(out, reCombine(v, lo)); return len + l2; }
+        // \uHI[\uLO1-\uLO2]  -> code-point range class
+        long lo1, lo2; size_t lowLen;
+        if (reParseLowSurrClass(s, i + len, &lo1, &lo2, &lowLen)) {
+            out += '['; reAppendCp(out, reCombine(v, lo1)); out += '-';
+            reAppendCp(out, reCombine(v, lo2)); out += ']';
+            return len + lowLen;
+        }
+        // inside a class, "\uHI-\uLO" spans the whole surrogate block: that is
+        // the reHasUnicode "has a surrogate code unit" detector — match lone
+        // surrogates AND every supplementary code point.
+        if (inClass && i + len < s.size() && s[i + len] == '-') {
+            size_t l3; long hi2 = reParseUnicodeEscape(s, i + len + 1, &l3);
+            if (reIsLowSurr(hi2)) {
+                reAppendCp(out, v); out += '-'; reAppendCp(out, hi2);
+                out += "\\x{10000}-\\x{10FFFF}";
+                return len + 1 + l3;
+            }
+        }
+        // lone high surrogate (or high-high range): pass through unchanged.
+        out.append(s, i, len); return len;
+    }
+    // BMP escape or lone low surrogate: leave verbatim (ICU handles \uHHHH).
+    out.append(s, i, len); return len;
+}
+
+static std::string rewriteUnicodeForIcu(const std::string& pat) {
+    std::string out; out.reserve(pat.size() + 16);
+    bool inClass = false;
+    for (size_t i = 0; i < pat.size();) {
+        char c = pat[i];
+        if (c == '[' && !inClass) {
+            size_t consumed = reTrySurrPairClass(pat, i, out);
+            if (consumed) { i += consumed; continue; }
+            inClass = true; out += c; i++; continue;
+        }
+        if (c == ']' && inClass) { inClass = false; out += c; i++; continue; }
+        if (c == '\\') {
+            if (i + 1 < pat.size() && pat[i + 1] == '\\') { out += "\\\\"; i += 2; continue; }
+            size_t len; long v = reParseUnicodeEscape(pat, i, &len);
+            if (v >= 0) { i += reEmitUnicodeEscape(pat, i, len, v, inClass, out); continue; }
+            out += pat[i]; if (i + 1 < pat.size()) out += pat[i + 1]; i += 2; continue;
+        }
+        out += c; i++;
+    }
+    return out;
+}
+
 // Transform a JavaScript regex pattern into an ICU-compatible pattern.
 // JS allows literal '[' inside character classes; ICU treats '[' inside a class
 // as a nested set operation. Escape unescaped '[' inside character classes.
@@ -158,8 +305,10 @@ TsRegExp::TsRegExp(const char* pattern, const char* flags) {
     patternStr = icu::UnicodeString::fromUTF8(pattern);
     flagsStr = flags ? flags : "";
 
-    // Transform JS regex pattern for ICU compatibility (escape [ inside char classes)
-    std::string transformed = transformJsPatternForIcu(pattern);
+    // Transform JS regex pattern for ICU compatibility: first normalize JS
+    // surrogate-half / \u{...} escapes into ICU \x{...} code-point escapes
+    // (ICU matches on code points), then escape [ inside char classes.
+    std::string transformed = transformJsPatternForIcu(rewriteUnicodeForIcu(pattern));
     icu::UnicodeString icuPatternStr = icu::UnicodeString::fromUTF8(transformed);
 
     uint32_t icuFlags = 0;
