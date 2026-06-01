@@ -3831,14 +3831,24 @@ void HIRToLLVM::lowerStore(HIRInstruction* inst) {
             // If val is already a pointer, no boxing needed
         }
         // When storing to a primitive-typed alloca but value is a pointer (e.g., from await),
-        // we need to unbox the value first
+        // we need to unbox the value first. Use the RUNTIME unbox helpers (not the
+        // inline NaN-decoders) because this bridge fires when a value of unknown
+        // dynamic type — a boxed Any — is narrowed into a scalar slot. The inline
+        // emitInlineUnboxFloat/Int decoders assume the box holds a number; a boxed
+        // BOOLEAN (e.g. the result of a dynamic `==`/`===`, NaN-box raw bits 6/7)
+        // falls into their "double" arm and `fptosi`s to INT64_MIN / NaN garbage.
+        // ts_value_get_double / ts_value_get_int handle bool (false->0, true->1),
+        // int, double, null, and string uniformly. Repro: `var sc = bm & 1; sc =
+        // (key == 'constructor');` made sc's slot Any but the store carries an i64
+        // hint, so the boxed bool was mis-decoded — silently breaking lodash
+        // isEqual's `skipCtor` constructor-discriminator (it became truthy garbage).
         else if (valType->isPointerTy() && targetType->isDoubleTy()) {
-            // Unbox: TsValue* -> double (inline NaN unboxing)
-            val = emitInlineUnboxFloat(val);
+            auto unboxFn = getTsValueGetDouble();
+            val = builder_->CreateCall(unboxFn, {val}, "store.unbox_f64");
         }
         else if (valType->isPointerTy() && targetType->isIntegerTy(64)) {
-            // Unbox: TsValue* -> int64 (inline NaN unboxing)
-            val = emitInlineUnboxInt(val);
+            auto unboxFn = getTsValueGetInt();
+            val = builder_->CreateCall(unboxFn, {val}, "store.unbox_i64");
         }
         else if (valType->isPointerTy() && targetType->isIntegerTy(1)) {
             // Unbox: TsValue* -> bool (inline NaN unboxing)
