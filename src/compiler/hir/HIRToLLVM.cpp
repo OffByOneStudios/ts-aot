@@ -3010,7 +3010,13 @@ void HIRToLLVM::lowerCmpNeF64(HIRInstruction* inst) {
     } else if (rhs->getType()->isIntegerTy()) {
         rhs = builder_->CreateSIToFP(rhs, builder_->getDoubleTy());
     }
-    llvm::Value* result = builder_->CreateFCmpONE(lhs, rhs, "fne");
+    // Use UNORDERED not-equal (UNE), not ordered (ONE): JS requires
+    // `NaN != NaN` and `NaN !== NaN` to be true. FCmpONE returns false when
+    // either operand is NaN (the comparison is unordered), so `n !== n` — the
+    // canonical "is NaN" idiom used throughout JS/lodash — wrongly yielded
+    // false. UNE differs from ONE only when an operand is NaN, so non-NaN
+    // comparisons are unaffected. Mirrors CmpEqF64's OEQ (NaN==NaN -> false).
+    llvm::Value* result = builder_->CreateFCmpUNE(lhs, rhs, "fne");
     setValue(inst->result, result);
 }
 
