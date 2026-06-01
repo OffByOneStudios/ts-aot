@@ -1934,7 +1934,11 @@ extern "C" {
 
     extern TsValue* ts_array_unshift_native(void* ctx, int argc, TsValue** argv);
 
-    void ts_array_unshift(void* arr, void* value) {
+    // Returns the array's new length. The HIRToLLVM lowering (unshift case)
+    // declares this returning i64 and uses it as the result of `arr.unshift(x)`;
+    // when this returned void the typed call read a garbage register (e.g.
+    // `[1,2,3].unshift(0)` returned a huge bogus number instead of 4).
+    int64_t ts_array_unshift(void* arr, void* value) {
         // Guard non-TsArray receivers (same lowering bug as join/push/concat;
         // see HIRToLLVM.cpp:6209). Plain TsMap / primitive receivers would
         // read garbage fields if cast to TsArray*.
@@ -1946,11 +1950,13 @@ extern "C" {
             }
             if (magic != TsArray::MAGIC) {
                 TsValue* argvBuf[1] = { (TsValue*)value };
-                ts_array_unshift_native(arr, 1, argvBuf);
-                return;
+                TsValue* r = ts_array_unshift_native(arr, 1, argvBuf);
+                return r ? ts_value_get_int(r) : 0;
             }
         }
+        if (!arr) return 0;
         ((TsArray*)arr)->Unshift((int64_t)value);
+        return (int64_t)((TsArray*)arr)->Length();
     }
 
     void* ts_array_shift(void* arr) {

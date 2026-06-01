@@ -185,7 +185,7 @@ extern "C" {
     void* ts_array_get_elements_ptr(void* arr);
     void ts_array_push(void* arr, void* value);
     void* ts_array_pop(void* arr);
-    void ts_array_unshift(void* arr, void* value);
+    int64_t ts_array_unshift(void* arr, void* value);  // returns new length
     void* ts_array_shift(void* arr);
     
     TsValue* ts_array_get_as_value(void* arr, int64_t index);
