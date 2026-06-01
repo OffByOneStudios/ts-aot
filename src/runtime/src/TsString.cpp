@@ -2014,6 +2014,27 @@ extern "C" {
                 TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)ptr);
                 if (buf) return buf->ToString();
             }
+            // Primitive wrapper objects (`new String/Number/Boolean(x)`,
+            // `Object(prim)`) are TsMaps carrying a hidden [[*Data]] slot.
+            // ECMA ToString(object) calls the object's toString — for these
+            // wrappers that yields the underlying primitive's string, not
+            // "[object Object]". Without this, `new String(Object('a'))`
+            // (lodash baseClone's cloneByTag does `new Ctor(wrapper)`) stored
+            // "[object Object]" as the clone's value.
+            if (magic16 == 0x4D415053) { // TsMap "MAPS"
+                TsMap* m = (TsMap*)ptr;
+                TsValue k; k.type = ValueType::STRING_PTR;
+                k.ptr_val = TsString::GetInterned("__StringData");
+                TsValue v = m->Get(k);
+                if (v.type == ValueType::STRING_PTR && v.ptr_val) return v.ptr_val;
+                k.ptr_val = TsString::GetInterned("__NumberData");
+                v = m->Get(k);
+                if (v.type == ValueType::NUMBER_DBL) return TsString::FromDouble(v.d_val);
+                if (v.type == ValueType::NUMBER_INT) return TsString::FromInt(v.i_val);
+                k.ptr_val = TsString::GetInterned("__BooleanData");
+                v = m->Get(k);
+                if (v.type == ValueType::BOOLEAN) return TsString::GetInterned(v.i_val ? "true" : "false");
+            }
             return TsString::GetInterned("[object Object]");
         }
 
