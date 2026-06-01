@@ -130,6 +130,17 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
         return ((TsString*)p)->ToUtf8();
     }
 
+    // TsConsString (lazy string concatenation, magic "CONS"): flatten to a real
+    // TsString and serialize as a string. Without this, a runtime-built string
+    // (e.g. `"a" + someVar`, which is a cons-string until forced) fell through to
+    // the object path and serialized as `{}`. ASCII all-literal concats were
+    // unaffected only because the compiler constant-folds them to a flat string.
+    if (magic == 0x434F4E53) {  // TsConsString::MAGIC
+        extern TsString* ts_ensure_flat(void* ptr);
+        TsString* flat = ts_ensure_flat(p);
+        if (flat) return flat->ToUtf8();
+    }
+
     if (magic == TsDate::MAGIC) {
         return ((TsDate*)p)->ToISOString()->ToUtf8();
     }
