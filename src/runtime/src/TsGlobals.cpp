@@ -1835,6 +1835,40 @@ void* ts_get_global_Symbol() {
                     return (TsValue*)ctx;
                 };
                 addMethod(proto, "valueOf", (void*)+symValueOf, 0);
+
+                // Symbol.prototype.toString (ECMA-262 20.4.3.3): returns
+                // "Symbol(<description>)". Without this a symbol inherited
+                // Object.prototype.toString -> "[object Symbol]" and
+                // `Symbol('a').toString()` was undefined. lodash baseToString
+                // calls Symbol.prototype.toString.call(sym), so `_.toString(sym)`
+                // must yield "Symbol(a)".
+                auto symToString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                    if (!ctx) ctx = ts_get_call_this();
+                    if (!ctx) return ts_value_make_undefined();
+                    void* raw = ts_value_get_object((TsValue*)ctx);
+                    if (!raw) raw = ctx;
+                    TsSymbol* sym = nullptr;
+                    if (raw) {
+                        uint32_t m0 = *(uint32_t*)raw;
+                        if (m0 == 0x53594D42) {  // bare symbol
+                            sym = (TsSymbol*)raw;
+                        } else {
+                            uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+                            if (m16 == 0x4D415053) {  // Symbol wrapper (Object(sym))
+                                TsValue dk; dk.type = ValueType::STRING_PTR;
+                                dk.ptr_val = TsString::GetInterned("__SymbolData");
+                                TsValue v = ((TsMap*)raw)->Get(dk);
+                                if (v.type == ValueType::SYMBOL_PTR && v.ptr_val) {
+                                    sym = (TsSymbol*)v.ptr_val;
+                                }
+                            }
+                        }
+                    }
+                    const char* desc = (sym && sym->description) ? sym->description->ToUtf8() : "";
+                    std::string s = std::string("Symbol(") + (desc ? desc : "") + ")";
+                    return ts_value_make_string(TsString::Create(s.c_str()));
+                };
+                addMethod(proto, "toString", (void*)+symToString, 0);
             }
         }
 
