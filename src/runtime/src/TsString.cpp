@@ -1584,6 +1584,8 @@ extern "C" {
         if (!s) return false;
         TsString* search = ts_ensure_flat(searchString);
         if (!search) return false;
+        // ECMA-262: the empty string is contained in every string.
+        if (search->Length() == 0) return true;
         return s->Includes(search);
     }
 
@@ -1592,6 +1594,9 @@ extern "C" {
         if (!s) return -1;
         TsString* search = ts_ensure_flat(searchString);
         if (!search) return -1;
+        // ECMA-262 22.1.3.8: the empty string is found at position 0.
+        // ICU's IndexOf returns -1 for an empty needle, which is wrong.
+        if (search->Length() == 0) return 0;
         return s->IndexOf(search);
     }
 
@@ -1600,6 +1605,14 @@ extern "C" {
         if (!s) return -1;
         TsString* search = ts_ensure_flat(searchString);
         if (!search) return -1;
+        // ECMA-262: an empty search string matches at min(max(startPos,0),len)
+        // (so `'1234'.indexOf('', 4)` === 4, not -1). lodash `_.includes`
+        // relies on this for string collections with fromIndex >= length.
+        if (search->Length() == 0) {
+            int64_t len = (int64_t)s->Length();
+            if (startPos < 0) startPos = 0;
+            return startPos > len ? len : startPos;
+        }
         return s->IndexOf(search, startPos);
     }
 
