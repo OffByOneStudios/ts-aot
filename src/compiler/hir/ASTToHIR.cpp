@@ -10365,6 +10365,18 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                 isFloat = true;
             } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
                 isFloat = true;
+            } else if (operand && operand->type && operand->type->kind == HIRTypeKind::Any) {
+                // Negating a dynamically-typed (Any) value yields a JS Number,
+                // which is a double — the runtime value may be fractional
+                // (e.g. a callback param holding 1.2). Typing the Neg result as
+                // Int64 here is wrong: standalone `-v` survives (the runtime neg
+                // preserves the double), but when `-v` feeds a context that
+                // boxes by HIR type (e.g. a ternary branch `cond ? 0 : -v`),
+                // boxValueIfNeeded boxes it via ts_value_make_int and truncates
+                // 1.2 -> 1 / 1.79e308 -> INT64_MIN. Use Float64 so it boxes as
+                // a double. (ts_value_get_double inside NegF64 coerces ints and
+                // numeric strings correctly.)
+                isFloat = true;
             }
             auto resultType = isFloat ? HIRType::makeFloat64() : HIRType::makeInt64();
             lastValue_ = builder_.createNeg(operand, resultType);
