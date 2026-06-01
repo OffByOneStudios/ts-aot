@@ -3485,32 +3485,30 @@ extern "C" {
             *(uint32_t*)nanbox_to_ptr(alNB) == TsString::MAGIC) {
             TsString* str = (TsString*)nanbox_to_ptr(alNB);
             const char* utf8 = str->ToUtf8();
-            int64_t len = str->Length();
 
-            TsArray* result = TsArray::Create(len);
-            for (int64_t i = 0; i < len; i++) {
-                // Get each character as a string
-                char charBuf[5] = {0}; // UTF-8 char can be up to 4 bytes
+            // ECMA-262 22.1.2.1: Array.from(string) iterates via the String
+            // iterator, which yields CODE POINTS (not UTF-16 code units), so an
+            // astral character (surrogate pair) is ONE element. UTF-8 already
+            // encodes a full code point per multibyte sequence, so walk it
+            // sequence-by-sequence and stop at end-of-string. (The old loop ran
+            // str->Length() — the UTF-16 unit count — while the inner walk
+            // counted code points, so an astral char emitted a trailing ""
+            // element: Array.from("\u{1F600}") wrongly gave ["..", ""] len 2.
+            // Now matches for-of / spread, which were already correct.)
+            TsArray* result = TsArray::Create(0);
+            const char* p = utf8;
+            int64_t i = 0;
+            while (*p) {
+                int clen;
+                if ((*p & 0x80) == 0) clen = 1;
+                else if ((*p & 0xE0) == 0xC0) clen = 2;
+                else if ((*p & 0xF0) == 0xE0) clen = 3;
+                else if ((*p & 0xF8) == 0xF0) clen = 4;
+                else clen = 1;
 
-                // Simple ASCII extraction for now
-                // TODO: proper Unicode codepoint extraction
-                const char* p = utf8;
-                int64_t idx = 0;
-                while (*p && idx < i) {
-                    if ((*p & 0x80) == 0) p += 1;
-                    else if ((*p & 0xE0) == 0xC0) p += 2;
-                    else if ((*p & 0xF0) == 0xE0) p += 3;
-                    else if ((*p & 0xF8) == 0xF0) p += 4;
-                    else p += 1;
-                    idx++;
-                }
-
-                if (*p) {
-                    if ((*p & 0x80) == 0) { charBuf[0] = *p; }
-                    else if ((*p & 0xE0) == 0xC0) { memcpy(charBuf, p, 2); }
-                    else if ((*p & 0xF0) == 0xE0) { memcpy(charBuf, p, 3); }
-                    else if ((*p & 0xF8) == 0xF0) { memcpy(charBuf, p, 4); }
-                }
+                char charBuf[5] = {0}; // UTF-8 code point is up to 4 bytes
+                memcpy(charBuf, p, clen);
+                p += clen;
 
                 TsString* charStr = TsString::Create(charBuf);
                 TsValue* charVal = ts_value_make_string(charStr);
@@ -3526,6 +3524,7 @@ extern "C" {
                 } else {
                     result->Push((int64_t)charVal);
                 }
+                i++;
             }
             return result;
         }
