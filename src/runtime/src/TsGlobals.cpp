@@ -1182,6 +1182,23 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
             void* re = ts_regexp_create(pattern, flags);
             return re ? ts_value_make_object(re) : ts_value_make_undefined();
         }
+        if (name && caddr >= 0x10000 && caddr < 0x0000800000000000ULL &&
+            strcmp(name, "Symbol") == 0) {
+            // ECMA-262 20.4.1.1: Symbol([description]) returns a fresh unique
+            // symbol primitive (description = ToString(arg), or none if
+            // undefined). Direct `Symbol(x)` is handled by a compiler fast
+            // path; this is the INDIRECT path (Symbol passed as a function
+            // value, e.g. lodash's `times(n, Symbol)` / `map(arr, Symbol)`),
+            // which previously fell through to undefined.
+            extern void* ts_symbol_create(void* desc);
+            extern void* ts_string_from_value(TsValue*);
+            void* descStr = nullptr;
+            if (argc >= 1 && argv && argv[0] && !ts_value_is_undefined(argv[0])) {
+                descStr = ts_string_from_value(argv[0]);
+            }
+            void* sym = ts_symbol_create(descStr);
+            return sym ? ts_value_make_object(sym) : ts_value_make_undefined();
+        }
         return ts_value_make_undefined();
     };
     TsValue* fnVal = ts_value_make_native_function((void*)+body, (void*)name);
