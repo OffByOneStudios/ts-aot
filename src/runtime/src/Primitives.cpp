@@ -1108,6 +1108,14 @@ double ts_value_get_double(TsValue* v) {
             double d = std::strtod(s, &end);
             while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
             if (*end != '\0') return std::numeric_limits<double>::quiet_NaN();
+            // Canonicalize NaN: strtod accepts "NaN"/"-NaN" and returns a
+            // sign-/payload-bearing NaN (e.g. -NaN, bits 0xFFF8.../0xFFFF...).
+            // Such non-canonical NaN bits collide with the NaN-box tag space
+            // when biased-encoded, so the value is later misread as a string
+            // pointer and dereferenced (AV). The sign/payload of NaN is not
+            // observable in JS, so collapse every NaN to the canonical quiet
+            // NaN. Fixes `_.toNumber('-NaN')` crash.
+            if (d != d) return std::numeric_limits<double>::quiet_NaN();
             return d;
         }
         // ES5.1 §9.3 ToNumber on an object: call ToPrimitive with hint
@@ -1204,6 +1212,9 @@ double ts_to_number(TsValue* v) {
             // Check remaining chars are whitespace
             while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
             if (*end != '\0') return std::numeric_limits<double>::quiet_NaN();
+            // Canonicalize NaN (strtod's "-NaN" -> non-canonical NaN bits that
+            // alias the NaN-box tag space; see the sibling site above).
+            if (d != d) return std::numeric_limits<double>::quiet_NaN();
             return d;
         }
         // Per ES spec: ToNumber(symbol) throws TypeError.
