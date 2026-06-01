@@ -10678,6 +10678,19 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
             } else if (keyTV0.type == ValueType::BOOLEAN) {
                 argv[0] = ts_value_make_string(TsString::Create(keyTV0.b_val ? "true" : "false"));
+            } else {
+                // Symbol key: canonicalize to its storage-key string so the
+                // lookup matches how symbol-keyed props are stored (the codegen
+                // may pass a Symbol mis-tagged as STRING_PTR, so detect by SYMB
+                // magic too). Without this, hasOwnProperty(obj, symbol) /
+                // Object.hasOwn / `_.has(obj, symbol)` returned false even when
+                // the property exists (get/`in`/direct access already worked).
+                uint64_t knb = nanbox_from_tsvalue_ptr(argv[0]);
+                void* kp = nanbox_is_ptr(knb) ? nanbox_to_ptr(knb) : keyTV0.ptr_val;
+                if (kp && (uintptr_t)kp > 0x10000 && *(uint32_t*)kp == 0x53594D42) {  // TsSymbol "SYMB"
+                    TsString* sk = ts_symbol_storage_key((TsSymbol*)kp);
+                    if (sk) argv[0] = ts_value_make_string(sk);
+                }
             }
         }
 
