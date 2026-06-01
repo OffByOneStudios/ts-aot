@@ -7929,15 +7929,27 @@ TsValue* ts_value_make_int(int64_t i) {
         // with explicit broken hooks" (throw TypeError per spec) from
         // "runtime gave us a boxed TsValue struct whose property chain is
         // inaccessible" (legacy: return val to preserve behavior).
+        // ECMA-262 7.1.1.1 OrdinaryToPrimitive: for each method name, "Let
+        // method be Get(O, name). If IsCallable(method) is true, [call it]".
+        // A property that exists but is NOT callable (e.g. `valueOf: '1.1'`, a
+        // string) MUST be skipped, falling through to the next method. Without
+        // the IsCallable guard, ts_call_with_this_0 on a non-callable returns
+        // undefined — which is a primitive — so ToPrimitive wrongly returned
+        // undefined instead of trying toString (broke `_.toNumber({valueOf:
+        // '1.1', toString: () => '2.2'})` → undefined→0 instead of 2.2).
+        auto is_callable = [](TsValue* m) -> bool {
+            return m && (ts_extract_closure(m) != nullptr ||
+                         ts_extract_function(m) != nullptr);
+        };
         bool methodReached = false;
         TsValue* method = ts_object_get_property(obj, firstMethod);
-        if (method && !ts_value_is_undefined(method)) {
+        if (is_callable(method)) {
             methodReached = true;
             TsValue* result = ts_call_with_this_0(method, val);
             if (is_primitive_result(result)) return result;
         }
         method = ts_object_get_property(obj, secondMethod);
-        if (method && !ts_value_is_undefined(method)) {
+        if (is_callable(method)) {
             methodReached = true;
             TsValue* result = ts_call_with_this_0(method, val);
             if (is_primitive_result(result)) return result;
