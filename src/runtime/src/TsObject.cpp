@@ -1689,7 +1689,15 @@ TsValue* ts_value_make_int(int64_t i) {
     }
 
     static TsValue* ts_string_replace_native(void* ctx, int argc, TsValue** argv) {
-        TsString* str = (TsString*)ctx;
+        // Flatten a TsConsString receiver before any regex path. The regex
+        // helpers (esp. the no-match callback-regex path) read the receiver's
+        // char buffer directly; a lazy cons-string passed un-flattened is read
+        // as raw struct/pointer bytes -> garbage output (e.g. lodash deburr's
+        // `consString.replace(reLatin, deburrLetter)` with no match returned
+        // "Hz\b" pointer bytes). ts_ensure_flat (declared in TsConsString.h)
+        // returns a TsString unchanged and flattens a "CONS" string. Mirrors
+        // the JSON.stringify cons fix.
+        TsString* str = ctx ? ts_ensure_flat(ctx) : (TsString*)ctx;
         if (argc < 1 || !argv) return ts_value_make_string(str);
 
         // Check if replacement (argv[1]) is a callback function
