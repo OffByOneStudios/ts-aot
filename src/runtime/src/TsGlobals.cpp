@@ -1801,6 +1801,43 @@ void* ts_get_global_Symbol() {
             return ts_value_make_string(key);
         }, 1);
 
+        // Symbol.prototype.valueOf (ECMA-262 20.4.3.4): returns the underlying
+        // symbol primitive. For a bare symbol receiver this is `this`; for a
+        // Symbol wrapper object (TsMap with the hidden __SymbolData slot, made
+        // by Object(symbol)) it unwraps the slot. Without this a wrapper's
+        // valueOf inherited Object.prototype.valueOf (returns the wrapper, typeof
+        // 'object'), breaking lodash's `_.clone(Object(sym))` assertion
+        // `typeof actual.valueOf() === 'symbol'`.
+        {
+            TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+            protoKey.ptr_val = TsString::GetInterned("prototype");
+            TsValue protoVal = ctor->Get(protoKey);
+            if (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val) {
+                TsMap* proto = (TsMap*)protoVal.ptr_val;
+                auto symValueOf = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                    if (!ctx) ctx = ts_get_call_this();
+                    if (!ctx) return ts_value_make_undefined();
+                    void* raw = ts_value_get_object((TsValue*)ctx);
+                    if (!raw) raw = ctx;
+                    if (raw) {
+                        uint32_t m0 = *(uint32_t*)raw;
+                        if (m0 == 0x53594D42) return (TsValue*)ctx;  // bare symbol
+                        uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+                        if (m16 == 0x4D415053) {  // TsMap wrapper
+                            TsValue dk; dk.type = ValueType::STRING_PTR;
+                            dk.ptr_val = TsString::GetInterned("__SymbolData");
+                            TsValue v = ((TsMap*)raw)->Get(dk);
+                            if (v.type == ValueType::SYMBOL_PTR && v.ptr_val) {
+                                return ts_value_make_object(v.ptr_val);
+                            }
+                        }
+                    }
+                    return (TsValue*)ctx;
+                };
+                addMethod(proto, "valueOf", (void*)+symValueOf, 0);
+            }
+        }
+
         cached = wrapAsCallable(ctor, "Symbol", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }

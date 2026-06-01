@@ -10889,9 +10889,11 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned("__StringData");
                         TsValue nk; nk.type = ValueType::STRING_PTR; nk.ptr_val = TsString::GetInterned("__NumberData");
                         TsValue bk; bk.type = ValueType::STRING_PTR; bk.ptr_val = TsString::GetInterned("__BooleanData");
+                        TsValue yk; yk.type = ValueType::STRING_PTR; yk.ptr_val = TsString::GetInterned("__SymbolData");
                         if (m->Has(sk)) tag = "String";
                         else if (m->Has(nk)) tag = "Number";
                         else if (m->Has(bk)) tag = "Boolean";
+                        else if (m->Has(yk)) tag = "Symbol";
                         else { tag = "Object"; mapForTag = m; }
                     }
                 }
@@ -12209,6 +12211,33 @@ void* ts_builtin_lookup_special(const char* name) {
                 TsValue dk; dk.type = ValueType::STRING_PTR;
                 dk.ptr_val = TsString::GetInterned("__StringData");
                 TsValue dv; dv.type = ValueType::STRING_PTR; dv.ptr_val = (TsString*)raw;
+                m->Set(dk, dv);
+                if (protoVal) {
+                    void* praw = ts_value_get_object(protoVal);
+                    if (praw && *(uint32_t*)((char*)praw + 16) == 0x4D415053) {
+                        m->SetPrototype((TsMap*)praw);
+                    }
+                }
+                return m;
+            }
+            if (m0 == 0x53594D42) { // TsSymbol "SYMB" (magic at offset 0)
+                // ECMA-262 7.1.18 ToObject(symbol): a Symbol primitive boxes
+                // into a Symbol wrapper object — typeof 'object', [[Prototype]]
+                // = Symbol.prototype, hidden __SymbolData slot so
+                // Symbol.prototype.valueOf recovers the primitive and
+                // Object.prototype.toString brands it [object Symbol]. lodash
+                // baseClone clones symbol objects via Object(value.valueOf()),
+                // so without this `_.clone(Object(sym))` returned the bare
+                // primitive (typeof 'symbol', not 'object').
+                extern void* ts_get_global_Symbol();
+                void* g = ts_get_global_Symbol();
+                void* gctor = ts_value_get_object((TsValue*)g);
+                if (!gctor) gctor = g;
+                TsValue* protoVal = gctor ? ts_object_get_property(gctor, "prototype") : nullptr;
+                TsMap* m = TsMap::Create();
+                TsValue dk; dk.type = ValueType::STRING_PTR;
+                dk.ptr_val = TsString::GetInterned("__SymbolData");
+                TsValue dv; dv.type = ValueType::SYMBOL_PTR; dv.ptr_val = raw;
                 m->Set(dk, dv);
                 if (protoVal) {
                     void* praw = ts_value_get_object(protoVal);
