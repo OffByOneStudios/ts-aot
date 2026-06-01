@@ -2314,14 +2314,20 @@ extern "C" {
     bool ts_array_isArray(void* value) {
         if (!value) return false;
 
+        // An `arguments` object is array-like but NOT an Array (Array.isArray
+        // returns false). See ts_array_is_array for the mirror.
+        auto isArgs = [](void* p) -> bool {
+            return p && *(uint32_t*)p == TsArray::MAGIC && ((TsArray*)p)->isArguments;
+        };
         // Decode NaN-boxed value
         TsValue decoded = nanbox_to_tagged((TsValue*)value);
         if (decoded.type == ValueType::ARRAY_PTR) {
-            return true;
+            return !isArgs(decoded.ptr_val);
         }
         if (decoded.type == ValueType::OBJECT_PTR && decoded.ptr_val) {
             uint32_t magic = *(uint32_t*)decoded.ptr_val;
-            return magic == TsArray::MAGIC || magic == 0x524D4154; // TsRegExpMatchArray
+            if (magic == TsArray::MAGIC) return !isArgs(decoded.ptr_val);
+            return magic == 0x524D4154; // TsRegExpMatchArray
         }
         return false;
     }
@@ -3350,11 +3356,18 @@ extern "C" {
         // OBJECT_PTR. Without this, lodash's `Array.isArray(/x/.exec(...))`
         // returned false -> baseClone skipped initCloneArray -> match-array
         // clone lost .index/.input/elements.
+        // An `arguments` object is a branded TsArray that is array-LIKE but NOT
+        // an Array — Array.isArray(arguments) must be false (ECMA-262 / lodash
+        // _.isArguments vs _.isArray).
+        auto isArgs = [](void* p) -> bool {
+            return p && *(uint32_t*)p == TsArray::MAGIC && ((TsArray*)p)->isArguments;
+        };
         TsValue decoded = nanbox_to_tagged((TsValue*)value);
-        if (decoded.type == ValueType::ARRAY_PTR) return true;
+        if (decoded.type == ValueType::ARRAY_PTR) return !isArgs(decoded.ptr_val);
         if (decoded.type == ValueType::OBJECT_PTR && decoded.ptr_val) {
             uint32_t magic = *(uint32_t*)decoded.ptr_val;
-            return magic == TsArray::MAGIC || magic == 0x524D4154; // TsRegExpMatchArray
+            if (magic == TsArray::MAGIC) return !isArgs(decoded.ptr_val);
+            return magic == 0x524D4154; // TsRegExpMatchArray
         }
 
         return false;

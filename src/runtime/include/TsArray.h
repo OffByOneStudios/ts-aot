@@ -169,6 +169,12 @@ public:
     // NaN-boxed values. nullptr for the common dense case. GC-scanned via the
     // conservative full old-gen slot walk (no explicit barrier wiring needed).
     TsMap* sparseElements = nullptr;
+
+    // True for the `arguments` object (built by ts_create_arguments_from_params).
+    // An arguments object is array-LIKE but NOT an Array: Array.isArray returns
+    // false and Object.prototype.toString brands it [object Arguments]. Placed at
+    // the end to preserve the offsets codegen hardcodes for the early fields.
+    bool isArguments = false;
 };
 
 extern "C" {

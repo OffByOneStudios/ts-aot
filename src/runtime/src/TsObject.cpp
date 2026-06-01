@@ -559,6 +559,9 @@ void* ts_create_arguments_from_params(
     for (int64_t i = 0; i < argc; i++) {
         arr->Push((int64_t)params[i]);
     }
+    // Brand as an `arguments` object: array-like but Array.isArray -> false and
+    // Object.prototype.toString -> [object Arguments] (lodash _.isArguments).
+    arr->isArguments = true;
     return ts_value_make_object(arr);
 }
 
@@ -10882,7 +10885,8 @@ TsValue* ts_value_make_int(int64_t i) {
 
             uint32_t magic0 = *(uint32_t*)ptr;
             if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) tag = "String";
-            else if (magic0 == 0x41525259 || magic0 == 0x524D4154) tag = "Array";  // TsArray "ARRY" or TsRegExpMatchArray "RMAT" (both non-polymorphic — must tag here before the dynamic_cast fallthrough)
+            else if (magic0 == 0x41525259) tag = ((TsArray*)ptr)->isArguments ? "Arguments" : "Array";  // branded `arguments` object vs Array
+            else if (magic0 == 0x524D4154) tag = "Array";  // TsRegExpMatchArray "RMAT" (non-polymorphic — must tag here before the dynamic_cast fallthrough)
             else if (magic0 == 0x52454758) tag = "RegExp";
             else if (magic0 == 0x44415445) tag = "Date";  // TsDate "DATE"
             else if (magic0 == 0x42494749) tag = "BigInt";  // TsBigInt 'BIGI' — not a TsObject, must check before dynamic_cast
