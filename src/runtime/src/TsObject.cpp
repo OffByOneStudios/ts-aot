@@ -11502,7 +11502,19 @@ TsValue* ts_value_make_int(int64_t i) {
         globalMap->SetWithAttrs(makeKey("RegExp"), nanbox_to_tagged(RegExp), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("Error"), nanbox_to_tagged(Error), BUILTIN_ATTRS);
         globalMap->SetWithAttrs(makeKey("TypeError"), nanbox_to_tagged(TypeError), BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Symbol"), nanbox_to_tagged(Symbol), BUILTIN_ATTRS);
+        // Symbol: register the REAL constructor (ts_get_global_Symbol), not the
+        // makeConstructorWithPrototype stub — same fix as Map/Set below. The stub
+        // routes through ts_object_constructor_native, which for a pointer arg
+        // returns the arg as-is, so `root.Symbol('a')` (== globalThis.Symbol)
+        // returned the STRING 'a' instead of a symbol. lodash's test harness binds
+        // `Symbol = root.Symbol` then `Symbol('a')`, so its `symbol` fixture decayed
+        // to 'a' and collided with string keys (map-caches, sortBy, clone, etc.).
+        {
+            extern void* ts_get_global_Symbol();
+            void* realSymbol = ts_get_global_Symbol();
+            globalMap->SetWithAttrs(makeKey("Symbol"),
+                realSymbol ? nanbox_to_tagged((TsValue*)realSymbol) : nanbox_to_tagged(Symbol), BUILTIN_ATTRS);
+        }
         // Map/Set: register the REAL constructors (ts_get_global_Map/Set), not
         // the local stubs above. Otherwise `globalThis.Map !== Map` and
         // `new globalThis.Map()` produces a broken Map (size undefined) — lodash's
