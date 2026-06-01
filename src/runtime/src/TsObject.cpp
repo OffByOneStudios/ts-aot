@@ -1834,6 +1834,18 @@ TsValue* ts_value_make_int(int64_t i) {
     static TsValue* ts_string_match_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
         void* regexp = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
+        // ECMA-262 22.1.3.13: a non-RegExp argument is coerced via RegExp(arg)
+        // (`'abcd'.match('ab|cd')` === ['ab']). Previously a string argument
+        // produced null. Mirrors the RegExp detection used by replace above.
+        if (regexp && !ts_value_is_undefined((TsValue*)regexp)) {
+            void* raw = ts_value_get_object((TsValue*)regexp);
+            if (!raw) raw = regexp;
+            if (!(raw && *(uint32_t*)raw == 0x52454758)) {  // not "REGX"
+                extern void* ts_regexp_create(void* pattern, void* flags);
+                void* re = ts_regexp_create(regexp, nullptr);
+                if (re) regexp = ts_value_make_object(re);
+            }
+        }
         void* result = ts_string_match_regexp(str, regexp);
         return result ? ts_value_make_object(result) : (TsValue*)ts_value_make_null();
     }
