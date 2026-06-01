@@ -920,6 +920,34 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
         return false;
     }
 
+    // Function / closure values: `fn instanceof Function` and (transitively)
+    // `fn instanceof Object` must be true. We don't keep an explicit
+    // [[Prototype]] = Function.prototype chain on callables, so match the
+    // requested constructor's .prototype directly against Function.prototype
+    // and Object.prototype. (`fn instanceof Foo` for a user Foo stays false —
+    // Foo's .prototype is neither of those.) lodash's isEqual constructor
+    // check exercises `ctor instanceof ctor`/`Function`; without this, callable
+    // operands mis-compared.
+    {
+        uint32_t fm0  = *(uint32_t*)rawObj;
+        uint32_t fm16 = *(uint32_t*)((char*)rawObj + 16);
+        bool isCallable = (fm16 == 0x46554E43 /*FUNC*/ || fm16 == 0x434C5352 /*CLSR*/ ||
+                           fm0  == 0x46554E43          || fm0  == 0x434C5352);
+        if (isCallable) {
+            extern void* ts_get_global_Function();
+            extern void* ts_get_global_Object();
+            void* gs[2] = { ts_get_global_Function(), ts_get_global_Object() };
+            for (void* g : gs) {
+                if (!g) continue;
+                TsValue* p = ts_object_get_property(g, "prototype");
+                if (!p) continue;
+                uint64_t pnb = nanbox_from_tsvalue_ptr(p);
+                if (nanbox_is_ptr(pnb) && nanbox_to_ptr(pnb) == targetProto) return true;
+            }
+            return false;
+        }
+    }
+
     return false;
 }
 
