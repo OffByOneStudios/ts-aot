@@ -10360,25 +10360,25 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             // Strategy B Phase 3: emit generic Neg. SpecializationPass will
             // rewrite to NegF64 or NegI64 based on the result type. Keeps the
             // AST-fallback helper logic local to ASTToHIR until Phase 4.
-            bool isFloat = false;
-            if (operand && operand->type && operand->type->kind == HIRTypeKind::Float64) {
-                isFloat = true;
-            } else if (node->operand->inferredType && node->operand->inferredType->kind == ts::TypeKind::Double) {
-                isFloat = true;
-            } else if (operand && operand->type && operand->type->kind == HIRTypeKind::Any) {
-                // Negating a dynamically-typed (Any) value yields a JS Number,
-                // which is a double — the runtime value may be fractional
-                // (e.g. a callback param holding 1.2). Typing the Neg result as
-                // Int64 here is wrong: standalone `-v` survives (the runtime neg
-                // preserves the double), but when `-v` feeds a context that
-                // boxes by HIR type (e.g. a ternary branch `cond ? 0 : -v`),
-                // boxValueIfNeeded boxes it via ts_value_make_int and truncates
-                // 1.2 -> 1 / 1.79e308 -> INT64_MIN. Use Float64 so it boxes as
-                // a double. (ts_value_get_double inside NegF64 coerces ints and
-                // numeric strings correctly.)
-                isFloat = true;
+            // JS unary minus ALWAYS produces a Number (an IEEE double). Keep an
+            // Int64 result only when the operand is statically an integer or
+            // boolean (a real optimization for integer arithmetic); for every
+            // other operand type — Float64, Any, String, Object/wrapper, or
+            // untyped — use Float64. Typing the Neg result Int64 for those is
+            // wrong two ways: (1) it truncates/garbles when the result is boxed
+            // by HIR type (e.g. a ternary branch `cond ? 0 : -v` with a
+            // fractional `v`), and (2) SpecializationPass cannot lower a
+            // Neg(result=i64, operand=string) at all → the value never lands in
+            // valueMap_ and the use reads garbage/0 (e.g. `-'2'` yielded 0).
+            // NegF64 calls ts_value_get_double, which ToNumber-coerces ints,
+            // numeric strings, and Number/wrapper objects correctly.
+            bool isInt = false;
+            if (operand && operand->type &&
+                (operand->type->kind == HIRTypeKind::Int64 ||
+                 operand->type->kind == HIRTypeKind::Bool)) {
+                isInt = true;
             }
-            auto resultType = isFloat ? HIRType::makeFloat64() : HIRType::makeInt64();
+            auto resultType = isInt ? HIRType::makeInt64() : HIRType::makeFloat64();
             lastValue_ = builder_.createNeg(operand, resultType);
         }
     } else if (op == "!") {
