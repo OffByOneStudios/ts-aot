@@ -68,6 +68,15 @@ public:
     void SetExplicitMap(bool value) { isExplicitMap = value; }
     bool IsExplicitMap() const { return isExplicitMap; }
 
+    // true for `Object.create(null)` — a genuinely prototype-less object.
+    // Distinguished from a plain `{}` (whose `prototype` is also nullptr but
+    // logically inherits Object.prototype, which we don't materialize). Used
+    // to suppress the inherited-Object.prototype-member fallback in the `in`
+    // operator and dynamic `.constructor`/toString/valueOf, and to make
+    // Object.getPrototypeOf return null.
+    void SetNullPrototype(bool value) { nullPrototype = value; }
+    bool HasNullPrototype() const { return nullPrototype; }
+
     // Init-in-place for stack allocation (escape analysis)
     static void InitInPlace(void* mem);
 
@@ -80,6 +89,7 @@ private:
     bool sealed = false;
     bool extensible = true;
     bool isExplicitMap = false;  // true for new Map(), false for plain objects
+    bool nullPrototype = false;  // true for Object.create(null)
 };
 
 extern "C" {

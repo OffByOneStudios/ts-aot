@@ -3803,7 +3803,12 @@ TsValue* ts_value_make_int(int64_t i) {
             }
 
             // If not found in the prototype chain, check Object.prototype methods
-            // This provides prototype chain behavior for plain objects
+            // This provides prototype chain behavior for plain objects — but NOT
+            // for Object.create(null), which has no prototype (lodash Hash cache
+            // reads `data['constructor']` and needs undefined, not Object).
+            if (map->HasNullPrototype()) {
+                return ts_value_make_undefined();
+            }
             if (strcmp(keyStr, "hasOwnProperty") == 0) {
                 return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
             }
@@ -6188,6 +6193,10 @@ TsValue* ts_value_make_int(int64_t i) {
         uint32_t magic = *(uint32_t*)((char*)objRaw + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             TsMap* objMap = (TsMap*)objRaw;
+            // Object.create(null): a genuinely prototype-less object.
+            if (objMap->HasNullPrototype()) {
+                return ts_value_make_null();
+            }
             TsMap* proto = objMap->GetPrototype();
             if (proto) {
                 return ts_value_make_object(proto);
@@ -6292,9 +6301,14 @@ TsValue* ts_value_make_int(int64_t i) {
         TsMap* newObj = TsMap::Create();
         TsValue* thisVal = ts_value_make_object(newObj);
 
-        // If proto is null/undefined, return object with no prototype
+        // If proto is null/undefined, return object with no prototype. Mark it
+        // null-prototype so `in` / `.constructor` / getPrototypeOf don't fall
+        // back to Object.prototype (a plain `{}` also has prototype==nullptr but
+        // logically inherits Object.prototype). lodash's Hash cache is
+        // `Object.create(null)` and relies on `'constructor' in cache` === false.
         if (!proto || ts_value_is_nullish(proto)) {
             newObj->SetPrototype(nullptr);
+            newObj->SetNullPrototype(true);
             return thisVal;
         }
 
@@ -9073,7 +9087,11 @@ TsValue* ts_value_make_int(int64_t i) {
                     }
                 }
             }
-            // If not found in the map, check Object.prototype methods
+            // If not found in the map, check Object.prototype methods — but NOT
+            // for Object.create(null) (no prototype; lodash Hash cache).
+            if (map->HasNullPrototype()) {
+                return ts_value_make_undefined();
+            }
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
                 if (k) {
@@ -9789,9 +9807,12 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             // Inherited from Object.prototype if the chain didn't already
             // include it (plain `{}`-style TsMaps don't link to a materialized
-            // Object.prototype). Non-enumerable, so for-in is unaffected.
-            if (const char* k = keyStr->ToUtf8()) {
-                if (is_object_prototype_member(k)) return true;
+            // Object.prototype). Non-enumerable, so for-in is unaffected. NOT
+            // for Object.create(null) — it genuinely has no prototype.
+            if (!map->HasNullPrototype()) {
+                if (const char* k = keyStr->ToUtf8()) {
+                    if (is_object_prototype_member(k)) return true;
+                }
             }
             return false;
         }
