@@ -621,6 +621,15 @@ STRING_PROTO_METHOD(valueOf)
 // Primitives.cpp's extern "C". String.fromCharCode/fromCodePoint use it.
 extern "C" double ts_to_number(TsValue* v);
 
+// String.prototype, captured so the plain-call/construct disambiguation in
+// stringFn can tell `new String(x)` (this is a fresh wrapper whose prototype
+// IS String.prototype) from a receiver-less `String(x)` / `[..].map(String)`
+// (where ts_get_call_this() leaks an ambient `this` such as globalThis —
+// also a TsMap, but with a different prototype). Without this check the plain
+// call wrongly built a wrapper object, breaking e.g. lodash's
+// `baseTimes(n, String)` → wrapper-string keys → broken iteration.
+static TsMap* g_string_wrapper_proto = nullptr;
+
 void* ts_get_global_String() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -637,7 +646,12 @@ void* ts_get_global_String() {
                 void* raw = ts_value_get_object((TsValue*)thisVal);
                 if (raw) {
                     uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-                    if (m16 == 0x4D415053) {  // TsMap
+                    // Only a genuine `new String(x)` wrapper (prototype ===
+                    // String.prototype) is a construction target. A leaked
+                    // ambient `this` (globalThis etc.) is also a TsMap but has
+                    // a different prototype → return a primitive string.
+                    if (m16 == 0x4D415053 &&  // TsMap
+                        ((TsMap*)raw)->GetPrototype() == g_string_wrapper_proto) {
                         TsMap* obj = (TsMap*)raw;
                         TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
                         ndKey.ptr_val = TsString::GetInterned("__StringData");
@@ -728,6 +742,7 @@ void* ts_get_global_String() {
         TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
         ctorFunc->properties->Set(protoKey, protoVal);
+        g_string_wrapper_proto = proto;  // for stringFn's new-vs-call check
 
         ctorFunc->name = TsString::Create("String");
 
@@ -1264,6 +1279,10 @@ static double ts_number_data_of(void* ctx) {
 
 extern "C" void* ts_number_to_string(double value, int64_t radix);
 
+// Number.prototype, captured for numberFn's new-vs-call disambiguation
+// (see g_string_wrapper_proto / stringFn).
+static TsMap* g_number_wrapper_proto = nullptr;
+
 void* ts_get_global_Number() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -1280,7 +1299,11 @@ void* ts_get_global_Number() {
                 void* raw = ts_value_get_object((TsValue*)thisVal);
                 if (raw) {
                     uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-                    if (m16 == 0x4D415053) {  // TsMap
+                    // Only a genuine `new Number(x)` wrapper (prototype ===
+                    // Number.prototype) constructs; a leaked ambient `this`
+                    // returns a primitive. See stringFn for the rationale.
+                    if (m16 == 0x4D415053 &&  // TsMap
+                        ((TsMap*)raw)->GetPrototype() == g_number_wrapper_proto) {
                         TsMap* obj = (TsMap*)raw;
                         TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
                         ndKey.ptr_val = TsString::GetInterned("__NumberData");
@@ -1305,6 +1328,7 @@ void* ts_get_global_Number() {
         TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
         ctorFunc->properties->Set(protoKey, protoVal);
+        g_number_wrapper_proto = proto;  // for numberFn's new-vs-call check
 
         // Number.prototype itself has [[NumberData]] = +0 per spec, so
         // Number.prototype.toString(10) returns "0". Stash it on proto.
@@ -1418,6 +1442,8 @@ static bool ts_boolean_data_of(void* ctx) {
     return false;
 }
 
+static TsMap* g_boolean_wrapper_proto = nullptr;  // for boolFn new-vs-call check
+
 void* ts_get_global_Boolean() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -1430,7 +1456,11 @@ void* ts_get_global_Boolean() {
                 void* raw = ts_value_get_object((TsValue*)thisVal);
                 if (raw) {
                     uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-                    if (m16 == 0x4D415053) {  // TsMap
+                    // Only a genuine `new Boolean(x)` wrapper (prototype ===
+                    // Boolean.prototype) constructs; a leaked ambient `this`
+                    // returns a primitive. See stringFn for the rationale.
+                    if (m16 == 0x4D415053 &&  // TsMap
+                        ((TsMap*)raw)->GetPrototype() == g_boolean_wrapper_proto) {
                         TsMap* obj = (TsMap*)raw;
                         TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
                         ndKey.ptr_val = TsString::GetInterned("__BooleanData");
@@ -1455,6 +1485,7 @@ void* ts_get_global_Boolean() {
         TsValue protoVal; protoVal.type = ValueType::OBJECT_PTR;
         protoVal.ptr_val = proto;
         ctorFunc->properties->Set(protoKey, protoVal);
+        g_boolean_wrapper_proto = proto;  // for boolFn's new-vs-call check
 
         // Boolean.prototype seeds [[BooleanData]] = false per spec, so
         // Boolean.prototype.toString() === "false".
