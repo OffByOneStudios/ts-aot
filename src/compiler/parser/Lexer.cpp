@@ -1289,13 +1289,40 @@ std::string Lexer::getStringValue(std::string_view rawToken) {
                         else if (h >= 'A' && h <= 'F') cp += h - 'A' + 10;
                     }
                     i += 4;
+                    // Combine a UTF-16 surrogate pair written as two \uXXXX
+                    // escapes (high \uD800-\uDBFF then low \uDC00-\uDFFF) into a
+                    // single supplementary code point. Without this each half
+                    // hit the 3-byte branch below and emitted invalid UTF-8
+                    // (ED A0 BC ...), which ICU later decoded as U+FFFD — so
+                    // `'🍂'` became replacement chars instead of 🍂.
+                    if (cp >= 0xD800 && cp <= 0xDBFF &&
+                        i + 6 < inner.size() && inner[i + 1] == '\\' &&
+                        inner[i + 2] == 'u' && inner[i + 3] != '{') {
+                        int lo = 0; bool ok = true;
+                        for (int j = 0; j < 4; j++) {
+                            char h = inner[i + 3 + j];
+                            if (h >= '0' && h <= '9') lo = lo * 16 + (h - '0');
+                            else if (h >= 'a' && h <= 'f') lo = lo * 16 + (h - 'a' + 10);
+                            else if (h >= 'A' && h <= 'F') lo = lo * 16 + (h - 'A' + 10);
+                            else { ok = false; break; }
+                        }
+                        if (ok && lo >= 0xDC00 && lo <= 0xDFFF) {
+                            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                            i += 6; // consume the trailing \uXXXX
+                        }
+                    }
                     if (cp < 0x80) {
                         result += (char)cp;
                     } else if (cp < 0x800) {
                         result += (char)(0xC0 | (cp >> 6));
                         result += (char)(0x80 | (cp & 0x3F));
-                    } else {
+                    } else if (cp < 0x10000) {
                         result += (char)(0xE0 | (cp >> 12));
+                        result += (char)(0x80 | ((cp >> 6) & 0x3F));
+                        result += (char)(0x80 | (cp & 0x3F));
+                    } else {
+                        result += (char)(0xF0 | (cp >> 18));
+                        result += (char)(0x80 | ((cp >> 12) & 0x3F));
                         result += (char)(0x80 | ((cp >> 6) & 0x3F));
                         result += (char)(0x80 | (cp & 0x3F));
                     }
@@ -1443,13 +1470,40 @@ std::string Lexer::processTemplateEscapes(std::string_view text) {
                         else if (h >= 'A' && h <= 'F') cp += h - 'A' + 10;
                     }
                     i += 4;
+                    // Combine a UTF-16 surrogate pair written as two \uXXXX
+                    // escapes (high \uD800-\uDBFF then low \uDC00-\uDFFF) into a
+                    // single supplementary code point. Without this each half
+                    // hit the 3-byte branch below and emitted invalid UTF-8
+                    // (ED A0 BC ...), which ICU later decoded as U+FFFD — so
+                    // `'🍂'` became replacement chars instead of 🍂.
+                    if (cp >= 0xD800 && cp <= 0xDBFF &&
+                        i + 6 < text.size() && text[i + 1] == '\\' &&
+                        text[i + 2] == 'u' && text[i + 3] != '{') {
+                        int lo = 0; bool ok = true;
+                        for (int j = 0; j < 4; j++) {
+                            char h = text[i + 3 + j];
+                            if (h >= '0' && h <= '9') lo = lo * 16 + (h - '0');
+                            else if (h >= 'a' && h <= 'f') lo = lo * 16 + (h - 'a' + 10);
+                            else if (h >= 'A' && h <= 'F') lo = lo * 16 + (h - 'A' + 10);
+                            else { ok = false; break; }
+                        }
+                        if (ok && lo >= 0xDC00 && lo <= 0xDFFF) {
+                            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                            i += 6; // consume the trailing \uXXXX
+                        }
+                    }
                     if (cp < 0x80) {
                         result += (char)cp;
                     } else if (cp < 0x800) {
                         result += (char)(0xC0 | (cp >> 6));
                         result += (char)(0x80 | (cp & 0x3F));
-                    } else {
+                    } else if (cp < 0x10000) {
                         result += (char)(0xE0 | (cp >> 12));
+                        result += (char)(0x80 | ((cp >> 6) & 0x3F));
+                        result += (char)(0x80 | (cp & 0x3F));
+                    } else {
+                        result += (char)(0xF0 | (cp >> 18));
+                        result += (char)(0x80 | ((cp >> 12) & 0x3F));
                         result += (char)(0x80 | ((cp >> 6) & 0x3F));
                         result += (char)(0x80 | (cp & 0x3F));
                     }
