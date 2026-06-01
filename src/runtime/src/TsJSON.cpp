@@ -6,6 +6,7 @@
 #include "TsObject.h"
 #include "TsDate.h"
 #include "TsRegExp.h"
+#include "TsClosure.h"
 #include "TsFlatObject.h"
 #include "GC.h"
 #include <nlohmann/json.hpp>
@@ -171,6 +172,33 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
         }
         visited.erase(p);
         return j;
+    }
+
+    // ECMA-262 25.5.2.1 SerializeJSONProperty step 2: if the value has a
+    // callable `toJSON` method, invoke it (with the property key) and serialize
+    // the RESULT instead. Built-ins with their own JSON form (String, Date,
+    // RegExp, Array) returned above; this covers generic objects / class
+    // instances / lodash wrappers whose toJSON lives on the prototype. Guarded
+    // by `visited` so a toJSON returning `this` degrades to circular-ref, not an
+    // infinite loop.
+    if (visited.find(p) == visited.end()) {
+        TsValue* tj = ts_object_get_property(p, "toJSON");
+        if (tj) {
+            uint64_t tjnb = nanbox_from_tsvalue_ptr(tj);
+            if (nanbox_is_ptr(tjnb)) {
+                void* fnp = nanbox_to_ptr(tjnb);
+                if (fnp && ts_is_closure(fnp)) {
+                    visited.insert(p);
+                    TsValue* keyArg = ts_value_make_string(TsString::Create(""));
+                    TsValue* boxedThis = ts_value_make_object(p);
+                    TsValue* res = ts_call_with_this_1(tj, boxedThis, keyArg);
+                    nlohmann::ordered_json out =
+                        ts_to_json_internal((void*)(uintptr_t)nanbox_from_tsvalue_ptr(res), visited);
+                    visited.erase(p);
+                    return out;
+                }
+            }
+        }
     }
 
     // Flat inline-slot object (magic at offset 0)
