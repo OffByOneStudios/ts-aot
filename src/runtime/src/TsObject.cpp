@@ -11497,11 +11497,38 @@ TsValue* ts_value_make_int(int64_t i) {
         // into a real TsValue struct that the map's TaggedValue storage
         // expects. This is what makes `globalThis.X` work in user code.
         globalMap->SetWithAttrs(makeKey("Function"), nanbox_to_tagged(Function), BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("String"), nanbox_to_tagged(String), BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Date"), nanbox_to_tagged(Date), BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("RegExp"), nanbox_to_tagged(RegExp), BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("Error"), nanbox_to_tagged(Error), BUILTIN_ATTRS);
-        globalMap->SetWithAttrs(makeKey("TypeError"), nanbox_to_tagged(TypeError), BUILTIN_ATTRS);
+        // String/Date/RegExp/Error/TypeError/Number/Boolean/WeakMap/Promise:
+        // register the REAL constructors (ts_get_global_*), not the
+        // makeConstructorWithPrototype stubs — same fix as Symbol/Map/Set. The
+        // stubs route through ts_object_constructor_native, which for a pointer
+        // arg returns the arg as-is (so `root.String(5)`="[object Object]",
+        // `root.Number('5')`/`root.Boolean(1)`=undefined, `root.RegExp('a').test`
+        // /`root.Error('m').message`=undefined, `new root.WeakMap()` inert).
+        // lodash's harness binds `String=root.String` etc. (== globalThis), so
+        // every such call was broken at full-harness scale.
+        // Only the constructors whose real getter behaves correctly for a plain
+        // (non-`new`) global-property call are switched to the real ctor:
+        // String/Error/TypeError/Number/Boolean verified (root.String(5)="5",
+        // root.Error('m').message='m', root.Number('5')=5, root.Boolean(1)=true).
+        // Date/RegExp/WeakMap keep their stubs — their real getters return
+        // undefined on a plain call (regressing `root.Date()`/`root.RegExp(p)`),
+        // since they expect `new`/bare-identifier dispatch.
+        {
+            extern void* ts_get_global_String();   extern void* ts_get_global_Error();
+            extern void* ts_get_global_TypeError(); extern void* ts_get_global_Number();
+            extern void* ts_get_global_Boolean();
+            auto reg = [&](const char* nm, void* real, TsValue* stub) {
+                globalMap->SetWithAttrs(makeKey(nm),
+                    real ? nanbox_to_tagged((TsValue*)real) : nanbox_to_tagged(stub), BUILTIN_ATTRS);
+            };
+            reg("String", ts_get_global_String(), String);
+            reg("Date", nullptr, Date);
+            reg("RegExp", nullptr, RegExp);
+            reg("Error", ts_get_global_Error(), Error);
+            reg("TypeError", ts_get_global_TypeError(), TypeError);
+            reg("Number", ts_get_global_Number(), nullptr);
+            reg("Boolean", ts_get_global_Boolean(), nullptr);
+        }
         // Symbol: register the REAL constructor (ts_get_global_Symbol), not the
         // makeConstructorWithPrototype stub — same fix as Map/Set below. The stub
         // routes through ts_object_constructor_native, which for a pointer arg
