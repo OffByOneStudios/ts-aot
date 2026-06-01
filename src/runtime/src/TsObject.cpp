@@ -3328,12 +3328,33 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "valueOf") == 0) return makeNamedNativeFunction((void*)ts_number_valueOf_native, obj, "valueOf", 0);
             if (strcmp(keyStr, "toPrecision") == 0) return makeNamedNativeFunction((void*)ts_number_toPrecision_native, obj, "toPrecision", 1);
             if (strcmp(keyStr, "toExponential") == 0) return makeNamedNativeFunction((void*)ts_number_toExponential_native, obj, "toExponential", 1);
+            // Fall through to user-defined Number.prototype props (e.g.
+            // `Number.prototype.a = {...}; (5).a`). The 5 built-ins above take
+            // precedence (they match the default prototype), then we consult
+            // the real Number.prototype TsMap. Without this, `(0).a` was always
+            // undefined even after extending Number.prototype.
+            void* numCtor = ts_value_get_object((TsValue*)ts_get_global_Number());
+            if (numCtor) {
+                TsValue* protoVal = ts_object_get_property(numCtor, "prototype");
+                void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
+                if (protoRaw && protoRaw != obj)
+                    return ts_object_get_property(protoRaw, keyStr);
+            }
             return ts_value_make_undefined();
         }
         if (nanbox_is_bool(nb)) {
             // Boolean methods: toString, valueOf
             if (strcmp(keyStr, "toString") == 0) return makeNamedNativeFunction((void*)ts_boolean_toString_native, obj, "toString", 0);
             if (strcmp(keyStr, "valueOf") == 0) return makeNamedNativeFunction((void*)ts_boolean_valueOf_native, obj, "valueOf", 0);
+            // User-defined Boolean.prototype props (mirror Number above).
+            extern void* ts_get_global_Boolean();
+            void* boolCtor = ts_value_get_object((TsValue*)ts_get_global_Boolean());
+            if (boolCtor) {
+                TsValue* protoVal = ts_object_get_property(boolCtor, "prototype");
+                void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
+                if (protoRaw && protoRaw != obj)
+                    return ts_object_get_property(protoRaw, keyStr);
+            }
             return ts_value_make_undefined();
         }
 
@@ -3965,6 +3986,21 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "link") == 0) return makeNamedNativeFunction((void*)ts_string_link_native, strObj, "link", 1);
             if (strcmp(keyStr, "fontcolor") == 0) return makeNamedNativeFunction((void*)ts_string_fontcolor_native, strObj, "fontcolor", 1);
             if (strcmp(keyStr, "fontsize") == 0) return makeNamedNativeFunction((void*)ts_string_fontsize_native, strObj, "fontsize", 1);
+            // User-defined String.prototype props (e.g. `String.prototype.z = 1;
+            // 'x'.z`). The built-in methods above take precedence; then consult
+            // the real String.prototype. Numeric string indices ('abc'['0']) are
+            // resolved earlier in ts_object_get_dynamic, so this only adds the
+            // named-prop prototype walk. Mirrors the Number/Boolean primitives.
+            {
+                extern void* ts_get_global_String();
+                void* strCtor = ts_value_get_object((TsValue*)ts_get_global_String());
+                if (strCtor) {
+                    TsValue* protoVal = ts_object_get_property(strCtor, "prototype");
+                    void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
+                    if (protoRaw && protoRaw != obj)
+                        return ts_object_get_property(protoRaw, keyStr);
+                }
+            }
             return ts_value_make_undefined();
         }
         // TsHeaders: handled via virtual dispatch (GetPropertyVirtual) below.
