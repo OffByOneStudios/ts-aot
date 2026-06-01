@@ -11057,8 +11057,30 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!val) {
             return ts_value_make_object(TsMap::Create());
         }
-        // If already a pointer (object), return as-is
         uint64_t nb = nanbox_from_tsvalue_ptr(val);
+
+        // ECMA-262 ToObject: `Object(primitive)` boxes into the matching
+        // wrapper object (String/Number/Boolean). Only for the genuine Object
+        // constructor (name == null); the named built-in constructors reach
+        // this native with ctx = their name and must NOT be hijacked. Reuse
+        // ts_new_from_constructor_impl so the wrapper gets the right prototype
+        // + hidden [[*Data]] slot (identical to `new String(x)` etc.). lodash's
+        // baseClone clones wrappers via `Object(value.valueOf())`, so without
+        // this `_.clone(Object('a'))` / symbol-object clones were wrong.
+        if (name == nullptr) {
+            extern void* ts_get_global_String();
+            if (nanbox_is_string_ptr(nb)) {
+                return ts_new_from_constructor_impl((TsValue*)ts_get_global_String(), 1, &val);
+            }
+            if (nanbox_is_int32(nb) || nanbox_is_double(nb)) {
+                return ts_new_from_constructor_impl((TsValue*)ts_get_global_Number(), 1, &val);
+            }
+            if (nanbox_is_bool(nb)) {
+                return ts_new_from_constructor_impl((TsValue*)ts_get_global_Boolean(), 1, &val);
+            }
+        }
+
+        // If already a pointer (object), return as-is
         if (nanbox_is_ptr(nb)) {
             return val;
         }
