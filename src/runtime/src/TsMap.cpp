@@ -62,8 +62,27 @@ TsMap::TsMap() {
     impl = TsHashTable::Create();
 }
 
+// ECMA-262 Map key SameValueZero: numeric keys compare by value regardless of
+// int/double representation; -0 and +0 are the same key; NaN equals NaN. Only
+// applied to explicit Map instances (object-property maps key on strings, so
+// this never runs there). `new Map([[5,a],[5.0,b]]).size` was 2; `map.get(-0)`
+// for a 0 key missed. Canonicalize an integer-valued double (incl -0) to
+// NUMBER_INT; non-integers / NaN keep NUMBER_DBL.
+static inline TsValue ts_map_canon_key(TsValue v) {
+    if (v.type == ValueType::NUMBER_DBL) {
+        double d = v.d_val;
+        if (d == 0.0) { v.type = ValueType::NUMBER_INT; v.i_val = 0; }
+        else if (d == (double)(int64_t)d &&
+                 d >= -9007199254740992.0 && d <= 9007199254740992.0) {
+            v.type = ValueType::NUMBER_INT; v.i_val = (int64_t)d;
+        }
+    }
+    return v;
+}
+
 void TsMap::Set(TsValue key, TsValue value) {
     { TsMap* m = self(); if (m != this) { m->Set(key, value); return; } }
+    if (IsExplicitMap()) key = ts_map_canon_key(key);
     // Guard: skip if impl is corrupt (GC may have collected this TsMap)
     if ((uintptr_t)impl < 0x10000) return;
     if (frozen) return;
@@ -113,6 +132,7 @@ void TsMap::SetWithAttrs(TsValue key, TsValue value, uint8_t attrs) {
 // TsHashTable (e.g. find_slot reading [impl+0x20] with impl==0).
 TsValue TsMap::Get(TsValue key) {
     { TsMap* m = self(); if (m != this) return m->Get(key); }
+    if (IsExplicitMap()) key = ts_map_canon_key(key);
     if ((uintptr_t)impl < 0x10000) {
         TsValue undef; undef.type = ValueType::UNDEFINED; undef.ptr_val = nullptr;
         return undef;
@@ -137,12 +157,14 @@ TsValue TsMap::Get(TsValue key) {
 
 bool TsMap::Has(TsValue key) {
     { TsMap* m = self(); if (m != this) return m->Has(key); }
+    if (IsExplicitMap()) key = ts_map_canon_key(key);
     if ((uintptr_t)impl < 0x10000) return false;
     return ((TsHashTable*)impl)->Has(key);
 }
 
 bool TsMap::Delete(TsValue key) {
     { TsMap* m = self(); if (m != this) return m->Delete(key); }
+    if (IsExplicitMap()) key = ts_map_canon_key(key);
     if (frozen || sealed) return false;
     if ((uintptr_t)impl < 0x10000) return false;
     return ((TsHashTable*)impl)->Delete(key);
