@@ -9728,6 +9728,26 @@ TsValue* ts_value_make_int(int64_t i) {
             keyVal.type = ValueType::STRING_PTR;
             keyVal.ptr_val = keyStr;
 
+            // Primitive String wrapper (TsMap with a hidden __StringData slot):
+            // expose `length` and in-range character indices to the `in`
+            // operator, mirroring the read path (ts_object_get_dynamic ~8957).
+            // `0 in Object('a')` and `'length' in Object('a')` must be true
+            // (lodash _.hasIn over sparse String values).
+            {
+                TsValue sdKey; sdKey.type = ValueType::STRING_PTR;
+                sdKey.ptr_val = TsString::GetInterned("__StringData");
+                TsValue sd = map->Get(sdKey);
+                if (sd.type == ValueType::STRING_PTR && sd.ptr_val) {
+                    TsString* str = (TsString*)sd.ptr_val;
+                    if (const char* k = keyStr->ToUtf8()) {
+                        if (strcmp(k, "length") == 0) return true;
+                        char* endp = nullptr;
+                        long idx = strtol(k, &endp, 10);
+                        if (endp && *endp == '\0' && idx >= 0 && idx < str->Length()) return true;
+                    }
+                }
+            }
+
             TsMap* currentMap = map;
             while (currentMap != nullptr) {
                 if (currentMap->Has(keyVal)) {
