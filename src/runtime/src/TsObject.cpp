@@ -8542,7 +8542,23 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
-                if (k) return (TsValue*)ts_flat_object_get_property(rawObj, k);
+                if (k) {
+                    TsValue* r = (TsValue*)ts_flat_object_get_property(rawObj, k);
+                    if (r && nanbox_from_tsvalue_ptr(r) != NANBOX_UNDEFINED) return r;
+                    // Narrow Object.prototype fallback: ONLY `constructor` (an
+                    // any-typed `obj.constructor`, as in lodash equalObjects).
+                    // Return the canonical function-tagged Object so
+                    // `({}).constructor === Object`. Deliberately NOT the other
+                    // inherited members (toString/valueOf/...) — returning those
+                    // on the dynamic path perturbs lodash's tag/equality helpers
+                    // and regressed merge deepEquals.
+                    if (strcmp(k, "constructor") == 0) {
+                        extern void* ts_get_global_Object();
+                        void* ctor = ts_get_global_Object();
+                        if (ctor) return ts_value_make_function_object(ctor);
+                    }
+                    return r;
+                }
             }
             return ts_value_make_undefined();
         }
@@ -9037,6 +9053,17 @@ TsValue* ts_value_make_int(int64_t i) {
                     }
                     if (strcmp(k, "valueOf") == 0) {
                         return makeNamedNativeFunction((void*)ts_object_valueOf_native, nullptr, "valueOf", 0);
+                    }
+                    // A plain object's inherited `constructor` is Object. Return
+                    // the canonical function-tagged global (matching the flat-
+                    // object dynamic path) so `({}).constructor === Object` holds
+                    // for BOTH object representations — otherwise lodash isEqual
+                    // sees one operand's ctor as Object and the other's as
+                    // undefined and declares structurally-equal objects unequal.
+                    if (strcmp(k, "constructor") == 0) {
+                        extern void* ts_get_global_Object();
+                        void* octor = ts_get_global_Object();
+                        if (octor) return ts_value_make_function_object(octor);
                     }
                 }
             }
