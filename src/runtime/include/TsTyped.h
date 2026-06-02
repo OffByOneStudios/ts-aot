@@ -76,13 +76,33 @@ inline bool ts_is(void* p) {
     return ts_cast<T>(p) != nullptr;
 }
 
-// Offset-correct downcast WITHOUT the heap-liveness guard. Use only when the
-// caller has already established that `p` is a valid, live heap pointer (e.g.
-// it was just unboxed and range-checked). Still immune to offset desync.
+// Cheap inline pointer-canonicality guard: rejects null, tagged NaN-box
+// payloads, and non-canonical (high-bits-set) addresses WITHOUT touching the
+// GC's block descriptors. This is the guard hot paths can afford.
+//
+// Rationale (measured): the full ts_gc_is_heap_object calls gc_find_base, which
+// does rebuild_descriptors() + a binary search over block (and large-object)
+// descriptors — fine for cold/error paths, but far too costly to run on every
+// dynamic property access / typeof / equality. Hot classification sites should
+// use the *_unchecked forms below, which keep the layout-derived offset (so they
+// still can't desync) and this cheap canonicality check, but skip gc_find_base.
+inline bool ts_ptr_is_canonical(const void* p) {
+    uintptr_t v = reinterpret_cast<uintptr_t>(p);
+    return v >= 0x10000 && (v >> 48) == 0;
+}
+
+// Offset-correct downcast WITHOUT the heap-liveness guard. Use on hot paths, or
+// when the caller has already established that `p` is a live heap pointer.
+// Still immune to offset desync; still rejects obviously-bad pointers cheaply.
 template <class T>
 inline T* ts_cast_unchecked(void* p) {
-    if (!p) return nullptr;
+    if (!ts_ptr_is_canonical(p)) return nullptr;
     if (ts_typed_detail::read_tag(p, TsTagOf<T>::kOffset) != TsTagOf<T>::kMagic)
         return nullptr;
     return reinterpret_cast<T*>(p);
+}
+
+template <class T>
+inline bool ts_is_unchecked(void* p) {
+    return ts_cast_unchecked<T>(p) != nullptr;
 }
