@@ -213,6 +213,12 @@ extern "C" void* g_debug_lodash_module_map = nullptr;
 // is vestigial before it is removed.
 extern "C" void ts_offcanon_note(const char* where, void* p);
 
+// Enrol Map/Set (now that their shadow magic is gone, offsetof(T,magic)==16) for
+// validated, offset-derived type-tag dispatch via ts_is<T>/ts_cast<T> (TsTyped.h).
+#include "TsTyped.h"
+TS_DECLARE_TAG(TsMap);
+TS_DECLARE_TAG(TsSet);
+
 // ============================================================================
 // Flat object EventEmitter delegation
 // When a class extends EventEmitter and is compiled as a flat object,
@@ -7701,11 +7707,8 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_flat_object_has_property(rawPtr, k);
         }
 
-        // Check for TsMap (canonical TsObject::magic at offset 16)
-        uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
-
-        if (magic16 == 0x4D415053) { // TsMap::MAGIC
-            TsMap* map = (TsMap*)rawPtr;
+        // Validated, offset-derived TsMap tag check (ts_cast<T>, TsTyped.h).
+        if (TsMap* map = ts_cast_unchecked<TsMap>(rawPtr)) {
 
             // Get the property name as a string
             void* propRaw = ts_nanbox_safe_unbox(prop);
