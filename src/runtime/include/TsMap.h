@@ -83,7 +83,10 @@ public:
 protected:
     TsMap();
 private:
-    uint32_t magic = MAGIC;
+    // NOTE: no shadow `magic` field here — the canonical type tag is the
+    // inherited TsObject::magic at offset 16 (set in the ctor). A redundant
+    // shadow used to live here to support an off-by-N magic scan; that scan was
+    // collapsed to offset-16-only (Step B2), so the shadow is gone.
     TsMap* prototype = nullptr;
     bool frozen = false;
     bool sealed = false;

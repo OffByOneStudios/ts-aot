@@ -21,7 +21,8 @@ public:
 protected:
     TsSet();
 private:
-    uint32_t magic = MAGIC;
+    // No shadow `magic` — canonical tag is the inherited TsObject::magic @16
+    // (set in the ctor). See TsMap.h for the Step B2/B3 rationale.
     void* impl; // Pointer to std::unordered_set
 };
 
