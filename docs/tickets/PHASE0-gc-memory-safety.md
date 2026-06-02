@@ -99,21 +99,31 @@ The remaining gap is a concrete worklist, not a rebuild:
 it had a second instance in `test_private_fields.ts`). The test262 runner gained a
 `TSAOT_EXTRA_FLAGS` env hook for the differential.
 
-**REMAINING 0.3 BLOCKER (found via test262 slice 2026-06-02): select/phi pointer-addrspace
-mismatch in destructuring.** A 400-test `language/expressions` slice differential (default vs
-`TSAOT_EXTRA_FLAGS=--gc-statepoints`) found **28 pass→compile_error regressions, ALL in
-`arrow-function/dstr`**. Root cause (one site): the generic `Select` lowering
-(HIRToLLVM.cpp:9974) combined with the `stack.flat` alloca (HIRToLLVM.cpp:4063) emits
-`select i1 %c, <ptr addrspace(1) GC value>, <ptr addrspace(0) stack.flat>`. The default build
-is all addrspace(0) so the select is valid; under statepoints the GC operand is addrspace(1)
-and the select operands mismatch → "Invalid operands for select instruction". Fix is NON-trivial
-and must be careful: naively addrspacecasting the stack pointer to (1) would make RS4GC try to
-relocate a non-heap pointer. Options: (a) reconcile select/phi pointer-operand addrspaces in a
-statepoints normalization pass with a *non-relocatable* cast model; (b) fix the destructuring
-lowering so the two select operands share an addrspace (e.g. the `stack.flat` default is
-materialized as a real addrspace(1) GC value). Bounded to the destructuring iterator path.
-**Do NOT flip the `--gc-statepoints` default until this is fixed and the test262 differential is
-clean** — gate unmet. Re-run: `python tests/test262/run_test262.py -c <dir> -n N --fresh`
+**Destructuring select-addrspace cluster — FIXED `<commit>`.** A 400-test `language/expressions`
+slice differential found 28 pass→compile_error regressions, all `arrow-function/dstr`, from
+`select i1 %c, <ptr addrspace(1) GC value>, <ptr addrspace(0) stack.flat/stack.arr>`
+(HIRToLLVM.cpp:9974 + the stack-alloc sites 4056/4839). A stack alloca is addrspace(0); a stack
+pointer can't be cast into the GC addrspace (RS4GC would relocate non-heap memory). Fix:
+disable stack-allocation of flat objects + arrays under `--gc-statepoints` (gate both
+`canStackAlloc` on `!enableGCStatepoints_`) so everything is heap/addrspace(1) and consistent.
+The stack-alloc optimization is fundamentally incompatible with precise GC roots. Cluster went
+28 CE → 0; differentials stayed clean (gc-suite 15/15, golden_ir 280/0/0, node 298/0/0).
+
+**Residual: 1 test262 slice diff is a PRE-EXISTING non-GC conformance bug, not a statepoints
+defect.** `[x=23] = [,]` (no arg → param default `[,]`) yields 23 in the default build but
+undefined under statepoints. Two pre-existing bugs interact: (1) the array-destructuring
+*element default* lowering checks IN-BOUNDS (`lt ? elem : default`) instead of IS-UNDEFINED, so
+`[x=23]=[undefined]` wrongly gives undefined in BOTH modes (spec: 23); (2) `[,].length` is 0 on
+the stack-literal path but 1 on the heap path (spec: 1). The default build gets 23 by accident
+(stack `[,]` is length-0 → out of bounds → default); the statepoints heap `[,]` is length 1 →
+in-bounds hole → undefined. The GC behavior is correct. This is Phase-2 destructuring
+conformance (fix element-default to an is-undefined check; make stack `[,]` length 1).
+
+**Gate status:** statepoints is GC-correct and behaviorally identical on golden_ir + node; the
+sole test262 slice diff is the pre-existing element-default conformance bug above. **Recommend:
+fix that element-default bug (Phase 2) BEFORE flipping the `--gc-statepoints` default** — until
+then flipping would change `[x=d]=[,]`-style code from accidentally-right to wrong-differently.
+Re-run the slice differential: `python tests/test262/run_test262.py -c <dir> -n N --fresh`
 twice (with/without `TSAOT_EXTRA_FLAGS=--gc-statepoints`), diff per-test status.
 - Make **minor GC consume the LLVM stackmap** as its precise root set (today the minor
   collector relies on conservative stack scan + the manual `ts_gc_register_root` set;
