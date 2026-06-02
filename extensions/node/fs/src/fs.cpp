@@ -232,7 +232,8 @@ struct FSWatchIteratorState {
             watcher->closed = true;
             if (watcher->event_handle) {
                 uv_fs_event_stop(watcher->event_handle);
-                uv_close((uv_handle_t*)watcher->event_handle, [](uv_handle_t* h) { });
+                ts_gc_unregister_root((void**)&watcher->event_handle->data);
+                uv_close((uv_handle_t*)watcher->event_handle, [](uv_handle_t* h) { free(h); });
             }
         }
     }
@@ -395,11 +396,13 @@ extern "C" {
         
         if (w->event_handle) {
             uv_fs_event_stop(w->event_handle);
-            uv_close((uv_handle_t*)w->event_handle, [](uv_handle_t* h) { });
+            ts_gc_unregister_root((void**)&w->event_handle->data);
+            uv_close((uv_handle_t*)w->event_handle, [](uv_handle_t* h) { free(h); });
         }
         if (w->poll_handle) {
             uv_fs_poll_stop(w->poll_handle);
-            uv_close((uv_handle_t*)w->poll_handle, [](uv_handle_t* h) { });
+            ts_gc_unregister_root((void**)&w->poll_handle->data);
+            uv_close((uv_handle_t*)w->poll_handle, [](uv_handle_t* h) { free(h); });
         }
         return ts_value_make_undefined();
     }
@@ -421,9 +424,14 @@ extern "C" {
             watcher->On("change", actual_listener);
         }
 
-        watcher->event_handle = (uv_fs_event_t*)ts_alloc(sizeof(uv_fs_event_t));
+        // Handle is malloc'd (libuv-owned, held in the loop's handle queue where
+        // the GC can't see it; a moving/freeing GC would corrupt that queue ->
+        // GC-001). Freed in the uv_close callback. Root the back-pointer so the
+        // watcher stays alive while the watch is active.
+        watcher->event_handle = (uv_fs_event_t*)malloc(sizeof(uv_fs_event_t));
         uv_fs_event_init(uv_default_loop(), watcher->event_handle);
         watcher->event_handle->data = watcher;
+        ts_gc_register_root((void**)&watcher->event_handle->data);
 
         int flags = 0;
         
@@ -464,9 +472,11 @@ extern "C" {
             watcher->is_poll = true;
             watchFileMap->Set(pathVal, nanbox_to_tagged(ts_value_make_object(watcher)));
 
-            watcher->poll_handle = (uv_fs_poll_t*)ts_alloc(sizeof(uv_fs_poll_t));
+            // malloc'd handle (see fs.watch above) -> GC-001; root the back-pointer.
+            watcher->poll_handle = (uv_fs_poll_t*)malloc(sizeof(uv_fs_poll_t));
             uv_fs_poll_init(uv_default_loop(), watcher->poll_handle);
             watcher->poll_handle->data = watcher;
+            ts_gc_register_root((void**)&watcher->poll_handle->data);
 
             int interval = 5007; // Default node interval
             if (options_val && !ts_value_is_nullish((TsValue*)options_val)) {
@@ -536,7 +546,8 @@ extern "C" {
             watcher->closed = true;
             if (watcher->poll_handle) {
                 uv_fs_poll_stop(watcher->poll_handle);
-                uv_close((uv_handle_t*)watcher->poll_handle, [](uv_handle_t* h) { });
+                ts_gc_unregister_root((void**)&watcher->poll_handle->data);
+                uv_close((uv_handle_t*)watcher->poll_handle, [](uv_handle_t* h) { free(h); });
             }
             watchFileMap->Delete(pathVal);
         }
@@ -2432,9 +2443,12 @@ static TsValue* watch_promise_wrapper(void* context, TsValue* path, TsValue* opt
     TsFSWatcher* watcher = TsFSWatcher::Create();
     state->watcher = watcher;
 
-    watcher->event_handle = (uv_fs_event_t*)ts_alloc(sizeof(uv_fs_event_t));
+    // malloc'd handle (see fs.watch) -> GC-001; root the back-pointer so the
+    // iterator state stays alive while the watch is active.
+    watcher->event_handle = (uv_fs_event_t*)malloc(sizeof(uv_fs_event_t));
     uv_fs_event_init(uv_default_loop(), watcher->event_handle);
     watcher->event_handle->data = state;  // Point to iterator state, not watcher
+    ts_gc_register_root((void**)&watcher->event_handle->data);
 
     int flags = 0;
     uv_fs_event_start(watcher->event_handle, on_watch_event, pathStr->ToUtf8(), flags);
