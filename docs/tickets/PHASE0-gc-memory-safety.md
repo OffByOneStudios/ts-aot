@@ -59,11 +59,35 @@ promise callbacks, string caches, process handler vectors.
 - **Exit:** a documented audit list; every holder either rooted or proven not to hold
   GC pointers across a GC.
 
-### 0.3 — Precise GC statepoints (the formal cure) — **L** — CHOSEN PATH
+### 0.3 — Precise GC statepoints (the formal cure) — **M (re-estimated from L)** — CHOSEN PATH
 The user chose precise roots over blanket tenuring. Infrastructure already exists in
 `src/compiler/codegen/CodeGenerator.cpp`: LLVM 18 RS4GC integration, gc.relocate
 index-fixing (RS4GC off-by-one), the addrspace(1)-is-a-GC-VALUE model, FastISel
 disabling under statepoints. The job is to FINISH and VALIDATE it, then make it default.
+
+**2026-06-02 MEASUREMENT — the path is ~98.5% done, re-estimated L→M.** `--gc-statepoints`
+already works end-to-end: a smoke program reports `[StackMap] Parsed 61 safepoints with 44
+GC root locations` + `[GCRoots] Precise root pushing enabled` and runs correctly — minor GC
+IS consuming precise stackmap roots today. Measured breadth:
+- **gc-suite: 15/15 PASS** under statepoints.
+- **golden_ir statepoints-vs-default differential: 266 MATCH / 2 MISMATCH / 0 CRASH / 2
+  COMPILE-ERROR** of 268 working programs (11 base-skipped were already broken w/o statepoints).
+
+The remaining gap is a concrete worklist, not a rebuild:
+1. **Boolean closure-cell addrspace ABI bug (2 CE):** `closure_capture_boolean_mutable.ts`,
+   `closure_capture_boolean_return.ts` → `LLVM Module verification failed: Call parameter
+   type does not match function signature!` (CodeGenerator.cpp:546). An addrspace(1) pointer
+   passed where the callee signature expects addrspace(0) (or vice-versa) in the boolean
+   closure-cell path. Fix the (1)↔(0) cast at that call boundary.
+2. **Safepoint-relocation bug (2 MISMATCH):** `test_proxy_reflect.ts`,
+   `test_promise_withResolvers.ts` produce wrong output under statepoints — a GC value not
+   relocated/preserved across a safepoint in the proxy/promise paths. Root-cause via IR diff
+   around the safepoint.
+3. **Diagnostic spam:** `[StackMap]`/`[GCRoots]` print to stdout — env-gate (e.g. behind
+   `TS_GC_DEBUG`) before default; they currently pollute program output.
+
+After 1–3: extend the differential to node + a test262 slice, then flip the default behind
+the harness gate.
 - Make **minor GC consume the LLVM stackmap** as its precise root set (today the minor
   collector relies on conservative stack scan + the manual `ts_gc_register_root` set;
   statepoints give exact, relocatable roots).
