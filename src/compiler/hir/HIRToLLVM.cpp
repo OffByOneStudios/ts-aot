@@ -4046,8 +4046,15 @@ void HIRToLLVM::lowerNewFlatObject(HIRInstruction* inst) {
 
     llvm::Value* result;
 
-    // Check if we can stack-allocate this flat object
-    bool canStackAlloc = !inst->escapes &&
+    // Check if we can stack-allocate this flat object.
+    // Under --gc-statepoints, GC values live in addrspace(1) but a stack alloca
+    // is addrspace(0); the two cannot be mixed in a select/phi (e.g. destructuring
+    // `cond ? heapElement : stackFlatDefault`) and a stack pointer must never be
+    // cast into the GC addrspace (RS4GC would try to relocate non-heap memory).
+    // So heap-allocate flat objects when statepoints are on — the stack-alloc
+    // optimization is fundamentally incompatible with precise GC roots.
+    bool canStackAlloc = !enableGCStatepoints_ &&
+                         !inst->escapes &&
                          !isAsyncFunction_ &&
                          !isGeneratorFunction_ &&
                          stackAllocCount_ < kMaxStackAllocObjects &&
@@ -4828,8 +4835,13 @@ void HIRToLLVM::lowerNewArrayBoxed(HIRInstruction* inst) {
         len = builder_->CreateCall(unboxFt, unboxFn.getCallee(), {len});
     }
 
-    // Check if we can stack-allocate this array
-    bool canStackAlloc = !inst->escapes &&
+    // Check if we can stack-allocate this array.
+    // Disabled under --gc-statepoints: a stack alloca is addrspace(0) but GC
+    // values are addrspace(1), and the two cannot be mixed in a select/phi (e.g.
+    // destructuring) nor can a stack pointer be cast into the GC addrspace. See
+    // the matching guard in the flat-object path above.
+    bool canStackAlloc = !enableGCStatepoints_ &&
+                         !inst->escapes &&
                          !isAsyncFunction_ &&
                          !isGeneratorFunction_ &&
                          stackAllocCount_ < kMaxStackAllocObjects &&
