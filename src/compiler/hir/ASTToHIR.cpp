@@ -809,6 +809,12 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         if (hasPropertyInitializers && !hasExplicitConstructor) {
             std::string ctorName = className + "_constructor";
             auto defaultCtor = std::make_unique<HIRFunction>(ctorName);
+            {
+                // .name of the (default) constructor = the class name, or the
+                // inferred binding name for an anonymous class expression.
+                std::string cn = classDecl->name.empty() ? pendingClosureDisplayName_ : classDecl->name;
+                if (!cn.empty()) defaultCtor->displayName = cn;
+            }
             defaultCtor->params.push_back({"this", HIRType::makeClass(className, 0)});
             defaultCtor->returnType = HIRType::makeVoid();
             defaultCtor->nextValueId = 1;
@@ -3179,7 +3185,8 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
         // so they can use the variable name for .name property (ES2019)
         if (auto* ident = dynamic_cast<ast::Identifier*>(node->name.get())) {
             if (dynamic_cast<ast::ArrowFunction*>(node->initializer.get()) ||
-                dynamic_cast<ast::FunctionExpression*>(node->initializer.get())) {
+                dynamic_cast<ast::FunctionExpression*>(node->initializer.get()) ||
+                dynamic_cast<ast::ClassExpression*>(node->initializer.get())) {
                 pendingClosureDisplayName_ = ident->name;
             }
         }
@@ -8675,7 +8682,24 @@ void ASTToHIR::visitPropertyAssignment(ast::PropertyAssignment* node) {
     // Save the object before lowerExpression overwrites lastValue_
     auto obj = lastValue_;
 
+    // Inferred name (ECMA-262 PropertyDefinitionEvaluation / NamedEvaluation):
+    // { m: function(){} }, { p: () => {} }, { c: class {} } give the value the
+    // property key as its .name. Only for a plain (non-computed) key and an
+    // anonymous function/arrow/class initializer.
+    bool clearPending = false;
+    if (!node->name.empty() &&
+        !dynamic_cast<ast::ComputedPropertyName*>(node->nameNode.get())) {
+        bool anon = dynamic_cast<ast::ArrowFunction*>(node->initializer.get()) ||
+                    dynamic_cast<ast::ClassExpression*>(node->initializer.get());
+        if (!anon) {
+            if (auto* fe = dynamic_cast<ast::FunctionExpression*>(node->initializer.get()))
+                anon = fe->name.empty();
+        }
+        if (anon) { pendingClosureDisplayName_ = node->name; clearPending = true; }
+    }
+
     auto val = lowerExpression(node->initializer.get());
+    if (clearPending) pendingClosureDisplayName_.clear();
 
     // Check for computed property name: { [expr]: value }
     if (auto* computed = dynamic_cast<ast::ComputedPropertyName*>(node->nameNode.get())) {
@@ -10057,6 +10081,14 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     func->isGenerator = node->isGenerator;
     func->sourceLine = node->line;
     func->sourceFile = node->sourceFile;
+    // Method .name = the property key (ECMA-262 SetFunctionName); accessors are
+    // prefixed "get "/"set ". Without this an object/class method's funcName is
+    // the mangled "__method_x_N" and .name leaks the mangled form.
+    if (!methodName.empty()) {
+        func->displayName = node->isGetter ? ("get " + methodName)
+                          : node->isSetter ? ("set " + methodName)
+                          : methodName;
+    }
 
     // Add implicit 'this' parameter for methods
     func->params.push_back({"this", HIRType::makeAny()});
@@ -10856,6 +10888,17 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             func->isGenerator = methodDef->isGenerator;
             func->sourceLine = methodDef->line;
             func->sourceFile = methodDef->sourceFile;
+            // SetFunctionName: a class method's .name is its key (accessors are
+            // prefixed "get "/"set "); the instance constructor's .name is the
+            // class name (inferred binding name for an anonymous class expr).
+            if (methodDef->name == "constructor" && !methodDef->isStatic) {
+                std::string cn = node->name.empty() ? pendingClosureDisplayName_ : node->name;
+                if (!cn.empty()) func->displayName = cn;
+            } else if (!methodDef->name.empty()) {
+                func->displayName = methodDef->isGetter ? ("get " + methodDef->name)
+                                  : methodDef->isSetter ? ("set " + methodDef->name)
+                                  : methodDef->name;
+            }
 
             // For instance methods (and constructor), 'this' is the first parameter
             if (!methodDef->isStatic) {
@@ -11399,6 +11442,17 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             func->isGenerator = methodDef->isGenerator;
             func->sourceLine = methodDef->line;
             func->sourceFile = methodDef->sourceFile;
+            // SetFunctionName: a class method's .name is its key (accessors are
+            // prefixed "get "/"set "); the instance constructor's .name is the
+            // class name (inferred binding name for an anonymous class expr).
+            if (methodDef->name == "constructor" && !methodDef->isStatic) {
+                std::string cn = node->name.empty() ? pendingClosureDisplayName_ : node->name;
+                if (!cn.empty()) func->displayName = cn;
+            } else if (!methodDef->name.empty()) {
+                func->displayName = methodDef->isGetter ? ("get " + methodDef->name)
+                                  : methodDef->isSetter ? ("set " + methodDef->name)
+                                  : methodDef->name;
+            }
 
             // For instance methods (and constructor), 'this' is the first parameter
             if (!methodDef->isStatic) {
@@ -11651,6 +11705,12 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
         if (needsDefaultConstructor) {
             std::string ctorName = className + "_constructor";
             auto defaultCtor = std::make_unique<HIRFunction>(ctorName);
+            {
+                // .name of the (default) constructor = the class name, or the
+                // inferred binding name for an anonymous class expression.
+                std::string cn = node->name.empty() ? pendingClosureDisplayName_ : node->name;
+                if (!cn.empty()) defaultCtor->displayName = cn;
+            }
 
             // 'this' is the first parameter
             defaultCtor->params.push_back({"this", HIRType::makeObject()});

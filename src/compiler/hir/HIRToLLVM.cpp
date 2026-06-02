@@ -8016,10 +8016,12 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
 
     // Set the function's display name
     std::string displayName;
+    bool haveExplicitName = false;  // true when an inferred/source name was set
     if (hirModule_) {
         for (const auto& hirFn : hirModule_->functions) {
             if (hirFn->mangledName == funcName || hirFn->name == funcName) {
-                displayName = !hirFn->displayName.empty() ? hirFn->displayName : hirFn->name;
+                if (!hirFn->displayName.empty()) { displayName = hirFn->displayName; haveExplicitName = true; }
+                else displayName = hirFn->name;
                 break;
             }
         }
@@ -8028,6 +8030,20 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
         displayName = funcName;
         auto pos = displayName.rfind("_M");
         if (pos != std::string::npos) displayName = displayName.substr(0, pos);
+    }
+    // Class constructor naming: the canonical symbol is "<ClassName>_constructor".
+    // A class constructor's .name is the class name (or "" for an anonymous
+    // class), per ECMA-262. Only derive from the mangled symbol when no explicit
+    // inferred name was attached (so `var C = class{}` keeps "C", and a real
+    // user function literally named `foo_constructor` is left alone).
+    if (!haveExplicitName) {
+        static const std::string kCtorSuffix = "_constructor";
+        if (displayName.size() > kCtorSuffix.size() &&
+            displayName.compare(displayName.size() - kCtorSuffix.size(),
+                                kCtorSuffix.size(), kCtorSuffix) == 0) {
+            std::string cn = displayName.substr(0, displayName.size() - kCtorSuffix.size());
+            displayName = (cn.find("__anon_class_") == 0) ? std::string("") : cn;
+        }
     }
     // For anonymous functions (arrow_fn_, fn_expr_), pass empty string
     // so the name own-property is installed with value="" per ECMA-262.
@@ -8554,12 +8570,14 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     // Set the function's display name on the closure for .name and .toString()
     {
         std::string displayName;
+        bool haveExplicitName = false;
         if (hirModule_) {
             for (const auto& hirFn : hirModule_->functions) {
                 if (hirFn->mangledName == funcName || hirFn->name == funcName) {
                     // Prefer displayName (from assignment context) over internal name
                     if (!hirFn->displayName.empty()) {
                         displayName = hirFn->displayName;
+                        haveExplicitName = true;
                     } else {
                         displayName = hirFn->name;
                     }
@@ -8572,6 +8590,18 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             displayName = funcName;
             auto pos = displayName.rfind("_M");
             if (pos != std::string::npos) displayName = displayName.substr(0, pos);
+        }
+        // Class constructor: ".name" is the class name (or "" if anonymous),
+        // derived from the "<ClassName>_constructor" symbol only when no explicit
+        // inferred name was attached. See the matching block above.
+        if (!haveExplicitName) {
+            static const std::string kCtorSuffix = "_constructor";
+            if (displayName.size() > kCtorSuffix.size() &&
+                displayName.compare(displayName.size() - kCtorSuffix.size(),
+                                    kCtorSuffix.size(), kCtorSuffix) == 0) {
+                std::string cn = displayName.substr(0, displayName.size() - kCtorSuffix.size());
+                displayName = (cn.find("__anon_class_") == 0) ? std::string("") : cn;
+            }
         }
         // Anonymous functions (__arrow_fn_, __fn_expr_) and "anonymous"
         // get name="" so the own-property is still installed per
