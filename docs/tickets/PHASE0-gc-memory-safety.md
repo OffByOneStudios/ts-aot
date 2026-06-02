@@ -74,11 +74,13 @@ IS consuming precise stackmap roots today. Measured breadth:
   COMPILE-ERROR** of 268 working programs (11 base-skipped were already broken w/o statepoints).
 
 The remaining gap is a concrete worklist, not a rebuild:
-1. **Boolean closure-cell addrspace ABI bug (2 CE):** `closure_capture_boolean_mutable.ts`,
-   `closure_capture_boolean_return.ts` → `LLVM Module verification failed: Call parameter
-   type does not match function signature!` (CodeGenerator.cpp:546). An addrspace(1) pointer
-   passed where the callee signature expects addrspace(0) (or vice-versa) in the boolean
-   closure-cell path. Fix the (1)↔(0) cast at that call boundary.
+1. ~~**Boolean closure-cell addrspace ABI bug (2 CE)**~~ — **FIXED `90ffbee5`.** Root cause
+   was NOT addrspace but a signature inconsistency: the function-trampoline return path
+   (HIRToLLVM.cpp:8392) was the lone site boxing an i1 return via `ts_value_make_bool(i64)`
+   while the canonical helper + ~20 sites use `(i32)`. Opaque pointers tolerate it in the
+   default build, but RS4GC re-derives the callee signature from the `(i64)` declaration →
+   every `i32` call fails the verifier. Unified the trampoline on `(i32)`. Both programs now
+   compile + run identically in both modes; 0 default regressions; gc-suite 15/15 statepoints.
 2. **Safepoint-relocation bug (2 MISMATCH):** `test_proxy_reflect.ts`,
    `test_promise_withResolvers.ts` produce wrong output under statepoints — a GC value not
    relocated/preserved across a safepoint in the proxy/promise paths. Root-cause via IR diff
