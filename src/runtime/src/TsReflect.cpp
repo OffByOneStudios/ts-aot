@@ -6,7 +6,14 @@
 #include "TsRuntime.h"
 #include "TsFlatObject.h"
 #include "TsError.h"
+#include "TsClosure.h"
+#include "TsObject.h"
+#include "TsTyped.h"
 #include "GC.h"
+
+TS_DECLARE_TAG(TsFunction);
+TS_DECLARE_TAG(TsClosure);
+TS_DECLARE_TAG(TsArray);
 
 extern "C" {
     void ts_throw(TsValue* err);
@@ -82,30 +89,24 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
                 "Reflect.construct: newTarget is not a constructor"));
             return ts_value_make_undefined();
         }
-        uint32_t ntMagic = *(uint32_t*)((char*)rawNt + 16);
-        if (ntMagic != TsFunction::MAGIC && ntMagic != 0x434C5352) {
+        TsFunction* ntf = ts_cast<TsFunction>(rawNt);
+        if (!ntf && !ts_is<TsClosure>(rawNt)) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Reflect.construct: newTarget is not a constructor"));
             return ts_value_make_undefined();
         }
         // Per ES spec, newTarget must also have [[Construct]]. Built-in
         // prototype methods (Array.prototype.X) have is_constructor=false.
-        if (ntMagic == TsFunction::MAGIC) {
-            TsFunction* ntf = (TsFunction*)rawNt;
-            if (!ntf->is_constructor) {
-                ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                    "Reflect.construct: newTarget is not a constructor"));
-                return ts_value_make_undefined();
-            }
+        if (ntf && !ntf->is_constructor) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Reflect.construct: newTarget is not a constructor"));
+            return ts_value_make_undefined();
         }
     }
 
-    // Check if target is a callable function or closure (magic at offset 16)
-    uint32_t targetMagic = *(uint32_t*)((char*)target + 16);
-    bool isTargetFunction = (targetMagic == TsFunction::MAGIC);
-    bool isTargetClosure = (targetMagic == 0x434C5352);
-
-    if (!isTargetFunction && !isTargetClosure) {
+    // Check if target is a callable function or closure (tag at offsetof(magic)).
+    TsFunction* tf = ts_cast<TsFunction>(target);
+    if (!tf && !ts_is<TsClosure>(target)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Reflect.construct: target is not a constructor"));
         return ts_value_make_undefined();
@@ -114,13 +115,10 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
     // Per ES spec, built-in prototype methods (Array.prototype.X etc.) have
     // no [[Construct]] — Reflect.construct must throw TypeError. The
     // is_constructor flag is set on TsFunction at registration time.
-    if (isTargetFunction) {
-        TsFunction* tf = (TsFunction*)target;
-        if (!tf->is_constructor) {
-            ts_throw((TsValue*)ts_error_create_typed("TypeError",
-                "Reflect.construct: target is not a constructor"));
-            return ts_value_make_undefined();
-        }
+    if (tf && !tf->is_constructor) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Reflect.construct: target is not a constructor"));
+        return ts_value_make_undefined();
     }
 
     // Get arguments array — TsArray is NOT a TsObject subclass,
@@ -130,10 +128,9 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
     TsArray* argsArray = nullptr;
 
     if (argsRaw) {
-        uint32_t arrMagic = *(uint32_t*)argsRaw;
-        if (arrMagic == 0x41525259) { // TsArray::MAGIC ("ARRY")
-            argsArray = (TsArray*)argsRaw;
-            len = argsArray->Length();
+        if (TsArray* a = ts_cast<TsArray>(argsRaw)) {
+            argsArray = a;
+            len = a->Length();
         }
     }
 

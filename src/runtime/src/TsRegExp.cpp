@@ -10,7 +10,11 @@
 
 extern "C" void* ts_alloc(size_t size);
 #include "TsObject.h"
+#include "TsString.h"
+#include "TsTyped.h"
 #include "TsGC.h"
+
+TS_DECLARE_TAG(TsString);
 
 // TsRegExpMatchArray implementation
 TsRegExpMatchArray* TsRegExpMatchArray::Create(TsArray* source, int64_t matchIndex, TsString* input) {
@@ -495,9 +499,9 @@ extern "C" {
             void* rawP = ts_value_get_string((TsValue*)pattern);
             p = rawP ? (TsString*)rawP : (TsString*)pattern;
             // Validate it's actually a TsString
-            if (p && *(uint32_t*)p != TsString::MAGIC) {
+            if (p && !ts_is<TsString>(p)) {
                 void* rawObj = ts_value_get_object((TsValue*)pattern);
-                p = (rawObj && *(uint32_t*)rawObj == TsString::MAGIC) ? (TsString*)rawObj : (TsString*)pattern;
+                p = ts_cast<TsString>(rawObj) ? (TsString*)rawObj : (TsString*)pattern;
             }
         }
         if (!p) return nullptr;
@@ -507,7 +511,7 @@ extern "C" {
         if (flags && !ts_value_is_undefined((TsValue*)flags) && !ts_value_is_null((TsValue*)flags)) {
             void* rawF = ts_value_get_string((TsValue*)flags);
             TsString* f = rawF ? (TsString*)rawF : (TsString*)flags;
-            if (f && *(uint32_t*)f == TsString::MAGIC) {
+            if (ts_is<TsString>(f)) {
                 flagsStr = f->ToUtf8();
             }
         }

@@ -22,6 +22,8 @@ class TsMap;  // Forward declaration for properties field
 
 class TsClosure : public TsObject {
 public:
+    static constexpr uint32_t MAGIC = 0x434C5352; // 'CLSR'
+
     void* func_ptr;          // Function pointer (callable)
     int64_t num_captures;    // Number of captured variables
     TsCell** cells;          // Array of capture cells
@@ -36,7 +38,7 @@ public:
     int32_t rest_param_index = -1;
 
     TsClosure() : func_ptr(nullptr), num_captures(0), cells(nullptr) {
-        magic = 0x434C5352; // 'CLSR'
+        magic = MAGIC;
     }
 
     static TsClosure* Create(void* funcPtr, int64_t numCaptures);

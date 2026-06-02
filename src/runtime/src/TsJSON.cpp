@@ -8,8 +8,11 @@
 #include "TsRegExp.h"
 #include "TsClosure.h"
 #include "TsFlatObject.h"
+#include "TsTyped.h"
 #include "GC.h"
 #include <nlohmann/json.hpp>
+
+TS_DECLARE_TAG(TsString);
 #include <string>
 #include <cstring>
 
@@ -229,7 +232,7 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
                     uint64_t keyNB = (uint64_t)keys->Get(i);
                     if (!nanbox_is_ptr(keyNB)) continue;
                     void* keyPtr = nanbox_to_ptr(keyNB);
-                    if (!keyPtr || *(uint32_t*)keyPtr != TsString::MAGIC) continue;
+                    if (!ts_is<TsString>(keyPtr)) continue;
                     TsString* keyStr = (TsString*)keyPtr;
                     TsValue keyTv;
                     std::memset(&keyTv, 0, sizeof(TsValue));
@@ -259,8 +262,7 @@ static nlohmann::ordered_json ts_to_json_internal(void* p, std::set<void*>& visi
             uint64_t keyNB = (uint64_t)keys->Get(i);
             if (!nanbox_is_ptr(keyNB)) continue;  // JSON only supports string keys
             void* keyPtr = nanbox_to_ptr(keyNB);
-            if (!keyPtr) continue;
-            if (*(uint32_t*)keyPtr != TsString::MAGIC) continue;
+            if (!ts_is<TsString>(keyPtr)) continue;
 
             TsString* keyStr = (TsString*)keyPtr;
             std::string keyStdStr = keyStr->ToUtf8();

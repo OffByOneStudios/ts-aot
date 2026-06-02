@@ -23,6 +23,13 @@
 
 #include "TsMap.h"
 #include "TsObject.h"  // for ts_object_get_property, ts_value_get_object
+#include "TsTyped.h"
+
+// TsArray enrols cleanly (magic at offset 0, no shadow). TsMap is NOT enrolled
+// here: it redeclares `magic` (TsMap.h), shadowing TsObject::magic, so
+// offsetof(TsMap,magic) != the offset-16 the rest of the runtime uses. The
+// TsMap shadow is cleaned up separately before TsMap can be enrolled.
+TS_DECLARE_TAG(TsArray);
 
 // Forward declarations — defined later in this file.
 static void* getErrorConstructorByName(const char* name);
@@ -349,8 +356,7 @@ extern "C" {
         if (errorsVal) {
             void* rawSrc = ts_value_get_object((TsValue*)errorsVal);
             if (!rawSrc) rawSrc = errorsVal;
-            if (rawSrc && *(uint32_t*)rawSrc == 0x41525259) {  // ARRY
-                TsArray* src = (TsArray*)rawSrc;
+            if (TsArray* src = ts_cast<TsArray>(rawSrc)) {  // ARRY
                 int64_t n = src->Length();
                 for (int64_t i = 0; i < n; i++) errs->Push(src->Get(i));
             }
