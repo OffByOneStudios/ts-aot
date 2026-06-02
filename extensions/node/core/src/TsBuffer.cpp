@@ -14,6 +14,16 @@
 extern "C" double ts_to_number(TsValue* v);
 #include <unicode/unistr.h>
 #include <cstdio>
+#include "TsString.h"
+#include "TsTyped.h"
+
+// Enrol the tagged types used in this file for validated, offset-correct
+// dispatch via ts_cast<T> / ts_is<T> (see TsTyped.h). The offset is derived
+// from offsetof(T, magic), so it cannot desync from the C++ layout the way a
+// hand-written `*(uint32_t*)((char*)p + 16)` literal can.
+TS_DECLARE_TAG(TsBuffer);
+TS_DECLARE_TAG(TsArray);
+TS_DECLARE_TAG(TsString);
 
 TsValue TsBuffer::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "length") == 0 || strcmp(key, "byteLength") == 0) {
@@ -201,13 +211,10 @@ TsBuffer* TsBuffer::FromArrayBuffer(void* arrayBuffer, int64_t byteOffset, int64
     // Check if it's a TsBuffer (our ArrayBuffer implementation)
     TsBuffer* srcBuf = dynamic_cast<TsBuffer*>((TsObject*)rawPtr);
     if (!srcBuf) {
-        // Try checking magic number directly
-        uint32_t magic = *(uint32_t*)rawPtr;
-        if (magic == MAGIC) {
-            srcBuf = (TsBuffer*)rawPtr;
-        } else {
-            return Create(0);
-        }
+        // Validated, offset-correct magic check (reads offsetof(TsBuffer,magic),
+        // not a hand-written literal). nullptr if not a live TsBuffer.
+        srcBuf = ts_cast<TsBuffer>(rawPtr);
+        if (!srcBuf) return Create(0);
     }
 
     size_t srcLen = srcBuf->GetLength();
@@ -1116,10 +1123,11 @@ extern "C" {
         if ((uint64_t)(uintptr_t)raw < 0x10000) return TsBuffer::Create(0);
         // Dispatch by object magic. NEVER dynamic_cast here: a TsString* has a
         // different layout/RTTI and dynamic_cast<TsBuffer*> on one crashes in
-        // _RTDynamicCast. Compare the magic word directly instead.
-        uint32_t magic = *(uint32_t*)raw;
-        if (magic == 0x41525259) return TsBuffer::FromArray(raw);            // "ARRY"
-        if (magic == TsBuffer::MAGIC) return TsBuffer::FromBuffer((TsBuffer*)raw); // "BUFF"
+        // _RTDynamicCast. ts_cast<T> reads the type-derived magic offset (0 for
+        // TsArray, 16 for TsBuffer) — a prior hand-written `*(uint32_t*)raw`
+        // read offset 0 for both, so the Buffer branch never matched.
+        if (TsArray* a = ts_cast<TsArray>(raw)) return TsBuffer::FromArray(a);
+        if (TsBuffer* b = ts_cast<TsBuffer>(raw)) return TsBuffer::FromBuffer(b);
         // Otherwise treat as a string. Only honor `encoding` when arg2 safely
         // unboxes to an actual TsString (a missing optional arg may arrive as
         // undefined/garbage — never deref it as a string blindly).
@@ -1127,10 +1135,7 @@ extern "C" {
         if (arg2 && !nanbox_is_number((uint64_t)(uintptr_t)arg2)) {
             void* e = ts_nanbox_safe_unbox(arg2);
             if (!e) e = arg2;
-            if ((uint64_t)(uintptr_t)e >= 0x10000 && (((uint64_t)(uintptr_t)e) >> 48) == 0 &&
-                *(uint32_t*)e == TsString::MAGIC) {
-                enc = (TsString*)e;
-            }
+            enc = ts_cast<TsString>(e);
         }
         return TsBuffer::FromString((TsString*)raw, enc);
     }
@@ -1184,20 +1189,12 @@ extern "C" {
     void* ts_buffer_to_string(void* buf, void* encoding) {
         if (!buf) return nullptr;
         
-        // Try to unbox if it's a TsValue*
+        // Try to unbox if it's a TsValue*. ts_cast adds the heap-liveness guard
+        // the prior raw `buffer->magic` deref lacked (stale ptr -> crash).
         void* raw = ts_value_get_object((TsValue*)buf);
-        TsBuffer* buffer = nullptr;
-        if (raw) {
-            buffer = (TsBuffer*)raw;
-        } else {
-            buffer = (TsBuffer*)buf;
-        }
-        
-        // Validate it's actually a buffer
-        if (buffer->magic != TsBuffer::MAGIC) {
-            return TsString::Create("");
-        }
-        
+        TsBuffer* buffer = ts_cast<TsBuffer>(raw ? raw : buf);
+        if (!buffer) return TsString::Create("");
+
         return buffer->ToString((TsString*)encoding);
     }
 
@@ -1205,9 +1202,7 @@ extern "C" {
         if (!buf) return nullptr;
         void* raw = ts_value_get_object((TsValue*)buf);
         if (raw) buf = raw;
-        TsBuffer* buffer = (TsBuffer*)buf;
-        if (buffer->magic != TsBuffer::MAGIC) return nullptr;
-        return buffer;
+        return ts_cast<TsBuffer>(buf);  // heap-guard + offset-correct magic
     }
 
     void* ts_buffer_slice(void* buf, int64_t start, int64_t end) {

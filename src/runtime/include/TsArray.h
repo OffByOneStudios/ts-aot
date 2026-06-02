@@ -22,6 +22,10 @@ class TsArray {
 public:
     static constexpr uint32_t MAGIC = 0x41525259; // "ARRY"
 
+    // Grant the type-tag trait (TsTyped.h) access to the private `magic` member
+    // so offsetof(TsArray, magic) can be evaluated without exposing the field.
+    template <class> friend struct TsTagOf;
+
     // Ceiling for eager / automatic dense backing growth. A logical `length`
     // may exceed this (sparse array); indices in [capacity, length) are holes
     // unless present in `sparseElements`. SetLength / CreateSized never
