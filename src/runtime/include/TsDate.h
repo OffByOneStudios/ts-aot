@@ -1,9 +1,11 @@
 #pragma once
 #include <cstdint>
+#include "TsTyped.h"
 
 class TsDate {
 public:
     static constexpr uint32_t MAGIC = 0x44415445; // "DATE"
+    template <class> friend struct TsTagOf;  // offsetof access to private magic
     // Sentinel for Invalid Date (NaN time value). Chosen as INT64_MIN so it
     // can't collide with any real spec-range time value (|t| <= 8.64e15 ms).
     static constexpr int64_t INVALID = INT64_MIN;
@@ -70,6 +72,8 @@ private:
     uint64_t _hdr_pad0 = 0;
     uint64_t _hdr_pad1 = 0;
 };
+
+TS_DECLARE_TAG(TsDate);  // magic at offset 0 (POD)
 
 extern "C" {
     void* ts_date_create();

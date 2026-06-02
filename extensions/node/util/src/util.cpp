@@ -281,13 +281,12 @@ static TsString* inspectValue(void* val, int depth, int currentDepth, bool color
         case ValueType::OBJECT_PTR: {
             void* ptr = tv.ptr_val;
             if (ptr) {
-                // Check magic at offset 0 for non-TsObject classes
-                uint32_t magic0 = *(uint32_t*)ptr;
-                if (magic0 == TsDate::MAGIC) {
+                // Validated, offset-derived type-tag checks (TsTyped.h).
+                if (ts_is_unchecked<TsDate>(ptr)) {
                     TsDate* d = (TsDate*)ptr;
                     return TsString::Create(d->ToISOString()->ToUtf8());
                 }
-                if (magic0 == TsRegExp::MAGIC) {
+                if (ts_is_unchecked<TsRegExp>(ptr)) {
                     TsRegExp* re = (TsRegExp*)ptr;
                     TsString* source = re->GetSource();
                     TsString* flags = re->GetFlags();
@@ -297,17 +296,17 @@ static TsString* inspectValue(void* val, int depth, int currentDepth, bool color
                     result += (flags ? flags->ToUtf8() : "");
                     return TsString::Create(result.c_str());
                 }
-                if (magic0 == TsArray::MAGIC) {
+                if (ts_is_unchecked<TsArray>(ptr)) {
                     return inspectArray((TsArray*)ptr, depth, currentDepth, colors);
                 }
-                if (magic0 == TsString::MAGIC) {
+                if (ts_is_unchecked<TsString>(ptr)) {
                     TsString* s = (TsString*)ptr;
                     std::string result = "'";
                     result += s->ToUtf8();
                     result += "'";
                     return TsString::Create(result.c_str());
                 }
-                if (magic0 == TsBuffer::MAGIC) {
+                if (ts_is_unchecked<TsBuffer>(ptr)) {  // was magic0@0 (never matched — Buffer magic is @16)
                     TsBuffer* buf = (TsBuffer*)ptr;
                     std::ostringstream result;
                     result << "<Buffer";
@@ -323,9 +322,7 @@ static TsString* inspectValue(void* val, int depth, int currentDepth, bool color
                     result << ">";
                     return TsString::Create(result.str().c_str());
                 }
-                // Check for TsObject-derived types: magic at offset 16
-                uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-                if (magic16 == TsSet::MAGIC) {
+                if (ts_is_unchecked<TsSet>(ptr)) {
                     TsSet* s = (TsSet*)ptr;
                     std::ostringstream result;
                     result << "Set(" << s->Size() << ") { ";
@@ -342,7 +339,7 @@ static TsString* inspectValue(void* val, int depth, int currentDepth, bool color
                     result << " }";
                     return TsString::Create(result.str().c_str());
                 }
-                if (magic16 == TsMap::MAGIC) {
+                if (ts_is_unchecked<TsMap>(ptr)) {
                     return inspectMap((TsMap*)ptr, depth, currentDepth, colors);
                 }
             }
@@ -379,26 +376,22 @@ TsString* ts_util_inspect_impl(void* obj, int depth, bool colors) {
 // Helper to check if pointer is a known raw object type by checking magic at offset 16
 static bool isRawObject(void* p) {
     if (!p || (uintptr_t)p < 4096) return false;
-    // Check magic at offset 16 (TsObject-derived classes)
-    uint32_t magic16 = *(uint32_t*)((char*)p + 16);
-    return magic16 == TsMap::MAGIC ||
-           magic16 == TsSet::MAGIC ||
-           magic16 == TsBuffer::MAGIC ||
-           magic16 == TsTypedArray::MAGIC;
+    return ts_is_unchecked<TsMap>(p) ||
+           ts_is_unchecked<TsSet>(p) ||
+           ts_is_unchecked<TsBuffer>(p) ||
+           ts_is_unchecked<TsTypedArray>(p);
 }
 
-// Helper to check if pointer is a TsArray (magic at offset 8)
+// Helper to check if pointer is a TsArray
 static bool isRawArray(void* p) {
     if (!p || (uintptr_t)p < 4096) return false;
-    uint32_t magic = *(uint32_t*)p;
-    return magic == TsArray::MAGIC;
+    return ts_is_unchecked<TsArray>(p);
 }
 
 // Helper to check if pointer is a TsString
 static bool isRawString(void* p) {
     if (!p || (uintptr_t)p < 4096) return false;
-    uint32_t magic = *(uint32_t*)p;
-    return magic == TsString::MAGIC;
+    return ts_is_unchecked<TsString>(p);
 }
 
 bool ts_util_is_deep_strict_equal_impl(void* val1, void* val2) {
@@ -523,9 +516,7 @@ bool isDate(void* value) {
     TsValue decoded = nanbox_to_tagged((TsValue*)value);
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    // TsDate does NOT inherit from TsObject - magic is at offset 0
-    uint32_t* magicPtr = (uint32_t*)decoded.ptr_val;
-    return *magicPtr == TsDate::MAGIC;
+    return ts_is_unchecked<TsDate>(decoded.ptr_val);
 }
 
 bool isMap(void* value) {
@@ -534,9 +525,7 @@ bool isMap(void* value) {
     TsValue decoded = nanbox_to_tagged((TsValue*)value);
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    // Check magic at offset 16 (TsMap specific layout)
-    uint32_t* magicPtr = (uint32_t*)((char*)decoded.ptr_val + 16);
-    if (*magicPtr != TsMap::MAGIC) return false;
+    if (!ts_is_unchecked<TsMap>(decoded.ptr_val)) return false;
 
     // Must be an explicit Map (new Map()), not a plain object
     TsMap* map = (TsMap*)decoded.ptr_val;
@@ -549,8 +538,7 @@ bool isSet(void* value) {
     TsValue decoded = nanbox_to_tagged((TsValue*)value);
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    TsObject* obj = (TsObject*)decoded.ptr_val;
-    return obj->magic == TsSet::MAGIC;
+    return ts_is_unchecked<TsSet>(decoded.ptr_val);
 }
 
 bool isRegExp(void* value) {
@@ -559,9 +547,7 @@ bool isRegExp(void* value) {
     TsValue decoded = nanbox_to_tagged((TsValue*)value);
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    // TsRegExp does NOT inherit from TsObject - magic is at offset 0
-    uint32_t* magicPtr = (uint32_t*)decoded.ptr_val;
-    return *magicPtr == TsRegExp::MAGIC;
+    return ts_is_unchecked<TsRegExp>(decoded.ptr_val);
 }
 
 bool isNativeError(void* value) {
@@ -570,10 +556,8 @@ bool isNativeError(void* value) {
     TsValue decoded = nanbox_to_tagged((TsValue*)value);
     if (decoded.type != ValueType::OBJECT_PTR || !decoded.ptr_val) return false;
 
-    // TsError is a TsMap with "name", "message", and "stack" properties
-    // Check magic at offset 16 (TsMap/TsObject layout)
-    uint32_t* magicPtr = (uint32_t*)((char*)decoded.ptr_val + 16);
-    if (*magicPtr != TsMap::MAGIC) return false;
+    // TsError is a TsMap with "name", "message", and "stack" properties.
+    if (!ts_is_unchecked<TsMap>(decoded.ptr_val)) return false;
 
     // Check for "name" property containing error type
     TsMap* map = (TsMap*)decoded.ptr_val;
@@ -1818,8 +1802,7 @@ void* ts_util_parse_args(void* configPtr) {
     TsMap* config = nullptr;
     if (configPtr) {
         void* rawPtr = ts_nanbox_safe_unbox(configPtr);
-        uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
-        if (magic16 == TsMap::MAGIC) {
+        if (ts_is_unchecked<TsMap>(rawPtr)) {
             config = (TsMap*)rawPtr;
         }
     }
@@ -1842,8 +1825,7 @@ void* ts_util_parse_args(void* configPtr) {
         optionsKey.ptr_val = TsString::Create("options");
         TsValue optionsVal = config->Get(optionsKey);
         if (optionsVal.type == ValueType::OBJECT_PTR && optionsVal.ptr_val) {
-            uint32_t magic = *(uint32_t*)((char*)optionsVal.ptr_val + 16);
-            if (magic == TsMap::MAGIC) {
+            if (ts_is_unchecked<TsMap>(optionsVal.ptr_val)) {
                 optionsConfig = (TsMap*)optionsVal.ptr_val;
             }
         }
@@ -1875,8 +1857,7 @@ void* ts_util_parse_args(void* configPtr) {
             argsArray = (TsArray*)argsVal.ptr_val;
         } else if (argsVal.type == ValueType::OBJECT_PTR && argsVal.ptr_val) {
             // Maybe it's boxed as an object? Check if it's actually an array
-            uint32_t magic0 = *(uint32_t*)argsVal.ptr_val;
-            if (magic0 == TsArray::MAGIC) {
+            if (ts_is_unchecked<TsArray>(argsVal.ptr_val)) {
                 argsArray = (TsArray*)argsVal.ptr_val;
             }
         }
@@ -1894,8 +1875,7 @@ void* ts_util_parse_args(void* configPtr) {
         if (vd.type == ValueType::STRING_PTR && vd.ptr_val) {
             return (TsString*)vd.ptr_val;
         } else if (vd.type == ValueType::OBJECT_PTR && vd.ptr_val) {
-            uint32_t magic = *(uint32_t*)vd.ptr_val;
-            if (magic == TsString::MAGIC) {
+            if (ts_is_unchecked<TsString>(vd.ptr_val)) {
                 return (TsString*)vd.ptr_val;
             }
         }
@@ -1917,14 +1897,8 @@ void* ts_util_parse_args(void* configPtr) {
                 lookupKey.ptr_val = keyStr;
                 TsValue optValue = optionsConfig->Get(lookupKey);
                 if (optValue.type == ValueType::OBJECT_PTR && optValue.ptr_val) {
-                    TsMap* optObj = nullptr;
-                    uint32_t magic16 = *(uint32_t*)((char*)optValue.ptr_val + 16);
-                    uint32_t magic0 = *(uint32_t*)optValue.ptr_val;
-                    if (magic16 == TsMap::MAGIC) {
-                        optObj = (TsMap*)optValue.ptr_val;
-                    } else if (magic0 == TsMap::MAGIC) {
-                        optObj = (TsMap*)optValue.ptr_val;
-                    }
+                    TsMap* optObj = ts_is_unchecked<TsMap>(optValue.ptr_val)
+                                        ? (TsMap*)optValue.ptr_val : nullptr;
                     if (optObj) {
                         // Get type
                         TsValue typeKey;
@@ -1975,8 +1949,7 @@ void* ts_util_parse_args(void* configPtr) {
             if (avd.type == ValueType::STRING_PTR && avd.ptr_val) {
                 str = (TsString*)avd.ptr_val;
             } else if (avd.type == ValueType::OBJECT_PTR && avd.ptr_val) {
-                uint32_t magic = *(uint32_t*)avd.ptr_val;
-                if (magic == TsString::MAGIC) {
+                if (ts_is_unchecked<TsString>(avd.ptr_val)) {
                     str = (TsString*)avd.ptr_val;
                 }
             }

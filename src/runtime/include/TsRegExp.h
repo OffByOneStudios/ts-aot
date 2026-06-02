@@ -4,6 +4,7 @@
 #include <vector>
 #include <unicode/regex.h>
 #include "TsString.h"
+#include "TsTyped.h"
 
 class TsArray;
 
@@ -51,6 +52,7 @@ private:
 class TsRegExp {
 public:
     static constexpr uint32_t MAGIC = 0x52454758; // "REGX"
+    template <class> friend struct TsTagOf;  // offsetof access to private magic
     static TsRegExp* Create(const char* pattern, const char* flags = "");
     
     bool Test(TsString* str);
@@ -89,6 +91,8 @@ private:
     bool hasIndices = false;
     std::vector<std::pair<std::string, int32_t>> namedGroups;  // name -> group number
 };
+
+TS_DECLARE_TAG(TsRegExp);  // magic at offset 0 (POD)
 
 extern "C" {
     void* ts_regexp_create(void* pattern, void* flags);
