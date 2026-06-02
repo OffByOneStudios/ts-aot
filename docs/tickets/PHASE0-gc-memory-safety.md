@@ -93,12 +93,28 @@ The remaining gap is a concrete worklist, not a rebuild:
    prints gated behind `TS_GC_ROOTS_VERBOSE` (StackMap also honors `TS_GC_VERBOSE`); silent
    by default.
 
-**RESULT after 1–3:** the `--gc-statepoints` behavioral differential over the full golden_ir
-corpus is **MATCH=280 / REAL-MISMATCH=0 / SP-CE=0** (1 base-skipped was already broken without
-statepoints). The precise-roots path is behaviorally identical to the default build on
-golden_ir. Next: run the same differential over node + a test262 slice (`tests/gc/
-statepoints_differential.sh <root>`), then flip the default behind the gc-suite + differential
-gate.
+**RESULT after 1–3:** the `--gc-statepoints` behavioral differential is clean on golden_ir
+**(MATCH=280 / 0 / 0)** and node **(MATCH=298 / 0 / 0)** after the call-arg-width canonicalization
+(`canonicalizeIntCallArgs`, which subsumed the whole `ts_value_make_bool` i1/i32/i64 class —
+it had a second instance in `test_private_fields.ts`). The test262 runner gained a
+`TSAOT_EXTRA_FLAGS` env hook for the differential.
+
+**REMAINING 0.3 BLOCKER (found via test262 slice 2026-06-02): select/phi pointer-addrspace
+mismatch in destructuring.** A 400-test `language/expressions` slice differential (default vs
+`TSAOT_EXTRA_FLAGS=--gc-statepoints`) found **28 pass→compile_error regressions, ALL in
+`arrow-function/dstr`**. Root cause (one site): the generic `Select` lowering
+(HIRToLLVM.cpp:9974) combined with the `stack.flat` alloca (HIRToLLVM.cpp:4063) emits
+`select i1 %c, <ptr addrspace(1) GC value>, <ptr addrspace(0) stack.flat>`. The default build
+is all addrspace(0) so the select is valid; under statepoints the GC operand is addrspace(1)
+and the select operands mismatch → "Invalid operands for select instruction". Fix is NON-trivial
+and must be careful: naively addrspacecasting the stack pointer to (1) would make RS4GC try to
+relocate a non-heap pointer. Options: (a) reconcile select/phi pointer-operand addrspaces in a
+statepoints normalization pass with a *non-relocatable* cast model; (b) fix the destructuring
+lowering so the two select operands share an addrspace (e.g. the `stack.flat` default is
+materialized as a real addrspace(1) GC value). Bounded to the destructuring iterator path.
+**Do NOT flip the `--gc-statepoints` default until this is fixed and the test262 differential is
+clean** — gate unmet. Re-run: `python tests/test262/run_test262.py -c <dir> -n N --fresh`
+twice (with/without `TSAOT_EXTRA_FLAGS=--gc-statepoints`), diff per-test status.
 - Make **minor GC consume the LLVM stackmap** as its precise root set (today the minor
   collector relies on conservative stack scan + the manual `ts_gc_register_root` set;
   statepoints give exact, relocatable roots).
