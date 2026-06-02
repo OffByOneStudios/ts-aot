@@ -392,7 +392,7 @@ void ts_stackmap_init() {
         totalRoots += g_safepoints[i].numRoots;
     }
 
-    if (g_safepoint_count > 0) {
+    if (g_safepoint_count > 0 && (getenv("TS_GC_ROOTS_VERBOSE") || getenv("TS_GC_VERBOSE"))) {
         fprintf(stderr, "[StackMap] Parsed %zu safepoints with %zu GC root locations\n",
                 g_safepoint_count, totalRoots);
     }

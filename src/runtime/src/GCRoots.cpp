@@ -189,7 +189,7 @@ void ts_gc_roots_init() {
         g_gc_roots_verbose = true;
     }
 
-    if (g_has_statepoints) {
+    if (g_has_statepoints && g_gc_roots_verbose) {
         fprintf(stderr, "[GCRoots] Precise root pushing enabled for %zu safepoints\n",
                 ts_stackmap_count());
         fflush(stderr);
