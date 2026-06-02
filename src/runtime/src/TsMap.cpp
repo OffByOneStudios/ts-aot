@@ -641,13 +641,22 @@ static void* requireMapData(void* context, const char* methodName) {
     // new Map() sets that flag, plain objects do not.
     constexpr uint32_t WEAKMAP_MAGIC = 0x574D4150; // "WMAP"
     constexpr uint32_t WEAKSET_MAGIC = 0x57534554; // "WSET"
+    // Canonical: all of Map/Set/WeakMap/WeakSet set TsObject::magic at offset 16
+    // (verified in their ctors). The former m16||m20||m24 scan was off-by-N
+    // misalignment tolerance, now proven vestigial.
     uint32_t m16 = *(uint32_t*)((char*)rawCtx + 16);
-    uint32_t m20 = *(uint32_t*)((char*)rawCtx + 20);
-    uint32_t m24 = *(uint32_t*)((char*)rawCtx + 24);
-    bool hasMapMagic = (m16 == TsMap::MAGIC || m20 == TsMap::MAGIC || m24 == TsMap::MAGIC);
-    bool hasSetMagic = (m16 == TsSet::MAGIC || m20 == TsSet::MAGIC || m24 == TsSet::MAGIC);
-    bool hasWeakMapMagic = (m16 == WEAKMAP_MAGIC || m20 == WEAKMAP_MAGIC || m24 == WEAKMAP_MAGIC);
-    bool hasWeakSetMagic = (m16 == WEAKSET_MAGIC || m20 == WEAKSET_MAGIC || m24 == WEAKSET_MAGIC);
+    bool hasMapMagic = (m16 == TsMap::MAGIC);
+    bool hasSetMagic = (m16 == TsSet::MAGIC);
+    bool hasWeakMapMagic = (m16 == WEAKMAP_MAGIC);
+    bool hasWeakSetMagic = (m16 == WEAKSET_MAGIC);
+    // Tripwire: would the dropped off-canonical (20/24) tolerance have matched?
+    if (!hasMapMagic && !hasSetMagic && !hasWeakMapMagic && !hasWeakSetMagic) {
+        uint32_t m20 = *(uint32_t*)((char*)rawCtx + 20);
+        uint32_t m24 = *(uint32_t*)((char*)rawCtx + 24);
+        if (m20 == TsMap::MAGIC || m24 == TsMap::MAGIC || m20 == TsSet::MAGIC || m24 == TsSet::MAGIC ||
+            m20 == WEAKMAP_MAGIC || m24 == WEAKMAP_MAGIC || m20 == WEAKSET_MAGIC || m24 == WEAKSET_MAGIC)
+            ts_offcanon_note("requireMapData", rawCtx);
+    }
     bool isValid = false;
     if (hasWeakMapMagic || hasWeakSetMagic || hasSetMagic) {
         // WeakMap/WeakSet/Set are explicit instances — accept directly.

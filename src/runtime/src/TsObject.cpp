@@ -2103,13 +2103,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // TsFunction::MAGIC = 0x46554E43 "FUNC", TsClosure::MAGIC = 0x434C5352 "CLSR"
         constexpr uint32_t FUNC_MAGIC = 0x46554E43;
         constexpr uint32_t CLSR_MAGIC = 0x434C5352;
-        uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-        uint32_t m20 = *(uint32_t*)((char*)raw + 20);
-        uint32_t m24 = *(uint32_t*)((char*)raw + 24);
+        uint32_t m16 = *(uint32_t*)((char*)raw + 16);  // canonical TsObject::magic
         auto isCallable = [&](uint32_t m) {
             return m == FUNC_MAGIC || m == CLSR_MAGIC;
         };
-        if (isCallable(m16) || isCallable(m20) || isCallable(m24)) return true;
+        if (isCallable(m16)) return true;
         throwTE();
         return false;
     }
@@ -7711,12 +7709,10 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_flat_object_has_property(rawPtr, k);
         }
 
-        // Check for TsMap (magic at offset 16, 20, or 24 depending on object layout)
+        // Check for TsMap (canonical TsObject::magic at offset 16)
         uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
-        uint32_t magic20 = *(uint32_t*)((char*)rawPtr + 20);
-        uint32_t magic24 = *(uint32_t*)((char*)rawPtr + 24);
 
-        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
+        if (magic16 == 0x4D415053) { // TsMap::MAGIC
             TsMap* map = (TsMap*)rawPtr;
 
             // Get the property name as a string
@@ -9670,11 +9666,9 @@ TsValue* ts_value_make_int(int64_t i) {
             if (keyCStr && strcmp(keyCStr, "__proto__") == 0) {
                 void* protoPtr = value.ptr_val;
                 if (value.type == ValueType::OBJECT_PTR && protoPtr) {
-                    // Check if value is a TsMap
+                    // Check if value is a TsMap (canonical magic at offset 16)
                     uint32_t pm16 = *(uint32_t*)((char*)protoPtr + 16);
-                    uint32_t pm20 = *(uint32_t*)((char*)protoPtr + 20);
-                    uint32_t pm24 = *(uint32_t*)((char*)protoPtr + 24);
-                    if (pm16 == 0x4D415053 || pm20 == 0x4D415053 || pm24 == 0x4D415053) {
+                    if (pm16 == 0x4D415053) {
                         if (!map->WouldCreateCycle((TsMap*)protoPtr)) {
                             map->SetPrototype((TsMap*)protoPtr);
                         }
@@ -9803,11 +9797,9 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic0 == 0x4D415053 || magic0 == 0x53455453) return false; // TsMap/TsSet at offset 0
         if (magic0 == 0x46554E43) return false; // Native function at offset 0
 
-        // TsMap magic at offset 16/20/24 — TsProxy extends TsMap so dynamic_cast is safe here
+        // TsProxy extends TsMap — canonical TsObject::magic at offset 16.
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
-        uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
-        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
-        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) {
+        if (magic16 == 0x4D415053) {
             // Safe to dynamic_cast: TsMap is a TsObject derivative
             TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
             if (proxy) {
@@ -9931,11 +9923,9 @@ TsValue* ts_value_make_int(int64_t i) {
             return false;
         }
 
-        // TsMap magic at offset 16/20/24 — TsProxy extends TsMap so dynamic_cast is safe here
+        // TsProxy extends TsMap — canonical TsObject::magic at offset 16.
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
-        uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
-        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
-        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) {
+        if (magic16 == 0x4D415053) {
             // Safe to dynamic_cast: TsMap is a TsObject derivative
             TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
             if (proxy) {
