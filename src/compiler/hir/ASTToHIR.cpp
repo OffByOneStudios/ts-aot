@@ -5709,6 +5709,22 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         // Per ECMA-262 RequireObjectCoercible — null/undefined source throws.
         builder_.createCall("ts_destructure_require_object", {rhs},
                             HIRType::makeVoid());
+        // ECMA-262 ArrayAssignmentPattern uses the ITERATOR protocol (like the
+        // binding form). Materialize the iterator's values into a real array so
+        // `[a,b] = anyIterable` works for non-array iterables; per-slot access
+        // and the rest `.slice` then operate on this materialized array. `rhs`
+        // is preserved as the assignment expression's value (`([a]=src)===src`).
+        int64_t consumeCount = 0;
+        bool hasRest = false;
+        for (auto& e : arrLit->elements) {
+            if (dynamic_cast<ast::SpreadElement*>(e.get())) { hasRest = true; break; }
+            consumeCount++;
+        }
+        auto source = builder_.createCall(
+            "ts_destructure_iterate",
+            { rhs, builder_.createConstInt(consumeCount),
+              builder_.createConstInt(hasRest ? 1 : 0) },
+            HIRType::makeArray(HIRType::makeAny()));
         // Lower each LHS slot. We re-enter visitAssignmentExpression for
         // each per-slot assignment so all the existing target shapes
         // (identifier, member access, element access, nested pattern) are
@@ -5785,7 +5801,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 // ...rest = source.slice(index) — dispatch via prototype so
                 // typed arrays / array-likes use their own slice method.
                 auto idxConst = builder_.createConstInt(index);
-                auto restVal = builder_.createCallMethod(rhs, "slice",
+                auto restVal = builder_.createCallMethod(source, "slice",
                     {idxConst}, HIRType::makeAny());
                 if (auto* tgtExpr = dynamic_cast<ast::Expression*>(spread->expression.get())) {
                     assignToTarget(tgtExpr, restVal);
@@ -5795,7 +5811,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             }
             // Extract source[index] (may be undefined for missing slots).
             auto idxConst = builder_.createConstInt(index);
-            auto extracted = builder_.createGetElem(rhs, idxConst, HIRType::makeAny());
+            auto extracted = builder_.createGetElem(source, idxConst, HIRType::makeAny());
 
             ast::Expression* target = elem;
             // Default-initializer form: `target = defaultValue` — the
