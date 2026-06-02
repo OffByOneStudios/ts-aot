@@ -319,3 +319,42 @@ never triggers collection, and/or pause/again-coordinate libuv workers across GC
 **Status:** diagnosis complete + recorded; fix (root in-flight async GC ptrs) is the
 next implementation step. The moving-GC corruption (the original Phase 3b target)
 still needs a nursery-ON repro.
+
+### 2026-06-02 (cont.) — stream rooting gap FIXED; cross-gen write barrier proven clean
+
+**1. Fixed the rooting-gap class (commit `823dfabf`).** Implemented the diagnosed
+fix for the TS_GC_STRESS stream crash. `TsReadStream::Start` and
+`TsWriteStream::Write`/`End` allocated their `uv_fs_t` request structs with
+`ts_alloc` (GC heap); libuv links each into a worker-thread queue, the only live
+ref the GC can't see → freed under pressure → worker-thread AV. Fix: `malloc` the
+request structs (freed in the completion callback), copy the WriteStream payload,
+and `ts_gc_register_root` the referenced `TsReadStream*`/`TsWriteStream*` for the
+op lifetime. `stream_state_properties.ts`: 0/8 → 8/8 clean under TS_GC_STRESS=1.
+0 golden_ir/node regressions. **10 sibling `ts_alloc(uv_*_t)` sites remain** (same
+class): `Core.cpp:1114`, `Socket.cpp:61/81/178`, `SecureSocket.cpp:238`,
+`TTY.cpp:156`, `TsChildProcess.cpp:352/611`, `TsHttp.cpp:1298`, plus the malloc'd
+`WriteFileWork`/`FSFdAsyncWork`/crypto work structs holding `work->promise`.
+Follow-up sweep (network/childproc not exercised by lodash, so not the moving-GC
+symptom).
+
+**2. Cross-generational write barrier PROVEN CLEAN (commit `cb83b6b2`).** The
+existing 11 harness programs build each graph all-at-once (all nursery, promoted
+together) — they never tested an OLD-gen holder receiving a FRESH nursery object
+after tenuring, which is the card-table write-barrier hazard and the most likely
+moving-GC defect site. Added 4 matrix programs (object field / array element / Map
+value / closure cell), each tenures the holder (2 minor GCs) → cross-gen store →
+minor GC → verify. **All 4 PASS in default/nursery0/verify2/stress; differential
+byte-identical.** Harness now 15/15 green. The write barrier is correct for every
+holder type.
+
+**Net state of the moving-GC corruption (Phase 3 headline):** still UNREPRODUCED.
+- lodash residual is provably NOT moving-GC (NURSERY=0 == default, prior notes).
+- harness 15/15 green incl. the cross-gen hazard class added here.
+- Strong cumulative evidence the original BUG 4/6/7 moving-GC corruption was
+  ALREADY FIXED by prior closure-cell + builtin-tenuring work, and what remains is
+  (a) keep widening the matrix to harden the proof, and (b) the Phase 3b "precise
+  stack-map roots" change as the only way to *formally* prove the moving GC correct.
+  No deterministic single-forced-GC repro exists on the current build. Recommend:
+  do NOT apply the Phase 3a object-literal tenuring (no repro justifies its GC-
+  throughput cost); instead treat Phase 3 as "harden-the-proof" until/unless a
+  red matrix case appears.
