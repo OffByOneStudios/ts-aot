@@ -284,6 +284,74 @@ static void normalizeRuntimeBoundaryAddrSpaces(llvm::Module& M) {
     }
 }
 
+/// GC-001 Phase 3b: canonicalize call argument integer widths to the callee's
+/// declared signature.
+///
+/// HIRToLLVM emits some runtime boxing calls (notably ts_value_make_bool, whose
+/// C param is `bool`) with inconsistent integer widths across sites — i1 at some,
+/// i32/i64 at others. Opaque pointers let a call's FunctionType differ from the
+/// callee declaration in the default build, so the verifier tolerates it. But
+/// RS4GC re-derives the callee signature from the declaration and the verifier
+/// then rejects every width-mismatched call ("Call parameter type does not match
+/// function signature"). This pass rebuilds each direct call whose integer arg
+/// widths differ from the callee's declared params, inserting zext/trunc so the
+/// whole module agrees. Pointer/addrspace differences are left to
+/// normalizeRuntimeBoundaryAddrSpaces; only integer-width mismatches are touched.
+/// ABI-safe: x86-64 passes small integers in registers and the callee reads the
+/// width it declares, so zext/trunc to the declared width preserves the value.
+static void canonicalizeIntCallArgs(llvm::Module& M) {
+    unsigned fixed = 0;
+    for (auto& F : M) {
+        llvm::SmallVector<llvm::CallInst*, 16> toFix;
+        for (auto& I : llvm::instructions(F)) {
+            auto* CI = llvm::dyn_cast<llvm::CallInst>(&I);
+            if (!CI) continue;
+            llvm::Function* callee = CI->getCalledFunction();
+            if (!callee || callee->isIntrinsic()) continue;
+            llvm::FunctionType* ft = callee->getFunctionType();
+            if (ft->isVarArg() || ft->getNumParams() != CI->arg_size()) continue;
+            // Only act when every differing param is an integer-width-only diff.
+            bool needs = false, intWidthOnly = true;
+            for (unsigned i = 0; i < ft->getNumParams(); ++i) {
+                llvm::Type* want = ft->getParamType(i);
+                llvm::Type* have = CI->getArgOperand(i)->getType();
+                if (want == have) continue;
+                if (want->isIntegerTy() && have->isIntegerTy()) needs = true;
+                else { intWidthOnly = false; break; }
+            }
+            if (needs && intWidthOnly) toFix.push_back(CI);
+        }
+        for (auto* CI : toFix) {
+            llvm::Function* callee = CI->getCalledFunction();
+            llvm::FunctionType* ft = callee->getFunctionType();
+            llvm::IRBuilder<> b(CI);
+            llvm::SmallVector<llvm::Value*, 8> args;
+            for (unsigned i = 0; i < ft->getNumParams(); ++i) {
+                llvm::Value* a = CI->getArgOperand(i);
+                llvm::Type* want = ft->getParamType(i);
+                if (a->getType() != want && want->isIntegerTy() && a->getType()->isIntegerTy()) {
+                    unsigned aw = a->getType()->getIntegerBitWidth();
+                    unsigned ww = want->getIntegerBitWidth();
+                    a = aw < ww ? b.CreateZExt(a, want, "argz")
+                      : aw > ww ? b.CreateTrunc(a, want, "argt")
+                                : a;
+                }
+                args.push_back(a);
+            }
+            llvm::SmallVector<llvm::OperandBundleDef, 2> bundles;
+            CI->getOperandBundlesAsDefs(bundles);
+            llvm::CallInst* nc = b.CreateCall(ft, callee, args, bundles);
+            nc->setCallingConv(CI->getCallingConv());
+            nc->setAttributes(CI->getAttributes());
+            nc->takeName(CI);
+            if (!CI->use_empty()) CI->replaceAllUsesWith(nc);
+            CI->eraseFromParent();
+            fixed++;
+        }
+    }
+    if (fixed) SPDLOG_INFO("Canonicalized {} call arg widths to declared callee signature", fixed);
+}
+
 CodeGenerator::CodeGenerator(llvm::Module* module) : module(module) {}
 
 bool CodeGenerator::setupTargetMachine(const std::string& optLevel) {
@@ -478,6 +546,12 @@ void CodeGenerator::runOptimizations(const std::string& optLevel) {
         // (GC boundary normalization already ran at the top of emitObjectFile,
         // before the pre-optimization verify.)
 
+        // Canonicalize call arg integer widths to each callee's declared
+        // signature (e.g. ts_value_make_bool emitted as i1/i32/i64 at different
+        // sites). RS4GC rejects width-mismatched calls that opaque pointers
+        // otherwise tolerate; run this before RS4GC sees them.
+        canonicalizeIntCallArgs(*module);
+
         // Add empty "deopt"() bundles to all calls in gc-attributed functions.
         // RS4GC requires these to generate operand-bundle-based statepoints
         // with correct gc.relocate indices.
@@ -532,6 +606,11 @@ bool CodeGenerator::emitObjectFile(const std::string& filename, const std::strin
     // module is not yet valid until this runs.
     if (enableGCStatepoints_) {
         normalizeRuntimeBoundaryAddrSpaces(*module);
+        // Canonicalize integer-width-mismatched call args (e.g. ts_value_make_bool
+        // emitted i1/i32/i64 at different sites) to the callee's declared signature
+        // BEFORE the pre-opt verify — opaque pointers tolerate the mismatch but the
+        // verifier (and later RS4GC) do not.
+        canonicalizeIntCallArgs(*module);
     }
 
     std::string errorStr;
