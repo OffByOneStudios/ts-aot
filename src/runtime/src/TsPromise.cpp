@@ -158,8 +158,7 @@ TsValue* Generator_next(TsValue* genVal, TsValue* value) {
 
     // Check if this is a TsMap-based iterator (has "next" property)
     // rather than a real TsGenerator
-    uint32_t magic = *(uint32_t*)((char*)raw + 16);
-    if (magic == 0x4D415053) { // TsMap::MAGIC = "MAPS"
+    if (ts_is_unchecked<TsMap>(raw)) { // TsMap-based iterator
         // It's a Map-based iterator — look up "next" via prototype chain
         // (ts_map_get_property only checks own properties, which misses
         // shared ArrayIteratorPrototype). ts_object_get_dynamic walks the
@@ -230,8 +229,7 @@ TsValue* Generator_return(TsValue* genVal, TsValue* value) {
     void* raw = ts_value_get_object(genVal);
     if (!raw) return create_generator_result(TsValue(), true);
 
-    uint32_t magic = *(uint32_t*)((char*)raw + 16);
-    if (magic == TsGenerator::MAGIC) {
+    if (ts_is_unchecked<TsGenerator>(raw)) {
         TsGenerator* gen = (TsGenerator*)raw;
         gen->done = true;
         TsValue v = value ? nanbox_to_tagged(value) : TsValue();
@@ -239,7 +237,7 @@ TsValue* Generator_return(TsValue* genVal, TsValue* value) {
     }
 
     // TsMap-based iterator: look up .return via prototype chain.
-    if (magic == 0x4D415053) {
+    if (ts_is_unchecked<TsMap>(raw)) {
         TsValue* retKey = ts_value_make_string(TsString::Create("return"));
         TsValue* retFn = ts_object_get_dynamic(genVal, retKey);
         if (retFn && !ts_value_is_undefined(retFn)) {
@@ -269,8 +267,7 @@ TsValue* Generator_throw(TsValue* genVal, TsValue* exception) {
         return ts_value_make_undefined();
     }
 
-    uint32_t magic = *(uint32_t*)((char*)raw + 16);
-    if (magic == TsGenerator::MAGIC) {
+    if (ts_is_unchecked<TsGenerator>(raw)) {
         TsGenerator* gen = (TsGenerator*)raw;
         gen->done = true;
         ts_throw(exception);
@@ -278,7 +275,7 @@ TsValue* Generator_throw(TsValue* genVal, TsValue* exception) {
     }
 
     // TsMap-based iterator: forward to .throw if present, else re-throw.
-    if (magic == 0x4D415053) {
+    if (ts_is_unchecked<TsMap>(raw)) {
         TsValue* throwKey = ts_value_make_string(TsString::Create("throw"));
         TsValue* throwFn = ts_object_get_dynamic(genVal, throwKey);
         if (throwFn && !ts_value_is_undefined(throwFn)) {
@@ -333,8 +330,7 @@ extern "C" TsValue* ts_async_iterator_get(TsValue* iterable) {
 
     // Check if it's an array (ARRAY_PTR type = 7) - wrap it in an async iterator
     if (iterVal.type == ValueType::ARRAY_PTR && iterVal.ptr_val) {
-        uint32_t magic = *(uint32_t*)iterVal.ptr_val;
-        if (magic == TsArray::MAGIC) {
+        if (ts_is_unchecked<TsArray>(iterVal.ptr_val)) {
             // Create AsyncArrayIterator wrapper
             void* mem = ts_alloc(sizeof(AsyncArrayIterator));
             AsyncArrayIterator* iter = new (mem) AsyncArrayIterator((TsArray*)iterVal.ptr_val);
@@ -406,9 +402,8 @@ extern "C" TsValue* ts_async_iterator_next(TsValue* iterator, TsValue* value) {
             if ((elemDecoded.type == ValueType::OBJECT_PTR || elemDecoded.type == ValueType::PROMISE_PTR)
                 && elemDecoded.ptr_val) {
                 void* elemPtr = elemDecoded.ptr_val;
-                // Check if it's a TsPromise by checking magic at offset 16
-                uint32_t magicVal = *(uint32_t*)((char*)elemPtr + 16);
-                if (magicVal == TsPromise::MAGIC) {
+                // Check if it's a TsPromise (validated, offset-derived tag).
+                if (ts_is_unchecked<TsPromise>(elemPtr)) {
                     TsPromise* elemPromise = (TsPromise*)elemPtr;
                         // When elemPromise resolves, resolve resultPromise with { value, done: false }
                         TsValue onFulfilled;
@@ -496,11 +491,10 @@ TsValue* ts_iterator_get(TsValue* iterable) {
 
     // Check if we have a TsMap-based object (TsMap, TsGenerator, TsAsyncGenerator)
     if (rawObj) {
-        // Check magic at offset 16 for TsObject-derived types
-        uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
-        if (magic16 == 0x4D415053 ||  // TsMap::MAGIC
-            magic16 == 0x47454E52 ||  // TsGenerator::MAGIC "GENR"
-            magic16 == 0x4147454E) {  // TsAsyncGenerator::MAGIC "AGEN"
+        // Map, Generator, or AsyncGenerator (all TsMap-based, tag at offset 16).
+        if (ts_is_unchecked<TsMap>(rawObj) ||
+            ts_is_unchecked<TsGenerator>(rawObj) ||
+            ts_is_unchecked<TsAsyncGenerator>(rawObj)) {
             TsMap* obj = (TsMap*)rawObj;
 
             // Check for [Symbol.iterator] method
@@ -569,8 +563,7 @@ TsValue* ts_iterator_get(TsValue* iterable) {
     // Check for raw TsArray* pointer (TsArray has no vtable, magic at offset 0)
     TsValue iterDecoded = nanbox_to_tagged(iterable);
     if (rawObj) {
-        uint32_t magic0 = *(uint32_t*)rawObj;
-        if (magic0 == 0x41525259) { // TsArray::MAGIC
+        if (ts_is_unchecked<TsArray>(rawObj)) { // TsArray (tag at offset 0)
             TsArray* arr = (TsArray*)rawObj;
             // Update decoded value for array iterator path below
             iterDecoded.type = ValueType::ARRAY_PTR;
@@ -585,7 +578,7 @@ TsValue* ts_iterator_get(TsValue* iterable) {
         // Without this branch, for-of on a string previously fell through
         // to `return iterable` and the resulting non-iterator caused an
         // infinite alloc loop in the for-of next() polling.
-        if (magic0 == 0x53545247) { // TsString::MAGIC "STRG"
+        if (ts_is_unchecked<TsString>(rawObj)) { // TsString (tag at offset 0)
             TsString* s = (TsString*)rawObj;
             int64_t len = s->Length();  // code-unit length
             TsArray* arr = (TsArray*)ts_array_create();

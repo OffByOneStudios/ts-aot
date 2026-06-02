@@ -147,3 +147,8 @@ extern "C" {
 }
 #endif
 } // namespace ts
+
+// Enrolled at global scope (TsTagOf lives in the global namespace), qualified.
+TS_DECLARE_TAG(ts::TsGenerator);       // inherits TsMap -> magic at offset 16
+TS_DECLARE_TAG(ts::TsAsyncGenerator);  // inherits TsMap -> magic at offset 16
+TS_DECLARE_TAG(ts::TsPromise);         // TsObject subclass -> magic at offset 16
