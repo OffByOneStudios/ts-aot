@@ -16,6 +16,9 @@
 #include <iostream>
 #include <cmath>
 #include <utility>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
 
 // Define TsHashTable static members (declared in TsHashTable.h)
 TsValueHash TsHashTable::hasher_;
@@ -24,6 +27,30 @@ TsValueEqual TsHashTable::equal_;
 void* TsMap_VTable[2] = { nullptr, nullptr };
 extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
 
+// === Off-by-8 receiver tripwire (permanent, zero-cost when cold) ===
+// The ±8-misaligned-receiver condition that TsMap::self() corrects is believed
+// VESTIGIAL: no current codegen or GC path produces it (compiler IR-verified
+// clean; 0 corrections across Map/churn/lodash workloads, 2026-06-01). This
+// tripwire records any recurrence so that (a) the compensating hacks — self(),
+// the multi-offset 0/8/16/20/24 magic scan, and the shadow `magic` field — can
+// be removed once proven cold across the full suite + GC stress, and (b) a real
+// recurrence (e.g. a moving-GC forwarding regression — see GC-001) is caught
+// rather than silently masked. Costs nothing unless an off-by-8 actually fires.
+static std::atomic<uint64_t> g_offby8_corrections{0};
+static void ts_offby8_note(void* p) {
+    uint64_t n = g_offby8_corrections.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (const char* path = getenv("TS_OFFBY8_LOG")) {
+        if (FILE* f = fopen(path, "a")) {
+            fprintf(f, "[OFFBY8] TsMap::self #%llu ptr=%p\n", (unsigned long long)n, p);
+            fclose(f);
+        }
+    }
+}
+// Query hook (e.g. for an in-process test assertion).
+extern "C" uint64_t ts_offby8_correction_count() {
+    return g_offby8_corrections.load(std::memory_order_relaxed);
+}
+
 // BUG 7: correct an off-by-8 receiver. A valid C++ TsMap has its C++ vftable at
 // offset 0; an off-by-8 pointer (pointing at the `vtable` member, offset 8) has
 // the runtime TsMap_VTable there. That sentinel is unique to the off-by-8 case
@@ -31,6 +58,7 @@ extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
 // rebase by -8. Returns `this` unchanged for a correct receiver.
 TsMap* TsMap::self() {
     if ((uintptr_t)this >= 0x10000 && *(void**)this == (void*)TsMap_VTable) {
+        ts_offby8_note((void*)this);  // tripwire: should never fire (see note above)
         return (TsMap*)((char*)this - 8);
     }
     return this;
