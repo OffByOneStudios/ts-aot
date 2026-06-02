@@ -119,12 +119,31 @@ the stack-literal path but 1 on the heap path (spec: 1). The default build gets 
 in-bounds hole → undefined. The GC behavior is correct. This is Phase-2 destructuring
 conformance (fix element-default to an is-undefined check; make stack `[,]` length 1).
 
-**Gate status:** statepoints is GC-correct and behaviorally identical on golden_ir + node; the
-sole test262 slice diff is the pre-existing element-default conformance bug above. **Recommend:
-fix that element-default bug (Phase 2) BEFORE flipping the `--gc-statepoints` default** — until
-then flipping would change `[x=d]=[,]`-style code from accidentally-right to wrong-differently.
-Re-run the slice differential: `python tests/test262/run_test262.py -c <dir> -n N --fresh`
-twice (with/without `TSAOT_EXTRA_FLAGS=--gc-statepoints`), diff per-test status.
+**Element-default conformance bug FIXED `570f4658`** (array-destructuring default now applies on
+`undefined`, not just out-of-bounds — `[x=1]=[undefined]` and `[x=1]=[,]` now both yield 1 in
+BOTH modes; +3 conformance on the expressions slice). With it, the statepoints differential is
+**fully clean across a broad, diverse corpus** (default pass set == statepoints pass set, 0 GC
+regressions everywhere):
+
+| corpus | default==statepoints | GC regr |
+|---|---|---|
+| gc-suite | 15/15 | 0 |
+| golden_ir (281) | 280/280 | 0 |
+| node (298) | 298/298 | 0 |
+| test262 language/expressions (400) | 214/214 | 0 |
+| test262 language/statements (600) | 155/155 | 0 |
+| test262 built-ins (800) | 419/419 | 0 |
+
+~1,800 test262 tests (the 3 largest categories) + full golden_ir/node/gc-suite, all identical.
+
+**FLIP READINESS:** the gate the roadmap set (differential clean) is MET on everything measured.
+Two things remain before flipping `--gc-statepoints` to default ON: (1) a FULL test262
+differential (intl402 / annexB / staging / the long built-ins+language tail are not yet
+differential-tested — ~1.8k of ~34k done); (2) a PERFORMANCE measurement (statepoints disables
+FastISel + object/array stack-alloc and adds safepoints — a real perf cost traded for
+correctness-by-design; benchmark before committing the default). The flip itself is one line:
+`main.cpp:61` `default_value("false")` → `"true"`, trivially reversible. Recommend: run the full
+test262 differential + the benchmark suite, then flip.
 - Make **minor GC consume the LLVM stackmap** as its precise root set (today the minor
   collector relies on conservative stack scan + the manual `ts_gc_register_root` set;
   statepoints give exact, relocatable roots).
