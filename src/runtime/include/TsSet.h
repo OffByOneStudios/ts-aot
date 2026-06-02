@@ -4,6 +4,7 @@
 #include <vector>
 #include "TsString.h"
 #include "TsObject.h"
+#include "TsTyped.h"
 
 class TsSet : public TsObject {
 public:
@@ -25,6 +26,9 @@ private:
     // (set in the ctor). See TsMap.h for the Step B2/B3 rationale.
     void* impl; // Pointer to std::unordered_set
 };
+
+// Enrol TsSet for validated, offset-derived type-tag dispatch (ts_is<T>/ts_cast<T>).
+TS_DECLARE_TAG(TsSet);
 
 extern "C" {
     void* ts_set_create();

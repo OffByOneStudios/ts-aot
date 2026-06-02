@@ -1139,8 +1139,7 @@ int64_t __ts_map_find_bucket(void* map, uint64_t key_hash, uint8_t key_type, int
         return -1;
     }
 
-    uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
-    if (magic != TsMap::MAGIC) {
+    if (!ts_is_unchecked<TsMap>(map)) {
         return -1;
     }
 
@@ -1209,8 +1208,7 @@ void __ts_map_get_value_at(void* map, int64_t bucket_idx, uint8_t* out_type, int
         return;
     }
 
-    uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
-    if (magic != TsMap::MAGIC) {
+    if (!ts_is_unchecked<TsMap>(map)) {
         *out_type = (uint8_t)ValueType::UNDEFINED;
         *out_value = 0;
         return;
@@ -1259,8 +1257,7 @@ void __ts_map_set_at(void* map, uint64_t key_hash, uint8_t key_type, int64_t key
         map = decoded.ptr_val;
     }
 
-    uint32_t magic = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(map) + 16);
-    if (magic != TsMap::MAGIC) {
+    if (!ts_is_unchecked<TsMap>(map)) {
         return;
     }
 

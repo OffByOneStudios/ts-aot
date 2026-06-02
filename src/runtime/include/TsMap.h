@@ -4,6 +4,7 @@
 #include <vector>
 #include "TsString.h"
 #include "TsObject.h"
+#include "TsTyped.h"
 
 // Forward declaration for write barrier
 extern "C" void ts_gc_write_barrier(void* slot_addr, void* stored_value);
@@ -94,6 +95,10 @@ private:
     bool isExplicitMap = false;  // true for new Map(), false for plain objects
     bool nullPrototype = false;  // true for Object.create(null)
 };
+
+// Enrol TsMap for validated, offset-derived type-tag dispatch (ts_is<T>/ts_cast<T>).
+// Centralized here so any file including TsMap.h can use it (no per-.cpp re-decl).
+TS_DECLARE_TAG(TsMap);
 
 extern "C" {
     void* ts_map_create();

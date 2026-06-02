@@ -213,11 +213,8 @@ extern "C" void* g_debug_lodash_module_map = nullptr;
 // is vestigial before it is removed.
 extern "C" void ts_offcanon_note(const char* where, void* p);
 
-// Enrol Map/Set (now that their shadow magic is gone, offsetof(T,magic)==16) for
-// validated, offset-derived type-tag dispatch via ts_is<T>/ts_cast<T> (TsTyped.h).
-#include "TsTyped.h"
-TS_DECLARE_TAG(TsMap);
-TS_DECLARE_TAG(TsSet);
+// TsMap/TsSet type-tags are enrolled in their headers (TsMap.h / TsSet.h), so
+// ts_is<T>/ts_cast<T> are available here via those includes.
 
 // ============================================================================
 // Flat object EventEmitter delegation
