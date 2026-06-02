@@ -208,6 +208,11 @@ static TsMap* getOrCreateNativeProps(void* obj) {
 // Used by TsMap.cpp to trace writes to module.exports.
 extern "C" void* g_debug_lodash_module_map = nullptr;
 
+// Off-canonical magic tripwire (defined in TsMap.cpp). Records when a type tag
+// is found at a non-canonical offset, to prove the multi-offset scan tolerance
+// is vestigial before it is removed.
+extern "C" void ts_offcanon_note(const char* where, void* p);
+
 // ============================================================================
 // Flat object EventEmitter delegation
 // When a class extends EventEmitter and is compiled as a flat object,
@@ -672,36 +677,38 @@ TsValue* ts_value_make_int(int64_t i) {
         __try {
 #endif
 
-        // Check magic numbers to detect type
-        uint32_t magic = *(uint32_t*)ptr;
-        uint32_t magic8 = *(uint32_t*)((char*)ptr + 8);
-        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-        uint32_t magic24 = *(uint32_t*)((char*)ptr + 24);
-        
-        if (magic == 0x41525259 || magic8 == 0x41525259 || magic16 == 0x41525259) { // TsArray::MAGIC "ARRY"
+        // Check magic at canonical offsets only: POD types (Array/String) carry
+        // magic at offset 0; TsObject subclasses (Function) at offset 16. The
+        // former multi-offset scan (0/8/16/24) was off-by-N layout-uncertainty
+        // tolerance, now proven vestigial (off-by-8 tripwire cold across the
+        // full suite + GC stress). MAPS/SETS/BUFF branches were dropped: they
+        // returned ts_value_make_object — identical to the default fallthrough.
+        uint32_t magic = *(uint32_t*)ptr;                          // offset 0
+        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);          // offset 16
+
+        if (magic == 0x41525259) { // TsArray::MAGIC "ARRY"
             return ts_value_make_array(ptr);
         }
         if (magic == 0x53545247 || magic == TsConsString::MAGIC) { // TsString or TsConsString
             return ts_value_make_string(ts_ensure_flat(ptr));
         }
-        if (magic == 0x4D415053 || magic8 == 0x4D415053 || magic16 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC "MAPS"  
-            return ts_value_make_object(ptr);
-        }
-        if (magic == 0x53455453 || magic8 == 0x53455453 || magic16 == 0x53455453 || magic24 == 0x53455453) { // TsSet::MAGIC "SETS"
-            return ts_value_make_object(ptr);
-        }
-        if (magic == 0x46554E43 || magic8 == 0x46554E43 || magic16 == 0x46554E43 || magic24 == 0x46554E43) { // TsFunction::MAGIC "FUNC"
+        if (magic16 == 0x46554E43) { // TsFunction::MAGIC "FUNC"
             return ts_value_make_function_object(ptr);
         }
-        
-        if (magic == 0x42554646 || magic8 == 0x42554646 || magic16 == 0x42554646) { // TsBuffer::MAGIC "BUFF"
-            return ts_value_make_object(ptr);
-        }
-        
-        // With NaN boxing, there's no old-style TsValue struct to detect.
-        // If we get here, it's an unknown object.
 
-        // Default: treat as generic object
+        // Tripwire: would the dropped off-canonical tolerance have classified an
+        // Array or Function here (i.e. a misaligned receiver)? If this ever
+        // fires, the tolerance was NOT vestigial — revert. (Only ARRY/FUNC
+        // mattered; MAPS/SETS/BUFF collapse to the generic-object default.)
+        {
+            uint32_t magic8 = *(uint32_t*)((char*)ptr + 8);
+            uint32_t magic24 = *(uint32_t*)((char*)ptr + 24);
+            if (magic8 == 0x41525259 || magic16 == 0x41525259 ||      // ARRY off-canon
+                magic8 == 0x46554E43 || magic == 0x46554E43 || magic24 == 0x46554E43) // FUNC off-canon
+                ts_offcanon_note("ts_value_get_type", ptr);
+        }
+
+        // Default: treat as generic object (covers Map/Set/Buffer/unknown).
         return ts_value_make_object(ptr);
 
 #ifdef _MSC_VER

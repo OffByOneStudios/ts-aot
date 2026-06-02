@@ -37,11 +37,16 @@ extern "C" TsValue* ts_map_get_property(void* obj, void* propName);
 // recurrence (e.g. a moving-GC forwarding regression — see GC-001) is caught
 // rather than silently masked. Costs nothing unless an off-by-8 actually fires.
 static std::atomic<uint64_t> g_offby8_corrections{0};
-static void ts_offby8_note(void* p) {
+// Shared off-canonical tripwire: records any time a type tag is found at a
+// non-canonical offset (the layout-uncertainty tolerance the multi-offset magic
+// scans and self() exist to handle). `where` identifies the call site. Used
+// both by TsMap::self() and by the classifier scans as they are collapsed to
+// canonical-offset-only reads, so a sweep can prove the tolerance is dead.
+extern "C" void ts_offcanon_note(const char* where, void* p) {
     uint64_t n = g_offby8_corrections.fetch_add(1, std::memory_order_relaxed) + 1;
     if (const char* path = getenv("TS_OFFBY8_LOG")) {
         if (FILE* f = fopen(path, "a")) {
-            fprintf(f, "[OFFBY8] TsMap::self #%llu ptr=%p\n", (unsigned long long)n, p);
+            fprintf(f, "[OFFCANON] %s #%llu ptr=%p\n", where, (unsigned long long)n, p);
             fclose(f);
         }
     }
@@ -58,7 +63,7 @@ extern "C" uint64_t ts_offby8_correction_count() {
 // rebase by -8. Returns `this` unchanged for a correct receiver.
 TsMap* TsMap::self() {
     if ((uintptr_t)this >= 0x10000 && *(void**)this == (void*)TsMap_VTable) {
-        ts_offby8_note((void*)this);  // tripwire: should never fire (see note above)
+        ts_offcanon_note("TsMap::self", (void*)this);  // tripwire: should never fire
         return (TsMap*)((char*)this - 8);
     }
     return this;
