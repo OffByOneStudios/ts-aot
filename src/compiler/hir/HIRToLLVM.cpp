@@ -8390,8 +8390,13 @@ llvm::Function* HIRToLLVM::getOrCreateTrampoline(llvm::Function* originalFunc) {
         auto boxFn = module_->getOrInsertFunction("ts_value_make_int", boxFT);
         boxedResult = builder_->CreateCall(boxFT, boxFn.getCallee(), { result });
     } else if (returnType->isIntegerTy(1)) {
-        llvm::Value* extended = builder_->CreateZExt(result, builder_->getInt64Ty());
-        auto boxFT = llvm::FunctionType::get(getGCPtrTy(), { builder_->getInt64Ty() }, false);
+        // ts_value_make_bool's canonical signature is ptr(i32) (matches
+        // boxPrimitiveToPtr + ~20 other boxing sites). This trampoline was the
+        // lone site declaring it ptr(i64); the mismatch is tolerated by opaque
+        // pointers in the default build but makes RS4GC reject every i32 call
+        // under --gc-statepoints. Use i32 here so the whole module agrees.
+        llvm::Value* extended = builder_->CreateZExt(result, builder_->getInt32Ty());
+        auto boxFT = llvm::FunctionType::get(getGCPtrTy(), { builder_->getInt32Ty() }, false);
         auto boxFn = module_->getOrInsertFunction("ts_value_make_bool", boxFT);
         boxedResult = builder_->CreateCall(boxFT, boxFn.getCallee(), { extended });
     } else if (returnType->isVoidTy()) {
