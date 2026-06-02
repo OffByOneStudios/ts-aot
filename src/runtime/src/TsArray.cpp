@@ -3390,6 +3390,27 @@ extern "C" {
         return dst;
     }
 
+    // ECMA-262 ArrayBindingPattern / ArrayAssignmentPattern use the ITERATOR
+    // protocol, not index access. Materialize the first `maxCount` iterator
+    // values (or ALL values when `hasRest`) into a fresh real TsArray, which the
+    // destructuring lowering then reads by index. This makes `[a,b]=customIter`
+    // work (previously yielded undefined because the source was indexed as an
+    // array) and propagates a throw from the iterator's next(). Real arrays go
+    // through their array iterator here too, so behavior is unchanged for them.
+    void* ts_destructure_iterate(void* source, int64_t maxCount, int64_t hasRest) {
+        TsArray* dst = TsArray::Create(0);
+        TsValue* iter = ts::ts_iterator_get((TsValue*)source);
+        if (!iter) return dst;  // non-iterable object: best-effort empty
+        int64_t i = 0;
+        while (hasRest || i < maxCount) {
+            TsValue* result = ts::ts_iterator_next(iter, nullptr);
+            if (!result || ts::ts_iterator_result_done(result)) break;
+            dst->Push((int64_t)(uintptr_t)ts::ts_iterator_result_value(result));
+            i++;
+        }
+        return dst;
+    }
+
     bool ts_array_is_array(void* value) {
         if (!value) return false;
 

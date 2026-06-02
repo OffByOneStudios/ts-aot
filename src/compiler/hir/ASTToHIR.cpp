@@ -3314,15 +3314,38 @@ void ASTToHIR::lowerArrayBindingPattern(ast::ArrayBindingPattern* pattern,
     // unconditionally.
     builder_.createCall("ts_destructure_require_object", {sourceValue},
                         HIRType::makeVoid());
+
+    // ECMA-262 8.5.2: ArrayBindingPattern uses the ITERATOR protocol, not index
+    // access. Materialize the iterator's values into a real array up front, then
+    // extract by index from that materialized array. This is what makes
+    // `[a,b] = anyIterable` work for non-array iterables (generators, Maps, user
+    // [Symbol.iterator] objects, strings) — index access on those yields
+    // undefined. Compute how many values to pull: all of them when a rest
+    // element is present, else exactly the (non-rest) element count (holes still
+    // consume an iterator step).
+    int64_t consumeCount = 0;
+    bool hasRest = false;
+    for (auto& elem : pattern->elements) {
+        if (auto* be = dynamic_cast<ast::BindingElement*>(elem.get())) {
+            if (be->isSpread) { hasRest = true; break; }
+        }
+        consumeCount++;
+    }
+    auto materialized = builder_.createCall(
+        "ts_destructure_iterate",
+        { sourceValue, builder_.createConstInt(consumeCount),
+          builder_.createConstInt(hasRest ? 1 : 0) },
+        HIRType::makeArray(HIRType::makeAny()));
+
     int64_t index = 0;
     for (auto& elem : pattern->elements) {
         if (auto* binding = dynamic_cast<ast::BindingElement*>(elem.get())) {
             if (binding->isSpread) {
-                // Rest element: ...rest - get remaining elements
-                lowerRestElement(binding, sourceValue, index);
+                // Rest element: ...rest - remaining materialized elements
+                lowerRestElement(binding, materialized, index);
             } else {
-                // Regular element - extract by index
-                lowerBindingElementByIndex(binding, sourceValue, index);
+                // Regular element - extract by index from the materialized array
+                lowerBindingElementByIndex(binding, materialized, index);
             }
             index++;
         } else if (dynamic_cast<ast::OmittedExpression*>(elem.get())) {
