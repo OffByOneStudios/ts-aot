@@ -5,10 +5,17 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <string.h>
 #include <stdlib.h>
 #include <new>
 #include <sstream>
+
+// libuv write request context for an async child-process write (IPC or stdin).
+// malloc'd (libuv-owned; must not live in GC memory -> GC-001); the stream/process
+// GC pointer is rooted for the write lifetime and the payload is a malloc'd copy.
+// Freed in the completion callback (OnIPCWrite / OnStdinWrite).
+namespace { struct CPWriteCtx { void* stream; char* buf; }; }
 
 // Forward declarations for JSON functions
 extern "C" {
@@ -335,9 +342,10 @@ bool TsChildProcess::Send(void* message, void* sendHandle) {
     const char* jsonData = jsonStr->ToUtf8();
     size_t jsonLen = strlen(jsonData);
 
-    // Create length-prefixed message: 4-byte little-endian length + JSON data
+    // Create length-prefixed message: 4-byte little-endian length + JSON data.
+    // malloc'd payload (libuv reads it across the async write; freed in OnIPCWrite).
     size_t totalLen = 4 + jsonLen;
-    char* buffer = (char*)ts_alloc(totalLen);
+    char* buffer = (char*)malloc(totalLen);
 
     // Write length as 4-byte little-endian
     buffer[0] = (char)(jsonLen & 0xFF);
@@ -348,13 +356,21 @@ bool TsChildProcess::Send(void* message, void* sendHandle) {
     // Copy JSON data
     memcpy(buffer + 4, jsonData, jsonLen);
 
-    // Write to IPC pipe
-    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-    req->data = this;
+    // Write to IPC pipe. Request + payload are malloc'd outside GC (see CPWriteCtx).
+    uv_write_t* req = (uv_write_t*)malloc(sizeof(uv_write_t));
+    CPWriteCtx* ctx = (CPWriteCtx*)malloc(sizeof(CPWriteCtx));
+    ctx->stream = this;
+    ctx->buf = buffer;  // malloc'd length-prefixed payload
+    ts_gc_register_root(&ctx->stream);
+    req->data = ctx;
 
     uv_buf_t buf = uv_buf_init(buffer, (unsigned int)totalLen);
     int r = uv_write(req, (uv_stream_t*)ipcPipe_, &buf, 1, OnIPCWrite);
 
+    if (r != 0) {  // didn't queue -> cb won't fire
+        ts_gc_unregister_root(&ctx->stream);
+        free(ctx->buf); free(ctx); free(req);
+    }
     return r == 0;
 }
 
@@ -500,7 +516,11 @@ void TsChildProcess::OnStderrRead(uv_stream_t* stream, ssize_t nread, const uv_b
 }
 
 void TsChildProcess::OnStdinWrite(uv_write_t* req, int status) {
-    // Write completed - req->data contains context if needed
+    // Write completed - release the malloc'd context, root, and request.
+    (void)status;
+    CPWriteCtx* ctx = (CPWriteCtx*)req->data;
+    ts_gc_unregister_root(&ctx->stream);
+    free(ctx->buf); free(ctx); free(req);
 }
 
 void TsChildProcess::OnIPCRead(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
@@ -529,14 +549,17 @@ void TsChildProcess::OnIPCRead(uv_stream_t* stream, ssize_t nread, const uv_buf_
 
 void TsChildProcess::OnIPCWrite(uv_write_t* req, int status) {
     // IPC write completed
+    CPWriteCtx* ctx = (CPWriteCtx*)req->data;
     if (status < 0) {
-        TsChildProcess* self = (TsChildProcess*)req->data;
+        TsChildProcess* self = (TsChildProcess*)ctx->stream;
         if (self) {
             TsValue* err = (TsValue*)ts_error_create(TsString::Create(uv_strerror(status)));
             void* errArgs[] = { err };
             self->Emit("error", 1, errArgs);
         }
     }
+    ts_gc_unregister_root(&ctx->stream);
+    free(ctx->buf); free(ctx); free(req);
 }
 
 void TsChildProcess::ProcessIPCMessage(const char* data, size_t length) {
@@ -608,16 +631,23 @@ TsChildProcessWritable::~TsChildProcessWritable() {
 bool TsChildProcessWritable::Write(void* data, size_t length) {
     if (destroyed_ || ended_ || !pipe_) return false;
 
-    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-    req->data = this;
+    // Request + payload are malloc'd outside GC (see CPWriteCtx). The writable
+    // stream GC pointer is rooted for the write lifetime.
+    uv_write_t* req = (uv_write_t*)malloc(sizeof(uv_write_t));
+    CPWriteCtx* ctx = (CPWriteCtx*)malloc(sizeof(CPWriteCtx));
+    ctx->stream = this;
+    ctx->buf = (char*)malloc(length ? length : 1);
+    if (length) memcpy(ctx->buf, data, length);
+    ts_gc_register_root(&ctx->stream);
+    req->data = ctx;
 
-    // Copy data to ensure it stays valid
-    char* dataCopy = (char*)ts_alloc(length);
-    memcpy(dataCopy, data, length);
-
-    uv_buf_t buf = uv_buf_init(dataCopy, (unsigned int)length);
+    uv_buf_t buf = uv_buf_init(ctx->buf, (unsigned int)length);
     int r = uv_write(req, (uv_stream_t*)pipe_, &buf, 1, TsChildProcess::OnStdinWrite);
 
+    if (r != 0) {  // didn't queue -> cb won't fire
+        ts_gc_unregister_root(&ctx->stream);
+        free(ctx->buf); free(ctx); free(req);
+    }
     return r == 0;
 }
 

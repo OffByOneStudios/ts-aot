@@ -13,6 +13,7 @@
 #include <iostream>
 #include <string>
 #include <cstring>
+#include <cstdlib>
 #include <new>
 #include <algorithm>
 #include <random>
@@ -1295,10 +1296,14 @@ void TsClientRequest::End(TsValue data) {
     
     // If we are connected, we might want to shutdown the write side
     if (connected) {
-        uv_shutdown_t* shutdown_req = (uv_shutdown_t*)ts_alloc(sizeof(uv_shutdown_t));
-        uv_shutdown(shutdown_req, (uv_stream_t*)socket, [](uv_shutdown_t* req, int status) {
-            // Done
+        // Request is malloc'd (libuv-owned across the async shutdown; must not
+        // live in GC memory -> GC-001). Freed in the completion callback.
+        uv_shutdown_t* shutdown_req = (uv_shutdown_t*)malloc(sizeof(uv_shutdown_t));
+        int sr = uv_shutdown(shutdown_req, (uv_stream_t*)socket, [](uv_shutdown_t* req, int status) {
+            (void)status;
+            free(req);
         });
+        if (sr != 0) free(shutdown_req);  // didn't queue -> cb won't fire
     }
 }
 

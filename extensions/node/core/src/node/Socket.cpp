@@ -5,6 +5,7 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <string.h>
 #include <stdlib.h>
 #include <new>
@@ -48,17 +49,30 @@ void TsSocket::Connect(const char* host, int port, void* callback) {
 
     connecting_ = true;  // Set connecting state
 
+    // Context + libuv requests are libuv-owned across the async DNS->connect
+    // chain; they must not live in GC memory (libuv queues them where the GC
+    // can't see, and the moving GC would invalidate libuv's pointer -> GC-001).
+    // malloc'd; the socket/callback GC pointers are rooted for the chain lifetime
+    // and released at the terminal callback.
     struct ConnectContext {
         TsSocket* socket;
         void* callback;
         int port;
     };
-    ConnectContext* ctx = (ConnectContext*)ts_alloc(sizeof(ConnectContext));
+    ConnectContext* ctx = (ConnectContext*)malloc(sizeof(ConnectContext));
     ctx->socket = this;
     ctx->callback = callback;
     ctx->port = port;
+    ts_gc_register_root((void**)&ctx->socket);
+    if (callback) ts_gc_register_root((void**)&ctx->callback);
 
-    uv_getaddrinfo_t* dns_req = (uv_getaddrinfo_t*)ts_alloc(sizeof(uv_getaddrinfo_t));
+    auto releaseCtx = [](ConnectContext* ctx) {
+        ts_gc_unregister_root((void**)&ctx->socket);
+        if (ctx->callback) ts_gc_unregister_root((void**)&ctx->callback);
+        free(ctx);
+    };
+
+    uv_getaddrinfo_t* dns_req = (uv_getaddrinfo_t*)malloc(sizeof(uv_getaddrinfo_t));
     dns_req->data = ctx;
 
     struct addrinfo hints;
@@ -72,14 +86,21 @@ void TsSocket::Connect(const char* host, int port, void* callback) {
     int r = uv_getaddrinfo(uv_default_loop(), dns_req, [](uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
         ConnectContext* ctx = (ConnectContext*)req->data;
         TsSocket* self = ctx->socket;
+        auto release = [](ConnectContext* c) {
+            ts_gc_unregister_root((void**)&c->socket);
+            if (c->callback) ts_gc_unregister_root((void**)&c->callback);
+            free(c);
+        };
 
         if (status < 0) {
             self->Emit("error", 0, nullptr);
+            release(ctx);
+            free(req);  // dns request done
             return;
         }
 
-        uv_connect_t* connect_req = (uv_connect_t*)ts_alloc(sizeof(uv_connect_t));
-        connect_req->data = ctx;
+        uv_connect_t* connect_req = (uv_connect_t*)malloc(sizeof(uv_connect_t));
+        connect_req->data = ctx;  // ctx ownership passes to the connect request
 
         int r = uv_tcp_connect(connect_req, self->handle, res->ai_addr, [](uv_connect_t* req, int status) {
             ConnectContext* ctx = (ConnectContext*)req->data;
@@ -96,10 +117,18 @@ void TsSocket::Connect(const char* host, int port, void* callback) {
             } else {
                 self->Emit("error", 0, nullptr);
             }
+            ts_gc_unregister_root((void**)&ctx->socket);
+            if (ctx->callback) ts_gc_unregister_root((void**)&ctx->callback);
+            free(ctx);
+            free(req);
         });
+
+        free(req);  // dns request is done once its callback returns
 
         if (r < 0) {
             self->Emit("error", 0, nullptr);
+            release(ctx);          // connect didn't queue -> its cb won't fire
+            free(connect_req);
         }
 
         uv_freeaddrinfo(res);
@@ -107,6 +136,8 @@ void TsSocket::Connect(const char* host, int port, void* callback) {
 
     if (r < 0) {
         Emit("error", 0, nullptr);
+        releaseCtx(ctx);  // getaddrinfo failed synchronously -> cb won't fire
+        free(dns_req);
     }
 }
 
@@ -165,9 +196,14 @@ void TsSocket::HandleRead(ssize_t nread, const uv_buf_t* buf) {
     }
 }
 
+// Request context for an async socket write. malloc'd (libuv-owned; must not
+// live in GC memory -> GC-001); the socket GC pointer is rooted for the write
+// lifetime and the payload is a malloc'd copy (libuv reads it async). Freed in
+// OnWrite.
 struct WriteContext {
     TsSocket* socket;
     size_t length;
+    char* buf;
 };
 
 bool TsSocket::Write(void* data, size_t length) {
@@ -175,16 +211,25 @@ bool TsSocket::Write(void* data, size_t length) {
 
     bufferedAmount += length;
 
-    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-    
-    WriteContext* ctx = (WriteContext*)ts_alloc(sizeof(WriteContext));
+    uv_write_t* req = (uv_write_t*)malloc(sizeof(uv_write_t));
+
+    WriteContext* ctx = (WriteContext*)malloc(sizeof(WriteContext));
     ctx->socket = this;
     ctx->length = length;
+    ctx->buf = (char*)malloc(length ? length : 1);
+    if (length) memcpy(ctx->buf, data, length);
+    ts_gc_register_root((void**)&ctx->socket);
     req->data = ctx;
 
-    uv_buf_t buf = uv_buf_init((char*)data, (unsigned int)length);
-    
-    uv_write(req, (uv_stream_t*)handle, &buf, 1, OnWrite);
+    uv_buf_t buf = uv_buf_init(ctx->buf, (unsigned int)length);
+
+    int wr = uv_write(req, (uv_stream_t*)handle, &buf, 1, OnWrite);
+    if (wr != 0) {  // didn't queue -> OnWrite won't fire
+        ts_gc_unregister_root((void**)&ctx->socket);
+        free(ctx->buf); free(ctx); free(req);
+        bufferedAmount -= length;
+        return false;
+    }
 
     if (bufferedAmount >= highWaterMark) {
         needDrain = true;
@@ -197,6 +242,8 @@ void TsSocket::OnWrite(uv_write_t* req, int status) {
     WriteContext* ctx = (WriteContext*)req->data;
     TsSocket* self = ctx->socket;
     self->HandleWrite(status, ctx->length);
+    ts_gc_unregister_root((void**)&ctx->socket);
+    free(ctx->buf); free(ctx); free(req);
 }
 
 void TsSocket::HandleWrite(int status, size_t length) {

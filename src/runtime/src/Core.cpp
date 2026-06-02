@@ -1038,9 +1038,12 @@ static void on_child_ipc_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t
 }
 
 static void on_child_ipc_write(uv_write_t* req, int status) {
-    // Write completed
-    (void)req;
+    // Write completed. The request and its length-prefixed payload buffer are
+    // malloc'd (must not live in GC memory: libuv holds the request in its
+    // worker/loop queue where the GC can't see it -> GC-001). Free both here.
     (void)status;
+    if (req->data) free(req->data);
+    free(req);
 }
 
 // Check if running as a forked child with IPC
@@ -1101,9 +1104,11 @@ bool ts_process_send(void* message) {
     const char* jsonData = jsonStr->ToUtf8();
     size_t jsonLen = strlen(jsonData);
 
-    // Create length-prefixed message
+    // Create length-prefixed message. Request + payload are malloc'd (libuv-owned
+    // across the async write; must not live in GC memory -> GC-001). Freed in
+    // on_child_ipc_write. req->data carries the payload so the callback can free it.
     size_t totalLen = 4 + jsonLen;
-    char* buffer = (char*)ts_alloc(totalLen);
+    char* buffer = (char*)malloc(totalLen);
 
     buffer[0] = (char)(jsonLen & 0xFF);
     buffer[1] = (char)((jsonLen >> 8) & 0xFF);
@@ -1111,10 +1116,12 @@ bool ts_process_send(void* message) {
     buffer[3] = (char)((jsonLen >> 24) & 0xFF);
     memcpy(buffer + 4, jsonData, jsonLen);
 
-    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
+    uv_write_t* req = (uv_write_t*)malloc(sizeof(uv_write_t));
+    req->data = buffer;
     uv_buf_t buf = uv_buf_init(buffer, (unsigned int)totalLen);
     int r = uv_write(req, (uv_stream_t*)child_ipc_pipe, &buf, 1, on_child_ipc_write);
 
+    if (r != 0) { free(buffer); free(req); }  // write didn't queue -> cb won't fire
     return r == 0;
 }
 

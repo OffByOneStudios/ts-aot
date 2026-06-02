@@ -4,6 +4,7 @@
 #include "TsRuntime.h"
 #include "GC.h"
 #include <string.h>
+#include <stdlib.h>
 #include <iostream>
 
 TsSecureSocket::TsSecureSocket(bool is_server) : TsSocket(), ssl_ctx(nullptr), ssl(nullptr), rbio(nullptr), wbio(nullptr), handshake_done(false), is_server(is_server), sni_hostname(nullptr) {
@@ -235,20 +236,22 @@ void TsSecureSocket::FlushWbio() {
         
         // Let's use a helper in TsSocket or just call uv_write.
         
-        uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-        
-        // We need a way to track this write for bufferedAmount if we want to be accurate,
-        // but for now let's just send it.
-        
-        char* write_buf = (char*)ts_alloc(bytes);
+        // Request + payload are malloc'd (libuv-owned across the async write;
+        // must not live in GC memory -> GC-001). req->data carries the payload
+        // so the completion callback can free both.
+        uv_write_t* req = (uv_write_t*)malloc(sizeof(uv_write_t));
+
+        char* write_buf = (char*)malloc(bytes);
         memcpy(write_buf, buf, bytes);
+        req->data = write_buf;
         uv_buf_t uv_buf = uv_buf_init(write_buf, bytes);
-        
-        uv_write(req, (uv_stream_t*)handle, &uv_buf, 1, [](uv_write_t* req, int status) {
-            if (status < 0) {
-                // std::cerr << "uv_write failed in FlushWbio: " << uv_strerror(status) << std::endl;
-            }
+
+        int wr = uv_write(req, (uv_stream_t*)handle, &uv_buf, 1, [](uv_write_t* req, int status) {
+            (void)status;
+            if (req->data) free(req->data);
+            free(req);
         });
+        if (wr != 0) { free(write_buf); free(req); }  // didn't queue -> cb won't fire
     }
 }
 

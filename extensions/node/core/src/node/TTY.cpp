@@ -3,9 +3,15 @@
 #include "TsObject.h"
 #include "TsError.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
+
+// libuv write request + context for an async TTY write. malloc'd (libuv-owned;
+// must not live in GC memory -> GC-001); the stream GC pointer is rooted for the
+// write lifetime and the payload is a malloc'd copy. Freed in OnWrite.
+namespace { struct TTYWriteCtx { void* stream; char* buf; }; }
 
 
 // =============================================================================
@@ -152,29 +158,37 @@ TsArray* TsTTYWriteStream::GetWindowSize() const {
 bool TsTTYWriteStream::WriteRaw(const char* data, size_t length) {
     if (!ttyHandle_) return false;
 
-    // Allocate write request
-    uv_write_t* req = (uv_write_t*)ts_alloc(sizeof(uv_write_t));
-    req->data = this;
+    // Allocate write request + context outside GC memory (see TTYWriteCtx).
+    uv_write_t* req = (uv_write_t*)malloc(sizeof(uv_write_t));
+    TTYWriteCtx* ctx = (TTYWriteCtx*)malloc(sizeof(TTYWriteCtx));
+    ctx->stream = this;
+    ctx->buf = (char*)malloc(length ? length : 1);
+    if (length) memcpy(ctx->buf, data, length);
+    ts_gc_register_root(&ctx->stream);  // keep the stream alive across the write
+    req->data = ctx;
 
-    // Copy data (GC-allocated)
-    char* buf = (char*)ts_alloc(length);
-    memcpy(buf, data, length);
-
-    uv_buf_t uvBuf = uv_buf_init(buf, (unsigned int)length);
+    uv_buf_t uvBuf = uv_buf_init(ctx->buf, (unsigned int)length);
 
     int r = uv_write(req, (uv_stream_t*)ttyHandle_, &uvBuf, 1, OnWrite);
+    if (r != 0) {  // didn't queue -> OnWrite won't fire
+        ts_gc_unregister_root(&ctx->stream);
+        free(ctx->buf); free(ctx); free(req);
+    }
     return r == 0;
 }
 
 void TsTTYWriteStream::OnWrite(uv_write_t* req, int status) {
-    TsTTYWriteStream* self = (TsTTYWriteStream*)req->data;
-    if (!self) return;
+    TTYWriteCtx* ctx = (TTYWriteCtx*)req->data;
+    TsTTYWriteStream* self = (TsTTYWriteStream*)ctx->stream;
 
-    if (status < 0) {
+    if (self && status < 0) {
         void* err = ts_error_create(TsString::Create(uv_strerror(status)));
         void* errArgs[] = { err };
         self->Emit("error", 1, errArgs);
     }
+
+    ts_gc_unregister_root(&ctx->stream);
+    free(ctx->buf); free(ctx); free(req);
 }
 
 bool TsTTYWriteStream::Write(void* data, size_t length) {
