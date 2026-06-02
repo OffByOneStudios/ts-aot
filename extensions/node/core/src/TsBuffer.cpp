@@ -17,13 +17,8 @@ extern "C" double ts_to_number(TsValue* v);
 #include "TsString.h"
 #include "TsTyped.h"
 
-// Enrol the tagged types used in this file for validated, offset-correct
-// dispatch via ts_cast<T> / ts_is<T> (see TsTyped.h). The offset is derived
-// from offsetof(T, magic), so it cannot desync from the C++ layout the way a
-// hand-written `*(uint32_t*)((char*)p + 16)` literal can.
-TS_DECLARE_TAG(TsBuffer);
-TS_DECLARE_TAG(TsArray);
-TS_DECLARE_TAG(TsString);
+// Type tags (TsBuffer/TsArray/TsString) are enrolled in their headers, so
+// ts_cast<T>/ts_is<T> are available via the includes above.
 
 TsValue TsBuffer::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "length") == 0 || strcmp(key, "byteLength") == 0) {

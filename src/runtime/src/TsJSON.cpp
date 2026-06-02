@@ -11,8 +11,6 @@
 #include "TsTyped.h"
 #include "GC.h"
 #include <nlohmann/json.hpp>
-
-TS_DECLARE_TAG(TsString);
 #include <string>
 #include <cstring>
 

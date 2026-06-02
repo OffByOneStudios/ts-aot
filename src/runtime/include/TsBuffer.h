@@ -4,6 +4,7 @@
 #include <cstddef>
 #include "TsString.h"
 #include "TsObject.h"
+#include "TsTyped.h"
 
 class TsBuffer : public TsObject {
 public:
@@ -200,6 +201,10 @@ private:
     size_t byteOffset = 0;
     size_t byteLength = 0;
 };
+
+TS_DECLARE_TAG(TsBuffer);      // magic at offset 16 (TsObject subclass)
+TS_DECLARE_TAG(TsTypedArray);  // magic at offset 16
+TS_DECLARE_TAG(TsDataView);    // magic at offset 16
 
 extern "C" {
     // ArrayBuffer constructors and methods

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 #include "TsObject.h"
+#include "TsTyped.h"
 
 /// V8-style element kinds for monomorphic array optimizations
 /// Must match the ElementKind enum in src/compiler/analysis/Type.h
@@ -180,6 +181,8 @@ public:
     // the end to preserve the offsets codegen hardcodes for the early fields.
     bool isArguments = false;
 };
+
+TS_DECLARE_TAG(TsArray);  // magic at offset 0 (POD); friend grants offsetof access
 
 extern "C" {
     void* ts_array_create();

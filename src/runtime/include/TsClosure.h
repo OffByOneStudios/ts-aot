@@ -1,6 +1,7 @@
 #pragma once
 #include "TsObject.h"
 #include "TsCell.h"
+#include "TsTyped.h"
 
 class TsMap;  // Forward declaration for properties field
 
@@ -56,6 +57,8 @@ public:
         }
     }
 };
+
+TS_DECLARE_TAG(TsClosure);  // magic at offset 16 (TsObject subclass)
 
 extern "C" {
     // Create a new closure with the given function pointer and number of captures

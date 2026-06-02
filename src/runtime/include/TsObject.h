@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstring>
 #include "TsNanBox.h"
+#include "TsTyped.h"
 
 class TsString;
 
@@ -174,6 +175,8 @@ public:
         magic = MAGIC;
     }
 };
+
+TS_DECLARE_TAG(TsFunction);  // magic at offset 16 (TsObject subclass)
 
 typedef TaggedValue* (*TsFunctionPtr)(void* context, int argc, TaggedValue** argv);
 typedef TaggedValue* (*TsFunctionPtrNoArgs)(void* context);

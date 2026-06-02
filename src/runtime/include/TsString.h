@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <unicode/unistr.h>
+#include "TsTyped.h"
 
 class TsString {
 public:
@@ -101,6 +102,8 @@ private:
         char inlineBuffer[64];  // Increased from 16 to handle most property names
     } data;
 };
+
+TS_DECLARE_TAG(TsString);  // magic at offset 0 (POD)
 
 extern "C" {
     int64_t ts_string_length(void* str);

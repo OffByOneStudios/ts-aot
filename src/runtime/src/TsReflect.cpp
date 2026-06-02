@@ -10,10 +10,7 @@
 #include "TsObject.h"
 #include "TsTyped.h"
 #include "GC.h"
-
-TS_DECLARE_TAG(TsFunction);
-TS_DECLARE_TAG(TsClosure);
-TS_DECLARE_TAG(TsArray);
+// Type tags (TsFunction/TsClosure/TsArray) are enrolled in their headers.
 
 extern "C" {
     void ts_throw(TsValue* err);

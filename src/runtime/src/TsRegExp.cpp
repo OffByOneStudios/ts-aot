@@ -13,8 +13,7 @@ extern "C" void* ts_alloc(size_t size);
 #include "TsString.h"
 #include "TsTyped.h"
 #include "TsGC.h"
-
-TS_DECLARE_TAG(TsString);
+// TsString tag is enrolled in TsString.h.
 
 // TsRegExpMatchArray implementation
 TsRegExpMatchArray* TsRegExpMatchArray::Create(TsArray* source, int64_t matchIndex, TsString* input) {
