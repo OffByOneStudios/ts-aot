@@ -598,8 +598,12 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
     except Exception as e:
         return TestResult(test_path, "fail", f"write error: {e}")
 
-    # Compile
+    # Compile. TSAOT_EXTRA_FLAGS lets a caller inject compiler flags (e.g.
+    # "--gc-statepoints") for differential runs without editing this file.
     compile_cmd = [str(compiler), str(tmp_js), "-o", str(tmp_exe)]
+    _extra = os.environ.get("TSAOT_EXTRA_FLAGS", "").split()
+    if _extra:
+        compile_cmd += _extra
     try:
         comp = subprocess.run(
             compile_cmd, capture_output=True, text=True, timeout=30,
