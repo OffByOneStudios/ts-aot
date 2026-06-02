@@ -276,3 +276,46 @@ GC: `src/runtime/src/TsGC.cpp` (minor GC `gc_minor_collect_internal` ~2188; mark
 ### Notes
 - Sequencing rationale: harness FIRST so the fix is provable and regressions are caught — this exact bug class (BUG 4/6/7) would have been caught deterministically by INV-1 + a single-holder test.
 - Stop adding runtime null/off-by-8 guards (they mask, not fix). The off-by-8 corrector (`TsMap::self()`, commit `10c27d4`) and read-path guards (`a515a03`) are symptoms; the harness + tenuring/precise-roots is the cure.
+
+### 2026-06-02 — TS_GC_STRESS stream crash diagnosed: it is NOT the moving-GC corruption
+
+**Correction of a prior assumption.** The "4 stream node tests flip pass→fail under
+TS_GC_STRESS=1" repro (flagged earlier as a fresh moving-GC repro) is **NOT** the
+moving-GC corruption GC-001 Phase 3b targets:
+- `TS_GC_STRESS` itself DISABLES the nursery (`nursery_disabled = (g_gc_stress>0)`,
+  TsGC.cpp ~1606). So "stress" and "stress + TS_GC_NURSERY=0" are the SAME config
+  (nursery off) — the differential I ran was meaningless; I never exercised the
+  moving nursery. The moving-GC corruption needs nursery ON (full-harness scale,
+  per prior notes), still unreproduced minimally.
+
+**What the stream-stress crash actually is (root-caused via /auto-debug):**
+- Crash: `0xc0000005` write-AV in libuv `uv__queue_insert_tail` on a **thread-pool
+  WORKER thread** (`worker` → `uv__thread_start`), `mov [rax],rdi` with
+  rax=0x50040138, rdi=0x50080138 — TWO ADJACENT GC BLOCKS (BLOCK_SIZE=256KB=0x40000,
+  the exact delta; GC region ~0x5000_0000). `platform_free_block` VirtualFrees blocks
+  → unmapped → AV.
+- Mechanism (confirmed): async libuv work structs are malloc'd but hold UNROOTED GC
+  pointers. e.g. `WriteFileWork`/`FSFdAsyncWork` (fs.cpp) are `malloc`'d and set
+  `work->promise = ts_promise_create()` (GC) with NO `ts_gc_register_root`. Between
+  `uv_queue_work` dispatch and the after-work callback, the promise (and other GC
+  objects only reachable through the malloc'd work) is invisible to the GC. The
+  `g_gc_stress` trigger (TsGC.cpp ~700) fires a FULL collect on EVERY ts_alloc with
+  **no thread guard** → collects/VirtualFrees the in-flight GC object → the libuv
+  worker thread (running concurrently, GC does NOT pause workers) faults on freed
+  block memory. This is the runtime-safety.md "malloc'd container holding a GC
+  pointer is invisible to GC" gap, in the async-I/O paths.
+- So it's a REAL latent rooting gap (can fire rarely in production when GC hits
+  during async I/O), amplified to determinism by TS_GC_STRESS — but it is a SEPARATE
+  bug from the moving-GC corruption.
+
+**Fix direction (not yet implemented):** root the GC pointers held by in-flight async
+work structs for the operation lifetime — `ts_gc_register_root(&work->promise)` (and
+any callback/buffer GC ptrs) on dispatch, unregister in the after-work callback;
+OR store them in a GC-scanned registry; OR a shared "pending async roots" set. Applies
+to ALL `uv_queue_work` sites (fs writeFile/fd-async/exists/read/..., crypto pbkdf2/
+scrypt/keygen). Secondary hardening: thread-guard the GC so a worker-thread ts_alloc
+never triggers collection, and/or pause/again-coordinate libuv workers across GC.
+
+**Status:** diagnosis complete + recorded; fix (root in-flight async GC ptrs) is the
+next implementation step. The moving-GC corruption (the original Phase 3b target)
+still needs a nursery-ON repro.
