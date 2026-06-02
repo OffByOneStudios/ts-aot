@@ -3417,12 +3417,17 @@ void ASTToHIR::lowerBindingElementByIndex(ast::BindingElement* binding,
 
     // Handle default value if present
     if (binding->initializer) {
-        // Use bounds check instead of ts_value_is_undefined, because type propagation
-        // may unbox the extracted value to a primitive (double/i64), making the undefined
-        // check impossible. Bounds check: index >= array.length means out-of-bounds → use default.
+        // ECMAScript array-destructuring default: the default applies when the
+        // element is `undefined` — i.e. the index is OUT OF BOUNDS *or* the
+        // in-bounds element is a hole / explicit undefined. A bounds check alone
+        // (the old lowering) missed the in-bounds-undefined case, so
+        // `[x = 1] = [undefined]` and `[x = 1] = [,]` wrongly yielded undefined.
+        // The element read (createGetElem above) is unchecked and returns garbage
+        // out of bounds, so we keep an explicit bounds guard AND an is-undefined
+        // check; extractedValue is boxed below so ts_value_is_undefined is valid.
         auto arrayLength = builder_.createCall("ts_array_length", {sourceValue}, HIRType::makeInt64());
         auto idxConst = builder_.createConstInt(index);
-        auto inBounds = builder_.createCmpLtI64(idxConst, arrayLength);
+        auto notInBounds = builder_.createCmpGe(idxConst, arrayLength);  // index >= length
 
         auto defaultValue = lowerExpression(binding->initializer.get());
 
@@ -3431,8 +3436,11 @@ void ASTToHIR::lowerBindingElementByIndex(ast::BindingElement* binding,
         // Also box the extracted value if it was unboxed by type propagation
         extractedValue = boxValueIfNeeded(extractedValue);
 
-        // Select: inBounds ? extractedValue : defaultValue
-        extractedValue = builder_.createSelect(inBounds, extractedValue, defaultValue);
+        // useDefault = notInBounds || isUndefined(element). Nested selects avoid
+        // needing a bool-OR: notInBounds ? default : (isUndef ? default : element).
+        auto isUndef = builder_.createIsUndefined(extractedValue);
+        auto withUndefDefault = builder_.createSelect(isUndef, defaultValue, extractedValue);
+        extractedValue = builder_.createSelect(notInBounds, defaultValue, withUndefDefault);
     }
 
     // Bind to variable(s)
