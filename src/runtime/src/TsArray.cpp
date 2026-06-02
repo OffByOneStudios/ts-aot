@@ -3096,13 +3096,11 @@ extern "C" {
                 if (!raw) raw = callback;
                 uintptr_t p = (uintptr_t)raw;
                 if (p > 0x1000 && p < 0x0000800000000000ULL) {
-                    uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-                    uint32_t m20 = *(uint32_t*)((char*)raw + 20);
-                    uint32_t m24 = *(uint32_t*)((char*)raw + 24);
+                    uint32_t m16 = *(uint32_t*)((char*)raw + 16);  // canonical TsObject::magic
                     auto isCallable = [](uint32_t m) {
                         return m == 0x46554E43 /* FUNC */ || m == 0x434C5352 /* CLSR */;
                     };
-                    if (isCallable(m16) || isCallable(m20) || isCallable(m24)) {
+                    if (isCallable(m16)) {
                         return true;
                     }
                 }

@@ -202,11 +202,9 @@ static TsSet* setFromArg(void* other) {
         return nullptr;
     }
     if (!raw) return nullptr;
-    // Check magic at offsets that match TsObject layout (mirror requireSet)
+    // TsSet sets TsObject::magic at the canonical offset 16.
     uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-    uint32_t m20 = *(uint32_t*)((char*)raw + 20);
-    uint32_t m24 = *(uint32_t*)((char*)raw + 24);
-    if (m16 == TsSet::MAGIC || m20 == TsSet::MAGIC || m24 == TsSet::MAGIC) {
+    if (m16 == TsSet::MAGIC) {
         return (TsSet*)raw;
     }
     return nullptr;
@@ -400,10 +398,8 @@ static void* requireSet(void* context, const char* methodName) {
     auto is_valid = [](uint32_t m) {
         return m == TsSet::MAGIC || m == WEAKSET_MAGIC;
     };
-    uint32_t m16 = *(uint32_t*)((char*)rawCtx + 16);
-    uint32_t m20 = *(uint32_t*)((char*)rawCtx + 20);
-    uint32_t m24 = *(uint32_t*)((char*)rawCtx + 24);
-    if (!is_valid(m16) && !is_valid(m20) && !is_valid(m24)) {
+    uint32_t m16 = *(uint32_t*)((char*)rawCtx + 16);  // canonical TsObject::magic
+    if (!is_valid(m16)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Set method called on incompatible receiver"));
         return nullptr;

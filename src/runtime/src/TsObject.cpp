@@ -1291,12 +1291,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic0 == 0x41525259) return ((TsArray*)rawPtr)->Length();
         if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) return ts_string_like_length(rawPtr);
 
-        uint32_t magic8 = *(uint32_t*)((char*)rawPtr + 8);
-        if (magic8 == 0x42554646) {
-            return ((TsBuffer*)rawPtr)->GetLength();
-        }
-
-        uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);
+        uint32_t magic16 = *(uint32_t*)((char*)rawPtr + 16);  // TsBuffer canonical magic offset
         if (magic16 == 0x42554646) {
             return ((TsBuffer*)rawPtr)->GetLength();
         }
@@ -3412,11 +3407,8 @@ TsValue* ts_value_make_int(int64_t i) {
         // IMPORTANT: Check magic FIRST before any dynamic_cast!
         // Many runtime types (TsRegExp, TsMap, TsArray) don't inherit from TsObject,
         // so dynamic_cast on them would cause undefined behavior/crashes.
-        uint32_t magic0 = *(uint32_t*)obj;
-        uint32_t magic8 = *(uint32_t*)((char*)obj + 8);
-        uint32_t magic16 = *(uint32_t*)((char*)obj + 16);
-        uint32_t magic20 = *(uint32_t*)((char*)obj + 20);
-        uint32_t magic24 = *(uint32_t*)((char*)obj + 24);
+        uint32_t magic0 = *(uint32_t*)obj;                 // POD types: Array/String/RegExp/Flat
+        uint32_t magic16 = *(uint32_t*)((char*)obj + 16);  // TsObject subclasses: Map/EventEmitter/...
         // Check for flat inline-slot object (magic at offset 0)
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
             TsValue* result = (TsValue*)ts_flat_object_get_property(obj, keyStr);
@@ -3751,9 +3743,9 @@ TsValue* ts_value_make_int(int64_t i) {
         // TsGenerator ('GENR') and TsAsyncGenerator ('AGEN') inherit from TsMap and
         // store their iterator methods (.next, [Symbol.iterator]) via the map; include
         // their magics here so property access routes through the map path.
-        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053 ||   // TsMap "MAPS"
-            magic16 == 0x47454E52 || magic20 == 0x47454E52 || magic24 == 0x47454E52 ||   // TsGenerator "GENR"
-            magic16 == 0x4147454E || magic20 == 0x4147454E || magic24 == 0x4147454E) {   // TsAsyncGenerator "AGEN"
+        if (magic16 == 0x4D415053 ||   // TsMap "MAPS"
+            magic16 == 0x47454E52 ||   // TsGenerator "GENR"
+            magic16 == 0x4147454E) {   // TsAsyncGenerator "AGEN"
             TsMap* map = (TsMap*)obj;
 
             // `.size` is a computed accessor ONLY for a real Map/Set. A plain
@@ -3887,7 +3879,7 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         // 2. Fallback to magic-based checks for built-ins
-        if (magic0 == 0x41525259 || magic8 == 0x41525259 || magic16 == 0x41525259) { // TsArray::MAGIC ("ARRY")
+        if (magic0 == 0x41525259) { // TsArray::MAGIC ("ARRY", offset 0)
             TsArray* arr = (TsArray*)obj;
             if (strcmp(keyStr, "length") == 0) return ts_value_make_int(arr->Length());
             // ECMA-262 Array.prototype.constructor === Array — every Array
@@ -3983,7 +3975,7 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             return ts_value_make_undefined();
         }
-        if (magic0 == 0x53545247 || magic8 == 0x53545247 || magic16 == 0x53545247 || magic0 == TsConsString::MAGIC) { // TsString or TsConsString
+        if (magic0 == 0x53545247 || magic0 == TsConsString::MAGIC) { // TsString or TsConsString (offset 0)
             TsString* strObj = ts_ensure_flat(obj);
             if (strcmp(keyStr, "length") == 0) {
                 return ts_value_make_int(strObj->Length());
@@ -4061,7 +4053,7 @@ TsValue* ts_value_make_int(int64_t i) {
         // Previously had a FakeHeaders fast-path here with wrong struct layout
         // that read TsObject::magic (offset 16) as a TsMap* pointer.
         {
-            bool isEventEmitter = (magic8 == 0x45564E54 || magic16 == 0x45564E54); // TsEventEmitter::MAGIC ("EVNT")
+            bool isEventEmitter = (magic16 == 0x45564E54); // TsEventEmitter::MAGIC ("EVNT", offset 16)
             // Virtual-inheritance EventEmitter subclasses have magic at large offset (not 8/16).
             // Detect them by vtable pointer match against registered dispatch entries.
             if (!isEventEmitter && ts_gc_base(obj)) {
@@ -4287,9 +4279,9 @@ TsValue* ts_value_make_int(int64_t i) {
         // (e.g., TsBuffer, TsIncomingMessage) that override GetPropertyVirtual()
         // Only attempt this on objects that are NOT known non-TsObject types
         // (TsArray, TsString are NOT TsObject subclasses and would crash on virtual call)
-        if (magic0 != 0x41525259 && magic8 != 0x41525259 && magic16 != 0x41525259 &&  // TsArray
-            magic0 != 0x53545247 && magic8 != 0x53545247 && magic0 != TsConsString::MAGIC && // TsString/TsConsString
-            magic0 != 0x52454758) {                                                       // TsRegExp
+        if (magic0 != 0x41525259 &&  // TsArray (offset 0)
+            magic0 != 0x53545247 && magic0 != TsConsString::MAGIC && // TsString/TsConsString (offset 0)
+            magic0 != 0x52454758) {                                  // TsRegExp (offset 0)
             TsValue result = ts_try_virtual_property_dispatch(obj, keyStr);
             if (result.type != ValueType::UNDEFINED) {
                 return nanbox_from_tagged(result);
@@ -8952,10 +8944,8 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
-        // Check for TsSet (magic 0x53455453 "SETS" at offset 16, 20, or 24)
-        uint32_t magic20 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 20);
-        uint32_t magic24 = *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(rawObj) + 24);
-        if (magic16 == 0x53455453 || magic20 == 0x53455453 || magic24 == 0x53455453) {
+        // Check for TsSet (magic 0x53455453 "SETS" at canonical offset 16)
+        if (magic16 == 0x53455453) {
             // TsSet - dispatch through ts_set_get_property
             extern TsValue* ts_set_get_property(void* obj, void* propName);
             if (keyStr) {
@@ -8966,7 +8956,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check if this is actually a TsMap before using map operations
         // TsMap::MAGIC is at offset 16 (after vtable ptr + explicit vtable field)
-        if (magic16 != 0x4D415053 && magic20 != 0x4D415053 && magic24 != 0x4D415053) {
+        if (magic16 != 0x4D415053) {
             // Not a map - try ts_object_get_property as fallback
             if (keyStr) {
                 const char* k = keyStr->ToUtf8();
@@ -9545,11 +9535,9 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
-        // Check multiple magic offsets for TsMap
+        // Canonical: POD magic at offset 0, TsObject-subclass magic at offset 16.
         uint32_t magic0 = *(uint32_t*)rawObj;
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
-        uint32_t magic20 = *(uint32_t*)((char*)rawObj + 20);
-        uint32_t magic24 = *(uint32_t*)((char*)rawObj + 24);
 
         // Check for flat inline-slot object (magic at offset 0)
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
@@ -9635,8 +9623,8 @@ TsValue* ts_value_make_int(int64_t i) {
             return value;
         }
 
-        // Check if it's a map
-        if (magic16 == 0x4D415053 || magic20 == 0x4D415053 || magic24 == 0x4D415053) { // TsMap::MAGIC
+        // Check if it's a map (canonical TsObject::magic at offset 16)
+        if (magic16 == 0x4D415053) { // TsMap::MAGIC
             TsMap* map = (TsMap*)rawObj;
 
             // Check for a setter (__setter_<propertyName>), walking prototype chain
