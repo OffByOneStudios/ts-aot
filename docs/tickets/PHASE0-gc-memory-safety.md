@@ -81,15 +81,24 @@ The remaining gap is a concrete worklist, not a rebuild:
    default build, but RS4GC re-derives the callee signature from the `(i64)` declaration →
    every `i32` call fails the verifier. Unified the trampoline on `(i32)`. Both programs now
    compile + run identically in both modes; 0 default regressions; gc-suite 15/15 statepoints.
-2. **Safepoint-relocation bug (2 MISMATCH):** `test_proxy_reflect.ts`,
-   `test_promise_withResolvers.ts` produce wrong output under statepoints — a GC value not
-   relocated/preserved across a safepoint in the proxy/promise paths. Root-cause via IR diff
-   around the safepoint.
-3. **Diagnostic spam:** `[StackMap]`/`[GCRoots]` print to stdout — env-gate (e.g. behind
-   `TS_GC_DEBUG`) before default; they currently pollute program output.
+2. ~~**Safepoint-relocation bug (2 MISMATCH)**~~ — **RESOLVED: not a bug, a measurement
+   artifact.** `test_proxy_reflect.ts` / `test_promise_withResolvers.ts` produce output
+   IDENTICAL to the default build; both already crash the same way in the default build
+   (pre-existing Proxy.revocable / Promise.withResolvers destructure-null bugs, unrelated to
+   GC — a roadmap Phase-2 conformance item). The "mismatch" was (a) ASLR addresses in the
+   crash backtrace and (b) statepoints adding one safepoint frame to that backtrace — both
+   cosmetic. Fixed the differential harness to normalize these (`tests/gc/statepoints_
+   differential.sh`). **No GC value fails to relocate across a safepoint.**
+3. ~~**Diagnostic spam**~~ — **FIXED `<this commit set>`.** `[StackMap]`/`[GCRoots]` startup
+   prints gated behind `TS_GC_ROOTS_VERBOSE` (StackMap also honors `TS_GC_VERBOSE`); silent
+   by default.
 
-After 1–3: extend the differential to node + a test262 slice, then flip the default behind
-the harness gate.
+**RESULT after 1–3:** the `--gc-statepoints` behavioral differential over the full golden_ir
+corpus is **MATCH=280 / REAL-MISMATCH=0 / SP-CE=0** (1 base-skipped was already broken without
+statepoints). The precise-roots path is behaviorally identical to the default build on
+golden_ir. Next: run the same differential over node + a test262 slice (`tests/gc/
+statepoints_differential.sh <root>`), then flip the default behind the gc-suite + differential
+gate.
 - Make **minor GC consume the LLVM stackmap** as its precise root set (today the minor
   collector relies on conservative stack scan + the manual `ts_gc_register_root` set;
   statepoints give exact, relocatable roots).
