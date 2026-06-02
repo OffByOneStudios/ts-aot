@@ -15,6 +15,7 @@
   "golden_ir/ecmascript/es2024/test_promise_withResolvers.ts": "pass",
   "golden_ir/ecmascript/es2024/test_string_wellformed.ts": "pass",
   "golden_ir/javascript/array_methods/at.js": "pass",
+  "golden_ir/javascript/array_methods/compound_concat.js": "pass",
   "golden_ir/javascript/array_methods/filter.js": "pass",
   "golden_ir/javascript/array_methods/find_indexOf.js": "pass",
   "golden_ir/javascript/array_methods/flat_flatMap.js": "pass",
