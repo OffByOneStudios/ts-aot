@@ -2,6 +2,7 @@
 #include "TsString.h"
 #include "TsBuffer.h"
 #include "GC.h"
+#include "TsGC.h"
 #include "TsRuntime.h"
 #include "TsObject.h"
 #include <fcntl.h>
@@ -35,24 +36,37 @@ void TsWriteStream::SetPath(const char* p) {
     }
 }
 
+// libuv links the request struct into its worker-thread queue (uv__queue_insert_tail
+// writes the intrusive queue node from a pool thread). The request and its context
+// therefore must NOT live in GC memory: a GC cycle between dispatch and completion
+// would free/move the block -> worker-thread access violation (GC-001). They are
+// malloc'd here and freed in the completion callback. The TsWriteStream* GC pointer
+// they reference is registered as a GC root for the operation lifetime, and the
+// payload bytes are copied (the worker thread reads them asynchronously).
+struct WriteContext {
+    TsWriteStream* stream;   // GC pointer - rooted for op lifetime
+    size_t length;
+    char* data;              // owned copy of payload (worker reads async)
+};
+
 bool TsWriteStream::Write(void* data, size_t length) {
     if (closed) return false;
     started = true;
 
     bufferedAmount += length;
 
-    uv_fs_t* write_req = (uv_fs_t*)ts_alloc(sizeof(uv_fs_t));
+    uv_fs_t* write_req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
 
-    uv_buf_t buf = uv_buf_init((char*)data, (unsigned int)length);
-
-    struct WriteContext {
-        TsWriteStream* stream;
-        size_t length;
-    };
-    WriteContext* ctx = (WriteContext*)ts_alloc(sizeof(WriteContext));
+    WriteContext* ctx = (WriteContext*)malloc(sizeof(WriteContext));
     ctx->stream = this;
     ctx->length = length;
+    ctx->data = (char*)malloc(length ? length : 1);
+    if (length) memcpy(ctx->data, data, length);
+    // Root the stream so a GC during the async write cannot collect it.
+    ts_gc_register_root((void**)&ctx->stream);
     write_req->data = ctx;
+
+    uv_buf_t buf = uv_buf_init(ctx->data, (unsigned int)length);
 
     // Use position if set, otherwise append (-1)
     int64_t writePos = position;
@@ -72,6 +86,10 @@ bool TsWriteStream::Write(void* data, size_t length) {
         }
 
         uv_fs_req_cleanup(req);
+        ts_gc_unregister_root((void**)&ctx->stream);
+        free(ctx->data);
+        free(ctx);
+        free(req);
     });
 
     if (bufferedAmount >= highWaterMark) {
@@ -95,13 +113,22 @@ void TsWriteStream::End() {
         return;
     }
 
-    uv_fs_t* close_req = (uv_fs_t*)ts_alloc(sizeof(uv_fs_t));
-    close_req->data = this;
+    // Request struct must not live in GC memory (see Write() above). Box the
+    // GC stream pointer in a malloc'd, rooted slot for the close lifetime.
+    uv_fs_t* close_req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
+    void** streamSlot = (void**)malloc(sizeof(void*));
+    *streamSlot = this;
+    ts_gc_register_root(streamSlot);
+    close_req->data = streamSlot;
     uv_fs_close(uv_default_loop(), close_req, fd, [](uv_fs_t* req) {
-        TsWriteStream* self = (TsWriteStream*)req->data;
+        void** streamSlot = (void**)req->data;
+        TsWriteStream* self = (TsWriteStream*)*streamSlot;
         self->Emit("finish", 0, nullptr);
         self->Emit("close", 0, nullptr);
         uv_fs_req_cleanup(req);
+        ts_gc_unregister_root(streamSlot);
+        free(streamSlot);
+        free(req);
     });
 }
 

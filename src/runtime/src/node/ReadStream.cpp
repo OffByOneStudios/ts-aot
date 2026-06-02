@@ -5,6 +5,7 @@
 #include "TsBuffer.h"
 #include "TsRuntime.h"
 #include "GC.h"
+#include "TsGC.h"
 #include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
@@ -49,16 +50,27 @@ void TsReadStream::Start() {
     started = true;
     reading = true;
 
-    uv_fs_t* req = (uv_fs_t*)ts_alloc(sizeof(uv_fs_t));
-    req->data = this;
+    // The request struct must not live in GC memory: libuv links it into a
+    // worker-thread queue (uv__queue_insert_tail writes from a pool thread), so
+    // a GC cycle between dispatch and completion would free the block -> worker
+    // AV (GC-001). malloc it and box the GC stream pointer in a malloc'd, rooted
+    // slot; both are freed in OnRead.
+    uv_fs_t* req = (uv_fs_t*)malloc(sizeof(uv_fs_t));
+    void** streamSlot = (void**)malloc(sizeof(void*));
+    *streamSlot = this;
+    ts_gc_register_root(streamSlot);
+    req->data = streamSlot;
 
     // Calculate how many bytes to read
     size_t toRead = buffer->GetLength();
     if (endPosition >= 0) {
         int64_t remaining = endPosition - position + 1;
         if (remaining <= 0) {
-            // Reached end position
+            // Reached end position - request was never dispatched; release it.
             reading = false;
+            ts_gc_unregister_root(streamSlot);
+            free(streamSlot);
+            free(req);
             Emit("end", 0, nullptr);
             if (autoClose) Close();
             return;
@@ -72,8 +84,17 @@ void TsReadStream::Start() {
     uv_fs_read(uv_default_loop(), req, fd, &buf, 1, position, OnRead);
 }
 
+static void ts_read_stream_release_req(uv_fs_t* req) {
+    void** streamSlot = (void**)req->data;
+    uv_fs_req_cleanup(req);
+    ts_gc_unregister_root(streamSlot);
+    free(streamSlot);
+    free(req);
+}
+
 void TsReadStream::OnRead(uv_fs_t* req) {
-    TsReadStream* self = (TsReadStream*)req->data;
+    void** streamSlot = (void**)req->data;
+    TsReadStream* self = (TsReadStream*)*streamSlot;
     self->reading = false;
     int result = (int)req->result;
 
@@ -93,7 +114,7 @@ void TsReadStream::OnRead(uv_fs_t* req) {
         if (self->endPosition >= 0 && self->position > self->endPosition) {
             self->Emit("end", 0, nullptr);
             if (self->autoClose) self->Close();
-            uv_fs_req_cleanup(req);
+            ts_read_stream_release_req(req);
             return;
         }
 
@@ -101,7 +122,7 @@ void TsReadStream::OnRead(uv_fs_t* req) {
         if (self->flowing && !self->closed) {
             self->Start();
         }
-        uv_fs_req_cleanup(req);
+        ts_read_stream_release_req(req);
     } else {
         // EOF or error
         if (result == 0) {
@@ -113,7 +134,7 @@ void TsReadStream::OnRead(uv_fs_t* req) {
             self->Emit("error", 1, args);
         }
         if (self->autoClose) self->Close();
-        uv_fs_req_cleanup(req);
+        ts_read_stream_release_req(req);
     }
 }
 
