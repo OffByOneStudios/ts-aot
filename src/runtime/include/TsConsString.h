@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "TsTyped.h"
 
 class TsString;
 
@@ -40,6 +41,8 @@ public:
 private:
     TsConsString() = default;
 };
+
+TS_DECLARE_TAG(TsConsString);  // magic at offset 0 (POD)
 
 // Check if a pointer is a TsConsString (magic == 0x434F4E53).
 inline bool ts_is_cons_string(void* ptr) {

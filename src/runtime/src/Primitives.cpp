@@ -1092,8 +1092,7 @@ double ts_value_get_double(TsValue* v) {
     if (nanbox_is_ptr(nb)) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return 0.0;
-        uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+        if (ts_is_unchecked<TsString>(ptr) || ts_is_unchecked<TsConsString>(ptr)) {
             // ECMA-262 §7.1.4.1 StringToNumber: empty or whitespace-only
             // strings convert to +0, not NaN. std::stod throws on empty
             // input which we'd otherwise turn into NaN — wrong per spec.
@@ -1140,8 +1139,7 @@ int64_t ts_parseInt(void* value) {
     if (nanbox_is_ptr(nb)) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return 0;
-        uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+        if (ts_is_unchecked<TsString>(ptr) || ts_is_unchecked<TsConsString>(ptr)) {
             const char* s = ts_ensure_flat(ptr)->ToUtf8();
             if (!s) return 0;
             char* end = nullptr;
@@ -1167,8 +1165,7 @@ bool ts_value_to_bool(TsValue* v) {
     if (nanbox_is_ptr(nb)) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return false;
-        uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+        if (ts_is_unchecked<TsString>(ptr) || ts_is_unchecked<TsConsString>(ptr)) {
             return ts_string_like_length(ptr) > 0; // Empty string is falsy
         }
         // Annex B § B.3.7: [[IsHTMLDDA]] objects coerce to false.
@@ -1198,8 +1195,8 @@ double ts_to_number(TsValue* v) {
     if (nanbox_is_ptr(nb)) {
         void* ptr = nanbox_to_ptr(nb);
         if (!ptr) return 0.0;
-        uint32_t magic = *(uint32_t*)ptr;
-        if (magic == 0x53545247 || magic == TsConsString::MAGIC) {
+        uint32_t magic = *(uint32_t*)ptr;  // also used for the Symbol check below
+        if (ts_is_unchecked<TsString>(ptr) || ts_is_unchecked<TsConsString>(ptr)) {
             TsString* str = ts_ensure_flat(ptr);
             const char* utf8 = str->ToUtf8();
             if (!utf8 || *utf8 == '\0') return 0.0;
