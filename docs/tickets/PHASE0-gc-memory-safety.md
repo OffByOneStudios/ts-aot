@@ -136,6 +136,25 @@ regressions everywhere):
 
 ~1,800 test262 tests (the 3 largest categories) + full golden_ir/node/gc-suite, all identical.
 
+**FULL test262 differential (2026-06-02, 50,506 tests, default vs `--gc-statepoints`):**
+default pass 18,669 / statepoints pass 18,610. Breakdown of the 63 pass→non-pass deltas:
+- **56 are `timeout`** — a PERF artifact, NOT correctness. Statepoints disables FastISel +
+  object/array stack-alloc and adds safepoints, so heavy tests (intl402, generated
+  language/identifiers unicode, built-ins/RegExp/property-escapes) cross the 8s budget.
+  Spot-checked 3 → all PASS with a 40s wall. Bump the runner timeout (or accept the cost).
+- **7 are REAL correctness regressions (0.014%)**, plus **4 net improvements** (statepoints
+  passes where default fails). The 7:
+  1–4. `language/expressions/object/dstr/meth-dflt-ary-ptrn-elem-{id-iter-complete,id-iter-done,
+       ary-empty-iter,ary-elision-iter}.js` — object-METHOD shorthand with a destructuring
+       param default (`{ method([x] = []) {} }` called with no arg): under statepoints `x` is
+       CORRUPTED (garbage, stringifies to "") instead of undefined. A real GC bug in the
+       method-param destructuring-default path (the arrow-function path works — verified). One
+       root cause for all 4.
+  5. `language/statements/function/S13.2.1_A8_T2.js`
+  6. `built-ins/Object/defineProperties/15.2.3.7-6-a-85.js`
+  7. `built-ins/GeneratorPrototype/throw/try-finally-nested-try-catch-within-finally.js`
+     (GC value across a generator yield/throw safepoint — plausible relocation gap).
+
 **FLIP READINESS:** the gate the roadmap set (differential clean) is MET on everything measured.
 Two things remain before flipping `--gc-statepoints` to default ON: (1) a FULL test262
 differential (intl402 / annexB / staging / the long built-ins+language tail are not yet
