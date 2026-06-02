@@ -52,12 +52,8 @@ static TsValue* buildErrorObject(TsString* msgStr, void* options) {
         if (nanbox_is_ptr(optNb)) {
             void* optPtr = nanbox_to_ptr(optNb);
             if (optPtr) {
-                // Check if it's a TsMap
-                uint32_t magic = *(uint32_t*)optPtr;
-                uint32_t magic16 = *(uint32_t*)((char*)optPtr + 16);
-                TsMap* optMap = nullptr;
-                if (magic == 0x4D415053) optMap = (TsMap*)optPtr;
-                else if (magic16 == 0x4D415053) optMap = (TsMap*)optPtr;
+                // Check if it's a TsMap (validated, offset-derived tag).
+                TsMap* optMap = ts_cast<TsMap>(optPtr);
                 if (optMap) {
                     TsValue causeKey; causeKey.type = ValueType::STRING_PTR; causeKey.ptr_val = TsString::Create("cause");
                     TsValue causeVal = optMap->Get(causeKey);
@@ -274,8 +270,7 @@ static void errSetProto(TsMap* err, const char* name) {
     void* protoRaw = ts_value_get_object(protoVal);
     if (!protoRaw) return;
     // Only set prototype if it's a TsMap (magic at offset 16).
-    uint32_t m16 = *(uint32_t*)((char*)protoRaw + 16);
-    if (m16 != 0x4D415053) return;
+    if (!ts_is<TsMap>(protoRaw)) return;
     err->SetPrototype((TsMap*)protoRaw);
 }
 
@@ -316,9 +311,7 @@ extern "C" {
         if (ctor && err) {
             void* errRaw = ts_value_get_object(err);
             if (errRaw) {
-                uint32_t m16 = *(uint32_t*)((char*)errRaw + 16);
-                if (m16 == 0x4D415053) {  // TsMap
-                    TsMap* errMap = (TsMap*)errRaw;
+                if (TsMap* errMap = ts_cast<TsMap>(errRaw)) {  // TsMap
                     TsValue ctorKey; ctorKey.type = ValueType::STRING_PTR;
                     ctorKey.ptr_val = TsString::GetInterned("constructor");
                     TsValue ctorVal; ctorVal.type = ValueType::OBJECT_PTR;
@@ -359,9 +352,7 @@ extern "C" {
         if (err) {
             void* errRaw = ts_value_get_object(err);
             if (errRaw) {
-                uint32_t m16 = *(uint32_t*)((char*)errRaw + 16);
-                if (m16 == 0x4D415053) {  // TsMap
-                    TsMap* errMap = (TsMap*)errRaw;
+                if (TsMap* errMap = ts_cast<TsMap>(errRaw)) {  // TsMap
                     TsValue errsKey; errsKey.type = ValueType::STRING_PTR;
                     errsKey.ptr_val = TsString::GetInterned("errors");
                     TsValue errsValOut; errsValOut.type = ValueType::OBJECT_PTR;
