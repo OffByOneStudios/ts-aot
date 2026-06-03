@@ -194,7 +194,15 @@ returns target; finalizers are no-ops). Implement genuine weak semantics on top 
 (now precise) GC.
 - **Exit:** weak-semantics compliance tests pass; a weakly-held-only object is collected.
 
-### 0.5 — Permanent GC stress/fuzz lane in CI — **S**
+### 0.5 — Permanent GC stress/fuzz lane in CI — ✅ **DONE (`<this commit>`)**
+Wired into `run_all.py`: the default **`gc`** lane now runs `gc/runner.py --statepoints-diff`
+(each program also compiled with `--no-gc-statepoints`; output must be byte-identical to the
+precise-roots default — the differential that catches statepoints codegen regressions), plus an
+opt-in **`gc-stress`** lane (`--stress --timeout 120`, TS_GC_STRESS full-collect-every-alloc
+rooting-gap surfacer). The existing gc-suite already covered moving-vs-NURSERY=0 + INV-1
+(`TS_GC_VERIFY=2`). Verified `run_all --suite gc` 15/15 with the differential. Original plan:
+
+### 0.5 (history) — Permanent GC stress/fuzz lane in CI — was **S**
 Wire the gc-suite + a randomized allocation fuzzer into `tests/run_all.py` default lane
 and a nightly stress lane: `TS_GC_STRESS=1`, `TS_GC_VERIFY=2`, differential vs
 `TS_GC_NURSERY=0`. This is what keeps the gate closed (the rooting bugs fixed this
