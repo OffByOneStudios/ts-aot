@@ -2624,6 +2624,7 @@ ast::NodePtr Parser::parseClassMember() {
     auto prop = std::make_unique<ast::PropertyDefinition>();
     setLocation(prop.get(), current_);
     prop->name = name;
+    prop->nameNode = std::move(nameNode);  // ComputedPropertyName when name=="[computed]"
     prop->access = access;
     prop->isStatic = isStatic;
     prop->isReadonly = isReadonly;

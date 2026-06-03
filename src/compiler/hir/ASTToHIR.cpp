@@ -740,9 +740,13 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                     auto propType = propDef->type.empty()
                         ? HIRType::makeAny()
                         : convertTypeFromString(propDef->type);
-                    shape->propertyOffsets[propDef->name] = propertyOffset;
-                    shape->propertyTypes[propDef->name] = propType;
-                    propertyOffset++;
+                    // Computed-name fields (`[expr] = v`) are dynamic properties, not
+                    // fixed shape slots — their key is only known at runtime.
+                    if (propDef->name != "[computed]") {
+                        shape->propertyOffsets[propDef->name] = propertyOffset;
+                        shape->propertyTypes[propDef->name] = propType;
+                        propertyOffset++;
+                    }
                 }
             }
         }
@@ -841,7 +845,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                         } else {
                             initVal = builder_.createConstUndefined();
                         }
-                        builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                        emitInstanceFieldSet(thisValue, propDef, initVal);
                     }
                 }
             }
@@ -1693,7 +1697,7 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                                     } else {
                                         initVal = builder_.createConstUndefined();
                                     }
-                                    builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                                    emitInstanceFieldSet(thisValue, propDef, initVal);
                                 }
                             }
                         }
@@ -3286,6 +3290,22 @@ void ASTToHIR::visitVariableDeclaration(ast::VariableDeclaration* node) {
         // Array destructuring: const [a, b] = arr
         lowerArrayBindingPattern(arrPattern, initValue);
     }
+}
+
+void ASTToHIR::emitInstanceFieldSet(std::shared_ptr<HIRValue> thisValue,
+                                    ast::PropertyDefinition* propDef,
+                                    std::shared_ptr<HIRValue> initVal) {
+    // ECMA-262 15.7.x: a computed field name (`["a"+"b"] = v`) evaluates the
+    // key expression at instance-init time. The parser stores the
+    // ComputedPropertyName in propDef->nameNode and leaves name=="[computed]".
+    if (propDef->name == "[computed]" && propDef->nameNode) {
+        if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(propDef->nameNode.get())) {
+            auto key = lowerExpression(cpn->expression.get());
+            builder_.createSetPropDynamic(thisValue, key, std::move(initVal));
+            return;
+        }
+    }
+    builder_.createSetPropStatic(thisValue, propDef->name, std::move(initVal));
 }
 
 void ASTToHIR::lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
@@ -10894,9 +10914,13 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 auto propType = propDef->type.empty()
                     ? HIRType::makeAny()
                     : convertTypeFromString(propDef->type);
-                shape->propertyOffsets[propDef->name] = propertyOffset;
-                shape->propertyTypes[propDef->name] = propType;
-                propertyOffset++;
+                // Computed-name fields (`[expr] = v`) are dynamic properties, not
+                // fixed shape slots — their key is only known at runtime.
+                if (propDef->name != "[computed]") {
+                    shape->propertyOffsets[propDef->name] = propertyOffset;
+                    shape->propertyTypes[propDef->name] = propType;
+                    propertyOffset++;
+                }
             }
         }
     }
@@ -11209,7 +11233,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                                 } else {
                                     initVal = builder_.createConstUndefined();
                                 }
-                                builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                                emitInstanceFieldSet(thisValue, propDef, initVal);
                             }
                         }
                     }
@@ -11321,7 +11345,7 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                         } else {
                             initVal = builder_.createConstUndefined();
                         }
-                        builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                        emitInstanceFieldSet(thisValue, propDef, initVal);
                     }
                 }
             }
@@ -11474,9 +11498,13 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 auto propType = propDef->type.empty()
                     ? HIRType::makeAny()
                     : convertTypeFromString(propDef->type);
-                shape->propertyOffsets[propDef->name] = propertyOffset;
-                shape->propertyTypes[propDef->name] = propType;
-                propertyOffset++;
+                // Computed-name fields (`[expr] = v`) are dynamic properties, not
+                // fixed shape slots — their key is only known at runtime.
+                if (propDef->name != "[computed]") {
+                    shape->propertyOffsets[propDef->name] = propertyOffset;
+                    shape->propertyTypes[propDef->name] = propType;
+                    propertyOffset++;
+                }
             }
         }
     }
@@ -11763,7 +11791,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                                 } else {
                                     initVal = builder_.createConstUndefined();
                                 }
-                                builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                                emitInstanceFieldSet(thisValue, propDef, initVal);
                             }
                         }
                     }
@@ -11881,7 +11909,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                         } else {
                             initVal = builder_.createConstUndefined();
                         }
-                        builder_.createSetPropStatic(thisValue, propDef->name, initVal);
+                        emitInstanceFieldSet(thisValue, propDef, initVal);
                     }
                 }
             }

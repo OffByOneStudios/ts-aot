@@ -363,6 +363,13 @@ private:
     void lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
                                    std::shared_ptr<HIRValue> sourceValue);
 
+    // Set an instance field on `thisValue` to `initVal`. Handles computed
+    // property names (`["a"+"b"] = v`) via SetPropDynamic; static-name fields
+    // via SetPropStatic. `propDef` is a non-static class field.
+    void emitInstanceFieldSet(std::shared_ptr<HIRValue> thisValue,
+                              ast::PropertyDefinition* propDef,
+                              std::shared_ptr<HIRValue> initVal);
+
     // Lower array destructuring pattern: const [a, b] = arr
     void lowerArrayBindingPattern(ast::ArrayBindingPattern* pattern,
                                   std::shared_ptr<HIRValue> sourceValue);

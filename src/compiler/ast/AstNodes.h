@@ -416,6 +416,7 @@ struct ForInStatement : Statement {
 
 struct PropertyDefinition : Node {
     std::string name;
+    NodePtr nameNode;  // ComputedPropertyName when name == "[computed]"
     std::string type;
     ExprPtr initializer;
     ts::AccessModifier access = ts::AccessModifier::Public;
