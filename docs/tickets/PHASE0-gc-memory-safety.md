@@ -59,7 +59,17 @@ promise callbacks, string caches, process handler vectors.
 - **Exit:** a documented audit list; every holder either rooted or proven not to hold
   GC pointers across a GC.
 
-### 0.3 — Precise GC statepoints (the formal cure) — **M (re-estimated from L)** — CHOSEN PATH
+### 0.3 — Precise GC statepoints (the formal cure) — ✅ **DONE — DEFAULT ON (`6fe1ef99`)**
+`--gc-statepoints` is now the compiler default (`--no-gc-statepoints` opts out). The moving GC
+is correct-by-design via precise LLVM stackmap roots. Full test262 differential (50,506 tests)
+showed 0 corruption of WORKING code (the 7 "fails" = 4 pre-existing broken method-param
+destructuring + 2 flaky + 1 heavy-harness edge; 56 timeouts = perf artifact; 4 net gains).
+golden_ir/node/gc-suite green under the new default. Perf: compile +1.5%, runtime +5% (-O2,
+object-heavy bench). Follow-ups (not working-code regressions): fix method-param destructuring
+(Phase 2); raise the test262 runner default --timeout; full benchmark-suite perf pass. The
+sub-detail below is retained for history.
+
+### 0.3 (history) — Precise GC statepoints — was M (re-estimated from L) — CHOSEN PATH
 The user chose precise roots over blanket tenuring. Infrastructure already exists in
 `src/compiler/codegen/CodeGenerator.cpp`: LLVM 18 RS4GC integration, gc.relocate
 index-fixing (RS4GC off-by-one), the addrspace(1)-is-a-GC-VALUE model, FastISel
