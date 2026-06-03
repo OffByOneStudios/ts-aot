@@ -217,6 +217,11 @@ private:
     };
     std::vector<StaticPropInit> deferredStaticInits_;
 
+    // True while lowering the operand of a `typeof` unary expression. An
+    // unresolvable bare identifier under `typeof` yields "undefined" (ECMA-262
+    // 13.5.1.1) and must NOT throw the ReferenceError that a normal read would.
+    bool inTypeofOperand_ = false;
+
     // Deferred static blocks (to be emitted at the start of user_main)
     std::vector<ast::StaticBlock*> deferredStaticBlocks_;
 

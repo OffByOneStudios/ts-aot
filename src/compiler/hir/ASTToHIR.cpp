@@ -9381,9 +9381,23 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
         if (resolveClassByName(vtcIt->second)) return;
     }
 
-    // Unknown variable - create undefined
-    lastValue_ = createValue(HIRType::makeAny());
-    builder_.createConstUndefined(lastValue_);
+    // Unresolvable identifier. Throw ReferenceError (ECMA-262 9.4.2 GetValue
+    // on an unresolvable Reference) ONLY when the analyzer — which has the
+    // complete symbol table (imports, commonjs globals, enums, classes,
+    // functions) — also flagged the name as unbound. This gates the throw on
+    // the intersection (codegen-fallback-reached AND analyzer-unresolved), so
+    // valid bindings that merely slip past codegen's context-dependent
+    // resolution still emit undefined (unchanged). `typeof` is exempt
+    // (yields "undefined"). The runtime helper throws via a call, not an IR
+    // terminator, so it is valid mid-expression.
+    if (node->isUnresolvedReference && !inTypeofOperand_) {
+        auto nameStr = builder_.createConstString(node->name);
+        lastValue_ = builder_.createCall("ts_resolve_identifier_or_throw",
+                                         {nameStr}, HIRType::makeAny());
+    } else {
+        lastValue_ = createValue(HIRType::makeAny());
+        builder_.createConstUndefined(lastValue_);
+    }
 }
 
 void ASTToHIR::visitSuperExpression(ast::SuperExpression* node) {
@@ -10588,7 +10602,13 @@ void ASTToHIR::visitNonNullExpression(ast::NonNullExpression* node) {
 
 void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
     setSourceLine(node);
+    // `typeof <unresolvable identifier>` must yield "undefined", not throw
+    // ReferenceError (ECMA-262 13.5.1.1). Suppress the unresolvable-reference
+    // throw while lowering a typeof operand.
+    bool savedTypeofFlag = inTypeofOperand_;
+    if (node->op == "typeof") inTypeofOperand_ = true;
     auto operand = lowerExpression(node->operand.get());
+    inTypeofOperand_ = savedTypeofFlag;
 
     const std::string& op = node->op;
     if (op == "-") {

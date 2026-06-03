@@ -4120,4 +4120,21 @@ void* ts_get_global(void* namePtr) {
     return nullptr;
 }
 
+// An identifier the analyzer flagged as resolving to NO binding (and that
+// codegen also could not resolve). Per ECMA-262 9.4.2 (GetValue on an
+// unresolvable Reference) evaluating it throws a ReferenceError. First resolve
+// any builtin function that slipped past static resolution; only a truly absent
+// name throws. nameStr is a TsString*. Throws via a CALL (not an IR
+// terminator), so it is valid mid-expression like `null.foo`. Returns undefined
+// on the unreachable fallthrough after ts_throw longjmps.
+void* ts_resolve_identifier_or_throw(void* nameStr) {
+    void* builtin = ts_get_builtin_function(nameStr);
+    if (builtin) return builtin;
+    const char* n = nameStr ? ((TsString*)nameStr)->ToUtf8() : nullptr;
+    char msg[256];
+    snprintf(msg, sizeof(msg), "%s is not defined", n ? n : "variable");
+    ts_throw((TsValue*)ts_error_create_typed("ReferenceError", msg));
+    return ts_value_make_undefined();
+}
+
 } // extern "C"

@@ -729,6 +729,11 @@ struct ObjectLiteralExpression : Expression {
 struct Identifier : Expression {
     std::string name;
     bool isPrivate = false;
+    // Set by the analyzer when the name resolves to NO binding in any scope
+    // (value or type symbol table). Codegen uses this to throw ReferenceError
+    // (ECMA-262 9.4.2) only for genuinely-unresolvable references, gating the
+    // throw on the analyzer's complete scope knowledge.
+    bool isUnresolvedReference = false;
     std::string getKind() const override { return "Identifier"; }
     void accept(Visitor* visitor) override { visitor->visitIdentifier(this); }
 };

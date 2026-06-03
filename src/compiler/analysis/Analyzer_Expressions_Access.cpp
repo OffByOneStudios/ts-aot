@@ -16,6 +16,14 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
     if (activeOptions.autoDefineUndefinedIdents || activeOptions.suppressErrors) {
         auto anyType = std::make_shared<Type>(TypeKind::Any);
         if (!symbols.lookup(node->name)) {
+            // Flag genuinely-unresolvable names (absent from BOTH the value and
+            // type tables) BEFORE the auto-define so codegen can throw
+            // ReferenceError (ECMA-262 9.4.2). `null`/`undefined` are language
+            // literals, never unresolved references.
+            if (!symbols.lookupType(node->name) &&
+                node->name != "null" && node->name != "undefined") {
+                node->isUnresolvedReference = true;
+            }
             symbols.define(node->name, anyType);
         }
         lastType = anyType;
@@ -77,6 +85,9 @@ void Analyzer::visitIdentifier(ast::Identifier* node) {
             lastType = type;
         } else {
             reportError("Undefined variable " + node->name);
+            // Genuinely-unresolvable: not in the value table (sym) and not in
+            // the type table (type). Flag for codegen to throw ReferenceError.
+            node->isUnresolvedReference = true;
             lastType = std::make_shared<Type>(TypeKind::Any);
         }
     }
