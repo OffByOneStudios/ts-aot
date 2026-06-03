@@ -3385,7 +3385,23 @@ void ASTToHIR::lowerBindingElement(ast::BindingElement* binding,
     if (binding->initializer) {
         // Check if extracted value is undefined using runtime function
         auto isUndefined = builder_.createIsUndefined(extractedValue);
+        // ECMA-262 NamedEvaluation: when the binding target is a single
+        // identifier and the default initializer is an anonymous function /
+        // arrow / class, the function takes the binding name
+        // (`{ x = () => {} } = {}` → x.name === "x"). The function/arrow/class
+        // lowering already prefers its own name, so setting this for a named
+        // expression is harmless.
+        std::string savedPCDN = pendingClosureDisplayName_;
+        if (auto* bid = dynamic_cast<ast::Identifier*>(binding->name.get())) {
+            auto* init = binding->initializer.get();
+            if (dynamic_cast<ast::ArrowFunction*>(init) ||
+                dynamic_cast<ast::FunctionExpression*>(init) ||
+                dynamic_cast<ast::ClassExpression*>(init)) {
+                pendingClosureDisplayName_ = bid->name;
+            }
+        }
         auto defaultValue = lowerExpression(binding->initializer.get());
+        pendingClosureDisplayName_ = savedPCDN;
 
         // Box the default value to match extractedValue type (Any/ptr)
         defaultValue = boxValueIfNeeded(defaultValue);
@@ -3438,7 +3454,19 @@ void ASTToHIR::lowerBindingElementByIndex(ast::BindingElement* binding,
         auto idxConst = builder_.createConstInt(index);
         auto notInBounds = builder_.createCmpGe(idxConst, arrayLength);  // index >= length
 
+        // ECMA-262 NamedEvaluation for array-destructuring defaults
+        // (`[ x = () => {} ] = []` → x.name === "x"). See lowerBindingElement.
+        std::string savedPCDN = pendingClosureDisplayName_;
+        if (auto* bid = dynamic_cast<ast::Identifier*>(binding->name.get())) {
+            auto* init = binding->initializer.get();
+            if (dynamic_cast<ast::ArrowFunction*>(init) ||
+                dynamic_cast<ast::FunctionExpression*>(init) ||
+                dynamic_cast<ast::ClassExpression*>(init)) {
+                pendingClosureDisplayName_ = bid->name;
+            }
+        }
         auto defaultValue = lowerExpression(binding->initializer.get());
+        pendingClosureDisplayName_ = savedPCDN;
 
         // Box the default value to match extractedValue (Any/ptr)
         defaultValue = boxValueIfNeeded(defaultValue);
