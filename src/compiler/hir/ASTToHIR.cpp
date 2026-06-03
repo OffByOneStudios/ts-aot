@@ -10298,7 +10298,37 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
                 }
             }
         }
-        return builder_.createMakeClosure(funcName, captureValues, closureFuncType);
+        auto methodClosure = builder_.createMakeClosure(funcName, captureValues, closureFuncType);
+
+        // Redirect the enclosing scope's reads/writes of each captured variable
+        // through this method's closure cell, so a mutation inside the method
+        // (e.g. `var d=0; ({ m(){ d++; } }).m()`) propagates back to the outer
+        // `d`. Mirrors the FunctionDeclaration path (see ~line 3096). Without
+        // this the outer variable stays bound to its stale alloca and the
+        // method's writes are invisible — the dominant class/object-method
+        // closure-capture bug behind the test262 "callCount" cluster.
+        int mdCaptureIdx = 0;
+        for (const auto& cap : innerCaptures) {
+            const std::string& capName = cap.first;
+            size_t sIdx = 0;
+            if (!isCapturedVariable(capName, &sIdx)) {
+                auto* info = lookupVariableInfo(capName);
+                if (info) {
+                    auto closureAlloca = builder_.createAlloca(HIRType::makeAny(),
+                                                               capName + "$mclosure");
+                    builder_.createStore(methodClosure, closureAlloca);
+                    if (!info->isCapturedByNested) {
+                        info->isCapturedByNested = true;
+                        info->closurePtr = closureAlloca;
+                        info->captureIndex = mdCaptureIdx;
+                    } else {
+                        info->additionalCaptures.emplace_back(closureAlloca, mdCaptureIdx);
+                    }
+                }
+            }
+            mdCaptureIdx++;
+        }
+        return methodClosure;
     } else {
         // Pass the function type so SetPropStatic knows to box it as a function
         return builder_.createLoadFunction(funcName, closureFuncType);
@@ -10535,7 +10565,17 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
             bool handledAsModGlobal = false;
             if (currentFunction_ && isModuleGlobalVar(ident->name)) {
                 size_t scopeIdx = 0;
-                if (isCapturedVariable(ident->name, &scopeIdx)) {
+                bool captured = isCapturedVariable(ident->name, &scopeIdx);
+                // Write back to the module global whenever the read resolved to
+                // it: either the var is captured from an outer scope, OR there is
+                // no local binding in this function. The latter covers class
+                // methods lowered as standalone specs, where a top-level
+                // `callCount` is read via __modvar_ but is not an in-scope
+                // capture — without this, `callCount++` reads the global and
+                // silently drops the store (ECMA-262 §13.4 requires
+                // read+increment+write to the same location).
+                bool hasLocal = lookupVariableInfoInCurrentFunction(ident->name) != nullptr;
+                if (captured || !hasLocal) {
                     builder_.createStoreGlobal(modVarName(ident->name), result);
                     handledAsModGlobal = true;
                 }
@@ -10681,7 +10721,17 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
             bool handledAsModGlobal = false;
             if (currentFunction_ && isModuleGlobalVar(ident->name)) {
                 size_t scopeIdx = 0;
-                if (isCapturedVariable(ident->name, &scopeIdx)) {
+                bool captured = isCapturedVariable(ident->name, &scopeIdx);
+                // Write back to the module global whenever the read resolved to
+                // it: either the var is captured from an outer scope, OR there is
+                // no local binding in this function. The latter covers class
+                // methods lowered as standalone specs, where a top-level
+                // `callCount` is read via __modvar_ but is not an in-scope
+                // capture — without this, `callCount++` reads the global and
+                // silently drops the store (ECMA-262 §13.4 requires
+                // read+increment+write to the same location).
+                bool hasLocal = lookupVariableInfoInCurrentFunction(ident->name) != nullptr;
+                if (captured || !hasLocal) {
                     builder_.createStoreGlobal(modVarName(ident->name), result);
                     handledAsModGlobal = true;
                 }
