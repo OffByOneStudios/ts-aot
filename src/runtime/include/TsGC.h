@@ -23,6 +23,10 @@ void* ts_gc_realloc(void* ptr, size_t old_size, size_t new_size);
 extern "C" void ts_gc_push_tenure();
 extern "C" void ts_gc_pop_tenure();
 
+// Drain queued FinalizationRegistry cleanup callbacks (run by the event loop
+// each iteration; the collector only queues them since it can't run JS).
+void ts_gc_run_finalizer_callbacks();
+
 // Global root registration: location is a pointer-to-pointer that the GC
 // will dereference during mark phase to find live objects.
 void ts_gc_register_root(void** location);

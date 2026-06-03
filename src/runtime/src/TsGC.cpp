@@ -1685,6 +1685,13 @@ static void gc_run_pending_callbacks() {
     }
 }
 
+// GC-001 0.4: drain queued FinalizationRegistry cleanup callbacks. The collector
+// only queues them (it can't run JS during a GC); the event loop calls this each
+// iteration so the callbacks actually fire after their target was collected.
+extern "C" void ts_gc_run_finalizer_callbacks() {
+    gc_run_pending_callbacks();
+}
+
 void* ts_gc_alloc(size_t size) {
     if (!g_heap) gc_init();
     if (size == 0) size = 8; // Minimum allocation

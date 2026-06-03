@@ -263,6 +263,10 @@ extern "C" void ts_loop_run() {
 
     while (true) {
         ts_run_microtasks();
+        // GC-001 0.4: fire any FinalizationRegistry cleanup callbacks queued by a
+        // collection since the last iteration (the collector can't run JS itself).
+        ts_gc_run_finalizer_callbacks();
+        ts_run_microtasks();  // a finalizer callback may have scheduled microtasks
 
         bool alive = uv_loop_alive(loop);
         if (alive) {
