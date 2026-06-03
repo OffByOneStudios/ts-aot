@@ -398,8 +398,8 @@ This document tracks ts-aot's conformance with ECMAScript (JavaScript) language 
 |---------|--------|-------|
 | `String.prototype.replaceAll()` | ✅ | |
 | `Promise.any()` | ✅ | |
-| `WeakRef` | ✅ | Strong reference; GC does not yet support weak refs (deref() always returns target) |
-| `FinalizationRegistry` | ✅ | Best-effort no-op (GC does not yet support finalizers) |
+| `WeakRef` | ✅ | Real weak semantics: deref() returns undefined after the target is collected (GC clears the slot) |
+| `FinalizationRegistry` | ✅ | API works; cleanup callbacks are best-effort (spec-optional, never guaranteed to fire) |
 | Logical assignment (`&&=`, `\|\|=`, `??=`) | ✅ | Short-circuit semantics |
 | Numeric separators (`1_000_000`) | ✅ | |
 

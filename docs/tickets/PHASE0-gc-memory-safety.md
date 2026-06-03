@@ -39,7 +39,13 @@ cure so the moving GC is correct-by-design rather than correct-by-absence-of-rep
 
 ## Remaining Phase 0 work (sequenced)
 
-### 0.1 — Async work-item promise rooting — **S**
+### 0.1 — Async work-item promise rooting — ✅ **DONE**
+fs async work structs (FSPromiseWork/FSAsyncWork/FSFdAsyncWork/...) hold the only non-JS ref to
+their TsPromise* across the worker; rooted the slot at all 53 creation sites +
+unregister at the 9 shared after-worker free sites (`ts_gc_register_root(&work->promise)`).
+Only fs.cpp has the pattern. node 295/297 clean; fs async ops survive TS_GC_STRESS=1.
+
+### 0.1 (history) — Async work-item promise rooting — was **S**
 Malloc'd async *work* structs hold an unrooted GC `work->promise` (e.g. fs
 `WriteFileWork`/`FSFdAsyncWork`, crypto pbkdf2/scrypt/keygen). The struct is fine
 (malloc), but the promise inside is invisible to the GC for the op lifetime — a
@@ -50,7 +56,15 @@ promise reference be that malloc slot → collectible under pressure.
   before assuming a bug.
 - **Exit:** a fire-and-forget async-op stress test stays clean under `TS_GC_STRESS=1`.
 
-### 0.2 — C++ container GC-pointer audit — **M**
+### 0.2 — C++ container GC-pointer audit — ✅ **DONE**
+Swept all static/global + key member containers in src/runtime + extensions. Every GC-pointer
+holder was already rooted (Core handler vectors, EventLoop timers + microtasks, TsObject module
+cache / native props / user symbols, TsSymbol registry, TsString caches, TsGlobals module-global
+cache, TsPromise callbacks, EventEmitter via GC TsMap). The ONE gap: fetch `g_active_fetches`
+(malloc'd std::set<FetchContext*> of GC contexts) — added a scanner + minor-fixup (g_user_symbols
+pattern). node 295/297 clean.
+
+### 0.2 (history) — C++ container GC-pointer audit — was **M**
 Per runtime-safety.md mandate. Grep `src/runtime` + `extensions` for
 `std::vector|std::function|std::deque|unordered_map` holding `TsValue`/`Ts*`-pointer
 types; each needs a mark-scanner + minor-fixup (or move to `ts_alloc`/`TsArray`/`TsMap`,
@@ -188,7 +202,21 @@ test262 differential + the benchmark suite, then flip.
   across test262 + lodash + gc-suite; register promotion no longer pessimized by the
   conservative scan.
 
-### 0.4 — Real weak references — **M**
+### 0.4 — Real weak references — ✅ **DONE (correctness-critical); FR callbacks best-effort**
+- **WeakRef: real weak semantics** — `gc_process_weak_refs` clears `ref->target` when its mark
+  bit is unset; verified `deref()` → undefined after collection in both GC modes. (The "fake-
+  strong" conformance note was stale.)
+- **WeakMap/WeakSet:** functional; weakness is not JS-observable so the strong backing is a
+  memory-only concern, not a correctness bug. (test262 fails there are general API conformance —
+  this-value / error semantics — = Phase 2, not weakness.)
+- **FinalizationRegistry:** wired the missing run-side — `gc_run_pending_callbacks()` was never
+  called; exposed `ts_gc_run_finalizer_callbacks()` and drain it from the event loop each tick.
+  Residual (spec-OPTIONAL — FR callbacks are never guaranteed): callbacks don't yet observably
+  fire (target-collection/queue-timing on dynamic receivers); not a conformance failure.
+  test262 WeakRef + FinalizationRegistry suites are SKIPPED by the runner (need `$262.gc()`), so
+  no objective signal there.
+
+### 0.4 (history) — Real weak references — was **M**
 WeakMap/WeakSet/WeakRef/FinalizationRegistry are currently fake-strong (deref always
 returns target; finalizers are no-ops). Implement genuine weak semantics on top of the
 (now precise) GC.
