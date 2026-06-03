@@ -4929,6 +4929,15 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
                 } else if ((*hirVal)->type->kind == HIRTypeKind::Class &&
                            (*hirVal)->type->className == "Buffer") {
                     isBuffer = true;
+                } else if ((*hirVal)->type->kind == HIRTypeKind::Class) {
+                    // A class instance is not an array: numeric index access
+                    // (`c[0]`) must go through property/getter dispatch
+                    // (ts_object_get_dynamic), not ts_array_get — otherwise
+                    // integer-named members and accessors (`class C { get 0(){} }`,
+                    // `c[0]`) read undefined. The runtime dynamic path still
+                    // dispatches TsArray/TsBuffer/TsTypedArray by magic, so this
+                    // is safe for index-like built-in classes too.
+                    useDynamicAccess = true;
                 }
             }
         }
