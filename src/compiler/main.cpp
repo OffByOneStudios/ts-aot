@@ -58,7 +58,8 @@ int main(int argc, char** argv) {
             ("bundle-icu", "Bundle ICU data into executable (~29MB larger, for self-contained deployment)", cxxopts::value<bool>()->default_value("false"))
             ("native-parser", "Use native C++ parser (default: true)", cxxopts::value<bool>()->default_value("true"))
             ("legacy-parser", "Force legacy Node.js parser (dump_ast.js)", cxxopts::value<bool>()->default_value("false"))
-            ("gc-statepoints", "Enable LLVM GC statepoint infrastructure (experimental)", cxxopts::value<bool>()->default_value("false"))
+            ("gc-statepoints", "Enable LLVM GC statepoint precise-root infrastructure (default: true)", cxxopts::value<bool>()->default_value("true"))
+            ("no-gc-statepoints", "Disable LLVM GC statepoints (use conservative stack scan)", cxxopts::value<bool>()->default_value("false"))
             ("coverage", "Emit LLVM source-based coverage instrumentation", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage")
             ("input", "Input file", cxxopts::value<std::string>());
@@ -149,7 +150,9 @@ int main(int argc, char** argv) {
         driverOpts.dumpHirPre = result["dump-hir-pre"].as<bool>();
         driverOpts.dumpTypes = result["dump-types"].as<bool>();
         driverOpts.bundleIcu = result["bundle-icu"].as<bool>();
-        driverOpts.enableGCStatepoints = result["gc-statepoints"].as<bool>();
+        // Precise GC statepoints are ON by default; --no-gc-statepoints opts out.
+        driverOpts.enableGCStatepoints = result["gc-statepoints"].as<bool>()
+                                         && !result["no-gc-statepoints"].as<bool>();
         driverOpts.coverage = result["coverage"].as<bool>();
         driverOpts.verbose = result["verbose"].as<bool>();
 
