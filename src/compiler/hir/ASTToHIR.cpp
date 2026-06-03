@@ -2427,8 +2427,26 @@ void ASTToHIR::emitDeferredStaticInits() {
         }
 
         // `prototype` itself stays writable+configurable but intentionally
-        // enumerable per spec — keep createSetPropStatic.
+        // enumerable per spec — keep createSetPropStatic. (This also
+        // guarantees the ctor closure's `properties` map exists before the
+        // §15.7.14 constructor-proto link below.)
         builder_.createSetPropStatic(ctorVal, "prototype", proto);
+
+        // ECMA-262 §15.7.14: set the derived CONSTRUCTOR's [[Prototype]] to
+        // the base constructor, so static members (fields + methods, now own
+        // properties of the ctor closure) are inherited via the constructor
+        // proto chain. The runtime get_dynamic CLSR branch walks
+        // closure->properties' prototype, so `Derived.bf` / `Derived.bm()`
+        // fall through to Base. Must run AFTER the prototype install above so
+        // closure->properties exists (setPrototypeOf no-ops on a null map).
+        if (hirClass->baseClass) {
+            std::string baseCtorName2 = hirClass->baseClass->constructor
+                ? hirClass->baseClass->constructor->name
+                : hirClass->baseClass->name + "_constructor";
+            auto baseCtorVal2 = builder_.createLoadFunction(baseCtorName2);
+            builder_.createCall("ts_object_setPrototypeOf",
+                {ctorVal, baseCtorVal2}, HIRType::makeVoid());
+        }
 
         // Install static methods on the constructor itself so dynamic
         // access like `F.method()` (where `F` is a class-expression-bound
@@ -6504,6 +6522,31 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     if (objectProtoMethods.count(propAccess->name)) {
                         auto obj = lowerExpression(propAccess->expression.get());
                         lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
+                        return;
+                    }
+                    // ECMA-262 §15.7.14: a static method not defined on this
+                    // class may be INHERITED from a base class via the
+                    // constructor proto chain. Walk the base chain and dispatch
+                    // directly to the ancestor's static method (the dynamic
+                    // path already resolves `D[k]()`; this covers the literal
+                    // `Derived.bm()` call). Non-getter methods only — static
+                    // accessor inheritance falls through to the dynamic path.
+                    for (HIRClass* anc = cls->baseClass; anc; anc = anc->baseClass) {
+                        auto bit = anc->staticMethods.find(propAccess->name);
+                        if (bit == anc->staticMethods.end() || !bit->second) continue;
+                        HIRFunction* bmethod = bit->second;
+                        if (bmethod->name.find("___getter_") != std::string::npos) break;
+                        std::vector<std::shared_ptr<HIRValue>> calleeArgs;
+                        size_t expected = bmethod->params.size();
+                        if (bmethod->hasRestParam && expected > 0) {
+                            calleeArgs = args;
+                        } else {
+                            for (size_t i = 0; i < expected; ++i) {
+                                calleeArgs.push_back(i < args.size() ? args[i]
+                                                                     : builder_.createConstUndefined());
+                            }
+                        }
+                        lastValue_ = builder_.createCall(bmethod->name, calleeArgs, bmethod->returnType);
                         return;
                     }
                     // Fallback: For imported classes, staticMethods may not be populated
