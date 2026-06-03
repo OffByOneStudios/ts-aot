@@ -82,9 +82,25 @@ SUITES = [
         'name': 'GC',
         'key': 'gc',
         'script': str(TESTS_DIR / 'gc' / 'runner.py'),
-        'args': [],
+        # --statepoints-diff guards the precise-GC-roots default (the compiler
+        # default since 6fe1ef99): each program is also compiled with
+        # --no-gc-statepoints and must produce byte-identical output. Catches
+        # statepoints codegen regressions deterministically.
+        'args': ['--statepoints-diff'],
         'verbose_flag': '-v',
         'parallel_args': ['-j', '6'],
+    },
+    {
+        'name': 'GC stress',
+        'key': 'gc-stress',
+        'script': str(TESTS_DIR / 'gc' / 'runner.py'),
+        # TS_GC_STRESS=1 forces a full collect on every alloc — the deterministic
+        # surfacer for rooting gaps (malloc'd holders of GC pointers). Opt-in /
+        # nightly: it makes loop-heavy programs slow, so it needs a long timeout.
+        'args': ['--stress', '--timeout', '120'],
+        'verbose_flag': '-v',
+        'parallel_args': ['-j', '6'],
+        'opt_in': True,
     },
     {
         'name': 'test262',
@@ -178,7 +194,7 @@ def parse_results(output: str, suite_key: str) -> dict:
             if m:
                 failed += int(m.group(1))
 
-    elif suite_key == 'gc':
+    elif suite_key in ('gc', 'gc-stress'):
         # GC runner: "Passed: N"; Failed/Differential/Crash-abort/Compile error
         # all count as failures (each is a moving-GC correctness signal).
         m = re.search(r'Passed:\s+(\d+)', clean)

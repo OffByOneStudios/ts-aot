@@ -93,70 +93,53 @@ class ProgramResult:
     time_ms: float = 0.0
 
 
-def run_program(prog_path: Path, configs: dict, timeout: int = 30) -> ProgramResult:
+def _compile(prog_path: Path, exe: Path, timeout: int, extra=()):
+    """Compile prog_path -> exe. Returns (ok, reason)."""
+    try:
+        cp = subprocess.run(
+            [str(COMPILER), str(prog_path), *extra, "-o", str(exe)],
+            capture_output=True, timeout=timeout, text=True, cwd=str(PROJECT_ROOT),
+        )
+    except subprocess.TimeoutExpired:
+        return False, "compile timeout"
+    if cp.returncode != 0:
+        err = (cp.stderr or "").strip().splitlines()
+        reason = next((ln for ln in err if "[error]" in ln or "Error:" in ln),
+                      (err[-1] if err else f"exit {cp.returncode}"))
+        return False, reason[:200]
+    return True, ""
+
+
+def run_program(prog_path: Path, configs: dict, timeout: int = 30,
+                statepoints_diff: bool = False) -> ProgramResult:
     import time as _time
     name = prog_path.stem
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
     exe = BUILD_DIR / _hashed_exe_name(prog_path)
     t0 = _time.perf_counter()
 
-    # Compile once.
-    try:
-        cp = subprocess.run(
-            [str(COMPILER), str(prog_path), "-o", str(exe)],
-            capture_output=True, timeout=timeout, text=True, cwd=str(PROJECT_ROOT),
-        )
-    except subprocess.TimeoutExpired:
-        return ProgramResult(name, "compile_error", reason="compile timeout",
-                             time_ms=(_time.perf_counter() - t0) * 1000)
-    if cp.returncode != 0:
-        err = (cp.stderr or "").strip().splitlines()
-        reason = next((ln for ln in err if "[error]" in ln or "Error:" in ln),
-                      (err[-1] if err else f"exit {cp.returncode}"))
-        return ProgramResult(name, "compile_error", reason=reason[:200],
+    # Compile once (default codegen — precise GC statepoints since 6fe1ef99).
+    ok, reason = _compile(prog_path, exe, timeout)
+    if not ok:
+        return ProgramResult(name, "compile_error", reason=reason,
                              time_ms=(_time.perf_counter() - t0) * 1000)
 
-    runs = []
-    for cfg_name, overlay in configs.items():
-        env = dict(os.environ)
-        env.update(overlay)
-        try:
-            rp = subprocess.run([str(exe)], capture_output=True, timeout=timeout,
-                                text=True, cwd=str(PROJECT_ROOT), env=env)
-        except subprocess.TimeoutExpired:
-            runs.append(ConfigRun(cfg_name, "crash", reason="execution timeout"))
-            continue
+    runs = [_eval_run(cfg_name, exe, overlay, timeout)
+            for cfg_name, overlay in configs.items()]
 
-        out = rp.stdout or ""
-        err = rp.stderr or ""
-        prog_out = _program_stdout(out)
-        combined = out + "\n" + err
-
-        # Runtime INV-1 abort (TS_GC_VERIFY>=2) shows up as an abort/nonzero exit
-        # with the INV-1 banner on stderr.
-        if "INV-1 FAILED" in err:
-            runs.append(ConfigRun(cfg_name, "abort",
-                                  reason="INV-1: stale/dangling holder after minor GC",
-                                  stdout=prog_out))
-            continue
-        # Look for verdict line.
-        verdict = None
-        for ln in prog_out.splitlines():
-            if ln == "PASS" or ln.startswith("FAIL:"):
-                verdict = ln
-        if rp.returncode != 0 and "FAIL:" not in combined and verdict != "PASS":
-            runs.append(ConfigRun(cfg_name, "crash",
-                                  reason=f"exit {rp.returncode}: {err.strip()[:160] or prog_out[:160]}",
-                                  stdout=prog_out))
-            continue
-        if verdict == "PASS":
-            runs.append(ConfigRun(cfg_name, "pass", stdout=prog_out))
-        elif verdict and verdict.startswith("FAIL:"):
-            runs.append(ConfigRun(cfg_name, "fail", reason=verdict[5:].strip()[:200],
-                                  stdout=prog_out))
+    # Statepoints-vs-conservative differential: compile a second binary with
+    # --no-gc-statepoints and require byte-identical output to the default
+    # (precise-roots) build. This is the guard that would have caught the
+    # statepoints codegen bugs fixed when precise roots became the default
+    # (bool-box signature, select-addrspace, etc.). Runs under the plain env.
+    if statepoints_diff:
+        exe2 = BUILD_DIR / ("ns_" + _hashed_exe_name(prog_path))
+        ok2, reason2 = _compile(prog_path, exe2, timeout, extra=["--no-gc-statepoints"])
+        if not ok2:
+            runs.append(ConfigRun("nostatepoints", "fail",
+                                  reason=f"--no-gc-statepoints compile: {reason2}"))
         else:
-            runs.append(ConfigRun(cfg_name, "fail", reason=f"no PASS/FAIL; out={prog_out[:80]!r}",
-                                  stdout=prog_out))
+            runs.append(_eval_run("nostatepoints", exe2, {}, timeout))
 
     elapsed = (_time.perf_counter() - t0) * 1000
 
@@ -173,7 +156,47 @@ def run_program(prog_path: Path, configs: dict, timeout: int = 30) -> ProgramRes
             return ProgramResult(name, "differential",
                                  reason="moving-GC output != NURSERY=0 baseline",
                                  runs=runs, time_ms=elapsed)
+    # Differential: default (statepoints) vs --no-gc-statepoints must match.
+    if "default" in by and "nostatepoints" in by:
+        if by["default"].stdout != by["nostatepoints"].stdout:
+            return ProgramResult(name, "differential",
+                                 reason="statepoints output != --no-gc-statepoints baseline",
+                                 runs=runs, time_ms=elapsed)
     return ProgramResult(name, "pass", runs=runs, time_ms=elapsed)
+
+
+def _eval_run(cfg_name: str, exe: Path, overlay: dict, timeout: int) -> ConfigRun:
+    """Run one compiled binary under an env overlay and classify the result."""
+    env = dict(os.environ)
+    env.update(overlay)
+    try:
+        rp = subprocess.run([str(exe)], capture_output=True, timeout=timeout,
+                            text=True, cwd=str(PROJECT_ROOT), env=env)
+    except subprocess.TimeoutExpired:
+        return ConfigRun(cfg_name, "crash", reason="execution timeout")
+
+    out = rp.stdout or ""
+    err = rp.stderr or ""
+    prog_out = _program_stdout(out)
+    combined = out + "\n" + err
+
+    if "INV-1 FAILED" in err:
+        return ConfigRun(cfg_name, "abort",
+                         reason="INV-1: stale/dangling holder after minor GC",
+                         stdout=prog_out)
+    verdict = None
+    for ln in prog_out.splitlines():
+        if ln == "PASS" or ln.startswith("FAIL:"):
+            verdict = ln
+    if rp.returncode != 0 and "FAIL:" not in combined and verdict != "PASS":
+        return ConfigRun(cfg_name, "crash",
+                         reason=f"exit {rp.returncode}: {err.strip()[:160] or prog_out[:160]}",
+                         stdout=prog_out)
+    if verdict == "PASS":
+        return ConfigRun(cfg_name, "pass", stdout=prog_out)
+    if verdict and verdict.startswith("FAIL:"):
+        return ConfigRun(cfg_name, "fail", reason=verdict[5:].strip()[:200], stdout=prog_out)
+    return ConfigRun(cfg_name, "fail", reason=f"no PASS/FAIL; out={prog_out[:80]!r}", stdout=prog_out)
 
 
 def main() -> int:
@@ -183,6 +206,10 @@ def main() -> int:
     ap.add_argument("-j", "--jobs", type=int, default=4, help="Parallel jobs (default 4)")
     ap.add_argument("-t", "--timeout", type=int, default=30, help="Per-run timeout (s)")
     ap.add_argument("--stress", action="store_true", help="Also run the TS_GC_STRESS=1 config")
+    ap.add_argument("--statepoints-diff", action="store_true",
+                    help="Also compile each program with --no-gc-statepoints and require "
+                         "byte-identical output to the default (precise-roots) build. Guards "
+                         "the GC-statepoints default against codegen regressions.")
     ap.add_argument("--include-broken", action="store_true",
                     help="Also run programs/expected_broken/* — programs distilled from "
                          "known unfixed GC bugs (currently the moving-GC corruption). These "
@@ -216,15 +243,16 @@ def main() -> int:
     print(f"Running {len(progs)} GC program(s) x {len(configs)} config(s) "
           f"[{', '.join(configs)}] with j={args.jobs}...")
 
+    spdiff = args.statepoints_diff
     results = []
     if args.jobs > 1:
         with cf.ProcessPoolExecutor(max_workers=args.jobs) as ex:
-            futs = {ex.submit(run_program, p, configs, args.timeout): p for p in progs}
+            futs = {ex.submit(run_program, p, configs, args.timeout, spdiff): p for p in progs}
             for fut in cf.as_completed(futs):
                 results.append(fut.result())
     else:
         for p in progs:
-            results.append(run_program(p, configs, args.timeout))
+            results.append(run_program(p, configs, args.timeout, spdiff))
 
     results.sort(key=lambda r: r.name)
 
