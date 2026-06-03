@@ -3349,14 +3349,13 @@ void ASTToHIR::emitInstanceFieldSet(std::shared_ptr<HIRValue> thisValue,
 
 void ASTToHIR::lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
                                           std::shared_ptr<HIRValue> sourceValue) {
-    // ECMA-262 8.5.2 BindingInitialization for ObjectBindingPattern:
-    //   1. Perform ? RequireObjectCoercible(value).
-    // Skip the check for empty `{}` patterns — spec for `ObjectBindingPattern : {}`
-    // returns NormalCompletion(empty) without coercing.
-    if (!pattern->elements.empty()) {
-        builder_.createCall("ts_destructure_require_object", {sourceValue},
-                            HIRType::makeVoid());
-    }
+    // ECMA-262 8.6.2 BindingInitialization, `ObjectBindingPattern : { }` and
+    // `{ BindingPropertyList }` BOTH step 1: Perform ? RequireObjectCoercible(value).
+    // The empty `{}` pattern coerces too — `function f({}){}; f(undefined)` and
+    // `var {} = undefined` throw TypeError (matches Node + the array path below,
+    // which checks unconditionally). Always perform the check.
+    builder_.createCall("ts_destructure_require_object", {sourceValue},
+                        HIRType::makeVoid());
     for (auto& elem : pattern->elements) {
         if (auto* binding = dynamic_cast<ast::BindingElement*>(elem.get())) {
             lowerBindingElement(binding, sourceValue, true /* isObjectPattern */);
