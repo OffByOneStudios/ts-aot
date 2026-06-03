@@ -18,8 +18,40 @@
 #include <set>
 #include <new>
 
+extern "C" void ts_gc_register_scanner(void (*)(void*), void*);
+extern "C" void ts_gc_register_minor_fixup(void (*)(void*), void*);
+extern "C" void ts_gc_mark_object(void*);
+extern "C" void* ts_gc_minor_lookup_forward(void*);
+
 struct FetchContext;
+// In-flight fetch contexts. Each FetchContext is ts_alloc'd (GC heap) and holds
+// a TsPromise* (and url / response headers). Its only references are this malloc'd
+// set + libuv handle ->data, both invisible to the GC. Without a scanner a GC
+// during the network op would collect/move the FetchContext (and its promise) ->
+// the libuv callback would resolve a dangling promise (GC-001 0.2). Mark each
+// entry (keeps the context + its GC fields alive) and forward promoted entries.
 static std::set<FetchContext*> g_active_fetches;
+
+static void ensure_fetch_gc_roots() {
+    static bool registered = false;
+    if (registered) return;
+    registered = true;
+    ts_gc_register_scanner([](void*) {
+        for (FetchContext* c : g_active_fetches)
+            if (c) ts_gc_mark_object(c);
+    }, nullptr);
+    ts_gc_register_minor_fixup([](void*) {
+        if (g_active_fetches.empty()) return;
+        std::vector<FetchContext*> upd;
+        upd.reserve(g_active_fetches.size());
+        for (FetchContext* c : g_active_fetches) {
+            if (c) { void* f = ts_gc_minor_lookup_forward(c); if (f) c = (FetchContext*)f; }
+            upd.push_back(c);
+        }
+        g_active_fetches.clear();
+        for (FetchContext* c : upd) g_active_fetches.insert(c);
+    }, nullptr);
+}
 
 struct FetchContext {
     ts::TsPromise* promise;
@@ -286,6 +318,7 @@ void* ts_fetch(void* url_val, void* options_val) {
     ts::TsPromise* promise = ts::ts_promise_create();
 
     FetchContext* ctx = new(ts_alloc(sizeof(FetchContext))) FetchContext(promise, url, nullptr);
+    ensure_fetch_gc_roots();
     g_active_fetches.insert(ctx);
     ctx->is_https = std::string(url->GetProtocol()->ToUtf8()) == "https:";
     ctx->response_headers = TsHeaders::Create();
