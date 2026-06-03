@@ -11312,7 +11312,20 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
             // 'this' is the first parameter
             defaultCtor->params.push_back({"this", HIRType::makeObject()});
-            defaultCtor->nextValueId = 1;
+            // ECMA-262 15.7.14: the implicit constructor of a DERIVED class is
+            // `constructor(...args){ super(...args); }` — it forwards its
+            // arguments to the parent. Mirror the base constructor's parameter
+            // list (after 'this') so `class C extends A {}; new C(7,8)` reaches
+            // A's constructor with 7,8. Without this the default ctor took only
+            // 'this' and called super() with no args.
+            HIRFunction* baseCtorFwd = (hirClass->baseClass && hirClass->baseClass->constructor)
+                ? hirClass->baseClass->constructor : nullptr;
+            if (baseCtorFwd) {
+                for (size_t pi = 1; pi < baseCtorFwd->params.size(); ++pi) {
+                    defaultCtor->params.push_back(baseCtorFwd->params[pi]);
+                }
+            }
+            defaultCtor->nextValueId = static_cast<uint32_t>(defaultCtor->params.size());
 
             // Create entry block
             HIRBlock* ctorBlock = defaultCtor->createBlock("entry");
@@ -11326,10 +11339,16 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             auto thisValue = std::make_shared<HIRValue>(0, HIRType::makeObject(), "this");
             defineVariable("this", thisValue);
 
-            // Call super() if we have a base class
+            // Call super(...args) if we have a base class, forwarding the
+            // mirrored parameters (HIR ids 1..N) to the parent constructor.
             if (hirClass->baseClass && hirClass->baseClass->constructor) {
                 std::vector<std::shared_ptr<HIRValue>> superArgs;
                 superArgs.push_back(thisValue);
+                for (size_t pi = 1; pi < defaultCtor->params.size(); ++pi) {
+                    superArgs.push_back(std::make_shared<HIRValue>(
+                        static_cast<uint32_t>(pi), defaultCtor->params[pi].second,
+                        defaultCtor->params[pi].first));
+                }
                 builder_.createCall(hirClass->baseClass->constructor->name, superArgs, HIRType::makeVoid());
             }
 
