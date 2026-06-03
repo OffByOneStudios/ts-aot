@@ -208,6 +208,12 @@ private:
         std::shared_ptr<HIRValue> globalPtr;
         std::shared_ptr<HIRType> propType;
         ast::Expression* initExpr;  // Raw pointer, valid until lowering completes
+        // Constructor-object mirror: install the initialized value as an own
+        // property of the class constructor closure so static fields are
+        // reachable through an alias / dynamic key / passed reference, not
+        // only through the literal-class-name fast path.
+        std::string ctorName;   // class constructor closure name (e.g. C_constructor)
+        std::string fieldName;  // static field name (e.g. sf)
     };
     std::vector<StaticPropInit> deferredStaticInits_;
 

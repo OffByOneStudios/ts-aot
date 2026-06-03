@@ -2350,6 +2350,14 @@ void ASTToHIR::emitDeferredStaticInits() {
     for (auto& init : deferredStaticInits_) {
         auto initVal = lowerExpression(init.initExpr);
         builder_.createStore(initVal, init.globalPtr, init.propType);
+        // Mirror the initialized value onto the constructor closure as an own
+        // property, so static fields are reachable through a non-literal-name
+        // reference (alias / dynamic key / passed). The typed global above
+        // remains authoritative for the literal-name direct-read fast path.
+        if (!init.ctorName.empty() && !init.fieldName.empty()) {
+            auto ctorVal = builder_.createLoadFunction(init.ctorName);
+            builder_.createSetPropStatic(ctorVal, init.fieldName, initVal);
+        }
     }
     deferredStaticInits_.clear();  // Only emit once
 
@@ -5680,10 +5688,16 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                     std::string globalName = cls->name + "_static_" + propAccess->name;
                     auto it = staticPropertyGlobals_.find(globalName);
                     if (it != staticPropertyGlobals_.end()) {
-                        // Store to the static property global
+                        // Store to the static property global (authoritative for
+                        // the literal-name direct-read fast path).
                         auto globalPtr = it->second.first;
                         auto propType = it->second.second;
                         builder_.createStore(rhs, globalPtr, propType);
+                        // Mirror onto the constructor closure so a non-literal
+                        // reference (alias / dynamic key / passed) reads the
+                        // updated value rather than the stale init.
+                        auto ctorVal = builder_.createLoadFunction(cls->name + "_constructor");
+                        builder_.createSetPropStatic(ctorVal, propAccess->name, rhs);
                         lastValue_ = rhs;
                         return;
                     }
@@ -10690,6 +10704,10 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                         auto it = staticPropertyGlobals_.find(globalName);
                         if (it != staticPropertyGlobals_.end()) {
                             builder_.createStore(result, it->second.first, it->second.second);
+                            // Mirror the updated value onto the constructor
+                            // closure so a non-literal reference reads it.
+                            auto ctorVal = builder_.createLoadFunction(cls->name + "_constructor");
+                            builder_.createSetPropStatic(ctorVal, prop->name, result);
                             storedToStaticGlobal = true;
                         }
                         break;
@@ -10850,6 +10868,10 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                         auto it = staticPropertyGlobals_.find(globalName);
                         if (it != staticPropertyGlobals_.end()) {
                             builder_.createStore(result, it->second.first, it->second.second);
+                            // Mirror onto the constructor closure so a
+                            // non-literal reference reads the updated value.
+                            auto ctorVal = builder_.createLoadFunction(cls->name + "_constructor");
+                            builder_.createSetPropStatic(ctorVal, prop->name, result);
                             storedToStaticGlobal = true;
                         }
                         break;
@@ -10986,7 +11008,11 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 
                 // Defer initialization to user_main
                 if (propDef->initializer) {
-                    deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get()});
+                    // Mirror onto the constructor closure (own property) so the
+                    // static field is reachable through an alias / dynamic key /
+                    // passed reference. ctorName is always "<Class>_constructor".
+                    deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
+                                                    node->name + "_constructor", propDef->name});
                 }
             }
         }
@@ -11587,7 +11613,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
                 // Defer initialization to user_main
                 if (propDef->initializer) {
-                    deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get()});
+                    // Mirror onto the constructor closure (own property) so the
+                    // static field is reachable through an alias / dynamic key /
+                    // passed reference. ctorName is always "<Class>_constructor".
+                    deferredStaticInits_.push_back({globalPtr, propType, propDef->initializer.get(),
+                                                    className + "_constructor", propDef->name});
                 }
             }
         }
