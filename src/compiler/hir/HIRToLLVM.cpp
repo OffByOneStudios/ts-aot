@@ -4924,7 +4924,12 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
             if (*hirVal && (*hirVal)->type) {
                 if ((*hirVal)->type->kind == HIRTypeKind::Any ||
                     (*hirVal)->type->kind == HIRTypeKind::Object ||
-                    (*hirVal)->type->kind == HIRTypeKind::String) {
+                    (*hirVal)->type->kind == HIRTypeKind::String ||
+                    (*hirVal)->type->kind == HIRTypeKind::Function) {
+                    // Function objects (`function f(){}; f[0]`) are not arrays —
+                    // numeric index is property access. Routing to ts_array_get
+                    // treated the function as an array and dereferenced a null
+                    // element backing → crash.
                     useDynamicAccess = true;
                 } else if ((*hirVal)->type->kind == HIRTypeKind::Class &&
                            (*hirVal)->type->className == "Buffer") {
