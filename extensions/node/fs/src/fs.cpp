@@ -362,6 +362,7 @@ static void fs_promise_callback(uv_fs_t* req) {
     }
     uv_fs_req_cleanup(req);
     work->~FSPromiseWork();
+    ts_gc_unregister_root((void**)&work->promise);  // GC-001 0.1: release the async-promise root
     free(work);
     free(req);
 }
@@ -1336,6 +1337,7 @@ static void fs_fd_async_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, ts_value_make_string(ts_string_create(buf)));
     }
     work->~FSFdAsyncWork();
+    ts_gc_unregister_root((void**)&work->promise);  // GC-001 0.1: release the async-promise root
     free(work);
     free(req);
 }
@@ -1346,6 +1348,7 @@ void* ts_fs_fchmod_async(double fd, double mode) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->fd = (int)fd;
     work->mode = (int)mode;
     work->type = FSFdAsyncWork::FCHMOD;
@@ -1360,6 +1363,7 @@ void* ts_fs_fchown_async(double fd, double uid, double gid) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->fd = (int)fd;
     work->uid = (int)uid;
     work->gid = (int)gid;
@@ -1375,6 +1379,7 @@ void* ts_fs_futimes_async(double fd, double atime, double mtime) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->fd = (int)fd;
     work->atime = atime;
     work->mtime = mtime;
@@ -1390,6 +1395,7 @@ void* ts_fs_fstat_async(double fd) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->fd = (int)fd;
     work->type = FSFdAsyncWork::FSTAT;
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
@@ -1403,6 +1409,7 @@ void* ts_fs_fsync_async(double fd) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->fd = (int)fd;
     work->type = FSFdAsyncWork::FSYNC;
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
@@ -1416,6 +1423,7 @@ void* ts_fs_fdatasync_async(double fd) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->fd = (int)fd;
     work->type = FSFdAsyncWork::FDATASYNC;
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
@@ -1429,6 +1437,7 @@ void* ts_fs_ftruncate_async(double fd, double len) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->fd = (int)fd;
     work->len = (int64_t)len;
     work->type = FSFdAsyncWork::FTRUNCATE;
@@ -1444,6 +1453,7 @@ void* ts_fs_lchmod_async(void* path, double mode) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->mode = (int)mode;
@@ -1459,6 +1469,7 @@ void* ts_fs_lchown_async(void* path, double uid, double gid) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->uid = (int)uid;
@@ -1475,6 +1486,7 @@ void* ts_fs_lutimes_async(void* path, double atime, double mtime) {
     FSFdAsyncWork* work = (FSFdAsyncWork*)malloc(sizeof(FSFdAsyncWork));
     new (work) FSFdAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->atime = atime;
@@ -1667,6 +1679,7 @@ static TsValue* dir_read_async_wrapper(void* context) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->dir_ptr = dir->dir;
     work->type = FSAsyncWork::DIR_READ;
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
@@ -1682,6 +1695,7 @@ static TsValue* dir_close_async_wrapper(void* context) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->dir_ptr = dir->dir;
     work->type = FSAsyncWork::DIR_CLOSE;
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
@@ -1744,6 +1758,7 @@ static void fs_async_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, ts_value_make_string(ts_string_create(buf)));
     }
     work->~FSAsyncWork();
+    ts_gc_unregister_root((void**)&work->promise);  // GC-001 0.1: release the async-promise root
     free(work);
     free(req);
 }
@@ -1753,6 +1768,7 @@ void* ts_fs_access_async(void* path, double mode) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->mode = (int)mode;
@@ -1768,6 +1784,7 @@ void* ts_fs_chmod_async(void* path, double mode) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->mode = (int)mode;
@@ -1783,6 +1800,7 @@ void* ts_fs_chown_async(void* path, double uid, double gid) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->uid = (int)uid;
@@ -1799,6 +1817,7 @@ void* ts_fs_utimes_async(void* path, double atime, double mtime) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->atime = atime;
@@ -1815,6 +1834,7 @@ void* ts_fs_statfs_async(void* path) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->type = FSAsyncWork::STATFS;
@@ -1829,6 +1849,7 @@ void* ts_fs_link_async(void* existingPath, void* newPath) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* existingStr = unboxString(existingPath);
     TsString* newStr = unboxString(newPath);
     work->path = existingStr ? existingStr->ToUtf8() : "";
@@ -1845,6 +1866,7 @@ void* ts_fs_symlink_async(void* target, void* path, void* type) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* targetStr = unboxString(target);
     TsString* pathStr = unboxString(path);
     work->path = targetStr ? targetStr->ToUtf8() : "";
@@ -1870,6 +1892,7 @@ void* ts_fs_readlink_async(void* path) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->type = FSAsyncWork::READLINK;
@@ -1884,6 +1907,7 @@ void* ts_fs_realpath_async(void* path) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->type = FSAsyncWork::REALPATH;
@@ -1898,6 +1922,7 @@ void* ts_fs_stat_async(void* path) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->type = FSAsyncWork::STAT;
@@ -1912,6 +1937,7 @@ void* ts_fs_lstat_async(void* path) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->type = FSAsyncWork::LSTAT;
@@ -1926,6 +1952,7 @@ void* ts_fs_rename_async(void* oldPath, void* newPath) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     
     TsString* oldStr = unboxString(oldPath);
     TsString* newStr = unboxString(newPath);
@@ -1944,6 +1971,7 @@ void* ts_fs_copyFile_async(void* src, void* dest, double flags) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
 
     TsString* srcStr = unboxString(src);
     TsString* destStr = unboxString(dest);
@@ -1963,6 +1991,7 @@ void* ts_fs_cp_async(void* src, void* dest, void* options) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
 
     TsString* srcStr = unboxString(src);
     TsString* destStr = unboxString(dest);
@@ -2000,6 +2029,7 @@ void* ts_fs_truncate_async(void* path, double len) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
 
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
@@ -2016,6 +2046,7 @@ void* ts_fs_mkdir_async(void* path, void* options) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
 
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
@@ -2031,6 +2062,7 @@ void* ts_fs_rmdir_async(void* path, void* options) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
 
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
@@ -2046,6 +2078,7 @@ void* ts_fs_rm_async(void* path, void* options) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
 
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
@@ -2061,6 +2094,7 @@ void* ts_fs_unlink_async(void* path) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
 
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
@@ -2076,6 +2110,7 @@ void* ts_fs_mkdtemp_async(void* prefix) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* prefixStr = unboxString(prefix);
     work->path = std::string(prefixStr ? prefixStr->ToUtf8() : "") + "XXXXXX";
     work->type = FSAsyncWork::MKDTEMP;
@@ -2090,6 +2125,7 @@ void* ts_fs_opendir_async(void* path, void* options) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     TsString* pathStr = unboxString(path);
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->type = FSAsyncWork::OPENDIR;
@@ -2107,6 +2143,7 @@ void* ts_fs_appendFile_async(void* path, void* content) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->string_res = contentStr ? contentStr->ToUtf8() : ""; // Reuse string_res for content
     work->type = FSAsyncWork::APPEND_FILE;
@@ -2532,6 +2569,7 @@ void* ts_fs_readdir_async(void* path, void* options) {
     FSAsyncWork* work = (FSAsyncWork*)malloc(sizeof(FSAsyncWork));
     new (work) FSAsyncWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->type = FSAsyncWork::READDIR;
     
@@ -2589,6 +2627,7 @@ static void read_file_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~ReadFileWork();
+    ts_gc_unregister_root((void**)&work->promise);  // GC-001 0.1: release the async-promise root
     free(work);
     free(req);
 }
@@ -2600,6 +2639,7 @@ void* ts_fs_readFile_async(void* path) {
     ReadFileWork* work = (ReadFileWork*)malloc(sizeof(ReadFileWork));
     new (work) ReadFileWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->path = pathStr ? pathStr->ToUtf8() : "";
     
     uv_work_t* req = (uv_work_t*)malloc(sizeof(uv_work_t));
@@ -2638,6 +2678,7 @@ static void write_file_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~WriteFileWork();
+    ts_gc_unregister_root((void**)&work->promise);  // GC-001 0.1: release the async-promise root
     free(work);
     free(req);
 }
@@ -2650,6 +2691,7 @@ void* ts_fs_writeFile_async(void* path, void* content) {
     WriteFileWork* work = (WriteFileWork*)malloc(sizeof(WriteFileWork));
     new (work) WriteFileWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->path = pathStr ? pathStr->ToUtf8() : "";
     work->content = contentStr ? contentStr->ToUtf8() : "";
     
@@ -2687,6 +2729,7 @@ static void mkdir_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~MkdirWork();
+    ts_gc_unregister_root((void**)&work->promise);  // GC-001 0.1: release the async-promise root
     free(work);
     free(req);
 }
@@ -2731,6 +2774,7 @@ static void open_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~OpenWork();
+    ts_gc_unregister_root((void**)&work->promise);  // GC-001 0.1: release the async-promise root
     free(work);
     free(req);
 }
@@ -2762,6 +2806,7 @@ void* ts_fs_open_async(void* path_val, void* flags_val, double mode) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     int r = uv_fs_open(uv_default_loop(), req, path->ToUtf8(), flags, (int)mode, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -2810,6 +2855,7 @@ static void read_write_after_worker(uv_work_t* req, int status) {
         TsValue* reason = ts_value_make_string(tsStr);
         ts::ts_promise_reject_internal(work->promise, reason);
     }
+    ts_gc_unregister_root((void**)&work->promise);  // GC-001 0.1: release the async-promise root
     free(work);
     free(req);
 }
@@ -2818,6 +2864,7 @@ void* ts_fs_read_async(int64_t fd, void* buffer, int64_t offset, int64_t length,
     ts::TsPromise* promise = ts::ts_promise_create();
     ReadWriteWork* work = (ReadWriteWork*)malloc(sizeof(ReadWriteWork));
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->fd = (int)fd;
     work->buffer = (TsBuffer*)buffer;
     work->offset = offset;
@@ -2835,6 +2882,7 @@ void* ts_fs_write_async(int64_t fd, void* buffer, int64_t offset, int64_t length
     ts::TsPromise* promise = ts::ts_promise_create();
     ReadWriteWork* work = (ReadWriteWork*)malloc(sizeof(ReadWriteWork));
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->fd = (int)fd;
     work->buffer = (TsBuffer*)buffer;
     work->offset = offset;
@@ -2866,6 +2914,7 @@ static void close_after_worker(uv_work_t* req, int status) {
         ts::ts_promise_reject_internal(work->promise, reason);
     }
     work->~CloseWork();
+    ts_gc_unregister_root((void**)&work->promise);  // GC-001 0.1: release the async-promise root
     free(work);
     free(req);
 }
@@ -2876,6 +2925,7 @@ void* ts_fs_close_async(double fd) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     uv_fs_close(uv_default_loop(), req, (uv_file)fd, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -2909,6 +2959,7 @@ TsValue* ts_fs_filehandle_close(void* context, int argc, TsValue** argv) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     uv_fs_close(uv_default_loop(), req, (uv_file)h->fd, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -2925,6 +2976,7 @@ TsValue* ts_fs_filehandle_stat(void* context, int argc, TsValue** argv) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     uv_fs_fstat(uv_default_loop(), req, (uv_file)h->fd, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -2942,6 +2994,7 @@ TsValue* ts_fs_filehandle_chmod(void* context, int argc, TsValue** argv) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     uv_fs_fchmod(uv_default_loop(), req, (uv_file)h->fd, (int)mode, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -2962,6 +3015,7 @@ TsValue* ts_fs_filehandle_chown(void* context, int argc, TsValue** argv) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     uv_fs_fchown(uv_default_loop(), req, (uv_file)h->fd, (uv_uid_t)uid, (uv_gid_t)gid, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -2981,6 +3035,7 @@ TsValue* ts_fs_filehandle_sync(void* context, int argc, TsValue** argv) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     uv_fs_fsync(uv_default_loop(), req, (uv_file)h->fd, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -2997,6 +3052,7 @@ TsValue* ts_fs_filehandle_datasync(void* context, int argc, TsValue** argv) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     uv_fs_fdatasync(uv_default_loop(), req, (uv_file)h->fd, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -3014,6 +3070,7 @@ TsValue* ts_fs_filehandle_truncate(void* context, int argc, TsValue** argv) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     uv_fs_ftruncate(uv_default_loop(), req, (uv_file)h->fd, (int64_t)len, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -3034,6 +3091,7 @@ TsValue* ts_fs_filehandle_utimes(void* context, int argc, TsValue** argv) {
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     req->data = work;
     uv_fs_futime(uv_default_loop(), req, (uv_file)h->fd, atime, mtime, fs_promise_callback);
     return ts_value_make_promise(promise);
@@ -3062,6 +3120,7 @@ TS_NOINLINE TsValue* ts_fs_filehandle_read(void* context, int argc, TsValue** ar
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->bufferValue = *argv[0];
     work->buf = uv_buf_init((char*)buffer->GetData() + (size_t)offset, (unsigned int)length);
     req->data = work;
@@ -3095,6 +3154,7 @@ TS_NOINLINE TsValue* ts_fs_filehandle_write(void* context, int argc, TsValue** a
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->bufferValue = *argv[0];
     work->buf = uv_buf_init((char*)buffer->GetData() + (size_t)offset, (unsigned int)length);
     req->data = work;
@@ -3119,6 +3179,7 @@ static TsValue* ts_fs_readv_internal(int fd, TsValue* buffers_val, double positi
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->bufferValue = *buffers_val;
     
     for (int i = 0; i < buffers->Length(); ++i) {
@@ -3159,6 +3220,7 @@ static TsValue* ts_fs_writev_internal(int fd, TsValue* buffers_val, double posit
     FSPromiseWork* work = (FSPromiseWork*)malloc(sizeof(FSPromiseWork));
     new (work) FSPromiseWork();
     work->promise = promise;
+    ts_gc_register_root((void**)&work->promise);  // GC-001 0.1: keep a fire-and-forget async promise alive across the worker
     work->bufferValue = *buffers_val;
     
     for (int i = 0; i < buffers->Length(); ++i) {
