@@ -3315,6 +3315,15 @@ void ASTToHIR::lowerArrayBindingPattern(ast::ArrayBindingPattern* pattern,
     builder_.createCall("ts_destructure_require_object", {sourceValue},
                         HIRType::makeVoid());
 
+    // ECMA-262 13.3.3.6: `ArrayBindingPattern : [ ]` returns NormalCompletion
+    // immediately — it performs NO iteration of the source. Calling the source's
+    // @@iterator (which, for a generator, advances it once in this runtime)
+    // would be observable (`class C{ method([]){} }; new C().method(gen())`
+    // must leave the generator un-iterated). Stop after the nullish guard.
+    if (pattern->elements.empty()) {
+        return;
+    }
+
     // ECMA-262 8.5.2: ArrayBindingPattern uses the ITERATOR protocol, not index
     // access. Materialize the iterator's values into a real array up front, then
     // extract by index from that materialized array. This is what makes
