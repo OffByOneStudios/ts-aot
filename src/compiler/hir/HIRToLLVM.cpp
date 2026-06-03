@@ -7947,6 +7947,19 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
             }
             if (isClassMethod) break;
         }
+        // Private INSTANCE methods (`#m`): cls->methods registers them under the
+        // analyzer-mangled name `<Class>___private_<Class>_<m>`, but the closure
+        // for `this.#m` (read as a value, e.g. returned from a getter) is created
+        // under the unmangled `<Class>_#<m>` — so the name-match above misses them
+        // and ts_call_with_this_N's non-method branch mis-routes the user arg into
+        // the `this` slot (the getter-exposure arg-drop). A `#` only appears in
+        // class private members, and private instance methods/accessors have the
+        // (closure, this, args) trampoline, so flag them. Exclude statics, whose
+        // trampoline has no `this` slot.
+        if (!isClassMethod && funcName.find('#') != std::string::npos &&
+            funcName.find("_static_") == std::string::npos) {
+            isClassMethod = true;
+        }
         if (isClassMethod) {
             auto setMethodFt = llvm::FunctionType::get(
                 builder_->getVoidTy(),
