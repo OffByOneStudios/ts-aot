@@ -663,7 +663,20 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
         if (!varDecl || !varDecl->initializer) continue;
         auto* classExpr = dynamic_cast<ast::ClassExpression*>(varDecl->initializer.get());
         if (!classExpr) continue;
+        // ECMA-262 NamedEvaluation: `var B = class {}` gives the anonymous class
+        // the binding name (B.name === "B"). This pre-scan is the only emission
+        // of top-level class-expression bodies (visitVariableDeclaration's copy
+        // is dropped by the Monomorphizer), so set the inferred display name
+        // here. A class expression with its own name (`var C = class Named {}`)
+        // keeps "Named".
+        std::string savedPCDN = pendingClosureDisplayName_;
+        if (classExpr->name.empty()) {
+            if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
+                pendingClosureDisplayName_ = ident->name;
+            }
+        }
         visitClassExpression(classExpr);
+        pendingClosureDisplayName_ = savedPCDN;
         if (auto* ident = dynamic_cast<ast::Identifier*>(varDecl->name.get())) {
             variableToClassName_[ident->name] = lastGeneratedClassName_;
         }
