@@ -3292,6 +3292,15 @@ TsValue* ts_value_make_int(int64_t i) {
         return RegExp_exec(rx, sBoxed);  // RegExpBuiltinExec
     }
 
+    // ToString(arg) per the RegExp Symbol-method spec steps: ToPrimitive(string
+    // hint) for objects (honors a custom toString; a throwing valueOf is not
+    // called), then stringify. ts_to_primitive returns primitives unchanged.
+    static TsString* ts_regexp_tostring_arg(TsValue* sv) {
+        extern void* ts_string_from_value(TsValue* val);
+        extern TsValue* ts_to_primitive(TsValue* val, int hint);
+        return (TsString*)ts_string_from_value(sv ? ts_to_primitive(sv, 2) : sv);
+    }
+
     // ECMA-262 22.2.6.12 RegExp.prototype [ @@search ] ( string ). Saves and
     // restores lastIndex (search must not perturb it), runs RegExpExec once, and
     // returns the match index or -1.
@@ -3301,7 +3310,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsRegExp* re = (TsRegExp*)ctx;
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
-        TsString* sStr = (TsString*)ts_string_from_value(sv);
+        TsString* sStr = ts_regexp_tostring_arg(sv);
         TsValue* sBoxed = (TsValue*)ts_value_make_string(sStr);
         int64_t prev = re->GetLastIndex();
         if (prev != 0) re->SetLastIndex(0);
@@ -3309,6 +3318,51 @@ TsValue* ts_value_make_int(int64_t i) {
         if (re->GetLastIndex() != prev) re->SetLastIndex(prev);
         if (!result) return (TsValue*)ts_value_make_int(-1);
         return ts_object_get_property(result, "index");
+    }
+
+    // ECMA-262 22.2.7.3 AdvanceStringIndex (simple form): +1 code unit. Unicode
+    // surrogate-pair advance (+2 under the `u` flag) is a known residual.
+    static int64_t ts_regexp_advance_string_index(int64_t index) {
+        return index + 1;
+    }
+
+    // ECMA-262 22.2.6.8 RegExp.prototype [ @@match ] ( string ). Non-global:
+    // returns the single RegExpExec result (or null). Global: resets lastIndex,
+    // collects each full match string, advancing past empty matches, returns the
+    // array (or null if none).
+    extern "C" TsValue* ts_regexp_symbol_match_native(void* ctx, int argc, TsValue** argv) {
+        extern void* ts_string_from_value(TsValue* val);
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern void* ts_array_create();
+        extern void ts_array_push(void* arr, void* value);
+        TsRegExp* re = (TsRegExp*)ctx;
+        TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
+                                                     : (TsValue*)ts_value_make_undefined();
+        TsString* sStr = ts_regexp_tostring_arg(sv);
+        TsValue* sBoxed = (TsValue*)ts_value_make_string(sStr);
+        if (!re->IsGlobal()) {
+            void* result = ts_regexp_exec_observable(ctx, sBoxed);
+            return result ? (TsValue*)ts_value_make_object(result)
+                          : (TsValue*)ts_value_make_null();
+        }
+        re->SetLastIndex(0);
+        void* arr = ts_array_create();
+        int64_t sLen = sStr->Length();
+        int n = 0;
+        while (true) {
+            void* result = ts_regexp_exec_observable(ctx, sBoxed);
+            if (!result) break;
+            TsValue* m0 = ts_object_get_property(result, "0");
+            TsString* mStr = (TsString*)ts_string_from_value(m0);  // ToString
+            ts_array_push(arr, (void*)ts_value_make_string(mStr));
+            n++;
+            if (mStr->Length() == 0) {
+                re->SetLastIndex(ts_regexp_advance_string_index(re->GetLastIndex()));
+            }
+            if (re->GetLastIndex() > sLen + 1) break;  // termination safety
+        }
+        if (n == 0) return (TsValue*)ts_value_make_null();
+        return (TsValue*)ts_value_make_object(arr);
     }
 
     // Helper: try implicit conversion through virtual base chain to find TsObject
@@ -3599,6 +3653,9 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "[Symbol.search]") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_symbol_search_native, re, "[Symbol.search]", 1);
+            }
+            if (strcmp(keyStr, "[Symbol.match]") == 0) {
+                return makeNamedNativeFunction((void*)ts_regexp_symbol_match_native, re, "[Symbol.match]", 1);
             }
             return ts_value_make_undefined();
         }

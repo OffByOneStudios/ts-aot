@@ -1632,9 +1632,11 @@ void* ts_get_global_RegExp() {
             if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
                 TsMap* reproto = (TsMap*)protoVal.ptr_val;
                 extern TsValue* ts_regexp_symbol_search_native(void*, int, TsValue**);
+                extern TsValue* ts_regexp_symbol_match_native(void*, int, TsValue**);
                 addMethod(reproto, "exec",     (void*)ts_regexp_exec_native, 1);
                 addMethod(reproto, "test",     (void*)ts_regexp_test_native, 1);
                 addMethod(reproto, "[Symbol.search]", (void*)ts_regexp_symbol_search_native, 1);
+                addMethod(reproto, "[Symbol.match]", (void*)ts_regexp_symbol_match_native, 1);
             }
         }
     }
