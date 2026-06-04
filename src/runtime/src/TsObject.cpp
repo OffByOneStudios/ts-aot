@@ -2117,7 +2117,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         if (!requireCallableOrThrow(callback, "map")) return ts_value_make_undefined();
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-        void* result = ts_array_map(arr, callback, thisArg);
+        void* result = ts_array_map(arr, callback, thisArg);  // applies @@species
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_filter_native(void* ctx, int argc, TsValue** argv) {
@@ -2126,7 +2126,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         if (!requireCallableOrThrow(callback, "filter")) return ts_value_make_undefined();
         void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-        void* result = ts_array_filter(arr, callback, thisArg);
+        void* result = ts_array_filter(arr, callback, thisArg);  // applies @@species
         return result ? ts_value_make_object(result) : ts_value_make_object(ts_array_create());
     }
     TsValue* ts_array_forEach_native(void* ctx, int argc, TsValue** argv) {
@@ -3892,6 +3892,15 @@ TsValue* ts_value_make_int(int64_t i) {
             // real prototype TsMap. Tests in built-ins/String/prototype/
             // split rely on the returned array's .constructor === Array.
             if (strcmp(keyStr, "constructor") == 0) {
+                // An own "constructor" property (e.g. `arr.constructor = {...}`
+                // used by ArraySpeciesCreate tests to install a custom
+                // @@species) shadows the inherited Array constructor per spec.
+                if (arr->properties) {
+                    TsValue k; k.type = ValueType::STRING_PTR;
+                    k.ptr_val = TsString::GetInterned("constructor");
+                    TsValue v = arr->properties->Get(k);
+                    if (v.type != ValueType::UNDEFINED) return nanbox_from_tagged(v);
+                }
                 extern void* ts_get_global_Array();
                 void* arrayCtor = ts_get_global_Array();
                 return arrayCtor ? (TsValue*)ts_value_make_object(arrayCtor)

@@ -2920,6 +2920,7 @@ extern "C" {
         void* ts_get_global_Float64Array();
         void* ts_get_global_BigInt64Array();
         void* ts_get_global_BigUint64Array();
+        void* ts_get_global_Array();
     }
     static void* default_ta_ctor_for(TsTypedArray* ta) {
         if (!ta) return nullptr;
@@ -3060,6 +3061,52 @@ extern "C" {
         return (void*)ta;
     }
 
+    // ECMA-262 ArraySpeciesCreate (23.1.3.3.x): map/filter/slice/splice/concat
+    // build their result via O.constructor[Symbol.species] (fallback Array).
+    // `resultArr` is the TsArray the existing fast path already computed. If the
+    // receiver's species is the default Array constructor (the common case —
+    // normal arrays have no own/inherited @@species, so species_constructor
+    // returns the default) we return it UNCHANGED (fast path, zero behavior
+    // change → no lodash/node regression). For a custom species we Construct it
+    // with `len` and CreateDataProperty the elements onto the result. Returns a
+    // raw object pointer (callers re-box), or nullptr if species_constructor
+    // threw a TypeError. Safe to call from the hot typed path: a plain TsArray
+    // with no own "constructor" property fast-rejects below before any property
+    // lookup, so normal `number[].map(...)` pays only one null check.
+    extern "C" void* ts_array_species_rematerialize(void* receiver, void* resultRaw) {
+        TsArray* resultArr = (TsArray*)resultRaw;
+        if (!receiver || !resultArr) return resultRaw;
+        // Fast reject: a plain TsArray whose only "constructor" is the inherited
+        // Array (no own property) uses the default species → skip the protocol.
+        {
+            uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)receiver);
+            void* raw = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : receiver;
+            if (raw && *(uint32_t*)raw == 0x41525259) {        // TsArray::MAGIC
+                TsArray* a = (TsArray*)raw;
+                if (!a->properties) return resultRaw;          // no own props
+                TsValue ck; ck.type = ValueType::STRING_PTR;
+                ck.ptr_val = TsString::GetInterned("constructor");
+                if (a->properties->Get(ck).type == ValueType::UNDEFINED)
+                    return resultRaw;                          // default species
+            }
+        }
+        void* defaultCtor = ts_get_global_Array();
+        if (!defaultCtor) return resultRaw;
+        TsValue* ctorVal = species_constructor(receiver, defaultCtor);
+        if (!ctorVal) return nullptr;                          // TypeError thrown
+        if (ctorVal == (TsValue*)defaultCtor) return resultRaw;  // FAST PATH
+
+        int64_t n = resultArr->Length();
+        TsValue* A = ts_new_from_constructor_1(ctorVal, ts_value_make_int(n));
+        if (!A) return resultRaw;                              // degrade gracefully
+        for (int64_t i = 0; i < n; i++) {
+            TsValue* el = (TsValue*)resultArr->GetElementBoxed((size_t)i);
+            ts_object_set_property((void*)A, (void*)ts_value_make_int(i), (void*)el);
+        }
+        void* raw = ts_value_get_object(A);
+        return raw ? raw : resultRaw;
+    }
+
     void* ts_array_map(void* arr, void* callback, void* thisArg) {
         if (TsTypedArray* ta = try_as_typed_array(arr)) {
             TsValue* argvBuf[2] = { (TsValue*)callback, (TsValue*)thisArg };
@@ -3068,7 +3115,8 @@ extern "C" {
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
         if (!array_require_callable(callback, "map")) return nullptr;
-        return ((TsArray*)arr)->Map(callback, thisArg);
+        void* result = ((TsArray*)arr)->Map(callback, thisArg);
+        return ts_array_species_rematerialize(arr, result);  // ECMA-262 ArraySpeciesCreate
     }
 
     void* ts_array_filter(void* arr, void* callback, void* thisArg) {
@@ -3079,7 +3127,8 @@ extern "C" {
             return rematerialize_ta_from_array(ta, (TsArray*)raw);
         }
         if (!array_require_callable(callback, "filter")) return nullptr;
-        return ((TsArray*)arr)->Filter(callback, thisArg);
+        void* result = ((TsArray*)arr)->Filter(callback, thisArg);
+        return ts_array_species_rematerialize(arr, result);  // ECMA-262 ArraySpeciesCreate
     }
 
     // IsCallable check shared across array methods (forEach/map/filter/...).
