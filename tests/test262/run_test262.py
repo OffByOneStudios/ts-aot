@@ -1241,7 +1241,7 @@ def main():
         print(f"Consolidated baseline: {len(baseline)} entries -> {BASELINE_FILE}")
         sys.exit(0)
 
-    # --fast preset: set reasonable defaults for a full-run
+    # --fast preset: set reasonable defaults for a full-run.
     if args.fast:
         if args.jobs == 1:
             args.jobs = 24  # Default for 12C/24T machines; adjust per host.
@@ -1251,6 +1251,16 @@ def main():
             args.timeout = 8
         args.resume = True
         args.interleave = True
+        # Bundle the measured fast-sweep recipe so it's one flag, not four env
+        # vars: shared runtime (115KB exes, no 302GB blowup), -O0 (test exes need
+        # no optimization; halves the LLVM backend + cuts timeouts), and chunked
+        # batch compilation (one ts-aot process per 16 tests instead of per test).
+        # setdefault lets an explicit env override still win.
+        os.environ.setdefault("TS262_SHARED_RUNTIME", "1")
+        os.environ.setdefault("TS262_BATCH", "16")
+        _extra = os.environ.get("TSAOT_EXTRA_FLAGS", "")
+        if "-O" not in _extra:
+            os.environ["TSAOT_EXTRA_FLAGS"] = (_extra + " -O0").strip()
 
     runner = Test262Runner(args)
     sys.exit(runner.run())
