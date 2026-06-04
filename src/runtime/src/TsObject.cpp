@@ -3506,6 +3506,79 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)ts_value_make_string(TsString::Create(outU8.c_str()));
     }
 
+    // AdvanceStringIndex over an icu::UnicodeString, surrogate-aware under `u`.
+    static int ts_regexp_adv_u(const icu::UnicodeString& S, int index, bool unicode) {
+        if (!unicode || index + 1 >= S.length()) return index + 1;
+        UChar c = S.charAt(index);
+        if (c >= 0xD800 && c <= 0xDBFF) {
+            UChar c2 = S.charAt(index + 1);
+            if (c2 >= 0xDC00 && c2 <= 0xDFFF) return index + 2;
+        }
+        return index + 1;
+    }
+
+    // ECMA-262 22.2.6.14 RegExp.prototype [ @@split ] ( string, limit ). Uses a
+    // sticky clone of the regex (no SpeciesConstructor — %RegExp% only, a
+    // residual). Emits substrings between matches plus capture groups, honoring
+    // `limit`.
+    extern "C" TsValue* ts_regexp_symbol_split_native(void* ctx, int argc, TsValue** argv) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern void* ts_array_create();
+        extern void ts_array_push(void* arr, void* value);
+        TsRegExp* re = (TsRegExp*)ctx;
+        TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
+                                                     : (TsValue*)ts_value_make_undefined();
+        TsString* sTs = ts_regexp_tostring_arg(sv);
+        icu::UnicodeString S = sTs->getUStr();
+        int size = S.length();
+        std::string flags = re->GetFlags()->ToUtf8();
+        bool unicodeMatching = flags.find('u') != std::string::npos;
+        std::string newFlags = flags;
+        if (newFlags.find('y') == std::string::npos) newFlags += "y";
+        std::string srcU8 = re->GetSource()->ToUtf8();
+        TsRegExp* splitter = TsRegExp::Create(srcU8.c_str(), newFlags.c_str());
+        uint32_t lim = 0xFFFFFFFFu;
+        if (argc >= 2 && argv[1] && !ts_value_is_undefined(argv[1]))
+            lim = ts_double_to_uint32(ts_to_number(argv[1]));
+        void* A = ts_array_create();
+        if (lim == 0) return (TsValue*)ts_value_make_object(A);
+        TsValue* sBoxed = (TsValue*)ts_value_make_string(sTs);
+        if (size == 0) {
+            splitter->SetLastIndex(0);
+            if (ts_regexp_exec_observable(splitter, sBoxed))
+                return (TsValue*)ts_value_make_object(A);
+            ts_array_push(A, (void*)ts_value_make_string(sTs));
+            return (TsValue*)ts_value_make_object(A);
+        }
+        int p = 0, q = 0; uint32_t lengthA = 0;
+        while (q < size) {
+            splitter->SetLastIndex(q);
+            void* result = ts_regexp_exec_observable(splitter, sBoxed);
+            if (!result) { q = ts_regexp_adv_u(S, q, unicodeMatching); continue; }
+            int e = (int)splitter->GetLastIndex();
+            if (e > size) e = size;
+            if (e == p) { q = ts_regexp_adv_u(S, q, unicodeMatching); continue; }
+            icu::UnicodeString T(S, p, q - p);
+            std::string tU8; T.toUTF8String(tU8);
+            ts_array_push(A, (void*)ts_value_make_string(TsString::Create(tU8.c_str())));
+            if (++lengthA == lim) return (TsValue*)ts_value_make_object(A);
+            p = e;
+            int nCaptures = (int)ts_to_number(ts_object_get_property(result, "length")) - 1;
+            if (nCaptures < 0) nCaptures = 0;
+            for (int i = 1; i <= nCaptures; i++) {
+                char key[16]; snprintf(key, sizeof(key), "%d", i);
+                TsValue* cap = ts_object_get_property(result, key);
+                ts_array_push(A, cap ? (void*)cap : (void*)ts_value_make_undefined());
+                if (++lengthA == lim) return (TsValue*)ts_value_make_object(A);
+            }
+            q = p;
+        }
+        icu::UnicodeString T(S, p, size - p);
+        std::string tU8; T.toUTF8String(tU8);
+        ts_array_push(A, (void*)ts_value_make_string(TsString::Create(tU8.c_str())));
+        return (TsValue*)ts_value_make_object(A);
+    }
+
     // Helper: try implicit conversion through virtual base chain to find TsObject
     // For stream classes (TsReadable/TsWritable), TsObject is a virtual base NOT at offset 0.
     // We use the C++ implicit conversion which follows the vbtable to find the virtual base.
@@ -3800,6 +3873,9 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "[Symbol.replace]") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_symbol_replace_native, re, "[Symbol.replace]", 2);
+            }
+            if (strcmp(keyStr, "[Symbol.split]") == 0) {
+                return makeNamedNativeFunction((void*)ts_regexp_symbol_split_native, re, "[Symbol.split]", 2);
             }
             return ts_value_make_undefined();
         }
