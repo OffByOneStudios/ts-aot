@@ -3578,6 +3578,16 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "lastIndex") == 0) {
                 return ts_value_make_int(re->GetLastIndex());
             }
+            // User-set own properties (e.g. an `exec` override per ECMA-262
+            // 22.2.7.1, or arbitrary `re.foo`) shadow the builtin methods below.
+            // The data getters above (source/flags/global/...) stay authoritative.
+            if (re->GetOwnProps()) {
+                TsMap* props = (TsMap*)re->GetOwnProps();
+                TsValue kk; kk.type = ValueType::STRING_PTR;
+                kk.ptr_val = TsString::GetInterned(keyStr);
+                TsValue vv = props->Get(kk);
+                if (vv.type != ValueType::UNDEFINED) return nanbox_from_tagged(vv);
+            }
             if (strcmp(keyStr, "test") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_test_native, re, "test", 1);
             }
@@ -9398,6 +9408,19 @@ TsValue* ts_value_make_int(int64_t i) {
                     }
                 }
             }
+            // Any other own property (e.g. `re.exec = fn` override per ECMA-262
+            // 22.2.7.1 RegExpExec, or arbitrary `re.foo = x`) goes into the lazy
+            // own-props side map; the REGX get path consults it before the
+            // builtin methods. The data getters (source/flags/global/...) stay
+            // authoritative and are not shadowable.
+            TsRegExp* re = (TsRegExp*)rawObj;
+            TsMap* props = (TsMap*)re->GetOwnProps();
+            if (!props) { props = TsMap::Create(); re->SetOwnProps(props); }
+            TsValue keyTagged = nanbox_to_tagged(key);
+            TsValue valTagged = nanbox_to_tagged(value);
+            props->Set(keyTagged, valTagged);
+            void* pp = re->GetOwnProps(); ts_gc_write_barrier(&pp, pp);
+            return;
         }
 
         // Array element write via a STRING key that is a canonical array index

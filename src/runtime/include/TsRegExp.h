@@ -72,6 +72,12 @@ public:
 
     // Named capture groups support
     bool HasNamedGroups() const { return !namedGroups.empty(); }
+
+    // Lazy map of user-set own properties (e.g. `re.exec = fn` override,
+    // `re.foo = 1`). Holds a TsMap* (stored as void* to avoid a header
+    // dependency). GC-scanned conservatively as a field of this GC object.
+    void* GetOwnProps() const { return ownProps; }
+    void SetOwnProps(void* p) { ownProps = p; }
     const std::vector<std::pair<std::string, int32_t>>& GetNamedGroups() const { return namedGroups; }
 
 private:
@@ -90,6 +96,7 @@ private:
     bool multiline = false;
     bool hasIndices = false;
     std::vector<std::pair<std::string, int32_t>> namedGroups;  // name -> group number
+    void* ownProps = nullptr;  // lazy TsMap of user-set own properties
 };
 
 TS_DECLARE_TAG(TsRegExp);  // magic at offset 0 (POD)
