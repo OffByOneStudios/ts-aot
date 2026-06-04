@@ -2589,7 +2589,10 @@ TsValue* ts_value_make_int(int64_t i) {
             arr->Push(tail->Get(i));
         }
 
-        return ts_value_make_object(result);
+        // ECMA-262 23.1.3.31: removed-elements array via ArraySpeciesCreate.
+        extern void* ts_array_species_rematerialize(void* receiver, void* resultRaw);
+        void* out = ts_array_species_rematerialize((void*)arr, (void*)result);
+        return out ? ts_value_make_object(out) : ts_value_make_undefined();
     }
     TsValue* ts_array_concat_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "concat");

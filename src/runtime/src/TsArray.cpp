@@ -2833,7 +2833,9 @@ extern "C" {
             a->Push(tail->Get(i));
         }
 
-        return result;
+        // ECMA-262 23.1.3.31: the returned removed-elements array is built via
+        // ArraySpeciesCreate(O, actualDeleteCount).
+        return ts_array_species_rematerialize(arr, result);
     }
 
     extern TsValue* ts_array_toReversed_native(void* ctx, int argc, TsValue** argv);
