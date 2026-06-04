@@ -652,6 +652,19 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
         elapsed = (time.time() - start) * 1000
         return TestResult(test_path, "crash", f"execution exception: {e}",
                           time_ms=elapsed)
+    finally:
+        # Delete this test's build artifacts. Each exe statically links the
+        # whole runtime (~3 MB); the runner recompiles unconditionally every
+        # run (the hashed name keys on the test PATH, not contents), so keeping
+        # them gives zero caching benefit and they accumulate ~150 GB/sweep
+        # (plus orphans from old naming schemes → was 302 GB). finally runs on
+        # the normal, timeout, and crash paths — i.e. every path that produced
+        # an exe. Set TS262_KEEP_ARTIFACTS=1 to retain them for debugging.
+        if not os.environ.get("TS262_KEEP_ARTIFACTS"):
+            try: tmp_exe.unlink(missing_ok=True)
+            except Exception: pass
+            try: tmp_js.unlink(missing_ok=True)
+            except Exception: pass
 
     elapsed = (time.time() - start) * 1000
 
