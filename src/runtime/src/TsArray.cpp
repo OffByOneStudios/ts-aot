@@ -2474,6 +2474,8 @@ extern "C" {
         ts_array_sort(arr, comparator);
     }
 
+    extern "C" void* ts_array_species_rematerialize(void* receiver, void* resultRaw);  // fwd (defined below)
+
     void* ts_array_slice(void* arr, int64_t start, int64_t end) {
         if (!arr) return ts_array_create();
         TsTypedArray* ta = asTypedArray(arr);
@@ -2492,7 +2494,8 @@ extern "C" {
             memcpy(result->GetData(), srcData, count * ta->GetElementSize());
             return result;
         }
-        return ((TsArray*)arr)->Slice(start, end);
+        void* result = ((TsArray*)arr)->Slice(start, end);
+        return ts_array_species_rematerialize(arr, result);  // ECMA-262 ArraySpeciesCreate
     }
 
     // Small helper: if receiver is a TsTypedArray, return it; else nullptr.
