@@ -107,13 +107,17 @@ int Driver::run() {
     double ms_parse = 0, ms_anaCtor = 0, ms_analyze = 0, ms_mono = 0,
            ms_astHir = 0, ms_passes = 0, ms_hirLlvm = 0, ms_emit = 0, ms_link = 0;
 
-    // Load extension contracts
-    auto& extRegistry = ext::ExtensionRegistry::instance();
-    extRegistry.loadDefaultExtensions();
-
-    // Register lowerings from extension contracts
-    ::hir::LoweringRegistry::instance().registerFromExtensions();
-    auto tFrontendInit = Clock::now();  // extension/lowering registry built
+    // Load extension contracts + register lowerings ONCE per process. These are
+    // process-global singletons; in --batch mode many Driver::run() calls share
+    // one process, so this fixed init must not repeat (loadDefaultExtensions
+    // appends, so re-running would duplicate contracts). Guarded by a static.
+    static bool s_frontendInitDone = false;
+    if (!s_frontendInitDone) {
+        ext::ExtensionRegistry::instance().loadDefaultExtensions();
+        ::hir::LoweringRegistry::instance().registerFromExtensions();
+        s_frontendInitDone = true;
+    }
+    auto tFrontendInit = Clock::now();  // extension/lowering registry built (once/process)
 
     // Consolidated --timing report. Reads the ms_* accumulators by reference at
     // call time, so it can be defined here and invoked at any success exit.

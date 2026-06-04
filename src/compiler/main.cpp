@@ -8,6 +8,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include "codegen/TsAotGC.h"
 #include <chrono>
+#include <fstream>
 
 #ifdef _MSC_VER
 #include <crtdbg.h>
@@ -69,14 +70,17 @@ int main(int argc, char** argv) {
             ("no-gc-statepoints", "Disable LLVM GC statepoints (use conservative stack scan)", cxxopts::value<bool>()->default_value("false"))
             ("coverage", "Emit LLVM source-based coverage instrumentation", cxxopts::value<bool>()->default_value("false"))
             ("timing", "Print a per-phase wall-clock breakdown of the compile to stderr", cxxopts::value<bool>()->default_value("false"))
+            ("batch", "Compile many files in ONE process (amortizes process load + LLVM init + extension load). Arg is a manifest: one job per line, 'INPUT<TAB>OUTPUT'. Prints 'INPUT<TAB>OUTPUT<TAB>RC' per job to stdout.", cxxopts::value<std::string>())
             ("h,help", "Print usage")
             ("input", "Input file", cxxopts::value<std::string>());
 
         options.parse_positional({"input"});
         auto result = options.parse(argc, argv);
 
-        // Initialize logging
-        auto console = spdlog::stdout_color_mt("console");
+        // Initialize logging on STDERR. Diagnostics/warnings belong on stderr;
+        // stdout is reserved for requested output (IR/HIR dumps) and the --batch
+        // machine-readable result stream, which must not be polluted by logs.
+        auto console = spdlog::stderr_color_mt("console");
         spdlog::set_default_logger(console);
         
         // Set a cleaner, compiler-like pattern: [level] message
@@ -104,13 +108,18 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        if (!result.count("input")) {
+        if (!result.count("input") && !result.count("batch")) {
             std::cerr << "Error: No input file specified." << std::endl;
             return 1;
         }
 
         ts::DriverOptions driverOpts;
-        driverOpts.inputFile = result["input"].as<std::string>();
+        if (result.count("input")) {
+            driverOpts.inputFile = result["input"].as<std::string>();
+        }
+        if (result.count("batch")) {
+            driverOpts.batchManifest = result["batch"].as<std::string>();
+        }
         driverOpts.debug = result["debug"].as<bool>();
         
         // Auto-detect debug runtime if compiler was built in debug mode, or if explicitly requested
@@ -187,6 +196,59 @@ int main(int argc, char** argv) {
 
         if (result.count("lib-path")) {
             driverOpts.libraryPaths = result["lib-path"].as<std::vector<std::string>>();
+        }
+
+        // --batch: compile every job in the manifest within THIS process, so the
+        // process load (~35ms for the 77MB LLVM-heavy binary), LLVM target init,
+        // and extension/lowering registry load are paid ONCE instead of per file.
+        // Each job gets a fresh Driver (cheap) -> fresh LLVMContext/Module/Analyzer
+        // per file (correct isolation); the once-per-process init is guarded inside
+        // Driver::run(). A recoverable error in one job does not abort the batch
+        // (a hard crash still does -- callers should chunk the manifest).
+        if (!driverOpts.batchManifest.empty()) {
+            std::ifstream mf(driverOpts.batchManifest);
+            if (!mf.is_open()) {
+                std::cerr << "Error: cannot open batch manifest: " << driverOpts.batchManifest << std::endl;
+                return 1;
+            }
+            auto tBatch0 = std::chrono::steady_clock::now();
+            std::string line;
+            int count = 0, failures = 0;
+            while (std::getline(mf, line)) {
+                if (!line.empty() && line.back() == '\r') line.pop_back();  // CRLF manifests
+                if (line.empty() || line[0] == '#') continue;
+                auto tab = line.find('\t');
+                std::string inFile = (tab == std::string::npos) ? line : line.substr(0, tab);
+                std::string outFile = (tab == std::string::npos) ? std::string() : line.substr(tab + 1);
+                if (inFile.empty()) continue;
+
+                ts::DriverOptions jobOpts = driverOpts;
+                jobOpts.batchManifest.clear();
+                jobOpts.inputFile = inFile;
+                jobOpts.outputFile = outFile;
+
+                int rc = 1;
+                try {
+                    ts::Driver driver(jobOpts);
+                    rc = driver.run();
+                } catch (const std::exception& e) {
+                    std::cerr << "batch: " << inFile << ": " << e.what() << std::endl;
+                    rc = 1;
+                }
+                // Per-job result line for the caller to map outcomes.
+                std::cout << inFile << "\t" << outFile << "\t" << rc << "\n";
+                std::cout.flush();
+                ++count;
+                if (rc != 0) ++failures;
+            }
+            if (driverOpts.timing) {
+                double ms = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - tBatch0).count();
+                std::cerr << "[batch] " << count << " files, " << failures << " failures, "
+                          << ms << " ms total ("
+                          << (count ? ms / count : 0.0) << " ms/file)\n";
+            }
+            return failures > 0 ? 1 : 0;
         }
 
         ts::Driver driver(driverOpts);

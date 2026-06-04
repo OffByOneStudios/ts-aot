@@ -30,6 +30,7 @@ struct DriverOptions {
     bool enableGCStatepoints = false;  // --gc-statepoints: enable LLVM GC statepoint infrastructure
     bool coverage = false;             // --coverage: emit LLVM source-based coverage instrumentation
     bool timing = false;               // --timing: print a per-phase wall-clock breakdown to stderr
+    std::string batchManifest;         // --batch <file>: compile many inputs in one process (amortizes startup)
     std::string runtimeBitcode;
     std::vector<std::string> libraryPaths;
     // Process-level timestamps captured in main() so run() can report the fixed
