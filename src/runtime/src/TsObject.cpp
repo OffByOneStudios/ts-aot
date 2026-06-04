@@ -3579,6 +3579,41 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)ts_value_make_object(A);
     }
 
+    // ECMA-262 22.2.6.9 RegExp.prototype [ @@matchAll ] ( string ). Pragmatic:
+    // pre-materialize all match results into an array (using a clone so the
+    // receiver's lastIndex isn't mutated) and return a forward iterator over
+    // them. Lazy per-next() re-exec observability is a residual.
+    extern "C" TsValue* ts_regexp_symbol_matchAll_native(void* ctx, int argc, TsValue** argv) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        extern void* ts_array_create();
+        extern void ts_array_push(void* arr, void* value);
+        extern TsValue* ts_create_array_iterator_pub(void* items);
+        TsRegExp* re = (TsRegExp*)ctx;
+        TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
+                                                     : (TsValue*)ts_value_make_undefined();
+        TsString* sTs = ts_regexp_tostring_arg(sv);
+        icu::UnicodeString S = sTs->getUStr();
+        int sLen = S.length();
+        std::string flags = re->GetFlags()->ToUtf8();
+        bool global = flags.find('g') != std::string::npos;
+        std::string srcU8 = re->GetSource()->ToUtf8();
+        TsRegExp* matcher = TsRegExp::Create(srcU8.c_str(), flags.c_str());
+        matcher->SetLastIndex(re->GetLastIndex());
+        TsValue* sBoxed = (TsValue*)ts_value_make_string(sTs);
+        void* results = ts_array_create();
+        while (true) {
+            void* result = ts_regexp_exec_observable(matcher, sBoxed);
+            if (!result) break;
+            ts_array_push(results, (void*)ts_value_make_object(result));
+            if (!global) break;
+            TsString* m0 = ts_regexp_tostring_arg(ts_object_get_property(result, "0"));
+            if (m0->Length() == 0)
+                matcher->SetLastIndex(ts_regexp_advance_string_index(matcher->GetLastIndex()));
+            if (matcher->GetLastIndex() > sLen + 1) break;
+        }
+        return ts_create_array_iterator_pub(results);
+    }
+
     // Helper: try implicit conversion through virtual base chain to find TsObject
     // For stream classes (TsReadable/TsWritable), TsObject is a virtual base NOT at offset 0.
     // We use the C++ implicit conversion which follows the vbtable to find the virtual base.
@@ -3876,6 +3911,9 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "[Symbol.split]") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_symbol_split_native, re, "[Symbol.split]", 2);
+            }
+            if (strcmp(keyStr, "[Symbol.matchAll]") == 0) {
+                return makeNamedNativeFunction((void*)ts_regexp_symbol_matchAll_native, re, "[Symbol.matchAll]", 1);
             }
             return ts_value_make_undefined();
         }

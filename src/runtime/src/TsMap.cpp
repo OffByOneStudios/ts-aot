@@ -557,6 +557,13 @@ void* ts_map_entries_iter(void* map) {
     return (void*)ts_create_iterator_with_proto(entries, getMapIteratorPrototype());
 }
 
+// Public: wrap a TsArray of items in a basic forward iterator (for
+// RegExp.prototype[@@matchAll], which pre-materializes its match results).
+extern "C" TsValue* ts_create_array_iterator_pub(void* items) {
+    if (!items) return nullptr;
+    return ts_create_iterator((TsArray*)items);
+}
+
 // Forward decl: defined later in this TU.
 static void* requireMapData(void* context, const char* methodName);
 
