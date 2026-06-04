@@ -549,70 +549,54 @@ def _shared_runtime_config(compiler_str: str):
     return ["--shared-runtime", "--no-copy-runtime"], run_env
 
 
-def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
-                    timeout: int = 10, verbose: bool = False) -> TestResult:
-    """Compile and run a single test262 test."""
+def _prepare_test(test_path: Path, compiler: Path, build_dir: Path):
+    """Assemble the harness'd source and write the .js. Returns
+    (early_result, job): early_result is a TestResult for skip/read/write
+    outcomes (job is None); otherwise job is a dict the compile + run phases
+    consume. Shared by the per-test and batch paths so classification can't
+    diverge between them."""
     start = time.time()
 
-    # Read and parse
     try:
         source = test_path.read_text(encoding='utf-8')
     except Exception as e:
-        return TestResult(test_path, "fail", f"read error: {e}")
+        return TestResult(test_path, "fail", f"read error: {e}"), None
 
     meta = parse_frontmatter(source)
 
     # Path-based skip (SM-specific tests that contradict ECMA-262).
-    # test_path is rooted in TEST_DIR (the original test262/test/ tree); the
-    # skip set is keyed on the same relative-to-TEST_DIR form that appears in
-    # results.jsonl.
     try:
         rel = str(test_path.relative_to(TEST_DIR)).replace('\\', '/')
         if rel in SKIPPED_PATHS:
-            return TestResult(test_path, "skip", "intentionally skipped (SM-specific spec divergence)")
+            return TestResult(test_path, "skip", "intentionally skipped (SM-specific spec divergence)"), None
     except ValueError:
         pass
 
-    # Check if should skip
     skip_reason = should_skip(meta)
     if skip_reason:
-        return TestResult(test_path, "skip", skip_reason)
+        return TestResult(test_path, "skip", skip_reason), None
 
-    # Check for eval usage (we don't support eval)
+    # Check for eval usage (we don't support eval) in the test body.
     if 'eval(' in source and 'eval' not in [f for f in meta.features]:
-        # Many tests use eval — skip if it's central to the test
-        # Only skip if eval is in the test body, not just in harness
         test_body_start = source.find('---*/')
         if test_body_start != -1:
             test_body = source[test_body_start:]
             if 'eval(' in test_body:
-                return TestResult(test_path, "skip", "uses eval")
+                return TestResult(test_path, "skip", "uses eval"), None
 
-    # Build concatenated source
     full_source = build_test_source(test_path, meta)
 
-    # Determine strict mode
-    strict_only = 'onlyStrict' in meta.flags
-    no_strict = 'noStrict' in meta.flags
-
-    if strict_only:
+    # Strict mode; default sloppy (many tests expect sloppy behavior).
+    if 'onlyStrict' in meta.flags:
         full_source = '"use strict";\n' + full_source
-    # Default: run in sloppy mode (many tests expect sloppy behavior)
 
-    # Write to temp file
     rel = test_path.relative_to(TEST_DIR)
     out_dir = build_dir / rel.parent
     out_dir.mkdir(parents=True, exist_ok=True)
-
     tmp_js = out_dir / rel.name
-    # Build a hash-based exe basename to bypass Windows UAC installer-
-    # detection heuristics. UAC inspects the exe FILENAME and elevates
-    # any process whose basename matches *update*, *install*, *setup*,
-    # *patch*, etc. — many test262 filenames trigger this and the launch
-    # returns WinError 740 ("requested operation requires elevation"),
-    # which the runner records as a spurious crash. Hashing the basename
-    # eliminates the trigger words entirely. The original .js name stays
-    # alongside so the path remains debuggable. POSIX unaffected.
+    # Hash-based exe basename to bypass Windows UAC installer-detection
+    # heuristics (filenames containing install/update/setup/patch elevate and
+    # fail with WinError 740, recorded as spurious crashes). POSIX unaffected.
     import hashlib
     name_hash = hashlib.sha1(rel.as_posix().encode("utf-8")).hexdigest()[:16]
     tmp_exe = tmp_js.parent / ("t" + name_hash + get_exe_suffix())
@@ -620,106 +604,203 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
     try:
         tmp_js.write_text(full_source, encoding='utf-8')
     except Exception as e:
-        return TestResult(test_path, "fail", f"write error: {e}")
+        return TestResult(test_path, "fail", f"write error: {e}"), None
 
-    # Compile. TSAOT_EXTRA_FLAGS lets a caller inject compiler flags (e.g.
-    # "--gc-statepoints") for differential runs without editing this file.
-    compile_cmd = [str(compiler), str(tmp_js), "-o", str(tmp_exe)]
-    _extra = os.environ.get("TSAOT_EXTRA_FLAGS", "").split()
-    if _extra:
-        compile_cmd += _extra
-    # Optional shared-runtime mode (TS262_SHARED_RUNTIME=1): tiny exes + a shared
-    # DLL discovered via PATH/ICU_DATA in run_env instead of static linking.
     _shared_flags, run_env = _shared_runtime_config(str(compiler))
-    if _shared_flags:
-        compile_cmd += _shared_flags
-    try:
-        comp = subprocess.run(
-            compile_cmd, capture_output=True, text=True, timeout=30,
-            encoding='utf-8', errors='replace'
-        )
-    except subprocess.TimeoutExpired:
-        elapsed = (time.time() - start) * 1000
-        return TestResult(test_path, "timeout", "compilation timeout",
-                          time_ms=elapsed)
-    except Exception as e:
-        elapsed = (time.time() - start) * 1000
-        return TestResult(test_path, "fail", f"compile exception: {e}",
-                          time_ms=elapsed)
+    return None, {
+        "test_path": test_path, "meta": meta, "tmp_js": tmp_js, "tmp_exe": tmp_exe,
+        "run_env": run_env, "shared_flags": _shared_flags or [], "start": start,
+    }
 
-    if comp.returncode != 0:
-        elapsed = (time.time() - start) * 1000
-        # For negative tests expecting parse errors, compilation failure = pass
+
+def _cleanup_job(job):
+    """Delete a job's build artifacts. Each exe accumulates (~150 GB/sweep
+    statically) and recompiling is unconditional, so keeping them has no
+    caching benefit. Set TS262_KEEP_ARTIFACTS=1 to retain for debugging."""
+    if os.environ.get("TS262_KEEP_ARTIFACTS"):
+        return
+    for key in ("tmp_exe", "tmp_js"):
+        try:
+            job[key].unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _classify_compile(job, returncode, stderr):
+    """Compile-phase classification. Returns a TestResult when the outcome is
+    decided at compile time (negative-parse pass/fail, compile_error), or None
+    to proceed to running the exe. returncode is None for a compile timeout."""
+    test_path = job["test_path"]
+    meta = job["meta"]
+    elapsed = (time.time() - job["start"]) * 1000
+    if returncode is None:
+        return TestResult(test_path, "timeout", "compilation timeout", time_ms=elapsed)
+    if returncode != 0:
+        # Negative parse tests expect compilation to fail.
         if meta.negative and meta.negative.get('phase') == 'parse':
-            expected_type = meta.negative.get('type', '')
             return TestResult(test_path, "pass",
-                              f"expected parse error: {expected_type}",
+                              f"expected parse error: {meta.negative.get('type', '')}",
                               time_ms=elapsed)
         return TestResult(test_path, "compile_error",
-                          comp.stderr[:200] if comp.stderr else "compilation failed",
-                          time_ms=elapsed, exit_code=comp.returncode,
-                          stderr=comp.stderr or "")
-
-    # For negative tests expecting parse errors, if we compiled OK that's a fail
+                          stderr[:200] if stderr else "compilation failed",
+                          time_ms=elapsed, exit_code=returncode, stderr=stderr or "")
+    # Compiled OK but a parse error was expected -> fail.
     if meta.negative and meta.negative.get('phase') == 'parse':
-        elapsed = (time.time() - start) * 1000
         return TestResult(test_path, "fail",
-                          f"expected parse error but compiled successfully",
-                          time_ms=elapsed)
+                          "expected parse error but compiled successfully", time_ms=elapsed)
+    return None
 
-    # Run
+
+def _run_test_exe(job, timeout):
+    """Run the compiled exe and classify the result; cleans up artifacts."""
+    test_path = job["test_path"]
+    meta = job["meta"]
     try:
         run = subprocess.run(
-            [str(tmp_exe)], capture_output=True, text=True, timeout=timeout,
-            encoding='utf-8', errors='replace', env=run_env
+            [str(job["tmp_exe"])], capture_output=True, text=True, timeout=timeout,
+            encoding='utf-8', errors='replace', env=job["run_env"]
         )
     except subprocess.TimeoutExpired:
-        elapsed = (time.time() - start) * 1000
         return TestResult(test_path, "timeout", "execution timeout",
-                          time_ms=elapsed)
+                          time_ms=(time.time() - job["start"]) * 1000)
     except Exception as e:
-        elapsed = (time.time() - start) * 1000
         return TestResult(test_path, "crash", f"execution exception: {e}",
-                          time_ms=elapsed)
+                          time_ms=(time.time() - job["start"]) * 1000)
     finally:
-        # Delete this test's build artifacts. Each exe statically links the
-        # whole runtime (~3 MB); the runner recompiles unconditionally every
-        # run (the hashed name keys on the test PATH, not contents), so keeping
-        # them gives zero caching benefit and they accumulate ~150 GB/sweep
-        # (plus orphans from old naming schemes → was 302 GB). finally runs on
-        # the normal, timeout, and crash paths — i.e. every path that produced
-        # an exe. Set TS262_KEEP_ARTIFACTS=1 to retain them for debugging.
-        if not os.environ.get("TS262_KEEP_ARTIFACTS"):
-            try: tmp_exe.unlink(missing_ok=True)
-            except Exception: pass
-            try: tmp_js.unlink(missing_ok=True)
-            except Exception: pass
+        _cleanup_job(job)
 
-    elapsed = (time.time() - start) * 1000
-
-    # Check result
+    elapsed = (time.time() - job["start"]) * 1000
     if meta.negative and meta.negative.get('phase') == 'runtime':
-        # Negative runtime test: should exit non-zero
         if run.returncode != 0:
             return TestResult(test_path, "pass",
                               f"expected runtime error: {meta.negative.get('type', '')}",
                               time_ms=elapsed, exit_code=run.returncode)
-        else:
-            return TestResult(test_path, "fail",
-                              "expected runtime error but exited 0",
-                              time_ms=elapsed, exit_code=0)
-
-    # Normal test: should exit 0 with no uncaught exceptions
+        return TestResult(test_path, "fail", "expected runtime error but exited 0",
+                          time_ms=elapsed, exit_code=0)
     if run.returncode == 0:
-        return TestResult(test_path, "pass", time_ms=elapsed,
-                          exit_code=0, stdout=run.stdout or "",
-                          stderr=run.stderr or "")
-    else:
-        reason = _extract_failure_reason(run.stdout or "", run.stderr or "",
-                                         run.returncode)
-        return TestResult(test_path, "fail", reason,
-                          time_ms=elapsed, exit_code=run.returncode,
+        return TestResult(test_path, "pass", time_ms=elapsed, exit_code=0,
                           stdout=run.stdout or "", stderr=run.stderr or "")
+    reason = _extract_failure_reason(run.stdout or "", run.stderr or "", run.returncode)
+    return TestResult(test_path, "fail", reason, time_ms=elapsed,
+                      exit_code=run.returncode, stdout=run.stdout or "", stderr=run.stderr or "")
+
+
+def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
+                    timeout: int = 10, verbose: bool = False) -> TestResult:
+    """Compile and run a single test262 test (per-test path)."""
+    early, job = _prepare_test(test_path, compiler, build_dir)
+    if early is not None:
+        return early
+
+    # Compile. TSAOT_EXTRA_FLAGS lets a caller inject compiler flags.
+    compile_cmd = [str(compiler), str(job["tmp_js"]), "-o", str(job["tmp_exe"])]
+    _extra = os.environ.get("TSAOT_EXTRA_FLAGS", "").split()
+    if _extra:
+        compile_cmd += _extra
+    compile_cmd += job["shared_flags"]
+    try:
+        comp = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=30,
+                              encoding='utf-8', errors='replace')
+        rc, stderr = comp.returncode, comp.stderr or ""
+    except subprocess.TimeoutExpired:
+        rc, stderr = None, ""
+    except Exception as e:
+        _cleanup_job(job)
+        return TestResult(test_path, "fail", f"compile exception: {e}",
+                          time_ms=(time.time() - job["start"]) * 1000)
+
+    decided = _classify_compile(job, rc, stderr)
+    if decided is not None:
+        _cleanup_job(job)
+        return decided
+    return _run_test_exe(job, timeout)
+
+
+def _compile_batch(jobs, compiler, base_extra_flags):
+    """Compile every job in ONE `ts-aot --batch` process. Returns a dict
+    {str(tmp_js): rc} where rc is the compiler exit code, or None for a compile
+    timeout. Any job missing an RC line (because the batch process crashed or
+    timed out before reaching it) is recompiled INDIVIDUALLY so a single bad
+    test cannot lose its whole chunk (test262 is adversarial)."""
+    if not jobs:
+        return {}
+    shared_flags = jobs[0]["shared_flags"]
+    manifest = jobs[0]["tmp_exe"].parent / ("_batch_" + jobs[0]["tmp_exe"].stem + ".mf")
+    try:
+        manifest.write_text(
+            "".join(f'{j["tmp_js"]}\t{j["tmp_exe"]}\n' for j in jobs), encoding="utf-8")
+    except Exception:
+        # Couldn't write manifest -> force per-file path for all.
+        manifest = None
+
+    rc_by_input = {}
+    if manifest is not None:
+        cmd = [str(compiler), "--batch", str(manifest)] + base_extra_flags + shared_flags
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=max(60, len(jobs) * 10),
+                                  encoding='utf-8', errors='replace')
+            for line in proc.stdout.splitlines():
+                parts = line.split("\t")
+                if len(parts) >= 3:
+                    try:
+                        rc_by_input[parts[0]] = int(parts[-1])
+                    except ValueError:
+                        pass
+        except subprocess.TimeoutExpired:
+            pass  # all unaccounted -> per-file fallback
+        except Exception:
+            pass
+        finally:
+            try:
+                manifest.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    # Per-file fallback for any job the batch didn't report (crash/timeout, or
+    # manifest write failure).
+    for j in jobs:
+        key = str(j["tmp_js"])
+        if key in rc_by_input:
+            continue
+        single = [str(compiler), str(j["tmp_js"]), "-o", str(j["tmp_exe"])] + base_extra_flags + shared_flags
+        try:
+            sp = subprocess.run(single, capture_output=True, text=True, timeout=30,
+                                encoding='utf-8', errors='replace')
+            rc_by_input[key] = sp.returncode
+        except subprocess.TimeoutExpired:
+            rc_by_input[key] = None  # compile timeout
+        except Exception:
+            rc_by_input[key] = 1
+    return rc_by_input
+
+
+def process_chunk(tests, compiler: Path, build_dir: Path, timeout: int) -> List[TestResult]:
+    """Batch-compile a chunk of tests in one process, then run + classify each.
+    Used by the TS262_BATCH chunked dispatch."""
+    results: List[TestResult] = []
+    jobs = []
+    for tp in tests:
+        early, job = _prepare_test(tp, compiler, build_dir)
+        if early is not None:
+            results.append(early)
+        else:
+            jobs.append(job)
+
+    base_extra_flags = os.environ.get("TSAOT_EXTRA_FLAGS", "").split()
+    rc_by_input = _compile_batch(jobs, compiler, base_extra_flags)
+
+    for job in jobs:
+        rc = rc_by_input.get(str(job["tmp_js"]), 1)
+        # Batch mode has no per-test compiler stderr; pass "" (classification
+        # uses only rc + meta, so pass/fail counts are unaffected).
+        decided = _classify_compile(job, rc, "")
+        if decided is not None:
+            _cleanup_job(job)
+            results.append(decided)
+        else:
+            results.append(_run_test_exe(job, timeout))
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -830,8 +911,14 @@ class Test262Runner:
                   "compile_error": 0, "timeout": 0, "crash": 0}
         start_time = time.time()
 
+        # TS262_BATCH=<chunk_size> enables chunked batch compilation (one
+        # ts-aot --batch process per chunk) instead of one spawn per test.
+        _batch = os.environ.get("TS262_BATCH", "")
+        _chunk = int(_batch) if _batch.isdigit() and int(_batch) > 0 else 0
         try:
-            if self.jobs > 1:
+            if _chunk and self.jobs > 1:
+                results = self._run_chunked(tests, start_time, _chunk)
+            elif self.jobs > 1:
                 results = self._run_parallel(tests, start_time)
             else:
                 results = self._run_sequential(tests, start_time)
@@ -963,6 +1050,63 @@ class Test262Runner:
             elif (i + 1) % 50 == 0:
                 elapsed = time.time() - start_time
                 print(f"  [{i+1}/{len(tests)}] {elapsed:.0f}s...", flush=True)
+        return results
+
+    def _run_chunked(self, tests: List[Path], start_time: float,
+                     chunk_size: int) -> List[TestResult]:
+        """Chunked dispatch (TS262_BATCH=<chunk>): each pool worker batch-compiles
+        a chunk in ONE ts-aot process (amortizing the ~35ms 77MB-binary spawn +
+        LLVM init + extension load across the chunk) then runs the chunk's exes.
+        A compiler crash is isolated to its chunk by _compile_batch's per-file
+        fallback. Results stream to the incremental log as chunks complete."""
+        results: List[TestResult] = []
+        total = len(tests)
+        chunks = [tests[i:i + chunk_size] for i in range(0, total, chunk_size)]
+        done = 0
+
+        with ThreadPoolExecutor(max_workers=self.jobs) as executor:
+            in_flight: Dict = {}
+            chunk_iter = iter(chunks)
+            max_in_flight = self.jobs * 2
+
+            def submit_next() -> bool:
+                if self._shutdown.is_set() or self._budget_exceeded(start_time):
+                    return False
+                try:
+                    ch = next(chunk_iter)
+                except StopIteration:
+                    return False
+                fut = executor.submit(process_chunk, ch, self.compiler,
+                                      self.build_dir, self.timeout)
+                in_flight[fut] = ch
+                return True
+
+            while len(in_flight) < max_in_flight and submit_next():
+                pass
+
+            while in_flight:
+                done_set, _ = wait(list(in_flight.keys()), timeout=1.0,
+                                   return_when=FIRST_COMPLETED)
+                for fut in done_set:
+                    ch = in_flight.pop(fut)
+                    try:
+                        chunk_results = fut.result()
+                    except Exception as e:
+                        chunk_results = [TestResult(t, "crash", f"chunk error: {e}")
+                                         for t in ch]
+                    for r in chunk_results:
+                        results.append(r)
+                        rel = str(r.path.relative_to(TEST_DIR))
+                        self._result_log.write(r, rel)
+                        done += 1
+                    elapsed = time.time() - start_time
+                    print(f"  [{done}/{total}] {elapsed:.0f}s...", flush=True)
+                    submit_next()
+                if (self._shutdown.is_set() or self._budget_exceeded(start_time)) and not in_flight:
+                    break
+
+            if self._shutdown.is_set() or self._budget_exceeded(start_time):
+                print(f"\n[stop] halted at {done}/{total} (budget/shutdown)")
         return results
 
     def _run_parallel(self, tests: List[Path], start_time: float) -> List[TestResult]:
