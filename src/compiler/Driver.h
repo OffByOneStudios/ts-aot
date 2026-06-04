@@ -4,6 +4,7 @@
 #include <vector>
 #include <filesystem>
 #include <memory>
+#include <chrono>
 
 namespace ts {
 
@@ -28,8 +29,13 @@ struct DriverOptions {
     bool useNativeParser = true;   // Use native C++ parser instead of Node.js dump_ast.js
     bool enableGCStatepoints = false;  // --gc-statepoints: enable LLVM GC statepoint infrastructure
     bool coverage = false;             // --coverage: emit LLVM source-based coverage instrumentation
+    bool timing = false;               // --timing: print a per-phase wall-clock breakdown to stderr
     std::string runtimeBitcode;
     std::vector<std::string> libraryPaths;
+    // Process-level timestamps captured in main() so run() can report the fixed
+    // pre-pipeline cost (process load is before main; LLVM target init is in main).
+    std::chrono::steady_clock::time_point tMainStart{};
+    std::chrono::steady_clock::time_point tAfterLlvmInit{};
 };
 
 // Helper to detect if the compiler was built in debug mode

@@ -97,12 +97,58 @@ Driver::Driver(const DriverOptions& opts) : options(opts) {}
 Driver::~Driver() {}
 
 int Driver::run() {
+    // --timing accumulators (milliseconds per phase). Filled as the pipeline
+    // runs; printed as a consolidated table at the end when options.timing is set.
+    using Clock = std::chrono::steady_clock;
+    auto MS = [](Clock::time_point a, Clock::time_point b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    auto tRun0 = Clock::now();
+    double ms_parse = 0, ms_anaCtor = 0, ms_analyze = 0, ms_mono = 0,
+           ms_astHir = 0, ms_passes = 0, ms_hirLlvm = 0, ms_emit = 0, ms_link = 0;
+
     // Load extension contracts
     auto& extRegistry = ext::ExtensionRegistry::instance();
     extRegistry.loadDefaultExtensions();
 
     // Register lowerings from extension contracts
     ::hir::LoweringRegistry::instance().registerFromExtensions();
+    auto tFrontendInit = Clock::now();  // extension/lowering registry built
+
+    // Consolidated --timing report. Reads the ms_* accumulators by reference at
+    // call time, so it can be defined here and invoked at any success exit.
+    auto printTiming = [&]() {
+        if (!options.timing) return;
+        double llvm_init = MS(options.tMainStart, options.tAfterLlvmInit);
+        double argparse  = MS(options.tAfterLlvmInit, tRun0);      // arg parse + Driver ctor
+        double frontend  = MS(tRun0, tFrontendInit);              // ext load + lowering registry
+        double fixed     = llvm_init + argparse + frontend;
+        double pipeline  = ms_parse + ms_anaCtor + ms_analyze + ms_mono + ms_astHir
+                         + ms_passes + ms_hirLlvm + ms_emit + ms_link;
+        double total     = MS(options.tMainStart, Clock::now());
+        auto row = [](const char* name, double ms) {
+            fprintf(stderr, "  %-22s %8.1f ms\n", name, ms);
+        };
+        fprintf(stderr, "\n=== ts-aot --timing (process-load before main excluded; ~35ms via --help) ===\n");
+        fprintf(stderr, "[fixed per-invocation init]\n");
+        row("llvm target init", llvm_init);
+        row("argparse+driver ctor", argparse);
+        row("frontend init", frontend);
+        row("  fixed subtotal", fixed);
+        fprintf(stderr, "[per-file pipeline]\n");
+        row("parse", ms_parse);
+        row("analyzer ctor (stdlib)", ms_anaCtor);
+        row("analyze", ms_analyze);
+        row("monomorphize", ms_mono);
+        row("ASTToHIR", ms_astHir);
+        row("HIR passes", ms_passes);
+        row("HIRToLLVM", ms_hirLlvm);
+        row("emit-object (LLVM be)", ms_emit);
+        row("link", ms_link);
+        row("  pipeline subtotal", pipeline);
+        fprintf(stderr, "[total since main()]   %8.1f ms\n", total);
+        fprintf(stderr, "============================================================\n");
+    };
 
     std::string tsFile = options.inputFile;
     std::string jsonFile;
@@ -151,8 +197,10 @@ int Driver::run() {
                                 std::istreambuf_iterator<char>());
             srcFile.close();
 
+            auto tParse0 = Clock::now();
             parser::Parser nativeParser;
             program = nativeParser.parse(source, tsFile);
+            ms_parse = MS(tParse0, Clock::now());
             if (nativeParser.getErrorCount() > 0) {
                 SPDLOG_ERROR("Compilation failed with {} parse error(s).", nativeParser.getErrorCount());
                 return 1;
@@ -176,7 +224,9 @@ int Driver::run() {
         if (options.verbose) {
             SPDLOG_INFO("Analyzing...");
         }
+        auto tAnaCtor0 = Clock::now();
         ts::Analyzer analyzer;
+        ms_anaCtor = MS(tAnaCtor0, Clock::now());  // Analyzer ctor = stdlib schema build
         analyzer.setVerbose(options.verbose);
 
         // Set project root and load tsconfig.json if available
@@ -205,7 +255,9 @@ int Driver::run() {
             }
         }
 
+        auto tAnalyze0 = Clock::now();
         analyzer.analyze(program.get(), tsFile);
+        ms_analyze = MS(tAnalyze0, Clock::now());
 
         if (options.dumpTypes) {
             analyzer.dumpTypes(program.get());
@@ -223,6 +275,7 @@ int Driver::run() {
         auto t0 = std::chrono::steady_clock::now();
         monomorphizer.monomorphize(program.get(), analyzer);
         auto t1 = std::chrono::steady_clock::now();
+        ms_mono = MS(t0, t1);
         SPDLOG_WARN("[TIMING] monomorphize: {}ms, specs={}", std::chrono::duration_cast<std::chrono::milliseconds>(t1-t0).count(), monomorphizer.getSpecializations().size());
 
         // IMPORTANT: Declaration order matters for destruction!
@@ -241,6 +294,7 @@ int Driver::run() {
         hir::ASTToHIR astToHir;
         auto hirModule = astToHir.lower(program.get(), monomorphizer.getSpecializations(), moduleName);
         auto t3 = std::chrono::steady_clock::now();
+        ms_astHir = MS(t2, t3);
         SPDLOG_WARN("[TIMING] ASTToHIR: {}ms, functions={}", std::chrono::duration_cast<std::chrono::milliseconds>(t3-t2).count(), hirModule ? hirModule->functions.size() : 0);
 
         // Dump pre-pass HIR (raw output of ASTToHIR, before any optimization passes).
@@ -276,6 +330,7 @@ int Driver::run() {
         auto t4 = std::chrono::steady_clock::now();
         auto passResult = passManager.run(*hirModule);
         auto t5 = std::chrono::steady_clock::now();
+        ms_passes = MS(t4, t5);
         SPDLOG_WARN("[TIMING] HIR passes: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(t5-t4).count());
         if (!passResult.success()) {
             SPDLOG_ERROR("HIR pass failed: {}", passResult.error);
@@ -314,6 +369,7 @@ int Driver::run() {
         auto t6 = std::chrono::steady_clock::now();
         hirOwnedModule = hirToLlvm.lower(hirModule.get(), moduleName);
         auto t7 = std::chrono::steady_clock::now();
+        ms_hirLlvm = MS(t6, t7);
         SPDLOG_WARN("[TIMING] HIRToLLVM: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(t7-t6).count());
         modulePtr = hirOwnedModule.get();
 
@@ -343,9 +399,11 @@ int Driver::run() {
         ts::CodeGenerator codeGen(modulePtr);
         codeGen.setEnableGCStatepoints(options.enableGCStatepoints);
         codeGen.setEmitCoverage(options.coverage);
+        auto tEmit0 = Clock::now();
         if (!codeGen.emitObjectFile(objFile, options.optLevel)) {
             return 1;
         }
+        ms_emit = MS(tEmit0, Clock::now());  // LLVM backend: opt pipeline + ISel + obj emit
 
         if (!options.compileOnly) {
             // Default output extension is platform-specific
@@ -724,7 +782,10 @@ int Driver::run() {
 #endif
             } // end static-runtime library set
 
-            if (!ts::LinkerDriver::link(linkOpts)) {
+            auto tLink0 = Clock::now();
+            bool linkOk = ts::LinkerDriver::link(linkOpts);
+            ms_link = MS(tLink0, Clock::now());
+            if (!linkOk) {
                 if (options.verbose) {
                     SPDLOG_ERROR("Linking failed.");
                 }
@@ -796,10 +857,12 @@ int Driver::run() {
                 // On Linux, use ./ prefix for local executables
                 std::string runCmd = "./" + exeOutput;
 #endif
+                printTiming();
                 int runResult = std::system(runCmd.c_str());
                 return runResult;
             }
         }
+        printTiming();
     } catch (const std::exception& e) {
         SPDLOG_ERROR("Error: {}", e.what());
         return 1;

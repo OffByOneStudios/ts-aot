@@ -7,12 +7,16 @@
 
 #include <llvm/Support/TargetSelect.h>
 #include "codegen/TsAotGC.h"
+#include <chrono>
 
 #ifdef _MSC_VER
 #include <crtdbg.h>
 #endif
 
 int main(int argc, char** argv) {
+    // Capture the earliest point we can for --timing (process/binary load happens
+    // before main, so this excludes that; --help baseline approximates it).
+    auto _tMainStart = std::chrono::steady_clock::now();
 #ifdef _MSC_VER
     // Disable the "Abort, Retry, Ignore" dialog and redirect to stderr
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
@@ -32,6 +36,7 @@ int main(int argc, char** argv) {
     llvm::InitializeAllTargetMCs();
     llvm::InitializeAllAsmParsers();
     llvm::InitializeAllAsmPrinters();
+    auto _tAfterLlvmInit = std::chrono::steady_clock::now();
 
     try {
         cxxopts::Options options("ts-aot", "TypeScript AOT Compiler");
@@ -63,6 +68,7 @@ int main(int argc, char** argv) {
             ("gc-statepoints", "Enable LLVM GC statepoint precise-root infrastructure (default: true)", cxxopts::value<bool>()->default_value("true"))
             ("no-gc-statepoints", "Disable LLVM GC statepoints (use conservative stack scan)", cxxopts::value<bool>()->default_value("false"))
             ("coverage", "Emit LLVM source-based coverage instrumentation", cxxopts::value<bool>()->default_value("false"))
+            ("timing", "Print a per-phase wall-clock breakdown of the compile to stderr", cxxopts::value<bool>()->default_value("false"))
             ("h,help", "Print usage")
             ("input", "Input file", cxxopts::value<std::string>());
 
@@ -158,6 +164,9 @@ int main(int argc, char** argv) {
         driverOpts.enableGCStatepoints = result["gc-statepoints"].as<bool>()
                                          && !result["no-gc-statepoints"].as<bool>();
         driverOpts.coverage = result["coverage"].as<bool>();
+        driverOpts.timing = result["timing"].as<bool>();
+        driverOpts.tMainStart = _tMainStart;
+        driverOpts.tAfterLlvmInit = _tAfterLlvmInit;
         driverOpts.verbose = result["verbose"].as<bool>();
 
         // Parser selection: --native-parser enables, --legacy-parser disables
