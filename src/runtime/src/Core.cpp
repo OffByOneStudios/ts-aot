@@ -1584,6 +1584,13 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
         process_exec_path = argv[0];
     }
 
+    // --- run-phase instrumentation (TS_RUNTIME_TIMING=1) ---
+    // Breaks the per-process startup into gc / icu / globals / loop+setup /
+    // user_main / event_loop so we can see what a pooled host would amortize.
+    // Process spawn + DLL load (before ts_main) is NOT captured here.
+    const bool _rt_timing = (std::getenv("TS_RUNTIME_TIMING") != nullptr);
+    std::chrono::steady_clock::time_point _t_gc{}, _t_icu{}, _t_globals{}, _t_setup{}, _t_user{};
+
     // 1. Initialize Garbage Collector
     ts_gc_init();
 
@@ -1627,8 +1634,11 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
         fwd_vec(disconnect_handlers);
     }, nullptr);
 
+    if (_rt_timing) _t_gc = std::chrono::steady_clock::now();
+
     // 1.2 Initialize ICU data (loads external .dat file if not embedded)
     ts_icu_init(argc > 0 ? argv[0] : nullptr);
+    if (_rt_timing) _t_icu = std::chrono::steady_clock::now();
 
     // 1.5 Initialize Runtime Globals.
     // GC-001 Phase C: tenure all builtin allocations to old-gen so the
@@ -1638,6 +1648,7 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
     ts_gc_push_tenure();
     ts_runtime_init();
     ts_gc_pop_tenure();
+    if (_rt_timing) _t_globals = std::chrono::steady_clock::now();
 
     // 2. Initialize Event Loop
     ts_loop_init();
@@ -1661,6 +1672,7 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
         argvArray->Push((int64_t)ts_value_make_string(s));
     }
     process_argv = ts_value_make_array(argvArray);
+    if (_rt_timing) _t_setup = std::chrono::steady_clock::now();
 
     // 4. Run User Code (which might schedule async work).
     //
@@ -1691,6 +1703,7 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
         (void)result; // For now, we don't do anything special with the top-level promise
 #endif
     }
+    if (_rt_timing) _t_user = std::chrono::steady_clock::now();
 
     // 5. Run Event Loop (wrapped in exception handler for cleanup errors)
     {
@@ -1707,6 +1720,22 @@ int ts_main(int argc, char** argv, TsValue* (*user_main)(void*)) {
             // Exception caught during event loop - swallow cleanup errors
             // (e.g. connection errors during session.destroy())
         }
+    }
+
+    if (_rt_timing) {
+        auto _t_run = std::chrono::steady_clock::now();
+        auto ms = [](std::chrono::steady_clock::time_point a,
+                     std::chrono::steady_clock::time_point b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        fprintf(stderr,
+                "[rt-timing] gc=%.2f icu=%.2f globals=%.2f loop+setup=%.2f "
+                "user_main=%.2f event_loop=%.2f total_since_main=%.2f ms\n",
+                ms(process_start_time, _t_gc), ms(_t_gc, _t_icu),
+                ms(_t_icu, _t_globals), ms(_t_globals, _t_setup),
+                ms(_t_setup, _t_user), ms(_t_user, _t_run),
+                ms(process_start_time, _t_run));
+        fflush(stderr);
     }
 
     return 0;
