@@ -3266,6 +3266,51 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)ts_value_make_object(result);
     }
 
+    // ECMA-262 22.2.7.1 RegExpExec(R, S): the observable exec abstract operation
+    // shared by the RegExp.prototype[@@search/@@match/@@replace/@@split/@@matchAll]
+    // methods. Prefer a (callable) `exec` looked up via Get(R,"exec") — so a user
+    // override is honored — else fall back to the builtin RegExpBuiltinExec. `S` is
+    // a boxed string TsValue*. Returns the match-result object (raw ptr) or nullptr
+    // for no match (throws TypeError if a custom exec returns a non-object/non-null).
+    static void* ts_regexp_exec_observable(void* rx, void* sBoxed) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        TsValue* exec = ts_object_get_property(rx, "exec");
+        if (exec && ts_value_is_callable(exec)) {
+            TsValue* boxedRx = (TsValue*)ts_value_make_object(rx);
+            TsValue* sArg = (TsValue*)sBoxed;
+            TsValue* result = ts_function_call_with_this(exec, boxedRx, 1, &sArg);
+            if (!result || ts_value_is_null(result) || ts_value_is_undefined(result))
+                return nullptr;
+            void* robj = ts_value_get_object(result);
+            if (!robj) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "RegExp exec method returned a non-object"));
+                return nullptr;
+            }
+            return robj;
+        }
+        return RegExp_exec(rx, sBoxed);  // RegExpBuiltinExec
+    }
+
+    // ECMA-262 22.2.6.12 RegExp.prototype [ @@search ] ( string ). Saves and
+    // restores lastIndex (search must not perturb it), runs RegExpExec once, and
+    // returns the match index or -1.
+    extern "C" TsValue* ts_regexp_symbol_search_native(void* ctx, int argc, TsValue** argv) {
+        extern void* ts_string_from_value(TsValue* val);
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        TsRegExp* re = (TsRegExp*)ctx;
+        TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
+                                                     : (TsValue*)ts_value_make_undefined();
+        TsString* sStr = (TsString*)ts_string_from_value(sv);
+        TsValue* sBoxed = (TsValue*)ts_value_make_string(sStr);
+        int64_t prev = re->GetLastIndex();
+        if (prev != 0) re->SetLastIndex(0);
+        void* result = ts_regexp_exec_observable(ctx, sBoxed);
+        if (re->GetLastIndex() != prev) re->SetLastIndex(prev);
+        if (!result) return (TsValue*)ts_value_make_int(-1);
+        return ts_object_get_property(result, "index");
+    }
+
     // Helper: try implicit conversion through virtual base chain to find TsObject
     // For stream classes (TsReadable/TsWritable), TsObject is a virtual base NOT at offset 0.
     // We use the C++ implicit conversion which follows the vbtable to find the virtual base.
@@ -3541,6 +3586,9 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "toString") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_tostring_native, re, "toString", 0);
+            }
+            if (strcmp(keyStr, "[Symbol.search]") == 0) {
+                return makeNamedNativeFunction((void*)ts_regexp_symbol_search_native, re, "[Symbol.search]", 1);
             }
             return ts_value_make_undefined();
         }
