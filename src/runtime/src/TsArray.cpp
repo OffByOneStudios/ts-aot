@@ -3279,7 +3279,7 @@ extern "C" {
         return ((TsArray*)rawArr)->FindLastIndex(callback, thisArg);
     }
 
-    void* ts_array_concat(void* arr, void* other) {
+    static void* ts_array_concat_impl(void* arr, void* other) {
         // Unbox if arr is a TsValue* (boxed array)
         void* rawArr = ts_nanbox_safe_unbox(arr);
         // Guard non-TsArray receivers. The compiler emits ts_array_concat
@@ -3397,6 +3397,20 @@ extern "C" {
             result->Push(first->Get(i));
         }
         result->Push((int64_t)(uintptr_t)other);
+        return result;
+    }
+
+    void* ts_array_concat(void* arr, void* other) {
+        void* result = ts_array_concat_impl(arr, other);
+        // ECMA-262 23.1.3.2: the concat result is built via ArraySpeciesCreate(O,0).
+        // Apply species ONLY for a real Array receiver — the impl's non-array
+        // paths delegate to the receiver's own concat and must not be re-specied.
+        void* raw = ts_nanbox_safe_unbox(arr); if (!raw) raw = arr;
+        uintptr_t p = (uintptr_t)raw;
+        if (raw && p > 0x1000 && p < 0x0000800000000000ULL &&
+            *(uint32_t*)raw == TsArray::MAGIC) {
+            return ts_array_species_rematerialize(arr, result);
+        }
         return result;
     }
 
