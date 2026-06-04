@@ -2299,26 +2299,74 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_typed_array_set_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
+        if (!ta) return ts_value_make_undefined();
+        // ECMA-262 23.2.3.23 %TypedArray%.prototype.set(source [, offset]):
+        // step 3-4: targetOffset = ToIntegerOrInfinity(offset); if < 0 RangeError.
+        // This precedes the detached check and the source-length bounds check.
+        double offD = 0;
+        if (argc >= 2 && argv[1]) offD = ts_to_number((TsValue*)argv[1]);
+        if (offD != offD) offD = 0;            // NaN -> 0
+        if (offD < 0) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "offset is out of bounds"));
+            return ts_value_make_undefined();
+        }
+        int64_t offset = (int64_t)offD;        // truncate toward zero
         if (throwIfDetached(ta, "set")) return ts_value_make_undefined();
-        // set(source, offset?) - copy elements from source array
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_undefined();
         void* src = ts_value_get_object(argv[0]);
         if (!src) src = (void*)argv[0];
-        int64_t offset = 0;
-        if (argc >= 2 && argv[1]) offset = ts_value_get_int(argv[1]);
-        // Check if source is a TypedArray
-        uint32_t srcMagic16 = *(uint32_t*)((char*)src + 16);
+        size_t targetLen = ta->GetLength();
+        uint32_t srcMagic16 = ((uintptr_t)src > 0x1000 &&
+                               (uintptr_t)src < 0x0000800000000000ULL)
+                              ? *(uint32_t*)((char*)src + 16) : 0;
         if (srcMagic16 == TsTypedArray::MAGIC) {
             TsTypedArray* srcTa = (TsTypedArray*)src;
-            for (size_t i = 0; i < srcTa->GetLength() && (size_t)(offset + i) < ta->GetLength(); i++) {
-                ta->Set((size_t)(offset + i), srcTa->Get(i));
+            size_t srcLen = srcTa->GetLength();
+            // BigInt typed arrays have a pre-existing construction/length bug
+            // (GetLength can be garbage); keep the legacy bounded copy for them
+            // so the strict bounds RangeError below doesn't fire spuriously.
+            bool isBig = ta->GetType() == TypedArrayType::BigInt64 ||
+                         ta->GetType() == TypedArrayType::BigUint64 ||
+                         srcTa->GetType() == TypedArrayType::BigInt64 ||
+                         srcTa->GetType() == TypedArrayType::BigUint64;
+            // step: if srcLength + targetOffset > targetLength, RangeError
+            // (no silent truncation).
+            if (!isBig && srcLen + (size_t)offset > targetLen) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "offset is out of bounds"));
+                return ts_value_make_undefined();
+            }
+            for (size_t i = 0; i < srcLen && (size_t)offset + i < targetLen; i++) {
+                ta->Set((size_t)offset + i, srcTa->Get(i));
             }
         } else {
-            // Assume it's a regular array
-            TsArray* srcArr = (TsArray*)src;
-            for (int64_t i = 0; i < srcArr->Length() && (offset + i) < (int64_t)ta->GetLength(); i++) {
-                double val = srcArr->GetElementDouble(i);
-                ta->Set((size_t)(offset + i), val);
+            // Array / array-like source: ToLength(Get(src,"length")).
+            int64_t srcLen = 0;
+            uint32_t sm0 = ((uintptr_t)src > 0x1000) ? *(uint32_t*)src : 0;
+            if (sm0 == TsArray::MAGIC) {
+                srcLen = ((TsArray*)src)->Length();
+            } else {
+                TsValue* lenV = ts_object_get_property(src, "length");
+                double ld = lenV ? ts_to_number(lenV) : 0;
+                if (ld == ld && ld > 0) srcLen = (int64_t)ld;
+            }
+            if ((size_t)srcLen + (size_t)offset > targetLen) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "offset is out of bounds"));
+                return ts_value_make_undefined();
+            }
+            if (sm0 == TsArray::MAGIC) {
+                TsArray* srcArr = (TsArray*)src;
+                for (int64_t i = 0; i < srcLen; i++) {
+                    ta->Set((size_t)(offset + i), srcArr->GetElementDouble(i));
+                }
+            } else {
+                for (int64_t i = 0; i < srcLen; i++) {
+                    char key[24]; snprintf(key, sizeof(key), "%lld", (long long)i);
+                    TsValue* ev = ts_object_get_property(src, key);
+                    ta->Set((size_t)(offset + i), ev ? ts_to_number(ev) : 0.0);
+                }
             }
         }
         return ts_value_make_undefined();
