@@ -6795,6 +6795,64 @@ TsValue* ts_value_make_int(int64_t i) {
                         if (flat) keyStr = flat->ToUtf8();
                     }
                 }
+                // ECMA-262 10.4.2.1 Array [[DefineOwnProperty]] for "length"
+                // runs ArraySetLength: ToUint32-validate the descriptor value
+                // (RangeError on a non-canonical length) and truncate/extend,
+                // rather than storing "length" as a generic string property.
+                // Only the data-`value` case is intercepted here; descriptors
+                // without a value (accessor / attrs-only / invalid) fall through
+                // to the generic path below (which validates + throws TypeError).
+                if (keyStr && strcmp(keyStr, "length") == 0) {
+                    void* dRaw = ts_value_get_object(descriptor);
+                    if (dRaw) {
+                        if (is_flat_object(dRaw)) dRaw = ts_flat_object_to_map(dRaw);
+                        uint32_t dMag = 0;
+                        if ((uintptr_t)dRaw > 0x1000 &&
+                            (uintptr_t)dRaw < 0x0000800000000000ULL)
+                            dMag = *(uint32_t*)((char*)dRaw + 16);
+                        if (dMag == 0x46554E43) {  // TsFunction
+                            TsFunction* f = (TsFunction*)dRaw;
+                            if (f->properties) { dRaw = f->properties; dMag = 0x4D415053; }
+                        } else if (dMag == 0x434C5352) {  // TsClosure
+                            TsClosure* c = (TsClosure*)dRaw;
+                            if (c->properties) { dRaw = c->properties; dMag = 0x4D415053; }
+                        }
+                        if (dMag == 0x4D415053) {  // TsMap
+                            TsMap* dm = (TsMap*)dRaw;
+                            TsValue vk; vk.type = ValueType::STRING_PTR;
+                            vk.ptr_val = TsString::GetInterned("value");
+                            if (dm->Has(vk)) {
+                                double num = ts_to_number(nanbox_from_tagged(dm->Get(vk)));
+                                uint32_t u = ts_double_to_uint32(num);
+                                if ((double)u != num) {
+                                    ts_throw((TsValue*)ts_error_create_typed(
+                                        "RangeError", "Invalid array length"));
+                                    return ts_value_make_undefined();
+                                }
+                                // Honor a non-writable length set by a prior
+                                // defineProperty(arr,"length",{writable:false})
+                                // — recorded in the props map (ATTR_WRITABLE=0x02).
+                                // ECMA-262 10.4.2.4 step 3.f/3.g: changing the
+                                // length of a non-writable length is a TypeError.
+                                if (arr->properties) {
+                                    TsValue lk; lk.type = ValueType::STRING_PTR;
+                                    lk.ptr_val = TsString::GetInterned("length");
+                                    if (arr->properties->Has(lk) &&
+                                        !(arr->properties->GetPropertyAttrs(lk) & 0x02) &&
+                                        (size_t)u != arr->Length()) {
+                                        ts_throw((TsValue*)ts_error_create_typed(
+                                            "TypeError",
+                                            "Cannot redefine property: length"));
+                                        return ts_value_make_undefined();
+                                    }
+                                }
+                                arr->SetLength((size_t)u);
+                                return obj;
+                            }
+                        }
+                    }
+                    // else: fall through to generic path (TypeError / no-op).
+                }
                 bool routedToProps = false;
                 if (keyStr && keyStr[0] != '\0') {
                     char* endp = nullptr;
