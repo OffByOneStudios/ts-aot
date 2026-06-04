@@ -20,6 +20,8 @@ struct DriverOptions {
     bool compileOnly = false;
     bool debug = false;
     bool debugRuntime = false;  // Link against debug version of tsruntime
+    bool sharedRuntime = false; // --shared-runtime: link the runtime as a shared DLL (tsruntime_shared) instead of statically
+    bool copyRuntimeDll = true; // shared mode: copy tsruntime_shared.dll next to the exe (off via --no-copy-runtime for bulk runners using PATH discovery)
     bool runAfterLink = false;
     bool bundleIcu = false;    // --bundle-icu: embed ICU data (~29MB larger, self-contained)
     bool verbose = false;

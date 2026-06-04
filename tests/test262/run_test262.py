@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -525,6 +526,29 @@ def _extract_failure_reason(stdout: str, stderr: str, returncode: int) -> str:
     return f"exit code {returncode}"
 
 
+@functools.lru_cache(maxsize=None)
+def _shared_runtime_config(compiler_str: str):
+    """Opt-in shared-runtime mode (env TS262_SHARED_RUNTIME=1).
+
+    When enabled, each test exe links the runtime as tsruntime_shared.dll
+    instead of statically — so the emitted exe is ~115 KB instead of ~3 MB, a
+    huge disk win across a full sweep (no per-test 3 MB static binary). We do
+    NOT copy the 16 MB DLL next to each exe (--no-copy-runtime); instead the run
+    subprocess discovers it via PATH and finds ICU data via ICU_DATA.
+
+    Returns (extra_compile_flags, run_env) or (None, None) when disabled.
+    """
+    if not os.environ.get("TS262_SHARED_RUNTIME"):
+        return None, None
+    comp_dir = Path(compiler_str).resolve().parent            # build/src/compiler/Release
+    dll_dir = comp_dir.parent.parent / "sharedrt" / "Release" # build/src/sharedrt/Release
+    icu_dir = comp_dir                                         # icudt74l.dat sits next to ts-aot.exe
+    run_env = dict(os.environ)
+    run_env["PATH"] = str(dll_dir) + os.pathsep + run_env.get("PATH", "")
+    run_env.setdefault("ICU_DATA", str(icu_dir))
+    return ["--shared-runtime", "--no-copy-runtime"], run_env
+
+
 def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
                     timeout: int = 10, verbose: bool = False) -> TestResult:
     """Compile and run a single test262 test."""
@@ -604,6 +628,11 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
     _extra = os.environ.get("TSAOT_EXTRA_FLAGS", "").split()
     if _extra:
         compile_cmd += _extra
+    # Optional shared-runtime mode (TS262_SHARED_RUNTIME=1): tiny exes + a shared
+    # DLL discovered via PATH/ICU_DATA in run_env instead of static linking.
+    _shared_flags, run_env = _shared_runtime_config(str(compiler))
+    if _shared_flags:
+        compile_cmd += _shared_flags
     try:
         comp = subprocess.run(
             compile_cmd, capture_output=True, text=True, timeout=30,
@@ -642,7 +671,7 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
     try:
         run = subprocess.run(
             [str(tmp_exe)], capture_output=True, text=True, timeout=timeout,
-            encoding='utf-8', errors='replace'
+            encoding='utf-8', errors='replace', env=run_env
         )
     except subprocess.TimeoutExpired:
         elapsed = (time.time() - start) * 1000

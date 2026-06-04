@@ -44,6 +44,8 @@ int main(int argc, char** argv) {
             ("lib-path", "Additional library search path", cxxopts::value<std::vector<std::string>>())
             ("g,debug", "Generate debug information", cxxopts::value<bool>()->default_value("false"))
             ("debug-runtime", "Link against debug version of runtime (auto-detected if compiler is debug build)", cxxopts::value<bool>()->default_value("false"))
+            ("shared-runtime", "Link the runtime as a shared library (tsruntime_shared.dll) instead of statically; produces a tiny executable that needs the DLL at runtime", cxxopts::value<bool>()->default_value("false"))
+            ("no-copy-runtime", "In --shared-runtime mode, do NOT copy tsruntime_shared.dll next to the output executable (the exe must find it on PATH / next to itself at run time). Useful for bulk test runners that share one DLL.", cxxopts::value<bool>()->default_value("false"))
             ("d,debug-ast", "Print AST", cxxopts::value<bool>()->default_value("false"))
             ("dump-ir", "Dump LLVM IR", cxxopts::value<bool>()->default_value("false"))
             ("dump-hir", "Dump HIR after all optimization passes (final form)", cxxopts::value<bool>()->default_value("false"))
@@ -150,6 +152,8 @@ int main(int argc, char** argv) {
         driverOpts.dumpHirPre = result["dump-hir-pre"].as<bool>();
         driverOpts.dumpTypes = result["dump-types"].as<bool>();
         driverOpts.bundleIcu = result["bundle-icu"].as<bool>();
+        driverOpts.sharedRuntime = result["shared-runtime"].as<bool>();
+        driverOpts.copyRuntimeDll = !result["no-copy-runtime"].as<bool>();
         // Precise GC statepoints are ON by default; --no-gc-statepoints opts out.
         driverOpts.enableGCStatepoints = result["gc-statepoints"].as<bool>()
                                          && !result["no-gc-statepoints"].as<bool>();

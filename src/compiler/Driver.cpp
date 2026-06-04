@@ -379,6 +379,18 @@ int Driver::run() {
             linkOpts.libraryPaths.push_back(compilerPath.string());
             linkOpts.libraryPaths.push_back((compilerPath / "lib").string());
 
+            // Shared-runtime import library (tsruntime_shared) lives in its own
+            // build subdirectory (src/sharedrt). Add it so the linker can find
+            // the import lib in --shared-runtime mode.
+            if (options.sharedRuntime) {
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "sharedrt" / "Release").string());
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "sharedrt" / "Debug").string());
+#ifndef _WIN32
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / "sharedrt").string());
+                linkOpts.libraryPaths.push_back((compilerPath / ".." / ".." / "sharedrt").string());
+#endif
+            }
+
             // Development paths - order matters! Put the appropriate one first
             if (options.debugRuntime) {
                 SPDLOG_INFO("Using DEBUG runtime library");
@@ -589,6 +601,19 @@ int Driver::run() {
                 linkOpts.libraryPaths.push_back(path);
             }
 
+            // Shared-runtime mode: the runtime and its third-party dependencies
+            // live inside tsruntime_shared.dll, which exports the ts_* C ABI.
+            // The executable links ONLY the import library; the DLL is copied
+            // next to the output exe after linking so it is found at run time.
+            // (Programs importing Node.js extension modules are not yet covered
+            // by the shared DLL and should use the default static link.)
+            if (options.sharedRuntime) {
+#ifdef _WIN32
+            linkOpts.libraries.push_back("tsruntime_shared.lib");
+#else
+            linkOpts.libraries.push_back("-ltsruntime_shared");
+#endif
+            } else {
             // Core runtime libraries
 #ifdef _WIN32
             linkOpts.libraries.push_back("tsruntime.lib");
@@ -697,6 +722,7 @@ int Driver::run() {
             linkOpts.libraries.push_back("-lbrotlidec");
             linkOpts.libraries.push_back("-lbrotlienc");
 #endif
+            } // end static-runtime library set
 
             if (!ts::LinkerDriver::link(linkOpts)) {
                 if (options.verbose) {
@@ -709,6 +735,52 @@ int Driver::run() {
             try {
                 std::filesystem::remove(objFile);
             } catch (...) {}
+
+            // Shared-runtime mode: place tsruntime_shared.dll next to the output
+            // executable so it is found at run time (Windows searches the exe's
+            // own directory first; on other platforms it is the loader's rpath/
+            // working dir). Copy only when missing or stale to avoid redundant
+            // 3MB copies across many outputs in the same directory.
+            if (options.sharedRuntime && options.copyRuntimeDll) {
+#ifdef _WIN32
+                const char* dllName = "tsruntime_shared.dll";
+#elif defined(__APPLE__)
+                const char* dllName = "libtsruntime_shared.dylib";
+#else
+                const char* dllName = "libtsruntime_shared.so";
+#endif
+                std::filesystem::path outDir = std::filesystem::path(exeOutput).parent_path();
+                std::filesystem::path dest = outDir.empty() ? std::filesystem::path(dllName)
+                                                            : (outDir / dllName);
+                // Search the library paths we assembled for the DLL source.
+                std::filesystem::path src;
+                for (const auto& lp : linkOpts.libraryPaths) {
+                    std::filesystem::path cand = std::filesystem::path(lp) / dllName;
+                    std::error_code ec;
+                    if (std::filesystem::exists(cand, ec)) { src = cand; break; }
+                }
+                if (src.empty()) {
+                    SPDLOG_WARN("--shared-runtime: could not locate {} to copy next to {}; "
+                                "the executable will need it on PATH at run time",
+                                dllName, exeOutput);
+                } else {
+                    std::error_code ec;
+                    bool needCopy = true;
+                    if (std::filesystem::exists(dest, ec)) {
+                        auto a = std::filesystem::file_size(src, ec);
+                        auto b = std::filesystem::file_size(dest, ec);
+                        if (!ec && a == b) needCopy = false;
+                    }
+                    if (needCopy) {
+                        std::filesystem::copy_file(src, dest,
+                            std::filesystem::copy_options::overwrite_existing, ec);
+                        if (ec && options.verbose) {
+                            SPDLOG_WARN("--shared-runtime: failed to copy {} -> {}: {}",
+                                        src.string(), dest.string(), ec.message());
+                        }
+                    }
+                }
+            }
 
             if (options.verbose) {
                 SPDLOG_INFO("Successfully created {}", exeOutput);

@@ -54,6 +54,14 @@ add_subdirectory(src/runtime)
 add_subdirectory(src/compiler)
 add_subdirectory(extensions)
 
+# Build the runtime ALSO as a single shared library (DLL/.so) alongside the
+# static tsruntime, so emitted executables can link it via `ts-aot
+# --shared-runtime`. This reuses the static target's already-compiled object
+# files ($<TARGET_OBJECTS:tsruntime>) and the already-installed vcpkg static
+# libs, so it adds only one link step (no runtime-source or vcpkg rebuild).
+# Must come after src/runtime and extensions so its target dependencies exist.
+add_subdirectory(src/sharedrt)
+
 # LTO Support: Build runtime bitcode
 find_package(LLVM REQUIRED CONFIG)
 find_program(CLANG_EXECUTABLE clang HINTS "${LLVM_TOOLS_BINARY_DIR}")
