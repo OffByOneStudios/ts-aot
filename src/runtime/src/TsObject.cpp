@@ -3365,6 +3365,147 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsValue*)ts_value_make_object(arr);
     }
 
+    // ECMA-262 22.1.3.17.1 GetSubstitution — expand $ patterns in `templ`
+    // ($$ $& $` $' $n $nn $<name>) using the matched text, captures, and the
+    // optional named-capture groups object. Appends to `out`.
+    static void ts_regexp_get_substitution(
+            icu::UnicodeString& out, const icu::UnicodeString& matched,
+            const icu::UnicodeString& S, int position,
+            const std::vector<std::pair<bool, icu::UnicodeString>>& captures,
+            void* namedCaptures, const icu::UnicodeString& templ) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        int nCaptures = (int)captures.size();
+        int tailPos = position + matched.length();
+        int len = templ.length();
+        for (int i = 0; i < len; i++) {
+            UChar c = templ.charAt(i);
+            if (c != 0x24 /* $ */ || i + 1 >= len) { out.append(c); continue; }
+            UChar nx = templ.charAt(i + 1);
+            if (nx == 0x24) { out.append((UChar)0x24); i++; }
+            else if (nx == 0x26 /* & */) { out.append(matched); i++; }
+            else if (nx == 0x60 /* ` */) { out.append(S, 0, position); i++; }
+            else if (nx == 0x27 /* ' */) { out.append(S, tailPos, S.length() - tailPos); i++; }
+            else if (nx >= 0x30 && nx <= 0x39 /* 0-9 */) {
+                int idx = nx - 0x30, consumed = 1;
+                if (i + 2 < len) {
+                    UChar n2 = templ.charAt(i + 2);
+                    if (n2 >= 0x30 && n2 <= 0x39) {
+                        int two = idx * 10 + (n2 - 0x30);
+                        if (two >= 1 && two <= nCaptures) { idx = two; consumed = 2; }
+                    }
+                }
+                if (idx >= 1 && idx <= nCaptures) {
+                    if (captures[idx - 1].first) out.append(captures[idx - 1].second);
+                    i += consumed;
+                } else {
+                    out.append((UChar)0x24);  // literal $
+                }
+            }
+            else if (nx == 0x3C /* < */ && namedCaptures) {
+                int j = i + 2;
+                while (j < len && templ.charAt(j) != 0x3E /* > */) j++;
+                if (j < len) {
+                    icu::UnicodeString name(templ, i + 2, j - (i + 2));
+                    std::string nameU8; name.toUTF8String(nameU8);
+                    TsValue* gv = ts_object_get_property(namedCaptures, nameU8.c_str());
+                    if (gv && !ts_value_is_undefined(gv)) {
+                        TsString* gs = ts_regexp_tostring_arg(gv);
+                        out.append(gs->getUStr());
+                    }
+                    i = j;
+                } else {
+                    out.append((UChar)0x24);
+                }
+            }
+            else { out.append((UChar)0x24); }  // unknown — literal $
+        }
+    }
+
+    // ECMA-262 22.2.6.11 RegExp.prototype [ @@replace ] ( string, replaceValue ).
+    // Single-pass (process each match before the next RegExpExec) so no
+    // std::vector of GC-pointer results is held across allocating exec calls.
+    extern "C" TsValue* ts_regexp_symbol_replace_native(void* ctx, int argc, TsValue** argv) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        TsRegExp* re = (TsRegExp*)ctx;
+        TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
+                                                     : (TsValue*)ts_value_make_undefined();
+        TsString* sTs = ts_regexp_tostring_arg(sv);
+        icu::UnicodeString S = sTs->getUStr();
+        int sLen = S.length();
+        TsValue* replaceVal = (argc >= 2 && argv && argv[1]) ? argv[1]
+                                                            : (TsValue*)ts_value_make_undefined();
+        bool functional = ts_value_is_callable(replaceVal);
+        icu::UnicodeString replTemplate;
+        if (!functional) replTemplate = ts_regexp_tostring_arg(replaceVal)->getUStr();
+
+        bool global = re->IsGlobal();
+        if (global) re->SetLastIndex(0);
+
+        icu::UnicodeString accumulated;
+        int nextSourcePosition = 0;
+        TsValue* sBoxed = (TsValue*)ts_value_make_string(sTs);
+        while (true) {
+            void* result = ts_regexp_exec_observable(ctx, sBoxed);
+            if (!result) break;
+            TsString* matchedTs = ts_regexp_tostring_arg(ts_object_get_property(result, "0"));
+            icu::UnicodeString matched = matchedTs->getUStr();
+            int matchLen = matched.length();
+            int position = (int)ts_to_number(ts_object_get_property(result, "index"));
+            if (position < 0) position = 0;
+            if (position > sLen) position = sLen;
+            int nCaptures = (int)ts_to_number(ts_object_get_property(result, "length")) - 1;
+            if (nCaptures < 0) nCaptures = 0;
+            std::vector<std::pair<bool, icu::UnicodeString>> captures;
+            for (int i = 1; i <= nCaptures; i++) {
+                char key[16]; snprintf(key, sizeof(key), "%d", i);
+                TsValue* cap = ts_object_get_property(result, key);
+                if (cap && !ts_value_is_undefined(cap))
+                    captures.push_back({true, ts_regexp_tostring_arg(cap)->getUStr()});
+                else
+                    captures.push_back({false, icu::UnicodeString()});
+            }
+            TsValue* groups = ts_object_get_property(result, "groups");
+            void* namedCaptures = (groups && !ts_value_is_undefined(groups))
+                                  ? ts_value_get_object(groups) : nullptr;
+            icu::UnicodeString replacement;
+            if (functional) {
+                std::vector<TsValue*> callArgs;
+                callArgs.push_back((TsValue*)ts_value_make_string(matchedTs));
+                for (auto& cap : captures) {
+                    if (cap.first) {
+                        std::string u8; cap.second.toUTF8String(u8);
+                        callArgs.push_back((TsValue*)ts_value_make_string(TsString::Create(u8.c_str())));
+                    } else {
+                        callArgs.push_back((TsValue*)ts_value_make_undefined());
+                    }
+                }
+                callArgs.push_back((TsValue*)ts_value_make_int(position));
+                callArgs.push_back((TsValue*)ts_value_make_string(sTs));
+                if (namedCaptures) callArgs.push_back(groups);
+                TsValue* r = ts_function_call_with_this(replaceVal,
+                        (TsValue*)ts_value_make_undefined(),
+                        (int)callArgs.size(), callArgs.data());
+                replacement = ts_regexp_tostring_arg(r)->getUStr();
+            } else {
+                ts_regexp_get_substitution(replacement, matched, S, position,
+                                           captures, namedCaptures, replTemplate);
+            }
+            if (position >= nextSourcePosition) {
+                accumulated.append(S, nextSourcePosition, position - nextSourcePosition);
+                accumulated.append(replacement);
+                nextSourcePosition = position + matchLen;
+            }
+            if (!global) break;
+            if (matchLen == 0)
+                re->SetLastIndex(ts_regexp_advance_string_index(re->GetLastIndex()));
+            if (re->GetLastIndex() > sLen + 1) break;
+        }
+        if (nextSourcePosition < sLen)
+            accumulated.append(S, nextSourcePosition, sLen - nextSourcePosition);
+        std::string outU8; accumulated.toUTF8String(outU8);
+        return (TsValue*)ts_value_make_string(TsString::Create(outU8.c_str()));
+    }
+
     // Helper: try implicit conversion through virtual base chain to find TsObject
     // For stream classes (TsReadable/TsWritable), TsObject is a virtual base NOT at offset 0.
     // We use the C++ implicit conversion which follows the vbtable to find the virtual base.
@@ -3656,6 +3797,9 @@ TsValue* ts_value_make_int(int64_t i) {
             }
             if (strcmp(keyStr, "[Symbol.match]") == 0) {
                 return makeNamedNativeFunction((void*)ts_regexp_symbol_match_native, re, "[Symbol.match]", 1);
+            }
+            if (strcmp(keyStr, "[Symbol.replace]") == 0) {
+                return makeNamedNativeFunction((void*)ts_regexp_symbol_replace_native, re, "[Symbol.replace]", 2);
             }
             return ts_value_make_undefined();
         }
