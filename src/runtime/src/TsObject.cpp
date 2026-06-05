@@ -1725,9 +1725,11 @@ TsValue* ts_value_make_int(int64_t i) {
         // Check if replacement (argv[1]) is a callback function
         bool replIsCallback = (argc >= 2 && argv[1] && ts_value_is_callable(argv[1]));
 
-        // Extract and unbox pattern
+        // Extract and unbox pattern. Only a real heap object (ts_value_get_object
+        // returns non-null) can be a RegExp; a NaN-boxed primitive searchValue
+        // (false / number / null) must NOT be dereferenced for the REGX magic --
+        // that read crashed for e.g. "x".replace(false, ...).
         void* rawPattern = argv[0] ? ts_value_get_object((TsValue*)argv[0]) : nullptr;
-        if (!rawPattern) rawPattern = (void*)argv[0];
 
         if (rawPattern) {
             uint32_t magic = *(uint32_t*)rawPattern;
@@ -1742,9 +1744,14 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
-        // Pattern is a string
+        // Pattern is a string. ECMA-262 22.1.3.18: a non-RegExp searchValue is
+        // ToString'd, so "xfalse".replace(false, ..) searches "false" -- coerce a
+        // primitive via ts_string_from_value instead of leaving the raw nanbox.
         void* pattern = argv[0] ? ts_value_get_string(argv[0]) : nullptr;
-        if (!pattern) pattern = (void*)argv[0];
+        if (!pattern && argv[0]) {
+            extern void* ts_string_from_value(TsValue* val);
+            pattern = ts_string_from_value((TsValue*)argv[0]);
+        }
 
         if (replIsCallback) {
             TsString* strPattern = (TsString*)pattern;
