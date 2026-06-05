@@ -318,8 +318,31 @@ extern "C" {
         if (nanbox_is_null(nb) || nanbox_is_undefined(nb) || !str) {
             return TsDate::Create(TsDate::INVALID);
         }
-        // Treat as string and parse.
-        return TsDate::Create(((TsString*)str)->ToUtf8());
+        if (nanbox_is_bool(nb)) {
+            // ToNumber(true)=1, ToNumber(false)=0. Previously fell through to the
+            // pointer path and crashed dereferencing the NaN-boxed boolean.
+            return TsDate::Create((int64_t)(nanbox_to_bool(nb) ? 1 : 0));
+        }
+        // Heap pointer: extract the raw object and discriminate by the type magic
+        // at offset 0 (both TsDate and TsString are PODs whose first field is the
+        // magic). ECMA-262 21.4.2.2: when the single argument is an Object with a
+        // [[DateValue]] internal slot (another Date), use thisTimeValue(value)
+        // DIRECTLY, without invoking ToString/valueOf. Blindly casting a Date
+        // object to TsString* and calling ToUtf8() read past its layout -> crash.
+        void* p = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : str;
+        if (!p) return TsDate::Create(TsDate::INVALID);
+        uint32_t magic0 = *(uint32_t*)p;
+        if (magic0 == TsDate::MAGIC) {
+            return TsDate::Create(((TsDate*)p)->GetTime());
+        }
+        if (magic0 == TsString::MAGIC) {
+            return TsDate::Create(((TsString*)p)->ToUtf8());
+        }
+        // Any other object (e.g. new Date({})): ToPrimitive yields a string like
+        // "[object Object]" which Date.parse rejects -> Invalid Date. Returning
+        // Invalid here is spec-correct for the common case and, critically, no
+        // longer crashes on an unexpected receiver layout.
+        return TsDate::Create(TsDate::INVALID);
     }
     void* ts_date_create_parts(double y, double mo, double d,
                                double h, double mi, double s, double ms) {
