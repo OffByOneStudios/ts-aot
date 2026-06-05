@@ -476,8 +476,31 @@ int64_t ts_map_size(void* map) {
     return ((TsMap*)map)->Size();
 }
 
+extern "C" void ts_throw(TsValue* err);
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
+// Receiver guard for Map.prototype.{keys,values,entries}: a non-string-keyed
+// nanbox primitive (false/1/''/undefined/null) or a non-Map pointer must throw
+// TypeError, not crash in Get*(). Accepts ANY TsMap (real Map AND plain-object
+// backing) because Object.keys/values/entries share these on plain objects, so
+// we must NOT require IsExplicitMap here. ECMA-262 24.1.3.{4,8,10}.
+static bool ts_map_receiver_is_map(void* map) {
+    if (!map) return false;
+    uint64_t nb = (uint64_t)(uintptr_t)map;
+    if (nb <= NANBOX_UNDEFINED ||
+        (!nanbox_is_ptr(nb) && (nb & 0xFFFF000000000000ULL) != 0)) {
+        return false;  // nanbox primitive: undefined/null/bool/number
+    }
+    return *(uint32_t*)((char*)map + 16) == TsMap::MAGIC;  // string/etc -> wrong magic
+}
+
 void* ts_map_keys(void* map) {
     if (!map) return nullptr;
+    if (!ts_map_receiver_is_map(map)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Map.prototype.keys called on incompatible receiver"));
+        return nullptr;
+    }
     return ((TsMap*)map)->GetKeys();
 }
 
@@ -524,11 +547,21 @@ void* ts_map_symbol_keys(void* map) {
 
 void* ts_map_values(void* map) {
     if (!map) return nullptr;
+    if (!ts_map_receiver_is_map(map)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Map.prototype.values called on incompatible receiver"));
+        return nullptr;
+    }
     return ((TsMap*)map)->GetValues();
 }
 
 void* ts_map_entries(void* map) {
     if (!map) return nullptr;
+    if (!ts_map_receiver_is_map(map)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Map.prototype.entries called on incompatible receiver"));
+        return nullptr;
+    }
     return ((TsMap*)map)->GetEntries();
 }
 
