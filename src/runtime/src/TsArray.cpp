@@ -3590,12 +3590,20 @@ extern "C" {
                 TsValue elem = ts_array_get_v(srcArr, i);
 
                 if (hasMapFn) {
-                    // Call the map function: mapFn(elem, index)
-                    TsValue* elemBoxed = ts_value_box_any(&elem);
+                    // Call the map function: mapFn(elem, index). NOTE: box via
+                    // nanbox_from_tagged(elem) -- ts_value_box_any(&elem) was wrong
+                    // (it takes a value/object pointer, but &elem is the stack
+                    // address of the TsValue struct, so it read garbage and the
+                    // element arrived as {}/0, e.g. Array.from([1,2,3],x=>x*10)=0,0,0).
+                    TsValue* elemBoxed = nanbox_from_tagged(elem);
                     TsValue* indexVal = ts_value_make_int(i);
                     TsValue* mapped = ts_call_2(mapFnVal, elemBoxed, indexVal);
+                    // `result` was pre-sized to length N (Create(srcArr->Length()))
+                    // for the set_v(i) path below; Push() appended PAST that, so the
+                    // mapped values landed at indices N..2N-1 and Array.from(arr,fn)
+                    // returned the N leading holes ([0,0,0]). Store at index i.
                     if (mapped) {
-                        result->Push((int64_t)mapped);
+                        ts_array_set_v(result, i, nanbox_to_tagged(mapped));
                     } else {
                         ts_array_set_v(result, i, elem);
                     }
