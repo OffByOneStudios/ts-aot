@@ -1,5 +1,6 @@
 #include "TsSymbol.h"
 #include "TsRuntime.h"
+#include "TsNanBox.h"
 #include "TsGC.h"
 #include <map>
 #include <string>
@@ -52,7 +53,28 @@ TsString* TsSymbol::KeyFor(TsSymbol* sym) {
 extern "C" {
 
 void* ts_symbol_create(void* desc) {
-    return TsSymbol::Create((TsString*)desc);
+    // Normalize the description to a real TsString or nullptr. Symbol() with no
+    // (or undefined/null) description passes a NaN-boxed primitive here; storing
+    // it verbatim made sym->description a garbage non-null pointer, so any read
+    // (ts_symbol_storage_key -> ToUtf8, e.g. `{ [Symbol()]: 1 }`) crashed.
+    TsString* d = nullptr;
+    if (desc) {
+        uint64_t nb = (uint64_t)(uintptr_t)desc;
+        if (!nanbox_is_undefined(nb) && !nanbox_is_null(nb)) {
+            // Resolve the string from any representation: boxed TsValue, a
+            // NaN-boxed string pointer, or a raw TsString*.
+            void* s = ts_value_get_string((TsValue*)desc);
+            if (!s && nanbox_is_ptr(nb)) s = nanbox_to_ptr(nb);
+            if (!s) s = desc;
+            // Keep it only if it really is a heap TsString.
+            uintptr_t p = (uintptr_t)s;
+            if (p >= 0x10000 && (p & 0xFFFF000000000000ULL) == 0 &&
+                *(uint32_t*)s == 0x53545247 /*TsString "STRG"*/) {
+                d = (TsString*)s;
+            }
+        }
+    }
+    return TsSymbol::Create(d);
 }
 
 void* ts_symbol_for(void* key) {
