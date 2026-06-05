@@ -6406,6 +6406,18 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_values(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
 
+        // ECMA-262 20.1.2.23: ToObject(O) first -> TypeError on null/undefined;
+        // other primitives coerce to a wrapper with no own enumerable string
+        // keys (-> []). Without this the magic read below dereferenced a
+        // NaN-boxed primitive (e.g. Object.values(true)) and crashed.
+        uint64_t nb_v = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_null(nb_v) || nanbox_is_undefined(nb_v)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return ts_value_make_array(TsArray::Create(0));  // unreachable
+        }
+        if (!nanbox_is_ptr(nb_v)) return ts_value_make_array(TsArray::Create(0));
+
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
@@ -6431,6 +6443,18 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.entries(obj) - returns array of [key, value] pairs
     TsValue* ts_object_entries(TsValue* obj) {
         if (!obj) return ts_value_make_array(TsArray::Create(0));
+
+        // ECMA-262 20.1.2.5: ToObject(O) first -> TypeError on null/undefined;
+        // other primitives coerce to a wrapper with no own enumerable string
+        // keys (-> []). Without this the magic read below dereferenced a
+        // NaN-boxed primitive (e.g. Object.entries(true)) and crashed.
+        uint64_t nb_e = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_null(nb_e) || nanbox_is_undefined(nb_e)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return ts_value_make_array(TsArray::Create(0));  // unreachable
+        }
+        if (!nanbox_is_ptr(nb_e)) return ts_value_make_array(TsArray::Create(0));
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
@@ -8040,6 +8064,17 @@ TsValue* ts_value_make_int(int64_t i) {
 
         if (!obj) return ts_value_make_object(result);
 
+        // ECMA-262 20.1.2.9: ToObject(O) first -> TypeError on null/undefined;
+        // other primitives coerce to a wrapper with no own props (-> {}).
+        // Without this is_flat_object() below dereferenced a NaN-boxed primitive.
+        uint64_t nb_d = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_null(nb_d) || nanbox_is_undefined(nb_d)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return ts_value_make_object(result);  // unreachable
+        }
+        if (!nanbox_is_ptr(nb_d)) return ts_value_make_object(result);
+
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
 
@@ -8180,6 +8215,18 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.hasOwn(obj, prop) - check if object has own property
     bool ts_object_has_own(TsValue* obj, TsValue* prop) {
         if (!obj || !prop) return false;
+
+        // ECMA-262 20.1.2.13: ToObject(O) happens BEFORE ToPropertyKey(P), so
+        // null/undefined must throw TypeError here; other primitives coerce to a
+        // wrapper with no own string-keyed props (-> false). Without this the
+        // magic read below dereferenced a NaN-boxed primitive (Object.hasOwn(null)).
+        uint64_t nb_h = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_null(nb_h) || nanbox_is_undefined(nb_h)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert undefined or null to object"));
+            return false;  // unreachable
+        }
+        if (!nanbox_is_ptr(nb_h)) return false;
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
