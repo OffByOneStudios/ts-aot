@@ -3657,6 +3657,43 @@ extern "C" {
             return result;
         }
 
+        // Set/Map collections: drive the iterator protocol via the shared
+        // ts_iterator_get/ts_iterator_next (which now yields Set values / Map
+        // entries). The bespoke @@iterator+length handling below couldn't reach
+        // their prototype-exposed [Symbol.iterator], so Array.from(set)/
+        // Array.from(map) came out empty.
+        {
+            void* rawCheck = ts_nanbox_safe_unbox(arrayLike);
+            if (!rawCheck) rawCheck = rawPtr;
+            if (rawCheck && (uintptr_t)rawCheck >= 0x1000) {
+                uint32_t m16 = *(uint32_t*)((char*)rawCheck + 16);
+                bool isIterableColl = (m16 == 0x53455453) ||  // TsSet "SETS"
+                                      (m16 == 0x47454E52) ||  // TsGenerator "GENR"
+                                      (m16 == 0x4D415053 && ((TsMap*)rawCheck)->IsExplicitMap());  // explicit Map
+                if (isIterableColl) {
+                    TsValue* iterator = ts::ts_iterator_get((TsValue*)arrayLike);
+                    TsArray* result = TsArray::Create(0);
+                    int64_t i = 0;
+                    if (iterator) {
+                        for (;;) {
+                            TsValue* res = ts::ts_iterator_next(iterator, nullptr);
+                            if (!res || ts::ts_iterator_result_done(res)) break;
+                            TsValue* val = ts::ts_iterator_result_value(res);
+                            if (hasMapFn) {
+                                TsValue* indexVal = ts_value_make_int(i);
+                                TsValue* mapped = ts_call_2(mapFnVal, val, indexVal);
+                                result->Push((int64_t)(uintptr_t)(mapped ? mapped : val));
+                            } else {
+                                result->Push((int64_t)(uintptr_t)val);
+                            }
+                            i++;
+                        }
+                    }
+                    return result;
+                }
+            }
+        }
+
         // Check if it's an object with a 'length' property (array-like)
         if (is_flat_object(rawPtr)) {
             rawPtr = ts_flat_object_to_map(rawPtr);
