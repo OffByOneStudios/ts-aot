@@ -1278,14 +1278,47 @@ extern "C" {
 
     void* ts_string_fromCodePoint(void* codePointsArray) {
         if (!codePointsArray) return TsString::Create("");
+        uint64_t nb = (uint64_t)(uintptr_t)codePointsArray;
+
+        // ECMA-262 21.1.2.2: each code point must be an integral Number in
+        // [0, 0x10FFFF], else RangeError (argument-is-not-integer.js etc.).
+        auto validateCP = [](double d) -> int64_t {
+            if (d != d || d < 0 || d > 1114111.0 || d != (double)(int64_t)d) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "Invalid code point"));
+            }
+            return (int64_t)d;
+        };
+
+        // The compiler currently lowers String.fromCodePoint(...) by passing
+        // ONLY the first argument (a NaN-boxed number), NOT an array. Mirror
+        // ts_string_fromCharCode's single-value handling so the common
+        // single-arg call works and never casts a boxed primitive to TsArray*
+        // (which read garbage in TsArray::Length and crashed).
+        if (nanbox_is_int32(nb)) {
+            int64_t cp = validateCP((double)nanbox_to_int32(nb));
+            return TsString::FromCodePoint(&cp, 1);
+        }
+        if (nanbox_is_number(nb)) {
+            int64_t cp = validateCP(nanbox_to_double(nb));
+            return TsString::FromCodePoint(&cp, 1);
+        }
+
+        if (nanbox_is_ptr(nb)) codePointsArray = nanbox_to_ptr(nb);
+        if (!codePointsArray || (uintptr_t)codePointsArray < 0x10000)
+            return TsString::Create("");
+        // Must be a TsArray ("ARRY"); anything else -> empty (no crash).
+        if (*(uint32_t*)codePointsArray != 0x41525259)
+            return TsString::Create("");
         TsArray* arr = (TsArray*)codePointsArray;
         int64_t len = arr->Length();
         int64_t* codePoints = (int64_t*)ts_alloc(len * sizeof(int64_t));
         for (int64_t i = 0; i < len; i++) {
-            int64_t rawVal = arr->Get(i);
-            // Array elements are NaN-boxed values
-            uint64_t nb = (uint64_t)rawVal;
-            codePoints[i] = nanbox_to_int64(nb);
+            uint64_t v = (uint64_t)arr->Get(i);
+            double d = nanbox_is_int32(v) ? (double)nanbox_to_int32(v)
+                     : nanbox_is_number(v) ? nanbox_to_double(v)
+                     : (double)nanbox_to_int64(v);
+            codePoints[i] = validateCP(d);
         }
         return TsString::FromCodePoint(codePoints, len);
     }
