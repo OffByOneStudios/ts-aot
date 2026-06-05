@@ -8446,7 +8446,11 @@ TsValue* ts_value_make_int(int64_t i) {
     // ES2024 Map.groupBy(iterable, callbackFn)
     // Groups elements by the key returned from the callback, returns a Map
     TsValue* ts_map_groupBy(TsValue* iterable, TsValue* callbackFn) {
+        // Map.groupBy returns a real Map (ECMA-262 24.1.1.2): mark it explicit so
+        // .size/.get/.keys()/[Symbol.iterator] behave as Map methods rather than
+        // plain-object property access (was: keys()-> "undefined", get/size broken).
         TsMap* result = TsMap::Create();
+        result->SetExplicitMap(true);
 
         if (!iterable || !callbackFn) return ts_value_make_object(result);
 
@@ -8489,8 +8493,11 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!keyResult) continue;
 
             // For Map.groupBy, we use the key as-is (not converted to string)
-            // This allows objects, symbols, etc. as keys
-            TsValue keyVal = *keyResult;
+            // This allows objects, symbols, etc. as keys. The callback return is
+            // a NaN-boxed TsValue* -- decode with nanbox_to_tagged (NOT *keyResult,
+            // which read the nanbox bits as a struct -> every key hashed the same,
+            // so size collapsed to 1 and keys()/get were broken).
+            TsValue keyVal = nanbox_to_tagged(keyResult);
 
             // Check if group already exists
             TsValue existing = result->Get(keyVal);
