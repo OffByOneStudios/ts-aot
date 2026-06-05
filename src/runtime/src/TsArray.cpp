@@ -2247,6 +2247,17 @@ extern "C" {
             return (void*)ts_value_make_double(val);
         }
 
+        // If `raw` is not actually a TsArray ("ARRY" magic at offset 0) -- e.g. a
+        // class constructor / function / plain object reached via a numeric index
+        // like `C[1.1]` -- do NOT read TsArray fields off it (that crashed in
+        // readSlot). Route the numeric key to ordinary property access.
+        if ((uintptr_t)raw < 0x1000 || *(uint32_t*)raw != 0x41525259) {  // not "ARRY"
+            if (index < 0) return (void*)ts_value_make_undefined();
+            void* keyStr = ts_int_to_string(index, 10);
+            const char* keyC = ((TsString*)keyStr)->ToUtf8();
+            return (void*)ts_object_get_property(raw, keyC);
+        }
+
         TsArray* array = (TsArray*)raw;
         constexpr int64_t kMaxArrayIndex = 0xFFFFFFFELL;
         if (index < 0 || index > kMaxArrayIndex) {
