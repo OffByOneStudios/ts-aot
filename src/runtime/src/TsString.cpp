@@ -1676,44 +1676,48 @@ extern "C" {
         return nullptr;
     }
 
+    // ECMA-262: String.prototype.{match,matchAll,search} coerce a non-RegExp
+    // argument via RegExpCreate(arg): ToString it (null -> "null", number ->
+    // digits, string pass-through; undefined -> empty pattern /(?:)/) and build a
+    // RegExp. matchAll uses the "g" flag (22.1.3.14). Returns the unboxed RegExp
+    // when the arg already is one (existing behavior preserved). Without this the
+    // method returned null/-1/empty and the spec idiom `str.match(arg)[0]`
+    // crashed indexing null. Mirrors ts_split's primitive-separator path.
+    static TsRegExp* coerceArgToRegExp(void* arg, const char* flags = nullptr) {
+        if (TsRegExp* re = unboxRegExp(arg)) return re;
+        uint64_t nb = (uint64_t)(uintptr_t)arg;
+        TsString* pat = nullptr;
+        if (!arg || nb == NANBOX_UNDEFINED) {
+            pat = TsString::Create("");
+        } else {
+            extern void* ts_string_from_value(TsValue* val);
+            pat = (TsString*)ts_string_from_value((TsValue*)arg);
+        }
+        if (!pat) return nullptr;
+        extern void* ts_regexp_create(void* pattern, void* flags);
+        void* flagsVal = flags ? (void*)ts_value_make_string(TsString::Create(flags))
+                               : nullptr;
+        void* r = ts_regexp_create((void*)ts_value_make_string(pat), flagsVal);
+        return unboxRegExp(r);
+    }
+
     void* ts_string_match_regexp(void* str, void* regexp) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
-        TsRegExp* re = unboxRegExp(regexp);
-        if (!re) {
-            // ECMA-262 22.1.3.13 String.prototype.match: a non-RegExp argument is
-            // coerced via RegExpCreate(regexp). undefined/null/number/string must
-            // ToString (null -> "null", so `'gnulluna'.match(null)` === ['null'];
-            // `'123'.match('2')` === ['2']). undefined -> empty pattern /(?:)/.
-            // Previously this returned a JS null, and the spec idiom
-            // `str.match(arg)[0]` then crashed indexing null.
-            uint64_t nb = (uint64_t)(uintptr_t)regexp;
-            TsString* pat = nullptr;
-            if (!regexp || nb == NANBOX_UNDEFINED) {
-                pat = TsString::Create("");
-            } else {
-                extern void* ts_string_from_value(TsValue* val);
-                pat = (TsString*)ts_string_from_value((TsValue*)regexp);
-            }
-            if (pat) {
-                extern void* ts_regexp_create(void* pattern, void* flags);
-                void* r = ts_regexp_create((void*)ts_value_make_string(pat), nullptr);
-                re = unboxRegExp(r);
-            }
-        }
-        return s->Match(re);
+        return s->Match(coerceArgToRegExp(regexp));
     }
 
     void* ts_string_matchAll_regexp(void* str, void* regexp) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
-        return s->MatchAll(unboxRegExp(regexp));
+        // 22.1.3.14: a coerced (non-RegExp) argument uses RegExpCreate(arg, "g").
+        return s->MatchAll(coerceArgToRegExp(regexp, "g"));
     }
 
     int64_t ts_string_search_regexp(void* str, void* regexp) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return -1;
-        return s->Search(unboxRegExp(regexp));
+        return s->Search(coerceArgToRegExp(regexp));
     }
 
     // Untyped String.prototype.search dispatch — receiver is raw, the
