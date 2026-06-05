@@ -1679,7 +1679,29 @@ extern "C" {
     void* ts_string_match_regexp(void* str, void* regexp) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return nullptr;
-        return s->Match(unboxRegExp(regexp));
+        TsRegExp* re = unboxRegExp(regexp);
+        if (!re) {
+            // ECMA-262 22.1.3.13 String.prototype.match: a non-RegExp argument is
+            // coerced via RegExpCreate(regexp). undefined/null/number/string must
+            // ToString (null -> "null", so `'gnulluna'.match(null)` === ['null'];
+            // `'123'.match('2')` === ['2']). undefined -> empty pattern /(?:)/.
+            // Previously this returned a JS null, and the spec idiom
+            // `str.match(arg)[0]` then crashed indexing null.
+            uint64_t nb = (uint64_t)(uintptr_t)regexp;
+            TsString* pat = nullptr;
+            if (!regexp || nb == NANBOX_UNDEFINED) {
+                pat = TsString::Create("");
+            } else {
+                extern void* ts_string_from_value(TsValue* val);
+                pat = (TsString*)ts_string_from_value((TsValue*)regexp);
+            }
+            if (pat) {
+                extern void* ts_regexp_create(void* pattern, void* flags);
+                void* r = ts_regexp_create((void*)ts_value_make_string(pat), nullptr);
+                re = unboxRegExp(r);
+            }
+        }
+        return s->Match(re);
     }
 
     void* ts_string_matchAll_regexp(void* str, void* regexp) {
