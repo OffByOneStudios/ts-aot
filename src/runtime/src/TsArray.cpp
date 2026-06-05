@@ -582,6 +582,30 @@ void TsArray::Sort() {
     std::sort((int64_t*)elements, ((int64_t*)elements) + length, jsDefaultSortComparator);
 }
 
+// Strict-equality comparison of two NaN-boxed array elements, used by the
+// generic (non-specialized) IndexOf/LastIndexOf scans: exact bit match,
+// TsString value equality, or numeric cross-type equality.
+static inline bool array_search_equals(uint64_t elemNB, uint64_t searchNB) {
+    if (elemNB == searchNB) return true;  // ints, bools, null, undefined, same ptr
+    if (nanbox_is_ptr(elemNB) && nanbox_is_ptr(searchNB)) {
+        void* ep = nanbox_to_ptr(elemNB);
+        void* sp = nanbox_to_ptr(searchNB);
+        if (ep && sp) {
+            uint32_t eMagic = *(uint32_t*)ep;
+            uint32_t sMagic = *(uint32_t*)sp;
+            if (eMagic == TsString::MAGIC && sMagic == TsString::MAGIC) {
+                if (((TsString*)ep)->Equals((TsString*)sp)) return true;
+            }
+        }
+    }
+    if (nanbox_is_number(elemNB) && nanbox_is_number(searchNB)) {
+        double ed = nanbox_to_number(elemNB);
+        double sd = nanbox_to_number(searchNB);
+        if (ed == sd) return true;
+    }
+    return false;
+}
+
 int64_t TsArray::IndexOf(int64_t value, size_t fromIndex) {
     if (fromIndex >= length) return -1;
     // For PackedDouble arrays, codegen passes raw double bits directly (via bitcast).
@@ -618,31 +642,30 @@ int64_t TsArray::IndexOf(int64_t value, size_t fromIndex) {
     // The search value is also NaN-boxed. Compare using NaN-box decoding.
     uint64_t searchNB = (uint64_t)value;
 
-    for (size_t i = fromIndex; i < length; ++i) {
+    // Dense region first (lower indices win for indexOf). Bound to capacity:
+    // a sparse array has length > capacity with far indices in sparseElements,
+    // so reading ((int64_t*)elements)[i] up to `length` would run past the
+    // backing buffer (crash) and iterate a multi-billion hole gap (hang).
+    size_t denseTo = length < capacity ? length : capacity;
+    for (size_t i = fromIndex; i < denseTo; ++i) {
         uint64_t elemNB = (uint64_t)((int64_t*)elements)[i];
-
-        // Fast path: exact bit-level match (handles ints, bools, null, undefined, same pointer)
-        if (elemNB == searchNB) return (int64_t)i;
-
-        // String comparison: both must be pointers to TsString objects
-        if (nanbox_is_ptr(elemNB) && nanbox_is_ptr(searchNB)) {
-            void* ep = nanbox_to_ptr(elemNB);
-            void* sp = nanbox_to_ptr(searchNB);
-            if (ep && sp) {
-                uint32_t eMagic = *(uint32_t*)ep;
-                uint32_t sMagic = *(uint32_t*)sp;
-                if (eMagic == TsString::MAGIC && sMagic == TsString::MAGIC) {
-                    if (((TsString*)ep)->Equals((TsString*)sp)) return (int64_t)i;
-                }
-            }
+        if (array_search_equals(elemNB, searchNB)) return (int64_t)i;
+    }
+    // Sparse store: lowest stored index >= fromIndex that matches.
+    if (length > capacity && sparseElements) {
+        int64_t best = -1;
+        TsArray* ents = (TsArray*)sparseElements->GetEntries();
+        int64_t n = ents->Length();
+        for (int64_t e = 0; e < n; ++e) {
+            TsArray* kv = (TsArray*)ents->Get(e);
+            TsValue keyTv = nanbox_to_tagged((TsValue*)kv->Get(0));
+            int64_t k = (keyTv.type == ValueType::NUMBER_INT) ? keyTv.i_val
+                      : (keyTv.type == ValueType::NUMBER_DBL) ? (int64_t)keyTv.d_val : -1;
+            if (k < 0 || (size_t)k < fromIndex) continue;
+            uint64_t elemNB = (uint64_t)readSlot((size_t)k);
+            if (array_search_equals(elemNB, searchNB) && (best < 0 || k < best)) best = k;
         }
-
-        // Numeric cross-type: int32 vs double with same numeric value
-        if (nanbox_is_number(elemNB) && nanbox_is_number(searchNB)) {
-            double ed = nanbox_to_number(elemNB);
-            double sd = nanbox_to_number(searchNB);
-            if (ed == sd) return (int64_t)i;
-        }
+        if (best >= 0) return best;
     }
     return -1;
 }
@@ -686,36 +709,35 @@ int64_t TsArray::LastIndexOf(int64_t value, int64_t fromIndex) {
         return -1;
     }
 
-    // For non-specialized (generic) arrays, elements are TsValue* pointers stored as int64.
-    // The search value is also a TsValue* - we need to compare values, not addresses.
-    // For non-specialized (generic) arrays, use NaN-box comparison
+    // For non-specialized (generic) arrays, elements are NaN-boxed values
+    // stored as int64. Compare via NaN-box decoding.
     uint64_t searchNB = (uint64_t)value;
 
-    for (size_t i = startFrom; i > 0; --i) {
+    // Sparse arrays (length > capacity) keep far indices in sparseElements.
+    // Those indices are all higher than any dense slot, so a sparse match is
+    // always the last index — check the sparse store first. This also avoids
+    // reading ((int64_t*)elements)[i-1] past the backing buffer (crash) and
+    // iterating the multi-billion hole gap of a huge sparse length (hang).
+    if (length > capacity && sparseElements) {
+        int64_t best = -1;
+        TsArray* ents = (TsArray*)sparseElements->GetEntries();
+        int64_t n = ents->Length();
+        for (int64_t e = 0; e < n; ++e) {
+            TsArray* kv = (TsArray*)ents->Get(e);
+            TsValue keyTv = nanbox_to_tagged((TsValue*)kv->Get(0));
+            int64_t k = (keyTv.type == ValueType::NUMBER_INT) ? keyTv.i_val
+                      : (keyTv.type == ValueType::NUMBER_DBL) ? (int64_t)keyTv.d_val : -1;
+            if (k < 0 || (size_t)k >= startFrom) continue;  // index < startFrom
+            uint64_t elemNB = (uint64_t)readSlot((size_t)k);
+            if (array_search_equals(elemNB, searchNB) && k > best) best = k;
+        }
+        if (best >= 0) return best;
+    }
+
+    size_t denseFrom = startFrom < capacity ? startFrom : capacity;
+    for (size_t i = denseFrom; i > 0; --i) {
         uint64_t elemNB = (uint64_t)((int64_t*)elements)[i - 1];
-
-        // Fast path: exact bit-level match
-        if (elemNB == searchNB) return (int64_t)(i - 1);
-
-        // String comparison
-        if (nanbox_is_ptr(elemNB) && nanbox_is_ptr(searchNB)) {
-            void* ep = nanbox_to_ptr(elemNB);
-            void* sp = nanbox_to_ptr(searchNB);
-            if (ep && sp) {
-                uint32_t eMagic = *(uint32_t*)ep;
-                uint32_t sMagic = *(uint32_t*)sp;
-                if (eMagic == TsString::MAGIC && sMagic == TsString::MAGIC) {
-                    if (((TsString*)ep)->Equals((TsString*)sp)) return (int64_t)(i - 1);
-                }
-            }
-        }
-
-        // Numeric cross-type comparison
-        if (nanbox_is_number(elemNB) && nanbox_is_number(searchNB)) {
-            double ed = nanbox_to_number(elemNB);
-            double sd = nanbox_to_number(searchNB);
-            if (ed == sd) return (int64_t)(i - 1);
-        }
+        if (array_search_equals(elemNB, searchNB)) return (int64_t)(i - 1);
     }
     return -1;
 }
