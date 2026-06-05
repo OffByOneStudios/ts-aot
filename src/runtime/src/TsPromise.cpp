@@ -491,6 +491,35 @@ TsValue* ts_iterator_get(TsValue* iterable) {
 
     // Check if we have a TsMap-based object (TsMap, TsGenerator, TsAsyncGenerator)
     if (rawObj) {
+        // Set/Map COLLECTIONS: their [Symbol.iterator] is exposed through the
+        // Set/Map property getter (ts_set/map_get_property), NOT the raw
+        // TsMap::Get lookups below, so the old code returned the collection
+        // itself -> next() reported done immediately -> spread `[...set]` /
+        // `[...map]`, Array.from(set/map), and Map.groupBy came out empty.
+        // Build the proper iterator directly (Set -> values; Map -> entries).
+        // Exclude objects that are already iterators (they carry __iter_items).
+        if ((uintptr_t)rawObj >= 0x1000) {
+            uint32_t m16 = *(uint32_t*)((char*)rawObj + 16);
+            bool isIterAlready = false;
+            if (m16 == 0x4D415053) {  // TsMap "MAPS"
+                TsValue ik; ik.type = ValueType::STRING_PTR;
+                ik.ptr_val = TsString::GetInterned("__iter_items");
+                isIterAlready = ((TsMap*)rawObj)->Has(ik);
+            }
+            if (!isIterAlready) {
+                if (m16 == 0x53455453) {  // TsSet "SETS"
+                    extern void* ts_set_values(void* set);
+                    extern void* ts_create_set_iterator(void* items);
+                    return (TsValue*)ts_create_set_iterator(ts_set_values(rawObj));
+                }
+                if (m16 == 0x4D415053 && ((TsMap*)rawObj)->IsExplicitMap()) {
+                    extern void* ts_map_entries(void* map);
+                    extern void* ts_create_map_iterator(void* items);
+                    return (TsValue*)ts_create_map_iterator(ts_map_entries(rawObj));
+                }
+            }
+        }
+
         // Map, Generator, or AsyncGenerator (all TsMap-based, tag at offset 16).
         if (ts_is_unchecked<TsMap>(rawObj) ||
             ts_is_unchecked<TsGenerator>(rawObj) ||
@@ -703,21 +732,22 @@ TsValue* ts_iterator_get(TsValue* iterable) {
 TsValue* ts_iterator_next(TsValue* iterator, TsValue* value) {
     if (!iterator) return nullptr;
 
-    TsValue iterVal = nanbox_to_tagged(iterator);
-    if (iterVal.type == ValueType::OBJECT_PTR && iterVal.ptr_val) {
-        TsMap* obj = (TsMap*)iterVal.ptr_val;
-        if (obj) {
-            TsValue nextKeyVal;
-            nextKeyVal.type = ValueType::STRING_PTR;
-            nextKeyVal.ptr_val = TsString::Create("next");
-            TsValue nextMethod = obj->Get(nextKeyVal);
-            // Check for both OBJECT_PTR and FUNCTION_PTR since functions can be stored with either type
-            if ((nextMethod.type == ValueType::OBJECT_PTR || nextMethod.type == ValueType::FUNCTION_PTR) && nextMethod.ptr_val) {
-                TsFunction* func = (TsFunction*)nextMethod.ptr_val;
-                if (func->funcPtr) {
-                    typedef TsValue* (*NextFunc)(void*, TsValue*);
-                    return ((NextFunc)func->funcPtr)(func->context, value);
-                }
+    void* rawObj = ts_value_get_object(iterator);
+    if (!rawObj) rawObj = iterator;
+    if (rawObj) {
+        // Look up `next` via the PROTOTYPE-WALKING property getter. Built-in
+        // Map/Set/Array iterators keep next() on their prototype, which the old
+        // raw TsMap::Get did not traverse -> it found nothing and returned done
+        // immediately (spread/Array.from over those iterators came out empty).
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        TsValue* nextFn = ts_object_get_property(rawObj, "next");
+        if (nextFn) {
+            TsValue nm = nanbox_to_tagged(nextFn);
+            if ((nm.type == ValueType::OBJECT_PTR || nm.type == ValueType::FUNCTION_PTR) && nm.ptr_val) {
+                // ECMA-262 IteratorNext: call next() with the ITERATOR as `this`
+                // (these iterators read their state from ts_get_call_this()).
+                if (value) return ts_call_with_this_1(nextFn, iterator, value);
+                return ts_call_with_this_0(nextFn, iterator);
             }
         }
     }
