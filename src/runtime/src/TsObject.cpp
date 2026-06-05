@@ -3299,13 +3299,29 @@ TsValue* ts_value_make_int(int64_t i) {
         return (TsString*)ts_string_from_value(sv ? ts_to_primitive(sv, 2) : sv);
     }
 
+    // ECMA-262 22.2.6.x: RegExp.prototype[@@search/@@match/@@replace/@@split/
+    // @@matchAll] require `this` (R) to be an Object; this implementation further
+    // requires a RegExp. A non-RegExp receiver ({} / undefined / number) was cast
+    // to TsRegExp* and the ICU GetSource/GetFlags/exec ran on garbage -> crash.
+    // Validate (REGX magic) or throw a TypeError.
+    static TsRegExp* regexp_require_this(void* ctx, const char* msg) {
+        void* raw = ts_value_get_object((TsValue*)ctx);
+        if (!raw) raw = ctx;
+        if (!is_safe_ptr_for_magic(raw) || *(uint32_t*)raw != 0x52454758) {  // "REGX"
+            ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+            return nullptr;  // unreachable
+        }
+        return (TsRegExp*)raw;
+    }
+
     // ECMA-262 22.2.6.12 RegExp.prototype [ @@search ] ( string ). Saves and
     // restores lastIndex (search must not perturb it), runs RegExpExec once, and
     // returns the match index or -1.
     extern "C" TsValue* ts_regexp_symbol_search_native(void* ctx, int argc, TsValue** argv) {
         extern void* ts_string_from_value(TsValue* val);
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
-        TsRegExp* re = (TsRegExp*)ctx;
+        TsRegExp* re = regexp_require_this(ctx,
+            "RegExp.prototype[Symbol.search] called on incompatible receiver");
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sStr = ts_regexp_tostring_arg(sv);
@@ -3333,7 +3349,8 @@ TsValue* ts_value_make_int(int64_t i) {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
         extern void* ts_array_create();
         extern void ts_array_push(void* arr, void* value);
-        TsRegExp* re = (TsRegExp*)ctx;
+        TsRegExp* re = regexp_require_this(ctx,
+            "RegExp.prototype[Symbol.match] called on incompatible receiver");
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sStr = ts_regexp_tostring_arg(sv);
@@ -3424,7 +3441,8 @@ TsValue* ts_value_make_int(int64_t i) {
     // std::vector of GC-pointer results is held across allocating exec calls.
     extern "C" TsValue* ts_regexp_symbol_replace_native(void* ctx, int argc, TsValue** argv) {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
-        TsRegExp* re = (TsRegExp*)ctx;
+        TsRegExp* re = regexp_require_this(ctx,
+            "RegExp.prototype[Symbol.replace] called on incompatible receiver");
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sTs = ts_regexp_tostring_arg(sv);
@@ -3523,7 +3541,8 @@ TsValue* ts_value_make_int(int64_t i) {
         extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
         extern void* ts_array_create();
         extern void ts_array_push(void* arr, void* value);
-        TsRegExp* re = (TsRegExp*)ctx;
+        TsRegExp* re = regexp_require_this(ctx,
+            "RegExp.prototype[Symbol.split] called on incompatible receiver");
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sTs = ts_regexp_tostring_arg(sv);
@@ -3586,7 +3605,8 @@ TsValue* ts_value_make_int(int64_t i) {
         extern void* ts_array_create();
         extern void ts_array_push(void* arr, void* value);
         extern TsValue* ts_create_array_iterator_pub(void* items);
-        TsRegExp* re = (TsRegExp*)ctx;
+        TsRegExp* re = regexp_require_this(ctx,
+            "RegExp.prototype[Symbol.matchAll] called on incompatible receiver");
         TsValue* sv = (argc >= 1 && argv && argv[0]) ? argv[0]
                                                      : (TsValue*)ts_value_make_undefined();
         TsString* sTs = ts_regexp_tostring_arg(sv);
