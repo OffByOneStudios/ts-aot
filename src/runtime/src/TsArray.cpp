@@ -1591,9 +1591,21 @@ void* TsArray::Slice(int64_t start, int64_t end) {
 #include "TsString.h"
 #include <sstream>
 
+extern "C" void* ts_string_from_value(TsValue* val);
+
 void* TsArray::Join(void* separator) {
-    TsString* sep = (TsString*)separator;
-    const char* sepStr = sep ? sep->ToUtf8() : ",";
+    // ECMA-262 23.1.3.18: if separator is undefined use ","; otherwise
+    // ToString(separator). The previous `(TsString*)separator` blind-cast a
+    // nanboxed non-string separator (join(true)/join(null)/join(Infinity)) to a
+    // TsString* and crashed in ToUtf8 (the #1 test262 crash site, ~94 tests).
+    TsString* sepHolder = nullptr;
+    const char* sepStr;
+    if (!separator || nanbox_is_undefined((uint64_t)separator)) {
+        sepStr = ",";
+    } else {
+        sepHolder = (TsString*)ts_string_from_value((TsValue*)separator);
+        sepStr = sepHolder ? sepHolder->ToUtf8() : "";
+    }
 
     std::stringstream ss;
     for (size_t i = 0; i < length; ++i) {
