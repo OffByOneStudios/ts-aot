@@ -7453,11 +7453,17 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (!routedToProps) return obj;
                 // else: fall through to TsMap branch below with rawPtr reassigned.
             } else {
-                // Receiver isn't a map-like object — TsString, etc. all
-                // currently fall through to no-op. Spec-strictly this should
-                // still throw for primitives, but we already gated that above.
-                // For exotic objects we leave the existing no-op (separate gap).
-                return obj;
+                // Native / exotic object (RegExp, Date, native C++ objects, …):
+                // route the write into the per-object side-map
+                // (g_native_object_props), which ts_object_get/has_property
+                // already consult for dynamically-assigned props. This lets the
+                // TsMap branch below apply real [[DefineOwnProperty]] validation
+                // (TypeError on a non-configurable redefinition, etc.) and stores
+                // the value so it reads back. TsString and primitives were
+                // already handled (no-op / throw) above, so they don't reach here.
+                rawPtr = getOrCreateNativeProps(rawPtr);
+                magic = 0x4D415053;
+                // fall through to the TsMap branch with rawPtr reassigned.
             }
         }
 
