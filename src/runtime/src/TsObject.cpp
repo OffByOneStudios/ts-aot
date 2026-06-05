@@ -11390,6 +11390,14 @@ TsValue* ts_value_make_int(int64_t i) {
     
     // Function.prototype.toString - returns "function name() { [native code] }" for compiled functions
     TsValue* ts_function_toString_native(void* ctx, int argc, TsValue** argv) {
+        // ECMA-262 20.2.3.5: if `this` is not callable, throw a TypeError. A
+        // non-callable receiver (undefined / {} / 42) was cast to TsObject* and
+        // ->magic dereferenced a NaN-boxed primitive -> crash.
+        if (!ts_value_is_callable((TsValue*)ctx)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Function.prototype.toString called on incompatible receiver"));
+            return ts_value_make_string(TsString::Create(""));  // unreachable
+        }
         if (ctx) {
             // ctx may be TsFunction* or TsClosure* - check magic to determine type
             TsObject* obj = (TsObject*)ctx;
