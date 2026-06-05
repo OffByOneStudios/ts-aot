@@ -8021,6 +8021,24 @@ TsValue* ts_value_make_int(int64_t i) {
             rawPtr = clos->properties;
             magic = 0x4D415053;
         }
+        // Native objects (RegExp, Date, native C++ objects) keep their
+        // dynamically-assigned / Object.defineProperty'd own properties in the
+        // per-object side-map (g_native_object_props). Route to it so the TsMap
+        // descriptor path below reports the stored value AND attributes —
+        // previously getOwnPropertyDescriptor returned undefined for these
+        // receivers, so verifyProperty (writable/enumerable/configurable checks)
+        // failed even after defineProperty stored the property. TsArray is
+        // excluded (its indices/length are synthesized just below); an absent
+        // key still falls through to the map path's undefined return.
+        if (magic != 0x4D415053) {
+            uint32_t nm0 = *(uint32_t*)rawPtr;
+            if (nm0 != 0x41525259) {  // not TsArray
+                if (TsMap* nprops = getNativeProps(rawPtr)) {
+                    rawPtr = nprops;
+                    magic = 0x4D415053;
+                }
+            }
+        }
         // TsArray: synthesize descriptors for length, numeric indices, and
         // user-set named properties. Spec: arr.length is
         // {value: arr.length, writable: true, enumerable: false, configurable: false}.
