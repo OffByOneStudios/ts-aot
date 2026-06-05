@@ -166,6 +166,7 @@ def compile_server(source_path: Path, exe_path: Path,
     """Compile a server TypeScript file to an executable."""
     env = os.environ.copy()
     env['ICU_DATA'] = str(COMPILER.parent)
+    env.setdefault('TS_LISTEN_LOOPBACK', '1')  # bind loopback: no Windows firewall prompt
 
     cmd = [str(COMPILER)]
     if coverage:
@@ -384,6 +385,7 @@ def run_server_test(test_dir: Path, verbose: bool = False,
 
     server_env = os.environ.copy()
     server_env['ICU_DATA'] = str(COMPILER.parent)
+    server_env.setdefault('TS_LISTEN_LOOPBACK', '1')  # bind loopback: no Windows firewall prompt
     extra_env = config.get('SERVER_ENV', {})
     server_env.update(extra_env)
     if coverage and profraw_path:

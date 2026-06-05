@@ -84,6 +84,9 @@ class NodeTestRunner:
         # Set ICU_DATA so compiled executables can find ICU data files
         self.test_env = os.environ.copy()
         self.test_env['ICU_DATA'] = str(self.compiler_path.parent)
+        # Force servers (http/http2/net) to bind to loopback during tests so the
+        # Windows Defender Firewall dialog never pops (binding 0.0.0.0 prompts it).
+        self.test_env.setdefault('TS_LISTEN_LOOPBACK', '1')
 
         self.total_tests = 0
         self.passed_tests = 0

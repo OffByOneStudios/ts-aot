@@ -47,7 +47,21 @@ void TsServer::Listen(int port, const char* host, void* callback) {
         handle->data = this;
     }
 
-    const char* hostStr = host ? host : "0.0.0.0";
+    // Default bind host. Node binds to all interfaces (0.0.0.0) when host is
+    // omitted, but on Windows that makes the Defender Firewall prompt pop every
+    // time a test server listens. Honor TS_LISTEN_HOST (explicit override) and
+    // TS_LISTEN_LOOPBACK=1 (force 127.0.0.1) so test runs stay on loopback and
+    // never trigger the firewall dialog; production listen() is unchanged.
+    const char* hostStr;
+    if (host) {
+        hostStr = host;
+    } else if (const char* envHost = getenv("TS_LISTEN_HOST"); envHost && *envHost) {
+        hostStr = envHost;
+    } else if (getenv("TS_LISTEN_LOOPBACK")) {
+        hostStr = "127.0.0.1";
+    } else {
+        hostStr = "0.0.0.0";
+    }
     struct sockaddr_in addr;
     uv_ip4_addr(hostStr, port, &addr);
 
