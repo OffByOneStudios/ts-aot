@@ -11703,22 +11703,27 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Object.prototype.isPrototypeOf(obj) - checks if this is in obj's prototype chain
     TsValue* ts_object_isPrototypeOf_native(void* ctx, int argc, TsValue** argv) {
-        // Basic implementation: check if ctx is in the prototype chain of argv[0]
+        // ECMA-262 20.1.3.4: if V is not an Object, return false.
         if (!ctx || argc == 0 || !argv[0]) return ts_value_make_bool(false);
 
         uint64_t targetNb = nanbox_from_tsvalue_ptr(argv[0]);
         if (!nanbox_is_ptr(targetNb)) return ts_value_make_bool(false);
 
-        void* target = nanbox_to_ptr(targetNb);
-        TsMap* targetMap = dynamic_cast<TsMap*>((TsObject*)target);
-        if (!targetMap) return ts_value_make_bool(false);
-
-        // Walk prototype chain of target looking for ctx
         void* ctxObj = ts_nanbox_safe_unbox(ctx);
-        TsMap* current = targetMap->GetPrototype();
-        while (current) {
-            if ((void*)current == ctxObj) return ts_value_make_bool(true);
-            current = current->GetPrototype();
+        if (!ctxObj) return ts_value_make_bool(false);
+
+        // Walk the prototype chain of the argument using the generic, type-safe
+        // getter. The argument may be a TsArray / TsFunction / flat object, NOT a
+        // TsMap, so the old dynamic_cast<TsMap*>((TsObject*)target) was UB and
+        // crashed in _RTDynamicCast for e.g. Array.prototype.isPrototypeOf([]).
+        TsValue* cur = ts_object_getPrototypeOf(argv[0]);
+        for (int depth = 0; cur && depth < 1000; depth++) {
+            uint64_t pnb = nanbox_from_tsvalue_ptr(cur);
+            if (nanbox_is_null(pnb) || nanbox_is_undefined(pnb)) break;
+            void* protoObj = ts_value_get_object(cur);
+            if (!protoObj) break;
+            if (protoObj == ctxObj) return ts_value_make_bool(true);
+            cur = ts_object_getPrototypeOf(cur);
         }
         return ts_value_make_bool(false);
     }
