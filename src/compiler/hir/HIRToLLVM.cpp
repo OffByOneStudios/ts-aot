@@ -7939,13 +7939,14 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
                 }
             }
             if (isClassMethod) break;
-            for (const auto& kv : cls->staticMethods) {
-                HIRFunction* m = kv.second;
-                if (m && (m->name == funcName || m->mangledName == funcName)) {
-                    isClassMethod = true; break;
-                }
-            }
-            if (isClassMethod) break;
+            // NOTE: do NOT flag cls->staticMethods as is_method. A static
+            // method's trampoline is `(closure, arg1, ...)` with NO `this`
+            // slot — flagging it makes ts_call_with_this_N pass the receiver
+            // positionally, shifting the real args by one (e.g. a class
+            // EXPRESSION's `Expr.m(5)` dynamic dispatch bound the class to
+            // param 0 and dropped 5). `this` inside a static still resolves
+            // via the ts_call_this_value context global, which ts_call_with_this
+            // sets regardless of is_method. See the matching exclusion below.
         }
         // Private INSTANCE methods (`#m`): cls->methods registers them under the
         // analyzer-mangled name `<Class>___private_<Class>_<m>`, but the closure
