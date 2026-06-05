@@ -249,6 +249,48 @@ void TsDate::SetUTCMilliseconds(int64_t milliseconds) {
     ms = (int64_t)cal->getTime(status);
 }
 
+double TsDate::SetFields(bool utc, int64_t baseMs, double year, double month,
+                         double date, double hour, double minute, double second,
+                         double milli, bool revive) {
+    int64_t base;
+    if (baseMs != INVALID) {
+        base = baseMs;
+    } else if (revive) {
+        base = 0;  // setFullYear treats an Invalid Date as the epoch (+0)
+    } else {
+        // Any other setter on an Invalid Date leaves it invalid (a kept-current
+        // component derived from NaN is NaN → result NaN).
+        ms = INVALID;
+        return std::nan("");
+    }
+    UErrorCode status = U_ZERO_ERROR;
+    std::unique_ptr<icu::Calendar> cal(utc
+        ? icu::Calendar::createInstance(icu::TimeZone::createTimeZone("UTC"), status)
+        : icu::Calendar::createInstance(status));
+    cal->setTime((UDate)base, status);
+    if (!std::isnan(year)) {
+        // Signed JS year → ICU ERA+YEAR (mirrors SetFullYear).
+        int64_t y = (int64_t)year;
+        if (y >= 1) { cal->set(UCAL_ERA, 1); cal->set(UCAL_YEAR, (int32_t)y); }
+        else        { cal->set(UCAL_ERA, 0); cal->set(UCAL_YEAR, (int32_t)(1 - y)); }
+    }
+    if (!std::isnan(month))  cal->set(UCAL_MONTH, (int32_t)month);
+    if (!std::isnan(date))   cal->set(UCAL_DATE, (int32_t)date);
+    if (!std::isnan(hour))   cal->set(UCAL_HOUR_OF_DAY, (int32_t)hour);
+    if (!std::isnan(minute)) cal->set(UCAL_MINUTE, (int32_t)minute);
+    if (!std::isnan(second)) cal->set(UCAL_SECOND, (int32_t)second);
+    if (!std::isnan(milli))  cal->set(UCAL_MILLISECOND, (int32_t)milli);
+    UDate newT = cal->getTime(status);
+    double newMs = (double)newT;
+    // TimeClip: the spec range is |t| <= 8.64e15 ms; outside → Invalid Date.
+    if (U_FAILURE(status) || !(newMs >= -8.64e15 && newMs <= 8.64e15)) {
+        ms = INVALID;
+        return std::nan("");
+    }
+    ms = (int64_t)newT;
+    return (double)ms;
+}
+
 TsString* TsDate::ToISOString() {
     UErrorCode status = U_ZERO_ERROR;
     icu::SimpleDateFormat fmt(icu::UnicodeString("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"), status);

@@ -50,6 +50,23 @@ public:
     void SetUTCSeconds(int64_t seconds);
     void SetUTCMilliseconds(int64_t ms);
 
+    // Multi-component setter used by the spec-compliant Date.prototype.setX
+    // natives. Each field that is NaN is left unchanged (the "not specified"
+    // case → keep current component). `utc` selects the timezone for field
+    // interpretation. `revive` (used only by setFullYear) treats an Invalid
+    // Date as the epoch (+0) so the date can be made valid again; otherwise an
+    // Invalid receiver stays invalid. The year field carries the signed JS
+    // year (ERA handling applied internally). Returns the new time value
+    // (NaN if the result is invalid / out of the TimeClip range).
+    //
+    // `baseMs` is the [[DateValue]] captured by the caller BEFORE coercing the
+    // arguments (ECMA-262 reads t first, then ToNumbers each arg — a valueOf
+    // that mutates this Date mid-coercion must not affect the base time). Pass
+    // TsDate::INVALID when the receiver was an Invalid Date at capture time.
+    double SetFields(bool utc, int64_t baseMs, double year, double month,
+                     double date, double hour, double minute, double second,
+                     double milli, bool revive);
+
     class TsString* ToISOString();
     class TsString* ToJSON();
     class TsString* ToString();

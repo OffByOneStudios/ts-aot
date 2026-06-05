@@ -2983,21 +2983,107 @@ TsValue* ts_value_make_int(int64_t i) {
         d->METHOD((int64_t)v); \
         return dateFieldToValue(d->GetTime()); \
     }
-    DATE_SETTER(setFullYear, SetFullYear)
-    DATE_SETTER(setMonth, SetMonth)
+    // Single-argument setters: coerce arg[0] (invoking valueOf once), NaN → Invalid.
     DATE_SETTER(setDate, SetDate)
-    DATE_SETTER(setHours, SetHours)
-    DATE_SETTER(setMinutes, SetMinutes)
-    DATE_SETTER(setSeconds, SetSeconds)
     DATE_SETTER(setMilliseconds, SetMilliseconds)
-    DATE_SETTER(setUTCFullYear, SetUTCFullYear)
-    DATE_SETTER(setUTCMonth, SetUTCMonth)
     DATE_SETTER(setUTCDate, SetUTCDate)
-    DATE_SETTER(setUTCHours, SetUTCHours)
-    DATE_SETTER(setUTCMinutes, SetUTCMinutes)
-    DATE_SETTER(setUTCSeconds, SetUTCSeconds)
     DATE_SETTER(setUTCMilliseconds, SetUTCMilliseconds)
     #undef DATE_SETTER
+
+    // Multi-argument setters (ECMA-262 §21.4.4). Each specified argument is
+    // ToNumber-coerced exactly once, IN ORDER (so a valueOf side effect runs
+    // once per provided arg). A NaN leading component → Invalid Date; absent
+    // trailing components keep their current value. The new time is returned.
+    // C++ evaluation order of call arguments is unspecified, so each arg is
+    // coerced into an ordered local BEFORE building the SetFields call.
+    static inline double dateArgOrNaN(int argc, TsValue** argv, int i) {
+        if (argc > i && argv && argv[i]) return ts_to_number((TsValue*)argv[i]);
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    // y[, m[, d]] — leading = year; reviving (Invalid → epoch) per spec.
+    static TsValue* date_set_year_impl(void* ctx, const char* name, bool utc,
+                                       int argc, TsValue** argv) {
+        TsDate* d = requireDateOrThrow(ctx, name);
+        if (!d) return ts_value_make_undefined();
+        int64_t base = d->IsValid() ? d->GetTime() : TsDate::INVALID;  // read t before ToNumber
+        double y  = dateArgOrNaN(argc, argv, 0);
+        double mo = (argc >= 2) ? dateArgOrNaN(argc, argv, 1)
+                                : std::numeric_limits<double>::quiet_NaN();
+        double dt = (argc >= 3) ? dateArgOrNaN(argc, argv, 2)
+                                : std::numeric_limits<double>::quiet_NaN();
+        if (std::isnan(y)) { d->SetTime(TsDate::INVALID);
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); }
+        double NaNv = std::numeric_limits<double>::quiet_NaN();
+        d->SetFields(utc, base, y, mo, dt, NaNv, NaNv, NaNv, NaNv, /*revive*/true);
+        return dateFieldToValue(d->GetTime());
+    }
+    // m[, d] — leading = month.
+    static TsValue* date_set_month_impl(void* ctx, const char* name, bool utc,
+                                        int argc, TsValue** argv) {
+        TsDate* d = requireDateOrThrow(ctx, name);
+        if (!d) return ts_value_make_undefined();
+        int64_t base = d->IsValid() ? d->GetTime() : TsDate::INVALID;  // read t before ToNumber
+        double mo = dateArgOrNaN(argc, argv, 0);
+        double dt = (argc >= 2) ? dateArgOrNaN(argc, argv, 1)
+                                : std::numeric_limits<double>::quiet_NaN();
+        if (std::isnan(mo)) { d->SetTime(TsDate::INVALID);
+            return ts_value_make_double(std::numeric_limits<double>::quiet_NaN()); }
+        double NaNv = std::numeric_limits<double>::quiet_NaN();
+        d->SetFields(utc, base, NaNv, mo, dt, NaNv, NaNv, NaNv, NaNv, /*revive*/false);
+        return dateFieldToValue(d->GetTime());
+    }
+    // h[, m[, s[, ms]]] — leading = hour.
+    static TsValue* date_set_hours_impl(void* ctx, const char* name, bool utc,
+                                        int argc, TsValue** argv) {
+        TsDate* d = requireDateOrThrow(ctx, name);
+        if (!d) return ts_value_make_undefined();
+        double NaNv = std::numeric_limits<double>::quiet_NaN();
+        int64_t base = d->IsValid() ? d->GetTime() : TsDate::INVALID;  // read t before ToNumber
+        double h  = dateArgOrNaN(argc, argv, 0);
+        double m  = (argc >= 2) ? dateArgOrNaN(argc, argv, 1) : NaNv;
+        double s  = (argc >= 3) ? dateArgOrNaN(argc, argv, 2) : NaNv;
+        double ml = (argc >= 4) ? dateArgOrNaN(argc, argv, 3) : NaNv;
+        if (std::isnan(h)) { d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
+        d->SetFields(utc, base, NaNv, NaNv, NaNv, h, m, s, ml, /*revive*/false);
+        return dateFieldToValue(d->GetTime());
+    }
+    // m[, s[, ms]] — leading = minute.
+    static TsValue* date_set_minutes_impl(void* ctx, const char* name, bool utc,
+                                          int argc, TsValue** argv) {
+        TsDate* d = requireDateOrThrow(ctx, name);
+        if (!d) return ts_value_make_undefined();
+        double NaNv = std::numeric_limits<double>::quiet_NaN();
+        int64_t base = d->IsValid() ? d->GetTime() : TsDate::INVALID;  // read t before ToNumber
+        double m  = dateArgOrNaN(argc, argv, 0);
+        double s  = (argc >= 2) ? dateArgOrNaN(argc, argv, 1) : NaNv;
+        double ml = (argc >= 3) ? dateArgOrNaN(argc, argv, 2) : NaNv;
+        if (std::isnan(m)) { d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
+        d->SetFields(utc, base, NaNv, NaNv, NaNv, NaNv, m, s, ml, /*revive*/false);
+        return dateFieldToValue(d->GetTime());
+    }
+    // s[, ms] — leading = second.
+    static TsValue* date_set_seconds_impl(void* ctx, const char* name, bool utc,
+                                          int argc, TsValue** argv) {
+        TsDate* d = requireDateOrThrow(ctx, name);
+        if (!d) return ts_value_make_undefined();
+        double NaNv = std::numeric_limits<double>::quiet_NaN();
+        int64_t base = d->IsValid() ? d->GetTime() : TsDate::INVALID;  // read t before ToNumber
+        double s  = dateArgOrNaN(argc, argv, 0);
+        double ml = (argc >= 2) ? dateArgOrNaN(argc, argv, 1) : NaNv;
+        if (std::isnan(s)) { d->SetTime(TsDate::INVALID); return ts_value_make_double(NaNv); }
+        d->SetFields(utc, base, NaNv, NaNv, NaNv, NaNv, NaNv, s, ml, /*revive*/false);
+        return dateFieldToValue(d->GetTime());
+    }
+    static TsValue* ts_date_setFullYear_native(void* c, int n, TsValue** v) { return date_set_year_impl(c, "setFullYear", false, n, v); }
+    static TsValue* ts_date_setUTCFullYear_native(void* c, int n, TsValue** v) { return date_set_year_impl(c, "setUTCFullYear", true, n, v); }
+    static TsValue* ts_date_setMonth_native(void* c, int n, TsValue** v) { return date_set_month_impl(c, "setMonth", false, n, v); }
+    static TsValue* ts_date_setUTCMonth_native(void* c, int n, TsValue** v) { return date_set_month_impl(c, "setUTCMonth", true, n, v); }
+    static TsValue* ts_date_setHours_native(void* c, int n, TsValue** v) { return date_set_hours_impl(c, "setHours", false, n, v); }
+    static TsValue* ts_date_setUTCHours_native(void* c, int n, TsValue** v) { return date_set_hours_impl(c, "setUTCHours", true, n, v); }
+    static TsValue* ts_date_setMinutes_native(void* c, int n, TsValue** v) { return date_set_minutes_impl(c, "setMinutes", false, n, v); }
+    static TsValue* ts_date_setUTCMinutes_native(void* c, int n, TsValue** v) { return date_set_minutes_impl(c, "setUTCMinutes", true, n, v); }
+    static TsValue* ts_date_setSeconds_native(void* c, int n, TsValue** v) { return date_set_seconds_impl(c, "setSeconds", false, n, v); }
+    static TsValue* ts_date_setUTCSeconds_native(void* c, int n, TsValue** v) { return date_set_seconds_impl(c, "setUTCSeconds", true, n, v); }
 
     // setTime: sets the time value directly from ms arg. NaN → Invalid Date.
     static TsValue* ts_date_setTime_native(void* ctx, int argc, TsValue** argv) {
