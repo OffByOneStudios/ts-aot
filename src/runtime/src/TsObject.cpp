@@ -6790,6 +6790,30 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto) {
         if (!obj) return ts_value_make_undefined();
 
+        // ECMA-262 20.1.2.22: RequireObjectCoercible(O) -> TypeError on
+        // null/undefined; a primitive O is returned unchanged. Without this the
+        // FLAT magic read below dereferenced a NaN-boxed primitive and crashed
+        // (Object.setPrototypeOf(true, null)).
+        uint64_t nbObj = nanbox_from_tsvalue_ptr(obj);
+        if (nanbox_is_null(nbObj) || nanbox_is_undefined(nbObj)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.setPrototypeOf called on null or undefined"));
+            return ts_value_make_undefined();  // unreachable
+        }
+        if (!nanbox_is_ptr(nbObj)) return obj;  // primitive: no-op, return O
+
+        // Step 2: proto must be Object or Null; any other primitive (number,
+        // boolean) throws TypeError — and must do so before the magic reads on
+        // protoRaw below would dereference a NaN-boxed value. undefined keeps
+        // the runtime's existing "clear prototype" behavior.
+        uint64_t nbProto = nanbox_from_tsvalue_ptr(proto);
+        if (proto && !nanbox_is_null(nbProto) && !nanbox_is_undefined(nbProto)
+            && !nanbox_is_ptr(nbProto)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object prototype may only be an Object or null"));
+            return ts_value_make_undefined();  // unreachable
+        }
+
         // Unbox obj if needed
         void* objRaw = ts_value_get_object(obj);
         if (!objRaw) objRaw = obj;
@@ -7727,6 +7751,16 @@ TsValue* ts_value_make_int(int64_t i) {
     // Object.defineProperties(obj, descriptors) - defines multiple properties
     TsValue* ts_object_defineProperties(TsValue* obj, TsValue* descriptors) {
         if (!obj || !descriptors) return obj;
+
+        // ECMA-262 20.1.2.3 step 1: if Type(O) is not Object, throw TypeError.
+        // Without this, is_flat_object() below dereferenced a NaN-boxed primitive
+        // (Object.defineProperties(true, {})) and crashed.
+        uint64_t objNb = nanbox_from_tsvalue_ptr(obj);
+        if (!nanbox_is_ptr(objNb)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Object.defineProperties called on non-object"));
+            return obj;  // unreachable
+        }
 
         void* rawPtr = ts_value_get_object(obj);
         if (!rawPtr) rawPtr = obj;
