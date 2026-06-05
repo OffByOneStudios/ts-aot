@@ -9053,6 +9053,22 @@ TsValue* ts_value_make_int(int64_t i) {
         void* rawObj = nanbox_to_ptr(objNb);
         if (!rawObj) return ts_value_make_undefined();
 
+        // Symbol receiver: `sym.description` (ES2019) is an own accessor that
+        // isn't reached via the generic object-property path, so it returned
+        // undefined for every Symbol. Handle it here (other symbol members like
+        // toString/valueOf resolve through the prototype elsewhere).
+        if (*(uint32_t*)rawObj == 0x53594D42 /* TsSymbol "SYMB" */) {
+            if (nanbox_is_string_ptr(keyNb)) {
+                const char* kc = ((TsString*)nanbox_to_ptr(keyNb))->ToUtf8();
+                if (kc && strcmp(kc, "description") == 0) {
+                    extern void* ts_symbol_get_description(void* sym);
+                    void* d = ts_symbol_get_description(rawObj);
+                    return d ? ts_value_make_string((TsString*)d)
+                             : ts_value_make_undefined();
+                }
+            }
+        }
+
         // Decode key. Only a CANONICAL non-negative integer index takes the
         // element fast path below; a fractional double (1.1) or a negative
         // number is NOT an array index (ECMA-262: ToString(ToUint32(1.1))="1"
