@@ -164,13 +164,28 @@ extern "C" int64_t ts_reflect_setPrototypeOf(void* targetArg, void* protoArg) {
     return 0;
 }
 
+// ECMA-262: Reflect.{isExtensible,preventExtensions,getOwnPropertyDescriptor,
+// defineProperty,...} step 1 require Type(target) is Object, else a TypeError.
+// A NaN-boxed primitive (number/bool/null/undefined), or a Symbol/String
+// primitive, is NOT an Object; dynamic_cast<TsMap*> on such a value was UB and
+// crashed in _RTDynamicCast (e.g. Reflect.isExtensible(Symbol())). Throws on a
+// non-object; returns the unboxed object pointer otherwise.
+static void* reflect_require_object(void* targetArg, const char* msg) {
+    void* t = ts_nanbox_safe_unbox(targetArg);
+    if (!t || *(uint32_t*)t == 0x53594D42 /*SYMB*/ || *(uint32_t*)t == 0x53545247 /*STRG*/) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return nullptr;  // unreachable
+    }
+    return t;
+}
+
 extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
-    void* target = ts_nanbox_safe_unbox(targetArg);
-    if (!target) return 0;
+    void* target = reflect_require_object(targetArg,
+        "Reflect.isExtensible called on non-object");
 
     if (is_flat_object(target)) return 1;  // Flat objects are extensible (via overflow)
 
-    TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
+    TsMap* obj = ts_cast<TsMap>(target);
     if (obj) {
         return obj->IsExtensible() ? 1 : 0;
     }
@@ -178,12 +193,12 @@ extern "C" int64_t ts_reflect_isExtensible(void* targetArg) {
 }
 
 extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
-    void* target = ts_nanbox_safe_unbox(targetArg);
-    if (!target) return 0;
+    void* target = reflect_require_object(targetArg,
+        "Reflect.preventExtensions called on non-object");
 
     if (is_flat_object(target)) return 0;  // Can't prevent extensions on flat objects
 
-    TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
+    TsMap* obj = ts_cast<TsMap>(target);
     if (obj) {
         obj->PreventExtensions();
         return 1;
@@ -192,15 +207,15 @@ extern "C" int64_t ts_reflect_preventExtensions(void* targetArg) {
 }
 
 extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* propArg) {
-    void* target = ts_nanbox_safe_unbox(targetArg);
-    if (!target) return ts_value_make_undefined();
+    void* target = reflect_require_object(targetArg,
+        "Reflect.getOwnPropertyDescriptor called on non-object");
 
     // Convert flat objects for interop
     if (is_flat_object(target)) {
         target = ts_flat_object_to_map(target);
     }
 
-    TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
+    TsMap* obj = ts_cast<TsMap>(target);
     if (!obj) return ts_value_make_undefined();
 
     TsValue propVal = nanbox_to_tagged((TsValue*)propArg);
@@ -235,21 +250,21 @@ extern "C" TsValue* ts_reflect_getOwnPropertyDescriptor(void* targetArg, void* p
 }
 
 extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, void* descriptorArg) {
-    void* target = ts_nanbox_safe_unbox(targetArg);
-    if (!target) return 0;
+    void* target = reflect_require_object(targetArg,
+        "Reflect.defineProperty called on non-object");
 
     if (is_flat_object(target)) {
         target = ts_flat_object_to_map(target);
     }
 
-    TsMap* obj = dynamic_cast<TsMap*>((TsObject*)target);
+    TsMap* obj = ts_cast<TsMap>(target);
     if (!obj) return 0;
 
     void* descRaw = ts_nanbox_safe_unbox(descriptorArg);
     if (descRaw && is_flat_object(descRaw)) {
         descRaw = ts_flat_object_to_map(descRaw);
     }
-    TsMap* descriptor = dynamic_cast<TsMap*>((TsObject*)descRaw);
+    TsMap* descriptor = ts_cast<TsMap>(descRaw);
     if (!descriptor) return 0;
 
     TsValue propVal = nanbox_to_tagged((TsValue*)propArg);
