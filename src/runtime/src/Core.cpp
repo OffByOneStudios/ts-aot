@@ -24,6 +24,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
+#include <dbghelp.h>   // crash-handler symbolication (SymFromAddr / StackWalk64)
 #pragma comment(lib, "psapi.lib")
 #endif
 
@@ -125,6 +126,51 @@ static LONG WINAPI ts_vectored_exception_handler(PEXCEPTION_POINTERS info) {
     // On access violation, dump registers and disassembly for nursery GC debugging
     if (code == 0xC0000005 && info->ContextRecord) {
         CONTEXT* ctx = info->ContextRecord;
+
+        // Symbolicated crash stack so crashes are diagnosable / clusterable by
+        // faulting function (mirrors TsError.cpp's SymFromAddr usage). Only
+        // meaningful when a PDB is present (-g); prints raw addresses otherwise.
+        // Safe to do heavy Dbghelp work here: an access violation is terminal.
+        {
+            HANDLE proc = GetCurrentProcess();
+            static bool symInit = false;
+            if (!symInit) {
+                SymSetOptions(SymGetOptions() | SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS);
+                SymInitialize(proc, NULL, TRUE);
+                symInit = true;
+            }
+            char symbuf[sizeof(SYMBOL_INFO) + MAX_SYM_NAME];
+            PSYMBOL_INFO sym = (PSYMBOL_INFO)symbuf;
+            sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+            sym->MaxNameLen = MAX_SYM_NAME;
+            IMAGEHLP_LINE64 ln; ln.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+            DWORD disp;
+            fprintf(stderr, "[ts-aot] Crash stack:\n");
+            CONTEXT walk = *ctx;  // copy: StackWalk64 mutates the context
+            STACKFRAME64 sf; memset(&sf, 0, sizeof(sf));
+            sf.AddrPC.Offset    = walk.Rip; sf.AddrPC.Mode    = AddrModeFlat;
+            sf.AddrFrame.Offset = walk.Rbp; sf.AddrFrame.Mode = AddrModeFlat;
+            sf.AddrStack.Offset = walk.Rsp; sf.AddrStack.Mode = AddrModeFlat;
+            for (int i = 0; i < 24; i++) {
+                if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, proc, GetCurrentThread(),
+                                 &sf, &walk, NULL, SymFunctionTableAccess64,
+                                 SymGetModuleBase64, NULL)) break;
+                DWORD64 a = sf.AddrPC.Offset;
+                if (a == 0) break;
+                fprintf(stderr, "    at ");
+                if (SymFromAddr(proc, a, 0, sym)) {
+                    fprintf(stderr, "%s", sym->Name);
+                    if (SymGetLineFromAddr64(proc, a - 1, &disp, &ln))
+                        fprintf(stderr, " (%s:%lu)", ln.FileName, (unsigned long)ln.LineNumber);
+                    else
+                        fprintf(stderr, " (0x%llx)", (unsigned long long)a);
+                } else {
+                    fprintf(stderr, "0x%llx", (unsigned long long)a);
+                }
+                fprintf(stderr, "\n");
+            }
+        }
+
         // Print the faulting address from exception params
         if (info->ExceptionRecord->NumberParameters >= 2) {
             fprintf(stderr, "[ts-aot] Fault: %s address %p\n",
