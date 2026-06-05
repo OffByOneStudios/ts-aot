@@ -3869,6 +3869,17 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
     if (isStringIterable) {
         isIteratorObject = true;
     }
+    // Set/Map-typed iterables used directly (`for (x of set)`, `for ([k,v] of map)`)
+    // must use the iterator protocol: the array fast path (ts_array_length + index)
+    // reads a TsMap-backed Set/Map as an array and yields nothing (the loop body
+    // never runs). ts_iterator_get now builds the proper Set-values / Map-entries
+    // iterator.
+    bool isSetOrMapIterable = !isGenerator && !isIteratorObject && iterable->type &&
+        (iterable->type->kind == HIRTypeKind::Set ||
+         iterable->type->kind == HIRTypeKind::Map);
+    if (isSetOrMapIterable) {
+        isIteratorObject = true;
+    }
 
     // For every iterator-protocol path, coerce to the actual iterator via
     // ts_iterator_get. Handles three cases:
