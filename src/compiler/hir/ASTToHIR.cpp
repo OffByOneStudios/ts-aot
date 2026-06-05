@@ -5980,8 +5980,12 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         auto packed = builder_.createCall("ts_array_create", {}, anyArr);
         for (size_t i = 0; i < node->arguments.size(); ++i) {
             if (dynamic_cast<ast::SpreadElement*>(node->arguments[i].get())) {
-                // ts_array_concat returns a NEW array, capture it.
-                packed = builder_.createCall("ts_array_concat",
+                // SpreadElement is ITERATED (ECMA-262 ArgumentListEvaluation),
+                // not concat-flattened: ts_array_concat only expanded arrays, so
+                // f(...set) / f(...gen) passed the collection as ONE arg. Use
+                // ts_array_spread_into (iterator protocol, handles Set/Map/gen);
+                // it mutates `packed` in place and returns it.
+                packed = builder_.createCall("ts_array_spread_into",
                     {packed, boxValueIfNeeded(args[i])}, anyArr);
             } else {
                 builder_.createCall("ts_array_push",
