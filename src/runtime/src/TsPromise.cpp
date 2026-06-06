@@ -841,7 +841,8 @@ void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValu
         return;
     }
 
-    if (cb.onFinally.type == ValueType::OBJECT_PTR && cb.onFinally.ptr_val) {
+    if ((cb.onFinally.type == ValueType::OBJECT_PTR ||
+         cb.onFinally.type == ValueType::FUNCTION_PTR) && cb.onFinally.ptr_val) {
         ts_call_0(nanbox_from_tagged(cb.onFinally));
         if (cb.nextPromise) {
             if (promise->state == PromiseState::Fulfilled) {
