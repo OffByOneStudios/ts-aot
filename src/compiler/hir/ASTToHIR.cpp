@@ -6106,7 +6106,9 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(prop)) {
                 // Read src[key] — computed `[expr]:` keys evaluate the key.
                 if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(pa->nameNode.get())) {
-                    auto keyVal = lowerExpression(cpn->expression.get());
+                    // Box the key — GetPropDynamic expects an Any/ptr key, but a
+                    // computed key may lower to a raw number/bool (e.g. `[1.]`).
+                    auto keyVal = boxValueIfNeeded(lowerExpression(cpn->expression.get()));
                     extracted = builder_.createGetPropDynamic(rhs, keyVal);
                 } else {
                     extracted = builder_.createGetPropDynamic(
