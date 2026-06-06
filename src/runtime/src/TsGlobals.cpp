@@ -2227,10 +2227,25 @@ void* ts_get_global_Reflect() {
     return cached;
 }
 
+extern "C" TsValue* ts_proxy_revocable(void* targetArg, void* handlerArg);
+
 void* ts_get_global_Proxy() {
     TenureScope _tenure;
     static void* cached = nullptr;
-    if (!cached) cached = wrapAsCallable(makeSimpleConstructorGlobal("Proxy"), "Proxy", 2);
+    if (!cached) {
+        TsMap* ctor = makeSimpleConstructorGlobal("Proxy");
+        // ECMA-262 28.2.2.1: Proxy.revocable(target, handler) returns
+        // { proxy, revoke }. Without this static method, `Proxy.revocable`
+        // resolved to undefined (163 test262 proxy-revoked tests destructure
+        // `{proxy, revoke}` from the result). Mirror ArrayBuffer.isView: add
+        // the method to the ctor map before wrapAsCallable.
+        addMethod(ctor, "revocable", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            void* target  = (argc > 0 && argv) ? (void*)argv[0] : (void*)ts_value_make_undefined();
+            void* handler = (argc > 1 && argv) ? (void*)argv[1] : (void*)ts_value_make_undefined();
+            return ts_proxy_revocable(target, handler);
+        }, 2);
+        cached = wrapAsCallable(ctor, "Proxy", 2);
+    }
     { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     return cached;
 }

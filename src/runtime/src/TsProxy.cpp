@@ -10,6 +10,21 @@
 
 // TsProxy implementation
 
+extern "C" void ts_throw(TsValue* err);
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
+// ECMA-262 10.5.x: every Proxy internal method whose [[ProxyHandler]] is null
+// (i.e. the proxy has been revoked) must throw a TypeError. Previously the
+// revoked traps returned a benign value (undefined/false/empty), so the ~163
+// built-ins/*/proxy-revoked tests that revoke a proxy and expect a TypeError
+// silently "succeeded".
+static void throw_revoked(const char* op) {
+    char msg[96];
+    snprintf(msg, sizeof(msg),
+             "Cannot perform '%s' on a proxy that has been revoked", op);
+    ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+}
+
 TsProxy::TsProxy(void* t, TsMap* h) : target(t), handler(h), revoked(false) {
     proxyMagic = PROXY_MAGIC;
 }
@@ -49,6 +64,7 @@ TsFunction* TsProxy::getTrap(const char* trapName) {
 
 TsValue* TsProxy::get(TsValue* prop, void* receiver) {
     if (revoked) {
+        throw_revoked("get");
         return ts_value_make_undefined();
     }
 
@@ -74,6 +90,7 @@ TsValue* TsProxy::get(TsValue* prop, void* receiver) {
 
 bool TsProxy::set(TsValue* prop, TsValue* value, void* receiver) {
     if (revoked) {
+        throw_revoked("set");
         return false;
     }
 
@@ -100,6 +117,7 @@ bool TsProxy::set(TsValue* prop, TsValue* value, void* receiver) {
 
 bool TsProxy::has(TsValue* prop) {
     if (revoked) {
+        throw_revoked("has");
         return false;
     }
 
@@ -124,6 +142,7 @@ bool TsProxy::has(TsValue* prop) {
 
 bool TsProxy::deleteProperty(TsValue* prop) {
     if (revoked) {
+        throw_revoked("deleteProperty");
         return false;
     }
 
@@ -148,6 +167,7 @@ bool TsProxy::deleteProperty(TsValue* prop) {
 
 TsValue* TsProxy::apply(void* thisArg, TsValue* args, int argCount) {
     if (revoked) {
+        throw_revoked("apply");
         return ts_value_make_undefined();
     }
 
@@ -177,6 +197,7 @@ TsValue* TsProxy::apply(void* thisArg, TsValue* args, int argCount) {
 
 TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
     if (revoked) {
+        throw_revoked("construct");
         return ts_value_make_undefined();
     }
 
@@ -201,6 +222,7 @@ TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
 
 TsValue* TsProxy::ownKeys() {
     if (revoked) {
+        throw_revoked("ownKeys");
         return ts_value_make_array(TsArray::Create());
     }
 
@@ -274,7 +296,14 @@ extern "C" TsValue* ts_proxy_revocable(void* targetArg, void* handlerArg) {
 
     // Create result object { proxy, revoke }
     TsMap* result = TsMap::Create();
-    result->Set(TsString::Create("proxy"), *proxyVal);
+    // proxyVal is a NaN-boxed value (ts_value_make_object), NOT a pointer to a
+    // TsValue struct — `*proxyVal` would misread it (it read back as undefined).
+    // Build a struct TsValue from the already-extracted raw proxy pointer,
+    // mirroring how revokeFuncVal is constructed above.
+    TsValue proxyTsVal;
+    proxyTsVal.type = ValueType::OBJECT_PTR;
+    proxyTsVal.ptr_val = proxy;
+    result->Set(TsString::Create("proxy"), proxyTsVal);
     result->Set(TsString::Create("revoke"), revokeFuncVal);
 
     return ts_value_make_object(result);
