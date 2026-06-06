@@ -411,6 +411,7 @@ void Analyzer::declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> t
                 }
             }
             declareBindingPattern(element->name.get(), elementType);
+            flagUnresolvedDefaultRef(element->initializer.get());
         }
     } else if (auto abp = dynamic_cast<ArrayBindingPattern*>(pattern)) {
         std::shared_ptr<Type> elementType = std::make_shared<Type>(TypeKind::Any);
@@ -425,9 +426,29 @@ void Analyzer::declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> t
                 } else {
                     declareBindingPattern(element->name.get(), elementType);
                 }
+                flagUnresolvedDefaultRef(element->initializer.get());
             }
         }
     }
+}
+
+// ECMA-262 6.2.4.8 GetValue: evaluating a default Initializer that is an
+// unresolvable reference throws ReferenceError. The HIR throw path
+// (ts_resolve_identifier_or_throw, gated on node->isUnresolvedReference) only
+// fires for identifiers the analyzer flagged. The normal flagging happens in
+// visitIdentifier, but declareBindingPattern never visits a BindingElement's
+// default, so `{ x = unresolvableRef } = {}` silently yielded undefined.
+//
+// We flag ONLY a bare-identifier default here — deliberately side-effect-free
+// (no Analyzer::visit, which would perturb NamedEvaluation / type-inference and
+// regress fn-name / init-skipped cases). The lazy default-eval lowering ensures
+// the resulting throw fires only when the default is actually evaluated.
+void Analyzer::flagUnresolvedDefaultRef(ast::Node* initializer) {
+    auto* id = dynamic_cast<Identifier*>(initializer);
+    if (!id) return;  // only the bare-identifier default form (the test262 cluster)
+    if (id->name == "null" || id->name == "undefined") return;
+    if (symbols.lookup(id->name) || symbols.lookupType(id->name)) return;  // resolvable
+    id->isUnresolvedReference = true;
 }
 
 void Analyzer::declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type, DeclKind kind) {

@@ -262,6 +262,9 @@ private:
 
     void declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type);
     void declareBindingPattern(ast::Node* pattern, std::shared_ptr<Type> type, ts::DeclKind kind);
+    // Flag a bare-identifier destructuring default that is an unresolvable
+    // reference so codegen throws ReferenceError (ECMA-262 6.2.4.8 GetValue).
+    void flagUnresolvedDefaultRef(ast::Node* initializer);
 
     std::shared_ptr<FunctionType> resolveOverload(const std::vector<std::shared_ptr<FunctionType>>& overloads, const std::vector<std::shared_ptr<Type>>& argTypes);
 
