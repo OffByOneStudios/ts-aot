@@ -484,6 +484,17 @@ void* ts_get_global_Array() {
     addMethod(proto, "keys", (void*)ts_array_keys_native, 0);
     addMethod(proto, "values", (void*)ts_array_values_native, 0);
 
+    // ECMA-262 23.1.3.36: Array.prototype[@@iterator] is the SAME function
+    // object as Array.prototype.values ({writable, enumerable:false, configurable}).
+    {
+        TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::GetInterned("values");
+        TsValue vfn = proto->Get(vk);
+        if (vfn.type != ValueType::UNDEFINED) {
+            TsValue ik; ik.type = ValueType::STRING_PTR; ik.ptr_val = TsString::GetInterned("[Symbol.iterator]");
+            proto->SetWithAttrs(ik, vfn, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+        }
+    }
+
     // ECMA-262 23.1.3.34: Array.prototype[@@unscopables] is a null-prototype
     // object whose keys are the method names added to Array.prototype after
     // ES5, each with value true ({writable,enumerable,configurable}). The
@@ -2071,6 +2082,16 @@ void* ts_get_global_Map() {
             return ts_map_groupBy(it, fn);
         }, 2);
 
+        // Map.prototype[@@iterator] === Map.prototype.entries (same function).
+        {
+            TsValue ek; ek.type = ValueType::STRING_PTR; ek.ptr_val = TsString::GetInterned("entries");
+            TsValue efn = proto->Get(ek);
+            if (efn.type != ValueType::UNDEFINED) {
+                TsValue ik; ik.type = ValueType::STRING_PTR; ik.ptr_val = TsString::GetInterned("[Symbol.iterator]");
+                proto->SetWithAttrs(ik, efn, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+            }
+        }
+
         cached = wrapAsCallable(ctor, "Map", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -2129,6 +2150,16 @@ void* ts_get_global_Set() {
             ts_set_forEach(ctx, callback, thisArg);
             return ts_value_make_undefined();
         });
+
+        // Set.prototype[@@iterator] === Set.prototype.values (same function).
+        {
+            TsValue vk; vk.type = ValueType::STRING_PTR; vk.ptr_val = TsString::GetInterned("values");
+            TsValue vfn = proto->Get(vk);
+            if (vfn.type != ValueType::UNDEFINED) {
+                TsValue ik; ik.type = ValueType::STRING_PTR; ik.ptr_val = TsString::GetInterned("[Symbol.iterator]");
+                proto->SetWithAttrs(ik, vfn, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
+            }
+        }
 
         cached = wrapAsCallable(ctor, "Set", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
