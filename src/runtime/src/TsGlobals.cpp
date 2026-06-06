@@ -208,6 +208,17 @@ static void addMethod(TsMap* map, const char* name, void* nativeFn, int arity = 
         TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
 }
 
+// Install a built-in's @@toStringTag — a data property {writable:false,
+// enumerable:false, configurable:true} under the well-known-symbol storage key,
+// so Object.prototype.toString.call(x) === "[object <tag>]" and the property is
+// discoverable (ECMA-262 e.g. 24.1.3.13 Map.prototype[@@toStringTag]).
+static void setProtoStringTag(TsMap* proto, const char* tag) {
+    if (!proto) return;
+    TsValue k; k.type = ValueType::STRING_PTR; k.ptr_val = TsString::GetInterned("[Symbol.toStringTag]");
+    TsValue v; v.type = ValueType::STRING_PTR; v.ptr_val = TsString::Create(tag);
+    proto->SetWithAttrs(k, v, TsHashTable::ATTR_CONFIGURABLE);
+}
+
 // Native wrappers for functions that take 2+ args and don't have _native variants
 static TsValue* ts_object_assign_native(void* ctx, int argc, TsValue** argv) {
     if (argc < 2) return argc > 0 ? argv[0] : ts_value_make_undefined();
@@ -2092,6 +2103,7 @@ void* ts_get_global_Map() {
             }
         }
 
+        setProtoStringTag(proto, "Map");
         cached = wrapAsCallable(ctor, "Map", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -2161,6 +2173,7 @@ void* ts_get_global_Set() {
             }
         }
 
+        setProtoStringTag(proto, "Set");
         cached = wrapAsCallable(ctor, "Set", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -2212,6 +2225,7 @@ void* ts_get_global_WeakMap() {
                 (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
                 (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
         }, 2);
+        setProtoStringTag(proto, "WeakMap");
         cached = wrapAsCallable(ctor, "WeakMap", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -2242,6 +2256,7 @@ void* ts_get_global_WeakSet() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_set_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
+        setProtoStringTag(proto, "WeakSet");
         cached = wrapAsCallable(ctor, "WeakSet", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }
@@ -2570,6 +2585,7 @@ void* ts_get_global_DataView() {
                 return ts_value_make_int((int64_t)((TsDataView*)raw)->GetByteOffset());
             });
             (void)requireDataView;
+            setProtoStringTag(dvProto, "DataView");
         }
         cached = wrapAsCallable(ctor, "DataView", 1);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
