@@ -1724,6 +1724,36 @@ void* ts_get_global_Promise() {
             TsValue tagVal; tagVal.type = ValueType::STRING_PTR;
             tagVal.ptr_val = TsString::Create("Promise");
             proto->SetWithAttrs(tagKey, tagVal, TsHashTable::ATTR_CONFIGURABLE);
+            // Register then/catch/finally as real own-properties of
+            // Promise.prototype so `Promise.prototype.finally` (and its
+            // length/name/descriptor) is discoverable. Instance calls
+            // (p.then()/p.finally()) are dispatched via TsPromise's virtual
+            // property handler; these delegate to the same logic.
+            // ts_promise_then/catch/finally expect a NaN-boxed promise; `this`
+            // arrives as a raw/boxed receiver, so unbox then re-box as a
+            // promise value. ts_promise_* validate PROMISE_PTR internally.
+            TsValue* ts_promise_then(TsValue*, TsValue*, TsValue*);
+            TsValue* ts_promise_catch(TsValue*, TsValue*);
+            TsValue* ts_promise_finally(TsValue*, TsValue*);
+            addMethod(proto, "then", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                return ts_promise_then(ts_value_make_promise(raw),
+                    (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
+                    (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+            }, 2);
+            addMethod(proto, "catch", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                return ts_promise_catch(ts_value_make_promise(raw),
+                    (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            }, 1);
+            addMethod(proto, "finally", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                if (!ctx) ctx = ts_get_call_this();
+                void* raw = ts_value_get_object((TsValue*)ctx); if (!raw) raw = ctx;
+                return ts_promise_finally(ts_value_make_promise(raw),
+                    (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            }, 1);
         }
         cached = wrapAsCallable(ctor, "Promise", 1);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
