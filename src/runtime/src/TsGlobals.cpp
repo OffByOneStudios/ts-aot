@@ -484,6 +484,30 @@ void* ts_get_global_Array() {
     addMethod(proto, "keys", (void*)ts_array_keys_native, 0);
     addMethod(proto, "values", (void*)ts_array_values_native, 0);
 
+    // ECMA-262 23.1.3.34: Array.prototype[@@unscopables] is a null-prototype
+    // object whose keys are the method names added to Array.prototype after
+    // ES5, each with value true ({writable,enumerable,configurable}). The
+    // property itself is {writable:false, enumerable:false, configurable:true}.
+    {
+        TsMap* unsc = TsMap::Create();
+        unsc->SetNullPrototype(true);
+        static const char* const kUnscopables[] = {
+            "at","copyWithin","entries","fill","find","findIndex","findLast",
+            "findLastIndex","flat","flatMap","includes","keys","toReversed",
+            "toSorted","toSpliced","values"
+        };
+        for (const char* k : kUnscopables) {
+            TsValue kk; kk.type = ValueType::STRING_PTR; kk.ptr_val = TsString::GetInterned(k);
+            TsValue tv; tv.type = ValueType::BOOLEAN; tv.b_val = true;
+            unsc->SetWithAttrs(kk, tv,
+                TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_ENUMERABLE | TsHashTable::ATTR_CONFIGURABLE);
+        }
+        TsValue uk; uk.type = ValueType::STRING_PTR;
+        uk.ptr_val = TsString::GetInterned("[Symbol.unscopables]");
+        TsValue uv; uv.type = ValueType::OBJECT_PTR; uv.ptr_val = unsc;
+        proto->SetWithAttrs(uk, uv, TsHashTable::ATTR_CONFIGURABLE);
+    }
+
     TsValue protoKey;
     protoKey.type = ValueType::STRING_PTR;
     protoKey.ptr_val = TsString::GetInterned("prototype");
