@@ -4242,14 +4242,276 @@ extern "C" TsValue* ts_u8_setFromHex_native(void* ctx, int argc, TsValue** argv)
     return ts_value_make_object(result);
 }
 
-// Install the hex methods onto the Uint8Array constructor (static fromHex) and
-// its .prototype (toHex / setFromHex). Called once from the ctor builder macro.
+// ---------------------------------------------------------------------------
+// base64 subset of the same proposal.
+// ---------------------------------------------------------------------------
+static const char* B64_STD = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char* B64_URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+static inline int b64_val(unsigned char c, bool url) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (!url) { if (c == '+') return 62; if (c == '/') return 63; }
+    else      { if (c == '-') return 62; if (c == '_') return 63; }
+    return -1;
+}
+static inline bool b64_is_ws(unsigned char c) {
+    return c == 0x09 || c == 0x0A || c == 0x0C || c == 0x0D || c == 0x20;
+}
+
+static char* u8_to_base64(const uint8_t* data, size_t n, bool url, bool omitPad) {
+    const char* A = url ? B64_URL : B64_STD;
+    char* out = (char*)ts_alloc(((n + 2) / 3) * 4 + 1);
+    size_t o = 0, i = 0;
+    while (i + 3 <= n) {
+        uint32_t x = ((uint32_t)data[i] << 16) | ((uint32_t)data[i + 1] << 8) | data[i + 2];
+        out[o++] = A[(x >> 18) & 63]; out[o++] = A[(x >> 12) & 63];
+        out[o++] = A[(x >> 6) & 63];  out[o++] = A[x & 63];
+        i += 3;
+    }
+    size_t rem = n - i;
+    if (rem == 1) {
+        uint32_t x = (uint32_t)data[i] << 16;
+        out[o++] = A[(x >> 18) & 63]; out[o++] = A[(x >> 12) & 63];
+        if (!omitPad) { out[o++] = '='; out[o++] = '='; }
+    } else if (rem == 2) {
+        uint32_t x = ((uint32_t)data[i] << 16) | ((uint32_t)data[i + 1] << 8);
+        out[o++] = A[(x >> 18) & 63]; out[o++] = A[(x >> 12) & 63]; out[o++] = A[(x >> 6) & 63];
+        if (!omitPad) out[o++] = '=';
+    }
+    out[o] = '\0';
+    return out;
+}
+
+// Spec FromBase64(string, alphabet, lastChunkHandling, maxLength). Returns
+// 0 on success, 1 on SyntaxError. lastChunk: 0=loose, 1=strict,
+// 2=stop-before-partial. Skips ASCII whitespace, honors padding, and stops
+// before a chunk that would exceed maxBytes (so setFromBase64 fills a target
+// exactly and reports `read` at the last fully-committed chunk boundary).
+static int u8_from_base64(const char* s, size_t len, bool url, int lastChunk,
+                          uint8_t* out, size_t maxBytes,
+                          size_t* readOut, size_t* writtenOut) {
+    size_t w = 0, read = 0, i = 0, chunkStart = 0;
+    int chunk[4]; int cl = 0;
+    for (;;) {
+        while (i < len && b64_is_ws((unsigned char)s[i])) i++;
+        if (i >= len) {
+            if (cl > 0) {
+                if (lastChunk == 2) { *readOut = read; *writtenOut = w; return 0; }
+                if (lastChunk == 1) { *readOut = read; *writtenOut = w; return 1; }
+                if (cl == 1)        { *readOut = read; *writtenOut = w; return 1; }
+                size_t produce = (cl == 2) ? 1 : 2;
+                if (w + produce > maxBytes) { *readOut = read; *writtenOut = w; return 0; }
+                out[w++] = (uint8_t)((chunk[0] << 2) | (chunk[1] >> 4));
+                if (cl == 3) out[w++] = (uint8_t)(((chunk[1] & 15) << 4) | (chunk[2] >> 2));
+                *readOut = len; *writtenOut = w; return 0;
+            }
+            *readOut = len; *writtenOut = w; return 0;
+        }
+        unsigned char ch = (unsigned char)s[i];
+        if (ch == '=') {
+            if (cl < 2) { *readOut = read; *writtenOut = w; return 1; }
+            i++;
+            while (i < len && b64_is_ws((unsigned char)s[i])) i++;
+            if (cl == 2) {
+                if (i >= len || s[i] != '=') {
+                    // A 2-char chunk followed by a single '=' is malformed (needs
+                    // '=='). stop-before-partial drops the partial chunk and
+                    // returns the bytes committed so far; loose/strict error.
+                    if (lastChunk == 2) { *readOut = read; *writtenOut = w; return 0; }
+                    *readOut = read; *writtenOut = w; return 1;
+                }
+                i++;
+                while (i < len && b64_is_ws((unsigned char)s[i])) i++;
+            }
+            if (i < len) { *readOut = read; *writtenOut = w; return 1; }
+            if (lastChunk == 1) {
+                if (cl == 2 && (chunk[1] & 0x0F) != 0) { *readOut = read; *writtenOut = w; return 1; }
+                if (cl == 3 && (chunk[2] & 0x03) != 0) { *readOut = read; *writtenOut = w; return 1; }
+            }
+            size_t produce = (cl == 2) ? 1 : 2;
+            if (w + produce > maxBytes) { *readOut = read; *writtenOut = w; return 0; }
+            out[w++] = (uint8_t)((chunk[0] << 2) | (chunk[1] >> 4));
+            if (cl == 3) out[w++] = (uint8_t)(((chunk[1] & 15) << 4) | (chunk[2] >> 2));
+            *readOut = len; *writtenOut = w; return 0;
+        }
+        int v = b64_val(ch, url);
+        if (v < 0) { *readOut = read; *writtenOut = w; return 1; }
+        if (cl == 0) chunkStart = i;
+        chunk[cl++] = v;
+        i++;
+        if (cl == 4) {
+            if (w + 3 > maxBytes) { *readOut = chunkStart; *writtenOut = w; return 0; }
+            out[w++] = (uint8_t)((chunk[0] << 2) | (chunk[1] >> 4));
+            out[w++] = (uint8_t)(((chunk[1] & 15) << 4) | (chunk[2] >> 2));
+            out[w++] = (uint8_t)(((chunk[2] & 3) << 6) | chunk[3]);
+            cl = 0;
+            read = i;
+            if (w == maxBytes) { *readOut = read; *writtenOut = w; return 0; }
+        }
+    }
+}
+
+// Read the {alphabet, lastChunkHandling, omitPadding} options object. The
+// string options (alphabet/lastChunkHandling) must be PRIMITIVE strings with a
+// recognized value, else TypeError (never coerced). omitPadding is ToBoolean.
+// Pass nullptr for an out-param to skip that option. Returns false (after
+// throwing) on error.
+static bool u8_read_base64_options(TsValue* optsArg, const char* method,
+                                   bool* urlOut, int* lastChunkOut, bool* omitPadOut) {
+    if (!optsArg || ts_value_is_undefined(optsArg)) return true;
+    void* optsRaw = ts_value_get_object(optsArg);
+    if (!optsRaw) {
+        char msg[96]; snprintf(msg, sizeof(msg), "%s options is not an object", method);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return false;
+    }
+    if (urlOut) {
+        TsValue* a = ts_object_get_property(optsRaw, "alphabet");
+        if (a && !ts_value_is_undefined(a)) {
+            TsValue av = nanbox_to_tagged(a);
+            if (av.type != ValueType::STRING_PTR) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError", "alphabet must be a string")); return false;
+            }
+            const char* as = ((TsString*)ts_value_get_string(a))->ToUtf8();
+            if (strcmp(as, "base64") == 0) *urlOut = false;
+            else if (strcmp(as, "base64url") == 0) *urlOut = true;
+            else { ts_throw((TsValue*)ts_error_create_typed("TypeError", "alphabet must be base64 or base64url")); return false; }
+        }
+    }
+    if (lastChunkOut) {
+        TsValue* l = ts_object_get_property(optsRaw, "lastChunkHandling");
+        if (l && !ts_value_is_undefined(l)) {
+            TsValue lv = nanbox_to_tagged(l);
+            if (lv.type != ValueType::STRING_PTR) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError", "lastChunkHandling must be a string")); return false;
+            }
+            const char* ls = ((TsString*)ts_value_get_string(l))->ToUtf8();
+            if (strcmp(ls, "loose") == 0) *lastChunkOut = 0;
+            else if (strcmp(ls, "strict") == 0) *lastChunkOut = 1;
+            else if (strcmp(ls, "stop-before-partial") == 0) *lastChunkOut = 2;
+            else { ts_throw((TsValue*)ts_error_create_typed("TypeError", "invalid lastChunkHandling")); return false; }
+        }
+    }
+    if (omitPadOut) {
+        TsValue* o = ts_object_get_property(optsRaw, "omitPadding");
+        if (o && !ts_value_is_undefined(o)) *omitPadOut = ts_value_to_bool(o);
+    }
+    return true;
+}
+
+// Like u8_require_uint8_this but WITHOUT the detached-buffer throw — the
+// toBase64/setFromBase64 methods must read their options object (which may run
+// getters that detach the buffer) BEFORE the detached check, so the detached
+// check is performed by the caller after option reading.
+static TsTypedArray* u8_require_uint8_this_nodetach(void* ctx, const char* method) {
+    void* raw = ctx ? ts_value_get_object((TsValue*)ctx) : nullptr;
+    if (!raw) raw = ctx;
+    TsTypedArray* ta = nullptr;
+    if (raw) {
+        uintptr_t p = (uintptr_t)raw;
+        if (p > 0x1000 && p < 0x0000800000000000ULL &&
+            *(uint32_t*)((char*)raw + 16) == TsTypedArray::MAGIC) {
+            ta = (TsTypedArray*)raw;
+        }
+    }
+    if (!ta || ta->GetType() != TypedArrayType::Uint8) {
+        char msg[96]; snprintf(msg, sizeof(msg), "%s called on a non-Uint8Array", method);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return nullptr;
+    }
+    return ta;
+}
+
+static bool u8_throw_if_detached(TsTypedArray* ta, const char* method) {
+    if (ta->IsDetachedBuffer()) {
+        char msg[96]; snprintf(msg, sizeof(msg), "%s called on a detached buffer", method);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return true;
+    }
+    return false;
+}
+
+static TsValue* u8_fromBase64_native(void* /*ctx*/, int argc, TsValue** argv) {
+    TsValue* arg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    TsString* s = u8_require_string_arg(arg, "Uint8Array.fromBase64");
+    if (!s) return ts_value_make_undefined();
+    bool url = false; int lastChunk = 0;
+    TsValue* opts = (argc >= 2 && argv) ? argv[1] : nullptr;
+    if (!u8_read_base64_options(opts, "Uint8Array.fromBase64", &url, &lastChunk, nullptr))
+        return ts_value_make_undefined();
+    const char* u = s->ToUtf8();
+    size_t len = u ? strlen(u) : 0;
+    size_t cap = (len / 4 + 1) * 3 + 3;
+    uint8_t* tmp = (uint8_t*)ts_alloc(cap);
+    size_t rd = 0, wr = 0;
+    if (u8_from_base64(u ? u : "", len, url, lastChunk, tmp, cap, &rd, &wr)) {
+        ts_throw((TsValue*)ts_error_create_typed("SyntaxError",
+            "Uint8Array.fromBase64: string is not valid base64"));
+        return ts_value_make_undefined();
+    }
+    void* res = ts_typed_array_create_u8((int64_t)wr);
+    for (size_t i = 0; i < wr; i++) ((TsTypedArray*)res)->Set(i, (double)tmp[i]);
+    return (TsValue*)res;
+}
+
+extern "C" TsValue* ts_u8_toBase64_native(void* ctx, int argc, TsValue** argv) {
+    TsTypedArray* ta = u8_require_uint8_this_nodetach(ctx, "Uint8Array.prototype.toBase64");
+    if (!ta) return ts_value_make_undefined();
+    bool url = false, omitPad = false;
+    TsValue* opts = (argc >= 1 && argv) ? argv[0] : nullptr;
+    if (!u8_read_base64_options(opts, "Uint8Array.prototype.toBase64", &url, nullptr, &omitPad))
+        return ts_value_make_undefined();
+    // Detached check AFTER option reading (option getters may detach).
+    if (u8_throw_if_detached(ta, "Uint8Array.prototype.toBase64")) return ts_value_make_undefined();
+    size_t n = ta->GetLength();
+    char* out = u8_to_base64(ta->GetData(), n, url, omitPad);
+    return ts_value_make_string(TsString::Create(out));
+}
+
+extern "C" TsValue* ts_u8_setFromBase64_native(void* ctx, int argc, TsValue** argv) {
+    TsTypedArray* ta = u8_require_uint8_this_nodetach(ctx, "Uint8Array.prototype.setFromBase64");
+    if (!ta) return ts_value_make_undefined();
+    TsValue* arg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    TsString* s = u8_require_string_arg(arg, "Uint8Array.prototype.setFromBase64");
+    if (!s) return ts_value_make_undefined();
+    bool url = false; int lastChunk = 0;
+    TsValue* opts = (argc >= 2 && argv) ? argv[1] : nullptr;
+    if (!u8_read_base64_options(opts, "Uint8Array.prototype.setFromBase64", &url, &lastChunk, nullptr))
+        return ts_value_make_undefined();
+    // Detached check AFTER option reading (option getters may detach).
+    if (u8_throw_if_detached(ta, "Uint8Array.prototype.setFromBase64")) return ts_value_make_undefined();
+    const char* u = s->ToUtf8();
+    size_t len = u ? strlen(u) : 0;
+    size_t maxBytes = ta->GetLength();
+    uint8_t* tmp = (uint8_t*)ts_alloc(maxBytes ? maxBytes : 1);
+    size_t rd = 0, wr = 0;
+    int err = u8_from_base64(u ? u : "", len, url, lastChunk, tmp, maxBytes, &rd, &wr);
+    for (size_t i = 0; i < wr; i++) ta->Set(i, (double)tmp[i]);
+    if (err) {
+        ts_throw((TsValue*)ts_error_create_typed("SyntaxError",
+            "Uint8Array.prototype.setFromBase64: string is not valid base64"));
+        return ts_value_make_undefined();
+    }
+    TsMap* result = TsMap::Create();
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("read"))),
+                nanbox_to_tagged(ts_value_make_int((int64_t)rd)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("written"))),
+                nanbox_to_tagged(ts_value_make_int((int64_t)wr)));
+    return ts_value_make_object(result);
+}
+
+// Install the hex AND base64 methods onto the Uint8Array constructor (statics
+// fromHex/fromBase64) and its .prototype (toHex/setFromHex/toBase64/
+// setFromBase64). Called once from the ctor builder macro.
 static void install_uint8_hex_methods(void* ctorVal) {
     void* ctorRaw = ts_value_get_object((TsValue*)ctorVal);
     if (!ctorRaw) ctorRaw = ctorVal;
     TsFunction* ctor = (TsFunction*)ctorRaw;
     if (!ctor || !ctor->properties) return;
     addMethod(ctor->properties, "fromHex", (void*)u8_fromHex_native, 1);
+    addMethod(ctor->properties, "fromBase64", (void*)u8_fromBase64_native, 1);
     TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
     protoKey.ptr_val = TsString::GetInterned("prototype");
     TsValue protoVal = ctor->properties->Get(protoKey);
@@ -4257,6 +4519,8 @@ static void install_uint8_hex_methods(void* ctorVal) {
         TsMap* proto = (TsMap*)protoVal.ptr_val;
         addMethod(proto, "toHex", (void*)ts_u8_toHex_native, 0);
         addMethod(proto, "setFromHex", (void*)ts_u8_setFromHex_native, 1);
+        addMethod(proto, "toBase64", (void*)ts_u8_toBase64_native, 0);
+        addMethod(proto, "setFromBase64", (void*)ts_u8_setFromBase64_native, 1);
     }
 }
 

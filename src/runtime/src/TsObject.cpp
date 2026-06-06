@@ -4252,11 +4252,19 @@ TsValue* ts_value_make_int(int64_t i) {
             if (ta->GetType() == TypedArrayType::Uint8) {
                 extern TsValue* ts_u8_toHex_native(void*, int, TsValue**);
                 extern TsValue* ts_u8_setFromHex_native(void*, int, TsValue**);
+                extern TsValue* ts_u8_toBase64_native(void*, int, TsValue**);
+                extern TsValue* ts_u8_setFromBase64_native(void*, int, TsValue**);
                 if (strcmp(keyStr, "toHex") == 0) {
                     return makeNamedNativeFunction((void*)ts_u8_toHex_native, ta, "toHex", 0);
                 }
                 if (strcmp(keyStr, "setFromHex") == 0) {
                     return makeNamedNativeFunction((void*)ts_u8_setFromHex_native, ta, "setFromHex", 1);
+                }
+                if (strcmp(keyStr, "toBase64") == 0) {
+                    return makeNamedNativeFunction((void*)ts_u8_toBase64_native, ta, "toBase64", 0);
+                }
+                if (strcmp(keyStr, "setFromBase64") == 0) {
+                    return makeNamedNativeFunction((void*)ts_u8_setFromBase64_native, ta, "setFromBase64", 1);
                 }
             }
             // .constructor — return the per-class TypedArray constructor
