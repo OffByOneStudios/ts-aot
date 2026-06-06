@@ -4115,6 +4115,151 @@ static bool populate_ta_from_array_like(void* result, TsValue* source) {
     return true;
 }
 
+// ===========================================================================
+// Uint8Array base64/hex (TC39 "Uint8Array <-> base64/hex" proposal) — HEX subset
+//   Uint8Array.fromHex(string) -> Uint8Array
+//   Uint8Array.prototype.toHex() -> string
+//   Uint8Array.prototype.setFromHex(string) -> { read, written }
+// (base64 variants are a separate follow-up.)
+// ===========================================================================
+static inline int u8_hex_val(unsigned char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// ECMA "FromHex(string, maxLength)". Returns 0 on success, 1 on SyntaxError.
+// Decodes up to maxBytes bytes into out; sets *readOut (code units consumed)
+// and *writtenOut (bytes produced). An odd-length input is an immediate error
+// that produces ZERO bytes (read=written=0) — matching the spec early-out
+// (so setFromHex on an odd string writes nothing), whereas a bad hex digit in
+// an even string yields the bytes decoded before it plus the error (so
+// setFromHex writes the good prefix then throws).
+static int u8_from_hex(const char* s, size_t len, uint8_t* out, size_t maxBytes,
+                       size_t* readOut, size_t* writtenOut) {
+    if (len % 2 != 0) { *readOut = 0; *writtenOut = 0; return 1; }
+    size_t read = 0, w = 0;
+    while (read < len && w < maxBytes) {
+        int v1 = u8_hex_val((unsigned char)s[read]);
+        int v2 = u8_hex_val((unsigned char)s[read + 1]);
+        if (v1 < 0 || v2 < 0) { *readOut = read; *writtenOut = w; return 1; }
+        out[w++] = (uint8_t)((v1 << 4) | v2);
+        read += 2;
+    }
+    *readOut = read; *writtenOut = w; return 0;
+}
+
+// Extract a primitive-String argument WITHOUT coercion (spec throws TypeError
+// for a non-string, never calling ToString). Returns the flattened TsString*,
+// or nullptr after throwing a TypeError.
+static TsString* u8_require_string_arg(TsValue* arg, const char* method) {
+    TsValue tv = nanbox_to_tagged(arg);
+    if (tv.type != ValueType::STRING_PTR) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "%s requires a string argument", method);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return nullptr;
+    }
+    return (TsString*)ts_value_get_string(arg);
+}
+
+// `this` must be specifically a Uint8Array (not just any TypedArray) for the
+// hex/base64 methods. Validates + detached check via requireTypedArrayOrThrow,
+// then narrows the element type. Returns nullptr after throwing.
+static TsTypedArray* u8_require_uint8_this(void* ctx, const char* method) {
+    TsTypedArray* ta = requireTypedArrayOrThrow(ctx, method);
+    if (!ta) return nullptr;
+    if (ta->GetType() != TypedArrayType::Uint8) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "%s called on a non-Uint8Array", method);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return nullptr;
+    }
+    return ta;
+}
+
+static TsValue* u8_fromHex_native(void* /*ctx*/, int argc, TsValue** argv) {
+    TsValue* arg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    TsString* s = u8_require_string_arg(arg, "Uint8Array.fromHex");
+    if (!s) return ts_value_make_undefined();
+    const char* u = s->ToUtf8();
+    size_t len = u ? strlen(u) : 0;
+    size_t maxBytes = len / 2;
+    uint8_t* tmp = (uint8_t*)ts_alloc(maxBytes ? maxBytes : 1);
+    size_t rd = 0, wr = 0;
+    if (u8_from_hex(u ? u : "", len, tmp, maxBytes, &rd, &wr)) {
+        ts_throw((TsValue*)ts_error_create_typed("SyntaxError",
+            "Uint8Array.fromHex: string is not a valid hex string"));
+        return ts_value_make_undefined();
+    }
+    void* res = ts_typed_array_create_u8((int64_t)wr);
+    for (size_t i = 0; i < wr; i++) ((TsTypedArray*)res)->Set(i, (double)tmp[i]);
+    return (TsValue*)res;
+}
+
+extern "C" TsValue* ts_u8_toHex_native(void* ctx, int /*argc*/, TsValue** /*argv*/) {
+    TsTypedArray* ta = u8_require_uint8_this(ctx, "Uint8Array.prototype.toHex");
+    if (!ta) return ts_value_make_undefined();
+    size_t n = ta->GetLength();
+    static const char* HEX = "0123456789abcdef";
+    char* out = (char*)ts_alloc(n * 2 + 1);
+    uint8_t* data = ta->GetData();
+    for (size_t i = 0; i < n; i++) {
+        uint8_t b = data ? data[i] : 0;
+        out[i * 2] = HEX[b >> 4];
+        out[i * 2 + 1] = HEX[b & 0xF];
+    }
+    out[n * 2] = '\0';
+    return ts_value_make_string(TsString::Create(out));
+}
+
+extern "C" TsValue* ts_u8_setFromHex_native(void* ctx, int argc, TsValue** argv) {
+    TsTypedArray* ta = u8_require_uint8_this(ctx, "Uint8Array.prototype.setFromHex");
+    if (!ta) return ts_value_make_undefined();
+    TsValue* arg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+    TsString* s = u8_require_string_arg(arg, "Uint8Array.prototype.setFromHex");
+    if (!s) return ts_value_make_undefined();
+    const char* u = s->ToUtf8();
+    size_t len = u ? strlen(u) : 0;
+    size_t maxBytes = ta->GetLength();
+    uint8_t* tmp = (uint8_t*)ts_alloc(maxBytes ? maxBytes : 1);
+    size_t rd = 0, wr = 0;
+    int err = u8_from_hex(u ? u : "", len, tmp, maxBytes, &rd, &wr);
+    // Spec: write the successfully decoded bytes into the target FIRST, then
+    // throw if a SyntaxError was produced (write-up-to-error behavior).
+    for (size_t i = 0; i < wr; i++) ta->Set(i, (double)tmp[i]);
+    if (err) {
+        ts_throw((TsValue*)ts_error_create_typed("SyntaxError",
+            "Uint8Array.prototype.setFromHex: string is not a valid hex string"));
+        return ts_value_make_undefined();
+    }
+    TsMap* result = TsMap::Create();
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("read"))),
+                nanbox_to_tagged(ts_value_make_int((int64_t)rd)));
+    result->Set(nanbox_to_tagged(ts_value_make_string(TsString::Create("written"))),
+                nanbox_to_tagged(ts_value_make_int((int64_t)wr)));
+    return ts_value_make_object(result);
+}
+
+// Install the hex methods onto the Uint8Array constructor (static fromHex) and
+// its .prototype (toHex / setFromHex). Called once from the ctor builder macro.
+static void install_uint8_hex_methods(void* ctorVal) {
+    void* ctorRaw = ts_value_get_object((TsValue*)ctorVal);
+    if (!ctorRaw) ctorRaw = ctorVal;
+    TsFunction* ctor = (TsFunction*)ctorRaw;
+    if (!ctor || !ctor->properties) return;
+    addMethod(ctor->properties, "fromHex", (void*)u8_fromHex_native, 1);
+    TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+    protoKey.ptr_val = TsString::GetInterned("prototype");
+    TsValue protoVal = ctor->properties->Get(protoKey);
+    if (protoVal.type == ValueType::OBJECT_PTR && protoVal.ptr_val) {
+        TsMap* proto = (TsMap*)protoVal.ptr_val;
+        addMethod(proto, "toHex", (void*)ts_u8_toHex_native, 0);
+        addMethod(proto, "setFromHex", (void*)ts_u8_setFromHex_native, 1);
+    }
+}
+
 #define DEFINE_TYPED_ARRAY_CTOR(JsName, CName, RuntimeFn)                              \
 void* ts_get_global_##CName() {                                                         \
     static void* cached = nullptr;                                                      \
@@ -4149,6 +4294,7 @@ void* ts_get_global_##CName() {                                                 
             return (TsValue*)RuntimeFn(length);                                         \
         };                                                                              \
         cached = makeTypedArrayCtor(#JsName, fn, ts_get_global_TypedArray());           \
+        if (strcmp(#JsName, "Uint8Array") == 0) install_uint8_hex_methods(cached);      \
         { static bool _r=false; if(!_r){ _r=true; ts_gc_register_root((void**)&cached); } } \
     }                                                                                   \
     return cached;                                                                      \

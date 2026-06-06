@@ -4246,6 +4246,19 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "copyWithin") == 0) {
                 return makeNamedNativeFunction((void*)ts_typed_array_copyWithin_native, ta, "copyWithin", 2);
             }
+            // Uint8Array-specific hex methods (TC39 base64/hex proposal). Only
+            // exposed on Uint8Array instances; the natives re-validate the
+            // receiver type and throw for other TypedArrays.
+            if (ta->GetType() == TypedArrayType::Uint8) {
+                extern TsValue* ts_u8_toHex_native(void*, int, TsValue**);
+                extern TsValue* ts_u8_setFromHex_native(void*, int, TsValue**);
+                if (strcmp(keyStr, "toHex") == 0) {
+                    return makeNamedNativeFunction((void*)ts_u8_toHex_native, ta, "toHex", 0);
+                }
+                if (strcmp(keyStr, "setFromHex") == 0) {
+                    return makeNamedNativeFunction((void*)ts_u8_setFromHex_native, ta, "setFromHex", 1);
+                }
+            }
             // .constructor — return the per-class TypedArray constructor
             // matching this instance's element type. Required by
             // SpeciesConstructor's default-fallback path
