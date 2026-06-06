@@ -6018,6 +6018,136 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
         return;
     }
 
+    // Handle object destructuring assignment: `({a, b: t, c = 1} = src)` (LHS is
+    // an ObjectLiteralExpression because the parser can't distinguish the
+    // assignment-target form from the value form until it sees `=`). Without
+    // this branch the object pattern falls through and stores nothing — targets
+    // stay undefined (array assignment worked, object did not). ECMA-262
+    // 13.15.5.4 ObjectAssignmentPattern. First cut: PropertyAssignment +
+    // ShorthandPropertyAssignment, with defaults and computed keys; nested
+    // patterns and `...rest` are deferred (a target that is itself a pattern is
+    // skipped rather than mis-stored).
+    auto* objLit = dynamic_cast<ast::ObjectLiteralExpression*>(node->left.get());
+    if (objLit) {
+        // Per ECMA-262, RequireObjectCoercible(src) — null/undefined throws.
+        builder_.createCall("ts_destructure_require_object", {rhs},
+                            HIRType::makeVoid());
+
+        // Assign to a bare variable by name (identifier targets + shorthand,
+        // whose ShorthandPropertyAssignment carries only the name string).
+        auto assignToName = [&](const std::string& name,
+                                std::shared_ptr<HIRValue> value) {
+            if (currentFunction_ && isModuleGlobalVar(name)) {
+                size_t scopeIndex = 0;
+                if (isCapturedVariable(name, &scopeIndex)) {
+                    moduleGlobalsUsedByInnerByModule_[name].insert(currentModulePath_);
+                    builder_.createStoreGlobal(modVarName(name), value);
+                    return;
+                }
+            }
+            size_t scopeIndex = 0;
+            if (currentFunction_ && isCapturedVariable(name, &scopeIndex)) {
+                auto* info = lookupVariableInfo(name);
+                auto type = info && info->elemType ? info->elemType : value->type;
+                registerCapture(name, type, scopeIndex);
+                currentFunction_->hasClosure = true;
+                builder_.createStoreCapture(name, value);
+                return;
+            }
+            auto* info = lookupVariableInfo(name);
+            if (info && info->isAlloca) {
+                builder_.createStore(value, info->value, info->elemType);
+                broadcastCaptureWrite(info, value);
+            } else if (info) {
+                auto allocaPtr = builder_.createAlloca(value->type, name);
+                builder_.createStore(value, allocaPtr, value->type);
+                info->value = allocaPtr;
+                info->elemType = value->type;
+                info->isAlloca = true;
+            } else {
+                defineVariable(name, value);
+            }
+            if (isModuleGlobalVar(name)) {
+                builder_.createStoreGlobal(modVarName(name), value);
+            }
+        };
+
+        // Per-target assignment: identifier / member / element (mirrors the
+        // array branch's shim).
+        auto assignToTarget = [&](ast::Expression* target,
+                                  std::shared_ptr<HIRValue> value) {
+            if (auto* tgt = dynamic_cast<ast::Identifier*>(target)) {
+                assignToName(tgt->name, value);
+                return;
+            }
+            if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
+                auto obj = lowerExpression(tgt->expression.get());
+                builder_.createSetPropStatic(obj, tgt->name, value);
+                return;
+            }
+            if (auto* tgt = dynamic_cast<ast::ElementAccessExpression*>(target)) {
+                auto obj = lowerExpression(tgt->expression.get());
+                auto idx = lowerExpression(tgt->argumentExpression.get());
+                builder_.createSetElem(obj, idx, value);
+                return;
+            }
+            // Nested patterns deferred (see header comment).
+        };
+
+        for (auto& propPtr : objLit->properties) {
+            ast::Node* prop = propPtr.get();
+            // `...rest` deferred for now.
+            if (dynamic_cast<ast::SpreadElement*>(prop)) continue;
+
+            ast::Expression* target = nullptr;
+            ast::Expression* defaultExpr = nullptr;
+            std::shared_ptr<HIRValue> extracted;
+
+            if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(prop)) {
+                // Read src[key] — computed `[expr]:` keys evaluate the key.
+                if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(pa->nameNode.get())) {
+                    auto keyVal = lowerExpression(cpn->expression.get());
+                    extracted = builder_.createGetPropDynamic(rhs, keyVal);
+                } else {
+                    extracted = builder_.createGetPropDynamic(
+                        rhs, builder_.createConstString(pa->name));
+                }
+                ast::Expression* init = dynamic_cast<ast::Expression*>(pa->initializer.get());
+                if (auto* assignDefault = dynamic_cast<ast::AssignmentExpression*>(init)) {
+                    defaultExpr = dynamic_cast<ast::Expression*>(assignDefault->right.get());
+                    target = dynamic_cast<ast::Expression*>(assignDefault->left.get());
+                } else {
+                    target = init;
+                }
+            } else if (auto* sh = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop)) {
+                // `{a}` or CoverInitializedName `{a = default}` — key == target
+                // name. The node carries only the name string, so write by name.
+                extracted = builder_.createGetPropDynamic(
+                    rhs, builder_.createConstString(sh->name));
+                if (auto* dflt = dynamic_cast<ast::Expression*>(sh->initializer.get())) {
+                    auto isUndef = builder_.createIsUndefined(extracted);
+                    auto defaultVal = boxValueIfNeeded(lowerExpression(dflt));
+                    extracted = boxValueIfNeeded(extracted);
+                    extracted = builder_.createSelect(isUndef, defaultVal, extracted);
+                }
+                assignToName(sh->name, extracted);
+                continue;
+            } else {
+                continue;  // MethodDefinition etc. — not a valid pattern target.
+            }
+
+            if (defaultExpr) {
+                auto isUndef = builder_.createIsUndefined(extracted);
+                auto defaultVal = boxValueIfNeeded(lowerExpression(defaultExpr));
+                extracted = boxValueIfNeeded(extracted);
+                extracted = builder_.createSelect(isUndef, defaultVal, extracted);
+            }
+            if (target) assignToTarget(target, extracted);
+        }
+        lastValue_ = rhs;
+        return;
+    }
+
     lastValue_ = rhs;
 }
 
