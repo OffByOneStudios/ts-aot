@@ -3862,6 +3862,10 @@ TsValue* ts_value_make_int(int64_t i) {
     // Forward declarations for Object.prototype methods (defined later in this file)
     TsValue* ts_object_isPrototypeOf_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_object_propertyIsEnumerable_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_object_defineGetter_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_object_defineSetter_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_object_lookupGetter_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_object_lookupSetter_native(void* ctx, int argc, TsValue** argv);
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
         if (!obj) {
@@ -3947,6 +3951,14 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (strcmp(keyStr, "hasOwnProperty") == 0) {
                     return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
                 }
+                if (strcmp(keyStr, "__defineGetter__") == 0)
+                    return makeNamedNativeFunction((void*)ts_object_defineGetter_native, nullptr, "__defineGetter__", 2);
+                if (strcmp(keyStr, "__defineSetter__") == 0)
+                    return makeNamedNativeFunction((void*)ts_object_defineSetter_native, nullptr, "__defineSetter__", 2);
+                if (strcmp(keyStr, "__lookupGetter__") == 0)
+                    return makeNamedNativeFunction((void*)ts_object_lookupGetter_native, nullptr, "__lookupGetter__", 1);
+                if (strcmp(keyStr, "__lookupSetter__") == 0)
+                    return makeNamedNativeFunction((void*)ts_object_lookupSetter_native, nullptr, "__lookupSetter__", 1);
                 if (strcmp(keyStr, "toString") == 0) {
                     return makeNamedNativeFunction((void*)ts_object_toString_native, nullptr, "toString", 0);
                 }
@@ -4375,6 +4387,14 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "hasOwnProperty") == 0) {
                 return makeNamedNativeFunction((void*)ts_object_hasOwnProperty_native, nullptr, "hasOwnProperty", 1);
             }
+            if (strcmp(keyStr, "__defineGetter__") == 0)
+                return makeNamedNativeFunction((void*)ts_object_defineGetter_native, nullptr, "__defineGetter__", 2);
+            if (strcmp(keyStr, "__defineSetter__") == 0)
+                return makeNamedNativeFunction((void*)ts_object_defineSetter_native, nullptr, "__defineSetter__", 2);
+            if (strcmp(keyStr, "__lookupGetter__") == 0)
+                return makeNamedNativeFunction((void*)ts_object_lookupGetter_native, nullptr, "__lookupGetter__", 1);
+            if (strcmp(keyStr, "__lookupSetter__") == 0)
+                return makeNamedNativeFunction((void*)ts_object_lookupSetter_native, nullptr, "__lookupSetter__", 1);
             if (strcmp(keyStr, "toString") == 0) {
                 return makeNamedNativeFunction((void*)ts_object_toString_native, nullptr, "toString", 0);
             }
@@ -11637,6 +11657,59 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     
     // Object.prototype.hasOwnProperty(key)
+    // ECMA-262 B.2.2 Object.prototype.__defineGetter__/__defineSetter__/
+    // __lookupGetter__/__lookupSetter__ (legacy annexB accessor helpers).
+    static TsValue* defineAccessor_impl(void* ctx, TsValue** argv, int argc,
+                                        const char* which /* "get" or "set" */) {
+        if (!ctx) ctx = ts_get_call_this();
+        if (!ctx) return ts_value_make_undefined();
+        TsValue* P  = (argc >= 1 && argv && argv[0]) ? argv[0] : ts_value_make_undefined();
+        TsValue* fn = (argc >= 2 && argv && argv[1]) ? argv[1] : ts_value_make_undefined();
+        // Build descriptor { [which]: fn, enumerable: true, configurable: true }.
+        TsMap* desc = TsMap::Create();
+        TsValue* descBoxed = ts_value_make_object(desc);
+        ts_object_set_dynamic(descBoxed,
+            ts_value_make_string(TsString::Create(which)), fn);
+        ts_object_set_dynamic(descBoxed,
+            ts_value_make_string(TsString::Create("enumerable")), ts_value_make_bool(true));
+        ts_object_set_dynamic(descBoxed,
+            ts_value_make_string(TsString::Create("configurable")), ts_value_make_bool(true));
+        ts_object_defineProperty((TsValue*)ctx, P, descBoxed);
+        return ts_value_make_undefined();
+    }
+    TsValue* ts_object_defineGetter_native(void* ctx, int argc, TsValue** argv) {
+        return defineAccessor_impl(ctx, argv, argc, "get");
+    }
+    TsValue* ts_object_defineSetter_native(void* ctx, int argc, TsValue** argv) {
+        return defineAccessor_impl(ctx, argv, argc, "set");
+    }
+    static TsValue* lookupAccessor_impl(void* ctx, TsValue** argv, int argc,
+                                        const char* which /* "get" or "set" */) {
+        if (!ctx) ctx = ts_get_call_this();
+        if (!ctx) return ts_value_make_undefined();
+        TsValue* P = (argc >= 1 && argv && argv[0]) ? argv[0] : ts_value_make_undefined();
+        TsValue* cur = (TsValue*)ctx;
+        // Walk the prototype chain: first own descriptor that exists decides —
+        // if it's an accessor with the requested half, return it; otherwise undefined.
+        for (int i = 0; i < 10000 && cur && !ts_value_is_nullish(cur); i++) {
+            TsValue* d = ts_object_getOwnPropertyDescriptor(cur, P);
+            if (d && !ts_value_is_undefined(d) && !ts_value_is_null(d)) {
+                TsValue* half = ts_object_get_dynamic(d,
+                    ts_value_make_string(TsString::Create(which)));
+                if (half && !ts_value_is_undefined(half)) return half;
+                return ts_value_make_undefined();  // data prop or other half only
+            }
+            cur = ts_object_getPrototypeOf(cur);
+        }
+        return ts_value_make_undefined();
+    }
+    TsValue* ts_object_lookupGetter_native(void* ctx, int argc, TsValue** argv) {
+        return lookupAccessor_impl(ctx, argv, argc, "get");
+    }
+    TsValue* ts_object_lookupSetter_native(void* ctx, int argc, TsValue** argv) {
+        return lookupAccessor_impl(ctx, argv, argc, "set");
+    }
+
     TsValue* ts_object_hasOwnProperty_native(void* ctx, int argc, TsValue** argv) {
         if (argc < 1 || !argv[0]) {
             return ts_value_make_bool(false);

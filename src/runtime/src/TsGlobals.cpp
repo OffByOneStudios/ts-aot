@@ -329,6 +329,15 @@ void* ts_get_global_Object() {
         // spec-shaped output here.
         addMethod(proto, "isPrototypeOf",       (void*)ts_object_isPrototypeOf_native, 1);
         addMethod(proto, "propertyIsEnumerable",(void*)ts_object_propertyIsEnumerable_native, 1);
+        // annexB B.2.2 legacy accessor helpers.
+        extern TsValue* ts_object_defineGetter_native(void*, int, TsValue**);
+        extern TsValue* ts_object_defineSetter_native(void*, int, TsValue**);
+        extern TsValue* ts_object_lookupGetter_native(void*, int, TsValue**);
+        extern TsValue* ts_object_lookupSetter_native(void*, int, TsValue**);
+        addMethod(proto, "__defineGetter__",  (void*)ts_object_defineGetter_native, 2);
+        addMethod(proto, "__defineSetter__",  (void*)ts_object_defineSetter_native, 2);
+        addMethod(proto, "__lookupGetter__",  (void*)ts_object_lookupGetter_native, 1);
+        addMethod(proto, "__lookupSetter__",  (void*)ts_object_lookupSetter_native, 1);
         // Route Object.prototype.toString to the canonical implementation in
         // TsObject.cpp which handles all magic-byte brand checks plus
         // @@toStringTag prototype-chain lookup per ECMA-262 step 15-16.
