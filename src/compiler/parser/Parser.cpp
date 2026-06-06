@@ -3567,6 +3567,131 @@ ast::StmtPtr Parser::parseBlockStatement() {
     }
     popLexicalScope();
     expect(TokenKind::CloseBrace, "'}'");
+
+    // ECMA-262 14.2.1 Block static semantics (early errors): it is a SyntaxError
+    // if any element of LexicallyDeclaredNames(StatementList) also occurs in
+    // VarDeclaredNames(StatementList) — where VarDeclaredNames includes `var`
+    // declarations at ANY nesting depth within the block, stopping at function
+    // boundaries. The per-statement declareLexicalName check only catches
+    // same-statement-list collisions, so `{ {var f;} let f; }` and
+    // `{ var f; function f(){} }` slipped through. This mirrors the switch
+    // CaseBlock pass above. It is confined to genuine Block statements — function
+    // bodies and the program top level are parsed elsewhere, so the legal
+    // function/script-scope `var f; function f(){}` idiom is unaffected.
+    {
+        // entry kind: 1 = function (lexical at block level), 2 = let/const/class
+        std::unordered_map<std::string, std::pair<int, int>> lexEntries;
+        std::unordered_map<std::string, int> varEntries;
+        auto recordLexName = [&](const std::string& nm, int line, int kind) {
+            if (nm.empty()) return;
+            if (varEntries.find(nm) != varEntries.end()) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: Identifier '{}' has already been declared",
+                    fileName_, line, nm));
+            }
+            auto it = lexEntries.find(nm);
+            if (it != lexEntries.end()) {
+                // Annex B.3.3.4: function+function pairs are allowed in a
+                // non-strict Block. Everything else is a redeclaration error.
+                bool annexBAllowed = !strictMode_ && kind == 1 && it->second.first == 1;
+                if (!annexBAllowed) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: Identifier '{}' has already been declared",
+                        fileName_, line, nm));
+                }
+                return;
+            }
+            lexEntries[nm] = {kind, line};
+        };
+        auto recordVarName = [&](const std::string& nm, int line) {
+            if (nm.empty()) return;
+            if (lexEntries.find(nm) != lexEntries.end()) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: Identifier '{}' has already been declared",
+                    fileName_, line, nm));
+            }
+            varEntries[nm] = line;
+        };
+        // VarDeclaredNames: recurse through nested statements, stopping at
+        // function/class boundaries (mirrors the switch CaseBlock collectVars).
+        std::function<void(const ast::Node*)> collectVars = [&](const ast::Node* n) {
+            if (!n) return;
+            if (auto* vd = dynamic_cast<const ast::VariableDeclaration*>(n)) {
+                if (vd->varKind == ast::VarKind::Var) {
+                    std::vector<std::pair<std::string, int>> names;
+                    collectBoundIdentNames(vd->name.get(), names);
+                    for (auto& [nm, ln] : names) recordVarName(nm, ln);
+                }
+                return;
+            }
+            if (auto* b = dynamic_cast<const ast::BlockStatement*>(n)) {
+                for (auto& s : b->statements) collectVars(s.get());
+                return;
+            }
+            if (auto* ifs = dynamic_cast<const ast::IfStatement*>(n)) {
+                collectVars(ifs->thenStatement.get());
+                collectVars(ifs->elseStatement.get());
+                return;
+            }
+            if (auto* ws = dynamic_cast<const ast::WhileStatement*>(n)) {
+                collectVars(ws->body.get());
+                return;
+            }
+            if (auto* fs = dynamic_cast<const ast::ForStatement*>(n)) {
+                collectVars(fs->initializer.get());
+                collectVars(fs->body.get());
+                return;
+            }
+            if (auto* fos = dynamic_cast<const ast::ForOfStatement*>(n)) {
+                collectVars(fos->initializer.get());
+                collectVars(fos->body.get());
+                return;
+            }
+            if (auto* fis = dynamic_cast<const ast::ForInStatement*>(n)) {
+                collectVars(fis->initializer.get());
+                collectVars(fis->body.get());
+                return;
+            }
+            if (auto* ts = dynamic_cast<const ast::TryStatement*>(n)) {
+                for (auto& s : ts->tryBlock) collectVars(s.get());
+                collectVars(ts->catchClause.get());
+                for (auto& s : ts->finallyBlock) collectVars(s.get());
+                return;
+            }
+            if (auto* lbl = dynamic_cast<const ast::LabeledStatement*>(n)) {
+                collectVars(lbl->statement.get());
+                return;
+            }
+            if (auto* sw = dynamic_cast<const ast::SwitchStatement*>(n)) {
+                for (auto& c : sw->clauses) {
+                    if (auto* cc = dynamic_cast<const ast::CaseClause*>(c.get()))
+                        for (auto& s : cc->statements) collectVars(s.get());
+                    else if (auto* dc = dynamic_cast<const ast::DefaultClause*>(c.get()))
+                        for (auto& s : dc->statements) collectVars(s.get());
+                }
+                return;
+            }
+            // Stop at FunctionDeclaration/ClassDeclaration/Arrow/FunctionExpression.
+        };
+        // LexicallyDeclaredNames of the block: top-level let/const (kind 2),
+        // class (kind 2), and EVERY FunctionDeclaration (kind 1 — lexical at
+        // block level). Record lex names first so var-vs-lex collisions throw.
+        for (const auto& s : node->statements) {
+            if (!s) continue;
+            if (auto* vd = dynamic_cast<const ast::VariableDeclaration*>(s.get())) {
+                if (vd->varKind == ast::VarKind::Let || vd->varKind == ast::VarKind::Const) {
+                    std::vector<std::pair<std::string, int>> names;
+                    collectBoundIdentNames(vd->name.get(), names);
+                    for (auto& [nm, ln] : names) recordLexName(nm, ln, 2);
+                }
+            } else if (auto* fd = dynamic_cast<const ast::FunctionDeclaration*>(s.get())) {
+                recordLexName(fd->name, fd->line, 1);
+            } else if (auto* cd = dynamic_cast<const ast::ClassDeclaration*>(s.get())) {
+                recordLexName(cd->name, cd->line, 2);
+            }
+        }
+        for (const auto& s : node->statements) collectVars(s.get());
+    }
     return node;
 }
 
