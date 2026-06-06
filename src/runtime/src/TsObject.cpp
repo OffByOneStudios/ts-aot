@@ -6474,6 +6474,33 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_array(TsArray::Create(0));
     }
 
+    // ECMA-262 14.6 (CopyDataProperties / object-rest): build a fresh plain
+    // object holding all of `source`'s own enumerable properties EXCEPT those
+    // whose keys appear in `excludedKeys` (the keys already consumed by the
+    // destructuring pattern). Used by object-rest destructuring `{a, ...rest}`
+    // (assignment and binding forms). Implemented as own-enumerable copy
+    // (ts_object_assign) then delete of each excluded key — the result's props
+    // are plain data properties {writable, enumerable, configurable}: true,
+    // which matches the spec's CreateDataPropertyOrThrow.
+    extern void* ts_array_get_unchecked(void* arr, int64_t index);
+    TsValue* ts_object_rest_exclude(TsValue* source, TsValue* excludedKeys) {
+        TsMap* result = TsMap::Create();
+        TsValue* resultBoxed = ts_value_make_object(result);
+        if (!source || !ts_value_get_object(source)) return resultBoxed;
+        ts_object_assign(resultBoxed, source);
+        if (excludedKeys) {
+            void* exclRaw = ts_value_get_object(excludedKeys);
+            if (exclRaw) {
+                int64_t m = ts_array_length(exclRaw);
+                for (int64_t j = 0; j < m; ++j) {
+                    void* ek = ts_array_get_unchecked(exclRaw, j);
+                    if (ek) ts_object_delete_prop(resultBoxed, (TsValue*)ek);
+                }
+            }
+        }
+        return resultBoxed;
+    }
+
     // for-in enumeration: own enumerable string keys PLUS inherited enumerable
     // string keys from the prototype chain (deduped, first occurrence wins).
     // ECMA-262 14.7.5.9. Object.keys (own only) is the wrong source for

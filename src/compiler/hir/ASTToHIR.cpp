@@ -6094,25 +6094,46 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             // Nested patterns deferred (see header comment).
         };
 
+        // Keys consumed by non-rest properties, in order — used to build the
+        // exclusion set for a trailing `...rest`.
+        std::vector<std::shared_ptr<HIRValue>> consumedKeys;
         for (auto& propPtr : objLit->properties) {
             ast::Node* prop = propPtr.get();
-            // `...rest` deferred for now.
-            if (dynamic_cast<ast::SpreadElement*>(prop)) continue;
+
+            // Object rest `...target` (always the LAST element per spec): the
+            // rest object is src's own enumerable props minus the keys already
+            // consumed above.
+            if (auto* spread = dynamic_cast<ast::SpreadElement*>(prop)) {
+                auto keysArr = builder_.createCall(
+                    "ts_array_create", {},
+                    HIRType::makeArray(HIRType::makeAny(), false));
+                for (auto& k : consumedKeys) {
+                    builder_.createCall("ts_array_push", {keysArr, k},
+                                        HIRType::makeVoid());
+                }
+                auto restObj = builder_.createCall(
+                    "ts_object_rest_exclude", {rhs, keysArr}, HIRType::makeAny());
+                if (auto* tgt = dynamic_cast<ast::Expression*>(spread->expression.get())) {
+                    assignToTarget(tgt, restObj);
+                }
+                continue;
+            }
 
             ast::Expression* target = nullptr;
             ast::Expression* defaultExpr = nullptr;
             std::shared_ptr<HIRValue> extracted;
+            std::shared_ptr<HIRValue> keyForExclude;
 
             if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(prop)) {
                 // Read src[key] — computed `[expr]:` keys evaluate the key.
                 if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(pa->nameNode.get())) {
                     // Box the key — GetPropDynamic expects an Any/ptr key, but a
                     // computed key may lower to a raw number/bool (e.g. `[1.]`).
-                    auto keyVal = boxValueIfNeeded(lowerExpression(cpn->expression.get()));
-                    extracted = builder_.createGetPropDynamic(rhs, keyVal);
+                    keyForExclude = boxValueIfNeeded(lowerExpression(cpn->expression.get()));
+                    extracted = builder_.createGetPropDynamic(rhs, keyForExclude);
                 } else {
-                    extracted = builder_.createGetPropDynamic(
-                        rhs, builder_.createConstString(pa->name));
+                    keyForExclude = builder_.createConstString(pa->name);
+                    extracted = builder_.createGetPropDynamic(rhs, keyForExclude);
                 }
                 ast::Expression* init = dynamic_cast<ast::Expression*>(pa->initializer.get());
                 if (auto* assignDefault = dynamic_cast<ast::AssignmentExpression*>(init)) {
@@ -6124,8 +6145,8 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             } else if (auto* sh = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop)) {
                 // `{a}` or CoverInitializedName `{a = default}` — key == target
                 // name. The node carries only the name string, so write by name.
-                extracted = builder_.createGetPropDynamic(
-                    rhs, builder_.createConstString(sh->name));
+                keyForExclude = builder_.createConstString(sh->name);
+                extracted = builder_.createGetPropDynamic(rhs, keyForExclude);
                 if (auto* dflt = dynamic_cast<ast::Expression*>(sh->initializer.get())) {
                     auto isUndef = builder_.createIsUndefined(extracted);
                     auto defaultVal = boxValueIfNeeded(lowerExpression(dflt));
@@ -6133,11 +6154,13 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                     extracted = builder_.createSelect(isUndef, defaultVal, extracted);
                 }
                 assignToName(sh->name, extracted);
+                consumedKeys.push_back(keyForExclude);
                 continue;
             } else {
                 continue;  // MethodDefinition etc. — not a valid pattern target.
             }
 
+            if (keyForExclude) consumedKeys.push_back(keyForExclude);
             if (defaultExpr) {
                 auto isUndef = builder_.createIsUndefined(extracted);
                 auto defaultVal = boxValueIfNeeded(lowerExpression(defaultExpr));
