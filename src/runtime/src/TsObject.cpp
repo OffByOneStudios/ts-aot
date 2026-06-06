@@ -1415,6 +1415,20 @@ TsValue* ts_value_make_int(int64_t i) {
         int64_t end = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : ts_string_length(str);
         return ts_value_make_string((TsString*)ts_string_slice(str, start, end));
     }
+    // ECMA-262 B.2.3.1 String.prototype.substr(start, length): legacy/annexB.
+    // Negative start counts from the end; length defaults to the remainder.
+    static TsValue* ts_string_substr_native(void* ctx, int argc, TsValue** argv) {
+        TsString* str = (TsString*)ctx;
+        int64_t size = ts_string_length(str);
+        int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        int64_t length = (argc >= 2 && argv && argv[1] && !ts_value_is_undefined(argv[1]))
+                             ? ts_value_get_int(argv[1]) : size;
+        if (start < 0) start = (size + start > 0) ? size + start : 0;
+        if (start > size) start = size;
+        if (length < 0) length = 0;
+        if (length > size - start) length = size - start;
+        return ts_value_make_string((TsString*)ts_string_substring(str, start, start + length));
+    }
     static TsValue* ts_string_toLowerCase_native(void* ctx, int argc, TsValue** argv) {
         return ts_value_make_string((TsString*)ts_string_toLowerCase((TsString*)ctx));
     }
@@ -4544,6 +4558,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "includes") == 0) return makeNamedNativeFunction((void*)ts_string_includes_native, strObj, "includes", 1);
             if (strcmp(keyStr, "indexOf") == 0) return makeNamedNativeFunction((void*)ts_string_indexOf_native, strObj, "indexOf", 1);
             if (strcmp(keyStr, "substring") == 0) return makeNamedNativeFunction((void*)ts_string_substring_native, strObj, "substring", 2);
+            if (strcmp(keyStr, "substr") == 0) return makeNamedNativeFunction((void*)ts_string_substr_native, strObj, "substr", 2);
             if (strcmp(keyStr, "slice") == 0) return makeNamedNativeFunction((void*)ts_string_slice_native, strObj, "slice", 2);
             if (strcmp(keyStr, "toLowerCase") == 0) return makeNamedNativeFunction((void*)ts_string_toLowerCase_native, strObj, "toLowerCase", 0);
             if (strcmp(keyStr, "toUpperCase") == 0) return makeNamedNativeFunction((void*)ts_string_toUpperCase_native, strObj, "toUpperCase", 0);

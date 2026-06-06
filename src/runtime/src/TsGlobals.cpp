@@ -602,6 +602,9 @@ STRING_PROTO_METHOD(search)
 STRING_PROTO_METHOD(concat)
 STRING_PROTO_METHOD(trimStart)
 STRING_PROTO_METHOD(trimEnd)
+STRING_PROTO_METHOD(substr)
+STRING_PROTO_METHOD(trimLeft)
+STRING_PROTO_METHOD(trimRight)
 STRING_PROTO_METHOD(at)
 STRING_PROTO_METHOD(codePointAt)
 STRING_PROTO_METHOD(normalize)
@@ -693,6 +696,10 @@ void* ts_get_global_String() {
         addMethod(proto, "concat", (void*)ts_string_proto_concat);
         addMethod(proto, "trimStart", (void*)ts_string_proto_trimStart, 0);
         addMethod(proto, "trimEnd", (void*)ts_string_proto_trimEnd, 0);
+        // AnnexB B.2.3: substr + trimLeft/trimRight aliases as real own props.
+        addMethod(proto, "substr", (void*)ts_string_proto_substr, 2);
+        addMethod(proto, "trimLeft", (void*)ts_string_proto_trimLeft, 0);
+        addMethod(proto, "trimRight", (void*)ts_string_proto_trimRight, 0);
         addMethod(proto, "at", (void*)ts_string_proto_at);
         addMethod(proto, "codePointAt", (void*)ts_string_proto_codePointAt);
         addMethod(proto, "normalize", (void*)ts_string_proto_normalize);
