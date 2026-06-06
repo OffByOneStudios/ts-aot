@@ -2737,6 +2737,33 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
     // Parameters
     method->parameters = parseParameterList();
 
+    // ECMA-262 15.4.1 (accessor MethodDefinition early errors): a getter's
+    // formal-parameter list must be empty (`get x()`); a setter's must be a
+    // single non-rest BindingElement (`set x(v)` — `set x()`, `set x(a,b)`,
+    // `set x(...a)` are all SyntaxErrors). A leading TypeScript `this:`
+    // parameter is a type annotation, not a runtime parameter, so it does not
+    // count. Applies to both class bodies and object literals (both route
+    // through parseMethodDefinition).
+    if (isGetter || isSetter) {
+        size_t paramCount = 0;
+        bool hasRest = false;
+        for (auto& p : method->parameters) {
+            if (p->isThisParameter) continue;
+            paramCount++;
+            if (p->isRest) hasRest = true;
+        }
+        if (isGetter && paramCount != 0) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: Getter must not have any formal parameters",
+                fileName_, method->line));
+        }
+        if (isSetter && (paramCount != 1 || hasRest)) {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: Setter must have exactly one formal parameter",
+                fileName_, method->line));
+        }
+    }
+
     // Return type
     if (check(TokenKind::Colon)) {
         method->returnType = parseReturnTypeAnnotation();
