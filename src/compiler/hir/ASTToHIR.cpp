@@ -3443,12 +3443,21 @@ void ASTToHIR::lowerBindingElement(ast::BindingElement* binding,
     if (binding->initializer) {
         // Check if extracted value is undefined using runtime function
         auto isUndefined = builder_.createIsUndefined(extractedValue);
-        // ECMA-262 NamedEvaluation: when the binding target is a single
-        // identifier and the default initializer is an anonymous function /
-        // arrow / class, the function takes the binding name
-        // (`{ x = () => {} } = {}` → x.name === "x"). The function/arrow/class
-        // lowering already prefers its own name, so setting this for a named
-        // expression is harmless.
+        // Lazily evaluate the default ONLY when the property is undefined.
+        // ECMA-262 KeyedBindingInitialization: the Initializer is evaluated in
+        // the "v is undefined" step, so a SKIPPED default must NOT run its side
+        // effects (and an unresolvable-ref default must not throw). The old
+        // createSelect evaluated both operands eagerly. Mirror bindOneParameter.
+        auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "dstr_dflt");
+        auto* defaultBB = currentFunction_->createBlock("dstr_default");
+        auto* usedBB = currentFunction_->createBlock("dstr_used");
+        auto* mergeBB = currentFunction_->createBlock("dstr_merge");
+        builder_.createCondBranch(isUndefined, defaultBB, usedBB);
+
+        builder_.setInsertPoint(defaultBB); currentBlock_ = defaultBB;
+        // ECMA-262 NamedEvaluation: an anonymous function/arrow/class default
+        // takes the binding name (`{ x = () => {} } = {}` → x.name === "x").
+        // Kept entirely inside the default block so it can't leak when skipped.
         std::string savedPCDN = pendingClosureDisplayName_;
         if (auto* bid = dynamic_cast<ast::Identifier*>(binding->name.get())) {
             auto* init = binding->initializer.get();
@@ -3460,12 +3469,16 @@ void ASTToHIR::lowerBindingElement(ast::BindingElement* binding,
         }
         auto defaultValue = lowerExpression(binding->initializer.get());
         pendingClosureDisplayName_ = savedPCDN;
-
-        // Box the default value to match extractedValue type (Any/ptr)
         defaultValue = boxValueIfNeeded(defaultValue);
+        builder_.createStore(defaultValue, mergeSlot);
+        builder_.createBranch(mergeBB);
 
-        // Select: isUndefined ? defaultValue : extractedValue
-        extractedValue = builder_.createSelect(isUndefined, defaultValue, extractedValue);
+        builder_.setInsertPoint(usedBB); currentBlock_ = usedBB;
+        builder_.createStore(extractedValue, mergeSlot);
+        builder_.createBranch(mergeBB);
+
+        builder_.setInsertPoint(mergeBB); currentBlock_ = mergeBB;
+        extractedValue = builder_.createLoad(HIRType::makeAny(), mergeSlot);
     }
 
     // Bind to variable(s)
@@ -3511,9 +3524,30 @@ void ASTToHIR::lowerBindingElementByIndex(ast::BindingElement* binding,
         auto arrayLength = builder_.createCall("ts_array_length", {sourceValue}, HIRType::makeInt64());
         auto idxConst = builder_.createConstInt(index);
         auto notInBounds = builder_.createCmpGe(idxConst, arrayLength);  // index >= length
+        // Box the extracted value if it was unboxed by type propagation, then
+        // test undefined. (For an out-of-bounds index this is garbage, but the
+        // notInBounds branch is taken first, so isUndef is only consulted when
+        // the element is in bounds.)
+        extractedValue = boxValueIfNeeded(extractedValue);
+        auto isUndef = builder_.createIsUndefined(extractedValue);
 
-        // ECMA-262 NamedEvaluation for array-destructuring defaults
-        // (`[ x = () => {} ] = []` → x.name === "x"). See lowerBindingElement.
+        // useDefault = notInBounds || isUndefined(element). Lazily evaluate the
+        // default ONLY in that case — a SKIPPED default must not run its side
+        // effects (and an unresolvable-ref default must not throw). The old
+        // nested createSelect evaluated the default eagerly. Mirror bindOneParameter.
+        auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "dstr_dflt");
+        auto* checkBB = currentFunction_->createBlock("dstr_chk");
+        auto* defaultBB = currentFunction_->createBlock("dstr_default");
+        auto* usedBB = currentFunction_->createBlock("dstr_used");
+        auto* mergeBB = currentFunction_->createBlock("dstr_merge");
+        builder_.createCondBranch(notInBounds, defaultBB, checkBB);
+
+        builder_.setInsertPoint(checkBB); currentBlock_ = checkBB;
+        builder_.createCondBranch(isUndef, defaultBB, usedBB);
+
+        builder_.setInsertPoint(defaultBB); currentBlock_ = defaultBB;
+        // ECMA-262 NamedEvaluation (`[ x = () => {} ] = []` → x.name === "x"),
+        // kept inside the default block so it can't leak when the default is skipped.
         std::string savedPCDN = pendingClosureDisplayName_;
         if (auto* bid = dynamic_cast<ast::Identifier*>(binding->name.get())) {
             auto* init = binding->initializer.get();
@@ -3525,17 +3559,16 @@ void ASTToHIR::lowerBindingElementByIndex(ast::BindingElement* binding,
         }
         auto defaultValue = lowerExpression(binding->initializer.get());
         pendingClosureDisplayName_ = savedPCDN;
-
-        // Box the default value to match extractedValue (Any/ptr)
         defaultValue = boxValueIfNeeded(defaultValue);
-        // Also box the extracted value if it was unboxed by type propagation
-        extractedValue = boxValueIfNeeded(extractedValue);
+        builder_.createStore(defaultValue, mergeSlot);
+        builder_.createBranch(mergeBB);
 
-        // useDefault = notInBounds || isUndefined(element). Nested selects avoid
-        // needing a bool-OR: notInBounds ? default : (isUndef ? default : element).
-        auto isUndef = builder_.createIsUndefined(extractedValue);
-        auto withUndefDefault = builder_.createSelect(isUndef, defaultValue, extractedValue);
-        extractedValue = builder_.createSelect(notInBounds, defaultValue, withUndefDefault);
+        builder_.setInsertPoint(usedBB); currentBlock_ = usedBB;
+        builder_.createStore(extractedValue, mergeSlot);
+        builder_.createBranch(mergeBB);
+
+        builder_.setInsertPoint(mergeBB); currentBlock_ = mergeBB;
+        extractedValue = builder_.createLoad(HIRType::makeAny(), mergeSlot);
     }
 
     // Bind to variable(s)
