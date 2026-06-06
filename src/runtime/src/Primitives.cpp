@@ -783,6 +783,34 @@ bool ts_instanceof_dynamic(TsValue* obj, TsValue* constructor) {
     void* ctorPtr = nanbox_to_ptr(ctorNb);
     if (!ctorPtr) return false;
 
+    // ECMA-262 13.10.2 InstanceofOperator(V, target): if target has a
+    // @@hasInstance method, return ToBoolean(Call(method, target, <V>)). This
+    // runs BEFORE the obj null/ptr checks below so primitive operands like
+    // `0 instanceof C` still reach a custom handler. Well-known symbols are
+    // stored under the literal "[Symbol.xxx]" property key (see
+    // ts_symbol_storage_key in TsObject.cpp). We only divert when the handler
+    // is callable; ordinary constructors have no @@hasInstance and fall through
+    // to the prototype-chain walk (we do not install the default
+    // Function.prototype[@@hasInstance]).
+    {
+        TsValue* hiVal = ts_object_get_property(ctorPtr, "[Symbol.hasInstance]");
+        if (hiVal && !ts_value_is_undefined(hiVal)) {
+            uint64_t hiNb = nanbox_from_tsvalue_ptr(hiVal);
+            if (nanbox_is_ptr(hiNb)) {
+                void* hiPtr = nanbox_to_ptr(hiNb);
+                if (hiPtr) {
+                    uint32_t hm = *(uint32_t*)((char*)hiPtr + 16);
+                    if (hm == 0x434C5352 /*TsClosure 'CLSR'*/ ||
+                        hm == 0x46554E43 /*TsFunction 'FUNC'*/) {
+                        TsValue* hiArgs[1] = { obj };
+                        TsValue* r = ts_function_call_with_this(hiVal, constructor, 1, hiArgs);
+                        return ts_value_to_bool(r);
+                    }
+                }
+            }
+        }
+    }
+
     // Get .prototype from the constructor
     TsValue* protoVal = ts_object_get_property(ctorPtr, "prototype");
     if (!protoVal || ts_value_is_undefined(protoVal)) return false;
