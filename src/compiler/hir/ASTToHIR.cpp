@@ -5273,20 +5273,47 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         // will rewrite to the type-specific opcode based on operand types.
         // Note these operators (unlike +) use OR for the Any-fallback check —
         // if either operand is Any, dispatch dynamically.
-        std::shared_ptr<HIRType> resultType;
-        if (useBigInt) {
-            resultType = HIRType::makeBigInt();
-        } else if (isAnyOrNullish(lhs, node->left.get()) || isAnyOrNullish(rhs, node->right.get())) {
-            resultType = HIRType::makeAny();
-        } else if (useFloat) {
-            resultType = HIRType::makeFloat64();
+        // String operands (e.g. "1"/"1") must ToNumber-coerce and use IEEE-754
+        // arithmetic. The generic Int64 fast path would unbox each string to 0
+        // and emit sdiv/srem, which TRAP on the zero divisor
+        // (STATUS_INTEGER_DIVIDE_BY_ZERO) — and yields a wrong 0 for "6"-"3".
+        // Route string operands to the dynamic Any path (the coercing
+        // ts_value_sub/mul/div/mod runtime helpers, which ToNumber-coerce and
+        // never trap: 0/0 -> NaN), exactly as the `+` operator routes to
+        // StringConcat. ECMA-262 13.7: multiplicative operators are IEEE-754.
+        bool eitherString = isString(lhs, node->left.get()) ||
+                            isString(rhs, node->right.get());
+        if (!useBigInt && eitherString) {
+            // Box both operands and call the coercing runtime helper directly.
+            // The generic Sub/Div/Mod opcodes specialize on OPERAND types, and
+            // String operands have no typed arithmetic form — they fell to the
+            // Int64 path (sdiv/srem on a string-unboxed 0 → TRAP) or returned
+            // undefined. ts_value_{sub,mul,div,mod} ToNumber-coerce and use
+            // IEEE-754 (0/0 -> NaN), matching ECMA-262 13.7.
+            const char* fn = (op == "-") ? "ts_value_sub"
+                           : (op == "*") ? "ts_value_mul"
+                           : (op == "/") ? "ts_value_div"
+                           :               "ts_value_mod";
+            auto lb = boxValueIfNeeded(lhs);
+            auto rb = boxValueIfNeeded(rhs);
+            lastValue_ = builder_.createCall(fn, {lb, rb}, HIRType::makeAny());
         } else {
-            resultType = HIRType::makeInt64();
+            std::shared_ptr<HIRType> resultType;
+            if (useBigInt) {
+                resultType = HIRType::makeBigInt();
+            } else if (isAnyOrNullish(lhs, node->left.get()) ||
+                       isAnyOrNullish(rhs, node->right.get())) {
+                resultType = HIRType::makeAny();
+            } else if (useFloat) {
+                resultType = HIRType::makeFloat64();
+            } else {
+                resultType = HIRType::makeInt64();
+            }
+            if (op == "-")      lastValue_ = builder_.createSub(lhs, rhs, resultType);
+            else if (op == "*") lastValue_ = builder_.createMul(lhs, rhs, resultType);
+            else if (op == "/") lastValue_ = builder_.createDiv(lhs, rhs, resultType);
+            else                lastValue_ = builder_.createMod(lhs, rhs, resultType);
         }
-        if (op == "-")      lastValue_ = builder_.createSub(lhs, rhs, resultType);
-        else if (op == "*") lastValue_ = builder_.createMul(lhs, rhs, resultType);
-        else if (op == "/") lastValue_ = builder_.createDiv(lhs, rhs, resultType);
-        else                lastValue_ = builder_.createMod(lhs, rhs, resultType);
     } else if (op == "**") {
         // Exponentiation. No specialized HIR opcode; dispatch directly:
         // - BigInt ** BigInt → ts_bigint_pow (arbitrary-precision integer).

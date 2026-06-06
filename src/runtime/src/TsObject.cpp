@@ -8829,7 +8829,9 @@ TsValue* ts_value_make_int(int64_t i) {
             int64_t result = (int64_t)nanbox_to_int32(nba) - (int64_t)nanbox_to_int32(nbb);
             return ts_value_make_int(result);
         }
-        return ts_value_make_double(nanbox_extract_double(a) - nanbox_extract_double(b));
+        // ToNumber (string-parsing) rather than nanbox_extract_double, which
+        // returns NaN for a string instead of parsing it ("6"-"3" must be 3).
+        return ts_value_make_double(ts_to_number(a) - ts_to_number(b));
     }
 
     TsValue* ts_value_mul(TsValue* a, TsValue* b) {
@@ -8842,15 +8844,15 @@ TsValue* ts_value_make_int(int64_t i) {
             int64_t result = (int64_t)nanbox_to_int32(nba) * (int64_t)nanbox_to_int32(nbb);
             return ts_value_make_int(result);
         }
-        return ts_value_make_double(nanbox_extract_double(a) * nanbox_extract_double(b));
+        return ts_value_make_double(ts_to_number(a) * ts_to_number(b));
     }
 
     TsValue* ts_value_div(TsValue* a, TsValue* b) {
         if (!a || !b) return ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
         b = ts_to_primitive(b, 1);
-        double d1 = nanbox_extract_double(a);
-        double d2 = nanbox_extract_double(b);
+        double d1 = ts_to_number(a);
+        double d2 = ts_to_number(b);
         // Per ES spec, IEEE 754 division: 1/+0 = +Inf, 1/-0 = -Inf, 0/0 = NaN.
         // Let the FP unit produce the correct result rather than forcing NaN.
         return ts_value_make_double(d1 / d2);
@@ -8860,8 +8862,8 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!a || !b) return ts_value_make_undefined();
         a = ts_to_primitive(a, 1);
         b = ts_to_primitive(b, 1);
-        double d1 = nanbox_extract_double(a);
-        double d2 = nanbox_extract_double(b);
+        double d1 = ts_to_number(a);
+        double d2 = ts_to_number(b);
         if (d2 == 0.0) return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
         return ts_value_make_double(std::fmod(d1, d2));
     }
