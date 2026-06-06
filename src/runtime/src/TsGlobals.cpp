@@ -1234,15 +1234,19 @@ static void* wrapAsCallable(TsMap* ctor, const char* name, int length) {
     // configurable:true}. Tests use hasOwnProperty + verifyProperty, so
     // these must live on the properties TsMap, not just in func->name/arity.
     {
+        // ECMA-262: a built-in function's own "length" property precedes its
+        // "name" property in ordinary-own-property-key order. Insert length
+        // first so Object.getOwnPropertyNames(Ctor) yields ...,length,name
+        // (built-ins/*/property-order.js asserts nameIndex === lengthIndex + 1).
+        TsValue lk; lk.type = ValueType::STRING_PTR;
+        lk.ptr_val = TsString::GetInterned("length");
+        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = length;
+        ctor->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
         TsValue nk; nk.type = ValueType::STRING_PTR;
         nk.ptr_val = TsString::GetInterned("name");
         TsValue nv; nv.type = ValueType::STRING_PTR;
         nv.ptr_val = func->name;
         ctor->SetWithAttrs(nk, nv, TsHashTable::ATTR_CONFIGURABLE);
-        TsValue lk; lk.type = ValueType::STRING_PTR;
-        lk.ptr_val = TsString::GetInterned("length");
-        TsValue lv; lv.type = ValueType::NUMBER_INT; lv.i_val = length;
-        ctor->SetWithAttrs(lk, lv, TsHashTable::ATTR_CONFIGURABLE);
     }
     return (void*)func;
 }
