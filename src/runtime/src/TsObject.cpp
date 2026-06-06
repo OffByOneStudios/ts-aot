@@ -2079,11 +2079,20 @@ TsValue* ts_value_make_int(int64_t i) {
         for (int64_t i = 0; i < len; i++) {
             char idxKey[24];
             snprintf(idxKey, sizeof(idxKey), "%lld", (long long)i);
-            TsValue* elem = ts_object_get_property(ctxToRead, idxKey);
-            // ts_array_push takes a TsValue* (NaN-boxed). Push even if
-            // undefined so holes are preserved as undefined (spec behavior
-            // for non-sparse array-likes in the common case).
-            ts_array_push(tmp, elem ? elem : ts_value_make_undefined());
+            // ECMA-262: the Array.prototype iteration methods consult
+            // HasProperty(O, Pk) and SKIP absent indices (they never call the
+            // callback for a hole). Materialize absent indices as real HOLES so
+            // the downstream sparse-array iteration (which already skips holes
+            // for real sparse arrays) does the right thing for array-likes too —
+            // `forEach.call({0:'a',2:'c',length:3})` must visit 0 and 2 only.
+            TsValue* keyVal = ts_value_make_string(TsString::Create(idxKey));
+            if (ts_object_has_prop((TsValue*)ctxToRead, keyVal)) {
+                TsValue* elem = ts_object_get_property(ctxToRead, idxKey);
+                ts_array_push(tmp, elem ? elem : ts_value_make_undefined());
+            } else {
+                ts_array_push(tmp, ts_value_make_undefined());
+                tmp->SetHole((size_t)(tmp->Length() - 1));
+            }
         }
         return tmp;
     }

@@ -1633,6 +1633,13 @@ void* TsArray::Join(void* separator) {
     for (size_t i = 0; i < length; ++i) {
         if (i > 0) ss << sepStr;
 
+        // ECMA-262 23.1.3.18: a hole (and undefined/null) joins as the empty
+        // string. The separator was already emitted above; emit no element.
+        // Without this the NANBOX_HOLE sentinel fell through to
+        // ts_string_from_value and rendered as "unknown" (`[1,,3].join('-')`
+        // → "1-unknown-3", `new Array(3).join()` → "unknown-unknown-...").
+        if (IsHole(i)) continue;
+
         // Handle specialized arrays - output numeric values directly
         if (isSpecialized) {
             if (isDouble) {
