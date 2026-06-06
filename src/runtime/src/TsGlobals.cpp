@@ -1918,6 +1918,8 @@ extern "C" {
     TsValue* ts_map_delete_wrapper(void* context, TsValue* key);
     TsValue* ts_map_clear_wrapper(void* context);
     TsValue* ts_map_size_wrapper(void* context);
+    TsValue* ts_map_getOrInsert_wrapper(void* context, TsValue* key, TsValue* value);
+    TsValue* ts_map_getOrInsertComputed_wrapper(void* context, TsValue* key, TsValue* callbackfn);
 }
 
 void* ts_get_global_Map() {
@@ -1949,6 +1951,19 @@ void* ts_get_global_Map() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_map_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
+        // TC39 upsert proposal — Map.prototype.getOrInsert / getOrInsertComputed.
+        addMethod(proto, "getOrInsert", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_getOrInsert_wrapper(ctx,
+                (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+        }, 2);
+        addMethod(proto, "getOrInsertComputed", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_getOrInsertComputed_wrapper(ctx,
+                (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+        }, 2);
         addMethod(proto, "clear", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             return ts_map_clear_wrapper(ctx);
@@ -2095,6 +2110,19 @@ void* ts_get_global_WeakMap() {
             if (!ctx) ctx = ts_get_call_this();
             return ts_map_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
         });
+        // TC39 upsert proposal — WeakMap.prototype.getOrInsert / getOrInsertComputed.
+        addMethod(proto, "getOrInsert", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_getOrInsert_wrapper(ctx,
+                (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+        }, 2);
+        addMethod(proto, "getOrInsertComputed", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_getOrInsertComputed_wrapper(ctx,
+                (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+        }, 2);
         cached = wrapAsCallable(ctor, "WeakMap", 0);
         { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
     }

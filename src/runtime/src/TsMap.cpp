@@ -811,6 +811,47 @@ TsValue* ts_map_size_wrapper(void* context) {
     return ts_value_make_int(ts_map_size(rawCtx));
 }
 
+// Map.prototype.getOrInsert ( key, value ) — TC39 upsert proposal.
+//   1-2. RequireInternalSlot([[MapData]]).
+//   3.   key = CanonicalizeKeyedCollectionKey(key).
+//   4.   if an entry with SameValue key exists, return its value.
+//   5-6. else append {key, value} and return value.
+// Built on the existing has/get/set wrappers so key canonicalization and
+// SameValueZero semantics are identical to the rest of Map.prototype.
+TsValue* ts_map_getOrInsert_wrapper(void* context, TsValue* key, TsValue* value) {
+    void* rawCtx = requireMapData(context, "getOrInsert");
+    if (!rawCtx) return ts_value_make_undefined();
+    if (ts_value_get_bool(ts_map_has_wrapper(rawCtx, key))) {
+        return ts_map_get_wrapper(rawCtx, key);
+    }
+    ts_map_set_wrapper(rawCtx, key, value);
+    return value;
+}
+
+// Map.prototype.getOrInsertComputed ( key, callbackfn ) — TC39 upsert proposal.
+//   3.   if IsCallable(callbackfn) is false, throw TypeError (BEFORE the search,
+//        so a non-callable throws even when the key is already present).
+//   4-5. if key present, return existing value (callback NOT invoked).
+//   6.   else value = Call(callbackfn, undefined, <key>); set; return value.
+// set (not append) handles the case where the callback inserted the key itself.
+TsValue* ts_map_getOrInsertComputed_wrapper(void* context, TsValue* key, TsValue* callbackfn) {
+    void* rawCtx = requireMapData(context, "getOrInsertComputed");
+    if (!rawCtx) return ts_value_make_undefined();
+    if (!ts_is_callable_map((void*)callbackfn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Map.prototype.getOrInsertComputed callback is not callable"));
+        return ts_value_make_undefined();
+    }
+    if (ts_value_get_bool(ts_map_has_wrapper(rawCtx, key))) {
+        return ts_map_get_wrapper(rawCtx, key);
+    }
+    TsValue* args[1] = { key };
+    TsValue* value = ts_function_call((TsValue*)callbackfn, 1, args);
+    if (!value) value = ts_value_make_undefined();
+    ts_map_set_wrapper(rawCtx, key, value);
+    return value;
+}
+
 // ============================================================
 // Iterator Protocol - Map/Set/Array .keys()/.values()/.entries()
 // ============================================================
@@ -1144,6 +1185,10 @@ TsValue* ts_map_get_property(void* obj, void* propName) {
         return makeMapMethod((void*)ts_map_has_wrapper, obj, "has", 1);
     } else if (strcmp(name, "delete") == 0) {
         return makeMapMethod((void*)ts_map_delete_wrapper, obj, "delete", 1);
+    } else if (strcmp(name, "getOrInsert") == 0) {
+        return makeMapMethod((void*)ts_map_getOrInsert_wrapper, obj, "getOrInsert", 2);
+    } else if (strcmp(name, "getOrInsertComputed") == 0) {
+        return makeMapMethod((void*)ts_map_getOrInsertComputed_wrapper, obj, "getOrInsertComputed", 2);
     } else if (strcmp(name, "clear") == 0) {
         return makeMapMethod((void*)ts_map_clear_wrapper, obj, "clear", 0);
     } else if (strcmp(name, "size") == 0) {
