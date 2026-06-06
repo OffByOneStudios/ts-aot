@@ -3356,10 +3356,44 @@ void ASTToHIR::lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
     // which checks unconditionally). Always perform the check.
     builder_.createCall("ts_destructure_require_object", {sourceValue},
                         HIRType::makeVoid());
+    // Track static keys consumed by non-rest elements, to build the exclusion
+    // set for a trailing `...rest` (ECMA-262 14.6 / RestBindingInitialization).
+    std::vector<std::shared_ptr<HIRValue>> consumedKeys;
     for (auto& elem : pattern->elements) {
-        if (auto* binding = dynamic_cast<ast::BindingElement*>(elem.get())) {
-            lowerBindingElement(binding, sourceValue, true /* isObjectPattern */);
+        auto* binding = dynamic_cast<ast::BindingElement*>(elem.get());
+        if (!binding) continue;
+        if (binding->isSpread) {
+            // `{ ...rest }` — own enumerable props of source minus consumed keys.
+            auto keysArr = builder_.createCall(
+                "ts_array_create", {},
+                HIRType::makeArray(HIRType::makeAny(), false));
+            for (auto& k : consumedKeys) {
+                builder_.createCall("ts_array_push", {keysArr, k},
+                                    HIRType::makeVoid());
+            }
+            auto restObj = builder_.createCall(
+                "ts_object_rest_exclude", {sourceValue, keysArr},
+                HIRType::makeAny());
+            if (auto* ident = dynamic_cast<ast::Identifier*>(binding->name.get())) {
+                auto varType = HIRType::makeAny();
+                auto allocaPtr = builder_.createAlloca(varType, ident->name);
+                builder_.createStore(restObj, allocaPtr, varType);
+                defineVariableAlloca(ident->name, allocaPtr, varType);
+                if (isModuleGlobalVar(ident->name)) {
+                    builder_.createStoreGlobal(modVarName(ident->name), restObj);
+                }
+            }
+            continue;
         }
+        // Record this element's (static) key for the rest-exclusion set. Computed
+        // keys are intentionally not collected here to avoid double-evaluating
+        // the key expression (rare with rest; an accepted edge).
+        if (!binding->propertyName.empty()) {
+            consumedKeys.push_back(builder_.createConstString(binding->propertyName));
+        } else if (auto* id = dynamic_cast<ast::Identifier*>(binding->name.get())) {
+            consumedKeys.push_back(builder_.createConstString(id->name));
+        }
+        lowerBindingElement(binding, sourceValue, true /* isObjectPattern */);
     }
 }
 
