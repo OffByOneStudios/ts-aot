@@ -5898,36 +5898,76 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
     //   - OmittedExpression: skip the slot
     // Without this branch, `[x, y] = [1, 2]` falls through and stores
     // nothing — variables remain undefined.
-    auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(node->left.get());
-    if (arrLit) {
-        // ECMA-262 13.15.5.1 (AssignmentPattern early errors):
-        //   - AssignmentRestElement must be the LAST element of the
-        //     pattern. `[...x,]` and `[...x, y]` are SyntaxErrors.
-        //   - AssignmentRestElement is `... DestructuringAssignmentTarget`
-        //     and CANNOT have an Initializer. `[...x = 1]` is a SyntaxError.
-        // We catch these here as compile-time errors. The parser doesn't
-        // validate because it can't distinguish AssignmentExpression LHS
-        // from a value array until it sees the `=`.
+    // Destructuring assignment: `[a,b] = arr` / `({a, b: t} = src)`. The parser
+    // can't distinguish an assignment-target pattern from a value array/object
+    // literal until it sees `=`, so the LHS arrives as an Array/Object literal.
+    // Delegated to the recursive destructureAssignmentPattern (handles nesting,
+    // defaults, computed keys, and rest).
+    if (dynamic_cast<ast::ArrayLiteralExpression*>(node->left.get()) ||
+        dynamic_cast<ast::ObjectLiteralExpression*>(node->left.get())) {
+        destructureAssignmentPattern(node->left.get(), rhs);
+        lastValue_ = rhs;
+        return;
+    }
+
+    lastValue_ = rhs;
+}
+
+void ASTToHIR::assignDestructureName(const std::string& name,
+                                     std::shared_ptr<HIRValue> value) {
+    if (currentFunction_ && isModuleGlobalVar(name)) {
+        size_t scopeIndex = 0;
+        if (isCapturedVariable(name, &scopeIndex)) {
+            moduleGlobalsUsedByInnerByModule_[name].insert(currentModulePath_);
+            builder_.createStoreGlobal(modVarName(name), value);
+            return;
+        }
+    }
+    size_t scopeIndex = 0;
+    if (currentFunction_ && isCapturedVariable(name, &scopeIndex)) {
+        auto* info = lookupVariableInfo(name);
+        auto type = info && info->elemType ? info->elemType : value->type;
+        registerCapture(name, type, scopeIndex);
+        currentFunction_->hasClosure = true;
+        builder_.createStoreCapture(name, value);
+        return;
+    }
+    auto* info = lookupVariableInfo(name);
+    if (info && info->isAlloca) {
+        builder_.createStore(value, info->value, info->elemType);
+        broadcastCaptureWrite(info, value);
+    } else if (info) {
+        auto allocaPtr = builder_.createAlloca(value->type, name);
+        builder_.createStore(value, allocaPtr, value->type);
+        info->value = allocaPtr;
+        info->elemType = value->type;
+        info->isAlloca = true;
+    } else {
+        defineVariable(name, value);
+    }
+    if (isModuleGlobalVar(name)) {
+        builder_.createStoreGlobal(modVarName(name), value);
+    }
+}
+
+void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
+                                            std::shared_ptr<HIRValue> rhs) {
+    // Array assignment pattern: `[a, b = 1, ...rest] = src`.
+    if (auto* arrLit = dynamic_cast<ast::ArrayLiteralExpression*>(lhs)) {
+        // ECMA-262 13.15.5.1 early errors: rest must be LAST and have no default.
         for (size_t i = 0; i < arrLit->elements.size(); ++i) {
             auto* slot = arrLit->elements[i].get();
             if (auto* sp = dynamic_cast<ast::SpreadElement*>(slot)) {
                 if (i + 1 != arrLit->elements.size()) {
                     throw std::runtime_error("SyntaxError: Rest element must be last element in destructuring pattern");
                 }
-                if (auto* assn = dynamic_cast<ast::AssignmentExpression*>(sp->expression.get())) {
-                    (void)assn;
+                if (dynamic_cast<ast::AssignmentExpression*>(sp->expression.get())) {
                     throw std::runtime_error("SyntaxError: Rest element cannot have a default initializer");
                 }
             }
         }
-        // Per ECMA-262 RequireObjectCoercible — null/undefined source throws.
         builder_.createCall("ts_destructure_require_object", {rhs},
                             HIRType::makeVoid());
-        // ECMA-262 ArrayAssignmentPattern uses the ITERATOR protocol (like the
-        // binding form). Materialize the iterator's values into a real array so
-        // `[a,b] = anyIterable` works for non-array iterables; per-slot access
-        // and the rest `.slice` then operate on this materialized array. `rhs`
-        // is preserved as the assignment expression's value (`([a]=src)===src`).
         int64_t consumeCount = 0;
         bool hasRest = false;
         for (auto& e : arrLit->elements) {
@@ -5939,53 +5979,10 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             { rhs, builder_.createConstInt(consumeCount),
               builder_.createConstInt(hasRest ? 1 : 0) },
             HIRType::makeArray(HIRType::makeAny()));
-        // Lower each LHS slot. We re-enter visitAssignmentExpression for
-        // each per-slot assignment so all the existing target shapes
-        // (identifier, member access, element access, nested pattern) are
-        // handled uniformly.
         auto assignToTarget = [&](ast::Expression* target,
                                   std::shared_ptr<HIRValue> value) {
-            // Build a synthetic AssignmentExpression with `target = <value>`.
-            // The RHS expression is dummy because we set lastValue_
-            // directly via a captured-binding shim; instead, just inline
-            // the dispatch.
-            // Simple identifier: use the same logic as the start of this
-            // function (module-global handling, captured, alloca, etc).
             if (auto* tgt = dynamic_cast<ast::Identifier*>(target)) {
-                // Inline a simplified version of the identifier-LHS path.
-                if (currentFunction_ && isModuleGlobalVar(tgt->name)) {
-                    size_t scopeIndex = 0;
-                    if (isCapturedVariable(tgt->name, &scopeIndex)) {
-                        moduleGlobalsUsedByInnerByModule_[tgt->name].insert(currentModulePath_);
-                        builder_.createStoreGlobal(modVarName(tgt->name), value);
-                        return;
-                    }
-                }
-                size_t scopeIndex = 0;
-                if (currentFunction_ && isCapturedVariable(tgt->name, &scopeIndex)) {
-                    auto* info = lookupVariableInfo(tgt->name);
-                    auto type = info && info->elemType ? info->elemType : value->type;
-                    registerCapture(tgt->name, type, scopeIndex);
-                    currentFunction_->hasClosure = true;
-                    builder_.createStoreCapture(tgt->name, value);
-                    return;
-                }
-                auto* info = lookupVariableInfo(tgt->name);
-                if (info && info->isAlloca) {
-                    builder_.createStore(value, info->value, info->elemType);
-                    broadcastCaptureWrite(info, value);
-                } else if (info) {
-                    auto allocaPtr = builder_.createAlloca(value->type, tgt->name);
-                    builder_.createStore(value, allocaPtr, value->type);
-                    info->value = allocaPtr;
-                    info->elemType = value->type;
-                    info->isAlloca = true;
-                } else {
-                    defineVariable(tgt->name, value);
-                }
-                if (isModuleGlobalVar(tgt->name)) {
-                    builder_.createStoreGlobal(modVarName(tgt->name), value);
-                }
+                assignDestructureName(tgt->name, value);
                 return;
             }
             if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
@@ -5999,21 +5996,18 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 builder_.createSetElem(obj, idx, value);
                 return;
             }
-            // Nested array pattern is rare here because nested patterns
-            // come through the binding form; if it shows up we extend
-            // this helper later.
+            // Nested pattern: `[ {a}, [b] ] = src` — recurse.
+            if (dynamic_cast<ast::ArrayLiteralExpression*>(target) ||
+                dynamic_cast<ast::ObjectLiteralExpression*>(target)) {
+                destructureAssignmentPattern(target, value);
+                return;
+            }
         };
-
         int64_t index = 0;
         for (auto& elemPtr : arrLit->elements) {
             ast::Expression* elem = elemPtr.get();
-            if (!elem || dynamic_cast<ast::OmittedExpression*>(elem)) {
-                ++index;
-                continue;
-            }
+            if (!elem || dynamic_cast<ast::OmittedExpression*>(elem)) { ++index; continue; }
             if (auto* spread = dynamic_cast<ast::SpreadElement*>(elem)) {
-                // ...rest = source.slice(index) — dispatch via prototype so
-                // typed arrays / array-likes use their own slice method.
                 auto idxConst = builder_.createConstInt(index);
                 auto restVal = builder_.createCallMethod(source, "slice",
                     {idxConst}, HIRType::makeAny());
@@ -6023,23 +6017,14 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 ++index;
                 continue;
             }
-            // Extract source[index] (may be undefined for missing slots).
             auto idxConst = builder_.createConstInt(index);
             auto extracted = builder_.createGetElem(source, idxConst, HIRType::makeAny());
-
             ast::Expression* target = elem;
-            // Default-initializer form: `target = defaultValue` — the
-            // parser represents this as an AssignmentExpression in the
-            // array-literal element position (covers both compound and
-            // simple `=`; per ECMA-262 only `=` is valid here, but we
-            // accept any AssignmentExpression and treat it as `=` since
-            // the AST doesn't carry an operator).
             if (auto* assignDefault = dynamic_cast<ast::AssignmentExpression*>(elem)) {
                 auto* defaultExpr = dynamic_cast<ast::Expression*>(assignDefault->right.get());
                 if (defaultExpr) {
                     auto isUndef = builder_.createIsUndefined(extracted);
-                    auto defaultVal = lowerExpression(defaultExpr);
-                    defaultVal = boxValueIfNeeded(defaultVal);
+                    auto defaultVal = boxValueIfNeeded(lowerExpression(defaultExpr));
                     extracted = boxValueIfNeeded(extracted);
                     extracted = builder_.createSelect(isUndef, defaultVal, extracted);
                 }
@@ -6048,70 +6033,17 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             if (target) assignToTarget(target, extracted);
             ++index;
         }
-        lastValue_ = rhs;
         return;
     }
 
-    // Handle object destructuring assignment: `({a, b: t, c = 1} = src)` (LHS is
-    // an ObjectLiteralExpression because the parser can't distinguish the
-    // assignment-target form from the value form until it sees `=`). Without
-    // this branch the object pattern falls through and stores nothing — targets
-    // stay undefined (array assignment worked, object did not). ECMA-262
-    // 13.15.5.4 ObjectAssignmentPattern. First cut: PropertyAssignment +
-    // ShorthandPropertyAssignment, with defaults and computed keys; nested
-    // patterns and `...rest` are deferred (a target that is itself a pattern is
-    // skipped rather than mis-stored).
-    auto* objLit = dynamic_cast<ast::ObjectLiteralExpression*>(node->left.get());
-    if (objLit) {
-        // Per ECMA-262, RequireObjectCoercible(src) — null/undefined throws.
+    // Object assignment pattern: `({a, b: t, c = 1, ...rest} = src)`.
+    if (auto* objLit = dynamic_cast<ast::ObjectLiteralExpression*>(lhs)) {
         builder_.createCall("ts_destructure_require_object", {rhs},
                             HIRType::makeVoid());
-
-        // Assign to a bare variable by name (identifier targets + shorthand,
-        // whose ShorthandPropertyAssignment carries only the name string).
-        auto assignToName = [&](const std::string& name,
-                                std::shared_ptr<HIRValue> value) {
-            if (currentFunction_ && isModuleGlobalVar(name)) {
-                size_t scopeIndex = 0;
-                if (isCapturedVariable(name, &scopeIndex)) {
-                    moduleGlobalsUsedByInnerByModule_[name].insert(currentModulePath_);
-                    builder_.createStoreGlobal(modVarName(name), value);
-                    return;
-                }
-            }
-            size_t scopeIndex = 0;
-            if (currentFunction_ && isCapturedVariable(name, &scopeIndex)) {
-                auto* info = lookupVariableInfo(name);
-                auto type = info && info->elemType ? info->elemType : value->type;
-                registerCapture(name, type, scopeIndex);
-                currentFunction_->hasClosure = true;
-                builder_.createStoreCapture(name, value);
-                return;
-            }
-            auto* info = lookupVariableInfo(name);
-            if (info && info->isAlloca) {
-                builder_.createStore(value, info->value, info->elemType);
-                broadcastCaptureWrite(info, value);
-            } else if (info) {
-                auto allocaPtr = builder_.createAlloca(value->type, name);
-                builder_.createStore(value, allocaPtr, value->type);
-                info->value = allocaPtr;
-                info->elemType = value->type;
-                info->isAlloca = true;
-            } else {
-                defineVariable(name, value);
-            }
-            if (isModuleGlobalVar(name)) {
-                builder_.createStoreGlobal(modVarName(name), value);
-            }
-        };
-
-        // Per-target assignment: identifier / member / element (mirrors the
-        // array branch's shim).
         auto assignToTarget = [&](ast::Expression* target,
                                   std::shared_ptr<HIRValue> value) {
             if (auto* tgt = dynamic_cast<ast::Identifier*>(target)) {
-                assignToName(tgt->name, value);
+                assignDestructureName(tgt->name, value);
                 return;
             }
             if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
@@ -6125,18 +6057,16 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 builder_.createSetElem(obj, idx, value);
                 return;
             }
-            // Nested patterns deferred (see header comment).
+            // Nested pattern: `({a: {b}, c: [d]} = src)` — recurse.
+            if (dynamic_cast<ast::ArrayLiteralExpression*>(target) ||
+                dynamic_cast<ast::ObjectLiteralExpression*>(target)) {
+                destructureAssignmentPattern(target, value);
+                return;
+            }
         };
-
-        // Keys consumed by non-rest properties, in order — used to build the
-        // exclusion set for a trailing `...rest`.
         std::vector<std::shared_ptr<HIRValue>> consumedKeys;
         for (auto& propPtr : objLit->properties) {
             ast::Node* prop = propPtr.get();
-
-            // Object rest `...target` (always the LAST element per spec): the
-            // rest object is src's own enumerable props minus the keys already
-            // consumed above.
             if (auto* spread = dynamic_cast<ast::SpreadElement*>(prop)) {
                 auto keysArr = builder_.createCall(
                     "ts_array_create", {},
@@ -6152,17 +6082,12 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                 }
                 continue;
             }
-
             ast::Expression* target = nullptr;
             ast::Expression* defaultExpr = nullptr;
             std::shared_ptr<HIRValue> extracted;
             std::shared_ptr<HIRValue> keyForExclude;
-
             if (auto* pa = dynamic_cast<ast::PropertyAssignment*>(prop)) {
-                // Read src[key] — computed `[expr]:` keys evaluate the key.
                 if (auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(pa->nameNode.get())) {
-                    // Box the key — GetPropDynamic expects an Any/ptr key, but a
-                    // computed key may lower to a raw number/bool (e.g. `[1.]`).
                     keyForExclude = boxValueIfNeeded(lowerExpression(cpn->expression.get()));
                     extracted = builder_.createGetPropDynamic(rhs, keyForExclude);
                 } else {
@@ -6177,8 +6102,6 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                     target = init;
                 }
             } else if (auto* sh = dynamic_cast<ast::ShorthandPropertyAssignment*>(prop)) {
-                // `{a}` or CoverInitializedName `{a = default}` — key == target
-                // name. The node carries only the name string, so write by name.
                 keyForExclude = builder_.createConstString(sh->name);
                 extracted = builder_.createGetPropDynamic(rhs, keyForExclude);
                 if (auto* dflt = dynamic_cast<ast::Expression*>(sh->initializer.get())) {
@@ -6187,13 +6110,12 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                     extracted = boxValueIfNeeded(extracted);
                     extracted = builder_.createSelect(isUndef, defaultVal, extracted);
                 }
-                assignToName(sh->name, extracted);
+                assignDestructureName(sh->name, extracted);
                 consumedKeys.push_back(keyForExclude);
                 continue;
             } else {
-                continue;  // MethodDefinition etc. — not a valid pattern target.
+                continue;
             }
-
             if (keyForExclude) consumedKeys.push_back(keyForExclude);
             if (defaultExpr) {
                 auto isUndef = builder_.createIsUndefined(extracted);
@@ -6203,11 +6125,8 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             }
             if (target) assignToTarget(target, extracted);
         }
-        lastValue_ = rhs;
         return;
     }
-
-    lastValue_ = rhs;
 }
 
 void ASTToHIR::visitCallExpression(ast::CallExpression* node) {

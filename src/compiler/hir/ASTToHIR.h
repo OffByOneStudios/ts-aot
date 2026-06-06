@@ -374,6 +374,17 @@ private:
     void lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
                                    std::shared_ptr<HIRValue> sourceValue);
 
+    // Lower a destructuring-ASSIGNMENT pattern (`[a,b]=src` / `({a,b:t}=src)`)
+    // given the already-lowered source value. Recursive: nested patterns
+    // (`({a:{b}}=o)`, `[{x},[y]]=a`) re-enter this for the inner pattern.
+    void destructureAssignmentPattern(ast::Expression* lhs,
+                                      std::shared_ptr<HIRValue> rhs);
+
+    // Assign a value to a bare variable by name (the identifier/shorthand
+    // target path shared by both destructuring-assignment branches).
+    void assignDestructureName(const std::string& name,
+                               std::shared_ptr<HIRValue> value);
+
     // Set an instance field on `thisValue` to `initVal`. Handles computed
     // property names (`["a"+"b"] = v`) via SetPropDynamic; static-name fields
     // via SetPropStatic. `propDef` is a non-static class field.
