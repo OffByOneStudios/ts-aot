@@ -3537,11 +3537,33 @@ extern "C" {
         TsValue* iter = ts::ts_iterator_get((TsValue*)source);
         if (!iter) return dst;  // non-iterable object: best-effort empty
         int64_t i = 0;
+        bool iteratorDone = false;
         while (hasRest || i < maxCount) {
             TsValue* result = ts::ts_iterator_next(iter, nullptr);
-            if (!result || ts::ts_iterator_result_done(result)) break;
+            if (!result || ts::ts_iterator_result_done(result)) { iteratorDone = true; break; }
             dst->Push((int64_t)(uintptr_t)ts::ts_iterator_result_value(result));
             i++;
+        }
+        // ECMA-262 13.3.3.6: when an ArrayBindingPattern stops before the iterator
+        // is exhausted (iteratorRecord.[[done]] is still false), perform
+        // IteratorClose -> call the iterator's return(). A rest element consumes to
+        // exhaustion (iteratorDone), so it never closes; a fixed-length pattern that
+        // stopped at maxCount without seeing done must close.
+        if (!iteratorDone && !hasRest && iter) {
+            extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+            extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
+            void* rawIter = ts_value_get_object(iter);
+            if (!rawIter) rawIter = iter;
+            if ((uintptr_t)rawIter >= 0x1000) {
+                TsValue* retFn = ts_object_get_property(rawIter, "return");
+                if (retFn) {
+                    TsValue rf = nanbox_to_tagged(retFn);
+                    if ((rf.type == ValueType::OBJECT_PTR || rf.type == ValueType::FUNCTION_PTR)
+                        && rf.ptr_val) {
+                        ts_call_with_this_0(retFn, iter);
+                    }
+                }
+            }
         }
         return dst;
     }
