@@ -10082,6 +10082,17 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // call_indirect always passes the closure as the first argument
     func->params.push_back({"__closure__", HIRType::makePtr()});
 
+    // Collect destructured parameter patterns for later extraction.
+    // (Mirrors the ArrowFunction path; the slot-0 __closure__ is already pushed,
+    // so paramIndex == func->params.size() at collection time is the HIR index.)
+    struct FEDestructuredParam {
+        size_t paramIndex;
+        ast::ObjectBindingPattern* objPattern = nullptr;
+        ast::ArrayBindingPattern* arrPattern = nullptr;
+        ast::Node* defaultInitializer = nullptr;
+    };
+    std::vector<FEDestructuredParam> feDestructuredParams;
+
     // Handle parameters
     size_t feParamIdx = 0;
     for (auto& param : node->parameters) {
@@ -10097,6 +10108,16 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         std::string paramName;
         if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
             paramName = ident->name;
+        } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(param->name.get())) {
+            paramName = "param" + std::to_string(func->params.size());
+            paramType = HIRType::makeAny();
+            feDestructuredParams.push_back({func->params.size(), objPat, nullptr,
+                param->initializer.get()});
+        } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(param->name.get())) {
+            paramName = "param" + std::to_string(func->params.size());
+            paramType = HIRType::makeAny();
+            feDestructuredParams.push_back({func->params.size(), nullptr, arrPat,
+                param->initializer.get()});
         } else {
             paramName = "param" + std::to_string(func->params.size());
         }
@@ -10181,6 +10202,14 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
         ast::Parameter* astParam = (astParamIdx < node->parameters.size())
             ? node->parameters[astParamIdx].get() : nullptr;
         bindOneParameter(func.get(), i, astParam, /*useAlloca=*/true);
+    }
+
+    // Emit destructuring extraction for parameters with binding patterns.
+    // (FunctionExpression previously skipped this, so `{ m: function([a,b]){} }`
+    // and object-method shorthand left the inner names bound to undefined.)
+    for (auto& dp : feDestructuredParams) {
+        extractDestructuringForParam(func.get(), dp.paramIndex,
+            dp.objPattern, dp.arrPattern, dp.defaultInitializer);
     }
 
     // If the function is named, make it available in its own scope (for recursion)
@@ -10468,6 +10497,16 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     // through the runtime's dynamic dispatch which passes TsValue* arguments
     bool forceAnyParams = node->isGetter || node->isSetter;
     size_t mdParamIdx = 0;
+    // Collect destructured parameter patterns for later extraction. (Object-literal
+    // method shorthand routes here; without this, `{ m([a,b]) {} }` left a/b bound
+    // to undefined. Class methods use a separate path that already extracts.)
+    struct MDDestructuredParam {
+        size_t paramIndex;
+        ast::ObjectBindingPattern* objPattern = nullptr;
+        ast::ArrayBindingPattern* arrPattern = nullptr;
+        ast::Node* defaultInitializer = nullptr;
+    };
+    std::vector<MDDestructuredParam> mdDestructuredParams;
     for (auto& param : node->parameters) {
         auto paramType = (forceAnyParams || param->type.empty())
             ? HIRType::makeAny()
@@ -10476,6 +10515,16 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
         std::string paramName;
         if (auto* ident = dynamic_cast<ast::Identifier*>(param->name.get())) {
             paramName = ident->name;
+        } else if (auto* objPat = dynamic_cast<ast::ObjectBindingPattern*>(param->name.get())) {
+            paramName = "param" + std::to_string(func->params.size());
+            paramType = HIRType::makeAny();
+            mdDestructuredParams.push_back({func->params.size(), objPat, nullptr,
+                param->initializer.get()});
+        } else if (auto* arrPat = dynamic_cast<ast::ArrayBindingPattern*>(param->name.get())) {
+            paramName = "param" + std::to_string(func->params.size());
+            paramType = HIRType::makeAny();
+            mdDestructuredParams.push_back({func->params.size(), nullptr, arrPat,
+                param->initializer.get()});
         } else {
             paramName = "param" + std::to_string(func->params.size());
         }
@@ -10525,15 +10574,23 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     // Strategy B Phase 6d: per-parameter logic factored into bindOneParameter.
     // Methods use defineVariable (not defineVariableAlloca) — params are not
     // reassignable. Slot 0 is 'this' (synthetic, no AST param); user params
-    // start at index 1. Methods don't currently support default values, but
-    // bindOneParameter handles them correctly if a future change adds them.
+    // start at index 1.
+    // Set nextValueId BEFORE the bind loop (mirroring the arrow/funcexpr paths)
+    // so values created while applying parameter defaults / destructuring don't
+    // collide with the SSA IDs reserved for params 0..N.
+    func->nextValueId = static_cast<uint32_t>(func->params.size());
     for (size_t i = 0; i < func->params.size(); ++i) {
         size_t astParamIdx = (i >= 1) ? (i - 1) : SIZE_MAX;
         ast::Parameter* astParam = (astParamIdx < node->parameters.size())
             ? node->parameters[astParamIdx].get() : nullptr;
         bindOneParameter(func.get(), i, astParam, /*useAlloca=*/false);
     }
-    func->nextValueId = static_cast<uint32_t>(func->params.size());
+
+    // Emit destructuring extraction for parameters with binding patterns.
+    for (auto& dp : mdDestructuredParams) {
+        extractDestructuringForParam(func.get(), dp.paramIndex,
+            dp.objPattern, dp.arrPattern, dp.defaultInitializer);
+    }
 
     // Lower function body
     for (auto& stmt : node->body) {
