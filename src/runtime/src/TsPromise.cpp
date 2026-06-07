@@ -156,31 +156,24 @@ TsValue* Generator_next(TsValue* genVal, TsValue* value) {
     void* raw = ts_value_get_object(genVal);
     if (!raw) return ts_value_make_undefined();
 
-    // A REAL generator uses the state machine. Anything else (a TsMap-based
-    // built-in iterator OR a plain flat inline-slot object with a next method)
-    // delegates to its own .next. The GeneratorHandler routes every untyped
-    // `x.next()` here, so a plain `{ next(){...} }` must NOT reach
-    // Generator_next_internal — that treats the object as a generator
-    // AsyncContext and crashes (access violation).
-    if (ts_is_unchecked<TsGenerator>(raw)) {
-        return Generator_next_internal(raw, value);
-    }
-
-    // Look up "next" via the flat-object/prototype aware getter (handles both
-    // flat-object slots and prototype-installed iterator next, e.g.
-    // ArrayIteratorPrototype). Preserve `this` so native methods that read
-    // ts_get_call_this() find the receiver.
-    extern TsValue* ts_object_get_property(void* o, const char* k);
-    TsValue* nextFn = ts_object_get_property(raw, "next");
-    if (nextFn) {
-        TsValue nm = nanbox_to_tagged(nextFn);
-        if ((nm.type == ValueType::OBJECT_PTR || nm.type == ValueType::FUNCTION_PTR)
-            && nm.ptr_val) {
-            if (value) return ts_call_with_this_1(nextFn, genVal, value);
+    // Check if this is a TsMap-based iterator (has "next" property)
+    // rather than a real TsGenerator
+    if (ts_is_unchecked<TsMap>(raw)) { // TsMap-based iterator
+        // It's a Map-based iterator — look up "next" via prototype chain
+        // (ts_map_get_property only checks own properties, which misses
+        // shared ArrayIteratorPrototype). ts_object_get_dynamic walks the
+        // prototype chain and accepts NaN-boxed TsValue*s.
+        TsValue* nextKey = ts_value_make_string(TsString::Create("next"));
+        TsValue* nextFn = ts_object_get_dynamic(genVal, nextKey);
+        if (nextFn && !ts_value_is_undefined(nextFn)) {
+            // Preserve `this` so native methods that read ts_get_call_this()
+            // (e.g., ArrayIteratorPrototype.next) find the receiver.
             return ts_call_with_this_0(nextFn, genVal);
         }
+        return ts_value_make_undefined();
     }
-    return ts_value_make_undefined();
+
+    return Generator_next_internal(raw, value);
 }
 
 void ts_generator_return(TsGenerator* gen, TsValue* value) {
