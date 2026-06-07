@@ -1864,6 +1864,12 @@ void* ts_get_global_Symbol() {
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("Symbol");
+        {   // Symbol.prototype[@@toStringTag] = "Symbol"
+            TsValue pkey; pkey.type = ValueType::STRING_PTR; pkey.ptr_val = TsString::GetInterned("prototype");
+            TsValue protoT = ctor->Get(pkey);
+            if (protoT.type == ValueType::OBJECT_PTR && protoT.ptr_val)
+                setProtoStringTag((TsMap*)protoT.ptr_val, "Symbol");
+        }
 
         // Register well-known symbols. Pragmatic shim: store each as a
         // canonical string "[Symbol.<name>]" instead of a real TsSymbol.
@@ -2610,6 +2616,12 @@ void* ts_get_global_BigInt() {
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("BigInt");
+        {   // BigInt.prototype[@@toStringTag] = "BigInt"
+            TsValue pkey; pkey.type = ValueType::STRING_PTR; pkey.ptr_val = TsString::GetInterned("prototype");
+            TsValue protoT = ctor->Get(pkey);
+            if (protoT.type == ValueType::OBJECT_PTR && protoT.ptr_val)
+                setProtoStringTag((TsMap*)protoT.ptr_val, "BigInt");
+        }
         // BigInt.asIntN(bits, bigint) — wrap to a signed two's-complement
         // value with `bits` bits. Implementation: out = bigint mod 2^bits;
         // if the high bit is set, subtract 2^bits.
