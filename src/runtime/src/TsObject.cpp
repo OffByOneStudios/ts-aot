@@ -7534,25 +7534,58 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (keyStr && keyStr[0] != '\0') {
                     char* endp = nullptr;
                     unsigned long idx = strtoul(keyStr, &endp, 10);
-                    if (endp && *endp == '\0' &&
-                        idx < (unsigned long)arr->Length() &&
-                        arr->IsHole((size_t)idx)) {
-                        arr->SetUnchecked((size_t)idx,
-                            (int64_t)(uintptr_t)ts_value_make_undefined());
+                    if (endp && *endp == '\0') {
+                        // Canonical array index. ECMA-262 10.4.2.1 Array
+                        // [[DefineOwnProperty]]: a DATA descriptor's `value` is
+                        // stored at the index and length extends to idx+1 when
+                        // idx >= length. (Previously the value was discarded and
+                        // length never grew, so `defineProperty(arr,"0",{value})`
+                        // left arr[0] undefined / length 0.) Accessor and
+                        // attrs-only descriptors keep the existing "promote hole
+                        // to present-undefined" behavior — full accessor-on-index
+                        // read support needs a per-index descriptor side-map.
+                        void* dRaw = ts_value_get_object(descriptor);
+                        if (dRaw && is_flat_object(dRaw)) dRaw = ts_flat_object_to_map(dRaw);
+                        uint32_t dMag = 0;
+                        if ((uintptr_t)dRaw > 0x1000 &&
+                            (uintptr_t)dRaw < 0x0000800000000000ULL)
+                            dMag = *(uint32_t*)((char*)dRaw + 16);
+                        if (dMag == 0x46554E43) {  // TsFunction
+                            TsFunction* f = (TsFunction*)dRaw;
+                            if (f->properties) { dRaw = f->properties; dMag = 0x4D415053; }
+                        } else if (dMag == 0x434C5352) {  // TsClosure
+                            TsClosure* c = (TsClosure*)dRaw;
+                            if (c->properties) { dRaw = c->properties; dMag = 0x4D415053; }
+                        }
+                        if (dMag == 0x4D415053) {  // TsMap descriptor
+                            TsMap* dm = (TsMap*)dRaw;
+                            TsValue vk; vk.type = ValueType::STRING_PTR;
+                            vk.ptr_val = TsString::GetInterned("value");
+                            if (dm->Has(vk)) {
+                                TsValue val = dm->Get(vk);
+                                arr->Set((size_t)idx,
+                                    (int64_t)(uintptr_t)nanbox_from_tagged(val));
+                                return obj;
+                            }
+                        }
+                        if (idx < (unsigned long)arr->Length() &&
+                            arr->IsHole((size_t)idx)) {
+                            arr->SetUnchecked((size_t)idx,
+                                (int64_t)(uintptr_t)ts_value_make_undefined());
+                        }
+                        return obj;
                     }
                     // For string-keyed (non-numeric) properties on arrays,
                     // route through the array's properties TsMap so the
                     // TsMap branch below enforces descriptor validation
                     // (TypeError on non-configurable redefinitions, etc).
-                    if (endp && *endp != '\0') {
-                        if (!arr->properties) {
-                            arr->properties = TsMap::Create();
-                            ts_gc_write_barrier(&arr->properties, arr->properties);
-                        }
-                        rawPtr = arr->properties;
-                        magic = 0x4D415053;
-                        routedToProps = true;
+                    if (!arr->properties) {
+                        arr->properties = TsMap::Create();
+                        ts_gc_write_barrier(&arr->properties, arr->properties);
                     }
+                    rawPtr = arr->properties;
+                    magic = 0x4D415053;
+                    routedToProps = true;
                 }
                 if (!routedToProps) return obj;
                 // else: fall through to TsMap branch below with rawPtr reassigned.
