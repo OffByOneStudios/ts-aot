@@ -236,19 +236,29 @@ TsValue* Generator_return(TsValue* genVal, TsValue* value) {
         return create_generator_result(v, true);
     }
 
-    // TsMap-based iterator: look up .return via prototype chain.
-    if (ts_is_unchecked<TsMap>(raw)) {
-        TsValue* retKey = ts_value_make_string(TsString::Create("return"));
-        TsValue* retFn = ts_object_get_dynamic(genVal, retKey);
-        if (retFn && !ts_value_is_undefined(retFn)) {
-            return ts_call_with_this_1(retFn, genVal,
-                value ? value : ts_value_make_undefined());
+    // Any non-generator receiver (a TsMap-based custom iterator OR a flat
+    // inline-slot object) delegates to its own .return method. The compiler
+    // routes every `x.return()` call here when x is untyped (GeneratorHandler
+    // claims next/return/throw for className.empty()), so this must behave like
+    // a normal method call for plain objects — use the flat-object/prototype
+    // aware getter (ts_object_get_dynamic missed flat-object slots, so
+    // `({ return(){...} }).return()` silently produced {value,done:true} and
+    // never called the method).
+    {
+        extern TsValue* ts_object_get_property(void* o, const char* k);
+        TsValue* retFn = ts_object_get_property(raw, "return");
+        if (retFn) {
+            TsValue rf = nanbox_to_tagged(retFn);
+            if ((rf.type == ValueType::OBJECT_PTR || rf.type == ValueType::FUNCTION_PTR)
+                && rf.ptr_val) {
+                return ts_call_with_this_1(retFn, genVal,
+                    value ? value : ts_value_make_undefined());
+            }
         }
-        TsValue v = value ? nanbox_to_tagged(value) : TsValue();
-        return create_generator_result(v, true);
     }
 
-    return create_generator_result(TsValue(), true);
+    TsValue v = value ? nanbox_to_tagged(value) : TsValue();
+    return create_generator_result(v, true);
 }
 
 // gen.throw(exception) per spec §27.5.1.3. For our simplified state
@@ -274,16 +284,20 @@ TsValue* Generator_throw(TsValue* genVal, TsValue* exception) {
         return ts_value_make_undefined();
     }
 
-    // TsMap-based iterator: forward to .throw if present, else re-throw.
-    if (ts_is_unchecked<TsMap>(raw)) {
-        TsValue* throwKey = ts_value_make_string(TsString::Create("throw"));
-        TsValue* throwFn = ts_object_get_dynamic(genVal, throwKey);
-        if (throwFn && !ts_value_is_undefined(throwFn)) {
-            return ts_call_with_this_1(throwFn, genVal,
-                exception ? exception : ts_value_make_undefined());
+    // Any non-generator receiver (TsMap-based custom iterator OR flat
+    // inline-slot object): forward to its own .throw method if present (same
+    // flat-object-aware lookup as Generator_return), else re-throw.
+    {
+        extern TsValue* ts_object_get_property(void* o, const char* k);
+        TsValue* throwFn = ts_object_get_property(raw, "throw");
+        if (throwFn) {
+            TsValue tf = nanbox_to_tagged(throwFn);
+            if ((tf.type == ValueType::OBJECT_PTR || tf.type == ValueType::FUNCTION_PTR)
+                && tf.ptr_val) {
+                return ts_call_with_this_1(throwFn, genVal,
+                    exception ? exception : ts_value_make_undefined());
+            }
         }
-        ts_throw(exception);
-        return ts_value_make_undefined();
     }
 
     ts_throw(exception);
