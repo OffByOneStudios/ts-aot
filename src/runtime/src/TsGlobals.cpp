@@ -2371,6 +2371,7 @@ void* ts_get_global_Reflect() {
         addMethod(cached, "defineProperty", (void*)reflect_defineProperty_native, 3);
         addMethod(cached, "isExtensible", (void*)reflect_isExtensible_native, 1);
         addMethod(cached, "preventExtensions", (void*)reflect_preventExtensions_native, 1);
+        setProtoStringTag(cached, "Reflect");
     }
     return cached;
 }
@@ -2434,6 +2435,7 @@ void* ts_get_global_ArrayBuffer() {
         TsValue protoT = ctor->Get(pkey);
         if (protoT.type == ValueType::OBJECT_PTR && protoT.ptr_val) {
             TsMap* abProto = (TsMap*)protoT.ptr_val;
+            setProtoStringTag(abProto, "ArrayBuffer");
             // TsBuffer's MAGIC pattern at offset 16. See TsBuffer.h.
             auto requireBuffer = [](void* ctx, const char* getterName) -> TsBuffer* {
                 if (!ctx) ctx = ts_get_call_this();
