@@ -756,43 +756,41 @@ TsValue* ts_iterator_next(TsValue* iterator, TsValue* value) {
     return create_generator_result(TsValue(), true);
 }
 
-// Check if an iterator result is done
+// Check if an iterator result is done.
+// ECMA-262 IteratorComplete: ToBoolean(Get(result, "done")). The result object
+// may be a TsMap (generator/Map/Set iterators) OR a flat inline-slot object
+// returned from a user-written `next()`. The raw TsMap::Get used previously did
+// not see flat-object slots (or prototype-walked), so a `{value, done:false}`
+// returned by a user iterator read no BOOLEAN -> fell back to done=true ->
+// spread/destructuring over user iterables came out empty. Use the general
+// property getter (the same one ts_iterator_next uses to find `next`).
 bool ts_iterator_result_done(TsValue* result) {
     if (!result) return true;
 
-    TsValue resVal = nanbox_to_tagged(result);
-    if (resVal.type == ValueType::OBJECT_PTR && resVal.ptr_val) {
-        TsMap* obj = (TsMap*)resVal.ptr_val;
-        if (obj) {
-            TsValue doneKeyVal;
-            doneKeyVal.type = ValueType::STRING_PTR;
-            doneKeyVal.ptr_val = TsString::Create("done");
-            TsValue doneVal = obj->Get(doneKeyVal);
-            if (doneVal.type == ValueType::BOOLEAN) {
-                return doneVal.b_val;
-            }
-        }
+    void* rawObj = ts_value_get_object(result);
+    if (!rawObj) rawObj = result;
+    if ((uintptr_t)rawObj >= 0x1000) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        TsValue* doneV = ts_object_get_property(rawObj, "done");
+        if (doneV) return ts_value_to_bool(doneV);  // ToBoolean, undefined -> false
     }
 
     return true;
 }
 
-// Get value from an iterator result
+// Get value from an iterator result (ECMA-262 IteratorValue: Get(result,"value")).
+// Same flat-object/prototype concern as ts_iterator_result_done above.
 TsValue* ts_iterator_result_value(TsValue* result) {
     if (!result) {
         return ts_value_make_undefined();
     }
 
-    TsValue resVal = nanbox_to_tagged(result);
-    if (resVal.type == ValueType::OBJECT_PTR && resVal.ptr_val) {
-        TsMap* obj = (TsMap*)resVal.ptr_val;
-        if (obj) {
-            TsValue valueKeyVal;
-            valueKeyVal.type = ValueType::STRING_PTR;
-            valueKeyVal.ptr_val = TsString::Create("value");
-            TsValue val = obj->Get(valueKeyVal);
-            return nanbox_from_tagged(val);
-        }
+    void* rawObj = ts_value_get_object(result);
+    if (!rawObj) rawObj = result;
+    if ((uintptr_t)rawObj >= 0x1000) {
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        TsValue* val = ts_object_get_property(rawObj, "value");
+        if (val) return val;
     }
 
     return ts_value_make_undefined();
