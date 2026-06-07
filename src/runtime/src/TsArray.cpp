@@ -3515,7 +3515,24 @@ extern "C" {
     // work (previously yielded undefined because the source was indexed as an
     // array) and propagates a throw from the iterator's next(). Real arrays go
     // through their array iterator here too, so behavior is unchanged for them.
-    void* ts_destructure_iterate(void* source, int64_t maxCount, int64_t hasRest) {
+    void* ts_destructure_iterate(void* source, int64_t maxCountArg, int64_t hasRestArg) {
+        // The HIR lowering passes maxCount/hasRest as NaN-boxed constants (the
+        // generic runtime-call ABI boxes Int operands to `ptr`), so the raw
+        // int64 we receive here is a NaN-boxed bit pattern, not the literal
+        // count. Decode it. (Previously masked: ts_iterator_result_done used to
+        // mis-read user-iterator results as done after 1 step, accidentally
+        // capping consumption at 1 regardless of maxCount; with that fixed an
+        // un-decoded giant maxCount made `[a,b]=iter` consume to exhaustion ->
+        // infinite loop on a never-`done` iterator.)
+        auto decodeCount = [](int64_t v) -> int64_t {
+            uint64_t nb = (uint64_t)v;
+            if (nanbox_is_int32(nb)) return (int64_t)nanbox_to_int32(nb);
+            if (nanbox_is_double(nb)) return (int64_t)nanbox_to_double(nb);
+            return v;  // already a raw count (defensive)
+        };
+        int64_t maxCount = decodeCount(maxCountArg);
+        int64_t hasRest = decodeCount(hasRestArg);
+
         TsArray* dst = TsArray::Create(0);
         TsValue* iter = ts::ts_iterator_get((TsValue*)source);
         if (!iter) return dst;  // non-iterable object: best-effort empty
