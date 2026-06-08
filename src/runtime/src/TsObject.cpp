@@ -8123,6 +8123,39 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
+        // ECMA-262 §7.1.19 ToPropertyKey -> ToString for a non-string,
+        // non-symbol key. getOwnPropertyDescriptor(o, null) must look up "null",
+        // (o, 123) -> "123", (o, 1.5) -> "1.5", (o, true) -> "true",
+        // (o, new String("x")) -> "x", (o, {}) -> "[object Object]". Without this
+        // the key was used as-is and the lookup missed -> desc came back
+        // undefined (Object/getOwnPropertyDescriptor/15.2.3.3-2-* cluster).
+        // Symbols are already canonicalized above; a TsString is left untouched.
+        {
+            uint64_t pNb = nanbox_from_tsvalue_ptr(prop);
+            TsString* ks = nullptr;
+            if (nanbox_is_int32(pNb))
+                ks = TsString::Create(std::to_string(nanbox_to_int32(pNb)).c_str());
+            else if (nanbox_is_double(pNb))
+                ks = (TsString*)ts_number_to_string(nanbox_to_double(pNb), 10);
+            else if (nanbox_is_bool(pNb))
+                ks = TsString::Create(nanbox_to_bool(pNb) ? "true" : "false");
+            else if (nanbox_is_null(pNb))      ks = TsString::Create("null");
+            else if (nanbox_is_undefined(pNb)) ks = TsString::Create("undefined");
+            else if (nanbox_is_ptr(pNb)) {
+                void* pp = nanbox_to_ptr(pNb);
+                if (pp) {
+                    uint32_t m = *(uint32_t*)pp;
+                    if (m != 0x53545247 /* TsString: already a string */ &&
+                        m != 0x53594D42 /* TsSymbol: handled above */) {
+                        extern void* ts_string_from_value(TsValue* val);
+                        TsValue kt = nanbox_to_tagged(prop);
+                        ks = (TsString*)ts_string_from_value(&kt);
+                    }
+                }
+            }
+            if (ks) prop = ts_value_make_string(ks);
+        }
+
         // Convert flat object to TsMap
         if (is_flat_object(rawPtr)) {
             rawPtr = ts_flat_object_to_map(rawPtr);
