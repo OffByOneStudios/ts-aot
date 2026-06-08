@@ -9261,6 +9261,39 @@ TsValue* ts_value_make_int(int64_t i) {
     // key to a character index.
     static bool parse_canonical_array_index(const char* s, int64_t* out);
 
+    // ECMA-262: every function inherits from Function.prototype. Own properties
+    // and the special-cased builtins (call/apply/bind/toString/name/length) are
+    // resolved before this is consulted, so it only surfaces USER-augmented
+    // Function.prototype properties (`Function.prototype.x = v` then `fn.x`).
+    // Returns the inherited value, or null when not found / unavailable.
+    // Function.prototype's own props are exactly call/apply/bind/toString (all
+    // already shadowed), so this leaks nothing new. Reading off Function.prototype
+    // (a TsMap) goes through the object path, not the function path → no recursion;
+    // the selfRaw guard also prevents Function.prototype consulting itself.
+    static TsValue* ts_function_inherited_property(void* selfRaw, const char* keyUtf8) {
+        if (!keyUtf8) return nullptr;
+        extern void* ts_get_global_Function();
+        void* fc = ts_get_global_Function();
+        if (!fc) return nullptr;
+        void* fcRaw = ts_value_get_object((TsValue*)fc);
+        if (!fcRaw) fcRaw = fc;
+        if (!fcRaw || (uintptr_t)fcRaw < 0x1000) return nullptr;
+        if (*(uint32_t*)((char*)fcRaw + 16) != 0x46554E43 /* TsFunction FUNC */)
+            return nullptr;
+        TsFunction* fctor = (TsFunction*)fcRaw;
+        if (!fctor->properties) return nullptr;
+        TsValue pk; pk.type = ValueType::STRING_PTR;
+        pk.ptr_val = TsString::GetInterned("prototype");
+        TsValue pv = fctor->properties->Get(pk);
+        if (pv.type != ValueType::OBJECT_PTR || !pv.ptr_val) return nullptr;
+        void* fproto = pv.ptr_val;
+        if (fproto == selfRaw) return nullptr;
+        extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+        TsValue* inh = ts_object_get_property(fproto, keyUtf8);
+        if (inh && !ts_value_is_undefined(inh)) return inh;
+        return nullptr;
+    }
+
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
 
@@ -9639,6 +9672,10 @@ TsValue* ts_value_make_int(int64_t i) {
                     return ts_value_make_object(proto);
                 }
             }
+            if (keyStr) {
+                TsValue* inh = ts_function_inherited_property(rawObj, keyStr->ToUtf8());
+                if (inh) return inh;
+            }
             return ts_value_make_undefined();
         }
 
@@ -9766,6 +9803,10 @@ TsValue* ts_value_make_int(int64_t i) {
                         pm = pm->GetPrototype();
                     }
                 }
+            }
+            if (keyStr) {
+                TsValue* inh = ts_function_inherited_property(rawObj, keyStr->ToUtf8());
+                if (inh) return inh;
             }
             return ts_value_make_undefined();
         }
