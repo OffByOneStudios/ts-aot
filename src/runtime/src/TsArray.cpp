@@ -1024,6 +1024,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
             // Generic path: string/mixed arrays with untyped closures
             for (size_t i = 0; i < length; ++i) {
                 if (IsHole(i)) continue;  // spec: skip holes
+                if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -1061,6 +1062,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
             if (IsHole(i)) continue;  // spec: skip holes
             v = GetElementBoxed(i);
         }
+        if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res;
@@ -1226,6 +1228,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
         } else {
             for (size_t i = 0; i < length; ++i) {
                 if (IsHole(i)) continue;  // spec: skip holes
+                if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -1253,6 +1256,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
             if (IsHole(i)) continue;  // spec: skip holes
             v = GetElementBoxed(i);
         }
+        if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
@@ -1275,6 +1279,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
         } else {
             for (size_t i = 0; i < length; ++i) {
                 if (IsHole(i)) continue;  // spec: skip holes (vacuously true)
+                if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -1302,6 +1307,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
             if (IsHole(i)) continue;  // spec: skip holes
             v = GetElementBoxed(i);
         }
+        if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
