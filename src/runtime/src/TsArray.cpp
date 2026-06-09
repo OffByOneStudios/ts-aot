@@ -1711,8 +1711,10 @@ void* TsArray::Join(void* separator) {
             continue;
         }
 
-        // Generic array - elements are NaN-boxed values
-        uint64_t nb = (uint64_t)((int64_t*)elements)[i];
+        // Generic array - elements are NaN-boxed values. Get(i) is accessor-aware
+        // (invokes a per-index getter defined via Object.defineProperty); for a
+        // plain array it is just the slot read (gated on `properties`).
+        uint64_t nb = (uint64_t)Get(i);
         if (nanbox_is_undefined(nb)) {
             // undefined joins as empty string (JS spec)
         } else if (nanbox_is_null(nb) || nb == 0) {
@@ -2359,7 +2361,9 @@ extern "C" {
         if ((size_t)index >= (size_t)array->Length()) {
             return (void*)ts_value_make_undefined();
         }
-        int64_t slot = array->readSlot(index);
+        // Get() is accessor-aware (invokes a per-index getter defined via
+        // Object.defineProperty); for a plain array it is the slot read.
+        int64_t slot = array->Get((size_t)index);
         // ECMA-262 §10.4.2.1 [[Get]] on a hole walks the prototype chain.
         // For a plain Array.prototype that lookup returns undefined. We
         // normalize NANBOX_HOLE → undefined here so `a[1] === undefined`
