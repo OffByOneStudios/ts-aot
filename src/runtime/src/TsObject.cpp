@@ -7355,6 +7355,53 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_bool(true);
     }
 
+    // ---- Per-array-index property descriptor attributes ----
+    // ECMA-262 10.4.2.1 Array [[DefineOwnProperty]] runs OrdinaryDefineOwnProperty
+    // (ValidateAndApplyPropertyDescriptor) for an array index. An array index has
+    // a real element slot (so arr[i]/iteration/length see it) AND, when defined
+    // via Object.defineProperty with non-default attributes, descriptor attrs that
+    // must be validated on redefinition and reported by getOwnPropertyDescriptor.
+    // We keep the value in the element slot and store the attribute byte in
+    // arr->properties under "__arr_attrs_<i>" (bit0 enumerable, bit1 writable,
+    // bit2 configurable). Absence of the key for a present element means a plain
+    // element: enumerable+writable+configurable all true. (Accessor indices use
+    // __arr_getter_<i>/__arr_setter_<i>, handled separately.)
+    static bool array_index_attrs_get(TsArray* a, size_t idx, uint8_t* outAttrs) {
+        if (!a || !a->properties) return false;
+        char k[40]; snprintf(k, sizeof(k), "__arr_attrs_%zu", idx);
+        TsValue kk; kk.type = ValueType::STRING_PTR; kk.ptr_val = TsString::GetInterned(k);
+        if (!a->properties->Has(kk)) return false;
+        TsValue v = a->properties->Get(kk);
+        *outAttrs = (uint8_t)((uint64_t)v.i_val & 0x07);
+        return true;
+    }
+    static void array_index_attrs_set(TsArray* a, size_t idx, uint8_t attrs) {
+        if (!a->properties) {
+            a->properties = TsMap::Create();
+            ts_gc_write_barrier(&a->properties, a->properties);
+        }
+        char k[40]; snprintf(k, sizeof(k), "__arr_attrs_%zu", idx);
+        TsValue kk; kk.type = ValueType::STRING_PTR; kk.ptr_val = TsString::GetInterned(k);
+        TsValue vv; vv.type = ValueType::NUMBER_INT; vv.i_val = (int64_t)attrs;
+        a->properties->Set(kk, vv);
+    }
+    static void array_index_attrs_clear(TsArray* a, size_t idx) {
+        if (!a || !a->properties) return;
+        char k[40]; snprintf(k, sizeof(k), "__arr_attrs_%zu", idx);
+        TsValue kk; kk.type = ValueType::STRING_PTR; kk.ptr_val = TsString::GetInterned(k);
+        if (a->properties->Has(kk)) a->properties->Delete(kk);
+    }
+    static bool array_index_has_accessor_obj(TsArray* a, size_t idx) {
+        if (!a || !a->properties) return false;
+        char k[40];
+        snprintf(k, sizeof(k), "__arr_getter_%zu", idx);
+        TsValue gk; gk.type = ValueType::STRING_PTR; gk.ptr_val = TsString::GetInterned(k);
+        if (a->properties->Has(gk)) return true;
+        snprintf(k, sizeof(k), "__arr_setter_%zu", idx);
+        TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned(k);
+        return a->properties->Has(sk);
+    }
+
     // Object.defineProperty(obj, prop, descriptor) - defines a property on an object
     // Supports: value, get, set, writable (partial), enumerable (partial), configurable (partial)
     extern "C" void ts_array_prototype_bump_version();
@@ -7561,7 +7608,106 @@ TsValue* ts_value_make_int(int64_t i) {
                             TsMap* dm = (TsMap*)dRaw;
                             TsValue vk; vk.type = ValueType::STRING_PTR;
                             vk.ptr_val = TsString::GetInterned("value");
-                            if (dm->Has(vk)) {
+                            TsValue wkD; wkD.type = ValueType::STRING_PTR;
+                            wkD.ptr_val = TsString::GetInterned("writable");
+                            TsValue ekD; ekD.type = ValueType::STRING_PTR;
+                            ekD.ptr_val = TsString::GetInterned("enumerable");
+                            TsValue ckD; ckD.type = ValueType::STRING_PTR;
+                            ckD.ptr_val = TsString::GetInterned("configurable");
+                            TsValue gkD; gkD.type = ValueType::STRING_PTR;
+                            gkD.ptr_val = TsString::GetInterned("get");
+                            TsValue skD; skD.type = ValueType::STRING_PTR;
+                            skD.ptr_val = TsString::GetInterned("set");
+                            auto descBool = [&](const TsValue& key) -> bool {
+                                TsValue v = dm->Get(key);
+                                return v.type == ValueType::BOOLEAN ? (v.i_val != 0)
+                                    : (v.type != ValueType::UNDEFINED && v.ptr_val);
+                            };
+                            bool hasVal = dm->Has(vk);
+                            bool hasW = dm->Has(wkD), hasE = dm->Has(ekD), hasC = dm->Has(ckD);
+                            bool descAccessor = dm->Has(gkD) || dm->Has(skD);
+                            // DATA descriptor on an array index: validate against the
+                            // existing index (ValidateAndApplyPropertyDescriptor) then
+                            // store the value in the element slot and record attrs.
+                            if (!descAccessor && (hasVal || hasW || hasE || hasC)) {
+                                constexpr uint8_t A_ENUM = 0x01, A_WRIT = 0x02, A_CONF = 0x04;
+                                bool curAccessor = array_index_has_accessor_obj(arr, (size_t)idx);
+                                bool curPresent = curAccessor ||
+                                    ((size_t)idx < arr->Length() && !arr->IsHole((size_t)idx));
+                                uint8_t curAttrs = 0x07;  // plain element default
+                                if (!array_index_attrs_get(arr, (size_t)idx, &curAttrs)) {
+                                    curAttrs = curAccessor ? 0x00 : 0x07;
+                                }
+                                // ValidateAndApplyPropertyDescriptor: a non-configurable
+                                // existing index rejects incompatible redefinitions.
+                                if (curPresent && !(curAttrs & A_CONF)) {
+                                    if (hasC && descBool(ckD)) {
+                                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                            "Cannot redefine property: non-configurable"));
+                                        return ts_value_make_undefined();
+                                    }
+                                    if (hasE && (descBool(ekD) != ((curAttrs & A_ENUM) != 0))) {
+                                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                            "Cannot redefine property: non-configurable (enumerable)"));
+                                        return ts_value_make_undefined();
+                                    }
+                                    if (curAccessor) {
+                                        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                            "Cannot redefine property: non-configurable (accessor->data)"));
+                                        return ts_value_make_undefined();
+                                    }
+                                    if (!(curAttrs & A_WRIT)) {
+                                        if (hasW && descBool(wkD)) {
+                                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                                "Cannot redefine property: non-configurable (writable)"));
+                                            return ts_value_make_undefined();
+                                        }
+                                        if (hasVal) {
+                                            TsValue* newVp = nanbox_from_tagged(dm->Get(vk));
+                                            int64_t curRaw = arr->Get((size_t)idx);
+                                            TsValue* curVp = (TsValue*)(uintptr_t)curRaw;
+                                            if (!ts_object_is(curVp, newVp)) {
+                                                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                                    "Cannot redefine property: non-configurable (value)"));
+                                                return ts_value_make_undefined();
+                                            }
+                                        }
+                                    }
+                                }
+                                // APPLY. Compute the new attribute byte: absent
+                                // fields keep the existing value for an existing
+                                // property, or default to false for a new one.
+                                uint8_t newAttrs = curPresent ? curAttrs : 0x00;
+                                if (hasW) newAttrs = descBool(wkD) ? (newAttrs | A_WRIT) : (newAttrs & ~A_WRIT);
+                                if (hasE) newAttrs = descBool(ekD) ? (newAttrs | A_ENUM) : (newAttrs & ~A_ENUM);
+                                if (hasC) newAttrs = descBool(ckD) ? (newAttrs | A_CONF) : (newAttrs & ~A_CONF);
+                                // Converting a former accessor index to data: drop
+                                // the getter/setter slots so reads see the value.
+                                if (curAccessor) {
+                                    char ak[40];
+                                    snprintf(ak, sizeof(ak), "__arr_getter_%zu", (size_t)idx);
+                                    TsValue gk2; gk2.type = ValueType::STRING_PTR;
+                                    gk2.ptr_val = TsString::GetInterned(ak);
+                                    if (arr->properties && arr->properties->Has(gk2)) arr->properties->Delete(gk2);
+                                    snprintf(ak, sizeof(ak), "__arr_setter_%zu", (size_t)idx);
+                                    TsValue sk2; sk2.type = ValueType::STRING_PTR;
+                                    sk2.ptr_val = TsString::GetInterned(ak);
+                                    if (arr->properties && arr->properties->Has(sk2)) arr->properties->Delete(sk2);
+                                }
+                                if (hasVal) {
+                                    arr->Set((size_t)idx,
+                                        (int64_t)(uintptr_t)nanbox_from_tagged(dm->Get(vk)));
+                                } else if ((size_t)idx >= arr->Length()) {
+                                    arr->Set((size_t)idx,
+                                        (int64_t)(uintptr_t)ts_value_make_undefined());
+                                }
+                                // Record non-default attrs; a plain (all-true)
+                                // element keeps no side entry.
+                                if (newAttrs == 0x07) array_index_attrs_clear(arr, (size_t)idx);
+                                else array_index_attrs_set(arr, (size_t)idx, newAttrs);
+                                return obj;
+                            }
+                            if (hasVal) {
                                 TsValue val = dm->Get(vk);
                                 arr->Set((size_t)idx,
                                     (int64_t)(uintptr_t)nanbox_from_tagged(val));
@@ -8284,10 +8430,44 @@ TsValue* ts_value_make_int(int64_t i) {
                 // Numeric index
                 char* endp = nullptr;
                 unsigned long idx = strtoul(keyCStr, &endp, 10);
-                if (endp && *endp == '\0' && idx < (unsigned long)arr->Length()) {
-                    int64_t raw = arr->Get((size_t)idx);
-                    TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)raw);
-                    return buildDataDesc(v, true, true, true);
+                if (endp && *endp == '\0') {
+                    // Accessor index (defineProperty installed __arr_getter_/
+                    // __arr_setter_): report an accessor descriptor, do NOT invoke
+                    // the getter.
+                    if (arr->properties) {
+                        char ak[40];
+                        snprintf(ak, sizeof(ak), "__arr_getter_%lu", idx);
+                        TsValue gk; gk.type = ValueType::STRING_PTR; gk.ptr_val = TsString::GetInterned(ak);
+                        snprintf(ak, sizeof(ak), "__arr_setter_%lu", idx);
+                        TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned(ak);
+                        bool hg = arr->properties->Has(gk), hs = arr->properties->Has(sk);
+                        if (hg || hs) {
+                            uint8_t a = 0x00;
+                            array_index_attrs_get(arr, (size_t)idx, &a);
+                            TsMap* d = TsMap::Create();
+                            TsValue getK; getK.type = ValueType::STRING_PTR; getK.ptr_val = TsString::GetInterned("get");
+                            TsValue setK; setK.type = ValueType::STRING_PTR; setK.ptr_val = TsString::GetInterned("set");
+                            TsValue undef; undef.type = ValueType::UNDEFINED; undef.i_val = 0;
+                            d->Set(getK, hg ? arr->properties->Get(gk) : undef);
+                            d->Set(setK, hs ? arr->properties->Get(sk) : undef);
+                            TsValue ek2; ek2.type = ValueType::STRING_PTR; ek2.ptr_val = TsString::GetInterned("enumerable");
+                            TsValue ev2; ev2.type = ValueType::BOOLEAN; ev2.i_val = (a & 0x01) ? 1 : 0;
+                            d->Set(ek2, ev2);
+                            TsValue ck2; ck2.type = ValueType::STRING_PTR; ck2.ptr_val = TsString::GetInterned("configurable");
+                            TsValue cv2; cv2.type = ValueType::BOOLEAN; cv2.i_val = (a & 0x04) ? 1 : 0;
+                            d->Set(ck2, cv2);
+                            return ts_value_make_object(d);
+                        }
+                    }
+                    if (idx < (unsigned long)arr->Length() && !arr->IsHole((size_t)idx)) {
+                        int64_t raw = arr->Get((size_t)idx);
+                        TsValue v = nanbox_to_tagged((TsValue*)(uintptr_t)raw);
+                        // Recorded attrs (defineProperty) override the plain-element
+                        // default of writable+enumerable+configurable.
+                        uint8_t a = 0x07;
+                        array_index_attrs_get(arr, (size_t)idx, &a);
+                        return buildDataDesc(v, (a & 0x02) != 0, (a & 0x01) != 0, (a & 0x04) != 0);
+                    }
                 }
                 // Named property in side map
                 if (arr->properties) {
