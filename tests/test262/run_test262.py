@@ -79,12 +79,12 @@ UNSUPPORTED_FEATURES: Set[str] = {
     "SharedArrayBuffer",
     "Atomics",
     "tail-call-optimization",
-    "FinalizationRegistry",  # no-op in Boehm GC
-    "WeakRef",  # strong ref in Boehm GC — semantics differ
+    # 2026-06-09 review: removed stale entries for IMPLEMENTED features —
+    # FinalizationRegistry, WeakRef (comments referenced the purged Boehm GC;
+    # the custom GC has real weak semantics), resizable-arraybuffer,
+    # arraybuffer-transfer (HOST_262_SETUP itself calls buffer.transfer()).
     "cross-realm",
     "caller",
-    "resizable-arraybuffer",
-    "arraybuffer-transfer",
     "Float16Array",
 
     # We don't support eval
