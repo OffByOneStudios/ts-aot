@@ -6456,6 +6456,27 @@ TsValue* ts_value_make_int(int64_t i) {
             TsArray* out = TsArray::Create(0);
             for (int64_t i = 0; i < len; i++) {
                 if (a->IsHole((size_t)i)) continue;
+                // Skip non-enumerable indices defined via Object.defineProperty.
+                // A recorded "__arr_attrs_<i>" with its enumerable bit (0x01)
+                // clear is non-enumerable; an accessor index with no recorded
+                // attrs defaults non-enumerable. A plain element (no side entry)
+                // is enumerable. ECMA-262 EnumerateObjectProperties / Object.keys
+                // yield only enumerable own keys.
+                if (a->properties) {
+                    char ak[40];
+                    snprintf(ak, sizeof(ak), "__arr_attrs_%lld", (long long)i);
+                    TsValue atk; atk.type = ValueType::STRING_PTR; atk.ptr_val = TsString::GetInterned(ak);
+                    if (a->properties->Has(atk)) {
+                        TsValue av = a->properties->Get(atk);
+                        if (!(((uint64_t)av.i_val) & 0x01)) continue;  // non-enumerable
+                    } else {
+                        snprintf(ak, sizeof(ak), "__arr_getter_%lld", (long long)i);
+                        TsValue gk; gk.type = ValueType::STRING_PTR; gk.ptr_val = TsString::GetInterned(ak);
+                        snprintf(ak, sizeof(ak), "__arr_setter_%lld", (long long)i);
+                        TsValue sk; sk.type = ValueType::STRING_PTR; sk.ptr_val = TsString::GetInterned(ak);
+                        if (a->properties->Has(gk) || a->properties->Has(sk)) continue;  // accessor, default non-enum
+                    }
+                }
                 out->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::FromInt(i)));
             }
             if (a->properties) {
@@ -6463,7 +6484,19 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsArray* extra = (TsArray*)ts_map_enumerable_keys(a->properties);
                 if (extra) {
                     int64_t n = extra->Length();
-                    for (int64_t i = 0; i < n; i++) out->Push(extra->Get((size_t)i));
+                    for (int64_t i = 0; i < n; i++) {
+                        // Skip internal per-index bookkeeping keys
+                        // (__arr_getter_/__arr_setter_/__arr_attrs_) — they are
+                        // implementation storage, not user-visible properties.
+                        int64_t kraw = extra->Get((size_t)i);
+                        TsString* ks = (TsString*)ts_value_get_string(
+                            (TsValue*)(uintptr_t)kraw);
+                        if (ks) {
+                            const char* kc = ks->ToUtf8();
+                            if (kc && strncmp(kc, "__arr_", 6) == 0) continue;
+                        }
+                        out->Push(kraw);
+                    }
                 }
             }
             return ts_value_make_array(out);
@@ -7749,6 +7782,26 @@ TsValue* ts_value_make_int(int64_t i) {
                                 } else if (!wasHole) {
                                     arr->SetHole((size_t)idx);  // clear the old data value
                                 }
+                                // Record enumerable/configurable (default false
+                                // when absent) so for-in/Object.keys honor
+                                // enumerability and getOwnPropertyDescriptor
+                                // reports the accessor's attrs.
+                                uint8_t accAttrs = 0x00;
+                                TsValue ekA; ekA.type = ValueType::STRING_PTR;
+                                ekA.ptr_val = TsString::GetInterned("enumerable");
+                                TsValue ckA; ckA.type = ValueType::STRING_PTR;
+                                ckA.ptr_val = TsString::GetInterned("configurable");
+                                if (dm->Has(ekA)) {
+                                    TsValue v = dm->Get(ekA);
+                                    if (v.type == ValueType::BOOLEAN ? (v.i_val != 0)
+                                        : (v.type != ValueType::UNDEFINED && v.ptr_val)) accAttrs |= 0x01;
+                                }
+                                if (dm->Has(ckA)) {
+                                    TsValue v = dm->Get(ckA);
+                                    if (v.type == ValueType::BOOLEAN ? (v.i_val != 0)
+                                        : (v.type != ValueType::UNDEFINED && v.ptr_val)) accAttrs |= 0x04;
+                                }
+                                array_index_attrs_set(arr, (size_t)idx, accAttrs);
                                 return obj;
                             }
                         }
