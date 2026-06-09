@@ -7919,6 +7919,34 @@ TsValue* ts_value_make_int(int64_t i) {
         // are mutually exclusive — having both [value|writable] and [get|set]
         // is a TypeError.
         TsMap* descCheck = (TsMap*)descRaw;
+        // ECMA-262 ToPropertyDescriptor reads each descriptor field with
+        // HasProperty/Get, which WALK THE PROTOTYPE CHAIN. descCheck (the
+        // flattened descriptor map) only exposes OWN slots, so a field inherited
+        // from the descriptor object's prototype — e.g.
+        // Object.defineProperties(o, { p: new Con() }) with Con.prototype.value —
+        // was missed (the property became undefined). Materialize any inherited
+        // descriptor field into descCheck once, using the prototype-walking
+        // getter on the ORIGINAL descriptor object (Get also invokes an inherited
+        // or own accessor field, per spec).
+        {
+            extern bool ts_object_has_prop(TsValue* obj, TsValue* key);
+            extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+            void* origDesc = ts_value_get_object(descriptor);
+            if (origDesc) {
+                static const char* kDescFields[] = {
+                    "value", "get", "set", "writable", "enumerable", "configurable"};
+                for (const char* fld : kDescFields) {
+                    TsValue fk; fk.type = ValueType::STRING_PTR;
+                    fk.ptr_val = TsString::GetInterned(fld);
+                    if (descCheck->Has(fk)) continue;  // own slot already present
+                    TsValue* fkBoxed = ts_value_make_string(TsString::GetInterned(fld));
+                    if (ts_object_has_prop(descriptor, fkBoxed)) {
+                        TsValue* fv = ts_object_get_property(origDesc, fld);
+                        if (fv) descCheck->Set(fk, nanbox_to_tagged(fv));
+                    }
+                }
+            }
+        }
         TsValue valueKeyChk;  valueKeyChk.type = ValueType::STRING_PTR;
         valueKeyChk.ptr_val = TsString::GetInterned("value");
         TsValue writableKeyChk; writableKeyChk.type = ValueType::STRING_PTR;
