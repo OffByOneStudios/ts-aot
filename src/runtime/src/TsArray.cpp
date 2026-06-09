@@ -961,10 +961,12 @@ void* TsArray::Map(void* callback, void* thisArg) {
         } else {
             // Generic path: string/mixed arrays with untyped closures (ptr calling convention)
             for (size_t i = 0; i < length; ++i) {
-                if (IsHole(i)) {
+                if (IsHole(i) || array_generic_absent_index(this, i)) {
                     // Preserve hole in output (CreateSized would be cleaner,
                     // but this path uses Push). Push a placeholder; close this
-                    // edge case with the full-correctness path below.
+                    // edge case with the full-correctness path below. Absent
+                    // indices on a generic array-like receiver are likewise
+                    // not mapped (spec: HasProperty gate) — keep alignment.
                     result->Push((int64_t)ts_value_make_undefined());
                     continue;
                 }
@@ -997,6 +999,9 @@ void* TsArray::Map(void* callback, void* thisArg) {
             if (IsHole(i)) continue;
             v = GetElementBoxed(i);
         }
+        // Absent index on a generic array-like receiver: not mapped; the
+        // CreateSized(length) result keeps its pre-filled hole here.
+        if (array_generic_absent_index(this, i)) continue;
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
