@@ -11323,7 +11323,31 @@ TsValue* ts_value_make_int(int64_t i) {
                 long didx = strtol(dkc, &dend, 10);
                 if (dend != dkc && *dend == '\0' && didx >= 0 &&
                     didx < arr->Length()) {
+                    // Per-index configurability: an index defined via
+                    // Object.defineProperty with the configurable bit (0x04)
+                    // clear cannot be deleted ([[Delete]] returns false; strict
+                    // mode throws at the compiler wrapper). Plain elements (no
+                    // recorded attrs) are configurable.
+                    uint8_t a7attrs;
+                    if (array_index_attrs_get(arr, (size_t)didx, &a7attrs) &&
+                        !(a7attrs & 0x04)) {
+                        return 0;
+                    }
                     if (!arr->IsHole((size_t)didx)) arr->SetHole((size_t)didx);
+                    // Drop any per-index descriptor side entries so a later
+                    // re-definition starts fresh.
+                    array_index_attrs_clear(arr, (size_t)didx);
+                    if (arr->properties) {
+                        char ak[40];
+                        snprintf(ak, sizeof(ak), "__arr_getter_%ld", didx);
+                        TsValue gk; gk.type = ValueType::STRING_PTR;
+                        gk.ptr_val = TsString::GetInterned(ak);
+                        if (arr->properties->Has(gk)) arr->properties->Delete(gk);
+                        snprintf(ak, sizeof(ak), "__arr_setter_%ld", didx);
+                        TsValue sk; sk.type = ValueType::STRING_PTR;
+                        sk.ptr_val = TsString::GetInterned(ak);
+                        if (arr->properties->Has(sk)) arr->properties->Delete(sk);
+                    }
                     return 1;
                 }
             }
