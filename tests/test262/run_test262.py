@@ -821,6 +821,10 @@ class Test262Runner:
         self.resume = args.resume
         self.fresh = args.fresh
         self.interleave = args.interleave
+        self.paths_file = getattr(args, "paths_file", None)
+        self.results_jsonl = (Path(args.results_file)
+                              if getattr(args, "results_file", None)
+                              else RESULTS_JSONL)
         self.compiler = get_compiler_path()
         self.build_dir = BUILD_DIR
         # Shutdown flag — set by signal handler
@@ -849,14 +853,14 @@ class Test262Runner:
             return 1
 
         # Optionally truncate the results log for a fresh run
-        if self.fresh and RESULTS_JSONL.exists():
-            RESULTS_JSONL.unlink()
-            print(f"[fresh] removed {RESULTS_JSONL.name}")
+        if self.fresh and self.results_jsonl.exists():
+            self.results_jsonl.unlink()
+            print(f"[fresh] removed {self.results_jsonl.name}")
 
         # Load already-completed results for resume
         completed_map: Dict[str, str] = {}
         if self.resume:
-            completed_map = load_completed_set(RESULTS_JSONL)
+            completed_map = load_completed_set(self.results_jsonl)
             if completed_map:
                 print(f"[resume] loaded {len(completed_map)} previously-completed tests")
 
@@ -866,6 +870,26 @@ class Test262Runner:
         if not tests:
             print("No tests found.")
             return 1
+
+        # --paths-file: restrict to an explicit test list (stratified sample gate)
+        if self.paths_file:
+            pf = Path(self.paths_file)
+            if not pf.exists():
+                print(f"Error: paths file not found: {pf}")
+                return 1
+            wanted = set()
+            for line in pf.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    wanted.add(line.replace("\\", "/"))
+            before = len(tests)
+            tests = [t for t in tests
+                     if str(t.relative_to(TEST_DIR)).replace("\\", "/") in wanted]
+            print(f"[paths-file] {len(tests)} of {before} tests matched "
+                  f"({len(wanted)} listed)")
+            missing = len(wanted) - len(tests)
+            if missing:
+                print(f"[paths-file] WARNING: {missing} listed paths not found on disk")
 
         # Filter out already-completed tests
         if completed_map:
@@ -897,7 +921,7 @@ class Test262Runner:
                 pass
 
         # Open result log (append mode preserves any prior entries for resume)
-        self._result_log = ResultLog(RESULTS_JSONL)
+        self._result_log = ResultLog(self.results_jsonl)
 
         # Install signal handler for graceful shutdown
         try:
@@ -1227,6 +1251,15 @@ def main():
                         help="Preset: -j 24 --time-budget-min 20 --timeout 8 --resume --interleave")
     parser.add_argument("--consolidate-baseline", action="store_true",
                         help="Build baseline JSON from existing results log and exit")
+    parser.add_argument("--paths-file",
+                        help="Run only tests whose path (relative to test/) is listed "
+                             "in this file, one per line ('/' or '\\' separators; "
+                             "'#' comments allowed). Used for the stratified "
+                             "regression-sample gate.")
+    parser.add_argument("--results-file",
+                        help="Override the results JSONL path (default: "
+                             ".test262_results.jsonl). Use for sample-gate runs so "
+                             "they don't pollute the full-sweep log.")
     args = parser.parse_args()
 
     # --consolidate-baseline: build baseline from existing JSONL and exit
