@@ -148,8 +148,33 @@ TsArray* TsArray::CreateSized(size_t size) {
     return arr;
 }
 
+// Per-index ACCESSOR support (Lever A): Object.defineProperty(arr, i, {get/set})
+// stores the getter/setter in the array's `properties` side-map under the keys
+// __arr_getter_<i> / __arr_setter_<i>, leaving the element slot a hole. These
+// helpers let IsHole/Get treat such an index as a PRESENT accessor property.
+// Returns the boxed function, or nullptr if no such accessor is defined.
+static TsValue* array_index_accessor_fn(TsArray* a, size_t index, bool getter) {
+    if (!a || !a->properties) return nullptr;
+    char k[40];
+    snprintf(k, sizeof(k), getter ? "__arr_getter_%zu" : "__arr_setter_%zu", index);
+    TsValue kk; kk.type = ValueType::STRING_PTR; kk.ptr_val = TsString::GetInterned(k);
+    if (!a->properties->Has(kk)) return nullptr;
+    return nanbox_from_tagged(a->properties->Get(kk));
+}
+static inline bool array_index_has_accessor(TsArray* a, size_t index) {
+    return array_index_accessor_fn(a, index, true) ||
+           array_index_accessor_fn(a, index, false);
+}
+
 bool TsArray::IsHole(size_t index) const {
     if (index >= length) return true;
+    // An accessor defined via Object.defineProperty makes the index a PRESENT
+    // own property. Check this FIRST and kind-agnostically (the element-kind
+    // guards below short-circuit for HoleySmi/HoleyDouble where the hole isn't
+    // a NANBOX_HOLE slot). Gated on `properties` so the common no-side-map array
+    // pays only a pointer-null check.
+    if (properties && array_index_has_accessor(const_cast<TsArray*>(this), index))
+        return false;
     // Only the PackedAny / HoleyAny paths store NaN-box values directly.
     // Specialized (double/int) and SMI / Double element kinds can't
     // represent holes — the array would have been transitioned away from
@@ -187,6 +212,20 @@ TsArray* TsArray::CreateSpecialized(size_t size, size_t elementSize, bool isDoub
 // Helper to get element at index as a boxed TsValue*, handling specialized arrays
 TsValue* TsArray::GetElementBoxed(size_t index) {
     if (index >= length) return ts_value_make_undefined();
+
+    // Per-index accessor (Lever A): __arr_getter_<i>/__arr_setter_<i> in the
+    // properties side-map governs reads regardless of element kind. This is the
+    // boxed-read chokepoint used by the iteration methods (reduce/reduceRight/
+    // forEach/map/filter/...) and ts_array_get_property_at. Gated on `properties`.
+    if (properties) {
+        if (TsValue* getter = array_index_accessor_fn(this, index, true)) {
+            extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
+            return ts_call_with_this_0(getter, ts_value_make_array(this));
+        }
+        if (array_index_accessor_fn(this, index, false)) {
+            return ts_value_make_undefined();  // setter-only accessor
+        }
+    }
 
     if (isSpecialized) {
         if (isDouble) {
@@ -423,6 +462,22 @@ int64_t TsArray::Get(size_t index) {
     if (index >= length) {
         // JavaScript behavior: return undefined (0) for out-of-bounds access
         return 0;
+    }
+    // Per-index accessor (Lever A): __arr_getter_<i>/__arr_setter_<i> in the
+    // properties side-map governs reads at this index regardless of element kind
+    // (HoleySmi/HoleyDouble don't store NANBOX_HOLE, so this must precede the
+    // slot read). Gated on `properties` so the common no-side-map array pays only
+    // a pointer-null check.
+    if (properties) {
+        if (TsValue* getter = array_index_accessor_fn(this, index, true)) {
+            extern TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
+            TsValue* res = ts_call_with_this_0(getter, ts_value_make_array(this));
+            return res ? (int64_t)(uintptr_t)res
+                       : (int64_t)(uintptr_t)ts_value_make_undefined();
+        }
+        if (array_index_accessor_fn(this, index, false)) {
+            return (int64_t)(uintptr_t)ts_value_make_undefined();  // setter-only
+        }
     }
     if (elementSize != 8) return 0;
     return readSlot(index);

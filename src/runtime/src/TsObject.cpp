@@ -7567,6 +7567,44 @@ TsValue* ts_value_make_int(int64_t i) {
                                     (int64_t)(uintptr_t)nanbox_from_tagged(val));
                                 return obj;
                             }
+                            // ACCESSOR descriptor at an array index: store get/set
+                            // in the array's properties side-map under
+                            // __arr_getter_<i>/__arr_setter_<i> (TsArray Get/IsHole
+                            // consult these), keep the slot a hole, extend length.
+                            TsValue gk; gk.type = ValueType::STRING_PTR;
+                            gk.ptr_val = TsString::GetInterned("get");
+                            TsValue sk; sk.type = ValueType::STRING_PTR;
+                            sk.ptr_val = TsString::GetInterned("set");
+                            bool hasGet = dm->Has(gk), hasSet = dm->Has(sk);
+                            if (hasGet || hasSet) {
+                                // Capture hole-ness BEFORE storing the accessor
+                                // (afterwards IsHole returns false for this index).
+                                bool wasHole = ((size_t)idx >= arr->Length()) ||
+                                               arr->IsHole((size_t)idx);
+                                if (!arr->properties) {
+                                    arr->properties = TsMap::Create();
+                                    ts_gc_write_barrier(&arr->properties, arr->properties);
+                                }
+                                char akey[40];
+                                if (hasGet) {
+                                    snprintf(akey, sizeof(akey), "__arr_getter_%zu", (size_t)idx);
+                                    TsValue ak; ak.type = ValueType::STRING_PTR;
+                                    ak.ptr_val = TsString::GetInterned(akey);
+                                    arr->properties->Set(ak, dm->Get(gk));
+                                }
+                                if (hasSet) {
+                                    snprintf(akey, sizeof(akey), "__arr_setter_%zu", (size_t)idx);
+                                    TsValue ak; ak.type = ValueType::STRING_PTR;
+                                    ak.ptr_val = TsString::GetInterned(akey);
+                                    arr->properties->Set(ak, dm->Get(sk));
+                                }
+                                if ((size_t)idx >= arr->Length()) {
+                                    arr->SetLength((size_t)idx + 1);  // pads with holes
+                                } else if (!wasHole) {
+                                    arr->SetHole((size_t)idx);  // clear the old data value
+                                }
+                                return obj;
+                            }
                         }
                         if (idx < (unsigned long)arr->Length() &&
                             arr->IsHole((size_t)idx)) {
