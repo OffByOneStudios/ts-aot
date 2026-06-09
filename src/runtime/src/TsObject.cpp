@@ -7938,11 +7938,16 @@ TsValue* ts_value_make_int(int64_t i) {
                 for (const char* fld : kDescFields) {
                     TsValue fk; fk.type = ValueType::STRING_PTR;
                     fk.ptr_val = TsString::GetInterned(fld);
-                    if (descCheck->Has(fk)) continue;  // own slot already present
                     TsValue* fkBoxed = ts_value_make_string(TsString::GetInterned(fld));
+                    // HasProperty (walks prototype, recognizes accessors). When
+                    // present, (re)read via Get — which invokes an own/inherited
+                    // accessor field and walks the chain — overriding any stale
+                    // raw own-data slot (an accessor leaves a placeholder "value"
+                    // slot beside __getter_value, so Has on the map alone lies).
                     if (ts_object_has_prop(descriptor, fkBoxed)) {
                         TsValue* fv = ts_object_get_property(origDesc, fld);
-                        if (fv) descCheck->Set(fk, nanbox_to_tagged(fv));
+                        descCheck->Set(fk, fv ? nanbox_to_tagged(fv)
+                                              : nanbox_to_tagged((TsValue*)ts_value_make_undefined()));
                     }
                 }
             }
