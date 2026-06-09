@@ -191,29 +191,6 @@ static bool array_index_write_intercept(TsArray* a, size_t index, void* value) {
     return false;
 }
 
-// Generic array-like receiver support: when an Array.prototype iteration method
-// is invoked via .call() on a NON-array array-like object, require_array_or_throw
-// (TsObject.cpp) materializes it into a temp TsArray (absent indices filled with
-// undefined) and records the original object in `originalReceiver`. Spec methods
-// that SKIP absent indices (forEach/map/filter/some/every/find/reduce/...) must
-// consult HasProperty on the ORIGINAL receiver per index — the dense materialized
-// array can't represent absent-vs-undefined (a blanket hole-preserving materializer
-// netted -42; see the note in require_array_or_throw). Returns true when index i is
-// ABSENT on the original generic-object receiver and must be skipped. For a normal
-// array (no originalReceiver) or a string/primitive receiver (all indices present)
-// it returns false, so the only cost on the common path is one pointer-null check.
-static bool array_generic_absent_index(const TsArray* self, size_t i) {
-    void* orig = self->originalReceiver;
-    if (!orig || orig == (const void*)self) return false;
-    if ((uintptr_t)orig < 0x1000 || (uintptr_t)orig >= 0x0000800000000000ULL) return false;
-    uint32_t m = *(uint32_t*)orig;
-    if (m == 0x53545247 /* STRG */ || m == TsConsString::MAGIC) return false;  // string
-    extern bool ts_object_has_prop(TsValue* obj, TsValue* key);
-    TsValue* objB = ts_value_make_object(orig);
-    TsValue* keyB = ts_value_make_int((int64_t)i);
-    return !ts_object_has_prop(objB, keyB);
-}
-
 bool TsArray::IsHole(size_t index) const {
     if (index >= length) return true;
     // An accessor defined via Object.defineProperty makes the index a PRESENT
@@ -903,7 +880,6 @@ void TsArray::ForEach(void* callback, void* thisArg) {
             // Generic path: string/mixed arrays with untyped closures (ptr calling convention)
             for (size_t i = 0; i < length; ++i) {
                 if (IsHole(i)) continue;  // spec: skip holes
-                if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
                 TsValue* v = GetElementBoxed(i);
                 TsValue* idx = ts_value_make_int(i);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
@@ -931,7 +907,6 @@ void TsArray::ForEach(void* callback, void* thisArg) {
             if (IsHole(i)) continue;  // spec: skip holes in fast path
             v = GetElementBoxed(i);
         }
-        if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         if (thisArgV)
@@ -1110,10 +1085,8 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
                 startIdx++;
             }
         } else {
-            // Skip leading holes / absent array-like indices when seeding.
-            while (startIdx < initialLen &&
-                   (IsHole(startIdx) || array_generic_absent_index(this, startIdx)))
-                startIdx++;
+            // Skip leading holes when seeding the accumulator.
+            while (startIdx < initialLen && IsHole(startIdx)) startIdx++;
             if (startIdx < initialLen) {
                 accumulator = GetElementBoxed(startIdx);
                 startIdx++;
@@ -1138,7 +1111,6 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
             if (IsHole(i)) continue;  // spec: skip holes
             v = GetElementBoxed(i);
         }
-        if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
@@ -1172,11 +1144,9 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
                 startIdx = 0;
             }
         } else {
-            // Scan from the right for the first present (non-hole / not-absent) slot.
+            // Scan from the right for the first non-hole slot.
             int64_t k = (int64_t)initialLen - 1;
-            while (k >= 0 &&
-                   (IsHole((size_t)k) || array_generic_absent_index(this, (size_t)k)))
-                k--;
+            while (k >= 0 && IsHole((size_t)k)) k--;
             if (k >= 0) {
                 accumulator = GetElementBoxed((size_t)k);
                 startIdx = (size_t)k;
@@ -1201,7 +1171,6 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
             if (IsHole(i - 1)) continue;  // spec: skip holes
             v = GetElementBoxed(i - 1);
         }
-        if (array_generic_absent_index(this, i - 1)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i - 1);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
