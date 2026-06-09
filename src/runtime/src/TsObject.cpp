@@ -11083,6 +11083,43 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // TsProxy extends TsMap — canonical TsObject::magic at offset 16.
         uint32_t magic16 = *(uint32_t*)((char*)rawObj + 16);
+
+        // TypedArray (integer-indexed exotic object): a canonical in-bounds
+        // numeric index is always a present own property (dense by
+        // construction); out-of-bounds / non-integral indices are absent.
+        // This branch was missing entirely, so `n in typedArray` was false
+        // for every index (masked by a TARR guard in
+        // array_generic_absent_index, TsArray.cpp). Prototype METHODS
+        // (`'map' in ta`) still report false pending the real prototype
+        // chain terminal (Lever G).
+        if (magic16 == 0x54415252) { // TsTypedArray::MAGIC "TARR"
+            TsTypedArray* ta = (TsTypedArray*)rawObj;
+            TsString* keyStr = ts_property_key_string(key);
+            if (!keyStr) return false;
+            const char* k = keyStr->ToUtf8();
+            if (!k || !*k) return false;
+            char* end = nullptr;
+            long idx = strtol(k, &end, 10);
+            if (end != k && *end == '\0') {
+                if (k[0] == '-') return false;                  // negative/-0
+                if (k[0] == '0' && k[1] != '\0') return false;  // non-canonical "01"
+                return idx >= 0 && (size_t)idx < ta->GetLength();
+            }
+            // Non-index key: OrdinaryHasProperty — defineProperty on a
+            // TypedArray stores string/symbol-keyed props in the native
+            // side-map (the pre-branch fall-through used to find them there).
+            if (TsMap* props = getNativeProps(rawObj)) {
+                TsValue keyVal;
+                keyVal.type = ValueType::STRING_PTR;
+                keyVal.ptr_val = keyStr;
+                if (props->Has(keyVal)) return true;
+            }
+            return strcmp(k, "length") == 0 || strcmp(k, "byteLength") == 0 ||
+                   strcmp(k, "byteOffset") == 0 || strcmp(k, "buffer") == 0 ||
+                   strcmp(k, "BYTES_PER_ELEMENT") == 0 ||
+                   strcmp(k, "constructor") == 0;
+        }
+
         if (magic16 == 0x4D415053) {
             // Safe to dynamic_cast: TsMap is a TsObject derivative
             TsProxy* proxy = dynamic_cast<TsProxy*>((TsObject*)rawObj);
