@@ -166,6 +166,31 @@ static inline bool array_index_has_accessor(TsArray* a, size_t index) {
            array_index_accessor_fn(a, index, false);
 }
 
+// A4: per-index accessor/writable WRITE interception. Returns true when the
+// write to arr[index] was handled here — a setter was invoked, or the write was
+// silently ignored for a getter-only accessor or a non-writable data index
+// (recorded "__arr_attrs_<i>" with the writable bit 0x02 clear) — so the caller
+// must NOT fall through to the element store. Gated on `properties` so plain
+// arrays pay only one null check. `value` is a NaN-boxed TsValue*.
+static bool array_index_write_intercept(TsArray* a, size_t index, void* value) {
+    if (!a || !a->properties) return false;
+    if (TsValue* setter = array_index_accessor_fn(a, index, false)) {
+        extern TsValue* ts_call_with_this_1(TsValue* fn, TsValue* thisArg, TsValue* arg1);
+        ts_call_with_this_1(setter, ts_value_make_array(a), (TsValue*)value);
+        return true;
+    }
+    if (array_index_accessor_fn(a, index, true)) {
+        return true;  // getter-only accessor: write ignored (no setter)
+    }
+    char k[40]; snprintf(k, sizeof(k), "__arr_attrs_%zu", index);
+    TsValue kk; kk.type = ValueType::STRING_PTR; kk.ptr_val = TsString::GetInterned(k);
+    if (a->properties->Has(kk)) {
+        TsValue av = a->properties->Get(kk);
+        if (!(((uint64_t)av.i_val) & 0x02)) return true;  // non-writable → ignore
+    }
+    return false;
+}
+
 bool TsArray::IsHole(size_t index) const {
     if (index >= length) return true;
     // An accessor defined via Object.defineProperty makes the index a PRESENT
@@ -2225,6 +2250,12 @@ extern "C" {
             return;
         }
 
+        // A4: intercept a write to an accessor / non-writable array index
+        // before the element store.
+        if (array->properties &&
+            array_index_write_intercept(array, (size_t)index, nanbox_from_tagged(value)))
+            return;
+
         ElementKind kind = array->GetElementKind();
 
         // ==== V8-style element kind fast paths ====
@@ -2440,6 +2471,8 @@ extern "C" {
         // kMaxDenseElements). The previous Push-until-idx loop OOM'd for a
         // large idx (e.g. `a.length=1e9; a[5e8]=x`).
         (void)len;
+        if (array->properties &&
+            array_index_write_intercept(array, idx, value)) return;
         array->Set(idx, (int64_t)value);
     }
 

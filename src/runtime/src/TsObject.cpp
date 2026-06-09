@@ -10467,7 +10467,11 @@ TsValue* ts_value_make_int(int64_t i) {
                     const char* ks = ts_ensure_flat(kp)->ToUtf8();
                     int64_t idx;
                     if (ks && parse_canonical_array_index(ks, &idx)) {
-                        ((TsArray*)rawObj)->Set(idx, (int64_t)value);
+                        // Route through ts_array_set_v so the per-index accessor/
+                        // writable interception (A4) applies (setter invoked /
+                        // non-writable ignored), not a raw element store.
+                        extern void ts_array_set_v(void* arr, int64_t index, TsValue value);
+                        ts_array_set_v(rawObj, idx, nanbox_to_tagged(value));
                         return;
                     }
                 }
@@ -10837,6 +10841,17 @@ TsValue* ts_value_make_int(int64_t i) {
                     if (newLen >= 0) {
                         arr->SetLength((size_t)newLen);
                     }
+                    return value;
+                }
+                // A canonical array index given as a string key (arr["0"]=v) is
+                // an ELEMENT write per the array exotic [[Set]], not a string
+                // property. Route to ts_array_set_v so the element store plus the
+                // per-index accessor/writable interception (A4) apply — instead
+                // of stashing "0" in the side-map (which shadowed the element).
+                int64_t cidx = -1;
+                if (parse_canonical_array_index(kc, &cidx)) {
+                    extern void ts_array_set_v(void* arr, int64_t index, TsValue value);
+                    ts_array_set_v(arr, cidx, value);
                     return value;
                 }
             }
