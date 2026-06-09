@@ -208,6 +208,11 @@ static bool array_generic_absent_index(const TsArray* self, size_t i) {
     if ((uintptr_t)orig < 0x1000 || (uintptr_t)orig >= 0x0000800000000000ULL) return false;
     uint32_t m = *(uint32_t*)orig;
     if (m == 0x53545247 /* STRG */ || m == TsConsString::MAGIC) return false;  // string
+    // TypedArray receiver: indices [0,length) are always dense/present, and
+    // ts_object_has_prop currently reports false for typed-array numeric indices
+    // (a separate has_prop gap) — without this guard every typed-array element
+    // would be wrongly skipped (this was the G1 -17 regression). Never skip.
+    if (*(uint32_t*)((char*)orig + 16) == 0x54415252 /* TsTypedArray "TARR" */) return false;
     extern bool ts_object_has_prop(TsValue* obj, TsValue* key);
     TsValue* objB = ts_value_make_object(orig);
     TsValue* keyB = ts_value_make_int((int64_t)i);
