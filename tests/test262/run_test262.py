@@ -261,6 +261,11 @@ def should_skip(meta: TestMetadata) -> Optional[str]:
     # Skip tests with unsupported flags
     for flag in meta.flags:
         if flag in UNSUPPORTED_FLAGS:
+            # The async $DONE completion protocol (doneprintHandle.js +
+            # stdout sentinel) is ON by default since 2026-06-09 (H5);
+            # set TS262_NO_ASYNC=1 to skip async tests (old behavior).
+            if flag == "async" and not os.environ.get("TS262_NO_ASYNC"):
+                continue
             return f"unsupported flag: {flag}"
 
     # Skip locale-specific tests (we don't have full Intl)
@@ -429,6 +434,16 @@ def build_test_source(test_path: Path, meta: TestMetadata) -> str:
         # Inject the $262 host-hook stub before any test/include code
         # runs. detachArrayBuffer.js and IsHTMLDDA tests need this.
         parts.append(HOST_262_SETUP)
+
+        # Async tests ($DONE completion protocol): per INTERPRETING.md the
+        # host must define `print` and provide $DONE — doneprintHandle.js
+        # defines $DONE in terms of print. The pass criterion is the
+        # 'Test262:AsyncTestComplete' stdout sentinel (see _run_test_exe).
+        if "async" in meta.flags:
+            parts.append("function print(msg) { console.log(msg); }")
+            dp = HARNESS_DIR / "doneprintHandle.js"
+            if dp.exists():
+                parts.append(dp.read_text(encoding='utf-8'))
 
         # Include any additional harness files
         for inc in meta.includes:
@@ -677,6 +692,24 @@ def _run_test_exe(job, timeout):
                               time_ms=elapsed, exit_code=run.returncode)
         return TestResult(test_path, "fail", "expected runtime error but exited 0",
                           time_ms=elapsed, exit_code=0)
+    # Async tests pass ONLY via the $DONE sentinel: a clean exit without
+    # 'Test262:AsyncTestComplete' means the async chain never completed.
+    if "async" in meta.flags:
+        out = run.stdout or ""
+        if (run.returncode == 0 and "Test262:AsyncTestComplete" in out
+                and "Test262:AsyncTestFailure" not in out):
+            return TestResult(test_path, "pass", time_ms=elapsed, exit_code=0,
+                              stdout=out, stderr=run.stderr or "")
+        m = re.search(r"Test262:AsyncTestFailure:(.{0,180})", out)
+        if m:
+            reason = f"async: {m.group(1).strip()}"
+        elif run.returncode == 0:
+            reason = "async test exited without calling $DONE"
+        else:
+            reason = _extract_failure_reason(out, run.stderr or "", run.returncode)
+        return TestResult(test_path, "fail", reason, time_ms=elapsed,
+                          exit_code=run.returncode, stdout=out, stderr=run.stderr or "")
+
     if run.returncode == 0:
         return TestResult(test_path, "pass", time_ms=elapsed, exit_code=0,
                           stdout=run.stdout or "", stderr=run.stderr or "")
