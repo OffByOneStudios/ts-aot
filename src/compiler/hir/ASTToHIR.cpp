@@ -6378,7 +6378,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     HIRFunction* method = it->second;
                     std::vector<std::shared_ptr<HIRValue>> methodArgs;
                     auto thisVal = lookupVariable("this");
-                    methodArgs.push_back(thisVal ? thisVal : builder_.createConstNull());
+                    methodArgs.push_back(thisVal ? thisVal : builder_.createCall("ts_get_call_this", {}, HIRType::makeAny()));
                     for (auto& arg : args) methodArgs.push_back(arg);
                     auto resultType = method->returnType;
                     if (method->isGenerator) {
@@ -6393,7 +6393,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
             // to dynamic dispatch on `this` — this handles methods
             // inherited from a runtime/extension base (e.g. EventEmitter).
             auto obj = lookupVariable("this");
-            if (!obj) obj = builder_.createConstNull();
+            if (!obj) obj = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
             lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
             return;
         }
@@ -6425,7 +6425,13 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 if (thisVal) {
                     methodArgs.push_back(thisVal);
                 } else {
-                    methodArgs.push_back(builder_.createConstNull());
+                    // `this` not a scope variable (static-method body or
+                    // detached context): use the dynamic call-this, same as
+                    // the identifier path. Const-null here made every
+                    // this.<member> call in static methods throw
+                    // TypeError-on-null.
+                    methodArgs.push_back(builder_.createCall(
+                        "ts_get_call_this", {}, HIRType::makeAny()));
                 }
                 for (auto& arg : args) {
                     methodArgs.push_back(arg);
@@ -6447,7 +6453,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 // Check abstract methods first
                 if (currentClass_->abstractMethods.count(propAccess->name)) {
                     auto obj = lookupVariable("this");
-                    if (!obj) obj = builder_.createConstNull();
+                    if (!obj) obj = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
                     lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
                     return;
                 }
@@ -6461,7 +6467,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         HIRFunction* method = baseIt->second;
                         std::vector<std::shared_ptr<HIRValue>> methodArgs;
                         auto thisVal = lookupVariable("this");
-                        methodArgs.push_back(thisVal ? thisVal : builder_.createConstNull());
+                        methodArgs.push_back(thisVal ? thisVal : builder_.createCall("ts_get_call_this", {}, HIRType::makeAny()));
                         for (auto& arg : args) methodArgs.push_back(arg);
                         auto resultType = method->returnType;
                         if (method->isGenerator) {
@@ -6477,7 +6483,7 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 // This handles methods inherited from runtime/extension base
                 // classes (e.g., Counter extends EventEmitter → this.emit()).
                 auto obj = lookupVariable("this");
-                if (!obj) obj = builder_.createConstNull();
+                if (!obj) obj = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
                 lastValue_ = builder_.createCallMethod(obj, propAccess->name, args, HIRType::makeAny());
                 return;
             }
@@ -6690,7 +6696,14 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                             lastValue_ = builder_.createCall(callFn, callArgs, HIRType::makeAny());
                             return;
                         }
-                        // Static methods don't need 'this' parameter.
+                        // Static methods take no 'this' parameter, but their
+                        // BODIES read `this` via ts_get_call_this() (ECMA-262:
+                        // `this` in a static method is the constructor —
+                        // `static x() { return this.#x(84) }` is the test262
+                        // private-statics idiom). Set call-this to the class
+                        // for the duration of the call, mirroring the static-
+                        // getter path above; previously it was left null and
+                        // every this.<member> read threw TypeError-on-null.
                         // Truncate or pad args to match the callee's arity:
                         // verifier rejects extra args, and missing args
                         // need explicit `undefined` so the receiver always
@@ -6707,7 +6720,12 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                                 else calleeArgs.push_back(builder_.createConstUndefined());
                             }
                         }
+                        auto classObjV = lowerExpression(propAccess->expression.get());
+                        auto boxedClassV = boxValueIfNeeded(classObjV);
+                        auto savedThisV = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+                        builder_.createCall("ts_set_call_this", {boxedClassV}, HIRType::makeVoid());
                         lastValue_ = builder_.createCall(method->name, calleeArgs, method->returnType);
+                        builder_.createCall("ts_set_call_this", {savedThisV}, HIRType::makeVoid());
                         return;
                     }
                     // Object.prototype methods are inherited by every class
@@ -6751,7 +6769,14 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                                                                      : builder_.createConstUndefined());
                             }
                         }
+                        // `this` inside the inherited static body is the
+                        // RECEIVER class (Derived), not the declaring ancestor.
+                        auto recvObjV = lowerExpression(propAccess->expression.get());
+                        auto boxedRecvV = boxValueIfNeeded(recvObjV);
+                        auto savedThisV2 = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
+                        builder_.createCall("ts_set_call_this", {boxedRecvV}, HIRType::makeVoid());
                         lastValue_ = builder_.createCall(bmethod->name, calleeArgs, bmethod->returnType);
+                        builder_.createCall("ts_set_call_this", {savedThisV2}, HIRType::makeVoid());
                         return;
                     }
                     // Fallback: For imported classes, staticMethods may not be populated
