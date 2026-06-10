@@ -2376,7 +2376,17 @@ void ASTToHIR::emitDeferredStaticInits() {
     auto installMethod = [&](std::shared_ptr<HIRValue> recv,
                              const std::string& key,
                              std::shared_ptr<HIRValue> closure) {
-        auto keyStr = builder_.createConstString(key);
+        // Private methods ("#m") must never appear as own property keys
+        // (ECMA-262: private names are not property keys — tests assert
+        // !hasOwnProperty(C.prototype, "#m")). Store under the hidden
+        // internal key "\x01#m"; the runtime get paths consult the hidden
+        // key first for '#'-literal lookups, and key enumeration skips all
+        // '\x01'-prefixed storage keys.
+        std::string storageKey = key;
+        if (!key.empty() && key[0] == '#') {
+            storageKey = std::string("\x01") + key;
+        }
+        auto keyStr = builder_.createConstString(storageKey);
         std::vector<std::shared_ptr<HIRValue>> args = {recv, keyStr, closure};
         builder_.createCall("ts_object_set_method", args, HIRType::makeVoid());
     };

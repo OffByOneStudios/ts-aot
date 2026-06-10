@@ -3876,6 +3876,25 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_undefined();
         }
 
+        // Private-member access: `this.#m` compiles to a lookup with the
+        // literal "#m" key, but private methods are STORED under the hidden
+        // internal key "\x01#m" (invisible to hasOwnProperty / ownKeys per
+        // ECMA-262 — private names are not property keys). Hidden-first so a
+        // same-named string property can't shadow the private member; falls
+        // through to the normal path so plain string keys like obj["#$"]
+        // keep working. The prefixed key doesn't start with '#', so this
+        // recurses at most once.
+        if (keyStr[0] == '#') {
+            std::string hiddenKey;
+            hiddenKey.reserve(strlen(keyStr) + 1);
+            hiddenKey.push_back('\x01');
+            hiddenKey.append(keyStr);
+            TsValue* hidden = ts_object_get_property(obj, hiddenKey.c_str());
+            if (hidden && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(hidden))) {
+                return hidden;
+            }
+        }
+
         // NaN-box decode: obj may be a NaN-boxed TsValue* (number, bool, undefined, null)
         // or a raw pointer (TsObject*, TsArray*, TsString*, etc.)
         uint64_t nb = (uint64_t)(uintptr_t)obj;
@@ -6789,19 +6808,23 @@ TsValue* ts_value_make_int(int64_t i) {
             return ts_value_make_array((TsArray*)ts_flat_object_keys(rawPtr));
         }
 
+        // All own string keys incl. non-enumerable, but never internal '\x01'
+        // storage keys (user-symbol slots, private-method "\x01#m" slots) —
+        // those are not property keys per ECMA-262.
+        extern void* ts_map_own_string_keys(void*);
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
-            return ts_value_make_array(ts_map_keys(rawPtr));
+            return ts_value_make_array(ts_map_own_string_keys(rawPtr));
         }
 
         // Handle TsFunction and TsClosure - delegate to their properties map
         if (magic == 0x46554E43) { // TsFunction::MAGIC
             TsMap* props = ((TsFunction*)rawPtr)->properties;
-            if (props) return ts_value_make_array(ts_map_keys(props));
+            if (props) return ts_value_make_array(ts_map_own_string_keys(props));
         }
         if (magic == 0x434C5352) { // TsClosure magic
             TsMap* props = ((TsClosure*)rawPtr)->properties;
-            if (props) return ts_value_make_array(ts_map_keys(props));
+            if (props) return ts_value_make_array(ts_map_own_string_keys(props));
         }
 
         return ts_value_make_array(TsArray::Create(0));
@@ -9636,6 +9659,28 @@ TsValue* ts_value_make_int(int64_t i) {
 
         uint64_t objNb = nanbox_from_tsvalue_ptr(obj);
         uint64_t keyNb = nanbox_from_tsvalue_ptr(key);
+
+        // Private-member access (`this.#m` with a "#"-literal key): private
+        // methods are stored under the hidden internal key "\x01#m" so they
+        // never appear as own properties (hasOwnProperty/ownKeys). Hidden
+        // store is consulted first; plain string keys like obj["#$"] fall
+        // through to the normal path. Recurses at most once (the prefixed
+        // key doesn't start with '#').
+        if (nanbox_is_string_ptr(keyNb)) {
+            TsString* ks0 = (TsString*)nanbox_to_ptr(keyNb);
+            const char* kc0 = ks0 ? ks0->ToUtf8() : nullptr;
+            if (kc0 && kc0[0] == '#') {
+                std::string hiddenKey;
+                hiddenKey.reserve(strlen(kc0) + 1);
+                hiddenKey.push_back('\x01');
+                hiddenKey.append(kc0);
+                TsValue* hk = ts_value_make_string(TsString::Create(hiddenKey.c_str()));
+                TsValue* hidden = ts_object_get_dynamic(obj, hk);
+                if (hidden && !nanbox_is_undefined(nanbox_from_tsvalue_ptr(hidden))) {
+                    return hidden;
+                }
+            }
+        }
 
         // TODO: ECMA-262 §13.3.2.1 says property access on null/undefined should
         // throw TypeError. The sibling static-key path (ts_object_get_property)

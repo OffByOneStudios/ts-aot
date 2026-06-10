@@ -530,10 +530,21 @@ static void* map_keys_filtered(void* map, bool symbolsOnly, bool allKeys) {
         if (kc && (!strcmp(kc, "__NumberData") || !strcmp(kc, "__StringData") ||
                    !strcmp(kc, "__BooleanData"))) continue;
         bool isSym = kc && ts_is_user_symbol_storage_key(kc) != 0;
+        // Any other '\x01'-prefixed key is an implementation-internal storage
+        // key (e.g. "\x01#m" private-method slots) — invisible to all key
+        // enumeration. Symbol storage keys ("\x01@@sym\x01...") are handled by
+        // the isSym partition above.
+        if (kc && kc[0] == '\x01' && !isSym) continue;
         if (isSym != symbolsOnly) continue;
         out->Push(boxed);
     }
     return out;
+}
+
+// ALL own string keys (enumerable + non-enumerable), excluding user-Symbol
+// storage keys and internal '\x01' slots — the Object.getOwnPropertyNames set.
+void* ts_map_own_string_keys(void* map) {
+    return map_keys_filtered(map, false, true);
 }
 
 void* ts_map_enumerable_keys(void* map) {
