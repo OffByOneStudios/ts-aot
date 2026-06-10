@@ -1072,7 +1072,9 @@ extern "C" {
         // options is a TsMap or flat object with maxByteLength property
         TsValue* maxByteLengthVal = ts_object_get_dynamic((TsValue*)options, (TsValue*)TsString::Create("maxByteLength"));
         if (maxByteLengthVal && !ts_value_is_undefined(maxByteLengthVal)) {
-            int64_t maxByteLength = ts_value_get_int(maxByteLengthVal);
+            // ts_to_number, not ts_value_get_int: the option commonly arrives
+            // as a NaN-boxed double, which get_int misreads.
+            int64_t maxByteLength = (int64_t)ts_to_number(maxByteLengthVal);
             if (maxByteLength < (int64_t)length) {
                             ts_throw((TsValue*)ts_error_create_typed("RangeError",
                     "maxByteLength must be >= byteLength"));
@@ -2483,9 +2485,14 @@ TsTypedArray* TsTypedArray::Create(size_t length, size_t elementSize, bool clamp
 }
 
 TsTypedArray* TsTypedArray::CreateOnBuffer(TsBuffer* buffer, size_t byteOffset, size_t length,
-                                            size_t elementSize, bool clamped, TypedArrayType type) {
+                                            size_t elementSize, bool clamped, TypedArrayType type,
+                                            bool trackLength) {
     void* mem = ts_alloc(sizeof(TsTypedArray));
-    return new(mem) TsTypedArray(buffer, byteOffset, length, elementSize, clamped, type);
+    TsTypedArray* ta = new(mem) TsTypedArray(buffer, byteOffset, length, elementSize, clamped, type);
+    // Length-tracking semantics only exist for resizable buffers; a plain
+    // buffer can't change size so the cached length is always right.
+    ta->autoLength = trackLength && buffer && buffer->IsResizable();
+    return ta;
 }
 
 TsTypedArray::TsTypedArray(size_t length, size_t elementSize, bool clamped, TypedArrayType type) {

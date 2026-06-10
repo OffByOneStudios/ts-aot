@@ -2690,6 +2690,10 @@ extern "C" {
     }
 
     // Small helper: if receiver is a TsTypedArray, return it; else nullptr.
+    // Every use site is a TypedArray prototype-method implementation, so
+    // this doubles as ECMA-262 ValidateTypedArray: a fixed-extent view left
+    // out of bounds by a resizable-buffer shrink throws TypeError here
+    // (the 74-test "implements ArrayBuffer.prototype.resize" family).
     static TsTypedArray* try_as_typed_array(void* arr) {
         if (!arr) return nullptr;
         void* raw = ts_nanbox_safe_unbox(arr);
@@ -2698,7 +2702,13 @@ extern "C" {
         if (p <= 0x1000 || p >= 0x0000800000000000ULL) return nullptr;
         uint32_t m16 = *(uint32_t*)((char*)raw + 16);
         if (m16 != TsTypedArray::MAGIC) return nullptr;
-        return (TsTypedArray*)raw;
+        TsTypedArray* ta = (TsTypedArray*)raw;
+        if (ta->IsOutOfBounds()) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "TypedArray is out of bounds on its ArrayBuffer"));
+            return nullptr;  // unreachable
+        }
+        return ta;
     }
 
     int64_t ts_array_indexOf(void* arr, int64_t value) {
@@ -2824,19 +2834,13 @@ extern "C" {
         if (!raw) raw = arr;
         // Guard: TypedArray receivers are also compiled as .at() calls, but
         // TsTypedArray is not a TsArray. Delegate to its Get() + negative-index
-        // semantics.
-        {
-            uintptr_t p = (uintptr_t)raw;
-            if (p > 0x1000 && p < 0x0000800000000000ULL) {
-                uint32_t m16 = *(uint32_t*)((char*)raw + 16);
-                if (m16 == TsTypedArray::MAGIC) {
-                    TsTypedArray* ta = (TsTypedArray*)raw;
-                    int64_t len = (int64_t)ta->GetLength();
-                    if (index < 0) index = len + index;
-                    if (index < 0 || index >= len) return ts_value_make_undefined();
-                    return ts_value_make_double(ta->Get((size_t)index));
-                }
-            }
+        // semantics. try_as_typed_array doubles as ValidateTypedArray
+        // (TypeError on an out-of-bounds view over a shrunk resizable buffer).
+        if (TsTypedArray* ta = try_as_typed_array(raw)) {
+            int64_t len = (int64_t)ta->GetLength();
+            if (index < 0) index = len + index;
+            if (index < 0 || index >= len) return ts_value_make_undefined();
+            return ts_value_make_double(ta->Get((size_t)index));
         }
         TsArray* a = (TsArray*)raw;
         int64_t len = a->Length();

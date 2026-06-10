@@ -149,15 +149,40 @@ public:
     // Create a TypedArray that shares an existing buffer's bytes
     // (Phase 3 of ArrayBuffer project — `new Uint8Array(ab)` etc.).
     static TsTypedArray* CreateOnBuffer(TsBuffer* buffer, size_t byteOffset, size_t length,
-                                        size_t elementSize, bool clamped, TypedArrayType type);
+                                        size_t elementSize, bool clamped, TypedArrayType type,
+                                        bool trackLength = false);
     // Per ES spec, when the underlying ArrayBuffer is detached, a
     // TypedArray reports length / byteLength / byteOffset as 0 and
     // indexed access returns undefined. We honor that here so callers
     // that bounds-check via GetLength() naturally bail out.
     bool IsDetachedBuffer() { return !buffer || buffer->IsDetached(); }
+    // ES2024 resizable buffers: a fixed-extent view whose [offset,
+    // offset+len*esize) no longer fits the (shrunk) buffer — or an
+    // auto-length view whose offset exceeds it — is OUT OF BOUNDS;
+    // prototype methods must throw TypeError (ValidateTypedArray).
+    bool IsOutOfBounds() {
+        if (IsDetachedBuffer() || !buffer->IsResizable()) return false;
+        size_t bufLen = buffer->GetLength();
+        if (autoLength) return byteOffset > bufLen;
+        return byteOffset + length * elementSize > bufLen;
+    }
     uint8_t* GetData() { return IsDetachedBuffer() ? nullptr : buffer->GetData() + byteOffset; }
-    size_t GetLength() { return IsDetachedBuffer() ? 0 : length; }
-    size_t GetByteLength() { return IsDetachedBuffer() ? 0 : length * elementSize; }
+    // Length-tracking views (constructed over a resizable buffer without an
+    // explicit length) recompute from the buffer's CURRENT byteLength; a
+    // fixed view that is out of bounds reports 0 so element reads/writes
+    // bail out safely (the TypeError surfaces at method dispatch).
+    size_t GetLength() {
+        if (IsDetachedBuffer()) return 0;
+        if (buffer->IsResizable()) {
+            size_t bufLen = buffer->GetLength();
+            if (autoLength) {
+                return byteOffset >= bufLen ? 0 : (bufLen - byteOffset) / elementSize;
+            }
+            if (byteOffset + length * elementSize > bufLen) return 0;
+        }
+        return length;
+    }
+    size_t GetByteLength() { return GetLength() * elementSize; }
     size_t GetByteOffset() { return IsDetachedBuffer() ? 0 : byteOffset; }
     size_t GetElementSize() { return elementSize; }
     bool IsClamped() { return clamped; }
@@ -179,6 +204,7 @@ private:
     bool clamped;
     TypedArrayType arrayType;
     size_t byteOffset = 0;
+    bool autoLength = false;  // length-tracking view over a resizable buffer
 };
 
 class TsDataView : public TsObject {

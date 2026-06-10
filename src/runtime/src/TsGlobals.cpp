@@ -2496,6 +2496,36 @@ void* ts_get_global_ArrayBuffer() {
                 }
                 return ts_value_make_int((int64_t)(buf->IsResizable() ? buf->GetMaxByteLength() : buf->GetLength()));
             });
+            // ArrayBuffer.prototype.resize(newByteLength) as a function-valued
+            // own property of the PROTOTYPE — test262's resizable-buffer
+            // helpers feature-detect `typeof ArrayBuffer.prototype.resize ===
+            // "function"` there, so the instance-level GetPropertyVirtual
+            // wiring alone left the whole family skipped as unimplemented.
+            {
+                TsValue rk; rk.type = ValueType::STRING_PTR; rk.ptr_val = TsString::GetInterned("resize");
+                TsValue rv = nanbox_to_tagged(ts_value_make_native_function(
+                    (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                        if (!ctx) ctx = ts_get_call_this();
+                        void* raw = ts_nanbox_safe_unbox(ctx);
+                        TsBuffer* buf = raw ? dynamic_cast<TsBuffer*>((TsObject*)raw) : nullptr;
+                        if (!buf) {
+                            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                                "ArrayBuffer.prototype.resize called on non-ArrayBuffer"));
+                            return ts_value_make_undefined();
+                        }
+                        double d = (argc >= 1 && argv[0] && !ts_value_is_undefined(argv[0]))
+                            ? ts_to_number(argv[0]) : 0;
+                        if (d < 0) {
+                            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                                "Invalid array buffer length"));
+                            return ts_value_make_undefined();
+                        }
+                        buf->Resize((size_t)(int64_t)d);
+                        return ts_value_make_undefined();
+                    }, nullptr));
+                constexpr uint8_t ATTR_W = 0x02, ATTR_C = 0x04;
+                abProto->SetWithAttrs(rk, rv, ATTR_W | ATTR_C);
+            }
             (void)requireBuffer;
         }
 
@@ -4151,8 +4181,10 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
                         return nullptr;                                                  \
                     }                                                                    \
                 }                                                                        \
+                /* byteLength < 0 = "rest of buffer": length-tracking over   */          \
+                /* a resizable buffer (ES2024 auto-length view).             */          \
                 return TsTypedArray::CreateOnBuffer(buf, off, bytes / (ElemSize),        \
-                    (ElemSize), (Clamped), (TypeEnum));                                  \
+                    (ElemSize), (Clamped), (TypeEnum), byteLength < 0);                  \
             }                                                                            \
             /* TsArray fast path: use GetElementDouble for indexed reads. */             \
             if (srcMagic0 == 0x41525259) { /* TsArray::MAGIC "ARRY" */                   \
@@ -4196,6 +4228,10 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
     return CreateFn(length);                                                             \
 }
 
+// BigInt TA allocators live in extensions/node/core/src/TsBuffer.cpp.
+extern "C" void* ts_typed_array_create_i64(int64_t length);
+extern "C" void* ts_typed_array_create_u64(int64_t length);
+
 DEFINE_TYPED_ARRAY_NEW(i8,      ts_typed_array_create_i8,      1, false, TypedArrayType::Int8)
 DEFINE_TYPED_ARRAY_NEW(u8,      ts_typed_array_create_u8,      1, false, TypedArrayType::Uint8)
 DEFINE_TYPED_ARRAY_NEW(clamped, ts_typed_array_create_clamped, 1, true,  TypedArrayType::Uint8Clamped)
@@ -4205,6 +4241,8 @@ DEFINE_TYPED_ARRAY_NEW(i32,     ts_typed_array_create_i32,     4, false, TypedAr
 DEFINE_TYPED_ARRAY_NEW(u32,     ts_typed_array_create_u32,     4, false, TypedArrayType::Uint32)
 DEFINE_TYPED_ARRAY_NEW(f32,     ts_typed_array_create_f32,     4, false, TypedArrayType::Float32)
 DEFINE_TYPED_ARRAY_NEW(f64,     ts_typed_array_create_f64,     8, false, TypedArrayType::Float64)
+DEFINE_TYPED_ARRAY_NEW(i64,     ts_typed_array_create_i64,     8, false, TypedArrayType::BigInt64)
+DEFINE_TYPED_ARRAY_NEW(u64,     ts_typed_array_create_u64,     8, false, TypedArrayType::BigUint64)
 
 #undef DEFINE_TYPED_ARRAY_NEW
 
@@ -4643,7 +4681,7 @@ static void install_uint8_hex_methods(void* ctorVal) {
     }
 }
 
-#define DEFINE_TYPED_ARRAY_CTOR(JsName, CName, RuntimeFn)                              \
+#define DEFINE_TYPED_ARRAY_CTOR(JsName, CName, RuntimeFn, ElemSize)                     \
 void* ts_get_global_##CName() {                                                         \
     static void* cached = nullptr;                                                      \
     if (!cached) {                                                                      \
@@ -4677,6 +4715,26 @@ void* ts_get_global_##CName() {                                                 
             return (TsValue*)RuntimeFn(length);                                         \
         };                                                                              \
         cached = makeTypedArrayCtor(#JsName, fn, ts_get_global_TypedArray());           \
+        /* ECMA-262: BYTES_PER_ELEMENT on the CONSTRUCTOR and its prototype */          \
+        /* ({writable:false, enumerable:false, configurable:false}). It was  */          \
+        /* missing entirely, so TA.BYTES_PER_ELEMENT through any dynamic     */          \
+        /* reference was undefined and harness BPE arithmetic went NaN.      */          \
+        {                                                                               \
+            void* cfRaw = ts_value_get_object((TsValue*)cached);                        \
+            TsFunction* cf = (TsFunction*)(cfRaw ? cfRaw : cached);                     \
+            if (cf && cf->properties) {                                                 \
+                TsValue bk; bk.type = ValueType::STRING_PTR;                            \
+                bk.ptr_val = TsString::GetInterned("BYTES_PER_ELEMENT");                \
+                TsValue bv; bv.type = ValueType::NUMBER_INT; bv.i_val = (ElemSize);     \
+                cf->properties->SetWithAttrs(bk, bv, 0);                                \
+                TsValue pk; pk.type = ValueType::STRING_PTR;                            \
+                pk.ptr_val = TsString::GetInterned("prototype");                        \
+                TsValue pv = cf->properties->Get(pk);                                   \
+                if (pv.type == ValueType::OBJECT_PTR && pv.ptr_val) {                   \
+                    ((TsMap*)pv.ptr_val)->SetWithAttrs(bk, bv, 0);                      \
+                }                                                                       \
+            }                                                                           \
+        }                                                                               \
         if (strcmp(#JsName, "Uint8Array") == 0) install_uint8_hex_methods(cached);      \
         { static bool _r=false; if(!_r){ _r=true; ts_gc_register_root((void**)&cached); } } \
     }                                                                                   \
@@ -4693,17 +4751,17 @@ void* ts_get_global_##CName() {                                                 
 extern "C" void* ts_typed_array_create_i64(int64_t length);
 extern "C" void* ts_typed_array_create_u64(int64_t length);
 
-DEFINE_TYPED_ARRAY_CTOR(Int8Array,         Int8Array,         ts_typed_array_create_i8)
-DEFINE_TYPED_ARRAY_CTOR(Uint8Array,        Uint8Array,        ts_typed_array_create_u8)
-DEFINE_TYPED_ARRAY_CTOR(Uint8ClampedArray, Uint8ClampedArray, ts_typed_array_create_clamped)
-DEFINE_TYPED_ARRAY_CTOR(Int16Array,        Int16Array,        ts_typed_array_create_i16)
-DEFINE_TYPED_ARRAY_CTOR(Uint16Array,       Uint16Array,       ts_typed_array_create_u16)
-DEFINE_TYPED_ARRAY_CTOR(Int32Array,        Int32Array,        ts_typed_array_create_i32)
-DEFINE_TYPED_ARRAY_CTOR(Uint32Array,       Uint32Array,       ts_typed_array_create_u32)
-DEFINE_TYPED_ARRAY_CTOR(Float32Array,      Float32Array,      ts_typed_array_create_f32)
-DEFINE_TYPED_ARRAY_CTOR(Float64Array,      Float64Array,      ts_typed_array_create_f64)
-DEFINE_TYPED_ARRAY_CTOR(BigInt64Array,     BigInt64Array,     ts_typed_array_create_i64)
-DEFINE_TYPED_ARRAY_CTOR(BigUint64Array,    BigUint64Array,    ts_typed_array_create_u64)
+DEFINE_TYPED_ARRAY_CTOR(Int8Array, Int8Array, ts_typed_array_create_i8, 1)
+DEFINE_TYPED_ARRAY_CTOR(Uint8Array, Uint8Array, ts_typed_array_create_u8, 1)
+DEFINE_TYPED_ARRAY_CTOR(Uint8ClampedArray, Uint8ClampedArray, ts_typed_array_create_clamped, 1)
+DEFINE_TYPED_ARRAY_CTOR(Int16Array, Int16Array, ts_typed_array_create_i16, 2)
+DEFINE_TYPED_ARRAY_CTOR(Uint16Array, Uint16Array, ts_typed_array_create_u16, 2)
+DEFINE_TYPED_ARRAY_CTOR(Int32Array, Int32Array, ts_typed_array_create_i32, 4)
+DEFINE_TYPED_ARRAY_CTOR(Uint32Array, Uint32Array, ts_typed_array_create_u32, 4)
+DEFINE_TYPED_ARRAY_CTOR(Float32Array, Float32Array, ts_typed_array_create_f32, 4)
+DEFINE_TYPED_ARRAY_CTOR(Float64Array, Float64Array, ts_typed_array_create_f64, 8)
+DEFINE_TYPED_ARRAY_CTOR(BigInt64Array, BigInt64Array, ts_typed_array_create_i64, 8)
+DEFINE_TYPED_ARRAY_CTOR(BigUint64Array, BigUint64Array, ts_typed_array_create_u64, 8)
 
 #undef DEFINE_TYPED_ARRAY_CTOR
 

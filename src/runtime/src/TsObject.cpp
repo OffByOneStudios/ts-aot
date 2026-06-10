@@ -4225,6 +4225,17 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "buffer") == 0) {
                 return ts_value_make_object(ta->GetBuffer());
             }
+            // ES2024 ValidateTypedArray: a fixed-extent view left out of
+            // bounds by a buffer shrink must make every prototype method
+            // throw TypeError. Validating here (method ACCESS on the
+            // instance) covers the test262 idiom `array.at(0)` after
+            // resize — one chokepoint instead of ~37 native preludes.
+            // Plain data reads above (length/byteLength/...) report 0s.
+            if (ta->IsOutOfBounds()) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "TypedArray is out of bounds on its ArrayBuffer"));
+                return ts_value_make_undefined();
+            }
             // Methods
             if (strcmp(keyStr, "slice") == 0) {
                 return makeNamedNativeFunction((void*)ts_typed_array_slice_native, ta, "slice", 2);
@@ -6084,6 +6095,10 @@ TsValue* ts_value_make_int(int64_t i) {
                         extern void* ts_get_global_Uint16Array(); extern void* ts_get_global_Int32Array();
                         extern void* ts_get_global_Uint32Array(); extern void* ts_get_global_Float32Array();
                         extern void* ts_get_global_Float64Array();
+                        extern void* ts_get_global_BigInt64Array();
+                        extern void* ts_get_global_BigUint64Array();
+                        extern void* ts_typed_array_new_i64(TsValue*, int64_t, int64_t);
+                        extern void* ts_typed_array_new_u64(TsValue*, int64_t, int64_t);
                         struct TAEntry { void*(*g)(); void*(*n)(TsValue*, int64_t, int64_t); };
                         const TAEntry taTable[] = {
                             { ts_get_global_Int8Array, ts_typed_array_new_i8 },
@@ -6095,6 +6110,8 @@ TsValue* ts_value_make_int(int64_t i) {
                             { ts_get_global_Uint32Array, ts_typed_array_new_u32 },
                             { ts_get_global_Float32Array, ts_typed_array_new_f32 },
                             { ts_get_global_Float64Array, ts_typed_array_new_f64 },
+                            { ts_get_global_BigInt64Array, ts_typed_array_new_i64 },
+                            { ts_get_global_BigUint64Array, ts_typed_array_new_u64 },
                         };
                         for (const auto& e : taTable) {
                             if (isGlobal(e.g)) {
@@ -6113,9 +6130,18 @@ TsValue* ts_value_make_int(int64_t i) {
                         // wrapAsCallable body produces a non-buffer, so build a
                         // real TsBuffer here.
                         extern void* ts_arraybuffer_create(int64_t length);
-                        int64_t len = (argc >= 1 && it) ? (int64_t)ts_to_number(it) : 0;
-                        if (len < 0) len = 0;
-                        void* ab = ts_arraybuffer_create(len);
+                        // ToIndex semantics: NaN coerces to +0; negative or
+                        // non-finite-positive lengths throw RangeError (the
+                        // old `len < 0 -> 0` clamp silently swallowed
+                        // `new ArrayBuffer(Infinity)` via INT64_MIN).
+                        double dlen = (argc >= 1 && it) ? ts_to_number(it) : 0;
+                        if (dlen != dlen) dlen = 0;
+                        if (dlen < 0 || dlen > 9007199254740991.0) {
+                            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                                "Invalid array buffer length"));
+                            return ts_value_make_undefined();
+                        }
+                        void* ab = ts_arraybuffer_create((int64_t)dlen);
                         return ab ? ts_value_make_object(ab) : ts_value_make_undefined();
                     }
                 }
