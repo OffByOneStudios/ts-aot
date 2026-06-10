@@ -3,6 +3,7 @@
 #include "TsArray.h"
 #include "TsMap.h"
 #include "TsGC.h"
+#include "TsError.h"
 #include <uv.h>
 #include <vector>
 #include <iostream>
@@ -122,6 +123,16 @@ TsPromise* TsAsyncGenerator::next(TsValue* value) {
         TsValue* boxed = (TsValue*)pendingYields->Get(yieldCursor++);
         ts_promise_resolve_internal(
             p, create_generator_result(nanbox_to_tagged(boxed), false));
+        return p;
+    }
+    // An uncaught throw from the eager body rejects the first next() after
+    // the queued yields drain, then the generator is done (ECMA-262
+    // AsyncGeneratorReject + completed state).
+    if (hasException) {
+        hasException = false;
+        done = true;
+        ts_promise_reject_internal(p, nanbox_from_tagged(pendingException));
+        pendingException = TsValue();
         return p;
     }
     if (done) {
@@ -245,8 +256,142 @@ TsValue* ts_generator_yield_star(TsValue* iterable) {
     return ts_value_make_undefined();
 }
 
+// Distinguishes async-iteration protocol throws (yield* GetIterator
+// TypeErrors, awaited next()-result rejections) from other throws escaping
+// the eager async-generator body. Protocol throws must REJECT the first
+// next() promise; parameter-binding errors (lowered as a body prologue in
+// the eager model) must keep throwing SYNCHRONOUSLY out of gen() — the
+// dstr/dflt-params test262 family asserts that with assert.throws. The
+// compiler's agen.reject landing pad consults-and-clears this flag.
+static bool g_agen_protocol_throw = false;
+
+int ts_agen_take_protocol_flag() {
+    int v = g_agen_protocol_throw ? 1 : 0;
+    g_agen_protocol_throw = false;
+    return v;
+}
+
+static void agen_protocol_throw(TsValue* exc) {
+    g_agen_protocol_throw = true;
+    ts_throw(exc);
+}
+
+// IsCallable for yield* protocol checks: TsFunction/TsClosure carry their
+// magic at offset 0 (native fns) or 16 (canonical TsObject slot).
+static bool agen_is_callable(TsValue* val) {
+    if (!val) return false;
+    uint64_t nb = nanbox_from_tsvalue_ptr(val);
+    if (!nanbox_is_ptr(nb)) return false;
+    void* ptr = nanbox_to_ptr(nb);
+    if (!ptr) return false;
+    uint32_t magic0 = *(uint32_t*)ptr;
+    if (magic0 == 0x434C5352 || magic0 == 0x46554E43) return true;
+    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
+    return magic16 == 0x434C5352 || magic16 == 0x46554E43;
+}
+
+static bool agen_is_undef_or_null(TsValue* val) {
+    if (!val) return true;
+    uint64_t nb = nanbox_from_tsvalue_ptr(val);
+    return nanbox_is_undefined(nb) || nanbox_is_null(nb);
+}
+
+// `yield* iterable` inside an async generator (eager-body model).
+// ECMA-262 §27.6.3.7 YieldExpression : yield* — GetIterator(value, async)
+// with full protocol checks (the dominant test262 "abrupt completion closes
+// iter" cluster is these TypeErrors), then an eager drain that re-yields
+// every value. Throws via ts_throw; the async-gen prologue barrier turns
+// that into a rejected first-next() promise.
 TsValue* ts_async_generator_yield_star(TsValue* iterable) {
-    (void)iterable;
+    extern TsValue* ts_object_get_property(void* o, const char* k);
+
+    // Everything thrown during yield* evaluation — our protocol TypeErrors,
+    // user getters/methods invoked by GetIterator, next() calls, awaited
+    // rejections — is an abrupt completion of the yield* per spec and must
+    // REJECT the first next() promise (not escape gen() synchronously).
+    // Flag the whole evaluation; cleared on the normal-return paths below.
+    // The compiler's agen.reject landing pad consumes the flag.
+    g_agen_protocol_throw = true;
+
+    void* raw = iterable ? ts_value_get_object(iterable) : nullptr;
+    if (!raw) {
+        agen_protocol_throw((TsValue*)ts_error_create_typed("TypeError",
+            "value is not async iterable"));
+        return ts_value_make_undefined();
+    }
+
+    // GetIterator(value, async): method = GetMethod(obj, @@asyncIterator).
+    // The property read runs getters, so an abrupt get propagates here.
+    TsValue* method = ts_object_get_property(raw, "[Symbol.asyncIterator]");
+    bool isAsyncIter = !agen_is_undef_or_null(method);
+    if (isAsyncIter && !agen_is_callable(method)) {
+        agen_protocol_throw((TsValue*)ts_error_create_typed("TypeError",
+            "[Symbol.asyncIterator] is not callable"));
+        return ts_value_make_undefined();
+    }
+    if (!isAsyncIter) {
+        // Fall back to the sync iterator (spec: CreateAsyncFromSyncIterator).
+        method = ts_object_get_property(raw, "[Symbol.iterator]");
+        if (agen_is_undef_or_null(method)) {
+            agen_protocol_throw((TsValue*)ts_error_create_typed("TypeError",
+                "value is not async iterable"));
+            return ts_value_make_undefined();
+        }
+        if (!agen_is_callable(method)) {
+            agen_protocol_throw((TsValue*)ts_error_create_typed("TypeError",
+                "[Symbol.iterator] is not callable"));
+            return ts_value_make_undefined();
+        }
+    }
+
+    // iterator = ? Call(method, obj); must be an Object.
+    TsValue* iter = ts_call_with_this_0(method, iterable);
+    void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
+    if (!iterRaw) {
+        agen_protocol_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator method returned a non-object"));
+        return ts_value_make_undefined();
+    }
+
+    TsValue* nextFn = ts_object_get_property(iterRaw, "next");
+    if (!agen_is_callable(nextFn)) {
+        agen_protocol_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator.next is not callable"));
+        return ts_value_make_undefined();
+    }
+
+    // Eager drain: pull every value, awaiting promise-shaped results
+    // (ts_promise_await pumps the loop and re-throws rejections), and
+    // re-yield through the generator's queue. Bounded as a hang guard —
+    // an infinite iterator can't be partially consumed in the eager model.
+    extern TsValue* ts_promise_await(TsValue* promise);
+    for (int64_t guard = 0; guard < 1000000; guard++) {
+        TsValue* res = ts_call_with_this_0(nextFn, iter);
+        TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
+        if (rv.type == ValueType::PROMISE_PTR) {
+            res = ts_promise_await(res);
+        }
+        void* resRaw = res ? ts_value_get_object(res) : nullptr;
+        if (!resRaw) {
+            agen_protocol_throw((TsValue*)ts_error_create_typed("TypeError",
+                "iterator result is not an object"));
+            return ts_value_make_undefined();
+        }
+        extern bool ts_iterator_result_done(TsValue* result);
+        extern TsValue* ts_iterator_result_value(TsValue* result);
+        bool isDone = ts_iterator_result_done(res);
+        TsValue* value = ts_iterator_result_value(res);
+        TsValue vv = value ? nanbox_to_tagged(value) : TsValue();
+        if (vv.type == ValueType::PROMISE_PTR) {
+            value = ts_promise_await(value);
+        }
+        if (isDone) {
+            g_agen_protocol_throw = false;
+            return value ? value : ts_value_make_undefined();
+        }
+        ts_async_generator_yield(value);
+    }
+    g_agen_protocol_throw = false;
     return ts_value_make_undefined();
 }
 
@@ -410,6 +555,32 @@ void ts_async_generator_return(TsAsyncGenerator* gen, TsValue* value) {
         gen->ctx->yieldedValue = gen->returnValue;
     }
     // Pop the eager-body stack entry pushed by ts_async_generator_create.
+    if (!g_asyncgen_stack.empty() && g_asyncgen_stack.back() == gen) {
+        g_asyncgen_stack.pop_back();
+    }
+}
+
+// Uncaught throw escaping the eager async-generator body: the compiler's
+// async-gen prologue barrier (HIRToLLVM) lands here instead of letting the
+// throw escape gen() synchronously. Recorded; the first next() after any
+// queued yields drain returns a REJECTED promise (ECMA-262: the throw
+// completes the generator).
+void ts_async_generator_set_exception(TsAsyncGenerator* gen, TsValue* exc) {
+    if (!gen) return;
+    gen->hasException = true;
+    gen->pendingException = exc ? nanbox_to_tagged(exc) : TsValue();
+    // Body ended abruptly — ts_async_generator_return never ran, so pop here.
+    if (!g_asyncgen_stack.empty() && g_asyncgen_stack.back() == gen) {
+        g_asyncgen_stack.pop_back();
+    }
+}
+
+// Non-protocol throw escaping the eager body synchronously (e.g. a
+// parameter-binding error): unwind the eager-body stack entry before the
+// compiler's agen.rethrow landing pad re-throws to the outer handler.
+void ts_async_generator_abort(TsAsyncGenerator* gen) {
+    if (!gen) return;
+    gen->done = true;
     if (!g_asyncgen_stack.empty() && g_asyncgen_stack.back() == gen) {
         g_asyncgen_stack.pop_back();
     }

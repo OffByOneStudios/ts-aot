@@ -57,6 +57,8 @@ struct TsAsyncGenerator : public TsMap {
     TsArray* pendingYields = nullptr;
     size_t yieldCursor = 0;
     TsValue returnValue;   // body's return value; surfaced once on first done-result
+    TsValue pendingException;   // uncaught throw from the eager body; rejects the
+    bool hasException = false;  // first next() promise once queued yields drain
 
     TsAsyncGenerator(AsyncContext* ctx);
     TsPromise* next(TsValue* value = nullptr);

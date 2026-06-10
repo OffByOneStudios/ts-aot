@@ -1487,8 +1487,101 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         llvm::Value* boxedPromise = builder_->CreateCall(
             makePromiseFn, { gcPtrToRaw(asyncPromise_) }, "rejected_promise");
         builder_->CreateRet(boxedPromise);
+    } else if (fn->isAsync && fn->isGenerator && generatorObject_ && !fn->blocks.empty()) {
+        // Async-generator eager body: same setjmp barrier as async functions,
+        // but an uncaught throw is recorded on the generator (the first
+        // next() promise rejects) instead of escaping gen() synchronously —
+        // e.g. the yield* GetIterator TypeErrors (the test262 "abrupt
+        // completion closes iter" cluster).
+        llvm::BasicBlock* firstBlock = blockMap_[fn->blocks[0].get()];
+        llvm::BasicBlock* agenRejectBB = llvm::BasicBlock::Create(
+            context_, "agen.reject", llvmFunc);
+
+        llvmFunc->addFnAttr(llvm::Attribute::NoInline);
+
+        auto pushFn = getOrDeclareRuntimeFunction("ts_push_exception_handler",
+            getGCPtrTy(), {});
+        llvm::Value* jmpBuf = builder_->CreateCall(pushFn, {});
+
+#ifdef _WIN32
+        auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
+            builder_->getInt32Ty(),
+            { getGCPtrTy(), getGCPtrTy() });
+        if (auto* sjFn = llvm::dyn_cast<llvm::Function>(setjmpFn.getCallee())) {
+            sjFn->addFnAttr(llvm::Attribute::ReturnsTwice);
+        }
+        auto frameAddrFn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::frameaddress, { getGCPtrTy() });
+        llvm::Value* framePtr = builder_->CreateCall(
+            frameAddrFn, { builder_->getInt32(0) });
+        auto* setjmpCall = builder_->CreateCall(setjmpFn, { jmpBuf, framePtr });
+        setjmpCall->addFnAttr(llvm::Attribute::ReturnsTwice);
+        llvm::Value* setjmpResult = setjmpCall;
+#else
+        auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
+            builder_->getInt32Ty(), { getGCPtrTy() });
+        if (auto* sjFn = llvm::dyn_cast<llvm::Function>(setjmpFn.getCallee())) {
+            sjFn->addFnAttr(llvm::Attribute::ReturnsTwice);
+        }
+        auto* setjmpCallPosix = builder_->CreateCall(setjmpFn, { jmpBuf });
+        setjmpCallPosix->addFnAttr(llvm::Attribute::ReturnsTwice);
+        llvm::Value* setjmpResult = setjmpCallPosix;
+#endif
+        llvm::Value* isException = builder_->CreateICmpNE(setjmpResult,
+            llvm::ConstantInt::get(builder_->getInt32Ty(), 0));
+        builder_->CreateCondBr(isException, agenRejectBB, firstBlock);
+
+        // agen.reject: ts_throw already popped its handler before longjmp.
+        // Only async-iteration PROTOCOL throws (flagged by the runtime's
+        // yield* machinery) become a pending rejection on the generator;
+        // anything else — parameter-binding errors lowered as the body
+        // prologue, plain body throws — re-throws synchronously out of
+        // gen(), preserving the spec's FormalParameters semantics that the
+        // dstr/dflt-params test family asserts with assert.throws.
+        builder_->SetInsertPoint(agenRejectBB);
+        auto getExcFn = getOrDeclareRuntimeFunction("ts_get_exception",
+            getGCPtrTy(), {});
+        llvm::Value* exc = builder_->CreateCall(getExcFn, {});
+
+        auto takeFlagFn = getOrDeclareRuntimeFunction(
+            "ts_agen_take_protocol_flag", builder_->getInt32Ty(), {});
+        llvm::Value* protoFlag = builder_->CreateCall(takeFlagFn, {});
+        llvm::Value* isProtocol = builder_->CreateICmpNE(protoFlag,
+            llvm::ConstantInt::get(builder_->getInt32Ty(), 0));
+
+        llvm::BasicBlock* recordBB = llvm::BasicBlock::Create(
+            context_, "agen.record", llvmFunc);
+        llvm::BasicBlock* rethrowBB = llvm::BasicBlock::Create(
+            context_, "agen.rethrow", llvmFunc);
+        builder_->CreateCondBr(isProtocol, recordBB, rethrowBB);
+
+        builder_->SetInsertPoint(recordBB);
+        auto setGenExcFn = getOrDeclareRuntimeFunction(
+            "ts_async_generator_set_exception",
+            builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
+        builder_->CreateCall(setGenExcFn, { generatorObject_, exc });
+
+        auto clearExcFn = getOrDeclareRuntimeFunction("ts_set_exception",
+            builder_->getVoidTy(), { getGCPtrTy() });
+        builder_->CreateCall(clearExcFn,
+            { llvm::ConstantPointerNull::get(getGCPtrTy()) });
+
+        builder_->CreateRet(generatorObject_);
+
+        // Non-protocol: propagate to the next outer handler (assert.throws
+        // try/catch or top-level). Also pop the generator's eager-body stack
+        // entry, which ts_async_generator_return never got to do.
+        builder_->SetInsertPoint(rethrowBB);
+        auto abortGenFn = getOrDeclareRuntimeFunction(
+            "ts_async_generator_abort",
+            builder_->getVoidTy(), { getGCPtrTy() });
+        builder_->CreateCall(abortGenFn, { generatorObject_ });
+        auto rethrowFn = getOrDeclareRuntimeFunction("ts_throw",
+            builder_->getVoidTy(), { getGCPtrTy() });
+        builder_->CreateCall(rethrowFn, { exc });
+        builder_->CreateUnreachable();
     } else if (fn->isAsync && !fn->blocks.empty()) {
-        // Async-generator (no asyncPromise_) path retains the simple br.
+        // Async (non-generator) without a promise: retain the simple br.
         llvm::BasicBlock* firstBlock = blockMap_[fn->blocks[0].get()];
         builder_->CreateBr(firstBlock);
     }
@@ -9648,6 +9741,12 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
             builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
         builder_->CreateCall(returnFn, { generatorObject_, boxedVal });
 
+        // Pop the prologue's catch-all handler (pushed in lowerFunction) so
+        // its stale jmp_buf can't become a later throw's target.
+        auto popHandlerFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+            builder_->getVoidTy(), {});
+        builder_->CreateCall(popHandlerFn, {});
+
         // Return the async generator object
         builder_->CreateRet(generatorObject_);
         return;
@@ -9812,6 +9911,11 @@ void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
         auto returnFn = getOrDeclareRuntimeFunction("ts_async_generator_return",
             builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
         builder_->CreateCall(returnFn, { generatorObject_, undefinedVal });
+
+        // Pop the prologue's catch-all handler (pushed in lowerFunction).
+        auto popHandlerFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+            builder_->getVoidTy(), {});
+        builder_->CreateCall(popHandlerFn, {});
 
         // Return the async generator object
         builder_->CreateRet(generatorObject_);
