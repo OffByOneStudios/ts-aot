@@ -7,6 +7,8 @@
 
 #include "TsMap.h"
 
+struct TsArray;  // global-namespace type (see TsArray.h)
+
 namespace ts {
 
 struct TsPromise;
@@ -48,8 +50,13 @@ struct TsAsyncGenerator : public TsMap {
     static constexpr uint32_t MAGIC = 0x4147454E; // "AGEN"
     AsyncContext* ctx;
     bool done = false;
-    // (removed dead `nextQueue` — never written/read; async gens use
-    //  ctx->pendingNextPromise, a GC-scanned field of AsyncContext.)
+    // Eager-body yield queue: the compiler lowers an async-generator body to
+    // run to completion inside the initial call (no state machine); each
+    // `yield v` appends to this queue via ts_async_generator_yield and
+    // next() drains it. TsArray field is GC-visible via the object scan.
+    TsArray* pendingYields = nullptr;
+    size_t yieldCursor = 0;
+    TsValue returnValue;   // body's return value; surfaced once on first done-result
 
     TsAsyncGenerator(AsyncContext* ctx);
     TsPromise* next(TsValue* value = nullptr);
@@ -118,8 +125,13 @@ extern "C" {
     void ts_generator_return_via_ctx(AsyncContext* ctx, TsValue* value);
     TsValue* ts_generator_yield(TsValue* value);
 
-    TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx);
+    // No-arg: the compiler's async-generator prologue calls this with zero
+    // args (HIRToLLVM ~975); the context is allocated internally. The old
+    // (AsyncContext*) signature was a latent ABI mismatch — ctx arrived as a
+    // garbage register.
+    TsAsyncGenerator* ts_async_generator_create();
     void ts_async_generator_return(TsAsyncGenerator* gen, TsValue* value);
+    TsValue* ts_async_generator_yield(TsValue* value);
     TsValue* AsyncGenerator_next(TsValue* gen, TsValue* value);
     void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done);
 

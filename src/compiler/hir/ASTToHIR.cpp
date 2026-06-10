@@ -3981,6 +3981,14 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         currentBlock_ = condBlock;
         auto iterReload = builder_.createLoad(HIRType::makeObject(), iterAlloca);
         auto nextResult = builder_.createCallMethod(iterReload, "next", {}, HIRType::makeObject());
+        // for-await-of: next() on an async iterator returns a PROMISE of the
+        // iteration result — await it before reading .done/.value (reading
+        // them off the promise yields undefined and the loop never ends).
+        // ts_promise_await passes non-promise results through, so sync
+        // iterators under for-await are unaffected.
+        if (node->isAwait) {
+            nextResult = builder_.createAwait(nextResult);
+        }
         builder_.createStore(nextResult, resultAlloca);
         auto doneVal = builder_.createGetPropStatic(nextResult, "done", HIRType::makeAny());
         // condBranch handles boxed value -> bool conversion via ts_value_to_bool
@@ -3991,6 +3999,11 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
         currentBlock_ = bodyBlock;
         auto resultVal = builder_.createLoad(HIRType::makeObject(), resultAlloca);
         auto elemVal = builder_.createGetPropStatic(resultVal, "value", HIRType::makeAny());
+        // for-await-of additionally awaits each VALUE (AsyncFromSyncIterator
+        // semantics — `for await (v of [p1, p2])` binds the settled values).
+        if (node->isAwait) {
+            elemVal = builder_.createAwait(elemVal);
+        }
 
         // Bind to loop variable (supports simple, array destructuring, object destructuring)
         if (node->initializer) {

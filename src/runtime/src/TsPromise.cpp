@@ -114,16 +114,37 @@ TsAsyncGenerator::TsAsyncGenerator(AsyncContext* ctx) : ctx(ctx) {
 
 TsPromise* TsAsyncGenerator::next(TsValue* value) {
     TsPromise* p = ts_promise_create();
-    if (done) {
-        ts_promise_resolve_internal(p, create_generator_result(TsValue(), true));
+
+    // Eager-body model: the lowered async-generator body ran to completion
+    // inside the initial call, queueing every yielded value (see
+    // ts_async_generator_yield). Drain the queue first.
+    if (pendingYields && yieldCursor < (size_t)pendingYields->Length()) {
+        TsValue* boxed = (TsValue*)pendingYields->Get(yieldCursor++);
+        ts_promise_resolve_internal(
+            p, create_generator_result(nanbox_to_tagged(boxed), false));
         return p;
     }
-    
-    ctx->pendingNextPromise = p;
-    ctx->yielded = false;
-    ctx->resumedValue = value;
-    ctx->resumeFn(ctx);
+    if (done) {
+        // Spec: the body's return value surfaces on the FIRST done-result
+        // only; later next() calls produce {undefined, done: true}.
+        TsValue rv = returnValue;
+        returnValue = TsValue();
+        ts_promise_resolve_internal(p, create_generator_result(rv, true));
+        return p;
+    }
 
+    // Legacy state-machine path (no current lowering emits a resumeFn for
+    // async generators, but keep it for a future suspendable implementation).
+    if (ctx && ctx->resumeFn) {
+        ctx->pendingNextPromise = p;
+        ctx->yielded = false;
+        ctx->resumedValue = value;
+        ctx->resumeFn(ctx);
+        return p;
+    }
+
+    done = true;
+    ts_promise_resolve_internal(p, create_generator_result(TsValue(), true));
     return p;
 }
 
@@ -152,9 +173,20 @@ TsValue* Generator_next_internal(void* context, TsValue* value) {
     return gen->next(value);
 }
 
+TsValue* AsyncGenerator_next_internal(void* context, TsValue* value); // defined below
+
 TsValue* Generator_next(TsValue* genVal, TsValue* value) {
     void* raw = ts_value_get_object(genVal);
     if (!raw) return ts_value_make_undefined();
+
+    // Async generator: next() must return a PROMISE of the iteration result.
+    // Without this branch the AGEN object fell through to the sync
+    // TsGenerator path below (layout-compatible prefix) and returned the
+    // {value, done} result object directly — the source of the 1,594-test
+    // "Cannot read properties of undefined (reading 'then')" cluster.
+    if (ts_is_unchecked<TsAsyncGenerator>(raw)) {
+        return AsyncGenerator_next_internal(raw, value);
+    }
 
     // Check if this is a TsMap-based iterator (has "next" property)
     // rather than a real TsGenerator
@@ -304,11 +336,59 @@ TsValue* Generator_throw(TsValue* genVal, TsValue* exception) {
     return ts_value_make_undefined();
 }
 
-TsAsyncGenerator* ts_async_generator_create(AsyncContext* ctx) {
+// The generator currently executing its (eager) body. The compiler's
+// async-generator prologue calls ts_async_generator_create(), the body's
+// yields call ts_async_generator_yield(value), and the epilogue calls
+// ts_async_generator_return(gen, v) — create pushes, return pops. A body
+// that throws leaves its entry until the next return pops it (one-shot
+// test processes make this acceptable; revisit with suspendable gens).
+// Malloc-backed vector of GC pointers => scanner + minor fixup REQUIRED
+// (.claude/rules/runtime-safety.md).
+static std::vector<TsAsyncGenerator*> g_asyncgen_stack;
+
+static void asyncgen_stack_gc_scan(void*) {
+    for (TsAsyncGenerator* g : g_asyncgen_stack) {
+        if (g) ts_gc_mark_object(g);
+    }
+}
+
+static void asyncgen_stack_gc_fixup(void*) {
+    for (TsAsyncGenerator*& g : g_asyncgen_stack) {
+        if (g) {
+            void* f = ts_gc_minor_lookup_forward(g);
+            if (f) g = (TsAsyncGenerator*)f;
+        }
+    }
+}
+
+TsAsyncGenerator* ts_async_generator_create() {
+    static bool registered = false;
+    if (!registered) {
+        registered = true;
+        ts_gc_register_scanner(asyncgen_stack_gc_scan, nullptr);
+        ts_gc_register_minor_fixup(asyncgen_stack_gc_fixup, nullptr);
+    }
+    AsyncContext* ctx = ts_async_context_create();
     void* mem = ts_alloc(sizeof(TsAsyncGenerator));
     TsAsyncGenerator* gen = new (mem) TsAsyncGenerator(ctx);
     ctx->generator = gen;
+    g_asyncgen_stack.push_back(gen);
     return gen;
+}
+
+TsValue* ts_async_generator_yield(TsValue* value) {
+    if (!g_asyncgen_stack.empty()) {
+        TsAsyncGenerator* gen = g_asyncgen_stack.back();
+        if (!gen->pendingYields) {
+            gen->pendingYields = TsArray::Create();
+            ts_gc_write_barrier(&gen->pendingYields, gen->pendingYields);
+        }
+        gen->pendingYields->Push(
+            (int64_t)(value ? value : ts_value_make_undefined()));
+    }
+    // Eager model: the value a future next(v) would send back is unknowable
+    // here; the yield expression evaluates to undefined.
+    return ts_value_make_undefined();
 }
 
 TsValue* AsyncGenerator_next_internal(void* context, TsValue* value) {
@@ -325,10 +405,13 @@ TsValue* AsyncGenerator_next(TsValue* genVal, TsValue* value) {
 void ts_async_generator_return(TsAsyncGenerator* gen, TsValue* value) {
     if (!gen) return;
     gen->done = true;
-    if (value) {
-        gen->ctx->yieldedValue = nanbox_to_tagged(value);
-    } else {
-        gen->ctx->yieldedValue = TsValue(); // undefined
+    gen->returnValue = value ? nanbox_to_tagged(value) : TsValue();
+    if (gen->ctx) {
+        gen->ctx->yieldedValue = gen->returnValue;
+    }
+    // Pop the eager-body stack entry pushed by ts_async_generator_create.
+    if (!g_asyncgen_stack.empty() && g_asyncgen_stack.back() == gen) {
+        g_asyncgen_stack.pop_back();
     }
 }
 
