@@ -8122,6 +8122,61 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
 void HIRToLLVM::lowerLoadFunction(HIRInstruction* inst) {
     std::string funcName = getOperandString(inst->operands[0]);
 
+    // Private-method value access (class DECLARATION form): the analyzer
+    // mangles `#m` to `__private_<Cls>_m`, so the method BODY is emitted as
+    // `<Cls>___private_<Cls>_<m>` — but the class pipeline's method table
+    // still references `<Cls>_#<m>`, which exists only as an EMPTY shell
+    // (ret undefined). Binding the shell made every `this.#m`-as-value read
+    // (getter-exposed private methods, the ~426-test "method invoked exactly
+    // once" cluster) silently no-op. Resolve to the mangled body when one
+    // exists; class-EXPRESSION names (body lowered directly under
+    // `<anon>_#<m>`, no mangled twin) fall through unchanged.
+    {
+        size_t hashPos = funcName.find("_#");
+        if (hashPos != std::string::npos && hirModule_) {
+            std::string cls = funcName.substr(0, hashPos);
+            std::string member = funcName.substr(hashPos + 2);
+            // Static private methods: shell is `<Cls>_static_#<m>` but the
+            // mangled body is `<Cls>_static___private_<Cls>_<m>` (analyzer
+            // mangles with the bare class name). Try the verbatim prefix
+            // first, then the static-stripped class name.
+            std::string baseCls = cls;
+            const std::string staticSuffix = "_static";
+            if (baseCls.size() > staticSuffix.size() &&
+                baseCls.compare(baseCls.size() - staticSuffix.size(),
+                                staticSuffix.size(), staticSuffix) == 0) {
+                baseCls = baseCls.substr(0, baseCls.size() - staticSuffix.size());
+            }
+            std::string mangled = cls + "___private_" + cls + "_" + member;
+            std::string mangledStatic = cls + "___private_" + baseCls + "_" + member;
+            // Gate on the HIR function list, not the LLVM module: the mangled
+            // body may not have been lowered yet (only a declaration created
+            // for the vtable global) at the time this load_function runs.
+            for (const auto& hirFn : hirModule_->functions) {
+                if (hirFn->name == mangledStatic && mangledStatic != mangled) {
+                    mangled = mangledStatic;
+                }
+                if (hirFn->name == mangled) {
+                    if (!module_->getFunction(mangled)) {
+                        // Forward-declare with the real signature so the stub
+                        // path below can't squat on the name.
+                        std::vector<llvm::Type*> paramTypes;
+                        for (const auto& param : hirFn->params) {
+                            paramTypes.push_back(getLLVMType(param.second));
+                        }
+                        llvm::Type* retTy = hirFn->returnType
+                            ? getLLVMType(hirFn->returnType) : getGCPtrTy();
+                        llvm::Function::Create(
+                            llvm::FunctionType::get(retTy, paramTypes, false),
+                            llvm::Function::ExternalLinkage, mangled, module_.get());
+                    }
+                    funcName = mangled;
+                    break;
+                }
+            }
+        }
+    }
+
     // Look up the function in the LLVM module
     llvm::Function* fn = module_->getFunction(funcName);
     if (fn) {
