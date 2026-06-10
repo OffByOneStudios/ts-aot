@@ -17,6 +17,11 @@ extern "C" double ts_to_number(TsValue* v);
 #include "TsString.h"
 #include "TsTyped.h"
 
+// ts_error_create_typed lives in the base runtime (TsError.cpp) with C
+// linkage; declare it as such — a plain extern here mangles C++-style and
+// fails to link.
+extern "C" void* ts_error_create_typed(const char* name, const char* message);
+
 // Type tags (TsBuffer/TsArray/TsString) are enrolled in their headers, so
 // ts_cast<T>/ts_is<T> are available via the includes above.
 
@@ -94,6 +99,37 @@ TsValue TsBuffer::GetPropertyVirtual(const char* key) {
                 return ts_value_make_object(sliced);
             },
             this, FunctionType::COMPILED, 2);
+        return v;
+    }
+    // ArrayBuffer.prototype.resize(newByteLength) (ES2024) — grows/shrinks
+    // a resizable buffer in place. TsBuffer::Resize enforces TypeError on a
+    // non-resizable receiver and RangeError beyond maxByteLength. This was
+    // never wired: `rab.resize(n)` resolved to undefined and silently
+    // no-opped (the "implements ArrayBuffer.prototype.resize" cluster).
+    if (strcmp(key, "resize") == 0) {
+        TsValue v;
+        v.type = ValueType::FUNCTION_PTR;
+        void* mem = ts_alloc(sizeof(TsFunction));
+        v.ptr_val = new (mem) TsFunction(
+            (void*)+[](void* ctx, TsValue* newLenV) -> TsValue* {
+                TsBuffer* buf = dynamic_cast<TsBuffer*>((TsObject*)ctx);
+                if (!buf) return ts_value_make_undefined();
+                if (buf->IsDetached()) {
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "ArrayBuffer is detached"));
+                    return ts_value_make_undefined();
+                }
+                double d = (newLenV && !ts_value_is_undefined(newLenV))
+                    ? ts_to_number(newLenV) : 0;
+                if (d < 0) {
+                    ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                        "Invalid array buffer length"));
+                    return ts_value_make_undefined();
+                }
+                buf->Resize((size_t)(int64_t)d);
+                return ts_value_make_undefined();
+            },
+            this, FunctionType::COMPILED, 1);
         return v;
     }
     // ArrayBuffer.prototype.transfer([newLength]) (ES2024) —
@@ -240,7 +276,22 @@ TsBuffer* TsBuffer::FromArrayBuffer(void* arrayBuffer, int64_t byteOffset, int64
     return buf;
 }
 
+// ECMA-262 CreateByteDataBlock: if the requested size cannot be allocated,
+// throw RangeError — never abort. ts_alloc fatally aborts on exhaustion, so
+// the implementation limit must be checked BEFORE allocating. 2^31-1 matches
+// the common engine cap; test262 allocation-limit probes 7PiB / 2^53-1.
+// A size_t from a negative int64 wraps huge and is caught by the same check.
+static constexpr size_t kMaxArrayBufferByteLength = 0x7FFFFFFF;
+
+static void buffer_check_alloc_size(size_t size) {
+    if (size > kMaxArrayBufferByteLength) {
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Invalid array buffer length"));
+    }
+}
+
 TsBuffer::TsBuffer(size_t length) {
+    buffer_check_alloc_size(length);
     this->magic = MAGIC;
     this->length = length;
     this->maxByteLength = 0;
@@ -249,22 +300,27 @@ TsBuffer::TsBuffer(size_t length) {
 }
 
 TsBuffer::TsBuffer(size_t length, size_t maxByteLength) {
+    // Allocate maxByteLength upfront so resize() doesn't need realloc
+    size_t allocSize = maxByteLength > length ? maxByteLength : length;
+    buffer_check_alloc_size(allocSize);
     this->magic = MAGIC;
     this->length = length;
     this->maxByteLength = maxByteLength;
-    // Allocate maxByteLength upfront so resize() doesn't need realloc
-    size_t allocSize = maxByteLength > length ? maxByteLength : length;
     this->data = (uint8_t*)ts_alloc(allocSize);
     std::memset(this->data, 0, allocSize);
 }
 
 void TsBuffer::Resize(size_t newByteLength) {
     if (maxByteLength == 0) {
-        ts_throw((TsValue*)ts_error_create(TsString::Create("TypeError: Cannot resize a non-resizable ArrayBuffer")));
+        // Typed error: tests assert e.constructor === TypeError; the previous
+        // generic Error with a "TypeError:" message prefix failed that check.
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Cannot resize a non-resizable ArrayBuffer"));
         return;
     }
     if (newByteLength > maxByteLength) {
-        ts_throw((TsValue*)ts_error_create(TsString::Create("RangeError: Invalid array buffer length")));
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Invalid array buffer length"));
         return;
     }
     // Zero-fill newly exposed bytes
@@ -1018,7 +1074,8 @@ extern "C" {
         if (maxByteLengthVal && !ts_value_is_undefined(maxByteLengthVal)) {
             int64_t maxByteLength = ts_value_get_int(maxByteLengthVal);
             if (maxByteLength < (int64_t)length) {
-                ts_throw((TsValue*)ts_error_create(TsString::Create("RangeError: maxByteLength must be >= byteLength")));
+                            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "maxByteLength must be >= byteLength"));
                 return nullptr;
             }
             return TsBuffer::CreateResizable((size_t)length, (size_t)maxByteLength);
@@ -2432,6 +2489,12 @@ TsTypedArray* TsTypedArray::CreateOnBuffer(TsBuffer* buffer, size_t byteOffset, 
 }
 
 TsTypedArray::TsTypedArray(size_t length, size_t elementSize, bool clamped, TypedArrayType type) {
+    // length * elementSize can wrap size_t for huge lengths (2^61 * 8 == 0),
+    // slipping past the byte-size guard in TsBuffer — check the factors.
+    if (elementSize != 0 && length > kMaxArrayBufferByteLength / elementSize) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Invalid typed array length"));
+    }
     this->magic = MAGIC;  // Set inherited magic from TsObject
     this->length = length;
     this->elementSize = elementSize;

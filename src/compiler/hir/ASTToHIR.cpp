@@ -8001,6 +8001,16 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         } else {
             length = builder_.createConstInt(0);
         }
+        // ES2024 resizable buffers: `new ArrayBuffer(n, { maxByteLength })`.
+        // The second argument was silently DROPPED here, so every resizable
+        // buffer came out non-resizable (resizable=false, resize() a no-op).
+        if (node->arguments.size() > 1) {
+            auto options = boxValueIfNeeded(
+                lowerExpression(node->arguments[1].get()));
+            lastValue_ = builder_.createCall("ts_arraybuffer_create_with_options",
+                {length, options}, HIRType::makeAny());
+            return;
+        }
         lastValue_ = builder_.createCall("ts_arraybuffer_create",
             {length}, HIRType::makeAny());
         return;

@@ -449,6 +449,15 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .i64Arg(ArgConversion::ToI64)
             .build());
 
+    // Resizable ArrayBuffer ctor: (byteLength i64, options object with
+    // maxByteLength). ES2024 `new ArrayBuffer(n, { maxByteLength })`.
+    reg.registerLowering("ts_arraybuffer_create_with_options",
+        lowering("ts_arraybuffer_create_with_options")
+            .returnsPtr()
+            .i64Arg(ArgConversion::ToI64)
+            .ptrArg()
+            .build());
+
     // DataView ctor: (buffer, byteOffset i64, byteLength i64).
     reg.registerLowering("ts_dataview_create_full",
         lowering("ts_dataview_create_full")
