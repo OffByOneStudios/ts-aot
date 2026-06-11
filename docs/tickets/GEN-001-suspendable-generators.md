@@ -1,6 +1,6 @@
 # GEN-001: Suspendable Async Generators (rearchitecture of the eager-body model)
 
-Status: PLANNED
+Status: EXPERIMENTS COMPLETE (section 6) — ready for Stage 1
 Baseline at planning time: test262 26,220 pass / 14,021 fail / 5 ce / 46 timeout.
 Gates for every stage: golden-ir 267/279, node 295/297, 2k regression sample
 (tests/test262/regression_sample.txt, zero-flip floor), full-sweep arbiter
@@ -504,3 +504,40 @@ Q6. Golden IR churn budget. The Stage-1 refactor must be IR-identical;
 - [ ] Public API shape preserved: TsAsyncGenerator, next() -> TsPromise*,
       GeneratorHandler method names, Generator_next AGEN sniffing.
 - [ ] Eager model untouched while flag is off (Stages 3-7).
+
+## 6. Experiment results (G2, 2026-06-11)
+
+E1 (ordering, hand-trace of yield-star-sync-next.js): the critical assertion
+is `assert.sameValue(log.length, 0)` AFTER `gen()` and BEFORE `next()` —
+pure suspension at gen() is the load-bearing requirement (satisfied by the
+state-0 param-prologue design). The detailed step-order assertions run
+inside `.then(...)`, which fires after next() returns either way, so the
+BLOCKING drive produces compatible orderings for this dominant pattern.
+Stage 5 (microtask deferral) decision deferred to the Stage-4 flag-on sweep,
+as planned. Note: done/value reads inside yield* delegation must be
+observable property GETS in spec order (done before value, once each).
+
+E2 (setjmp handler staleness — CONFIRMED LATENT BUG, worse than predicted):
+`function*(){ try { yield 1; throw E; } catch { yield 2 } }` — the throw
+after resume is NOT caught (next() returns undefined instead of 2), AND the
+stale-handler longjmp CORRUPTS the process-wide handler stack: every
+subsequent generator in the same process misbehaves (an isolated control
+that passes alone returns undefined after the poisoned throw). Repro:
+tmp/e2probe.js (poisoning) vs tmp/e2b.js (controls pass alone).
+CONSEQUENCES: (a) Stage 6 handler re-arming is MANDATORY, not optional;
+(b) the impl must POP still-armed try handlers on every suspend edge (the
+pop-balance fix), or track a per-invocation handler watermark and restore
+it; (c) fixing this also repairs SYNC generators (bonus test262 yield —
+try/yield/catch tests fail today).
+
+E3 (GC visibility of suspended state): a string accumulated across 50
+yields with 2,000-object nursery churn between every next() survives
+intact under both the default GC and TS_GC_NURSERY=0 (tmp/e3probe.js).
+The ctx->data buffer rooting works; no extra rooting needed for the async
+extension's identical buffer.
+
+E4 (pump re-entrancy): nested blocking awaits three frames deep work
+(tmp/e4probe.js: nested awaits => 20). Pre-existing unrelated quirk found:
+CHAINED timer-backed awaits (`await timerPromise; await timerPromise2`)
+return an un-unwrapped object on the second await — exists for plain async
+functions today; file separately, not a GEN-001 blocker.
