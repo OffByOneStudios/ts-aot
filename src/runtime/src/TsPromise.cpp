@@ -1395,12 +1395,101 @@ TsValue* ts_promise_all_rejected_helper(void* context, TsValue* reason) {
     return nullptr;
 }
 
+// Shared by all/race/allSettled: convert a CUSTOM (non-TsArray) iterable
+// into a TsArray by walking the real iterator protocol, with the runtime-
+// side catch (X8 pattern). They all blind-cast the argument to TsArray
+// before this — a custom iterable's garbage ->Length() drove runaway
+// loops/OOM exactly like the fixed Promise.any. On abrupt completion the
+// iterator is closed (return(), absorbed) and mainPromise is rejected;
+// the caller returns it immediately.
+static bool promise_iterable_to_array(TsValue* iterableVal, void* raw,
+                                      ts::TsPromise* mainPromise,
+                                      TsArray** out) {
+    extern TsValue* ts_object_get_property(void* o, const char* k);
+    TsValue* method = ts_object_get_property(raw, "[Symbol.iterator]");
+    if (!method || ts_value_is_nullish(method)) {
+        ts_promise_reject_internal(mainPromise,
+            (TsValue*)ts_error_create_typed("TypeError",
+                "argument is not iterable"));
+        return false;
+    }
+    TsArray* acc = TsArray::Create();
+    TsValue* volatile iterSave = nullptr;
+    void* handler = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)handler;
+    if (setjmp(*env) == 0) {
+        TsValue* iter = ts_call_with_this_0(method, iterableVal);
+        void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
+        if (!iterRaw) {
+            ts_pop_exception_handler();
+            ts_promise_reject_internal(mainPromise,
+                (TsValue*)ts_error_create_typed("TypeError",
+                    "iterator is not an object"));
+            return false;
+        }
+        iterSave = iter;
+        TsValue* nextFn = ts_object_get_property(iterRaw, "next");
+        for (int64_t guard = 0; ; guard++) {
+            if (guard >= 100000) {
+                ts_pop_exception_handler();
+                ts_promise_reject_internal(mainPromise,
+                    (TsValue*)ts_error_create_typed("TypeError",
+                        "iterator did not complete"));
+                return false;
+            }
+            TsValue* res = ts_call_with_this_0(nextFn, iter);
+            void* resRaw = res ? ts_value_get_object(res) : nullptr;
+            if (!resRaw) {
+                ts_pop_exception_handler();
+                ts_promise_reject_internal(mainPromise,
+                    (TsValue*)ts_error_create_typed("TypeError",
+                        "iterator result is not an object"));
+                return false;
+            }
+            if (ts_iterator_result_done(res)) break;
+            acc->Push((int64_t)(intptr_t)ts_iterator_result_value(res));
+        }
+        ts_pop_exception_handler();
+        *out = acc;
+        return true;
+    } else {
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        TsValue* iterDone = iterSave;
+        void* iterDoneRaw = iterDone ? ts_value_get_object(iterDone) : nullptr;
+        if (iterDoneRaw) {
+            TsValue* retFn = ts_object_get_property(iterDoneRaw, "return");
+            if (retFn && !ts_value_is_nullish(retFn)) {
+                void* h2 = ts_push_exception_handler();
+                jmp_buf* env2 = (jmp_buf*)h2;
+                if (setjmp(*env2) == 0) {
+                    ts_call_with_this_0(retFn, iterDone);
+                    ts_pop_exception_handler();
+                } else {
+                    ts_set_exception(nullptr);  // absorb return() throw
+                }
+            }
+        }
+        ts_promise_reject_internal(mainPromise, exc);
+        return false;
+    }
+}
+
 TsValue* ts_promise_all(TsValue* iterableVal) {
     TsValue iterVal = iterableVal ? nanbox_to_tagged(iterableVal) : TsValue();
     if (iterVal.type != ValueType::OBJECT_PTR && iterVal.type != ValueType::ARRAY_PTR) {
         return ts_promise_resolve(nullptr, ts_value_make_array(TsArray::Create(0)));
     }
     TsArray* iterable = (TsArray*)iterVal.ptr_val;
+    if (!ts_is_unchecked<TsArray>(iterVal.ptr_val)) {
+        ts::TsPromise* earlyPromise = ts_promise_create();
+        TsArray* converted = nullptr;
+        if (!promise_iterable_to_array(iterableVal, iterVal.ptr_val,
+                                       earlyPromise, &converted)) {
+            return ts_value_make_promise(earlyPromise);
+        }
+        iterable = converted;
+    }
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
 
@@ -1450,19 +1539,28 @@ TsValue* ts_promise_race(TsValue* iterableVal) {
         return ts_value_make_promise(p);
     }
     TsArray* iterable = (TsArray*)iterVal.ptr_val;
+    if (!ts_is_unchecked<TsArray>(iterVal.ptr_val)) {
+        ts::TsPromise* earlyPromise = ts_promise_create();
+        TsArray* converted = nullptr;
+        if (!promise_iterable_to_array(iterableVal, iterVal.ptr_val,
+                                       earlyPromise, &converted)) {
+            return ts_value_make_promise(earlyPromise);
+        }
+        iterable = converted;
+    }
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
 
     for (size_t i = 0; i < total; ++i) {
         TsValue* item = (TsValue*)iterable->Get(i);
         TsValue* p = ts_promise_resolve(nullptr, item);
-        
+
         TsValue* onFulfilled = ts_value_make_function((void*)ts_promise_race_fulfilled_helper, mainPromise);
         TsValue* onRejected = ts_value_make_function((void*)ts_promise_race_rejected_helper, mainPromise);
-        
+
         ts_promise_then(p, onFulfilled, onRejected);
     }
-    
+
     return ts_value_make_promise(mainPromise);
 }
 
@@ -1517,6 +1615,15 @@ extern "C" TsValue* ts_promise_allSettled(TsValue* iterableVal) {
         return ts_value_make_promise(p);
     }
     TsArray* iterable = (TsArray*)iterVal.ptr_val;
+    if (!ts_is_unchecked<TsArray>(iterVal.ptr_val)) {
+        ts::TsPromise* earlyPromise = ts_promise_create();
+        TsArray* converted = nullptr;
+        if (!promise_iterable_to_array(iterableVal, iterVal.ptr_val,
+                                       earlyPromise, &converted)) {
+            return ts_value_make_promise(earlyPromise);
+        }
+        iterable = converted;
+    }
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
     if (total == 0) {
