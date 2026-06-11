@@ -30,6 +30,11 @@ HIRToLLVM::HIRToLLVM(llvm::LLVMContext& ctx)
     : context_(ctx)
     , builder_(std::make_unique<llvm::IRBuilder<>>(ctx))
 {
+    // GEN-001 Stage 3 feature flag: suspendable async-generator lowering.
+    // Default OFF — flag-off compiles the eager agen path verbatim.
+    if (const char* sa = std::getenv("TSAOT_SUSPEND_AGEN"); sa && sa[0] == '1') {
+        suspendAsyncGen_ = true;
+    }
 }
 
 //==============================================================================
@@ -918,7 +923,7 @@ std::pair<int, int> HIRToLLVM::collectGeneratorCounts(HIRFunction* fn) {
     return { yieldCount, allocaCount };
 }
 
-void HIRToLLVM::computeCrossYieldSpills(HIRFunction* fn) {
+void HIRToLLVM::computeCrossYieldSpills(HIRFunction* fn, bool markerIsSuspension) {
     // ---- Cross-yield SSA liveness pre-pass ----
     // For each HIR SSA value defined before any yield, if it has at least
     // one use after that yield (linear-order approximation, safe over-set),
@@ -995,6 +1000,16 @@ void HIRToLLVM::computeCrossYieldSpills(HIRFunction* fn) {
                     if (inst->opcode == HIROpcode::Yield ||
                         inst->opcode == HIROpcode::YieldStar) {
                         yieldsInBlock.push_back(idx);
+                    } else if (markerIsSuspension &&
+                               inst->opcode == HIROpcode::Call &&
+                               !inst->operands.empty()) {
+                        // Suspendable async generators (GEN-001 Stage 3) also
+                        // suspend at the body-started marker (state 0 -> 1).
+                        if (auto* callee =
+                                std::get_if<std::string>(&inst->operands[0]);
+                            callee && *callee == "ts_async_generator_body_started") {
+                            yieldsInBlock.push_back(idx);
+                        }
                     }
                     ++idx;
                 }
@@ -1134,11 +1149,30 @@ void HIRToLLVM::emitGeneratorWrapper(HIRFunction* fn, llvm::Function* llvmFunc,
     }
 
     // Create Generator
+    // NOTE (GEN-001 Stage 3): for suspendable async generators the ctx
+    // argument is passed exactly like the sync ts_generator_create(ctx) call.
+    // The current Stage-2 runtime declares ts_async_generator_create_suspendable
+    // as zero-arg and creates its OWN AsyncContext internally — the trivial
+    // follow-up is to give it the (AsyncContext*) parameter and use it (mirror
+    // of ts_generator_create), at which point gen->ctx IS this wrapper's ctx
+    // and the next()/throw()/return() drive resumes the impl emitted below.
+    // No compiler change is needed when that lands; the call site already
+    // passes the ctx.
     llvm::FunctionType* createGeneratorFt = llvm::FunctionType::get(
         getGCPtrTy(), { getGCPtrTy() }, false);
     llvm::FunctionCallee createGeneratorFn = module_->getOrInsertFunction(
         opts.createGenFn, createGeneratorFt);
     llvm::Value* generator = rawToGCPtr(builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), { asyncCtx }, "generator"));
+
+    if (opts.isAsyncGen) {
+        // GEN-001 D5: ONE synchronous invocation of the impl at gen() time.
+        // State 0 runs the parameter prologue and suspends at the
+        // ts_async_generator_body_started marker (state transition 0 -> 1),
+        // so parameter-binding throws escape gen() synchronously while the
+        // body proper stays lazy until the first next().
+        builder_->CreateCall(generatorImplFunc_->getFunctionType(),
+                             generatorImplFunc_, { asyncCtx });
+    }
 
     // Return the generator immediately (don't execute the body)
     builder_->CreateRet(gcPtrToRaw(generator));
@@ -1147,7 +1181,6 @@ void HIRToLLVM::emitGeneratorWrapper(HIRFunction* fn, llvm::Function* llvmFunc,
 void HIRToLLVM::emitGeneratorImplPrologue(HIRFunction* fn,
                                           const GeneratorLoweringOpts& opts,
                                           int yieldCount) {
-    (void)opts;  // Stage 1: sync-only; Stage 3+ branches on opts.isAsyncGen
     size_t crossYieldSpillCount = crossYieldSpillIds_.size();
     int allocaCount = generatorLocalCount_;
 
@@ -1226,6 +1259,84 @@ void HIRToLLVM::emitGeneratorImplPrologue(HIRFunction* fn,
         }
     }
 
+    // GEN-001 Stage 3 (D6): per-invocation exception barrier for suspendable
+    // async generators. Pushed ONLY for resumed invocations (state >= 1): an
+    // uncaught throw in body code rejects the current request's promise via
+    // ts_agen_complete_reject. The state-0 (parameter prologue) invocation
+    // does NOT push it, so param-binding throws escape gen() synchronously.
+    // Pop balance: the state-0 suspend edge (the body-started marker) emits
+    // NO pop; every other suspend/return edge (yields, yield* element
+    // suspends, returns, forced-return, generator_done) pops unconditionally —
+    // body code only ever runs in state>=1 invocations, which always pushed.
+    llvm::BasicBlock* agenDispatchBB = nullptr;
+    if (opts.isAsyncGen) {
+        llvm::BasicBlock* barrierBB = llvm::BasicBlock::Create(
+            context_, "agen_barrier", generatorImplFunc_);
+        llvm::BasicBlock* rejectBB = llvm::BasicBlock::Create(
+            context_, "agen_impl_reject", generatorImplFunc_);
+        agenDispatchBB = llvm::BasicBlock::Create(
+            context_, "agen_dispatch", generatorImplFunc_);
+
+        // setjmp semantics require the impl frame to stay valid for longjmp.
+        generatorImplFunc_->addFnAttr(llvm::Attribute::NoInline);
+
+        llvm::Value* isResumed = builder_->CreateICmpNE(
+            state, builder_->getInt32(0), "agen_is_resumed");
+        builder_->CreateCondBr(isResumed, barrierBB, agenDispatchBB);
+
+        builder_->SetInsertPoint(barrierBB);
+        auto pushFn = getOrDeclareRuntimeFunction("ts_push_exception_handler",
+            getGCPtrTy(), {});
+        llvm::Value* jmpBuf = builder_->CreateCall(pushFn, {});
+#ifdef _WIN32
+        // Win64 two-arg form: _setjmp(jmp_buf, frame_ptr). The frame pointer
+        // is REQUIRED for SEH integration (NULL aborts the longjmp).
+        auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
+            builder_->getInt32Ty(), { getGCPtrTy(), getGCPtrTy() });
+        if (auto* sjFn = llvm::dyn_cast<llvm::Function>(setjmpFn.getCallee())) {
+            sjFn->addFnAttr(llvm::Attribute::ReturnsTwice);
+        }
+        auto frameAddrFn = llvm::Intrinsic::getDeclaration(
+            module_.get(), llvm::Intrinsic::frameaddress, { getGCPtrTy() });
+        llvm::Value* framePtr = builder_->CreateCall(
+            frameAddrFn, { builder_->getInt32(0) });
+        auto* setjmpCall = builder_->CreateCall(setjmpFn, { jmpBuf, framePtr });
+        setjmpCall->addFnAttr(llvm::Attribute::ReturnsTwice);
+        llvm::Value* setjmpResult = setjmpCall;
+#else
+        auto setjmpFn = getOrDeclareRuntimeFunction("_setjmp",
+            builder_->getInt32Ty(), { getGCPtrTy() });
+        if (auto* sjFn = llvm::dyn_cast<llvm::Function>(setjmpFn.getCallee())) {
+            sjFn->addFnAttr(llvm::Attribute::ReturnsTwice);
+        }
+        auto* setjmpCallPosix = builder_->CreateCall(setjmpFn, { jmpBuf });
+        setjmpCallPosix->addFnAttr(llvm::Attribute::ReturnsTwice);
+        llvm::Value* setjmpResult = setjmpCallPosix;
+#endif
+        llvm::Value* isException = builder_->CreateICmpNE(setjmpResult,
+            llvm::ConstantInt::get(builder_->getInt32Ty(), 0));
+        builder_->CreateCondBr(isException, rejectBB, agenDispatchBB);
+
+        // agen_impl_reject: ts_throw already popped this handler before the
+        // longjmp. Reject the current request's promise, mark the generator
+        // done, clear the exception slot, and return (impl is void).
+        builder_->SetInsertPoint(rejectBB);
+        auto getExcFn = getOrDeclareRuntimeFunction("ts_get_exception",
+            getGCPtrTy(), {});
+        llvm::Value* exc = builder_->CreateCall(getExcFn, {});
+        auto rejectFn = getOrDeclareRuntimeFunction("ts_agen_complete_reject",
+            builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
+        builder_->CreateCall(rejectFn, { asyncContext_, exc });
+        auto clearExcFn = getOrDeclareRuntimeFunction("ts_set_exception",
+            builder_->getVoidTy(), { getGCPtrTy() });
+        builder_->CreateCall(clearExcFn,
+            { llvm::ConstantPointerNull::get(getGCPtrTy()) });
+        builder_->CreateRetVoid();
+
+        // The state-dispatch switch below is emitted into agen_dispatch.
+        builder_->SetInsertPoint(agenDispatchBB);
+    }
+
     // Create blocks for each state
     // State 0 = initial (start of generator)
     // State 1..N = resume after yield 1..N
@@ -1269,6 +1380,16 @@ void HIRToLLVM::emitGeneratorImplPrologue(HIRFunction* fn,
     // paths route a non-impl function through here — see superPropOrdering).
     builder_->SetInsertPoint(generatorDoneBlock_);
     {
+        if (opts.isAsyncGen) {
+            // generator_done is the switch default — only reachable with an
+            // out-of-range state, which is necessarily != 0, so the impl
+            // barrier was pushed this invocation. Pop it to keep the handler
+            // stack balanced (the runtime's drive safety-net settles the
+            // request promise).
+            auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+                builder_->getVoidTy(), {});
+            builder_->CreateCall(popFn, {});
+        }
         llvm::Type* retTy = currentFunction_->getReturnType();
         if (retTy->isVoidTy()) {
             builder_->CreateRetVoid();
@@ -1276,6 +1397,73 @@ void HIRToLLVM::emitGeneratorImplPrologue(HIRFunction* fn,
             builder_->CreateRet(llvm::UndefValue::get(retTy));
         }
     }
+}
+
+llvm::BasicBlock* HIRToLLVM::getOrCreateAgenForcedReturnBlock() {
+    if (agenForcedReturnBB_) {
+        return agenForcedReturnBB_;
+    }
+    llvm::IRBuilder<>::InsertPointGuard guard(*builder_);
+    agenForcedReturnBB_ = llvm::BasicBlock::Create(
+        context_, "agen_forced_return", generatorImplFunc_);
+    builder_->SetInsertPoint(agenForcedReturnBB_);
+
+    // gen.return(v) resumed us with mode 2: complete the generator with the
+    // argument (resumedValue carries it for all modes). finally-block
+    // execution is a later refinement (GEN-001 Stage 6), matching sync gens.
+    auto getResumedFn = getOrDeclareRuntimeFunction(
+        "ts_async_context_get_resumed_value", getGCPtrTy(), { getGCPtrTy() });
+    llvm::Value* retVal = builder_->CreateCall(
+        getResumedFn, { asyncContext_ }, "agen_forced_ret_val");
+    auto completeFn = getOrDeclareRuntimeFunction("ts_agen_complete",
+        builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
+    builder_->CreateCall(completeFn, { asyncContext_, retVal });
+
+    // Reached only from a resume-mode dispatch (state >= 1 invocation), so
+    // the impl-entry barrier is pushed — pop it before suspending for good.
+    auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+        builder_->getVoidTy(), {});
+    builder_->CreateCall(popFn, {});
+    builder_->CreateRetVoid();
+    return agenForcedReturnBB_;
+}
+
+llvm::Value* HIRToLLVM::emitAgenResumeModeDispatch() {
+    // Builder is positioned at the start of a yield resume block.
+    auto getModeFn = getOrDeclareRuntimeFunction(
+        "ts_async_context_get_resume_mode",
+        builder_->getInt32Ty(), { getGCPtrTy() });
+    llvm::Value* mode = builder_->CreateCall(
+        getModeFn, { asyncContext_ }, "agen_resume_mode");
+
+    llvm::Function* implFunc = builder_->GetInsertBlock()->getParent();
+    llvm::BasicBlock* throwBB = llvm::BasicBlock::Create(
+        context_, "agen_resume_throw", implFunc);
+    llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(
+        context_, "agen_resume_next", implFunc);
+
+    llvm::SwitchInst* sw = builder_->CreateSwitch(mode, nextBB, 2);
+    sw->addCase(builder_->getInt32(1), throwBB);
+    sw->addCase(builder_->getInt32(2), getOrCreateAgenForcedReturnBlock());
+
+    auto getResumedFn = getOrDeclareRuntimeFunction(
+        "ts_async_context_get_resumed_value", getGCPtrTy(), { getGCPtrTy() });
+
+    // mode 1 (gen.throw): raise the argument at the suspension point. With no
+    // live user handler it walks to the impl-entry barrier and rejects the
+    // current request's promise. Handler re-arming for try-around-yield is
+    // GEN-001 Stage 6 (same limitation as sync generators today).
+    builder_->SetInsertPoint(throwBB);
+    llvm::Value* throwArg = builder_->CreateCall(
+        getResumedFn, { asyncContext_ }, "agen_throw_arg");
+    auto throwFn = getOrDeclareRuntimeFunction("ts_throw",
+        builder_->getVoidTy(), { getGCPtrTy() });
+    builder_->CreateCall(throwFn, { throwArg });
+    builder_->CreateUnreachable();
+
+    // mode 0 (next): the yield expression's value is the resumed value.
+    builder_->SetInsertPoint(nextBB);
+    return builder_->CreateCall(getResumedFn, { asyncContext_ }, "resumed_value");
 }
 
 void HIRToLLVM::lowerFunction(HIRFunction* fn) {
@@ -1363,6 +1551,102 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     yieldResumeBlocks_.clear();
     generatorDoneBlock_ = nullptr;
     generatorImplFunc_ = nullptr;
+    inSuspendableAgenMode_ = false;
+    agenForcedReturnBB_ = nullptr;
+
+    // GEN-001 Stage 3: suspendable async-generator lowering (flag-gated by
+    // TSAOT_SUSPEND_AGEN=1). Reuses the sync state-machine helpers with
+    // isAsyncGen options; the eager branch below stays compiled verbatim for
+    // flag-off.
+    if (suspendAsyncGen_ && fn->isAsync && fn->isGenerator) {
+        currentYieldState_ = 0;
+        yieldResumeBlocks_.clear();
+        generatorDoneBlock_ = nullptr;
+        generatorImplFunc_ = nullptr;
+        asyncContext_ = nullptr;
+        inSuspendableAgenMode_ = true;
+
+        GeneratorLoweringOpts opts;
+        opts.isAsyncGen = true;
+        opts.createGenFn = "ts_async_generator_create_suspendable";
+
+        // Count yields/allocas as for sync gens, then add the
+        // ts_async_generator_body_started marker(s) as suspension points:
+        // the marker consumes the state-0 -> state-1 transition (param
+        // prologue suspends there), so yields occupy states 2..N+1 and the
+        // impl needs yieldCount + markerCount resume blocks.
+        int yieldCount = collectGeneratorCounts(fn).first;
+        int markerCount = 0;
+        for (auto& block : fn->blocks) {
+            for (auto& inst : block->instructions) {
+                if (inst->opcode == HIROpcode::Call && !inst->operands.empty()) {
+                    if (auto* callee = std::get_if<std::string>(&inst->operands[0]);
+                        callee && *callee == "ts_async_generator_body_started") {
+                        markerCount++;
+                    }
+                }
+            }
+        }
+        yieldCount += markerCount;
+
+        // Cross-suspension SSA liveness — the marker is a suspension point
+        // too, so defs crossing it within a block must spill.
+        computeCrossYieldSpills(fn, /*markerIsSuspension=*/true);
+
+        // Create the implementation function (state machine)
+        // Signature: void impl(AsyncContext* ctx)
+        std::string implName = fn->mangledName + "$impl";
+        llvm::FunctionType* implFuncType = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { getGCPtrTy() },  // AsyncContext*
+            false
+        );
+        generatorImplFunc_ = llvm::Function::Create(
+            implFuncType,
+            llvm::Function::InternalLinkage,
+            implName,
+            module_.get()
+        );
+        if (enableGCStatepoints_) {
+            generatorImplFunc_->setGC("ts-aot-gc");
+        }
+
+        // Wrapper: AsyncContext + resumeFn + `this` capture + data buffer +
+        // suspendable generator create + ONE synchronous impl invocation
+        // (param prologue, suspends at the marker) + ret gen.
+        emitGeneratorWrapper(fn, llvmFunc, opts);
+
+        // Impl entry: state load, data reloads, slot GEPs, the conditional
+        // per-invocation exception barrier (D6) and the state switch.
+        emitGeneratorImplPrologue(fn, opts, yieldCount);
+
+        // Lower each HIR block in the impl function
+        for (auto& block : fn->blocks) {
+            lowerBlock(block.get());
+        }
+
+        // Restore state
+        currentFunction_ = nullptr;
+        currentHIRFunction_ = nullptr;
+        isAsyncFunction_ = false;
+        isGeneratorFunction_ = false;
+        inSuspendableAgenMode_ = false;
+        agenForcedReturnBB_ = nullptr;
+        closureParam_ = nullptr;
+        asyncPromise_ = nullptr;
+        generatorObject_ = nullptr;
+        asyncContext_ = nullptr;
+        generatorImplFunc_ = nullptr;
+        generatorDataBuf_ = nullptr;
+        generatorLocalCount_ = 0;
+        generatorNextLocalIndex_ = 0;
+        generatorLocalSlots_.clear();
+        crossYieldSpillIds_.clear();
+        crossYieldSlotOf_.clear();
+        crossYieldSlotType_.clear();
+        crossYieldSlotGEPs_.clear();
+        return;  // Suspendable agen fully lowered
+    }
 
     // For async generator functions (both isAsync and isGenerator), create an AsyncGenerator
     if (fn->isAsync && fn->isGenerator) {
@@ -5428,6 +5712,27 @@ void HIRToLLVM::lowerArrayPush(HIRInstruction* inst) {
 
 void HIRToLLVM::lowerCall(HIRInstruction* inst) {
     std::string funcName = getOperandString(inst->operands[0]);
+
+    // GEN-001 Stage 3: in suspendable-agen mode the body-started marker IS
+    // suspension point 0 -> 1 (D5). Lower it like a yield's suspend/resume
+    // sequence minus value plumbing: set_state(1) + ret void + relocate to
+    // resume block 1. No runtime call to ts_async_generator_body_started is
+    // emitted, and NO handler pop: the state-0 (param prologue) invocation
+    // never pushed the impl barrier.
+    if (inSuspendableAgenMode_ && funcName == "ts_async_generator_body_started") {
+        int nextState = currentYieldState_ + 1;
+        auto setStateFn = getOrDeclareRuntimeFunction("ts_async_context_set_state",
+            builder_->getVoidTy(), { getGCPtrTy(), builder_->getInt32Ty() });
+        builder_->CreateCall(setStateFn,
+            { asyncContext_, builder_->getInt32(nextState) });
+        builder_->CreateRetVoid();
+
+        if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
+            builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
+        }
+        currentYieldState_++;
+        return;
+    }
 
     if (funcName.find("_constructor") != std::string::npos) {
         SPDLOG_DEBUG("lowerCall: constructor call '{}' in func '{}'",
@@ -9777,6 +10082,32 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
         return;
     }
 
+    // GEN-001 Stage 3: suspendable async-generator impl — complete the
+    // CURRENT request's promise with {value, done:true} via ctx and suspend
+    // for good. The impl is void(AsyncContext*): do NOT ret a generator
+    // object (the wrapper already returned it at gen() time).
+    if (inSuspendableAgenMode_ && asyncContext_) {
+        // Box the return value if needed
+        llvm::Value* boxedVal = val;
+        if (!val->getType()->isPointerTy()) {
+            boxedVal = boxPrimitiveToPtr(val);
+        }
+
+        auto completeFn = getOrDeclareRuntimeFunction("ts_agen_complete",
+            builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
+        builder_->CreateCall(completeFn, { asyncContext_, boxedVal });
+
+        // Returns are body code, only reachable in state>=1 invocations
+        // (state 0 ends at the body-started marker), so the impl barrier is
+        // always pushed here — pop it on this return edge.
+        auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+            builder_->getVoidTy(), {});
+        builder_->CreateCall(popFn, {});
+
+        builder_->CreateRetVoid();
+        return;
+    }
+
     // For async generator functions, mark the async generator as done with the return value
     if (isAsyncFunction_ && isGeneratorFunction_ && generatorObject_) {
         // Box the return value if needed
@@ -9961,6 +10292,28 @@ void HIRToLLVM::lowerReturn(HIRInstruction* inst) {
 }
 
 void HIRToLLVM::lowerReturnVoid(HIRInstruction* inst) {
+    // GEN-001 Stage 3: suspendable async-generator impl — complete the
+    // CURRENT request's promise with {undefined, done:true} via ctx. The impl
+    // is void(AsyncContext*); the wrapper already returned the generator.
+    if (inSuspendableAgenMode_ && asyncContext_) {
+        auto undefFn = getOrDeclareRuntimeFunction("ts_value_make_undefined",
+            getGCPtrTy(), {});
+        llvm::Value* undefinedVal = builder_->CreateCall(undefFn, {}, "undefined");
+
+        auto completeFn = getOrDeclareRuntimeFunction("ts_agen_complete",
+            builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
+        builder_->CreateCall(completeFn, { asyncContext_, undefinedVal });
+
+        // Return edges are body code (state>=1 invocations only) — the impl
+        // barrier is pushed; pop it before suspending for good.
+        auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+            builder_->getVoidTy(), {});
+        builder_->CreateCall(popFn, {});
+
+        builder_->CreateRetVoid();
+        return;
+    }
+
     // For async generator functions, a void return marks the async generator as done with undefined
     if (isAsyncFunction_ && isGeneratorFunction_ && generatorObject_) {
         // Get undefined value
@@ -10456,7 +10809,46 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
         }
     }
 
-    if (isAsyncFunction_ && isGeneratorFunction_) {
+    if (inSuspendableAgenMode_ && asyncContext_ != nullptr) {
+        // GEN-001 Stage 3 suspendable async generator:
+        //   awaited = ts_agen_await_operand(v)      (D2: Await(value); a
+        //       rejection ts_throws in-frame, catchable by a user try whose
+        //       handler was pushed in THIS invocation)
+        //   ts_agen_suspend_yield(ctx, awaited)     (settles the request's
+        //       promise with {value, done:false})
+        //   set_state(n); pop impl barrier; ret void (suspend)
+        //   resume block: mode dispatch (D3) — next/throw/forced-return.
+        auto awaitOpFn = getOrDeclareRuntimeFunction("ts_agen_await_operand",
+            getGCPtrTy(), { getGCPtrTy() });
+        llvm::Value* awaited = builder_->CreateCall(
+            awaitOpFn, { yieldVal }, "agen_awaited_operand");
+
+        auto suspendFn = getOrDeclareRuntimeFunction("ts_agen_suspend_yield",
+            builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
+        builder_->CreateCall(suspendFn, { asyncContext_, awaited });
+
+        int nextState = currentYieldState_ + 1;
+        auto setStateFn = getOrDeclareRuntimeFunction("ts_async_context_set_state",
+            builder_->getVoidTy(), { getGCPtrTy(), builder_->getInt32Ty() });
+        builder_->CreateCall(setStateFn,
+            { asyncContext_, builder_->getInt32(nextState) });
+
+        // Yields are only reachable in state>=1 invocations (state 0 ends at
+        // the body-started marker), so the impl barrier is always pushed
+        // here — pop it on this suspend edge.
+        auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+            builder_->getVoidTy(), {});
+        builder_->CreateCall(popFn, {});
+        builder_->CreateRetVoid();
+
+        if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
+            builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
+            llvm::Value* resumedValue = emitAgenResumeModeDispatch();
+            setValue(inst->result, resumedValue);
+        }
+
+        currentYieldState_++;
+    } else if (isAsyncFunction_ && isGeneratorFunction_) {
         // Async generator: yield produces a Promise
         auto yieldFn = getOrDeclareRuntimeFunction("ts_async_generator_yield",
             getGCPtrTy(), { getGCPtrTy() });
@@ -10525,7 +10917,109 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
         iterableVal = boxPrimitiveToPtr(iterableVal);
     }
 
-    if (isGeneratorFunction_ && asyncContext_ != nullptr && !isAsyncFunction_) {
+    if (inSuspendableAgenMode_ && asyncContext_ != nullptr) {
+        // GEN-001 Stage 3 (D7 core): suspendable async-generator yield* —
+        // the sync inline delegation loop with ONE suspension state covering
+        // all iterations, plus the async additions: GetIterator(value, async)
+        // protocol via ts_agen_get_async_iterator (its TypeErrors ts_throw
+        // into the impl barrier), and ts_agen_await_operand on each step
+        // result and each yielded value. Resume modes inside yield* are
+        // NEXT-scope for Stage 3; throw/return take the same dispatch as a
+        // plain yield (delegate forwarding is Stage 7).
+        llvm::Function* currentFunc = builder_->GetInsertBlock()->getParent();
+
+        auto getAsyncIterFn = getOrDeclareRuntimeFunction("ts_agen_get_async_iterator",
+            getGCPtrTy(), { getGCPtrTy() });
+        llvm::Value* iterator = builder_->CreateCall(
+            getAsyncIterFn, { iterableVal }, "agen_delegate_iter");
+
+        // Persist across suspensions in ctx->delegateIterator.
+        auto setDelegateFn = getOrDeclareRuntimeFunction("ts_async_context_set_delegate_iterator",
+            builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
+        builder_->CreateCall(setDelegateFn, { asyncContext_, iterator });
+
+        llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(
+            context_, "agen_yield_star_loop", currentFunc);
+        llvm::BasicBlock* doneBB = llvm::BasicBlock::Create(
+            context_, "agen_yield_star_done", currentFunc);
+
+        builder_->CreateBr(loopBB);
+
+        // Loop header: reload iterator from ctx, call next(), await the step.
+        builder_->SetInsertPoint(loopBB);
+        auto getDelegateFn = getOrDeclareRuntimeFunction("ts_async_context_get_delegate_iterator",
+            getGCPtrTy(), { getGCPtrTy() });
+        llvm::Value* curIter = builder_->CreateCall(
+            getDelegateFn, { asyncContext_ }, "agen_cur_iter");
+
+        auto nextFn = getOrDeclareRuntimeFunction("ts_iterator_next",
+            getGCPtrTy(), { getGCPtrTy(), getGCPtrTy() });
+        llvm::Value* nullVal = llvm::ConstantPointerNull::get(
+            llvm::PointerType::get(context_, 0));
+        llvm::Value* iterResultRaw = builder_->CreateCall(
+            nextFn, { curIter, nullVal }, "agen_iter_result_raw");
+
+        // Await the step result (an async iterator's next() returns a
+        // promise of the result object).
+        auto awaitOpFn = getOrDeclareRuntimeFunction("ts_agen_await_operand",
+            getGCPtrTy(), { getGCPtrTy() });
+        llvm::Value* iterResult = builder_->CreateCall(
+            awaitOpFn, { iterResultRaw }, "agen_iter_result");
+
+        auto doneFn = getOrDeclareRuntimeFunction("ts_iterator_result_done",
+            builder_->getInt1Ty(), { getGCPtrTy() });
+        llvm::Value* isDone = builder_->CreateCall(
+            doneFn, { iterResult }, "agen_is_done");
+
+        llvm::BasicBlock* yieldBB = llvm::BasicBlock::Create(
+            context_, "agen_yield_star_yield", currentFunc);
+        builder_->CreateCondBr(isDone, doneBB, yieldBB);
+
+        builder_->SetInsertPoint(yieldBB);
+        auto valueFn = getOrDeclareRuntimeFunction("ts_iterator_result_value",
+            getGCPtrTy(), { getGCPtrTy() });
+        llvm::Value* stepValue = builder_->CreateCall(
+            valueFn, { iterResult }, "agen_delegate_value");
+
+        // AsyncGeneratorYield awaits the value before yielding it.
+        llvm::Value* awaitedValue = builder_->CreateCall(
+            awaitOpFn, { stepValue }, "agen_delegate_value_awaited");
+
+        auto suspendFn = getOrDeclareRuntimeFunction("ts_agen_suspend_yield",
+            builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
+        builder_->CreateCall(suspendFn, { asyncContext_, awaitedValue });
+
+        int nextState = currentYieldState_ + 1;
+        auto setStateFn = getOrDeclareRuntimeFunction("ts_async_context_set_state",
+            builder_->getVoidTy(), { getGCPtrTy(), builder_->getInt32Ty() });
+        builder_->CreateCall(setStateFn,
+            { asyncContext_, builder_->getInt32(nextState) });
+
+        // Suspend edge in a state>=1 invocation: pop the impl barrier.
+        auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+            builder_->getVoidTy(), {});
+        builder_->CreateCall(popFn, {});
+        builder_->CreateRetVoid();
+
+        // Resume block: mode dispatch, then loop for the next element.
+        if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
+            builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
+            emitAgenResumeModeDispatch();  // leaves builder in the next-mode block
+            builder_->CreateBr(loopBB);
+        }
+
+        currentYieldState_++;
+
+        // Done: clear the delegate iterator; yield* evaluates to the final
+        // result's value.
+        builder_->SetInsertPoint(doneBB);
+        llvm::Value* nullIter = llvm::ConstantPointerNull::get(
+            llvm::PointerType::get(context_, 0));
+        builder_->CreateCall(setDelegateFn, { asyncContext_, nullIter });
+        llvm::Value* returnVal = builder_->CreateCall(
+            valueFn, { iterResult }, "agen_delegate_return");
+        setValue(inst->result, returnVal);
+    } else if (isGeneratorFunction_ && asyncContext_ != nullptr && !isAsyncFunction_) {
         // State-machine generator: inline the delegation loop
         // The iterator is stored in ctx->delegateIterator so it persists across
         // state machine calls (each yield suspends and resumes the impl function).

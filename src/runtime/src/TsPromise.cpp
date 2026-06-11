@@ -634,8 +634,11 @@ TsAsyncGenerator* ts_async_generator_create() {
 // but the body does NOT run eagerly, so there is no g_asyncgen_stack entry —
 // yields reach the generator through ctx (ts_agen_suspend_yield), never the
 // ambient stack. The generator is rooted by whoever holds the returned value.
-TsAsyncGenerator* ts_async_generator_create_suspendable(void) {
-    AsyncContext* ctx = ts_async_context_create();
+// Takes the WRAPPER's AsyncContext (the one carrying resumeFn/data/this —
+// identical convention to ts_generator_create(ctx)) so the impl and the
+// generator's next() drive the SAME context. Null-tolerant for safety.
+TsAsyncGenerator* ts_async_generator_create_suspendable(AsyncContext* ctx) {
+    if (!ctx) ctx = ts_async_context_create();
     void* mem = ts_alloc(sizeof(TsAsyncGenerator));
     TsAsyncGenerator* gen = new (mem) TsAsyncGenerator(ctx);
     ctx->generator = gen;

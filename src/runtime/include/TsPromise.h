@@ -155,7 +155,7 @@ extern "C" {
 
     // Suspendable async-generator runtime (GEN-001 Stage 2; dead code until
     // the Stage-3 suspendable lowering emits calls to these).
-    TsAsyncGenerator* ts_async_generator_create_suspendable(void);
+    TsAsyncGenerator* ts_async_generator_create_suspendable(AsyncContext* ctx);
     void ts_agen_suspend_yield(AsyncContext* ctx, TsValue* v);
     void ts_agen_complete(AsyncContext* ctx, TsValue* v);
     void ts_agen_complete_reject(AsyncContext* ctx, TsValue* exc);

@@ -226,6 +226,17 @@ private:
     std::vector<llvm::BasicBlock*> yieldResumeBlocks_;  // Resume blocks for each yield
     llvm::BasicBlock* generatorDoneBlock_ = nullptr;    // Block when generator is done
     llvm::Function* generatorImplFunc_ = nullptr;       // The state machine implementation function
+
+    // Suspendable async-generator lowering (GEN-001 Stage 3).
+    // suspendAsyncGen_: feature flag, read once from TSAOT_SUSPEND_AGEN in the
+    // constructor; default false (eager agen lowering compiled verbatim).
+    // inSuspendableAgenMode_: true while lowering the impl function of a
+    // suspendable async generator (drives lowerCall marker interception and
+    // the suspendable branches of lowerYield/lowerYieldStar/lowerReturn[Void]).
+    // agenForcedReturnBB_: lazily created per impl function (resume mode 2).
+    bool suspendAsyncGen_ = false;
+    bool inSuspendableAgenMode_ = false;
+    llvm::BasicBlock* agenForcedReturnBB_ = nullptr;
     llvm::Value* generatorDataBuf_ = nullptr;            // Heap-allocated data buffer for params + locals
     int generatorLocalCount_ = 0;                        // Number of Alloca instructions in generator
     int generatorNextLocalIndex_ = 0;                    // Next local index for alloca replacement
@@ -336,7 +347,11 @@ private:
 
     // Cross-yield SSA liveness pre-pass: populates crossYieldSpillIds_ /
     // crossYieldSlotOf_ (and clears crossYieldSlotType_ / crossYieldSlotGEPs_).
-    void computeCrossYieldSpills(HIRFunction* fn);
+    // markerIsSuspension (GEN-001 Stage 3): treat the HIR Call to
+    // ts_async_generator_body_started as a suspension point for the
+    // within-block yield-crossing rule (suspendable async generators suspend
+    // at the marker, so SSA defs crossing it need spilling too).
+    void computeCrossYieldSpills(HIRFunction* fn, bool markerIsSuspension = false);
 
     // Emit the wrapper function body into llvmFunc: AsyncContext creation,
     // resume-fn binding (generatorImplFunc_ must already be created), `this`
@@ -352,6 +367,28 @@ private:
     void emitGeneratorImplPrologue(HIRFunction* fn,
                                    const GeneratorLoweringOpts& opts,
                                    int yieldCount);
+
+    //==========================================================================
+    // Suspendable async-generator lowering (GEN-001 Stage 3, flag-gated by
+    // TSAOT_SUSPEND_AGEN=1; default OFF — the eager agen path is untouched)
+    //==========================================================================
+
+    // Emit the resume-mode dispatch at the start of a suspendable-agen yield
+    // resume block. Builder must be positioned at the resume block on entry.
+    // Emits: mode = ts_async_context_get_resume_mode(ctx); switch —
+    //   mode 1 (throw):  ts_throw(resumedValue), unreachable
+    //   mode 2 (return): branch to the shared forced-return block
+    //   default (next):  fall through
+    // Leaves the builder in the next-mode block and returns the resumed value
+    // (ts_async_context_get_resumed_value) for use as the yield expression's
+    // value.
+    llvm::Value* emitAgenResumeModeDispatch();
+
+    // Lazily create the per-impl-function forced-return block (resume mode 2):
+    // v = resumedValue; ts_agen_complete(ctx, v); pop impl barrier; ret void.
+    // Only ever reached from a resume-mode dispatch, i.e. a state>=1
+    // invocation whose entry pushed the impl barrier — the pop is balanced.
+    llvm::BasicBlock* getOrCreateAgenForcedReturnBlock();
 
     // Create main entry point that calls ts_main with user_main
     void createMainFunction();
