@@ -9316,7 +9316,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "Math", "JSON", "Object", "Array", "String", "Number",
             "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
             "process", "global", "globalThis", "Symbol", "Map", "Set",
-            "WeakMap", "WeakSet", "Proxy", "Reflect",
+            "WeakMap", "WeakSet", "Proxy", "Reflect", "Iterator",
             "EvalError", "RangeError", "ReferenceError", "SyntaxError",
             "TypeError", "URIError", "Function", "console",
             "parseInt", "parseFloat", "isNaN", "isFinite",
@@ -9507,7 +9507,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "Math", "JSON", "Object", "Array", "String", "Number",
             "Boolean", "Date", "RegExp", "Promise", "Error", "Buffer",
             "process", "global", "globalThis", "Symbol", "Map", "Set",
-            "WeakMap", "WeakSet", "Proxy", "Reflect",
+            "WeakMap", "WeakSet", "Proxy", "Reflect", "Iterator",
             "EvalError", "RangeError", "ReferenceError", "SyntaxError",
             "TypeError", "URIError", "Function",
         };

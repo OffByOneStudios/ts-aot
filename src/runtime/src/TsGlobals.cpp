@@ -2382,6 +2382,161 @@ void* ts_get_global_Reflect() {
     return cached;
 }
 
+// --- Iterator global (TC39 iterator-sequencing: Iterator.concat) ---------
+extern "C" bool ts_iterator_result_done(TsValue* result);
+
+// Local {value: undefined, done} result builder — TsPromise.cpp's
+// create_generator_result has C++ linkage and this region is extern "C".
+static TsValue* iterseq_done_result() {
+    TsMap* map = TsMap::Create();
+    TsValue undef; undef.type = ValueType::UNDEFINED; undef.ptr_val = nullptr;
+    map->Set(TsString::GetInterned("value"), undef);
+    map->Set(TsString::GetInterned("done"), TsValue(true));
+    return ts_value_make_object(map);
+}
+
+static bool iterseq_is_callable(TsValue* v) {
+    if (!v) return false;
+    uint64_t nb = nanbox_from_tsvalue_ptr(v);
+    if (!nanbox_is_ptr(nb)) return false;
+    void* p = nanbox_to_ptr(nb);
+    if (!p) return false;
+    uint32_t m0 = *(uint32_t*)p;
+    if (m0 == 0x434C5352 || m0 == 0x46554E43) return true;  // CLSR / FUNC
+    uint32_t m16 = *(uint32_t*)((char*)p + 16);
+    return m16 == 0x434C5352 || m16 == 0x46554E43;
+}
+
+// next() of the iterator returned by Iterator.concat. State (ctx) is the
+// iterator TsMap itself: "__items" = flat [iterable, method, ...] pairs,
+// "__idx" = next pair index, "__inner" = current inner iterator (lazily
+// created IN ORDER; @@iterator was read once per item at concat() time).
+// Inner result objects PASS THROUGH unchanged (fresh-iterator-result.js
+// asserts identity with the inner iterator's result).
+static TsValue* iterator_concat_next(void* ctx, TsValue* /*arg*/) {
+    TsMap* st = (TsMap*)ctx;
+    if (!st) return iterseq_done_result();
+    for (;;) {
+        TsValue* innerV = ts_object_get_property(st, "__inner");
+        void* innerRaw = innerV ? ts_value_get_object(innerV) : nullptr;
+        if (!innerRaw) {
+            TsValue* itemsV = ts_object_get_property(st, "__items");
+            TsArray* items = itemsV ? (TsArray*)ts_value_get_object(itemsV) : nullptr;
+            int64_t idx = (int64_t)ts_to_number(ts_object_get_property(st, "__idx"));
+            if (!items || idx * 2 >= (int64_t)items->Length()) {
+                return iterseq_done_result();
+            }
+            TsValue* iterable = (TsValue*)(intptr_t)items->Get((size_t)(idx * 2));
+            TsValue* method   = (TsValue*)(intptr_t)items->Get((size_t)(idx * 2 + 1));
+            TsValue nextIdx; nextIdx.type = ValueType::NUMBER_INT; nextIdx.i_val = idx + 1;
+            st->Set(TsString::GetInterned("__idx"), nextIdx);
+            TsValue* inner = ts_call_with_this_0(method, iterable);
+            if (!inner || !ts_value_get_object(inner)) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "Iterator.concat: iterator method returned a non-object"));
+                return iterseq_done_result();
+            }
+            st->Set(TsString::GetInterned("__inner"), nanbox_to_tagged(inner));
+            innerV = inner;
+            innerRaw = ts_value_get_object(inner);
+        }
+        // Legacy iterator shape: several runtime @@iterator implementations
+        // return a plain ARRAY ("iterator-like" per the conformance notes)
+        // rather than a {next} object. Walk it by index with fresh results.
+        if (*(uint32_t*)innerRaw == 0x41525259) { // TsArray "ARRY"
+            TsArray* arr = (TsArray*)innerRaw;
+            int64_t ii = (int64_t)ts_to_number(ts_object_get_property(st, "__innerIdx"));
+            if (ii >= (int64_t)arr->Length()) {
+                TsValue undef2; undef2.type = ValueType::UNDEFINED; undef2.ptr_val = nullptr;
+                st->Set(TsString::GetInterned("__inner"), undef2);
+                TsValue z; z.type = ValueType::NUMBER_INT; z.i_val = 0;
+                st->Set(TsString::GetInterned("__innerIdx"), z);
+                continue;
+            }
+            TsValue ni; ni.type = ValueType::NUMBER_INT; ni.i_val = ii + 1;
+            st->Set(TsString::GetInterned("__innerIdx"), ni);
+            TsMap* res = TsMap::Create();
+            res->Set(TsString::GetInterned("value"),
+                     nanbox_to_tagged((TsValue*)arr->GetElementBoxed((size_t)ii)));
+            res->Set(TsString::GetInterned("done"), TsValue(false));
+            return ts_value_make_object(res);
+        }
+        TsValue* nextFn = ts_object_get_property(innerRaw, "next");
+        // Only reject definitively-absent next; some runtime iterator shapes
+        // carry callables that evade the magic check, and a non-callable
+        // still surfaces as TypeError via the result-not-object check below.
+        if (!nextFn || ts_value_is_nullish(nextFn)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Iterator.concat: iterator.next is not callable"));
+            return iterseq_done_result();
+        }
+        TsValue* res = ts_call_with_this_0(nextFn, innerV);
+        if (!res || !ts_value_get_object(res)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Iterator.concat: iterator result is not an object"));
+            return iterseq_done_result();
+        }
+        if (ts_iterator_result_done(res)) {
+            TsValue undef; undef.type = ValueType::UNDEFINED; undef.ptr_val = nullptr;
+            st->Set(TsString::GetInterned("__inner"), undef);
+            continue;
+        }
+        return res;
+    }
+}
+
+static TsValue* iterator_concat_native(void* ctx, int argc, TsValue** argv) {
+    (void)ctx;
+    // Validate every argument and read its @@iterator method exactly ONCE,
+    // up front, in argument order (get-iterator-method-only-once.js,
+    // inner-iterator-created-in-order.js).
+    TsArray* items = TsArray::Create((size_t)(argc > 0 ? argc * 2 : 0));
+    for (int i = 0; i < argc; i++) {
+        TsValue* item = argv ? argv[i] : nullptr;
+        void* raw = item ? ts_value_get_object(item) : nullptr;
+        if (!raw) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Iterator.concat: argument is not an object"));
+            return ts_value_make_undefined();
+        }
+        TsValue* method = ts_object_get_property(raw, "[Symbol.iterator]");
+        if (!iterseq_is_callable(method)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Iterator.concat: argument is not iterable"));
+            return ts_value_make_undefined();
+        }
+        items->Push((int64_t)(intptr_t)item);
+        items->Push((int64_t)(intptr_t)method);
+    }
+    TsMap* st = TsMap::Create();
+    st->Set(TsString::GetInterned("__items"),
+            nanbox_to_tagged(ts_value_make_array(items)));
+    TsValue zero; zero.type = ValueType::NUMBER_INT; zero.i_val = 0;
+    st->Set(TsString::GetInterned("__idx"), zero);
+    st->Set(TsString::GetInterned("__innerIdx"), zero);
+    st->Set(TsString::GetInterned("next"),
+            nanbox_to_tagged(ts_value_make_function((void*)iterator_concat_next, st)));
+    // [Symbol.iterator]() returns the iterator itself.
+    st->Set(TsString::GetInterned("[Symbol.iterator]"),
+            nanbox_to_tagged(ts_value_make_function(
+                (void*)+[](void* c, TsValue*) -> TsValue* {
+                    return ts_value_make_object(c);
+                }, st)));
+    return ts_value_make_object(st);
+}
+
+void* ts_get_global_Iterator() {
+    TenureScope _tenure;
+    static TsMap* cached = nullptr;
+    if (!cached) {
+        cached = makeSimpleConstructorGlobal("Iterator");
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
+        addMethod(cached, "concat", (void*)iterator_concat_native, 1);
+        setProtoStringTag(cached, "Iterator");
+    }
+    return cached;
+}
+
 extern "C" TsValue* ts_proxy_revocable(void* targetArg, void* handlerArg);
 
 void* ts_get_global_Proxy() {
@@ -4769,6 +4924,9 @@ DEFINE_TYPED_ARRAY_CTOR(BigUint64Array, BigUint64Array, ts_typed_array_create_u6
 void* ts_get_global(void* namePtr) {
     if (!namePtr) return nullptr;
     const char* name = (const char*)namePtr;
+    // Globals that the compiler resolves through the generic string-keyed
+    // path (no dedicated ts_get_global_<Name> call emitted).
+    if (strcmp(name, "Iterator") == 0) return ts_get_global_Iterator();
     // Try builtin functions (encodeURIComponent, decodeURIComponent, etc.)
     TsString* tsName = TsString::Create(name);
     void* builtin = ts_get_builtin_function(tsName);
