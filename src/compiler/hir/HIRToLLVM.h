@@ -316,6 +316,43 @@ private:
     void forwardDeclareFunction(HIRFunction* fn);
     void lowerFunction(HIRFunction* fn);
 
+    //==========================================================================
+    // Generator state-machine lowering (GEN-001 Stage 1 extraction)
+    //==========================================================================
+
+    // Options parameterizing the generator state-machine lowering. Stage 1
+    // (sync generators) instantiates only the defaults; the suspendable
+    // async-generator path (GEN-001 Stage 3+) will pass isAsyncGen=true and
+    // a different create function.
+    struct GeneratorLoweringOpts {
+        bool isAsyncGen = false;
+        const char* createGenFn = "ts_generator_create";
+    };
+
+    // Count Yield/YieldStar and Alloca instructions in fn. Sets
+    // generatorLocalCount_ / generatorNextLocalIndex_ and returns
+    // {yieldCount, allocaCount}.
+    std::pair<int, int> collectGeneratorCounts(HIRFunction* fn);
+
+    // Cross-yield SSA liveness pre-pass: populates crossYieldSpillIds_ /
+    // crossYieldSlotOf_ (and clears crossYieldSlotType_ / crossYieldSlotGEPs_).
+    void computeCrossYieldSpills(HIRFunction* fn);
+
+    // Emit the wrapper function body into llvmFunc: AsyncContext creation,
+    // resume-fn binding (generatorImplFunc_ must already be created), `this`
+    // capture, param/local/spill data buffer, generator creation via
+    // opts.createGenFn, and the immediate ret of the generator object.
+    void emitGeneratorWrapper(HIRFunction* fn, llvm::Function* llvmFunc,
+                              const GeneratorLoweringOpts& opts);
+
+    // Emit the impl-function entry: state load, data-buffer reload, param
+    // reloads, local/spill slot GEPs, HIR block creation, resume blocks,
+    // the state-dispatch switch and the generator_done block. Sets
+    // currentFunction_ / asyncContext_ to the impl function.
+    void emitGeneratorImplPrologue(HIRFunction* fn,
+                                   const GeneratorLoweringOpts& opts,
+                                   int yieldCount);
+
     // Create main entry point that calls ts_main with user_main
     void createMainFunction();
     void lowerBlock(HIRBlock* block);

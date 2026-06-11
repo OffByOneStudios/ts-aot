@@ -892,6 +892,392 @@ void HIRToLLVM::forwardDeclareFunction(HIRFunction* fn) {
     }
 }
 
+//==============================================================================
+// Generator state-machine lowering helpers (GEN-001 Stage 1 extraction).
+// These are a zero-behavior extraction of the sync-generator branch of
+// lowerFunction; the suspendable async-generator path (GEN-001 Stage 3+) will
+// reuse them with different GeneratorLoweringOpts.
+//==============================================================================
+
+std::pair<int, int> HIRToLLVM::collectGeneratorCounts(HIRFunction* fn) {
+    // First, count the number of yields and allocas to create resume blocks and local storage
+    int yieldCount = 0;
+    int allocaCount = 0;
+    for (auto& block : fn->blocks) {
+        for (auto& inst : block->instructions) {
+            if (inst->opcode == HIROpcode::Yield || inst->opcode == HIROpcode::YieldStar) {
+                yieldCount++;
+            }
+            if (inst->opcode == HIROpcode::Alloca) {
+                allocaCount++;
+            }
+        }
+    }
+    generatorLocalCount_ = allocaCount;
+    generatorNextLocalIndex_ = 0;
+    return { yieldCount, allocaCount };
+}
+
+void HIRToLLVM::computeCrossYieldSpills(HIRFunction* fn) {
+    // ---- Cross-yield SSA liveness pre-pass ----
+    // For each HIR SSA value defined before any yield, if it has at least
+    // one use after that yield (linear-order approximation, safe over-set),
+    // mark it for spilling. The codegen below routes every SET of a
+    // spilled value through a slot in the data buffer, and every GET
+    // reads from the slot — so the value survives the impl-function's
+    // suspend/resume without ever crossing an LLVM basic-block edge.
+    //
+    // Filters:
+    //   - Allocas (their result is the slot address itself, already
+    //     created in impl_entry which dominates everything).
+    //   - Const opcodes (re-materializable; the LLVM constant is a
+    //     ConstantInt/Fp etc. which doesn't have a "defining block").
+    //   - Function parameters (loaded in impl_entry, dominate everywhere).
+    //   - Phi results (phi-incoming values are what need spilling).
+    crossYieldSpillIds_.clear();
+    crossYieldSlotOf_.clear();
+    crossYieldSlotType_.clear();
+    crossYieldSlotGEPs_.clear();
+    // Run cross-block spill detection for ALL generators, not just those
+    // with yields. 0-yield generators (e.g. gen-meth-dflt-params tests) still
+    // get the state-machine impl/wrapper split, which can cause HIR-level
+    // single-block SSA defs to be referenced from LLVM-level distinct
+    // blocks after codegen reroutes via state-switch. Without the spill,
+    // verifier reports "Instruction does not dominate all uses!".
+    if (fn->isGenerator) {
+        // Two over-approximations for "cross-yield-live", unioned:
+        //
+        //  (A) WITHIN-BLOCK yield-crossing: a value defined in some block B
+        //      at instruction index Di, used in B at index Ui, with a Yield
+        //      between (Di < Yi < Ui in B's instruction list). lowerYield
+        //      relocates the insert point to yield_resume_N mid-block, so
+        //      Ui is actually emitted in a different LLVM block from Di.
+        //      This catches patterns like `'' in (yield)` and template
+        //      literals containing yield.
+        //
+        //  (B) CROSS-BLOCK uses: a value defined in block B but used in a
+        //      different block. Even if there's no yield between, the resume
+        //      block(s) are reached directly from impl_entry's state-switch,
+        //      so the defining LLVM block may not dominate the using one.
+        //      This catches loop-header reads of pre-loop values when the
+        //      loop body contains a yield.
+        //
+        // Filters out:
+        //   - HIR Alloca results (their value IS the slot address, created in
+        //     impl_entry which already dominates everything)
+        //   - HIR Phi results (their incoming values are what need spilling;
+        //     a phi node lives in its block and is fed by predecessors)
+        //   - Function parameters and impl_entry-loaded values (loaded in
+        //     impl_entry which dominates every state-switch target)
+        std::unordered_map<uint32_t, HIRBlock*> defBlock;
+        std::unordered_map<uint32_t, int> defIdxWithinBlock;
+        std::unordered_set<uint32_t> spillCandidates;
+        for (auto& block : fn->blocks) {
+            int idx = 0;
+            for (auto& inst : block->instructions) {
+                if (inst->result) {
+                    bool skipDef = inst->opcode == HIROpcode::Alloca ||
+                                   inst->opcode == HIROpcode::Phi;
+                    if (!skipDef) {
+                        defBlock[inst->result->id] = block.get();
+                        defIdxWithinBlock[inst->result->id] = idx;
+                    }
+                }
+                ++idx;
+            }
+        }
+        for (auto& block : fn->blocks) {
+            // Pre-compute the instruction indices of Yields in this block.
+            std::vector<int> yieldsInBlock;
+            {
+                int idx = 0;
+                for (auto& inst : block->instructions) {
+                    if (inst->opcode == HIROpcode::Yield ||
+                        inst->opcode == HIROpcode::YieldStar) {
+                        yieldsInBlock.push_back(idx);
+                    }
+                    ++idx;
+                }
+            }
+            int useIdx = 0;
+            for (auto& inst : block->instructions) {
+                for (auto& op : inst->operands) {
+                    if (auto* opVal = std::get_if<std::shared_ptr<HIRValue>>(&op)) {
+                        if (!*opVal) continue;
+                        uint32_t id = (*opVal)->id;
+                        auto dbIt = defBlock.find(id);
+                        if (dbIt == defBlock.end()) continue;  // param/phi/alloca — skip
+                        if (dbIt->second != block.get()) {
+                            // (B) Cross-block use
+                            spillCandidates.insert(id);
+                        } else {
+                            // (A) Same-block: check yield-crossing
+                            int defIdx = defIdxWithinBlock[id];
+                            for (int yIdx : yieldsInBlock) {
+                                if (defIdx < yIdx && yIdx < useIdx) {
+                                    spillCandidates.insert(id);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                ++useIdx;
+            }
+        }
+        for (uint32_t id : spillCandidates) {
+            size_t slot = crossYieldSpillIds_.size();
+            crossYieldSpillIds_.insert(id);
+            crossYieldSlotOf_[id] = slot;
+        }
+    }
+}
+
+void HIRToLLVM::emitGeneratorWrapper(HIRFunction* fn, llvm::Function* llvmFunc,
+                                     const GeneratorLoweringOpts& opts) {
+    size_t crossYieldSpillCount = crossYieldSpillIds_.size();
+    int allocaCount = generatorLocalCount_;
+
+    // Now set up the wrapper function (the original function)
+    // It creates AsyncContext, sets resumeFn, creates Generator, and returns it
+    llvm::BasicBlock* wrapperEntry = llvm::BasicBlock::Create(context_, "wrapper_entry", llvmFunc);
+    builder_->SetInsertPoint(wrapperEntry);
+
+    // Create AsyncContext
+    llvm::FunctionType* createCtxFt = llvm::FunctionType::get(
+        getGCPtrTy(), {}, false);
+    llvm::FunctionCallee createCtxFn = module_->getOrInsertFunction(
+        "ts_async_context_create", createCtxFt);
+    llvm::Value* asyncCtx = builder_->CreateCall(createCtxFt, createCtxFn.getCallee(), {}, "async_ctx");
+
+    // Set ctx->resumeFn = impl function
+    // AsyncContext layout: { TsObject base (16 bytes), int state (4), bool error (1), bool yielded (1), 2 padding, TsValue yieldedValue (16), ... }
+    // state is at offset 16, error at 20, yielded at 21, yieldedValue at 24, promise at 40, pendingNextPromise at 48, generator at 56, resumeFn at 64
+    // Actually let's use ts_async_context_set_resume_fn(ctx, fn) for safety
+    llvm::FunctionType* setResumeFt = llvm::FunctionType::get(
+        builder_->getVoidTy(),
+        { getGCPtrTy(), getGCPtrTy() },
+        false
+    );
+    llvm::FunctionCallee setResumeFn = module_->getOrInsertFunction(
+        "ts_async_context_set_resume_fn", setResumeFt);
+    builder_->CreateCall(setResumeFt, setResumeFn.getCallee(), { asyncCtx, generatorImplFunc_ });
+
+    // Capture `this` so generator-method calls bind it correctly per
+    // ECMA-262. Without this, `this` references inside the generator
+    // body see whatever the .next() caller's `this` happens to be
+    // (typically globalThis). The wrapper runs with the original
+    // receiver still in the call-this slot (set by the method dispatch
+    // path before invoking us); snapshot it now and restore on each
+    // resume in TsGenerator::next().
+    {
+        llvm::FunctionType* getThisFt = llvm::FunctionType::get(
+            getGCPtrTy(), {}, false);
+        llvm::FunctionCallee getThisFn = module_->getOrInsertFunction(
+            "ts_get_call_this", getThisFt);
+        llvm::Value* capturedThis = builder_->CreateCall(
+            getThisFt, getThisFn.getCallee(), {}, "captured_this");
+        llvm::FunctionType* setThisFt = llvm::FunctionType::get(
+            builder_->getVoidTy(),
+            { getGCPtrTy(), getGCPtrTy() },
+            false);
+        llvm::FunctionCallee setThisFn = module_->getOrInsertFunction(
+            "ts_async_context_set_this", setThisFt);
+        builder_->CreateCall(setThisFt, setThisFn.getCallee(),
+            { asyncCtx, capturedThis });
+    }
+
+    // Store function parameters (and reserve space for locals) in ctx->data
+    {
+        // Allocate a buffer for params + locals + cross-yield spill slots (8 bytes each)
+        size_t numParams = fn->params.empty() ? 0 : fn->params.size();
+        size_t totalSlots = numParams + allocaCount + crossYieldSpillCount;
+        llvm::FunctionType* allocFt = llvm::FunctionType::get(
+            getGCPtrTy(), { builder_->getInt64Ty() }, false);
+        llvm::FunctionCallee allocFn = module_->getOrInsertFunction("ts_alloc", allocFt);
+        llvm::Value* paramBuf = builder_->CreateCall(allocFt, allocFn.getCallee(),
+            { llvm::ConstantInt::get(builder_->getInt64Ty(), std::max(totalSlots, (size_t)1) * 8) }, "param_buf");
+
+        // Store each parameter into the buffer (if any)
+        if (numParams > 0) {
+        auto wrapperArgIt = llvmFunc->arg_begin();
+        // Skip implicit closure param if present
+        bool hasHiddenClosure = (!fn->params.empty() && fn->params[0].first == "__closure__");
+        bool hasImplicitClosure = !fn->captures.empty() && !hasHiddenClosure;
+        if (hasImplicitClosure) ++wrapperArgIt;
+
+        for (size_t i = 0; i < numParams; ++i, ++wrapperArgIt) {
+            llvm::Value* paramVal = &*wrapperArgIt;
+            // Convert non-pointer types to pointer-sized integer for storage
+            if (!paramVal->getType()->isPointerTy()) {
+                if (paramVal->getType()->isDoubleTy()) {
+                    paramVal = builder_->CreateBitCast(paramVal, builder_->getInt64Ty());
+                    paramVal = builder_->CreateIntToPtr(paramVal, getGCPtrTy());
+                } else if (paramVal->getType()->isIntegerTy()) {
+                    if (paramVal->getType()->getIntegerBitWidth() < 64) {
+                        paramVal = builder_->CreateZExt(paramVal, builder_->getInt64Ty());
+                    }
+                    paramVal = builder_->CreateIntToPtr(paramVal, getGCPtrTy());
+                }
+            }
+            llvm::Value* slotPtr = builder_->CreateGEP(getGCPtrTy(), paramBuf,
+                { llvm::ConstantInt::get(builder_->getInt64Ty(), i) }, "param_slot_" + std::to_string(i));
+            builder_->CreateStore(paramVal, slotPtr);
+        }
+        } // end if (numParams > 0)
+
+        // Set ctx->data = paramBuf
+        llvm::FunctionType* setDataFt = llvm::FunctionType::get(
+            builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() }, false);
+        llvm::FunctionCallee setDataFn = module_->getOrInsertFunction("ts_async_context_set_data", setDataFt);
+        builder_->CreateCall(setDataFt, setDataFn.getCallee(), { asyncCtx, paramBuf });
+    }
+
+    // Create Generator
+    llvm::FunctionType* createGeneratorFt = llvm::FunctionType::get(
+        getGCPtrTy(), { getGCPtrTy() }, false);
+    llvm::FunctionCallee createGeneratorFn = module_->getOrInsertFunction(
+        opts.createGenFn, createGeneratorFt);
+    llvm::Value* generator = rawToGCPtr(builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), { asyncCtx }, "generator"));
+
+    // Return the generator immediately (don't execute the body)
+    builder_->CreateRet(gcPtrToRaw(generator));
+}
+
+void HIRToLLVM::emitGeneratorImplPrologue(HIRFunction* fn,
+                                          const GeneratorLoweringOpts& opts,
+                                          int yieldCount) {
+    (void)opts;  // Stage 1: sync-only; Stage 3+ branches on opts.isAsyncGen
+    size_t crossYieldSpillCount = crossYieldSpillIds_.size();
+    int allocaCount = generatorLocalCount_;
+
+    // Now build the implementation function (state machine)
+    currentFunction_ = generatorImplFunc_;
+    llvm::Argument* ctxArg = generatorImplFunc_->getArg(0);
+    ctxArg->setName("ctx");
+    asyncContext_ = ctxArg;
+
+    // Create entry block with state dispatch
+    llvm::BasicBlock* implEntry = llvm::BasicBlock::Create(context_, "impl_entry", generatorImplFunc_);
+    builder_->SetInsertPoint(implEntry);
+
+    // Load state: ctx->state (offset 16 in AsyncContext after TsObject base)
+    llvm::FunctionType* getStateFt = llvm::FunctionType::get(
+        builder_->getInt32Ty(),
+        { getGCPtrTy() },
+        false
+    );
+    llvm::FunctionCallee getStateFn = module_->getOrInsertFunction(
+        "ts_async_context_get_state", getStateFt);
+    llvm::Value* state = builder_->CreateCall(getStateFt, getStateFn.getCallee(), { asyncContext_ }, "state");
+
+    // Load ctx->data buffer (contains params + locals storage)
+    // This is loaded in impl_entry which dominates all blocks, so it's available everywhere
+    {
+        llvm::FunctionType* getDataFt = llvm::FunctionType::get(
+            getGCPtrTy(), { getGCPtrTy() }, false);
+        llvm::FunctionCallee getDataFn = module_->getOrInsertFunction("ts_async_context_get_data", getDataFt);
+        generatorDataBuf_ = builder_->CreateCall(getDataFt, getDataFn.getCallee(), { asyncContext_ }, "data_buf");
+
+        // Load function parameters from the buffer
+        for (size_t i = 0; i < fn->params.size(); ++i) {
+            llvm::Value* slotPtr = builder_->CreateGEP(getGCPtrTy(), generatorDataBuf_,
+                { llvm::ConstantInt::get(builder_->getInt64Ty(), i) }, "param_slot_" + std::to_string(i));
+            llvm::Value* paramVal = builder_->CreateLoad(getGCPtrTy(), slotPtr, fn->params[i].first + "_loaded");
+
+            // Convert back from pointer to the expected type
+            auto& paramType = fn->params[i].second;
+            if (paramType && paramType->kind == HIRTypeKind::Float64) {
+                paramVal = builder_->CreatePtrToInt(paramVal, builder_->getInt64Ty());
+                paramVal = builder_->CreateBitCast(paramVal, builder_->getDoubleTy());
+            } else if (paramType && paramType->kind == HIRTypeKind::Int64) {
+                paramVal = builder_->CreatePtrToInt(paramVal, builder_->getInt64Ty());
+            } else if (paramType && paramType->kind == HIRTypeKind::Bool) {
+                paramVal = builder_->CreatePtrToInt(paramVal, builder_->getInt64Ty());
+                paramVal = builder_->CreateTrunc(paramVal, builder_->getInt1Ty());
+            }
+            // For ptr/object/any/string types, the value is already a pointer
+
+            valueMap_[static_cast<uint32_t>(i)] = paramVal;
+        }
+
+        // Pre-create GEPs for all local variable slots in impl_entry
+        // This ensures they dominate all uses in any block
+        generatorLocalSlots_.clear();
+        size_t numParams = fn->params.size();
+        for (int i = 0; i < allocaCount; ++i) {
+            size_t slotIndex = numParams + i;
+            llvm::Value* slotPtr = builder_->CreateGEP(getGCPtrTy(), generatorDataBuf_,
+                { llvm::ConstantInt::get(builder_->getInt64Ty(), slotIndex) },
+                "gen_local_" + std::to_string(i));
+            generatorLocalSlots_.push_back(slotPtr);
+        }
+
+        // Pre-create GEPs for cross-yield SSA spill slots. Indexed by
+        // crossYieldSlotOf_[hir_value_id]. Created in impl_entry so they
+        // dominate every block reachable from the state-switch.
+        crossYieldSlotGEPs_.assign(crossYieldSpillCount, nullptr);
+        for (const auto& [id, slot] : crossYieldSlotOf_) {
+            size_t slotIndex = numParams + allocaCount + slot;
+            llvm::Value* slotPtr = builder_->CreateGEP(getGCPtrTy(), generatorDataBuf_,
+                { llvm::ConstantInt::get(builder_->getInt64Ty(), slotIndex) },
+                "gen_xy_" + std::to_string(id));
+            crossYieldSlotGEPs_[slot] = slotPtr;
+        }
+    }
+
+    // Create blocks for each state
+    // State 0 = initial (start of generator)
+    // State 1..N = resume after yield 1..N
+    // State N+1 = done (generator finished)
+
+    // Create LLVM basic blocks for HIR blocks (these go in the impl function)
+    for (auto& block : fn->blocks) {
+        llvm::BasicBlock* bb = llvm::BasicBlock::Create(context_, block->label, generatorImplFunc_);
+        blockMap_[block.get()] = bb;
+    }
+
+    // Create the done block
+    generatorDoneBlock_ = llvm::BasicBlock::Create(context_, "generator_done", generatorImplFunc_);
+
+    // Create resume blocks for each yield point (state 1, 2, 3, ...)
+    for (int i = 0; i < yieldCount; i++) {
+        llvm::BasicBlock* resumeBlock = llvm::BasicBlock::Create(
+            context_,
+            "yield_resume_" + std::to_string(i + 1),
+            generatorImplFunc_
+        );
+        yieldResumeBlocks_.push_back(resumeBlock);
+    }
+
+    // Create the state dispatch switch
+    llvm::BasicBlock* firstHIRBlock = fn->blocks.empty() ? generatorDoneBlock_ : blockMap_[fn->blocks[0].get()];
+    llvm::SwitchInst* stateSwitch = builder_->CreateSwitch(state, generatorDoneBlock_, yieldCount + 1);
+
+    // State 0 -> start of generator (first HIR block)
+    stateSwitch->addCase(builder_->getInt32(0), firstHIRBlock);
+
+    // States 1..N -> resume after corresponding yield
+    for (int i = 0; i < yieldCount; i++) {
+        stateSwitch->addCase(builder_->getInt32(i + 1), yieldResumeBlocks_[i]);
+    }
+
+    // Build the done block - just return without setting yielded.
+    // Impl functions are normally void, but match the actual return type
+    // defensively to avoid a verifier mismatch if the function was
+    // declared with a non-void return (some derived-class super-prop
+    // paths route a non-impl function through here — see superPropOrdering).
+    builder_->SetInsertPoint(generatorDoneBlock_);
+    {
+        llvm::Type* retTy = currentFunction_->getReturnType();
+        if (retTy->isVoidTy()) {
+            builder_->CreateRetVoid();
+        } else {
+            builder_->CreateRet(llvm::UndefValue::get(retTy));
+        }
+    }
+}
+
 void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     SPDLOG_INFO("Lowering function: {}", fn->mangledName);
 
@@ -1014,135 +1400,16 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         generatorImplFunc_ = nullptr;
         asyncContext_ = nullptr;
 
-        // First, count the number of yields and allocas to create resume blocks and local storage
-        int yieldCount = 0;
-        int allocaCount = 0;
-        for (auto& block : fn->blocks) {
-            for (auto& inst : block->instructions) {
-                if (inst->opcode == HIROpcode::Yield || inst->opcode == HIROpcode::YieldStar) {
-                    yieldCount++;
-                }
-                if (inst->opcode == HIROpcode::Alloca) {
-                    allocaCount++;
-                }
-            }
-        }
-        generatorLocalCount_ = allocaCount;
-        generatorNextLocalIndex_ = 0;
+        // Stage 1 (GEN-001): sync-only lowering options.
+        GeneratorLoweringOpts opts;
 
-        // ---- Cross-yield SSA liveness pre-pass ----
-        // For each HIR SSA value defined before any yield, if it has at least
-        // one use after that yield (linear-order approximation, safe over-set),
-        // mark it for spilling. The codegen below routes every SET of a
-        // spilled value through a slot in the data buffer, and every GET
-        // reads from the slot — so the value survives the impl-function's
-        // suspend/resume without ever crossing an LLVM basic-block edge.
-        //
-        // Filters:
-        //   - Allocas (their result is the slot address itself, already
-        //     created in impl_entry which dominates everything).
-        //   - Const opcodes (re-materializable; the LLVM constant is a
-        //     ConstantInt/Fp etc. which doesn't have a "defining block").
-        //   - Function parameters (loaded in impl_entry, dominate everywhere).
-        //   - Phi results (phi-incoming values are what need spilling).
-        crossYieldSpillIds_.clear();
-        crossYieldSlotOf_.clear();
-        crossYieldSlotType_.clear();
-        crossYieldSlotGEPs_.clear();
-        // Run cross-block spill detection for ALL generators, not just those
-        // with yields. 0-yield generators (e.g. gen-meth-dflt-params tests) still
-        // get the state-machine impl/wrapper split, which can cause HIR-level
-        // single-block SSA defs to be referenced from LLVM-level distinct
-        // blocks after codegen reroutes via state-switch. Without the spill,
-        // verifier reports "Instruction does not dominate all uses!".
-        if (fn->isGenerator) {
-            // Two over-approximations for "cross-yield-live", unioned:
-            //
-            //  (A) WITHIN-BLOCK yield-crossing: a value defined in some block B
-            //      at instruction index Di, used in B at index Ui, with a Yield
-            //      between (Di < Yi < Ui in B's instruction list). lowerYield
-            //      relocates the insert point to yield_resume_N mid-block, so
-            //      Ui is actually emitted in a different LLVM block from Di.
-            //      This catches patterns like `'' in (yield)` and template
-            //      literals containing yield.
-            //
-            //  (B) CROSS-BLOCK uses: a value defined in block B but used in a
-            //      different block. Even if there's no yield between, the resume
-            //      block(s) are reached directly from impl_entry's state-switch,
-            //      so the defining LLVM block may not dominate the using one.
-            //      This catches loop-header reads of pre-loop values when the
-            //      loop body contains a yield.
-            //
-            // Filters out:
-            //   - HIR Alloca results (their value IS the slot address, created in
-            //     impl_entry which already dominates everything)
-            //   - HIR Phi results (their incoming values are what need spilling;
-            //     a phi node lives in its block and is fed by predecessors)
-            //   - Function parameters and impl_entry-loaded values (loaded in
-            //     impl_entry which dominates every state-switch target)
-            std::unordered_map<uint32_t, HIRBlock*> defBlock;
-            std::unordered_map<uint32_t, int> defIdxWithinBlock;
-            std::unordered_set<uint32_t> spillCandidates;
-            for (auto& block : fn->blocks) {
-                int idx = 0;
-                for (auto& inst : block->instructions) {
-                    if (inst->result) {
-                        bool skipDef = inst->opcode == HIROpcode::Alloca ||
-                                       inst->opcode == HIROpcode::Phi;
-                        if (!skipDef) {
-                            defBlock[inst->result->id] = block.get();
-                            defIdxWithinBlock[inst->result->id] = idx;
-                        }
-                    }
-                    ++idx;
-                }
-            }
-            for (auto& block : fn->blocks) {
-                // Pre-compute the instruction indices of Yields in this block.
-                std::vector<int> yieldsInBlock;
-                {
-                    int idx = 0;
-                    for (auto& inst : block->instructions) {
-                        if (inst->opcode == HIROpcode::Yield ||
-                            inst->opcode == HIROpcode::YieldStar) {
-                            yieldsInBlock.push_back(idx);
-                        }
-                        ++idx;
-                    }
-                }
-                int useIdx = 0;
-                for (auto& inst : block->instructions) {
-                    for (auto& op : inst->operands) {
-                        if (auto* opVal = std::get_if<std::shared_ptr<HIRValue>>(&op)) {
-                            if (!*opVal) continue;
-                            uint32_t id = (*opVal)->id;
-                            auto dbIt = defBlock.find(id);
-                            if (dbIt == defBlock.end()) continue;  // param/phi/alloca — skip
-                            if (dbIt->second != block.get()) {
-                                // (B) Cross-block use
-                                spillCandidates.insert(id);
-                            } else {
-                                // (A) Same-block: check yield-crossing
-                                int defIdx = defIdxWithinBlock[id];
-                                for (int yIdx : yieldsInBlock) {
-                                    if (defIdx < yIdx && yIdx < useIdx) {
-                                        spillCandidates.insert(id);
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    ++useIdx;
-                }
-            }
-            for (uint32_t id : spillCandidates) {
-                size_t slot = crossYieldSpillIds_.size();
-                crossYieldSpillIds_.insert(id);
-                crossYieldSlotOf_[id] = slot;
-            }
-        }
-        size_t crossYieldSpillCount = crossYieldSpillIds_.size();
+        // Count yields and allocas to size resume blocks and local storage
+        // (also sets generatorLocalCount_ / generatorNextLocalIndex_).
+        int yieldCount = collectGeneratorCounts(fn).first;
+
+        // Cross-yield SSA liveness pre-pass (populates crossYieldSpillIds_ /
+        // crossYieldSlotOf_; see the helper for the full algorithm notes).
+        computeCrossYieldSpills(fn);
 
         // Create the implementation function (state machine)
         // Signature: void impl(AsyncContext* ctx)
@@ -1162,236 +1429,14 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             generatorImplFunc_->setGC("ts-aot-gc");
         }
 
-        // Now set up the wrapper function (the original function)
-        // It creates AsyncContext, sets resumeFn, creates Generator, and returns it
-        llvm::BasicBlock* wrapperEntry = llvm::BasicBlock::Create(context_, "wrapper_entry", llvmFunc);
-        builder_->SetInsertPoint(wrapperEntry);
+        // Emit the wrapper function body: AsyncContext + resumeFn + `this`
+        // capture + param/local/spill data buffer + generator create + ret.
+        emitGeneratorWrapper(fn, llvmFunc, opts);
 
-        // Create AsyncContext
-        llvm::FunctionType* createCtxFt = llvm::FunctionType::get(
-            getGCPtrTy(), {}, false);
-        llvm::FunctionCallee createCtxFn = module_->getOrInsertFunction(
-            "ts_async_context_create", createCtxFt);
-        llvm::Value* asyncCtx = builder_->CreateCall(createCtxFt, createCtxFn.getCallee(), {}, "async_ctx");
-
-        // Set ctx->resumeFn = impl function
-        // AsyncContext layout: { TsObject base (16 bytes), int state (4), bool error (1), bool yielded (1), 2 padding, TsValue yieldedValue (16), ... }
-        // state is at offset 16, error at 20, yielded at 21, yieldedValue at 24, promise at 40, pendingNextPromise at 48, generator at 56, resumeFn at 64
-        // Actually let's use ts_async_context_set_resume_fn(ctx, fn) for safety
-        llvm::FunctionType* setResumeFt = llvm::FunctionType::get(
-            builder_->getVoidTy(),
-            { getGCPtrTy(), getGCPtrTy() },
-            false
-        );
-        llvm::FunctionCallee setResumeFn = module_->getOrInsertFunction(
-            "ts_async_context_set_resume_fn", setResumeFt);
-        builder_->CreateCall(setResumeFt, setResumeFn.getCallee(), { asyncCtx, generatorImplFunc_ });
-
-        // Capture `this` so generator-method calls bind it correctly per
-        // ECMA-262. Without this, `this` references inside the generator
-        // body see whatever the .next() caller's `this` happens to be
-        // (typically globalThis). The wrapper runs with the original
-        // receiver still in the call-this slot (set by the method dispatch
-        // path before invoking us); snapshot it now and restore on each
-        // resume in TsGenerator::next().
-        {
-            llvm::FunctionType* getThisFt = llvm::FunctionType::get(
-                getGCPtrTy(), {}, false);
-            llvm::FunctionCallee getThisFn = module_->getOrInsertFunction(
-                "ts_get_call_this", getThisFt);
-            llvm::Value* capturedThis = builder_->CreateCall(
-                getThisFt, getThisFn.getCallee(), {}, "captured_this");
-            llvm::FunctionType* setThisFt = llvm::FunctionType::get(
-                builder_->getVoidTy(),
-                { getGCPtrTy(), getGCPtrTy() },
-                false);
-            llvm::FunctionCallee setThisFn = module_->getOrInsertFunction(
-                "ts_async_context_set_this", setThisFt);
-            builder_->CreateCall(setThisFt, setThisFn.getCallee(),
-                { asyncCtx, capturedThis });
-        }
-
-        // Store function parameters (and reserve space for locals) in ctx->data
-        {
-            // Allocate a buffer for params + locals + cross-yield spill slots (8 bytes each)
-            size_t numParams = fn->params.empty() ? 0 : fn->params.size();
-            size_t totalSlots = numParams + allocaCount + crossYieldSpillCount;
-            llvm::FunctionType* allocFt = llvm::FunctionType::get(
-                getGCPtrTy(), { builder_->getInt64Ty() }, false);
-            llvm::FunctionCallee allocFn = module_->getOrInsertFunction("ts_alloc", allocFt);
-            llvm::Value* paramBuf = builder_->CreateCall(allocFt, allocFn.getCallee(),
-                { llvm::ConstantInt::get(builder_->getInt64Ty(), std::max(totalSlots, (size_t)1) * 8) }, "param_buf");
-
-            // Store each parameter into the buffer (if any)
-            if (numParams > 0) {
-            auto wrapperArgIt = llvmFunc->arg_begin();
-            // Skip implicit closure param if present
-            bool hasHiddenClosure = (!fn->params.empty() && fn->params[0].first == "__closure__");
-            bool hasImplicitClosure = !fn->captures.empty() && !hasHiddenClosure;
-            if (hasImplicitClosure) ++wrapperArgIt;
-
-            for (size_t i = 0; i < numParams; ++i, ++wrapperArgIt) {
-                llvm::Value* paramVal = &*wrapperArgIt;
-                // Convert non-pointer types to pointer-sized integer for storage
-                if (!paramVal->getType()->isPointerTy()) {
-                    if (paramVal->getType()->isDoubleTy()) {
-                        paramVal = builder_->CreateBitCast(paramVal, builder_->getInt64Ty());
-                        paramVal = builder_->CreateIntToPtr(paramVal, getGCPtrTy());
-                    } else if (paramVal->getType()->isIntegerTy()) {
-                        if (paramVal->getType()->getIntegerBitWidth() < 64) {
-                            paramVal = builder_->CreateZExt(paramVal, builder_->getInt64Ty());
-                        }
-                        paramVal = builder_->CreateIntToPtr(paramVal, getGCPtrTy());
-                    }
-                }
-                llvm::Value* slotPtr = builder_->CreateGEP(getGCPtrTy(), paramBuf,
-                    { llvm::ConstantInt::get(builder_->getInt64Ty(), i) }, "param_slot_" + std::to_string(i));
-                builder_->CreateStore(paramVal, slotPtr);
-            }
-            } // end if (numParams > 0)
-
-            // Set ctx->data = paramBuf
-            llvm::FunctionType* setDataFt = llvm::FunctionType::get(
-                builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() }, false);
-            llvm::FunctionCallee setDataFn = module_->getOrInsertFunction("ts_async_context_set_data", setDataFt);
-            builder_->CreateCall(setDataFt, setDataFn.getCallee(), { asyncCtx, paramBuf });
-        }
-
-        // Create Generator
-        llvm::FunctionType* createGeneratorFt = llvm::FunctionType::get(
-            getGCPtrTy(), { getGCPtrTy() }, false);
-        llvm::FunctionCallee createGeneratorFn = module_->getOrInsertFunction(
-            "ts_generator_create", createGeneratorFt);
-        llvm::Value* generator = rawToGCPtr(builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), { asyncCtx }, "generator"));
-
-        // Return the generator immediately (don't execute the body)
-        builder_->CreateRet(gcPtrToRaw(generator));
-
-        // Now build the implementation function (state machine)
-        currentFunction_ = generatorImplFunc_;
-        llvm::Argument* ctxArg = generatorImplFunc_->getArg(0);
-        ctxArg->setName("ctx");
-        asyncContext_ = ctxArg;
-
-        // Create entry block with state dispatch
-        llvm::BasicBlock* implEntry = llvm::BasicBlock::Create(context_, "impl_entry", generatorImplFunc_);
-        builder_->SetInsertPoint(implEntry);
-
-        // Load state: ctx->state (offset 16 in AsyncContext after TsObject base)
-        llvm::FunctionType* getStateFt = llvm::FunctionType::get(
-            builder_->getInt32Ty(),
-            { getGCPtrTy() },
-            false
-        );
-        llvm::FunctionCallee getStateFn = module_->getOrInsertFunction(
-            "ts_async_context_get_state", getStateFt);
-        llvm::Value* state = builder_->CreateCall(getStateFt, getStateFn.getCallee(), { asyncContext_ }, "state");
-
-        // Load ctx->data buffer (contains params + locals storage)
-        // This is loaded in impl_entry which dominates all blocks, so it's available everywhere
-        {
-            llvm::FunctionType* getDataFt = llvm::FunctionType::get(
-                getGCPtrTy(), { getGCPtrTy() }, false);
-            llvm::FunctionCallee getDataFn = module_->getOrInsertFunction("ts_async_context_get_data", getDataFt);
-            generatorDataBuf_ = builder_->CreateCall(getDataFt, getDataFn.getCallee(), { asyncContext_ }, "data_buf");
-
-            // Load function parameters from the buffer
-            for (size_t i = 0; i < fn->params.size(); ++i) {
-                llvm::Value* slotPtr = builder_->CreateGEP(getGCPtrTy(), generatorDataBuf_,
-                    { llvm::ConstantInt::get(builder_->getInt64Ty(), i) }, "param_slot_" + std::to_string(i));
-                llvm::Value* paramVal = builder_->CreateLoad(getGCPtrTy(), slotPtr, fn->params[i].first + "_loaded");
-
-                // Convert back from pointer to the expected type
-                auto& paramType = fn->params[i].second;
-                if (paramType && paramType->kind == HIRTypeKind::Float64) {
-                    paramVal = builder_->CreatePtrToInt(paramVal, builder_->getInt64Ty());
-                    paramVal = builder_->CreateBitCast(paramVal, builder_->getDoubleTy());
-                } else if (paramType && paramType->kind == HIRTypeKind::Int64) {
-                    paramVal = builder_->CreatePtrToInt(paramVal, builder_->getInt64Ty());
-                } else if (paramType && paramType->kind == HIRTypeKind::Bool) {
-                    paramVal = builder_->CreatePtrToInt(paramVal, builder_->getInt64Ty());
-                    paramVal = builder_->CreateTrunc(paramVal, builder_->getInt1Ty());
-                }
-                // For ptr/object/any/string types, the value is already a pointer
-
-                valueMap_[static_cast<uint32_t>(i)] = paramVal;
-            }
-
-            // Pre-create GEPs for all local variable slots in impl_entry
-            // This ensures they dominate all uses in any block
-            generatorLocalSlots_.clear();
-            size_t numParams = fn->params.size();
-            for (int i = 0; i < allocaCount; ++i) {
-                size_t slotIndex = numParams + i;
-                llvm::Value* slotPtr = builder_->CreateGEP(getGCPtrTy(), generatorDataBuf_,
-                    { llvm::ConstantInt::get(builder_->getInt64Ty(), slotIndex) },
-                    "gen_local_" + std::to_string(i));
-                generatorLocalSlots_.push_back(slotPtr);
-            }
-
-            // Pre-create GEPs for cross-yield SSA spill slots. Indexed by
-            // crossYieldSlotOf_[hir_value_id]. Created in impl_entry so they
-            // dominate every block reachable from the state-switch.
-            crossYieldSlotGEPs_.assign(crossYieldSpillCount, nullptr);
-            for (const auto& [id, slot] : crossYieldSlotOf_) {
-                size_t slotIndex = numParams + allocaCount + slot;
-                llvm::Value* slotPtr = builder_->CreateGEP(getGCPtrTy(), generatorDataBuf_,
-                    { llvm::ConstantInt::get(builder_->getInt64Ty(), slotIndex) },
-                    "gen_xy_" + std::to_string(id));
-                crossYieldSlotGEPs_[slot] = slotPtr;
-            }
-        }
-
-        // Create blocks for each state
-        // State 0 = initial (start of generator)
-        // State 1..N = resume after yield 1..N
-        // State N+1 = done (generator finished)
-
-        // Create LLVM basic blocks for HIR blocks (these go in the impl function)
-        for (auto& block : fn->blocks) {
-            llvm::BasicBlock* bb = llvm::BasicBlock::Create(context_, block->label, generatorImplFunc_);
-            blockMap_[block.get()] = bb;
-        }
-
-        // Create the done block
-        generatorDoneBlock_ = llvm::BasicBlock::Create(context_, "generator_done", generatorImplFunc_);
-
-        // Create resume blocks for each yield point (state 1, 2, 3, ...)
-        for (int i = 0; i < yieldCount; i++) {
-            llvm::BasicBlock* resumeBlock = llvm::BasicBlock::Create(
-                context_,
-                "yield_resume_" + std::to_string(i + 1),
-                generatorImplFunc_
-            );
-            yieldResumeBlocks_.push_back(resumeBlock);
-        }
-
-        // Create the state dispatch switch
-        llvm::BasicBlock* firstHIRBlock = fn->blocks.empty() ? generatorDoneBlock_ : blockMap_[fn->blocks[0].get()];
-        llvm::SwitchInst* stateSwitch = builder_->CreateSwitch(state, generatorDoneBlock_, yieldCount + 1);
-
-        // State 0 -> start of generator (first HIR block)
-        stateSwitch->addCase(builder_->getInt32(0), firstHIRBlock);
-
-        // States 1..N -> resume after corresponding yield
-        for (int i = 0; i < yieldCount; i++) {
-            stateSwitch->addCase(builder_->getInt32(i + 1), yieldResumeBlocks_[i]);
-        }
-
-        // Build the done block - just return without setting yielded.
-        // Impl functions are normally void, but match the actual return type
-        // defensively to avoid a verifier mismatch if the function was
-        // declared with a non-void return (some derived-class super-prop
-        // paths route a non-impl function through here — see superPropOrdering).
-        builder_->SetInsertPoint(generatorDoneBlock_);
-        {
-            llvm::Type* retTy = currentFunction_->getReturnType();
-            if (retTy->isVoidTy()) {
-                builder_->CreateRetVoid();
-            } else {
-                builder_->CreateRet(llvm::UndefValue::get(retTy));
-            }
-        }
+        // Emit the impl-function entry: state load, data-buffer reload,
+        // local/spill slot GEPs, HIR/resume block creation, state switch
+        // and the generator_done block.
+        emitGeneratorImplPrologue(fn, opts, yieldCount);
 
         // Lower each HIR block in the impl function
         for (auto& block : fn->blocks) {
