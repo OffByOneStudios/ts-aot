@@ -144,6 +144,17 @@ private:
     // active handler to prevent leaked handlers pointing to destroyed frames.
     int tryDepth_ = 0;
 
+    // GEN-001 Stage 6: parallel stack of enclosing try scopes — the function
+    // they belong to plus their catch-dispatch block (visitTryStatement's
+    // exceptionDest). Pushed/popped exactly where tryDepth_ changes. Yields
+    // copy the entries tagged with the CURRENT function into the HIR
+    // instruction's tryCatchTargets so HIRToLLVM can pop-balance suspend
+    // edges and re-arm handlers on resume. Tagging by function (instead of
+    // save/restore at every nested-function lowering site) filters out scopes
+    // that belong to an enclosing function while a nested function body is
+    // lowered inline.
+    std::vector<std::pair<HIRFunction*, HIRBlock*>> tryScopeStack_;
+
     // Class context - tracks when we're inside a class body
     HIRClass* currentClass_ = nullptr;
 

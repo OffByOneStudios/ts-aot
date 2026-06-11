@@ -355,6 +355,16 @@ struct HIRInstruction {
     std::vector<std::pair<int64_t, HIRBlock*>> switchCases;
     HIRBlock* switchDefault = nullptr;
 
+    // GEN-001 Stage 6: for Yield/YieldStar (and the agen body-started marker
+    // Call) inside generator bodies — the catch-dispatch blocks of the user
+    // try scopes whose handlers are armed at this suspension point, outermost
+    // first. ASTToHIR populates this from its try-scope stack. HIRToLLVM uses
+    // it to (a) pop the still-armed handlers on the suspend edge (the impl
+    // function returns at a yield, so leaving them pushed leaks entries that
+    // point at a dead frame — the E2 latent bug) and (b) re-arm the same
+    // scopes (push + setjmp targeting the SAME catch blocks) on resume.
+    std::vector<HIRBlock*> tryCatchTargets;
+
     // Escape analysis
     bool escapes = true;            // Conservative default: object escapes function scope
     bool scalarReplaceable = false;  // True if all uses are GetPropStatic/SetPropStatic (SROA)

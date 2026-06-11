@@ -4703,10 +4703,12 @@ void ASTToHIR::visitTryStatement(ast::TryStatement* node) {
     currentBlock_ = tryBB;
 
     tryDepth_++;
+    tryScopeStack_.push_back({currentFunction_, exceptionDest});
     for (auto& stmt : node->tryBlock) {
         if (hasTerminator()) break;  // Stop if block already terminated (e.g., by throw)
         lowerStatement(stmt.get());
     }
+    tryScopeStack_.pop_back();
     tryDepth_--;
 
     // Pop exception handler and branch to finally/merge
@@ -9815,6 +9817,25 @@ void ASTToHIR::visitYieldExpression(ast::YieldExpression* node) {
             // yield with no expression yields undefined
             auto undef = builder_.createConstUndefined();
             lastValue_ = builder_.createYield(undef);
+        }
+    }
+
+    // GEN-001 Stage 6: annotate the suspension point with the catch-dispatch
+    // blocks of the user try scopes armed here (outermost first), so the
+    // state-machine lowering can pop those handlers on the suspend edge and
+    // re-arm them (same catch targets) on resume. Only scopes belonging to
+    // the CURRENT function count — entries from an enclosing function (this
+    // body may be lowered inline inside it) live in a different frame.
+    if (HIRBlock* ib = builder_.getInsertBlock();
+        ib && !ib->instructions.empty()) {
+        HIRInstruction* yieldInst = ib->instructions.back().get();
+        if (yieldInst->opcode == HIROpcode::Yield ||
+            yieldInst->opcode == HIROpcode::YieldStar) {
+            for (const auto& [fn, catchTarget] : tryScopeStack_) {
+                if (fn == currentFunction_) {
+                    yieldInst->tryCatchTargets.push_back(catchTarget);
+                }
+            }
         }
     }
 }

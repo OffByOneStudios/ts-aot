@@ -1431,7 +1431,8 @@ llvm::BasicBlock* HIRToLLVM::getOrCreateAgenForcedReturnBlock() {
     return agenForcedReturnBB_;
 }
 
-llvm::Value* HIRToLLVM::emitAgenResumeModeDispatch() {
+llvm::Value* HIRToLLVM::emitAgenResumeModeDispatch(
+    const std::vector<HIRBlock*>& tryCatchTargets) {
     // Builder is positioned at the start of a yield resume block.
     auto getModeFn = getOrDeclareRuntimeFunction(
         "ts_async_context_get_resume_mode",
@@ -1452,11 +1453,13 @@ llvm::Value* HIRToLLVM::emitAgenResumeModeDispatch() {
     auto getResumedFn = getOrDeclareRuntimeFunction(
         "ts_async_context_get_resumed_value", getGCPtrTy(), { getGCPtrTy() });
 
-    // mode 1 (gen.throw): raise the argument at the suspension point. With no
-    // live user handler it walks to the impl-entry barrier and rejects the
-    // current request's promise. Handler re-arming for try-around-yield is
-    // GEN-001 Stage 6 (same limitation as sync generators today).
+    // mode 1 (gen.throw): re-arm the user try handlers enclosing this yield
+    // (GEN-001 Stage 6), then raise the argument at the suspension point —
+    // caught by the innermost re-armed handler. With no enclosing user try it
+    // walks to the impl-entry barrier and rejects the current request's
+    // promise.
     builder_->SetInsertPoint(throwBB);
+    emitRearmTryHandlers(tryCatchTargets);
     llvm::Value* throwArg = builder_->CreateCall(
         getResumedFn, { asyncContext_ }, "agen_throw_arg");
     auto throwFn = getOrDeclareRuntimeFunction("ts_throw",
@@ -1464,8 +1467,12 @@ llvm::Value* HIRToLLVM::emitAgenResumeModeDispatch() {
     builder_->CreateCall(throwFn, { throwArg });
     builder_->CreateUnreachable();
 
-    // mode 0 (next): the yield expression's value is the resumed value.
+    // mode 0 (next): re-arm the enclosing user try handlers so body code after
+    // the resume is protected again, then the yield expression's value is the
+    // resumed value. (mode 2 takes the forced-return block directly with NO
+    // re-arm — that path pops only the impl barrier, keeping the pop balance.)
     builder_->SetInsertPoint(nextBB);
+    emitRearmTryHandlers(tryCatchTargets);
     return builder_->CreateCall(getResumedFn, { asyncContext_ }, "resumed_value");
 }
 
@@ -5752,6 +5759,15 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             agenSuspendRelocation_[suspendedBlock] =
                 yieldResumeBlocks_[currentYieldState_];
             builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
+            // GEN-001 Stage 6: the marker is the SuspendedStart suspension —
+            // a gen.throw()/gen.return() issued before the first next() must
+            // be delivered here, not run the body as if next() was called.
+            // No user try encloses the prologue, so no re-arm targets: mode 1
+            // ts_throws straight into the impl barrier (reject + done), mode
+            // 2 takes the forced-return block ({value, done:true}). Mode 0
+            // falls through into the body; the resumed value is unused (the
+            // first next()'s argument is discarded per spec).
+            emitAgenResumeModeDispatch({});
         }
         currentYieldState_++;
         return;
@@ -10634,10 +10650,10 @@ void HIRToLLVM::lowerCopy(HIRInstruction* inst) {
 void HIRToLLVM::lowerSetupTry(HIRInstruction* inst) {
     // SetupTry: push exception handler, call setjmp, return result
     // Returns bool: true = exception path, false = normal entry
+    setValue(inst->result, emitTryHandlerPushAndSetjmp());
+}
 
-    // Get the catch block target
-    HIRBlock* catchBlock = std::get<HIRBlock*>(inst->operands[0]);
-
+llvm::Value* HIRToLLVM::emitTryHandlerPushAndSetjmp() {
     // Call ts_push_exception_handler() - returns jmp_buf pointer
     auto pushFn = getOrDeclareRuntimeFunction("ts_push_exception_handler",
         getGCPtrTy(), {});
@@ -10686,7 +10702,39 @@ void HIRToLLVM::lowerSetupTry(HIRInstruction* inst) {
     llvm::Value* isException = builder_->CreateICmpNE(setjmpResult,
         llvm::ConstantInt::get(builder_->getInt32Ty(), 0));
 
-    setValue(inst->result, isException);
+    return isException;
+}
+
+void HIRToLLVM::emitSuspendHandlerPops(size_t n) {
+    if (n == 0) return;
+    auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
+        builder_->getVoidTy(), {});
+    for (size_t i = 0; i < n; ++i) {
+        builder_->CreateCall(popFn, {});
+    }
+}
+
+void HIRToLLVM::emitRearmTryHandlers(
+    const std::vector<HIRBlock*>& tryCatchTargets) {
+    // GEN-001 Stage 6: a generator suspension returned from the impl function,
+    // so the setjmp handlers of enclosing user try scopes (pushed in a
+    // PREVIOUS invocation's frame) are gone — we popped them on the suspend
+    // edge. Re-arm each scope in THIS invocation's frame, outermost first so
+    // the innermost handler ends on top of the stack, targeting the same HIR
+    // catch dispatch blocks lowerSetupTry used. Any value the catch path uses
+    // across the suspension is already routed through the heap data buffer by
+    // the cross-yield spill pre-pass (cross-block uses are spill candidates),
+    // so branching to the catch block from here is dominance-safe.
+    for (HIRBlock* catchTarget : tryCatchTargets) {
+        llvm::BasicBlock* catchBB = getBlock(catchTarget);
+        if (!catchBB) continue;
+        llvm::Value* isException = emitTryHandlerPushAndSetjmp();
+        llvm::Function* fn = builder_->GetInsertBlock()->getParent();
+        llvm::BasicBlock* contBB = llvm::BasicBlock::Create(
+            context_, "rearm_cont", fn);
+        builder_->CreateCondBr(isException, catchBB, contBB);
+        builder_->SetInsertPoint(contBB);
+    }
 }
 
 void HIRToLLVM::lowerThrow(HIRInstruction* inst) {
@@ -10867,9 +10915,14 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
         builder_->CreateCall(setStateFn,
             { asyncContext_, builder_->getInt32(nextState) });
 
-        // Yields are only reachable in state>=1 invocations (state 0 ends at
-        // the body-started marker), so the impl barrier is always pushed
-        // here — pop it on this suspend edge.
+        // GEN-001 Stage 6 pop balance: the impl function RETURNS at this
+        // suspension, so every user try handler still armed here would
+        // otherwise leak a stale entry pointing at this (dead) frame. Pop the
+        // user handlers first (they were pushed after the barrier, so they
+        // are on top), then the impl barrier. Yields are only reachable in
+        // state>=1 invocations (state 0 ends at the body-started marker), so
+        // the impl barrier is always pushed here.
+        emitSuspendHandlerPops(inst->tryCatchTargets.size());
         auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
             builder_->getVoidTy(), {});
         builder_->CreateCall(popFn, {});
@@ -10881,7 +10934,8 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
             agenSuspendRelocation_[suspendedBlock] =
                 yieldResumeBlocks_[currentYieldState_];
             builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
-            llvm::Value* resumedValue = emitAgenResumeModeDispatch();
+            llvm::Value* resumedValue =
+                emitAgenResumeModeDispatch(inst->tryCatchTargets);
             setValue(inst->result, resumedValue);
         }
 
@@ -10905,6 +10959,13 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
             builder_->getVoidTy(), { getGCPtrTy(), builder_->getInt32Ty() });
         builder_->CreateCall(setStateFn, { asyncContext_, builder_->getInt32(nextState) });
 
+        // GEN-001 Stage 6 pop balance: pop the user try handlers still armed
+        // at this suspension before the impl returns. Leaving them pushed is
+        // the E2 latent bug — the entries point at this frame, which dies on
+        // the `ret void` below, and a later throw longjmps into the dead
+        // frame, corrupting the process-wide handler stack.
+        emitSuspendHandlerPops(inst->tryCatchTargets.size());
+
         // Return from the impl function (suspend)
         builder_->CreateRetVoid();
 
@@ -10912,6 +10973,11 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
         if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
             llvm::BasicBlock* resumeBlock = yieldResumeBlocks_[currentYieldState_];
             builder_->SetInsertPoint(resumeBlock);
+
+            // GEN-001 Stage 6 re-arm: re-push the enclosing try scopes'
+            // handlers in THIS invocation's frame (same catch targets) so a
+            // throw after the resume is caught by the user's try again.
+            emitRearmTryHandlers(inst->tryCatchTargets);
 
             // Get the resumed value from ctx->resumedValue for the yield result
             auto getResumedFn = getOrDeclareRuntimeFunction("ts_async_context_get_resumed_value",
@@ -11039,18 +11105,26 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
         builder_->CreateCall(setStateFn,
             { asyncContext_, builder_->getInt32(nextState) });
 
-        // Suspend edge in a state>=1 invocation: pop the impl barrier.
+        // Suspend edge in a state>=1 invocation: pop the user try handlers
+        // armed at this yield* (GEN-001 Stage 6 pop balance), then the impl
+        // barrier.
+        emitSuspendHandlerPops(inst->tryCatchTargets.size());
         auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
             builder_->getVoidTy(), {});
         builder_->CreateCall(popFn, {});
         builder_->CreateRetVoid();
 
-        // Resume block: mode dispatch, then loop for the next element. The
-        // mode-NEXT resumed value (gen.next(v)'s argument) is forwarded to
-        // the inner iterator's next via the loop-header PHI.
+        // Resume block: mode dispatch (re-arms the enclosing user handlers on
+        // the throw/next paths, GEN-001 Stage 6), then loop for the next
+        // element. The mode-NEXT resumed value (gen.next(v)'s argument) is
+        // forwarded to the inner iterator's next via the loop-header PHI.
+        // Note: a mode-1 throw is raised at the yield* site (caught by an
+        // enclosing user try); forwarding it to the delegate iterator's
+        // throw() method is Stage 7.
         if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
             builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
-            llvm::Value* resumedValue = emitAgenResumeModeDispatch();
+            llvm::Value* resumedValue =
+                emitAgenResumeModeDispatch(inst->tryCatchTargets);
             sentArg->addIncoming(resumedValue, builder_->GetInsertBlock());
             builder_->CreateBr(loopBB);
         }
@@ -11126,6 +11200,10 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
             builder_->getVoidTy(), { getGCPtrTy(), builder_->getInt32Ty() });
         builder_->CreateCall(setStateFn, { asyncContext_, builder_->getInt32(nextState) });
 
+        // GEN-001 Stage 6 pop balance: pop the user try handlers armed at
+        // this yield* before the impl returns (see lowerYield).
+        emitSuspendHandlerPops(inst->tryCatchTargets.size());
+
         // Return from impl function (suspend)
         builder_->CreateRetVoid();
 
@@ -11133,6 +11211,10 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
         if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
             llvm::BasicBlock* resumeBlock = yieldResumeBlocks_[currentYieldState_];
             builder_->SetInsertPoint(resumeBlock);
+            // GEN-001 Stage 6 re-arm: re-push the enclosing try scopes'
+            // handlers in this invocation's frame before re-entering the
+            // delegation loop.
+            emitRearmTryHandlers(inst->tryCatchTargets);
             // Loop back to check next delegate value
             builder_->CreateBr(loopBB);
         }

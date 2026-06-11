@@ -386,13 +386,41 @@ private:
     // Emit the resume-mode dispatch at the start of a suspendable-agen yield
     // resume block. Builder must be positioned at the resume block on entry.
     // Emits: mode = ts_async_context_get_resume_mode(ctx); switch —
-    //   mode 1 (throw):  ts_throw(resumedValue), unreachable
-    //   mode 2 (return): branch to the shared forced-return block
-    //   default (next):  fall through
-    // Leaves the builder in the next-mode block and returns the resumed value
-    // (ts_async_context_get_resumed_value) for use as the yield expression's
-    // value.
-    llvm::Value* emitAgenResumeModeDispatch();
+    //   mode 1 (throw):  re-arm enclosing user try handlers (GEN-001 Stage 6),
+    //                    then ts_throw(resumedValue) — caught by the innermost
+    //                    re-armed handler if one encloses the yield, else by
+    //                    the impl barrier (reject)
+    //   mode 2 (return): branch to the shared forced-return block (NO re-arm:
+    //                    the forced-return path pops only the impl barrier)
+    //   default (next):  re-arm enclosing user try handlers, fall through
+    // Leaves the builder in the next-mode path's final block and returns the
+    // resumed value (ts_async_context_get_resumed_value) for use as the yield
+    // expression's value. tryCatchTargets = the HIR catch-dispatch blocks of
+    // the user try scopes armed at this suspension point, outermost first
+    // (HIRInstruction::tryCatchTargets).
+    llvm::Value* emitAgenResumeModeDispatch(
+        const std::vector<HIRBlock*>& tryCatchTargets);
+
+    // GEN-001 Stage 6 helpers shared by sync-generator and suspendable-agen
+    // suspension points.
+    //
+    // emitTryHandlerPushAndSetjmp: the factored body of lowerSetupTry —
+    // ts_push_exception_handler + platform setjmp (Win64 2-arg form with
+    // frameaddress) + NoInline on the containing function. Returns the i1
+    // "is exception" value.
+    llvm::Value* emitTryHandlerPushAndSetjmp();
+    // emitSuspendHandlerPops: emit n ts_pop_exception_handler calls — popping
+    // the user try handlers still armed at a suspension point before the impl
+    // function's `ret void`. Without this every yield inside a try LEAKS a
+    // handler-stack entry pointing at the dead impl frame (the E2 latent bug:
+    // a later throw longjmps into the dead frame and poisons the process-wide
+    // handler stack).
+    void emitSuspendHandlerPops(size_t n);
+    // emitRearmTryHandlers: re-execute the push+setjmp sequence for each
+    // enclosing try scope (outermost first) targeting the SAME catch dispatch
+    // blocks, chaining through fresh "rearm_cont" blocks. Builder ends in the
+    // final continuation block.
+    void emitRearmTryHandlers(const std::vector<HIRBlock*>& tryCatchTargets);
 
     // Lazily create the per-impl-function forced-return block (resume mode 2):
     // v = resumedValue; ts_agen_complete(ctx, v); pop impl barrier; ret void.

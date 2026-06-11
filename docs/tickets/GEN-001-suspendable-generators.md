@@ -1,6 +1,7 @@
 # GEN-001: Suspendable Async Generators (rearchitecture of the eager-body model)
 
-Status: STAGES 1-3 COMMITTED; Stage 4 measured (section 7) — next Stage 4b
+Status: STAGE 6 IMPLEMENTED, gated, uncommitted (section 8); flip (Stage 8)
+is the live default — next Stage 7 (yield* completion forwarding)
 Baseline at planning time: test262 26,220 pass / 14,021 fail / 5 ce / 46 timeout.
 Gates for every stage: golden-ir 267/279, node 295/297, 2k regression sample
 (tests/test262/regression_sample.txt, zero-flip floor), full-sweep arbiter
@@ -572,3 +573,68 @@ never-$DONE losses are expected to recover substantially with it.
 
 Stage ordering update: Stage 4b (delegation shape parity) is now BEFORE
 Stage 5; the Q1 ordering question stays open pending a clean re-measure.
+
+## 8. Stage 6 results (2026-06-11): pop-balance + handler re-arm
+
+Implements both halves of the E2/Q2 problem with ONE mechanism:
+
+E2 root cause (Core.cpp): the handler stack is
+`static std::vector<ExceptionContext*> exceptionStack` (Core.cpp :74); push
+mallocs an entry holding jmp_buf + calling-convention snapshots (:1380), pop
+frees the back (:1390), ts_throw pops the back and longjmps (:1398). A
+generator impl returning at a yield inside a try left the entry on the stack
+(LEAK) pointing at the dead frame (POISON) — the next ts_throw anywhere
+longjmp'd into the dead frame, corrupting the process-wide stack.
+
+Mechanism (per-suspension try-scope table):
+- HIR.h: `HIRInstruction::tryCatchTargets` — catch-dispatch HIRBlock*s of the
+  user try scopes armed at a Yield/YieldStar, outermost first.
+- ASTToHIR: `tryScopeStack_` (pairs of {function, exceptionDest}) pushed/
+  popped exactly where tryDepth_ changes (visitTryStatement); function-tagged
+  so inline-lowered nested function bodies don't inherit outer scopes.
+  visitYieldExpression copies current-function entries onto the instruction.
+- HIRToLLVM: lowerSetupTry's push+setjmp factored into
+  emitTryHandlerPushAndSetjmp(); emitSuspendHandlerPops(n) pops the armed
+  user handlers on EVERY suspend edge (sync lowerYield, sync yield* loop,
+  agen lowerYield, agen yield* loop — user pops first, then the agen impl
+  barrier pop); emitRearmTryHandlers re-executes push+setjmp targeting the
+  SAME catch blocks (outermost first) on resume. Sync resume re-arms at the
+  resume block head; agen resume re-arms inside the mode dispatch on the
+  THROW path (before ts_throw — gen.throw(e) is caught by the innermost
+  enclosing user try) and the NEXT path (body protected again); the RETURN
+  path takes the shared forced-return block with NO re-arm (pop balance).
+  Dominance is safe because the cross-yield spill pre-pass already spills
+  every cross-block use into the ctx->data buffer.
+- The body-started marker resume (SuspendedStart) now also runs the mode
+  dispatch: throw-before-first-next rejects via the impl barrier;
+  return-before-first-next completes {value, done:true}.
+
+Gates (all green, zero attributable downs):
+- golden-ir 267/279 (no regressions, no re-blessing needed — generator IR
+  changed but no IR-comparison test flipped); node 295/297.
+- 2k sample (fast-preset config: TS262_SHARED_RUNTIME=1 TS262_BATCH=16 -O0):
+  1819 pass / 251 fail vs baseline 1813/257 — ZERO downs, 6 ups (all
+  AsyncGeneratorPrototype throw/return suspendedStart/suspendedYield).
+  NOTE: the sample MUST be run with the fast-preset env; a static/-O2 run
+  produced 3 phantom "downs" (yield-star-*-abrupt) that turned out to be a
+  PRE-EXISTING config-dependent crash (see below), not Stage 6.
+- Full arbiter: 26,391 pass / 13,849 fail / 7 ce / 45 timeout vs
+  26,384 / 13,857 / 5 / 46 — NET +7. Downs: 2, both verified flakes
+  (padStart/max-length-not-greater-than-string timeout — passes isolated;
+  dynamic-import nested-block-script-code-valid compile_error — compiles
+  clean directly, batch-mode flake). Ups: 9 (7 AsyncGeneratorPrototype
+  throw/return, GeneratorPrototype/throw/try-finally-nested-try-catch-
+  within-finally, 1 staging/sm noise).
+
+Deferred / found:
+- gen.return(v) does NOT run finally blocks (forced-return path unchanged);
+  throw-mode DOES honor try/finally via the exceptionStore re-arm target
+  (throw-suspendedYield-try-finally* now pass). Finally-on-return needs a
+  "pending completion" lowering — future stage.
+- yield* throw/return forwarding to the delegate iterator is still Stage 7
+  (mode 1 raises at the yield* site, catchable by enclosing user try).
+- PRE-EXISTING (independent of Stage 6, exists at HEAD): static-linked -O2
+  async gens crash 0xc00000ff (ts_throw longjmp -> RtlUnwind ->
+  _report_gsfailure) when a yield* @@asyncIterator getter throws
+  (yield-star-getiter-*-abrupt family, repro tmp/ysabrupt.js). Invisible
+  under the fast-preset (shared/-O0) sweeps. File separately.
