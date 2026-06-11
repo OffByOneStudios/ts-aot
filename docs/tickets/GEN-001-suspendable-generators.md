@@ -1,6 +1,6 @@
 # GEN-001: Suspendable Async Generators (rearchitecture of the eager-body model)
 
-Status: EXPERIMENTS COMPLETE (section 6) — ready for Stage 1
+Status: STAGES 1-3 COMMITTED; Stage 4 measured (section 7) — next Stage 4b
 Baseline at planning time: test262 26,220 pass / 14,021 fail / 5 ce / 46 timeout.
 Gates for every stage: golden-ir 267/279, node 295/297, 2k regression sample
 (tests/test262/regression_sample.txt, zero-flip floor), full-sweep arbiter
@@ -541,3 +541,34 @@ E4 (pump re-entrancy): nested blocking awaits three frames deep work
 CHAINED timer-backed awaits (`await timerPromise; await timerPromise2`)
 return an un-unwrapped object on the second await — exists for plain async
 functions today; file separately, not a GEN-001 blocker.
+
+## 7. Stage 4 measurement results (G6, 2026-06-11)
+
+Flag-ON full sweep (15m57s): 25,776 pass / 14,452 fail / 18 ce / 46 timeout
+vs flag-OFF baseline 26,223 / 14,019 / 6 / 44 -> NET -447.
+
+WINS: 99 (off-fail -> on-pass), led by the async-gen-private-method
+families (7 x 4 dirs) + AsyncFromSyncIteratorPrototype return/throw +
+AsyncGeneratorPrototype/return/return-suspendedYield - suspension
+semantics CONFIRMED working where they bind.
+
+LOSSES: 546 (off-pass -> on-fail), reason distribution:
+- 211 "async test exited without calling $DONE"
+- 88  "iterator.next is not callable"  } 152 = the Stage-3 yield*
+- 64  "iterator method returned a non-object" } delegation loop
+- 80  "Uncaught: TypeError" + 64 no-message (likely same root)
+- 12  NEW compile failures (triage separately)
+
+ROOT-CAUSE HYPOTHESIS (high confidence): the suspendable yield*
+delegation loop calls .next on whatever ts_agen_get_async_iterator
+returns, but several runtime @@iterator implementations return plain
+ARRAYS as legacy "iterator-likes" (the same shape Iterator.concat and
+the EAGER drain both special-case). The eager drain's array/result-shape
+leniencies live in the DRAIN, not the getter, so the factored helper +
+sync-style loop lost them. Fix = Stage 4b: teach the suspendable
+delegation loop (or a runtime step helper) the array-shaped-iterator
+walk + the eager drain's result-shape handling; re-measure. The 211
+never-$DONE losses are expected to recover substantially with it.
+
+Stage ordering update: Stage 4b (delegation shape parity) is now BEFORE
+Stage 5; the Q1 ordering question stays open pending a clean re-measure.
