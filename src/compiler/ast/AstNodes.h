@@ -745,6 +745,10 @@ struct SuperExpression : Expression {
 
 struct StringLiteral : Expression {
     std::string value;
+    // True only for the parser-synthesized LHS of an ergonomic brand check
+    // `#x in obj` (ES2022) — lowering probes the hidden private storage key
+    // instead of the literal string. A user-written "#x" string stays false.
+    bool isPrivateBrand = false;
     std::string getKind() const override { return "StringLiteral"; }
     void accept(Visitor* visitor) override { visitor->visitStringLiteral(this); }
 };

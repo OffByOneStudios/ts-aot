@@ -367,6 +367,9 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly) {
         uint64_t val = *(uint64_t*)((char*)obj + 16 + i * 8);
         if (val == NANBOX_DELETED) continue;  // tombstoned by delete
         bool isSym = ts_is_user_symbol_storage_key(desc->propNames[i]) != 0;
+        // Any other '\x01'-prefixed slot is an internal storage key
+        // (private fields "\x01#x") — never an enumerable property key.
+        if (!isSym && desc->propNames[i] && desc->propNames[i][0] == '\x01') continue;
         if (isSym != symbolsOnly) continue;
         TsString* name = TsString::Create(desc->propNames[i]);
         keys->Push((int64_t)(uintptr_t)name);
@@ -382,6 +385,7 @@ static void* flat_object_keys_impl(void* obj, bool symbolsOnly) {
                 void* sp = ts_value_get_string((TsValue*)(intptr_t)boxed);
                 const char* kc = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
                 bool isSym = kc && ts_is_user_symbol_storage_key(kc) != 0;
+                if (!isSym && kc && kc[0] == '\x01') continue;  // internal storage key
                 if (isSym != symbolsOnly) continue;
                 keys->Push(boxed);
             }

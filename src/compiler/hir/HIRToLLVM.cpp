@@ -478,10 +478,22 @@ void HIRToLLVM::createMainFunction() {
             }
             std::sort(orderedProps.begin(), orderedProps.end());
 
-            // Emit global string constants for each property name
+            // Emit global string constants for each property name.
+            // Private fields ("#x") use the hidden storage key "\x01#x" so
+            // the inline slot matches the prefixed writes (ASTToHIR
+            // privateStorageKey) and never surfaces as an own property key
+            // (hasOwnProperty / getOwnPropertyNames — B-lever).
             std::vector<llvm::Constant*> namePtrs;
             for (auto& [idx, name] : orderedProps) {
-                auto* strConst = llvm::ConstantDataArray::getString(context_, name, true);
+                std::string storageName = name;
+                // CLASS shapes only: a '#'-name in a class is a private field
+                // by grammar. Object-literal shapes (className empty) can hold
+                // "#x" as a legitimate string key — must stay visible.
+                if (!shape->className.empty() &&
+                    !storageName.empty() && storageName[0] == '#') {
+                    storageName = std::string("\x01") + storageName;
+                }
+                auto* strConst = llvm::ConstantDataArray::getString(context_, storageName, true);
                 auto* strGlobal = new llvm::GlobalVariable(
                     *module_, strConst->getType(), true,
                     llvm::GlobalValue::PrivateLinkage, strConst,

@@ -14,6 +14,21 @@ namespace ts::hir {
 // Helper: Convert ext::TypeReference to HIR type
 //==============================================================================
 
+// Private-member STORAGE key (B-lever): private fields/methods live under
+// the hidden internal key "\x01#x" so they never appear as own property
+// keys (hasOwnProperty / getOwnPropertyNames — ECMA-262: private names are
+// not property keys). The runtime get paths do a hidden-first retry for
+// '#'-literal lookups (TsObject.cpp, B2). Apply ONLY where a '#'-leading
+// name is a private member by grammar: member-expression assignment
+// targets and class field inits — NOT object-literal keys, where "#x" is
+// a legitimate string property name.
+static std::string privateStorageKey(const std::string& name) {
+    if (!name.empty() && name[0] == '#') {
+        return std::string("\x01") + name;
+    }
+    return name;
+}
+
 static std::shared_ptr<HIRType> extTypeRefToHIR(const ext::TypeReference& typeRef) {
     const auto& name = typeRef.name;
     if (name == "string") return HIRType::makeString();
@@ -2356,7 +2371,7 @@ void ASTToHIR::emitDeferredStaticInits() {
         // remains authoritative for the literal-name direct-read fast path.
         if (!init.ctorName.empty() && !init.fieldName.empty()) {
             auto ctorVal = builder_.createLoadFunction(init.ctorName);
-            builder_.createSetPropStatic(ctorVal, init.fieldName, initVal);
+            builder_.createSetPropStatic(ctorVal, privateStorageKey(init.fieldName), initVal);
         }
     }
     deferredStaticInits_.clear();  // Only emit once
@@ -3354,7 +3369,7 @@ void ASTToHIR::emitInstanceFieldSet(std::shared_ptr<HIRValue> thisValue,
             return;
         }
     }
-    builder_.createSetPropStatic(thisValue, propDef->name, std::move(initVal));
+    builder_.createSetPropStatic(thisValue, privateStorageKey(propDef->name), std::move(initVal));
 }
 
 void ASTToHIR::lowerObjectBindingPattern(ast::ObjectBindingPattern* pattern,
@@ -4111,7 +4126,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                                 }
                             } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(tgt)) {
                                 auto obj = lowerExpression(pa->expression.get());
-                                builder_.createSetPropStatic(obj, pa->name, value);
+                                builder_.createSetPropStatic(obj, privateStorageKey(pa->name), value);
                             } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(tgt)) {
                                 auto obj = lowerExpression(ea->expression.get());
                                 auto idx = lowerExpression(ea->argumentExpression.get());
@@ -4274,7 +4289,7 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                                 }
                             } else if (auto* pa = dynamic_cast<ast::PropertyAccessExpression*>(tgt)) {
                                 auto obj = lowerExpression(pa->expression.get());
-                                builder_.createSetPropStatic(obj, pa->name, value);
+                                builder_.createSetPropStatic(obj, privateStorageKey(pa->name), value);
                             } else if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(tgt)) {
                                 auto obj = lowerExpression(ea->expression.get());
                                 auto idx = lowerExpression(ea->argumentExpression.get());
@@ -5070,6 +5085,20 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
 
     // Handle 'in' operator - check if property exists in object
     if (op == "in") {
+        // Ergonomic brand check `#x in obj` (ES2022): the parser synthesizes
+        // a StringLiteral marked isPrivateBrand for the LHS. Probe the hidden
+        // storage key "\x01#x" (privateStorageKey) — private members are not
+        // property keys, and the runtime has_prop deliberately does NOT
+        // retry '#' strings (a user-written '"#x" in obj' must stay false
+        // for private members).
+        if (auto* lhsLit = dynamic_cast<ast::StringLiteral*>(node->left.get());
+            lhsLit && lhsLit->isPrivateBrand) {
+            auto keyStr = builder_.createConstString(privateStorageKey(lhsLit->value));
+            auto rhs = lowerExpression(node->right.get());
+            lastValue_ = builder_.createCall("ts_object_has_property",
+                {rhs, keyStr}, HIRType::makeBool());
+            return;
+        }
         auto lhs = lowerExpression(node->left.get());  // property key
         auto rhs = lowerExpression(node->right.get()); // object
         lastValue_ = builder_.createCall("ts_object_has_property", {rhs, lhs}, HIRType::makeBool());
@@ -5842,7 +5871,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
                         // reference (alias / dynamic key / passed) reads the
                         // updated value rather than the stale init.
                         auto ctorVal = builder_.createLoadFunction(cls->name + "_constructor");
-                        builder_.createSetPropStatic(ctorVal, propAccess->name, rhs);
+                        builder_.createSetPropStatic(ctorVal, privateStorageKey(propAccess->name), rhs);
                         lastValue_ = rhs;
                         return;
                     }
@@ -5895,7 +5924,7 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             }
         }
 
-        builder_.createSetPropStatic(obj, propAccess->name, rhs);
+        builder_.createSetPropStatic(obj, privateStorageKey(propAccess->name), rhs);
         lastValue_ = rhs;
         return;
     }
@@ -6010,7 +6039,7 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
             }
             if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
                 auto obj = lowerExpression(tgt->expression.get());
-                builder_.createSetPropStatic(obj, tgt->name, value);
+                builder_.createSetPropStatic(obj, privateStorageKey(tgt->name), value);
                 return;
             }
             if (auto* tgt = dynamic_cast<ast::ElementAccessExpression*>(target)) {
@@ -6071,7 +6100,7 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
             }
             if (auto* tgt = dynamic_cast<ast::PropertyAccessExpression*>(target)) {
                 auto obj = lowerExpression(tgt->expression.get());
-                builder_.createSetPropStatic(obj, tgt->name, value);
+                builder_.createSetPropStatic(obj, privateStorageKey(tgt->name), value);
                 return;
             }
             if (auto* tgt = dynamic_cast<ast::ElementAccessExpression*>(target)) {
@@ -11067,7 +11096,7 @@ void ASTToHIR::visitPrefixUnaryExpression(ast::PrefixUnaryExpression* node) {
                             // Mirror the updated value onto the constructor
                             // closure so a non-literal reference reads it.
                             auto ctorVal = builder_.createLoadFunction(cls->name + "_constructor");
-                            builder_.createSetPropStatic(ctorVal, prop->name, result);
+                            builder_.createSetPropStatic(ctorVal, privateStorageKey(prop->name), result);
                             storedToStaticGlobal = true;
                         }
                         break;
@@ -11231,7 +11260,7 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
                             // Mirror onto the constructor closure so a
                             // non-literal reference reads the updated value.
                             auto ctorVal = builder_.createLoadFunction(cls->name + "_constructor");
-                            builder_.createSetPropStatic(ctorVal, prop->name, result);
+                            builder_.createSetPropStatic(ctorVal, privateStorageKey(prop->name), result);
                             storedToStaticGlobal = true;
                         }
                         break;

@@ -396,6 +396,7 @@ ast::ExprPtr Parser::parsePrecedenceExpression(int minPrec) {
             auto litLeft = std::make_unique<ast::StringLiteral>();
             setLocation(litLeft.get(), hashLine, hashCol);
             litLeft->value = privName;
+            litLeft->isPrivateBrand = true;
             left = std::move(litLeft);
         } else {
             restoreState(saved);
