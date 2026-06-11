@@ -1609,6 +1609,125 @@ extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
         ts_promise_reject_internal(p, iterableVal);
         return ts_value_make_promise(p);
     }
+    // CUSTOM ITERABLES (non-TsArray objects): the old code blind-cast them
+    // to TsArray and read a garbage Length() — the 27-test Promise.any OOM
+    // cluster. Walk the real iterator protocol lazily per spec
+    // PerformPromiseAny: per element resolve + Invoke(p, "then", ...); an
+    // abrupt completion (user .then override that throws, bad results)
+    // closes the iterator (return(), once) and rejects the main promise.
+    if (!ts_is_unchecked<TsArray>(iterVal.ptr_val)) {
+        void* raw = iterVal.ptr_val;
+        ts::TsPromise* mainPromise = ts_promise_create();
+        extern TsValue* ts_object_get_property(void* o, const char* k);
+        TsValue* method = ts_object_get_property(raw, "[Symbol.iterator]");
+        if (!method || ts_value_is_nullish(method)) {
+            ts_promise_reject_internal(mainPromise,
+                (TsValue*)ts_error_create_typed("TypeError",
+                    "Promise.any: argument is not iterable"));
+            return ts_value_make_promise(mainPromise);
+        }
+        AnyContext* ctx = (AnyContext*)ts_alloc(sizeof(AnyContext));
+        ctx->mainPromise = mainPromise;
+        ctx->errors = TsArray::Create();
+        // Spec: remainingElementsCount starts at 1 (the iteration's own
+        // hold) so completion can't fire while elements are still arriving.
+        ctx->remaining = 1;
+
+        // Runtime-side catch (invoke_and_absorb pattern, TsObject.cpp):
+        // user code runs inside (iterator next(), promise .then overrides).
+        // Locals mutated after setjmp and read in the landing branch must
+        // be volatile per C semantics.
+        TsValue* volatile iterSave = nullptr;
+        void* handler = ts_push_exception_handler();
+        jmp_buf* env = (jmp_buf*)handler;
+        if (setjmp(*env) == 0) {
+            TsValue* iter = ts_call_with_this_0(method, iterableVal);
+            void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
+            if (!iterRaw) {
+                ts_pop_exception_handler();
+                ts_promise_reject_internal(mainPromise,
+                    (TsValue*)ts_error_create_typed("TypeError",
+                        "Promise.any: iterator is not an object"));
+                return ts_value_make_promise(mainPromise);
+            }
+            iterSave = iter;
+            TsValue* nextFn = ts_object_get_property(iterRaw, "next");
+            // Hang guard: the spec drains the sync iterator fully, and the
+            // OOM-cluster tests use INFINITE iterators stopped only by a
+            // throwing `.then` override — which our TsPromise doesn't make
+            // observable yet (own-prop writes on promises are dropped).
+            // Until then, cap and reject instead of exhausting the heap.
+            for (int64_t guard = 0; ; guard++) {
+                if (guard >= 100000) {
+                    ts_pop_exception_handler();
+                    ts_promise_reject_internal(mainPromise,
+                        (TsValue*)ts_error_create_typed("TypeError",
+                            "Promise.any: iterator did not complete"));
+                    return ts_value_make_promise(mainPromise);
+                }
+                TsValue* res = ts_call_with_this_0(nextFn, iter);
+                void* resRaw = res ? ts_value_get_object(res) : nullptr;
+                if (!resRaw) {
+                    // next() result not an object: abrupt WITHOUT
+                    // IteratorClose (the iterator itself misbehaved).
+                    ts_pop_exception_handler();
+                    ts_promise_reject_internal(mainPromise,
+                        (TsValue*)ts_error_create_typed("TypeError",
+                            "Promise.any: iterator result is not an object"));
+                    return ts_value_make_promise(mainPromise);
+                }
+                if (ts_iterator_result_done(res)) break;
+                TsValue* item = ts_iterator_result_value(res);
+                ctx->remaining++;
+                TsValue* p = ts_promise_resolve(nullptr, item);
+                TsValue* onF = ts_value_make_function(
+                    (void*)ts_promise_any_fulfilled_helper, ctx);
+                TsValue* onR = ts_value_make_function(
+                    (void*)ts_promise_any_rejected_helper, ctx);
+                // Spec: Invoke(nextPromise, "then", ...) — the OBSERVABLE
+                // then (a user override that throws lands in our catch).
+                TsValue* thenFn = p ? ts_object_get_property(
+                    ts_value_get_object(p) ? ts_value_get_object(p) : p,
+                    "then") : nullptr;
+                if (thenFn && !ts_value_is_nullish(thenFn)) {
+                    ts_call_with_this_2(thenFn, p, onF, onR);
+                } else {
+                    ts_promise_then(p, onF, onR);
+                }
+            }
+            ts_pop_exception_handler();
+            // Release the iteration hold; if nothing was pending, reject
+            // with AggregateError-equivalent (empty/settled errors array).
+            ctx->remaining--;
+            if (ctx->remaining == 0) {
+                ts_promise_reject_internal(mainPromise,
+                    ts_value_make_array(ctx->errors));
+            }
+        } else {
+            // Abrupt completion from user code: ts_throw already popped our
+            // handler. IteratorClose (call return() once, absorbing its own
+            // throw), then reject with the original error.
+            TsValue* exc = ts_get_exception();
+            ts_set_exception(nullptr);
+            TsValue* iterDone = iterSave;
+            void* iterDoneRaw = iterDone ? ts_value_get_object(iterDone) : nullptr;
+            if (iterDoneRaw) {
+                TsValue* retFn = ts_object_get_property(iterDoneRaw, "return");
+                if (retFn && !ts_value_is_nullish(retFn)) {
+                    void* h2 = ts_push_exception_handler();
+                    jmp_buf* env2 = (jmp_buf*)h2;
+                    if (setjmp(*env2) == 0) {
+                        ts_call_with_this_0(retFn, iterDone);
+                        ts_pop_exception_handler();
+                    } else {
+                        ts_set_exception(nullptr);  // absorb return() throw
+                    }
+                }
+            }
+            ts_promise_reject_internal(mainPromise, exc);
+        }
+        return ts_value_make_promise(mainPromise);
+    }
     TsArray* iterable = (TsArray*)iterVal.ptr_val;
     size_t total = iterable->Length();
     ts::TsPromise* mainPromise = ts_promise_create();
