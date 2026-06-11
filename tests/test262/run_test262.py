@@ -618,6 +618,22 @@ def _prepare_test(test_path: Path, compiler: Path, build_dir: Path):
 
     try:
         tmp_js.write_text(full_source, encoding='utf-8')
+        # Dynamic-import tests load sibling *_FIXTURE.js modules with
+        # source-relative specifiers; the compiler resolves those against
+        # tmp_js's directory, so mirror the fixtures next to it. Without
+        # this every dynamic-import test was a spurious compile_error
+        # (fixtures exist only in the original test tree). Copies are
+        # idempotent and shared by concurrent siblings — never cleaned up
+        # per-job (tiny .js files in the gitignored build dir).
+        if "_FIXTURE" in full_source:
+            import shutil
+            for fx in test_path.parent.glob("*_FIXTURE.js"):
+                dst = out_dir / fx.name
+                if not dst.exists():
+                    try:
+                        shutil.copyfile(fx, dst)
+                    except OSError:
+                        pass  # concurrent copy of the same fixture
     except Exception as e:
         return TestResult(test_path, "fail", f"write error: {e}"), None
 
@@ -780,6 +796,15 @@ def _compile_batch(jobs, compiler, base_extra_flags):
                         rc_by_input[parts[0]] = int(parts[-1])
                     except ValueError:
                         pass
+            # A nonzero rc from the BATCH process is not authoritative:
+            # batch mode shares compiler state across entries, and tests
+            # that compile sibling modules (dynamic-import fixtures) fail
+            # there while compiling clean individually. Drop them so the
+            # per-file fallback below retries each one. Cheap: almost all
+            # failing TESTS compile clean (runtime fails), so this adds
+            # only ~compile_error-count extra spawns per sweep.
+            for k in [k for k, rc in rc_by_input.items() if rc not in (0, None)]:
+                del rc_by_input[k]
         except subprocess.TimeoutExpired:
             pass  # all unaccounted -> per-file fallback
         except Exception:
