@@ -1,4 +1,5 @@
 #include "CodeGenerator.h"
+#include <cstdlib>
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -649,11 +650,17 @@ bool CodeGenerator::emitObjectFile(const std::string& filename, const std::strin
         return false;
     }
 
-    SPDLOG_INFO("Dumping debug IR to debug_ir.ll");
-    std::error_code ec2;
-    llvm::raw_fd_ostream debugFile("debug_ir.ll", ec2, llvm::sys::fs::OF_None);
-    module->print(debugFile, nullptr);
-    debugFile.flush();
+    // Opt-in only (TSAOT_DEBUG_IR=1): this used to run UNCONDITIONALLY,
+    // writing the full module IR to debug_ir.ll in the CWD on every
+    // compile — a test262 sweep is ~40k compiles at -j24, i.e. tens of GB
+    // of needless SSD writes per sweep plus 24 processes racing one file.
+    if (const char* dbgIr = std::getenv("TSAOT_DEBUG_IR"); dbgIr && dbgIr[0] == '1') {
+        SPDLOG_INFO("Dumping debug IR to debug_ir.ll");
+        std::error_code ec2;
+        llvm::raw_fd_ostream debugFile("debug_ir.ll", ec2, llvm::sys::fs::OF_None);
+        module->print(debugFile, nullptr);
+        debugFile.flush();
+    }
 
     SPDLOG_INFO("Starting CodeGen passes");
     pass.run(*module);
