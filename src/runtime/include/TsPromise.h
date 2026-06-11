@@ -166,6 +166,11 @@ extern "C" {
     TsValue* ts_agen_await_operand(TsValue* v);
     TsValue* ts_agen_get_async_iterator(TsValue* iterable);
     TsValue* ts_agen_delegate_step(AsyncContext* ctx, TsValue* iterator, TsValue* sentArg);
+    // Stage 7: forward gen.throw/gen.return arriving inside a yield* to the
+    // delegate iterator's throw/return method (27.6.3.7). Returns the inner
+    // step-result object to continue delegation, or NULL after completing the
+    // generator itself (ts_agen_complete already called).
+    TsValue* ts_agen_delegate_resume(AsyncContext* ctx, TsValue* iterator, int mode, TsValue* arg);
     int ts_async_context_get_resume_mode(AsyncContext* ctx);
     void ts_async_context_set_resume_mode(AsyncContext* ctx, int mode);
 

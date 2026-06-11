@@ -11045,6 +11045,8 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
         llvm::BasicBlock* preheaderBB = builder_->GetInsertBlock();
         llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(
             context_, "agen_yield_star_loop", currentFunc);
+        llvm::BasicBlock* checkBB = llvm::BasicBlock::Create(
+            context_, "agen_yield_star_check", currentFunc);
         llvm::BasicBlock* doneBB = llvm::BasicBlock::Create(
             context_, "agen_yield_star_done", currentFunc);
 
@@ -11070,8 +11072,18 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
 
         auto stepFn = getOrDeclareRuntimeFunction("ts_agen_delegate_step",
             getGCPtrTy(), { getGCPtrTy(), getGCPtrTy(), getGCPtrTy() });
-        llvm::Value* iterResult = builder_->CreateCall(
+        llvm::Value* stepResult = builder_->CreateCall(
             stepFn, { asyncContext_, curIter, sentArg }, "agen_iter_result");
+        builder_->CreateBr(checkBB);
+
+        // Result check: shared by the next-step path (loopBB) and the Stage-7
+        // throw/return forwarding path (delegate throw()/return() results are
+        // treated exactly like a step result: done -> the yield* completes
+        // with the value; not done -> yield the value and stay suspended).
+        builder_->SetInsertPoint(checkBB);
+        llvm::PHINode* iterResult = builder_->CreatePHI(
+            getGCPtrTy(), 2, "agen_step_result");
+        iterResult->addIncoming(stepResult, loopBB);
 
         auto awaitOpFn = getOrDeclareRuntimeFunction("ts_agen_await_operand",
             getGCPtrTy(), { getGCPtrTy() });
@@ -11114,19 +11126,80 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
         builder_->CreateCall(popFn, {});
         builder_->CreateRetVoid();
 
-        // Resume block: mode dispatch (re-arms the enclosing user handlers on
-        // the throw/next paths, GEN-001 Stage 6), then loop for the next
-        // element. The mode-NEXT resumed value (gen.next(v)'s argument) is
-        // forwarded to the inner iterator's next via the loop-header PHI.
-        // Note: a mode-1 throw is raised at the yield* site (caught by an
-        // enclosing user try); forwarding it to the delegate iterator's
-        // throw() method is Stage 7.
+        // Resume block: mode dispatch (GEN-001 Stage 6 re-arm + Stage 7
+        // delegate forwarding).
+        // - mode 0 (next): re-arm handlers; the resumed value (gen.next(v)'s
+        //   argument) feeds the inner iterator's next via the loop-header PHI.
+        // - modes 1/2 (gen.throw / gen.return): FORWARD the completion to the
+        //   delegate iterator per 27.6.3.7 via ts_agen_delegate_resume.
+        //   Handlers are re-armed BEFORE the call so protocol TypeErrors and
+        //   throws from the delegate's throw()/return() land in the enclosing
+        //   user try. The helper returns a step-result object (routed through
+        //   checkBB like a delegate_step result) or NULL when it completed
+        //   the generator itself (ts_agen_complete already ran) — the NULL
+        //   path pops the re-armed user handlers + the impl barrier and
+        //   suspends for good.
         if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
             builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
-            llvm::Value* resumedValue =
-                emitAgenResumeModeDispatch(inst->tryCatchTargets);
+
+            auto getModeFn = getOrDeclareRuntimeFunction(
+                "ts_async_context_get_resume_mode",
+                builder_->getInt32Ty(), { getGCPtrTy() });
+            llvm::Value* mode = builder_->CreateCall(
+                getModeFn, { asyncContext_ }, "agen_resume_mode");
+
+            llvm::BasicBlock* nextBB = llvm::BasicBlock::Create(
+                context_, "agen_ystar_resume_next", currentFunc);
+            llvm::BasicBlock* fwdBB = llvm::BasicBlock::Create(
+                context_, "agen_ystar_resume_fwd", currentFunc);
+            llvm::SwitchInst* sw = builder_->CreateSwitch(mode, nextBB, 2);
+            sw->addCase(builder_->getInt32(1), fwdBB);
+            sw->addCase(builder_->getInt32(2), fwdBB);
+
+            auto getResumedFn = getOrDeclareRuntimeFunction(
+                "ts_async_context_get_resumed_value",
+                getGCPtrTy(), { getGCPtrTy() });
+
+            // mode 0: re-arm and loop with the sent value.
+            builder_->SetInsertPoint(nextBB);
+            emitRearmTryHandlers(inst->tryCatchTargets);
+            llvm::Value* resumedValue = builder_->CreateCall(
+                getResumedFn, { asyncContext_ }, "resumed_value");
             sentArg->addIncoming(resumedValue, builder_->GetInsertBlock());
             builder_->CreateBr(loopBB);
+
+            // modes 1/2: forward to the delegate iterator.
+            builder_->SetInsertPoint(fwdBB);
+            emitRearmTryHandlers(inst->tryCatchTargets);
+            llvm::Value* fwdArg = builder_->CreateCall(
+                getResumedFn, { asyncContext_ }, "agen_fwd_arg");
+            llvm::Value* fwdIter = builder_->CreateCall(
+                getDelegateFn, { asyncContext_ }, "agen_fwd_iter");
+            auto resumeFwdFn = getOrDeclareRuntimeFunction(
+                "ts_agen_delegate_resume", getGCPtrTy(),
+                { getGCPtrTy(), getGCPtrTy(), builder_->getInt32Ty(),
+                  getGCPtrTy() });
+            llvm::Value* fwdResult = builder_->CreateCall(
+                resumeFwdFn, { asyncContext_, fwdIter, mode, fwdArg },
+                "agen_fwd_result");
+            llvm::Value* genCompleted = builder_->CreateICmpEQ(
+                fwdResult, llvm::ConstantPointerNull::get(getGCPtrTy()),
+                "agen_fwd_completed");
+            llvm::BasicBlock* fwdEndBB = builder_->GetInsertBlock();
+            llvm::BasicBlock* completeBB = llvm::BasicBlock::Create(
+                context_, "agen_ystar_fwd_complete", currentFunc);
+            builder_->CreateCondBr(genCompleted, completeBB, checkBB);
+            iterResult->addIncoming(fwdResult, fwdEndBB);
+
+            // Generator completed inside the helper: balance the handler
+            // stack (user handlers were re-armed above; the impl barrier is
+            // armed in every state>=1 invocation) and suspend for good.
+            builder_->SetInsertPoint(completeBB);
+            emitSuspendHandlerPops(inst->tryCatchTargets.size());
+            auto barrierPopFn = getOrDeclareRuntimeFunction(
+                "ts_pop_exception_handler", builder_->getVoidTy(), {});
+            builder_->CreateCall(barrierPopFn, {});
+            builder_->CreateRetVoid();
         }
 
         currentYieldState_++;

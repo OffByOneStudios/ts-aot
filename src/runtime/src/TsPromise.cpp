@@ -838,6 +838,129 @@ TsValue* ts_agen_delegate_step(AsyncContext* ctx, TsValue* iterator, TsValue* se
     return res;
 }
 
+// GEN-001 Stage 7: forward a throw/return resume completion arriving while the
+// generator is suspended inside yield* to the DELEGATE iterator, per
+// ECMA-262 27.6.3.7 (yield* runtime semantics, throw/return paths).
+// mode: 1 = throw (gen.throw(arg)), 2 = return (gen.return(arg)).
+//
+// Return convention (chosen to need the fewest IR changes in the lowered
+// delegation loop): returns the inner step-RESULT OBJECT whenever delegation
+// continues — the compiler-side loop feeds it through the same done-check as
+// a ts_agen_delegate_step result (not done -> yield the value, stay suspended
+// in the yield*; done -> the yield* completes with the result's value and the
+// outer body CONTINUES after it). Returns NULL when the GENERATOR itself
+// completes (return-completion cases) — the helper has already settled the
+// current request via ts_agen_complete; the lowered code branches to a
+// pop-handlers + ret-void suspend path. Protocol violations ts_throw (the
+// caller re-armed the enclosing user try handlers before calling, so the
+// throw is catchable; otherwise the impl barrier rejects the request).
+TsValue* ts_agen_delegate_resume(AsyncContext* ctx, TsValue* iterator,
+                                 int mode, TsValue* arg) {
+    extern TsValue* ts_object_get_property(void* o, const char* k);
+    extern TsValue* ts_promise_await(TsValue* promise);
+
+    void* raw = iterator ? ts_value_get_object(iterator) : nullptr;
+    // Legacy plain-TsArray "iterator-likes" (see ts_agen_delegate_step) carry
+    // no throw/return methods.
+    bool isLegacyArray = raw && *(uint32_t*)raw == 0x41525259; // "ARRY"
+
+    TsValue* method = nullptr;
+    if (raw && !isLegacyArray) {
+        method = ts_object_get_property(
+            raw, mode == AGEN_MODE_THROW ? "throw" : "return");
+    }
+    bool hasMethod = method && agen_is_callable(method);
+
+    // Generator-object delegates (yield* over a sync or async generator)
+    // surface NO "throw"/"return" own properties — their semantics live in
+    // the Generator_*/AsyncGenerator_* built-ins (GeneratorHandler dispatch).
+    // They DO have the methods per spec, so don't take the missing-method
+    // paths; forward to the built-ins instead (a sync Generator_throw
+    // ts_throws the uncaught exception, propagating out of the yield* to the
+    // re-armed user handlers / impl barrier, matching spec propagation).
+    bool isGenObject = raw && !isLegacyArray &&
+        (ts_is_unchecked<TsGenerator>(raw) ||
+         ts_is_unchecked<TsAsyncGenerator>(raw));
+
+    if (!hasMethod && !isGenObject) {
+        if (mode == AGEN_MODE_RETURN) {
+            // 27.6.3.7 return path, return method undefined: Await the sent
+            // value (async generator kind), then the generator completes with
+            // it — no iterator close required.
+            if (ctx) ctx->delegateIndex = 0;
+            ts_agen_complete(ctx, ts_agen_await_operand(arg));
+            return nullptr;
+        }
+        // THROW with no throw method: AsyncIteratorClose(iterator, normal) —
+        // call return() if present (awaited; a rejection/throw propagates,
+        // replacing the TypeError), result absorbed — then throw TypeError
+        // (spec NOTE: the iterator protocol was violated).
+        if (raw && !isLegacyArray) {
+            TsValue* retFn = ts_object_get_property(raw, "return");
+            if (retFn && agen_is_callable(retFn)) {
+                TsValue* closeRes = ts_call_with_this_0(retFn, iterator);
+                TsValue crv = closeRes ? nanbox_to_tagged(closeRes) : TsValue();
+                if (crv.type == ValueType::PROMISE_PTR) {
+                    ts_promise_await(closeRes);
+                }
+            }
+        }
+        if (ctx) ctx->delegateIndex = 0;
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "The iterator does not provide a 'throw' method"));
+        return ts_value_make_undefined();
+    }
+
+    // innerResult = ? Call(method, iterator, [arg]); Await it (async kind).
+    TsValue* res;
+    if (hasMethod) {
+        res = arg ? ts_call_with_this_1(method, iterator, arg)
+                  : ts_call_with_this_0(method, iterator);
+    } else if (ts_is_unchecked<TsGenerator>(raw)) {
+        // Sync generator delegate built-ins: Generator_throw ts_throws an
+        // uncaught exception (never returns); Generator_return produces the
+        // {value, done:true} result handled below.
+        res = (mode == AGEN_MODE_THROW) ? Generator_throw(iterator, arg)
+                                        : Generator_return(iterator, arg);
+    } else {
+        // Async generator delegate built-ins: both return a PROMISE of the
+        // iteration result — the await below unwraps it (a rejection
+        // ts_throws, propagating the abrupt completion out of the yield*).
+        res = (mode == AGEN_MODE_THROW) ? AsyncGenerator_throw(iterator, arg)
+                                        : AsyncGenerator_return(iterator, arg);
+    }
+    TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
+    if (rv.type == ValueType::PROMISE_PTR) {
+        res = ts_promise_await(res);
+    }
+    void* resRaw = res ? ts_value_get_object(res) : nullptr;
+    if (!resRaw) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator result is not an object"));
+        return ts_value_make_undefined();
+    }
+
+    if (mode == AGEN_MODE_RETURN && ts_iterator_result_done(res)) {
+        // Return-completion with done: the GENERATOR completes with the
+        // result's value (finally unwinding is a future stage, matching the
+        // forced-return path).
+        TsValue* value = ts_iterator_result_value(res);
+        TsValue vv = value ? nanbox_to_tagged(value) : TsValue();
+        if (vv.type == ValueType::PROMISE_PTR) {
+            value = ts_promise_await(value);
+        }
+        if (ctx) ctx->delegateIndex = 0;
+        ts_agen_complete(ctx, value);
+        return nullptr;
+    }
+
+    // THROW results (done or not) and RETURN-not-done results flow back into
+    // the lowered done-check: done -> the yield* completes with the value and
+    // the body continues; not done -> the value is yielded (awaited by the
+    // yield path) and the generator stays suspended inside the yield*.
+    return res;
+}
+
 TsValue* ts_async_generator_yield(TsValue* value) {
     if (!g_asyncgen_stack.empty()) {
         TsAsyncGenerator* gen = g_asyncgen_stack.back();
