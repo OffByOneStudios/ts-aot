@@ -1418,6 +1418,13 @@ static bool promise_iterable_to_array(TsValue* iterableVal, void* raw,
     void* handler = ts_push_exception_handler();
     jmp_buf* env = (jmp_buf*)handler;
     if (setjmp(*env) == 0) {
+#ifdef _WIN64
+        // Disable unwinding longjmp (RtlUnwindEx) for this buffer: the throw
+        // crosses compiled-JS frames and trampolines; an unwinding longjmp
+        // dies with STATUS_BAD_FUNCTION_TABLE (0xc00000ff). Register-restore
+        // longjmp is what the compiled-code handlers rely on too.
+        ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
         TsValue* iter = ts_call_with_this_0(method, iterableVal);
         void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
         if (!iterRaw) {
@@ -1463,6 +1470,9 @@ static bool promise_iterable_to_array(TsValue* iterableVal, void* raw,
                 void* h2 = ts_push_exception_handler();
                 jmp_buf* env2 = (jmp_buf*)h2;
                 if (setjmp(*env2) == 0) {
+#ifdef _WIN64
+                    ((_JUMP_BUFFER*)env2)->Frame = 0;
+#endif
                     ts_call_with_this_0(retFn, iterDone);
                     ts_pop_exception_handler();
                 } else {
@@ -1748,6 +1758,13 @@ extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
         void* handler = ts_push_exception_handler();
         jmp_buf* env = (jmp_buf*)handler;
         if (setjmp(*env) == 0) {
+#ifdef _WIN64
+        // Disable unwinding longjmp (RtlUnwindEx) for this buffer: the throw
+        // crosses compiled-JS frames and trampolines; an unwinding longjmp
+        // dies with STATUS_BAD_FUNCTION_TABLE (0xc00000ff). Register-restore
+        // longjmp is what the compiled-code handlers rely on too.
+        ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
             TsValue* iter = ts_call_with_this_0(method, iterableVal);
             void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
             if (!iterRaw) {
@@ -1824,6 +1841,9 @@ extern "C" TsValue* ts_promise_any(TsValue* iterableVal) {
                     void* h2 = ts_push_exception_handler();
                     jmp_buf* env2 = (jmp_buf*)h2;
                     if (setjmp(*env2) == 0) {
+#ifdef _WIN64
+                    ((_JUMP_BUFFER*)env2)->Frame = 0;
+#endif
                         ts_call_with_this_0(retFn, iterDone);
                         ts_pop_exception_handler();
                     } else {

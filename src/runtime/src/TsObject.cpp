@@ -3817,6 +3817,23 @@ TsValue* ts_value_make_int(int64_t i) {
                 magic16 == 0x484D4143 ||  // TsCryptoHmac::MAGIC "HMAC"
                 magic16 == 0x42554646 ||  // TsBuffer::MAGIC "BUFF"
                 magic16 == 0x44564945) {  // TsDataView::MAGIC "DVIE"
+                // PROMISES: own properties (the native-props side map where
+                // `p.then = fn` writes land) take precedence over the builtin
+                // virtual ones — ECMA-262 OrdinaryGet, and Promise
+                // combinators Invoke(p, "then") must observe user overrides.
+                // Scoped to PROM only: other native types here compute
+                // virtual values that internal code may shadow via the map.
+                if (magic16 == 0x50524F4D) {
+                    TsMap* ownProps = getNativeProps(obj);
+                    if (ownProps) {
+                        TsValue ok; ok.type = ValueType::STRING_PTR;
+                        ok.ptr_val = TsString::GetInterned(keyStr);
+                        if (ownProps->Has(ok)) {
+                            TsValue ov = ownProps->Get(ok);
+                            return nanbox_from_tagged(ov);
+                        }
+                    }
+                }
                 TsObject* tsObj = (TsObject*)obj;
                 TsValue result = tsObj->GetPropertyVirtual(keyStr);
                 if (result.type != ValueType::UNDEFINED) {
