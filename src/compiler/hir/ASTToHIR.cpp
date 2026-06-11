@@ -2918,6 +2918,16 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
             dp.objPattern, dp.arrPattern, dp.defaultInitializer);
     }
 
+    // Async generators (eager-body model): mark the end of the PARAMETER
+    // prologue. Param-binding errors before this marker must throw
+    // SYNCHRONOUSLY out of gen() (dstr/dflt-params family); body throws
+    // after it reject the first next() promise per spec. The agen.reject
+    // landing pad consults gen->bodyStarted (ts_agen_should_reject).
+    if (func->isAsync && func->isGenerator) {
+        builder_.createCall("ts_async_generator_body_started", {},
+                            HIRType::makeVoid());
+    }
+
     // Create 'arguments' array-like object if the function body references 'arguments'.
     // Must be done at function entry (before any other code) because inner calls
     // will overwrite ts_last_call_argc, making lazy creation incorrect.
@@ -9954,6 +9964,13 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
             dp.objPattern, dp.arrPattern, dp.defaultInitializer);
     }
 
+    // Async generators: end of PARAMETER prologue (see site in
+    // visitFunctionDeclaration) — body throws after this reject next().
+    if (func->isAsync && func->isGenerator) {
+        builder_.createCall("ts_async_generator_body_started", {},
+                            HIRType::makeVoid());
+    }
+
     // Lower function body
     // The body can be either a BlockStatement or an Expression (implicit return)
     if (auto* blockStmt = dynamic_cast<ast::BlockStatement*>(node->body.get())) {
@@ -10297,6 +10314,13 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     for (auto& dp : feDestructuredParams) {
         extractDestructuringForParam(func.get(), dp.paramIndex,
             dp.objPattern, dp.arrPattern, dp.defaultInitializer);
+    }
+
+    // Async generators: end of PARAMETER prologue — body throws after this
+    // reject the first next() promise (ts_agen_should_reject).
+    if (func->isAsync && func->isGenerator) {
+        builder_.createCall("ts_async_generator_body_started", {},
+                            HIRType::makeVoid());
     }
 
     // If the function is named, make it available in its own scope (for recursion)
@@ -10677,6 +10701,13 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     for (auto& dp : mdDestructuredParams) {
         extractDestructuringForParam(func.get(), dp.paramIndex,
             dp.objPattern, dp.arrPattern, dp.defaultInitializer);
+    }
+
+    // Async generators: end of PARAMETER prologue — body throws after this
+    // reject the first next() promise (ts_agen_should_reject).
+    if (func->isAsync && func->isGenerator) {
+        builder_.createCall("ts_async_generator_body_started", {},
+                            HIRType::makeVoid());
     }
 
     // Lower function body

@@ -265,8 +265,11 @@ TsValue* ts_generator_yield_star(TsValue* iterable) {
 // compiler's agen.reject landing pad consults-and-clears this flag.
 static bool g_agen_protocol_throw = false;
 
-int ts_agen_take_protocol_flag() {
-    int v = g_agen_protocol_throw ? 1 : 0;
+// agen.reject landing-pad decision: reject (1) for yield*-protocol throws
+// and for any throw after the body-started marker; re-throw synchronously
+// (0) for parameter-prologue errors. Consumes the protocol flag.
+int ts_agen_should_reject(TsAsyncGenerator* gen) {
+    int v = (g_agen_protocol_throw || (gen && gen->bodyStarted)) ? 1 : 0;
     g_agen_protocol_throw = false;
     return v;
 }
@@ -572,6 +575,16 @@ void ts_async_generator_set_exception(TsAsyncGenerator* gen, TsValue* exc) {
     // Body ended abruptly — ts_async_generator_return never ran, so pop here.
     if (!g_asyncgen_stack.empty() && g_asyncgen_stack.back() == gen) {
         g_asyncgen_stack.pop_back();
+    }
+}
+
+// Compiler marker emitted after the parameter prologue of an async-generator
+// body: from here on an uncaught throw REJECTS the first next() promise
+// (ECMA-262 body semantics); parameter-binding errors before the marker
+// keep escaping gen() synchronously.
+void ts_async_generator_body_started() {
+    if (!g_asyncgen_stack.empty()) {
+        g_asyncgen_stack.back()->bodyStarted = true;
     }
 }
 

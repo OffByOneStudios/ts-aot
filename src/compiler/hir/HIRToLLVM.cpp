@@ -1555,9 +1555,13 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
             getGCPtrTy(), {});
         llvm::Value* exc = builder_->CreateCall(getExcFn, {});
 
-        auto takeFlagFn = getOrDeclareRuntimeFunction(
-            "ts_agen_take_protocol_flag", builder_->getInt32Ty(), {});
-        llvm::Value* protoFlag = builder_->CreateCall(takeFlagFn, {});
+        // Reject for yield*-protocol throws OR any throw after the
+        // parameter prologue (gen->bodyStarted); re-throw synchronously
+        // only for param-binding errors (dstr/dflt-params semantics).
+        auto shouldRejectFn = getOrDeclareRuntimeFunction(
+            "ts_agen_should_reject", builder_->getInt32Ty(), { getGCPtrTy() });
+        llvm::Value* protoFlag = builder_->CreateCall(
+            shouldRejectFn, { generatorObject_ });
         llvm::Value* isProtocol = builder_->CreateICmpNE(protoFlag,
             llvm::ConstantInt::get(builder_->getInt32Ty(), 0));
 

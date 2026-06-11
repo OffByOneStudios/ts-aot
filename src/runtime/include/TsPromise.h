@@ -59,6 +59,8 @@ struct TsAsyncGenerator : public TsMap {
     TsValue returnValue;   // body's return value; surfaced once on first done-result
     TsValue pendingException;   // uncaught throw from the eager body; rejects the
     bool hasException = false;  // first next() promise once queued yields drain
+    bool bodyStarted = false;   // parameter prologue finished (compiler marker);
+                                // body throws reject next(), param throws stay sync
 
     TsAsyncGenerator(AsyncContext* ctx);
     TsPromise* next(TsValue* value = nullptr);
