@@ -20,24 +20,38 @@ RESULTS = Path(sys.argv[1]) if len(sys.argv) > 1 else SCRIPT_DIR / ".test262_res
 OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else SCRIPT_DIR / "regression_sample.txt"
 
 # (path-prefix, quota) — prefixes use '/' separators
+# v2 (2026-06-11): added ASYNC strata — the original sample predated the
+# H5 async enablement and contained ZERO async tests, leaving the gate
+# blind to async-generator/promise regressions (exactly what the GEN-001
+# suspendable-generator work changes). Non-async quotas trimmed to keep
+# the total at ~2,000.
 STRATA = [
-    ("built-ins/Array/prototype/", 700),
-    ("built-ins/TypedArray/", 100),
-    ("built-ins/TypedArrayConstructors/", 50),
-    ("built-ins/Object/defineProperty/", 120),
-    ("built-ins/Object/defineProperties/", 60),
+    ("built-ins/Array/prototype/", 540),
+    ("built-ins/TypedArray/", 90),
+    ("built-ins/TypedArrayConstructors/", 40),
+    ("built-ins/Object/defineProperty/", 100),
+    ("built-ins/Object/defineProperties/", 50),
     ("built-ins/Object/getOwnPropertyDescriptor/", 40),
-    ("built-ins/Object/create/", 40),
+    ("built-ins/Object/create/", 30),
     ("built-ins/Object/keys/", 30),
-    ("built-ins/Object/", 60),           # remaining Object built-ins
-    ("language/statements/class/", 250),
-    ("language/expressions/class/", 100),
-    ("language/statements/for-in/", 50),
-    ("language/expressions/assignment/", 100),
-    ("language/expressions/object/", 100),
+    ("built-ins/Object/", 50),           # remaining Object built-ins
+    ("language/statements/class/", 220),
+    ("language/expressions/class/", 90),
+    ("language/statements/for-in/", 40),
+    ("language/expressions/assignment/", 80),
+    ("language/expressions/object/", 80),
     ("language/expressions/in/", 30),
-    ("language/expressions/delete/", 30),
-    ("language/expressions/", 140),      # remaining expressions (property access etc.)
+    ("language/expressions/delete/", 20),
+    ("language/expressions/", 110),      # remaining expressions (property access etc.)
+    # --- async strata (v2) ---
+    ("language/statements/async-generator/", 80),
+    ("language/expressions/async-generator/", 50),
+    ("language/statements/for-await-of/", 60),
+    ("language/statements/async-function/", 30),
+    ("language/expressions/async-function/", 30),
+    ("built-ins/Promise/", 110),
+    ("built-ins/AsyncGeneratorPrototype/", 40),
+    ("built-ins/AsyncFromSyncIteratorPrototype/", 30),
 ]
 PASS_FRACTION = 0.9
 
