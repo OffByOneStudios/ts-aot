@@ -30,10 +30,13 @@ HIRToLLVM::HIRToLLVM(llvm::LLVMContext& ctx)
     : context_(ctx)
     , builder_(std::make_unique<llvm::IRBuilder<>>(ctx))
 {
-    // GEN-001 Stage 3 feature flag: suspendable async-generator lowering.
-    // Default OFF — flag-off compiles the eager agen path verbatim.
-    if (const char* sa = std::getenv("TSAOT_SUSPEND_AGEN"); sa && sa[0] == '1') {
-        suspendAsyncGen_ = true;
+    // GEN-001 Stage 8: suspendable async-generator lowering is the DEFAULT
+    // (lane measured +91 net vs the eager baseline, 93 wins / 2 flaky).
+    // TSAOT_SUSPEND_AGEN=0 selects the eager fallback (rollback = flip the
+    // default below; the eager path remains fully intact until Stage 9).
+    suspendAsyncGen_ = true;
+    if (const char* sa = std::getenv("TSAOT_SUSPEND_AGEN"); sa && sa[0] == '0') {
+        suspendAsyncGen_ = false;
     }
 }
 
