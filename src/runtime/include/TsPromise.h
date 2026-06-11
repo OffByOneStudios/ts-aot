@@ -33,6 +33,9 @@ struct AsyncContext : public TsObject {
                                   // restored before each resume so that `this` references
                                   // inside the generator body see the original receiver
                                   // (the value of ts_get_call_this() when the wrapper ran).
+    int resumeMode = 0;           // Suspendable-agen resume completion kind:
+                                  // 0 = next, 1 = throw, 2 = return.
+                                  // resumedValue carries the argument for all modes.
 
     AsyncContext();
 };
@@ -61,6 +64,15 @@ struct TsAsyncGenerator : public TsMap {
     bool hasException = false;  // first next() promise once queued yields drain
     bool bodyStarted = false;   // parameter prologue finished (compiler marker);
                                 // body throws reject next(), param throws stay sync
+    // Suspendable-model fields (GEN-001 Stage 2; dead until the suspendable
+    // lowering uses ts_async_generator_create_suspendable):
+    bool executing = false;     // impl frame live (AsyncGeneratorEnqueue guard)
+    bool suspendable = false;   // created via ts_async_generator_create_suspendable
+    TsArray* requestQueue = nullptr; // queued re-entrant requests, flattened
+                                     // [promise, value, mode] triples. TsArray
+                                     // field is GC-visible via the object scan
+                                     // (do NOT use std::vector for GC pointers,
+                                     // .claude/rules/runtime-safety.md).
 
     TsAsyncGenerator(AsyncContext* ctx);
     TsPromise* next(TsValue* value = nullptr);
@@ -137,7 +149,20 @@ extern "C" {
     void ts_async_generator_return(TsAsyncGenerator* gen, TsValue* value);
     TsValue* ts_async_generator_yield(TsValue* value);
     TsValue* AsyncGenerator_next(TsValue* gen, TsValue* value);
+    TsValue* AsyncGenerator_return(TsValue* gen, TsValue* value);
+    TsValue* AsyncGenerator_throw(TsValue* gen, TsValue* exc);
     void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done);
+
+    // Suspendable async-generator runtime (GEN-001 Stage 2; dead code until
+    // the Stage-3 suspendable lowering emits calls to these).
+    TsAsyncGenerator* ts_async_generator_create_suspendable(void);
+    void ts_agen_suspend_yield(AsyncContext* ctx, TsValue* v);
+    void ts_agen_complete(AsyncContext* ctx, TsValue* v);
+    void ts_agen_complete_reject(AsyncContext* ctx, TsValue* exc);
+    TsValue* ts_agen_await_operand(TsValue* v);
+    TsValue* ts_agen_get_async_iterator(TsValue* iterable);
+    int ts_async_context_get_resume_mode(AsyncContext* ctx);
+    void ts_async_context_set_resume_mode(AsyncContext* ctx, int mode);
 
     // yield* delegation support
     TsValue* ts_iterator_get(TsValue* iterable);

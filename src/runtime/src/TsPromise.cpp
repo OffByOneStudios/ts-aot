@@ -113,7 +113,99 @@ TsAsyncGenerator::TsAsyncGenerator(AsyncContext* ctx) : ctx(ctx) {
     this->Set(TsString::Create("[Symbol.asyncIterator]"), iterFunc);
 }
 
+// ---------------------------------------------------------------------------
+// Suspendable async-generator request machinery (GEN-001 Stage 2).
+// Dead code until the Stage-3 lowering creates generators via
+// ts_async_generator_create_suspendable and emits a resumeFn.
+// ---------------------------------------------------------------------------
+
+// Resume completion kinds carried in AsyncContext::resumeMode.
+enum AgenResumeMode { AGEN_MODE_NEXT = 0, AGEN_MODE_THROW = 1, AGEN_MODE_RETURN = 2 };
+
+// Drive ONE request: set the resume registers and invoke the impl. The impl
+// settles `p` through ts_agen_suspend_yield / ts_agen_complete[_reject]
+// before returning (awaits are blocking pumps, not suspension points).
+static void agen_drive_request(TsAsyncGenerator* gen, TsPromise* p,
+                               TsValue* value, int mode) {
+    AsyncContext* ctx = gen->ctx;
+    if (gen->done || !ctx || !ctx->resumeFn) {
+        // Completed generator (or no impl): settle per spec without driving.
+        if (mode == AGEN_MODE_THROW) {
+            ts_promise_reject_internal(p, value ? value : ts_value_make_undefined());
+        } else if (mode == AGEN_MODE_RETURN) {
+            ts_promise_resolve_internal(p,
+                create_generator_result(value ? nanbox_to_tagged(value) : TsValue(), true));
+        } else {
+            ts_promise_resolve_internal(p, create_generator_result(TsValue(), true));
+        }
+        return;
+    }
+    ctx->pendingNextPromise = p;
+    ctx->yielded = false;
+    ctx->resumedValue = value;
+    ctx->resumeMode = mode;
+    // Same `this` save/restore pattern as TsGenerator::next: the body must see
+    // the receiver captured at generator creation, not the .next() caller's.
+    void* savedThis = ts_get_call_this();
+    if (ctx->thisValue) {
+        ts_set_call_this(ctx->thisValue);
+    }
+    ctx->resumeFn(ctx);
+    ts_set_call_this(savedThis);
+    // Safety net: if the impl returned without settling this request (it
+    // always should once the Stage-3 lowering lands), complete as done so the
+    // caller never hangs on a forever-pending promise.
+    if (ctx->pendingNextPromise == p) {
+        ctx->pendingNextPromise = nullptr;
+        gen->done = true;
+        ts_promise_resolve_internal(p, create_generator_result(TsValue(), true));
+    }
+}
+
+// AsyncGeneratorEnqueue (ECMA-262 27.6.3.3, simplified): if the impl frame is
+// live (an await inside it pumped microtasks that re-entered next/throw/
+// return), queue the request; otherwise drive it now and then drain anything
+// queued meanwhile, in order.
+static TsPromise* agen_enqueue_request(TsAsyncGenerator* gen, TsValue* value, int mode) {
+    TsPromise* p = ts_promise_create();
+    if (gen->executing) {
+        if (!gen->requestQueue) {
+            gen->requestQueue = TsArray::Create();
+            ts_gc_write_barrier(&gen->requestQueue, gen->requestQueue);
+        }
+        // Flattened [promise, value, mode] triple; the TsArray element scan
+        // keeps the boxed values alive and forwarded across GCs.
+        gen->requestQueue->Push((int64_t)ts_value_make_promise(p));
+        gen->requestQueue->Push((int64_t)(value ? value : ts_value_make_undefined()));
+        gen->requestQueue->Push((int64_t)ts_value_make_int(mode));
+        return p;
+    }
+    gen->executing = true;
+    agen_drive_request(gen, p, value, mode);
+    // Drain re-entrant requests in arrival order. The loop re-reads Length()
+    // every iteration because driving a request can enqueue more.
+    if (gen->requestQueue) {
+        TsArray* q = gen->requestQueue;
+        for (size_t i = 0; i + 2 < (size_t)q->Length(); i += 3) {
+            TsValue pv = nanbox_to_tagged((TsValue*)q->Get(i));
+            TsValue* qval = (TsValue*)q->Get(i + 1);
+            int qmode = (int)ts_value_get_int((TsValue*)q->Get(i + 2));
+            if (pv.ptr_val) {
+                agen_drive_request(gen, (TsPromise*)pv.ptr_val, qval, qmode);
+            }
+        }
+        gen->requestQueue = nullptr;
+    }
+    gen->executing = false;
+    return p;
+}
+
 TsPromise* TsAsyncGenerator::next(TsValue* value) {
+    // Suspendable model: every request goes through the enqueue mechanism.
+    if (suspendable) {
+        return agen_enqueue_request(this, value, AGEN_MODE_NEXT);
+    }
+
     TsPromise* p = ts_promise_create();
 
     // Eager-body model: the lowered async-generator body ran to completion
@@ -409,6 +501,14 @@ TsValue* Generator_return(TsValue* genVal, TsValue* value) {
     void* raw = ts_value_get_object(genVal);
     if (!raw) return create_generator_result(TsValue(), true);
 
+    // Async generator: return() must produce a PROMISE of the iteration
+    // result (same AGEN-magic forward Generator_next has — without it an
+    // untyped agen.return() fell into the own-property path below and
+    // synthesized a plain {value, done:true} object).
+    if (ts_is_unchecked<TsAsyncGenerator>(raw)) {
+        return AsyncGenerator_return(genVal, value);
+    }
+
     if (ts_is_unchecked<TsGenerator>(raw)) {
         TsGenerator* gen = (TsGenerator*)raw;
         gen->done = true;
@@ -455,6 +555,12 @@ TsValue* Generator_throw(TsValue* genVal, TsValue* exception) {
     if (!raw) {
         ts_throw(exception);
         return ts_value_make_undefined();
+    }
+
+    // Async generator: throw() must produce a (rejected) PROMISE, not a
+    // synchronous re-throw (same AGEN-magic forward Generator_next has).
+    if (ts_is_unchecked<TsAsyncGenerator>(raw)) {
+        return AsyncGenerator_throw(genVal, exception);
     }
 
     if (ts_is_unchecked<TsGenerator>(raw)) {
@@ -524,6 +630,136 @@ TsAsyncGenerator* ts_async_generator_create() {
     return gen;
 }
 
+// Suspendable-model creation (GEN-001 Stage 2): like ts_async_generator_create
+// but the body does NOT run eagerly, so there is no g_asyncgen_stack entry —
+// yields reach the generator through ctx (ts_agen_suspend_yield), never the
+// ambient stack. The generator is rooted by whoever holds the returned value.
+TsAsyncGenerator* ts_async_generator_create_suspendable(void) {
+    AsyncContext* ctx = ts_async_context_create();
+    void* mem = ts_alloc(sizeof(TsAsyncGenerator));
+    TsAsyncGenerator* gen = new (mem) TsAsyncGenerator(ctx);
+    ctx->generator = gen;
+    gen->suspendable = true;
+    return gen;
+}
+
+// Suspend-at-yield (factor of ts_async_yield, ctx-routed): record the yielded
+// value and resolve the current request's promise with {value, done:false}.
+void ts_agen_suspend_yield(AsyncContext* ctx, TsValue* v) {
+    if (!ctx) return;
+    ctx->yielded = true;
+    ctx->yieldedValue = v ? nanbox_to_tagged(v) : TsValue();
+
+    if (ctx->pendingNextPromise) {
+        ts_promise_resolve_internal(ctx->pendingNextPromise,
+            create_generator_result(ctx->yieldedValue, false));
+        ctx->pendingNextPromise = nullptr;
+    }
+}
+
+// Normal completion: resolve the current request's promise with
+// {value, done:true} and mark the generator completed.
+void ts_agen_complete(AsyncContext* ctx, TsValue* v) {
+    if (!ctx) return;
+    ctx->yielded = false;
+    if (ctx->generator) {
+        ctx->generator->done = true;
+    }
+    if (ctx->pendingNextPromise) {
+        ts_promise_resolve_internal(ctx->pendingNextPromise,
+            create_generator_result(v ? nanbox_to_tagged(v) : TsValue(), true));
+        ctx->pendingNextPromise = nullptr;
+    }
+}
+
+// Abrupt (throw) completion: reject the current request's promise and mark
+// the generator completed (ECMA-262 AsyncGeneratorReject + completed state).
+void ts_agen_complete_reject(AsyncContext* ctx, TsValue* exc) {
+    if (!ctx) return;
+    ctx->yielded = false;
+    if (ctx->generator) {
+        ctx->generator->done = true;
+    }
+    if (ctx->pendingNextPromise) {
+        ts_promise_reject_internal(ctx->pendingNextPromise,
+            exc ? exc : ts_value_make_undefined());
+        ctx->pendingNextPromise = nullptr;
+    }
+}
+
+// Spec AsyncGeneratorYield step 1: Await(value). Pump-await iff the operand is
+// promise-shaped; a rejection ts_throws INSIDE the caller's frame (so a user
+// try/catch around the yield catches it). Non-promises pass through untouched.
+TsValue* ts_agen_await_operand(TsValue* v) {
+    if (!v) return v;
+    TsValue tv = nanbox_to_tagged(v);
+    if (tv.type == ValueType::PROMISE_PTR) {
+        extern TsValue* ts_promise_await(TsValue* promise);
+        return ts_promise_await(v);
+    }
+    return v;
+}
+
+// GetIterator(value, async) for the suspendable yield* lowering — the same
+// protocol sequence as the eager ts_async_generator_yield_star prologue
+// (@@asyncIterator lookup, sync-@@iterator fallback per
+// CreateAsyncFromSyncIterator, callable/object checks), but throwing via plain
+// ts_throw: in the suspendable model the impl's own barrier converts the throw
+// into a rejected request promise, so no g_agen_protocol_throw flag is needed.
+// The eager path is untouched.
+TsValue* ts_agen_get_async_iterator(TsValue* iterable) {
+    extern TsValue* ts_object_get_property(void* o, const char* k);
+
+    void* raw = iterable ? ts_value_get_object(iterable) : nullptr;
+    if (!raw) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "value is not async iterable"));
+        return ts_value_make_undefined();
+    }
+
+    // GetIterator(value, async): method = GetMethod(obj, @@asyncIterator).
+    // The property read runs getters, so an abrupt get propagates here.
+    TsValue* method = ts_object_get_property(raw, "[Symbol.asyncIterator]");
+    bool isAsyncIter = !agen_is_undef_or_null(method);
+    if (isAsyncIter && !agen_is_callable(method)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "[Symbol.asyncIterator] is not callable"));
+        return ts_value_make_undefined();
+    }
+    if (!isAsyncIter) {
+        // Fall back to the sync iterator (spec: CreateAsyncFromSyncIterator).
+        method = ts_object_get_property(raw, "[Symbol.iterator]");
+        if (agen_is_undef_or_null(method)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "value is not async iterable"));
+            return ts_value_make_undefined();
+        }
+        if (!agen_is_callable(method)) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "[Symbol.iterator] is not callable"));
+            return ts_value_make_undefined();
+        }
+    }
+
+    // iterator = ? Call(method, obj); must be an Object.
+    TsValue* iter = ts_call_with_this_0(method, iterable);
+    void* iterRaw = iter ? ts_value_get_object(iter) : nullptr;
+    if (!iterRaw) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator method returned a non-object"));
+        return ts_value_make_undefined();
+    }
+
+    TsValue* nextFn = ts_object_get_property(iterRaw, "next");
+    if (!agen_is_callable(nextFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator.next is not callable"));
+        return ts_value_make_undefined();
+    }
+
+    return iter;
+}
+
 TsValue* ts_async_generator_yield(TsValue* value) {
     if (!g_asyncgen_stack.empty()) {
         TsAsyncGenerator* gen = g_asyncgen_stack.back();
@@ -548,6 +784,51 @@ TsValue* AsyncGenerator_next_internal(void* context, TsValue* value) {
 
 TsValue* AsyncGenerator_next(TsValue* genVal, TsValue* value) {
     return AsyncGenerator_next_internal(ts_value_get_object(genVal), value);
+}
+
+// agen.return(value), ECMA-262 27.6.1.3 (simplified): always returns a
+// PROMISE. Eager model: complete the generator and resolve {value, done:true}
+// (finally-block unwinding needs the suspendable machinery, Stage 6).
+// Suspendable model: enqueue a RETURN-mode request.
+// These symbols were emitted by GeneratorHandler for typed AsyncGenerator
+// receivers but never defined anywhere until GEN-001 Stage 2.
+TsValue* AsyncGenerator_return(TsValue* genVal, TsValue* value) {
+    void* raw = genVal ? ts_value_get_object(genVal) : nullptr;
+    TsAsyncGenerator* gen =
+        (raw && ts_is_unchecked<TsAsyncGenerator>(raw)) ? (TsAsyncGenerator*)raw
+                                                        : nullptr;
+    if (gen && gen->suspendable) {
+        return ts_value_make_promise(
+            agen_enqueue_request(gen, value, AGEN_MODE_RETURN));
+    }
+    if (gen) {
+        gen->done = true;
+    }
+    TsPromise* p = ts_promise_create();
+    ts_promise_resolve_internal(p,
+        create_generator_result(value ? nanbox_to_tagged(value) : TsValue(), true));
+    return ts_value_make_promise(p);
+}
+
+// agen.throw(exc), ECMA-262 27.6.1.4 (simplified): always returns a PROMISE.
+// Eager model: complete the generator and reject with exc (resuming into a
+// body try/catch needs the suspendable machinery, Stage 6). Suspendable
+// model: enqueue a THROW-mode request.
+TsValue* AsyncGenerator_throw(TsValue* genVal, TsValue* exc) {
+    void* raw = genVal ? ts_value_get_object(genVal) : nullptr;
+    TsAsyncGenerator* gen =
+        (raw && ts_is_unchecked<TsAsyncGenerator>(raw)) ? (TsAsyncGenerator*)raw
+                                                        : nullptr;
+    if (gen && gen->suspendable) {
+        return ts_value_make_promise(
+            agen_enqueue_request(gen, exc, AGEN_MODE_THROW));
+    }
+    if (gen) {
+        gen->done = true;
+    }
+    TsPromise* p = ts_promise_create();
+    ts_promise_reject_internal(p, exc ? exc : ts_value_make_undefined());
+    return ts_value_make_promise(p);
 }
 
 void ts_async_generator_return(TsAsyncGenerator* gen, TsValue* value) {
@@ -2152,6 +2433,16 @@ void* ts_async_context_get_data(AsyncContext* ctx) {
         return ctx->data;
     }
     return nullptr;
+}
+
+int ts_async_context_get_resume_mode(AsyncContext* ctx) {
+    return ctx ? ctx->resumeMode : 0;
+}
+
+void ts_async_context_set_resume_mode(AsyncContext* ctx, int mode) {
+    if (ctx) {
+        ctx->resumeMode = mode;
+    }
 }
 
 } // namespace ts
