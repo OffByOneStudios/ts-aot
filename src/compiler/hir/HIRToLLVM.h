@@ -237,6 +237,16 @@ private:
     bool suspendAsyncGen_ = false;
     bool inSuspendableAgenMode_ = false;
     llvm::BasicBlock* agenForcedReturnBB_ = nullptr;
+    // Suspension-relocation edges (GEN-001 Stage 4b): when a suspendable-agen
+    // suspension point terminates the current LLVM block with `ret void` and
+    // relocates emission into a yield_resume_N block, the rest of the HIR
+    // block's instructions (including phi-feeding short-circuit branches) are
+    // emitted in the resume block. lowerPhi's predecessor DFS walks real CFG
+    // successors only, so it cannot cross the suspension — record the
+    // old-block -> resume-block hop here so the DFS can follow it. Cleared
+    // per function; only populated in suspendable-agen mode (flag-off IR is
+    // untouched).
+    std::unordered_map<llvm::BasicBlock*, llvm::BasicBlock*> agenSuspendRelocation_;
     llvm::Value* generatorDataBuf_ = nullptr;            // Heap-allocated data buffer for params + locals
     int generatorLocalCount_ = 0;                        // Number of Alloca instructions in generator
     int generatorNextLocalIndex_ = 0;                    // Next local index for alloca replacement

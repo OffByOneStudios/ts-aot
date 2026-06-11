@@ -1553,12 +1553,37 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
     generatorImplFunc_ = nullptr;
     inSuspendableAgenMode_ = false;
     agenForcedReturnBB_ = nullptr;
+    agenSuspendRelocation_.clear();
 
     // GEN-001 Stage 3: suspendable async-generator lowering (flag-gated by
     // TSAOT_SUSPEND_AGEN=1). Reuses the sync state-machine helpers with
     // isAsyncGen options; the eager branch below stays compiled verbatim for
     // flag-off.
+    //
+    // Stage 4b: the suspendable model REQUIRES the ts_async_generator_body_
+    // started marker (suspension point 0 — the param-prologue/body split).
+    // Class-method bodies are lowered by the spec MethodDefinition path in
+    // ASTToHIR, which does NOT emit the marker; without it the whole body
+    // would run synchronously in state 0 at gen() time — no barrier pushed
+    // (protocol TypeErrors escaped uncaught) and no pendingNextPromise
+    // (yields dropped, "$DONE never called"): the dominant -447 of the Stage
+    // 4 flag-on sweep. Marker-less async gens take the EAGER lowering below
+    // (exact flag-off behavior) until the marker gains a class-method
+    // emission site in its own gated stage.
+    int agenMarkerCount = 0;
     if (suspendAsyncGen_ && fn->isAsync && fn->isGenerator) {
+        for (auto& block : fn->blocks) {
+            for (auto& inst : block->instructions) {
+                if (inst->opcode == HIROpcode::Call && !inst->operands.empty()) {
+                    if (auto* callee = std::get_if<std::string>(&inst->operands[0]);
+                        callee && *callee == "ts_async_generator_body_started") {
+                        agenMarkerCount++;
+                    }
+                }
+            }
+        }
+    }
+    if (suspendAsyncGen_ && fn->isAsync && fn->isGenerator && agenMarkerCount > 0) {
         currentYieldState_ = 0;
         yieldResumeBlocks_.clear();
         generatorDoneBlock_ = nullptr;
@@ -1576,18 +1601,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         // prologue suspends there), so yields occupy states 2..N+1 and the
         // impl needs yieldCount + markerCount resume blocks.
         int yieldCount = collectGeneratorCounts(fn).first;
-        int markerCount = 0;
-        for (auto& block : fn->blocks) {
-            for (auto& inst : block->instructions) {
-                if (inst->opcode == HIROpcode::Call && !inst->operands.empty()) {
-                    if (auto* callee = std::get_if<std::string>(&inst->operands[0]);
-                        callee && *callee == "ts_async_generator_body_started") {
-                        markerCount++;
-                    }
-                }
-            }
-        }
-        yieldCount += markerCount;
+        yieldCount += agenMarkerCount;
 
         // Cross-suspension SSA liveness — the marker is a suspension point
         // too, so defs crossing it within a block must spill.
@@ -1632,6 +1646,7 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         isGeneratorFunction_ = false;
         inSuspendableAgenMode_ = false;
         agenForcedReturnBB_ = nullptr;
+        agenSuspendRelocation_.clear();
         closureParam_ = nullptr;
         asyncPromise_ = nullptr;
         generatorObject_ = nullptr;
@@ -5725,9 +5740,14 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             builder_->getVoidTy(), { getGCPtrTy(), builder_->getInt32Ty() });
         builder_->CreateCall(setStateFn,
             { asyncContext_, builder_->getInt32(nextState) });
+        llvm::BasicBlock* suspendedBlock = builder_->GetInsertBlock();
         builder_->CreateRetVoid();
 
         if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
+            // Record the suspension-relocation hop so lowerPhi's predecessor
+            // DFS can follow emission across the `ret void` (Stage 4b).
+            agenSuspendRelocation_[suspendedBlock] =
+                yieldResumeBlocks_[currentYieldState_];
             builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
         }
         currentYieldState_++;
@@ -10473,6 +10493,17 @@ void HIRToLLVM::lowerPhi(HIRInstruction* inst) {
                 if (!candidate || visited.count(candidate)) continue;
                 visited.insert(candidate);
                 if (visited.size() > 32) break;  // depth limit
+                // Suspendable-agen suspension points end a block with
+                // `ret void` and relocate emission into a yield_resume_N
+                // block (GEN-001 Stage 4b) — follow the recorded hop so the
+                // walk can cross the suspension. Empty map outside
+                // suspendable-agen mode (flag-off unaffected).
+                if (!agenSuspendRelocation_.empty()) {
+                    auto reloc = agenSuspendRelocation_.find(candidate);
+                    if (reloc != agenSuspendRelocation_.end()) {
+                        stack.push_back(reloc->second);
+                    }
+                }
                 auto* term = candidate->getTerminator();
                 if (!term) continue;
                 for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
@@ -10839,9 +10870,13 @@ void HIRToLLVM::lowerYield(HIRInstruction* inst) {
         auto popFn = getOrDeclareRuntimeFunction("ts_pop_exception_handler",
             builder_->getVoidTy(), {});
         builder_->CreateCall(popFn, {});
+        llvm::BasicBlock* suspendedBlock = builder_->GetInsertBlock();
         builder_->CreateRetVoid();
 
         if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
+            // Record the suspension-relocation hop for lowerPhi (Stage 4b).
+            agenSuspendRelocation_[suspendedBlock] =
+                yieldResumeBlocks_[currentYieldState_];
             builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
             llvm::Value* resumedValue = emitAgenResumeModeDispatch();
             setValue(inst->result, resumedValue);
@@ -10938,6 +10973,7 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
             builder_->getVoidTy(), { getGCPtrTy(), getGCPtrTy() });
         builder_->CreateCall(setDelegateFn, { asyncContext_, iterator });
 
+        llvm::BasicBlock* preheaderBB = builder_->GetInsertBlock();
         llvm::BasicBlock* loopBB = llvm::BasicBlock::Create(
             context_, "agen_yield_star_loop", currentFunc);
         llvm::BasicBlock* doneBB = llvm::BasicBlock::Create(
@@ -10945,26 +10981,31 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
 
         builder_->CreateBr(loopBB);
 
-        // Loop header: reload iterator from ctx, call next(), await the step.
+        // Loop header: reload iterator from ctx and run ONE delegation step
+        // via the runtime helper (GEN-001 Stage 4b). ts_agen_delegate_step
+        // carries the eager drain's shape tolerances: legacy plain-TsArray
+        // "iterator-likes" walked by index (cursor on the AsyncContext),
+        // lenient .next lookup, pump-await of promise-shaped step results,
+        // and the result-not-an-object protocol TypeError. The value sent
+        // into next(v) on resume is forwarded to the inner iterator.
         builder_->SetInsertPoint(loopBB);
+        llvm::PHINode* sentArg = builder_->CreatePHI(
+            getGCPtrTy(), 2, "agen_sent_arg");
+        sentArg->addIncoming(
+            llvm::ConstantPointerNull::get(getGCPtrTy()), preheaderBB);
+
         auto getDelegateFn = getOrDeclareRuntimeFunction("ts_async_context_get_delegate_iterator",
             getGCPtrTy(), { getGCPtrTy() });
         llvm::Value* curIter = builder_->CreateCall(
             getDelegateFn, { asyncContext_ }, "agen_cur_iter");
 
-        auto nextFn = getOrDeclareRuntimeFunction("ts_iterator_next",
-            getGCPtrTy(), { getGCPtrTy(), getGCPtrTy() });
-        llvm::Value* nullVal = llvm::ConstantPointerNull::get(
-            llvm::PointerType::get(context_, 0));
-        llvm::Value* iterResultRaw = builder_->CreateCall(
-            nextFn, { curIter, nullVal }, "agen_iter_result_raw");
+        auto stepFn = getOrDeclareRuntimeFunction("ts_agen_delegate_step",
+            getGCPtrTy(), { getGCPtrTy(), getGCPtrTy(), getGCPtrTy() });
+        llvm::Value* iterResult = builder_->CreateCall(
+            stepFn, { asyncContext_, curIter, sentArg }, "agen_iter_result");
 
-        // Await the step result (an async iterator's next() returns a
-        // promise of the result object).
         auto awaitOpFn = getOrDeclareRuntimeFunction("ts_agen_await_operand",
             getGCPtrTy(), { getGCPtrTy() });
-        llvm::Value* iterResult = builder_->CreateCall(
-            awaitOpFn, { iterResultRaw }, "agen_iter_result");
 
         auto doneFn = getOrDeclareRuntimeFunction("ts_iterator_result_done",
             builder_->getInt1Ty(), { getGCPtrTy() });
@@ -11001,10 +11042,13 @@ void HIRToLLVM::lowerYieldStar(HIRInstruction* inst) {
         builder_->CreateCall(popFn, {});
         builder_->CreateRetVoid();
 
-        // Resume block: mode dispatch, then loop for the next element.
+        // Resume block: mode dispatch, then loop for the next element. The
+        // mode-NEXT resumed value (gen.next(v)'s argument) is forwarded to
+        // the inner iterator's next via the loop-header PHI.
         if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
             builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
-            emitAgenResumeModeDispatch();  // leaves builder in the next-mode block
+            llvm::Value* resumedValue = emitAgenResumeModeDispatch();
+            sentArg->addIncoming(resumedValue, builder_->GetInsertBlock());
             builder_->CreateBr(loopBB);
         }
 

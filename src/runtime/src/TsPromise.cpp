@@ -753,6 +753,15 @@ TsValue* ts_agen_get_async_iterator(TsValue* iterable) {
         return ts_value_make_undefined();
     }
 
+    // Legacy iterator shape: several runtime @@iterator implementations
+    // return a plain ARRAY ("iterator-like" per the conformance notes)
+    // rather than a {next} object. ts_agen_delegate_step walks these by
+    // index (the same tolerance iterator_concat_next and the eager drain's
+    // callers rely on), so don't reject them for a missing .next here.
+    if (*(uint32_t*)iterRaw == 0x41525259) { // TsArray "ARRY"
+        return iter;
+    }
+
     TsValue* nextFn = ts_object_get_property(iterRaw, "next");
     if (!agen_is_callable(nextFn)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -761,6 +770,72 @@ TsValue* ts_agen_get_async_iterator(TsValue* iterable) {
     }
 
     return iter;
+}
+
+// ONE step of suspendable yield* delegation (GEN-001 Stage 4b): performs
+// IteratorNext with the shape tolerances the EAGER drain has:
+// - plain-TsArray "iterator-likes" are walked by index (cursor persisted in
+//   ctx->delegateIndex, which ts_async_context_set_delegate_iterator resets),
+//   returning a FRESH {value, done} result per element;
+// - promise-shaped step results are pump-awaited (rejections ts_throw into
+//   the impl frame, caught by the impl barrier / user try);
+// - a non-object step result is the protocol TypeError.
+// Returns the iteration-result object.
+TsValue* ts_agen_delegate_step(AsyncContext* ctx, TsValue* iterator, TsValue* sentArg) {
+    extern TsValue* ts_object_get_property(void* o, const char* k);
+    extern TsValue* ts_promise_await(TsValue* promise);
+
+    void* raw = iterator ? ts_value_get_object(iterator) : nullptr;
+    if (!raw) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator method returned a non-object"));
+        return ts_value_make_undefined();
+    }
+
+    // Legacy array-shaped iterator: walk by index with fresh result objects
+    // (proven pattern: iterator_concat_next in TsGlobals.cpp).
+    if (*(uint32_t*)raw == 0x41525259) { // TsArray "ARRY"
+        TsArray* arr = (TsArray*)raw;
+        int64_t idx = ctx ? ctx->delegateIndex : 0;
+        if (idx >= (int64_t)arr->Length()) {
+            if (ctx) ctx->delegateIndex = 0;
+            return create_generator_result(TsValue(), true);
+        }
+        if (ctx) ctx->delegateIndex = idx + 1;
+        TsValue* elem = arr->GetElementBoxed((size_t)idx);
+        return create_generator_result(
+            elem ? nanbox_to_tagged(elem) : TsValue(), false);
+    }
+
+    TsValue* nextFn = ts_object_get_property(raw, "next");
+    // Only reject definitively-absent next; some runtime iterator shapes
+    // carry callables that evade the magic check, and a non-callable still
+    // surfaces as TypeError via the result-not-object check below.
+    if (!nextFn || agen_is_undef_or_null(nextFn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator.next is not callable"));
+        return ts_value_make_undefined();
+    }
+
+    TsValue* res = sentArg
+        ? ts_call_with_this_1(nextFn, iterator, sentArg)
+        : ts_call_with_this_0(nextFn, iterator);
+
+    // Async iterators return a promise of the result object: await it. A
+    // rejection ts_throws inside the caller's impl frame (matching the eager
+    // drain's ts_promise_await points).
+    TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
+    if (rv.type == ValueType::PROMISE_PTR) {
+        res = ts_promise_await(res);
+    }
+
+    void* resRaw = res ? ts_value_get_object(res) : nullptr;
+    if (!resRaw) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "iterator result is not an object"));
+        return ts_value_make_undefined();
+    }
+    return res;
 }
 
 TsValue* ts_async_generator_yield(TsValue* value) {
@@ -2402,6 +2477,9 @@ TsValue* ts_async_context_get_resumed_value(AsyncContext* ctx) {
 void ts_async_context_set_delegate_iterator(AsyncContext* ctx, TsValue* iter) {
     if (ctx) {
         ctx->delegateIterator = iter;
+        // New delegation: reset the legacy array-shape cursor (GEN-001 Stage
+        // 4b, ts_agen_delegate_step). Sync generators never read it.
+        ctx->delegateIndex = 0;
     }
 }
 
