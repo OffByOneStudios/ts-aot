@@ -1706,6 +1706,14 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
 
+            // Async generators: end of PARAMETER prologue — body throws after
+            // this reject the first next() promise (ts_agen_should_reject).
+            // Mirrors the FunctionDeclaration/arrow/funcExpr/method sites.
+            if (methPtr->isAsync && methPtr->isGenerator) {
+                builder_.createCall("ts_async_generator_body_started", {},
+                                    HIRType::makeVoid());
+            }
+
             // For constructors of imported classes, emit field initializers
             // before the constructor body (mirrors visitClassDeclaration behavior)
             if (methodNode->name == "constructor" && spec.classType) {
@@ -11670,6 +11678,14 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 }
             }
 
+            // Async generators: end of PARAMETER prologue — body throws after
+            // this reject the first next() promise (ts_agen_should_reject).
+            // Mirrors the FunctionDeclaration/arrow/funcExpr/method sites.
+            if (func->isAsync && func->isGenerator) {
+                builder_.createCall("ts_async_generator_body_started", {},
+                                    HIRType::makeVoid());
+            }
+
             // For instance constructors, initialize instance property defaults before user code.
             // Static `constructor` is just a static method — never an instance ctor.
             if (methodDef->name == "constructor" && !methodDef->isStatic) {
@@ -12249,6 +12265,14 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 } else if (dp.arrPattern) {
                     lowerArrayBindingPattern(dp.arrPattern, paramValue);
                 }
+            }
+
+            // Async generators: end of PARAMETER prologue — body throws after
+            // this reject the first next() promise (ts_agen_should_reject).
+            // Mirrors the FunctionDeclaration/arrow/funcExpr/method sites.
+            if (func->isAsync && func->isGenerator) {
+                builder_.createCall("ts_async_generator_body_started", {},
+                                    HIRType::makeVoid());
             }
 
             // For instance constructors, initialize instance property defaults before user code.
