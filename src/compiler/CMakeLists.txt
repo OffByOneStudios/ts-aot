@@ -3,7 +3,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(cxxopts CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
-find_package(ICU COMPONENTS uc data REQUIRED)
+find_package(ICU COMPONENTS uc i18n data REQUIRED)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -109,6 +109,7 @@ add_library(tscompiler_lib STATIC
     hir/passes/EscapeAnalysisPass.cpp
     extensions/ExtensionLoader.cpp
     parser/Lexer.cpp
+    parser/RegExpEarlyErrors.cpp
     parser/Parser.cpp
     parser/Parser_Expressions.cpp
     parser/Parser_TypeAnnotations.cpp
@@ -127,6 +128,7 @@ target_link_libraries(tscompiler_lib PUBLIC
     cxxopts::cxxopts
     spdlog::spdlog
     ICU::uc
+    ICU::i18n
     ICU::data
 )
 

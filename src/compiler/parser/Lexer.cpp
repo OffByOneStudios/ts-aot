@@ -1,4 +1,5 @@
 #include "Lexer.h"
+#include "RegExpEarlyErrors.h"
 #include <stdexcept>
 #include <cstring>
 #include <sstream>
@@ -963,6 +964,14 @@ Token Lexer::scanRegularExpression() {
         advance();
     }
     int flagEnd = pos_;
+
+    // ECMA-262 early errors: flag validity/duplication and pattern
+    // compilability (probe through the runtime's own ICU translation).
+    // Throws SyntaxError. See RegExpEarlyErrors.cpp for the safety argument.
+    tsaot::validateRegExpLiteral(
+        source_.substr(bodyStart, bodyEnd - bodyStart),
+        source_.substr(flagStart, flagEnd - flagStart),
+        tokenStartLine_, tokenStartColumn_);
 
     // ECMA-262 22.2.1.4: UnicodePropertyEscape `\p{Name}` / `\p{Name=Value}` /
     // `\P{...}` is only valid in Unicode mode (`u` or `v` flag). When that
