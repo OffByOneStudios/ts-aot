@@ -268,6 +268,14 @@ static std::string transformJsPatternForIcu(const std::string& pat) {
     for (size_t i = 0; i < pat.size(); i++) {
         // Escaped character - pass through as-is
         if (pat[i] == '\\' && i + 1 < pat.size()) {
+            // JS defines \b INSIDE a character class as U+0008 (backspace);
+            // ICU keeps it a word-boundary there, so [\b] / [^\b] matched
+            // nothing sensible. Rewrite to an explicit \x08.
+            if (inClass && pat[i + 1] == 'b') {
+                result += "\\x08";
+                i++;
+                continue;
+            }
             result += pat[i];
             result += pat[i + 1];
             i++;

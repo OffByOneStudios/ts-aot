@@ -213,6 +213,18 @@ bool Parser::processPrologueDirective(const ast::StmtPtr& stmt) {
     if (strLit->value == "use strict") {
         strictMode_ = true;
         sawUseStrictDirective_ = true;
+        // ECMA-262 11.2.1: the directive makes the WHOLE body strict,
+        // including prologue strings that PRECEDE it — re-validate their
+        // raw text now. (Each prologue loop clears this list on entry.)
+        for (auto& p : pendingPrologueStrings_) {
+            Lexer::validateLegacyOctalEscapes(
+                p.raw, /*isStrict=*/true, /*isTemplate=*/false,
+                p.line, p.column);
+        }
+        pendingPrologueStrings_.clear();
+    } else if (!strLit->raw.empty()) {
+        pendingPrologueStrings_.push_back(
+            {strLit->raw, strLit->line, strLit->column});
     }
     return true;
 }
@@ -515,8 +527,9 @@ std::unique_ptr<ast::Program> Parser::parse(const std::string& source,
     // ExpressionStatements wrapping a single string literal form a
     // directive prologue. If `"use strict"` appears among them, the
     // body is strict from then on. Prologue strings themselves are
-    // parsed in the outer (typically sloppy) mode and are not
-    // subject to legacy-octal rejection.
+    // parsed in the outer (typically sloppy) mode; a "use strict" among
+    // them re-validates the earlier ones via pendingPrologueStrings_.
+    pendingPrologueStrings_.clear();
     bool inPrologue = true;
     while (!isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();
@@ -1941,6 +1954,7 @@ ast::StmtPtr Parser::parseFunctionDeclaration(bool isAsync, bool isExported, boo
         // in the enclosing scope, conflicting with sibling `let t` decls in
         // other functions or outer blocks (has-instance-jitted.js hit this).
         pushLexicalScope();
+        pendingPrologueStrings_.clear();
         bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();
@@ -2794,6 +2808,7 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
         // as parseFunctionDeclaration). Without this, `let X` in sibling
         // method bodies of an object literal or class mistakenly conflict.
         pushLexicalScope();
+        pendingPrologueStrings_.clear();
         bool inPrologue = true;
         while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
             auto stmt = parseDeclarationOrStatement();

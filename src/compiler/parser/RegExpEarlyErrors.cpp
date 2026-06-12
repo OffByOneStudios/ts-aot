@@ -158,6 +158,12 @@ static std::string transformJsPatternForIcu(const std::string& pat) {
     bool inClass = false;
     for (size_t i = 0; i < pat.size(); i++) {
         if (pat[i] == '\\' && i + 1 < pat.size()) {
+            // JS: \b inside a class is U+0008, not a word boundary.
+            if (inClass && pat[i + 1] == 'b') {
+                result += "\\x08";
+                i++;
+                continue;
+            }
             result += pat[i];
             result += pat[i + 1];
             i++;

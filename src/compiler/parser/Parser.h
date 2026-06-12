@@ -188,6 +188,12 @@ private:
     bool noIn_ = false;         // Suppress 'in' as binary operator (for-loop initializers)
     bool strictMode_ = false;   // Effective strict mode (set after "use strict" prologue)
     bool sawUseStrictDirective_ = false;  // Did the most-recently-parsed body contain a "use strict" directive?
+    // Raw text of string statements seen so far in the CURRENT directive
+    // prologue. A later "use strict" in the same prologue re-validates them
+    // (legacy octal escapes become errors retroactively, ECMA-262 11.2.1).
+    // Cleared at each prologue loop entry.
+    struct PendingPrologueString { std::string raw; int line; int column; };
+    std::vector<PendingPrologueString> pendingPrologueStrings_;
     int functionDepth_ = 0;    // 0 = top-level, >0 = inside function
     int iterationDepth_ = 0;   // Inside for/while/do-while body (break + continue allowed)
     int switchDepth_ = 0;      // Inside switch body (break allowed, continue not)

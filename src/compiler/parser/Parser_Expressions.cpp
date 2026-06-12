@@ -888,23 +888,32 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
                     return std::numeric_limits<double>::infinity();
                 }
             };
-            // Handle hex, octal, binary
-            if (text.size() > 1 && text[0] == '0') {
-                if (text[1] == 'x' || text[1] == 'X') {
-                    node->value = safeStoull(text, 16);
-                } else if (text[1] == 'o' || text[1] == 'O') {
-                    node->value = safeStoull(text, 8);
-                } else if (text[1] == 'b' || text[1] == 'B') {
-                    node->value = safeStoull(text, 2);
-                } else {
-                    std::string clean;
-                    for (char c : text) if (c != '_') clean += c;
-                    node->value = safeStod(clean);
-                }
+            // Handle hex, octal, binary. Strip the 2-char prefix and any
+            // numeric separators: stoull only auto-accepts a 0x prefix for
+            // base 16 — "0b1" at base 2 parsed as 0 and stopped at 'b', so
+            // every binary/octal literal evaluated to 0; '_' truncated all
+            // radix literals at the separator (0x1_0 -> 1).
+            auto stripSeps = [](std::string_view s) {
+                std::string r;
+                r.reserve(s.size());
+                for (char c : s) if (c != '_') r += c;
+                return r;
+            };
+            if (text.size() > 1 && text[0] == '0' &&
+                (text[1] == 'x' || text[1] == 'X' || text[1] == 'o' ||
+                 text[1] == 'O' || text[1] == 'b' || text[1] == 'B')) {
+                int base = (text[1] == 'x' || text[1] == 'X') ? 16
+                         : (text[1] == 'o' || text[1] == 'O') ? 8 : 2;
+                node->value = safeStoull(stripSeps(text.substr(2)), base);
+            } else if (tok.isLegacyOctal) {
+                // Annex B.1.1: all-octal digits -> base 8 (070 === 56);
+                // any 8/9 makes it a NonOctalDecimalIntegerLiteral (decimal).
+                bool allOctal =
+                    text.find_first_not_of("01234567") == std::string::npos;
+                node->value = allOctal ? safeStoull(text.substr(1), 8)
+                                       : safeStod(text);
             } else {
-                std::string clean;
-                for (char c : text) if (c != '_') clean += c;
-                node->value = safeStod(clean);
+                node->value = safeStod(stripSeps(text));
             }
             return node;
         }
@@ -932,6 +941,7 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
                 tok.text, strictMode_, /*isTemplate=*/false,
                 tok.line, tok.column);
             node->value = Lexer::getStringValue(tok.text);
+            node->raw = std::string(tok.text);
             return node;
         }
 
@@ -1374,6 +1384,7 @@ ast::ExprPtr Parser::parseArrowFunctionOrParenthesized() {
             // lexical scope so inner `let X` declarations don't collide
             // with outer scope's bindings.
             pushLexicalScope();
+            pendingPrologueStrings_.clear();
             bool inPrologue = true;
             while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
                 auto stmt = parseDeclarationOrStatement();
@@ -1939,6 +1950,7 @@ ast::ExprPtr Parser::parseFunctionExpression(bool isAsync) {
     // (same rationale as parseFunctionDeclaration). Without this, `let X` in
     // sibling method bodies of an object literal mistakenly conflict.
     pushLexicalScope();
+    pendingPrologueStrings_.clear();
     bool inPrologue = true;
     while (!check(TokenKind::CloseBrace) && !isAtEnd()) {
         auto stmt = parseDeclarationOrStatement();

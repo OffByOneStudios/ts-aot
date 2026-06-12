@@ -745,6 +745,11 @@ struct SuperExpression : Expression {
 
 struct StringLiteral : Expression {
     std::string value;
+    // Raw lexeme including quotes. Needed after the fact: a "use strict"
+    // directive retroactively forbids legacy octal escapes in prologue
+    // strings that PRECEDE it, which can only be checked against the
+    // undecoded source text.
+    std::string raw;
     // True only for the parser-synthesized LHS of an ergonomic brand check
     // `#x in obj` (ES2022) — lowering probes the hidden private storage key
     // instead of the literal string. A user-written "#x" string stays false.

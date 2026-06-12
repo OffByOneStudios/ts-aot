@@ -5739,7 +5739,43 @@ void ASTToHIR::visitBinaryExpression(ast::BinaryExpression* node) {
         auto* propAccess = dynamic_cast<ast::PropertyAccessExpression*>(node->left.get());
         if (propAccess) {
             auto obj = lowerExpression(propAccess->expression.get());
-            auto propName = builder_.createConstString(propAccess->name);
+            // Mirror the simple-assignment store: a class setter (including
+            // a private accessor `set #x`) must be CALLED; only plain data
+            // properties go through set_property — and private FIELDS live
+            // under the hidden storage key "\x01#x" (privateStorageKey).
+            // Writing the visible "#x" left the real slot stale (the whole
+            // private-reference compound-assignment family), while writing
+            // the hidden key unconditionally bypassed private setters.
+            HIRClass* targetClass = nullptr;
+            if (propAccess->expression && propAccess->expression->inferredType) {
+                auto exprType = propAccess->expression->inferredType;
+                if (exprType->kind == ts::TypeKind::Class) {
+                    if (auto classType = std::dynamic_pointer_cast<ts::ClassType>(exprType)) {
+                        for (auto& cls : module_->classes) {
+                            if (cls->name == classType->name) { targetClass = cls.get(); break; }
+                        }
+                    }
+                }
+            }
+            if (!targetClass) {
+                auto* thisIdent = dynamic_cast<ast::Identifier*>(propAccess->expression.get());
+                if (thisIdent && thisIdent->name == "this" && currentClass_) {
+                    targetClass = currentClass_;
+                }
+            }
+            if (targetClass) {
+                auto setterIt = targetClass->methods.find("__setter_" + propAccess->name);
+                if (setterIt != targetClass->methods.end() && setterIt->second) {
+                    builder_.createCall(setterIt->second->name,
+                                        {obj, boxValueIfNeeded(result)},
+                                        HIRType::makeVoid());
+                    lastValue_ = result;
+                    return;
+                }
+            }
+            const std::string& n = propAccess->name;
+            auto propName = builder_.createConstString(
+                (!n.empty() && n[0] == '#') ? privateStorageKey(n) : n);
             std::vector<std::shared_ptr<HIRValue>> args = {obj, propName, boxValueIfNeeded(result)};
             builder_.createCall("ts_object_set_property", args, HIRType::makeVoid());
             lastValue_ = result;

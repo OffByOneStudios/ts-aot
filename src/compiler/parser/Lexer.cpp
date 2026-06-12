@@ -733,6 +733,20 @@ Token Lexer::scanNumericLiteral() {
         return true;
     };
 
+    // ECMA-262 12.9.3.1: the SourceCharacter immediately following a
+    // NumericLiteral must not be an IdentifierStart or DecimalDigit
+    // (`3in`, `0b12`, `1.foo`, `1n_` are all SyntaxErrors).
+    auto rejectIdentAfterLiteral = [&]() {
+        if (!isAtEnd() && (isIdentStart(peek()) || isDigit(peek()))) {
+            char buf[160];
+            snprintf(buf, sizeof(buf),
+                     "%d:%d: SyntaxError: identifier or digit cannot "
+                     "immediately follow a numeric literal",
+                     tokenStartLine_, tokenStartColumn_);
+            throw std::runtime_error(buf);
+        }
+    };
+
     char c = peek();
 
     // Handle 0x, 0o, 0b prefixes
@@ -747,8 +761,10 @@ Token Lexer::scanNumericLiteral() {
             consumeDigitsWithSeparators([](char ch) { return isHexDigit(ch); }, "hex literal");
             if (!isAtEnd() && peek() == 'n') {
                 advance();
+                rejectIdentAfterLiteral();
                 return makeToken(TokenKind::BigIntLiteral, start);
             }
+            rejectIdentAfterLiteral();
             return makeToken(TokenKind::NumericLiteral, start);
         }
         if (next == 'o' || next == 'O') {
@@ -759,8 +775,10 @@ Token Lexer::scanNumericLiteral() {
             consumeDigitsWithSeparators([](char ch) { return ch >= '0' && ch <= '7'; }, "octal literal");
             if (!isAtEnd() && peek() == 'n') {
                 advance();
+                rejectIdentAfterLiteral();
                 return makeToken(TokenKind::BigIntLiteral, start);
             }
+            rejectIdentAfterLiteral();
             return makeToken(TokenKind::NumericLiteral, start);
         }
         if (next == 'b' || next == 'B') {
@@ -771,8 +789,10 @@ Token Lexer::scanNumericLiteral() {
             consumeDigitsWithSeparators([](char ch) { return ch == '0' || ch == '1'; }, "binary literal");
             if (!isAtEnd() && peek() == 'n') {
                 advance();
+                rejectIdentAfterLiteral();
                 return makeToken(TokenKind::BigIntLiteral, start);
             }
+            rejectIdentAfterLiteral();
             return makeToken(TokenKind::NumericLiteral, start);
         }
 
@@ -800,6 +820,7 @@ Token Lexer::scanNumericLiteral() {
             // Syntax Error in strict mode. The lexer can't know strict
             // mode yet (directive prologues are parser-detected) so we
             // flag the token and defer the check to the parser.
+            rejectIdentAfterLiteral();
             Token t = makeToken(TokenKind::NumericLiteral, start);
             t.isLegacyOctal = true;
             return t;
@@ -814,11 +835,11 @@ Token Lexer::scanNumericLiteral() {
     // Decimal point. Per ES262 DecimalLiteral grammar, the fractional part
     // is optional after the dot — so `0.`, `1.`, `2.` are all valid number
     // literals on their own (and idiomatically used like `0..toString(2)`
-    // for property access on an integer). Consume the dot whenever the
-    // preceding chars formed an integer; if no fractional digit follows
-    // the literal is just the integer with a trailing dot.
-    if (!isAtEnd() && peek() == '.' &&
-        (isDigit(peekAt(1)) || peekAt(1) == '.' || !isIdentStart(peekAt(1)))) {
+    // for property access on an integer). Maximal munch: the dot always
+    // joins the literal (so `0.e1` is a number, and `1.foo` is the spec's
+    // SyntaxError via the ident-after-literal check below, exactly as in
+    // V8 — NOT a member access).
+    if (!isAtEnd() && peek() == '.') {
         advance(); // .
         hasDecimalPoint = true;
         consumeDigitsWithSeparators([](char ch) { return isDigit(ch); }, "decimal fraction");
@@ -841,9 +862,11 @@ Token Lexer::scanNumericLiteral() {
             reportLexError("BigInt literal cannot have an exponent");
         }
         advance();
+        rejectIdentAfterLiteral();
         return makeToken(TokenKind::BigIntLiteral, start);
     }
 
+    rejectIdentAfterLiteral();
     return makeToken(TokenKind::NumericLiteral, start);
 }
 
@@ -857,7 +880,23 @@ Token Lexer::scanStringLiteral(char quote) {
     while (!isAtEnd() && peek() != quote) {
         if (peek() == '\\') {
             advance(); // backslash
-            if (!isAtEnd()) advance(); // escaped char
+            if (!isAtEnd()) {
+                // LineContinuation: \<CR><LF> is a single terminator.
+                if (peek() == '\r') {
+                    advance();
+                    if (!isAtEnd() && peek() == '\n') advance();
+                } else {
+                    advance(); // escaped char (including a lone \<LF>)
+                }
+            }
+        } else if (peek() == '\n' || peek() == '\r') {
+            // ECMA-262 12.9.4: an unescaped LineTerminator cannot appear in
+            // a string literal (U+2028/U+2029 are allowed since ES2019).
+            char buf[128];
+            snprintf(buf, sizeof(buf),
+                     "%d:%d: SyntaxError: unterminated string literal",
+                     tokenStartLine_, tokenStartColumn_);
+            throw std::runtime_error(buf);
         } else {
             advance();
         }
@@ -1227,49 +1266,106 @@ std::string Lexer::getStringValue(std::string_view rawToken) {
             case 'n': result += '\n'; break;
             case 'r': result += '\r'; break;
             case 't': result += '\t'; break;
+            case 'b': result += '\b'; break;
+            case 'f': result += '\f'; break;
+            case 'v': result += '\v'; break;
             case '\\': result += '\\'; break;
             case '\'': result += '\''; break;
             case '"': result += '"'; break;
             case '`': result += '`'; break;
-            case '0': result += '\0'; break;
-            case 'x':
-                if (i + 2 < inner.size()) {
-                    char hi = inner[i + 1];
-                    char lo = inner[i + 2];
-                    auto hexVal = [](char c) -> int {
-                        if (c >= '0' && c <= '9') return c - '0';
-                        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-                        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-                        return 0;
-                    };
-                    // \xHH is the character with code unit HH (0..255).
-                    // result is UTF-8, so a code unit >= 0x80 needs a
-                    // 2-byte encoding — raw 0xE9 alone is an invalid
-                    // UTF-8 lead byte that later decoders replace with
-                    // U+FFFD, breaking string equality with the same
-                    // character written as a literal "é".
-                    int cp = hexVal(hi) * 16 + hexVal(lo);
-                    if (cp < 0x80) {
-                        result += (char)cp;
-                    } else {
-                        result += (char)(0xC0 | (cp >> 6));
-                        result += (char)(0x80 | (cp & 0x3F));
-                    }
-                    i += 2;
+            case '\n':
+                // LineContinuation contributes nothing to the value.
+                break;
+            case '\r':
+                if (i + 1 < inner.size() && inner[i + 1] == '\n') i++;
+                break;
+            case '0': case '1': case '2': case '3':
+            case '4': case '5': case '6': case '7': {
+                // LegacyOctalEscapeSequence (Annex B.1.2); strict mode and
+                // templates already rejected these upstream via
+                // validateLegacyOctalEscapes. First digit 0-3 admits up to
+                // 3 octal digits, 4-7 up to 2; \0 alone is the NUL escape.
+                char first = inner[i];
+                int v = first - '0';
+                int maxDigits = (first <= '3') ? 3 : 2;
+                int consumed = 1;
+                while (consumed < maxDigits && i + 1 < inner.size() &&
+                       inner[i + 1] >= '0' && inner[i + 1] <= '7') {
+                    v = v * 8 + (inner[i + 1] - '0');
+                    i++;
+                    consumed++;
+                }
+                if (v < 0x80) {
+                    result += (char)v;
+                } else {
+                    result += (char)(0xC0 | (v >> 6));
+                    result += (char)(0x80 | (v & 0x3F));
                 }
                 break;
+            }
+            case 'x': {
+                auto hexVal = [](char c) -> int {
+                    if (c >= '0' && c <= '9') return c - '0';
+                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                    return -1;
+                };
+                // ECMA-262 12.9.4.1: \x must be followed by exactly 2 hex
+                // digits; anything else is a SyntaxError (was: silently
+                // decoded with garbage digits treated as 0).
+                int hi = (i + 1 < inner.size()) ? hexVal(inner[i + 1]) : -1;
+                int lo = (i + 2 < inner.size()) ? hexVal(inner[i + 2]) : -1;
+                if (hi < 0 || lo < 0) {
+                    throw std::runtime_error(
+                        "SyntaxError: invalid hexadecimal escape sequence "
+                        "in string literal");
+                }
+                // \xHH is the character with code unit HH (0..255).
+                // result is UTF-8, so a code unit >= 0x80 needs a
+                // 2-byte encoding — raw 0xE9 alone is an invalid
+                // UTF-8 lead byte that later decoders replace with
+                // U+FFFD, breaking string equality with the same
+                // character written as a literal "é".
+                int cp = hi * 16 + lo;
+                if (cp < 0x80) {
+                    result += (char)cp;
+                } else {
+                    result += (char)(0xC0 | (cp >> 6));
+                    result += (char)(0x80 | (cp & 0x3F));
+                }
+                i += 2;
+                break;
+            }
             case 'u':
                 if (i + 1 < inner.size() && inner[i + 1] == '{') {
-                    // \u{XXXX} unicode escape
+                    // \u{XXXX} unicode escape. ECMA-262 12.9.4: must be
+                    // 1+ hex digits, <= 0x10FFFF, closed with '}'.
                     i += 2; // skip u{
                     int codePoint = 0;
+                    int nDigits = 0;
                     while (i < inner.size() && inner[i] != '}') {
                         codePoint = codePoint * 16;
                         char h = inner[i];
                         if (h >= '0' && h <= '9') codePoint += h - '0';
                         else if (h >= 'a' && h <= 'f') codePoint += h - 'a' + 10;
                         else if (h >= 'A' && h <= 'F') codePoint += h - 'A' + 10;
+                        else {
+                            throw std::runtime_error(
+                                "SyntaxError: invalid Unicode escape "
+                                "sequence in string literal");
+                        }
+                        if (codePoint > 0x10FFFF) {
+                            throw std::runtime_error(
+                                "SyntaxError: Unicode code point out of "
+                                "range in string literal escape");
+                        }
+                        nDigits++;
                         i++;
+                    }
+                    if (nDigits == 0 || i >= inner.size()) {
+                        throw std::runtime_error(
+                            "SyntaxError: invalid Unicode escape sequence "
+                            "in string literal");
                     }
                     // Encode as UTF-8
                     if (codePoint < 0x80) {
@@ -1288,7 +1384,7 @@ std::string Lexer::getStringValue(std::string_view rawToken) {
                         result += (char)(0x80 | (codePoint & 0x3F));
                     }
                 } else if (i + 4 < inner.size()) {
-                    // \uXXXX
+                    // \uXXXX — exactly 4 hex digits or SyntaxError.
                     int cp = 0;
                     for (int j = 0; j < 4; j++) {
                         cp *= 16;
@@ -1296,6 +1392,11 @@ std::string Lexer::getStringValue(std::string_view rawToken) {
                         if (h >= '0' && h <= '9') cp += h - '0';
                         else if (h >= 'a' && h <= 'f') cp += h - 'a' + 10;
                         else if (h >= 'A' && h <= 'F') cp += h - 'A' + 10;
+                        else {
+                            throw std::runtime_error(
+                                "SyntaxError: invalid Unicode escape "
+                                "sequence in string literal");
+                        }
                     }
                     i += 4;
                     // Combine a UTF-16 surrogate pair written as two \uXXXX
@@ -1335,9 +1436,24 @@ std::string Lexer::getStringValue(std::string_view rawToken) {
                         result += (char)(0x80 | ((cp >> 6) & 0x3F));
                         result += (char)(0x80 | (cp & 0x3F));
                     }
+                } else {
+                    // \u with fewer than 4 chars remaining.
+                    throw std::runtime_error(
+                        "SyntaxError: invalid Unicode escape sequence in "
+                        "string literal");
                 }
                 break;
             default:
+                // \<LS> / \<PS> (U+2028/U+2029, UTF-8 E2 80 A8/A9) are
+                // LineContinuations: contribute nothing.
+                if ((unsigned char)inner[i] == 0xE2 && i + 2 < inner.size() &&
+                    (unsigned char)inner[i + 1] == 0x80 &&
+                    ((unsigned char)inner[i + 2] == 0xA8 ||
+                     (unsigned char)inner[i + 2] == 0xA9)) {
+                    i += 2;
+                    break;
+                }
+                // NonEscapeCharacter: identity (\8 and \9 land here too).
                 result += inner[i];
                 break;
             }

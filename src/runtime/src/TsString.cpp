@@ -1251,13 +1251,27 @@ extern "C" {
         if (nanbox_is_ptr(nb)) {
             charCodesArray = nanbox_to_ptr(nb);
         }
+        // ECMA-262 22.1.2.1 step 2b: each argument goes through ToUint16
+        // (ToNumber first). NaN -> 0.
+        extern double ts_to_number(TsValue* v);
+        auto coerceCharCode = [](uint64_t valueNb) -> char16_t {
+            double d = ts_to_number((TsValue*)(uintptr_t)valueNb);
+            int32_t code = (d != d) ? 0 : (int32_t)d;
+            return static_cast<char16_t>(code & 0xFFFF);
+        };
         if (!charCodesArray || (uintptr_t)charCodesArray < 0x10000) return TsString::Create("");
 
         // Check if it's a TsArray (magic at offset 0 = 0x41525259 "ARRY")
         uint32_t magic = *(uint32_t*)charCodesArray;
         if (magic != 0x41525259) {
-            // Not an array — might be a single boxed value, return empty
-            return TsString::Create("");
+            // Single non-number argument (boxed string, object, bool...):
+            // ToNumber it (was: silently returned "" — fromCharCode("65")
+            // and fromCharCode(boxedElement) produced the empty string).
+            char16_t ch = coerceCharCode(nb);
+            icu::UnicodeString ustr(&ch, 1);
+            std::string utf8;
+            ustr.toUTF8String(utf8);
+            return TsString::Create(utf8.c_str());
         }
 
         TsArray* arr = (TsArray*)charCodesArray;
@@ -1265,10 +1279,12 @@ extern "C" {
         std::u16string u16;
         u16.reserve(len);
         for (int64_t i = 0; i < len; i++) {
-            int64_t rawVal = arr->Get(i);
-            uint64_t valNb = (uint64_t)rawVal;
-            int64_t code = nanbox_to_int64(valNb);
-            u16.push_back(static_cast<char16_t>(code & 0xFFFF));
+            uint64_t valNb = (uint64_t)arr->Get(i);
+            if (nanbox_is_int32(valNb)) {
+                u16.push_back(static_cast<char16_t>(nanbox_to_int32(valNb) & 0xFFFF));
+            } else {
+                u16.push_back(coerceCharCode(valNb));
+            }
         }
         icu::UnicodeString ustr(reinterpret_cast<const UChar*>(u16.data()), (int32_t)u16.size());
         std::string utf8;
