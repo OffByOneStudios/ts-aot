@@ -1618,10 +1618,37 @@ void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValu
     TsValue handler = (promise->state == PromiseState::Fulfilled) ? cb.onFulfilled : cb.onRejected;
 
     if ((handler.type == ValueType::OBJECT_PTR || handler.type == ValueType::FUNCTION_PTR) && handler.ptr_val) {
-        TsValue* result = ts_call_1(nanbox_from_tagged(handler), nbValue);
+        // ES 27.2.2.1 PromiseReactionJob: an abrupt completion from the
+        // handler must REJECT cb.nextPromise — it must NOT unwind out of
+        // the microtask drain (which silently killed every later queued
+        // reaction and exited the process). Runtime-side catch, same
+        // pattern as promise_iterable_to_array below. Locals mutated
+        // after setjmp and read later must be volatile per C semantics.
+        TsValue* volatile result = nullptr;
+        void* hbuf = ts_push_exception_handler();
+        jmp_buf* env = (jmp_buf*)hbuf;
+        if (setjmp(*env) == 0) {
+#ifdef _WIN64
+            // Disable unwinding longjmp (RtlUnwindEx) for this buffer: the
+            // throw crosses compiled-JS frames and trampolines; an unwinding
+            // longjmp dies with STATUS_BAD_FUNCTION_TABLE (0xc00000ff).
+            ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+            result = ts_call_1(nanbox_from_tagged(handler), nbValue);
+            ts_pop_exception_handler();
+        } else {
+            // ts_throw already popped our handler.
+            TsValue* exc = ts_get_exception();
+            ts_set_exception(nullptr);
+            if (cb.nextPromise) {
+                ts_promise_reject_internal(cb.nextPromise,
+                    exc ? exc : ts_value_make_undefined());
+            }
+            return;
+        }
         if (cb.nextPromise) {
             if (result) {
-                ts_promise_resolve_internal(cb.nextPromise, result);
+                ts_promise_resolve_internal(cb.nextPromise, (TsValue*)result);
             } else {
                 ts_promise_resolve_internal(cb.nextPromise, ts_value_make_undefined());
             }
@@ -1682,6 +1709,46 @@ TsValue* ts_promise_reject_wrapper(void* context, int argc, TsValue** argv) {
     return nullptr;
 }
 
+// ES 27.2.1.3.2 + 27.2.2.2 PromiseResolveThenableJob: when a promise is
+// resolved with a thenable (non-promise object with a callable `then`), the
+// promise must NOT fulfill with the thenable itself — a microtask calls
+// then.call(thenable, resolveFn, rejectFn). Once-semantics come from the
+// Pending-state check in resolve/reject_internal. Queuing (not calling
+// synchronously) also bounds a thenable that resolves with itself: it
+// becomes a microtask loop (matching real engines), not stack recursion.
+struct PromiseThenableJob {
+    TsPromise* promise;
+    TsValue thenable;  // tagged copy (job struct lives on the GC heap)
+    TsValue thenFn;    // tagged copy
+};
+
+static void ts_promise_thenable_microtask(void* data) {
+    auto job = static_cast<PromiseThenableJob*>(data);
+    TsValue* resolveFn = ts_value_make_native_function(
+        (void*)ts_promise_resolve_wrapper, job->promise);
+    TsValue* rejectFn = ts_value_make_native_function(
+        (void*)ts_promise_reject_wrapper, job->promise);
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) == 0) {
+#ifdef _WIN64
+        // See promise_iterable_to_array: register-restore longjmp only.
+        ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
+        ts_call_with_this_2(nanbox_from_tagged(job->thenFn),
+                            nanbox_from_tagged(job->thenable),
+                            resolveFn, rejectFn);
+        ts_pop_exception_handler();
+    } else {
+        // then() threw: reject (unless resolveFn/rejectFn already settled).
+        // ts_throw already popped our handler.
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        ts_promise_reject_internal(job->promise,
+            exc ? exc : ts_value_make_undefined());
+    }
+}
+
 void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
     if (!promise) {
         return;
@@ -1708,6 +1775,31 @@ void ts_promise_resolve_internal(TsPromise* promise, TsValue* value) {
 
         other->then(onFulfilled, onRejected);
         return;
+    }
+
+    // Thenable assimilation (spec step 9-12). This runs on EVERY async-
+    // function return, so the non-thenable fast path comes first and stays
+    // cheap: a magic sniff (plain object = TsMap "MAPS" at the canonical
+    // offset-16 slot; class instance = FLAT at offset 0) gates the property
+    // lookup; a TsMap miss on "then" is one hash probe.
+    if (val.type == ValueType::OBJECT_PTR && val.ptr_val &&
+        (uintptr_t)val.ptr_val > 0x1000) {
+        void* raw = val.ptr_val;
+        uint32_t magic0 = *(uint32_t*)raw;
+        uint32_t magic16 = *(uint32_t*)((char*)raw + 16);
+        if (magic0 == 0x464C4154 /* FLAT */ || magic16 == TsMap::MAGIC) {
+            extern TsValue* ts_object_get_property(void* o, const char* k);
+            TsValue* thenFn = ts_object_get_property(raw, "then");
+            if (thenFn && agen_is_callable(thenFn)) {
+                auto job = static_cast<PromiseThenableJob*>(
+                    ts_alloc(sizeof(PromiseThenableJob)));
+                job->promise = promise;
+                job->thenable = val;
+                job->thenFn = nanbox_to_tagged(thenFn);
+                ts_queue_microtask(ts_promise_thenable_microtask, job);
+                return;  // stays Pending until resolveFn/rejectFn fire
+            }
+        }
     }
 
     promise->state = PromiseState::Fulfilled;
@@ -1773,8 +1865,11 @@ TsValue* ts_promise_finally(TsValue* promise, TsValue* onFinally) {
 }
 
 TsValue* ts_promise_new(TsValue* executor) {
-    if (!executor) {
-        return nullptr;
+    // ES 27.2.3.1 step 2: executor must be callable, else TypeError.
+    if (!executor || !agen_is_callable(executor)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Promise resolver is not a function"));
+        return nullptr;  // unreachable
     }
 
     // Create a new promise
@@ -1791,9 +1886,24 @@ TsValue* ts_promise_new(TsValue* executor) {
         promise
     );
 
-    // Call the executor with (resolve, reject)
-    if (executor) {
+    // Call the executor with (resolve, reject). ES 27.2.3.1 step 10: an
+    // executor throw rejects the promise (no-op if already settled —
+    // reject_internal's Pending check provides the once-semantics).
+    void* hbuf = ts_push_exception_handler();
+    jmp_buf* env = (jmp_buf*)hbuf;
+    if (setjmp(*env) == 0) {
+#ifdef _WIN64
+        // See promise_iterable_to_array: register-restore longjmp only.
+        ((_JUMP_BUFFER*)env)->Frame = 0;
+#endif
         ts_call_2(executor, resolveArg, rejectArg);
+        ts_pop_exception_handler();
+    } else {
+        // ts_throw already popped our handler.
+        TsValue* exc = ts_get_exception();
+        ts_set_exception(nullptr);
+        ts_promise_reject_internal(promise,
+            exc ? exc : ts_value_make_undefined());
     }
 
     // Return the promise
@@ -2515,16 +2625,25 @@ static TsValue* ts_promise_finally_wrapper(void* context, TsValue* onFinally) {
     return ts_value_make_promise(next);
 }
 
+// Built-in prototype methods have no [[Construct]] — `new p.then()` etc.
+// must throw TypeError (the dispatcher checks is_constructor).
+static TsValue* promise_method_function(void* fp, void* obj) {
+    TsFunction* func = new (ts_alloc(sizeof(TsFunction)))
+        TsFunction(fp, obj, FunctionType::COMPILED, -1);
+    func->is_constructor = false;
+    return (TsValue*)func;
+}
+
 TsValue* ts_promise_get_property(void* obj, void* propName) {
     TsString* prop = (TsString*)propName;
     const char* name = prop->ToUtf8();
-    
+
     if (strcmp(name, "then") == 0) {
-        return ts_value_make_function((void*)ts_promise_then_wrapper, obj);
+        return promise_method_function((void*)ts_promise_then_wrapper, obj);
     } else if (strcmp(name, "catch") == 0) {
-        return ts_value_make_function((void*)ts_promise_catch_wrapper, obj);
+        return promise_method_function((void*)ts_promise_catch_wrapper, obj);
     } else if (strcmp(name, "finally") == 0) {
-        return ts_value_make_function((void*)ts_promise_finally_wrapper, obj);
+        return promise_method_function((void*)ts_promise_finally_wrapper, obj);
     }
     return ts_value_make_undefined();
 }
@@ -2533,22 +2652,28 @@ TsValue TsPromise::GetPropertyVirtual(const char* key) {
     if (strcmp(key, "then") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
-        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+        TsFunction* f = new (ts_alloc(sizeof(TsFunction))) TsFunction(
             (void*)ts_promise_then_wrapper, this, FunctionType::COMPILED, 2);
+        f->is_constructor = false;  // built-in method, no [[Construct]]
+        v.ptr_val = f;
         return v;
     }
     if (strcmp(key, "catch") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
-        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+        TsFunction* f = new (ts_alloc(sizeof(TsFunction))) TsFunction(
             (void*)ts_promise_catch_wrapper, this, FunctionType::COMPILED, 1);
+        f->is_constructor = false;  // built-in method, no [[Construct]]
+        v.ptr_val = f;
         return v;
     }
     if (strcmp(key, "finally") == 0) {
         TsValue v;
         v.type = ValueType::FUNCTION_PTR;
-        v.ptr_val = new (ts_alloc(sizeof(TsFunction))) TsFunction(
+        TsFunction* f = new (ts_alloc(sizeof(TsFunction))) TsFunction(
             (void*)ts_promise_finally_wrapper, this, FunctionType::COMPILED, 1);
+        f->is_constructor = false;  // built-in method, no [[Construct]]
+        v.ptr_val = f;
         return v;
     }
     return TsObject::GetPropertyVirtual(key);

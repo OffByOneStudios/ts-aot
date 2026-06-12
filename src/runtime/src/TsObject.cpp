@@ -6077,6 +6077,18 @@ TsValue* ts_value_make_int(int64_t i) {
                     void* re = ts_regexp_create(pat, fl);
                     return re ? ts_value_make_object(re) : ts_value_make_undefined();
                 }
+                {
+                    // `new Promise(executor)` reached through a runtime
+                    // constructor value (`var P = Promise; new P(fn)` — and
+                    // the literal form also lowers through this dispatcher).
+                    // Without this branch it fell through to the generic
+                    // path -> plain TsMap, executor never invoked.
+                    extern void* ts_get_global_Promise();
+                    extern TsValue* ts_promise_new(TsValue* executor);
+                    if (isGlobal(ts_get_global_Promise)) {
+                        return ts_promise_new(it);
+                    }
+                }
                 if (isGlobal(ts_get_global_Date)) {
                     extern void* ts_date_create();
                     extern void* ts_date_create_ms(int64_t ms);
