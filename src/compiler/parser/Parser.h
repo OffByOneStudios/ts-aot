@@ -118,7 +118,7 @@ private:
     ast::ExprPtr parseArrowFunctionOrParenthesized();
     ast::ExprPtr parseObjectLiteral();
     ast::ExprPtr parseArrayLiteral();
-    ast::ExprPtr parseTemplateLiteral();
+    ast::ExprPtr parseTemplateLiteral(bool isUntagged = true);
     ast::ExprPtr parseTaggedTemplate(ast::ExprPtr tag);
     ast::ExprPtr parseFunctionExpression(bool isAsync);
     ast::ExprPtr parseClassExpression();

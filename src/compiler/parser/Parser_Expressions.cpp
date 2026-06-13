@@ -966,7 +966,9 @@ ast::ExprPtr Parser::parsePrimaryExpression() {
             Lexer::validateLegacyOctalEscapes(
                 text, strictMode_, /*isTemplate=*/true,
                 tok.line, tok.column);
-            node->head = Lexer::processTemplateEscapes(text);
+            // Untagged NoSubstitutionTemplate: malformed hex/unicode escapes
+            // are early errors.
+            node->head = Lexer::processTemplateEscapes(text, /*validate=*/true);
             return node;
         }
 
@@ -1770,7 +1772,7 @@ ast::ExprPtr Parser::parseArrayLiteral() {
     return node;
 }
 
-ast::ExprPtr Parser::parseTemplateLiteral() {
+ast::ExprPtr Parser::parseTemplateLiteral(bool isUntagged) {
     auto startTok = current_;
     auto node = std::make_unique<ast::TemplateExpression>();
     setLocation(node.get(), startTok);
@@ -1784,7 +1786,7 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
     Lexer::validateLegacyOctalEscapes(
         headText, strictMode_, /*isTemplate=*/true,
         startTok.line, startTok.column);
-    node->head = Lexer::processTemplateEscapes(headText);
+    node->head = Lexer::processTemplateEscapes(headText, isUntagged);
     advance();
 
     while (true) {
@@ -1805,7 +1807,7 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
             Lexer::validateLegacyOctalEscapes(
                 litText, strictMode_, /*isTemplate=*/true,
                 contTok.line, contTok.column);
-            span.literal = Lexer::processTemplateEscapes(litText);
+            span.literal = Lexer::processTemplateEscapes(litText, isUntagged);
             node->spans.push_back(std::move(span));
             advance();
             break;
@@ -1818,7 +1820,7 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
             Lexer::validateLegacyOctalEscapes(
                 litText, strictMode_, /*isTemplate=*/true,
                 contTok.line, contTok.column);
-            span.literal = Lexer::processTemplateEscapes(litText);
+            span.literal = Lexer::processTemplateEscapes(litText, isUntagged);
             node->spans.push_back(std::move(span));
             advance();
             continue;
@@ -1832,7 +1834,7 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
                 Lexer::validateLegacyOctalEscapes(
                     litText, strictMode_, /*isTemplate=*/true,
                     manualTok.line, manualTok.column);
-                span.literal = Lexer::processTemplateEscapes(litText);
+                span.literal = Lexer::processTemplateEscapes(litText, isUntagged);
                 node->spans.push_back(std::move(span));
                 advance();
                 break;
@@ -1841,7 +1843,7 @@ ast::ExprPtr Parser::parseTemplateLiteral() {
                 Lexer::validateLegacyOctalEscapes(
                     litText, strictMode_, /*isTemplate=*/true,
                     manualTok.line, manualTok.column);
-                span.literal = Lexer::processTemplateEscapes(litText);
+                span.literal = Lexer::processTemplateEscapes(litText, isUntagged);
                 node->spans.push_back(std::move(span));
                 advance();
                 continue;
@@ -1868,11 +1870,12 @@ ast::ExprPtr Parser::parseTaggedTemplate(ast::ExprPtr tag) {
         setLocation(tmpl.get(), current_);
         std::string text(current_.text);
         if (text.size() >= 2) text = text.substr(1, text.size() - 2);
-        tmpl->head = Lexer::processTemplateEscapes(text);
+        // Tagged: invalid escapes yield undefined cooked, NOT a parse error.
+        tmpl->head = Lexer::processTemplateEscapes(text, /*validate=*/false);
         advance();
         node->templateExpr = std::move(tmpl);
     } else {
-        node->templateExpr = parseTemplateLiteral();
+        node->templateExpr = parseTemplateLiteral(/*isUntagged=*/false);
     }
 
     return node;

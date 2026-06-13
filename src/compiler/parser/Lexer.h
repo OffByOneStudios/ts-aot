@@ -193,8 +193,13 @@ public:
     /// Get the string value from a string literal token (with escape processing)
     static std::string getStringValue(std::string_view rawToken);
 
-    /// Process escape sequences in template literal text (no quotes to strip)
-    static std::string processTemplateEscapes(std::string_view text);
+    /// Process escape sequences in template literal text (no quotes to strip).
+    /// validateEscapes: when true (UNTAGGED templates), a malformed hex/
+    /// unicode escape (`\x0`, `\xG`, `\u00`, `\u{}`, `\u{110000}`) is a
+    /// SyntaxError. Tagged templates pass false — an invalid escape there
+    /// yields an undefined cooked value, not a parse error.
+    static std::string processTemplateEscapes(std::string_view text,
+                                              bool validateEscapes = false);
 
     /// Validate legacy-octal and NonOctalDecimal escape sequences per
     /// ECMA-262 12.8.4.1 + Annex B.1.2. Throws std::runtime_error on

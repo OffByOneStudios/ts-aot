@@ -1520,13 +1520,51 @@ void Lexer::validateLegacyOctalEscapes(
     }
 }
 
-std::string Lexer::processTemplateEscapes(std::string_view text) {
+std::string Lexer::processTemplateEscapes(std::string_view text,
+                                          bool validateEscapes) {
     std::string result;
     result.reserve(text.size());
+
+    auto isHex = [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+               (c >= 'A' && c <= 'F');
+    };
+    auto failEscape = [&](const char* what) {
+        throw std::runtime_error(
+            std::string("SyntaxError: invalid ") + what +
+            " escape sequence in template literal");
+    };
 
     for (size_t i = 0; i < text.size(); i++) {
         if (text[i] == '\\' && i + 1 < text.size()) {
             i++;
+            // Untagged-template early errors (ECMA-262 12.8.6 TV/TRV):
+            // \x must have 2 hex digits; \uXXXX 4; \u{...} 1+ hex <=0x10FFFF.
+            if (validateEscapes && text[i] == 'x') {
+                if (i + 2 >= text.size() || !isHex(text[i + 1]) ||
+                    !isHex(text[i + 2])) {
+                    failEscape("hexadecimal");
+                }
+            } else if (validateEscapes && text[i] == 'u') {
+                if (i + 1 < text.size() && text[i + 1] == '{') {
+                    size_t j = i + 2; long cp = 0; int n = 0;
+                    for (; j < text.size() && text[j] != '}'; ++j) {
+                        if (!isHex(text[j])) failEscape("Unicode");
+                        cp = cp * 16 + (isHex(text[j])
+                            ? (text[j] <= '9' ? text[j] - '0'
+                               : (text[j] | 0x20) - 'a' + 10) : 0);
+                        if (cp > 0x10FFFF) failEscape("Unicode");
+                        ++n;
+                    }
+                    if (n == 0 || j >= text.size()) failEscape("Unicode");
+                } else {
+                    if (i + 4 >= text.size() || !isHex(text[i + 1]) ||
+                        !isHex(text[i + 2]) || !isHex(text[i + 3]) ||
+                        !isHex(text[i + 4])) {
+                        failEscape("Unicode");
+                    }
+                }
+            }
             switch (text[i]) {
             case 'n': result += '\n'; break;
             case 'r': result += '\r'; break;
