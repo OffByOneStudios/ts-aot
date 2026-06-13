@@ -97,8 +97,13 @@ private:
     // duplicate-BoundNames sweep so callers performing speculative cover-
     // grammar parsing (parseArrowFunctionOrParenthesized) can defer the
     // check until after `=>` is confirmed and re-run it themselves.
+    // uniqueParams: ECMA-262 UniqueFormalParameters (method definitions —
+    // MethodDefinition / Generator / Async / AsyncGenerator). Duplicate
+    // BoundNames are a SyntaxError regardless of simple-ness or strict
+    // mode, unlike plain FormalParameters where duplicates are only
+    // rejected when the list is non-simple or the code is strict.
     std::vector<std::unique_ptr<ast::Parameter>> parseParameterList(
-        bool checkDuplicates = true);
+        bool checkDuplicates = true, bool uniqueParams = false);
 
     // --- Type parameter parsing ---
     std::unique_ptr<ast::TypeParameter> parseTypeParameter();

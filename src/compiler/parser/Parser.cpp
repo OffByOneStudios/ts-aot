@@ -1034,7 +1034,7 @@ std::unique_ptr<ast::Parameter> Parser::parseParameter() {
 static void collectBoundIdentNames(const ast::Node* n,
                                    std::vector<std::pair<std::string, int>>& out);
 
-std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList(bool checkDuplicates) {
+std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList(bool checkDuplicates, bool uniqueParams) {
     std::vector<std::unique_ptr<ast::Parameter>> params;
     expect(TokenKind::OpenParen, "'('");
     // Per ECMA-262 14.1.2: It is a SyntaxError if IsSimpleParameterList of
@@ -1075,7 +1075,8 @@ std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList(bool che
             // or destructuring), OR (b) we're in strict mode (which class
             // method bodies always are, per 10.2.1). Without the strict-mode
             // arm, `class C { foo(a, a) {} }` was silently accepted.
-            if ((hasNonSimple || strictMode_) && seenIdentNames.count(paramName)) {
+            if ((hasNonSimple || strictMode_ || uniqueParams) &&
+                seenIdentNames.count(paramName)) {
                 throw std::runtime_error(fmt::format(
                     "{}:{}: duplicate parameter name '{}' is not allowed in "
                     "this context",
@@ -1109,7 +1110,7 @@ std::vector<std::unique_ptr<ast::Parameter>> Parser::parseParameterList(bool che
     // Skipped when checkDuplicates=false (arrow speculative cover-grammar
     // parse): the caller re-runs the check after `=>` is confirmed, so
     // the parens-as-expression interpretation isn't poisoned.
-    if (checkDuplicates && (hasNonSimple || strictMode_)) {
+    if (checkDuplicates && (hasNonSimple || strictMode_ || uniqueParams)) {
         std::vector<std::pair<std::string, int>> bound;
         for (auto& p : params) {
             if (!p) continue;
@@ -2804,8 +2805,11 @@ std::unique_ptr<ast::MethodDefinition> Parser::parseMethodDefinition(
     // Type parameters
     method->typeParameters = parseTypeParameterList();
 
-    // Parameters
-    method->parameters = parseParameterList();
+    // Parameters — MethodDefinition has UniqueFormalParameters, so
+    // duplicate bound names are a SyntaxError even with a simple list in
+    // sloppy mode (`({ foo(a, a) {} })`).
+    method->parameters = parseParameterList(/*checkDuplicates=*/true,
+                                            /*uniqueParams=*/true);
 
     // ECMA-262 15.4.1 (accessor MethodDefinition early errors): a getter's
     // formal-parameter list must be empty (`get x()`); a setter's must be a
