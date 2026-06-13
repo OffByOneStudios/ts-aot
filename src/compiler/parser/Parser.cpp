@@ -419,6 +419,19 @@ void Parser::validateAssignmentTarget(const ast::Node* expr,
                     validateAssignmentTarget(target, forCompoundAssign);
                 }
             }
+            // Shorthand `{ eval }` / `{ arguments }` — the property name IS
+            // the assignment target, so strict-mode reserved-name and other
+            // identifier rules apply (the CoverInitializedName `{ a = 0 }`
+            // form carries a default in initializer, which is irrelevant to
+            // target validity). ECMA-262 13.15.5.1.
+            if (auto* sp = dynamic_cast<const ast::ShorthandPropertyAssignment*>(prop.get())) {
+                if (strictMode_ && (sp->name == "eval" || sp->name == "arguments")) {
+                    throw std::runtime_error(fmt::format(
+                        "{}:{}: SyntaxError: '{}' is not a valid assignment "
+                        "target in strict mode",
+                        sp->line, sp->column, sp->name));
+                }
+            }
         }
         return;
     }
@@ -3205,6 +3218,11 @@ ast::StmtPtr Parser::parseForStatement() {
 
         // Check for for-of: for (x of iterable)
         if (current_.kind == TokenKind::KW_of) {
+            // ECMA-262 14.7.5.1: the head LHS must be a valid assignment
+            // target / destructuring pattern (`for (this of [])`,
+            // `for ([...x, y] of [[]])`, strict `for ({eval} of ...)` are
+            // all early errors).
+            validateAssignmentTarget(expr.get(), /*forCompoundAssign=*/false);
             advance(); // consume 'of'
             auto iterable = parseAssignmentExpression();
             expect(TokenKind::CloseParen, "')'");
@@ -3223,6 +3241,8 @@ ast::StmtPtr Parser::parseForStatement() {
 
         // Check for for-in: for (x in obj)
         if (current_.kind == TokenKind::KW_in) {
+            // ECMA-262 14.7.5.1: same head-LHS validity rules as for-of.
+            validateAssignmentTarget(expr.get(), /*forCompoundAssign=*/false);
             advance(); // consume 'in'
             auto iterable = parseExpression();
             expect(TokenKind::CloseParen, "')'");
