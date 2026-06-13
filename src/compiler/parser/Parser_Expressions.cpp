@@ -1550,7 +1550,16 @@ ast::ExprPtr Parser::parseObjectLiteral() {
             // !hadNewlineBefore on the `async` token, which incorrectly
             // demoted `{\n  async method() {} }` to a non-async method
             // (`async` becoming the property name).
-            if (current_.kind == TokenKind::KW_async) {
+            // The escaped form `async` lexes as a plain Identifier with
+            // decodedText == "async" (async is never reserved), so accept
+            // both the KW_async token and that escaped Identifier here; if it
+            // turns out to be the AsyncMethod contextual keyword, an escape
+            // is an ECMA-262 13.2 SyntaxError.
+            bool asyncWasEscaped =
+                current_.kind == TokenKind::Identifier &&
+                current_.decodedText == "async";
+            if (current_.kind == TokenKind::KW_async || asyncWasEscaped) {
+                int asyncLine = current_.line;
                 auto saved = saveState();
                 advance();
                 if (!current_.hadNewlineBefore &&
@@ -1558,6 +1567,12 @@ ast::ExprPtr Parser::parseObjectLiteral() {
                      check(TokenKind::Star) || check(TokenKind::StringLiteral) ||
                      check(TokenKind::NumericLiteral))) {
                     isAsync = true;
+                    if (asyncWasEscaped) {
+                        throw std::runtime_error(fmt::format(
+                            "{}:{}: SyntaxError: 'async' keyword of an async "
+                            "method must not contain a Unicode escape sequence",
+                            fileName_, asyncLine));
+                    }
                 } else {
                     restoreState(saved);
                 }
@@ -2240,6 +2255,16 @@ ast::ExprPtr Parser::parseNewExpression() {
 
     // new.target
     if (match(TokenKind::Dot)) {
+        // ECMA-262 13.3: the `target` contextual keyword of the new.target
+        // meta-property is a terminal symbol and must appear verbatim — a
+        // Unicode-escaped form (`new.target`) is a SyntaxError.
+        // `decodedText` is non-empty only when the token contained escapes.
+        if (!current_.decodedText.empty() && current_.decodedText == "target") {
+            throw std::runtime_error(fmt::format(
+                "{}:{}: SyntaxError: 'target' in a new.target meta-property "
+                "must not contain a Unicode escape sequence",
+                fileName_, current_.line));
+        }
         auto prop = std::make_unique<ast::PropertyAccessExpression>();
         setLocation(prop.get(), startTok);
         auto newId = std::make_unique<ast::Identifier>();
