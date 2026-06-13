@@ -2048,6 +2048,21 @@ ast::ExprPtr Parser::parseClassExpression() {
                     fileName_, current_.line));
             }
         }
+        // Class BindingIdentifier is strict (see parseClassDeclaration): the
+        // strict reserved words are invalid class names even in sloppy code.
+        {
+            std::string nm = !current_.decodedText.empty()
+                ? current_.decodedText : std::string(current_.text);
+            static const std::unordered_set<std::string> kStrictReserved = {
+                "let", "static", "yield", "implements", "interface",
+                "package", "private", "protected", "public"};
+            if (kStrictReserved.count(nm)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '{}' is a reserved word and cannot "
+                    "be used as a class name in strict mode",
+                    fileName_, current_.line, nm));
+            }
+        }
         node->name = identifierName();
     }
 

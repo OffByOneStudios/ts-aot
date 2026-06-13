@@ -2137,6 +2137,23 @@ ast::StmtPtr Parser::parseClassDeclaration(bool isAbstract, bool isExported, boo
                     fileName_, current_.line));
             }
         }
+        // ECMA-262 14.6.1 + 13.1.1: the class BindingIdentifier is evaluated
+        // in strict mode (a class body is always strict), so the strict
+        // reserved words — let, static, yield, and the future-reserved set —
+        // are not valid class names even when the surrounding code is sloppy.
+        {
+            std::string nm = !current_.decodedText.empty()
+                ? current_.decodedText : std::string(current_.text);
+            static const std::unordered_set<std::string> kStrictReserved = {
+                "let", "static", "yield", "implements", "interface",
+                "package", "private", "protected", "public"};
+            if (kStrictReserved.count(nm)) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '{}' is a reserved word and cannot "
+                    "be used as a class name in strict mode",
+                    fileName_, current_.line, nm));
+            }
+        }
         node->name = identifierName();
         // ECMA-262 13.2.1.1 (Block early error) + 14.1.2: ClassDeclaration
         // contributes to LexicallyDeclaredNames. Track the class name so
@@ -2405,6 +2422,13 @@ ast::NodePtr Parser::parseClassMember() {
             int prevIter = iterationDepth_, prevSwitch = switchDepth_;
             iterationDepth_ = 0;
             switchDepth_ = 0;
+            // ECMA-262 15.7: a static block is its own function-like
+            // boundary — a bare `return` directly inside it is a
+            // SyntaxError even when the class sits inside a function. Reset
+            // functionDepth_ so the return-at-top-level check fires (a
+            // nested function re-increments it, so its returns still work).
+            int prevFuncDepth = functionDepth_;
+            functionDepth_ = 0;
             std::vector<ActiveLabel> savedLabels;
             savedLabels.swap(activeLabels_);
             // try/catch to guarantee swap-back of activeLabels_ even if
@@ -2423,6 +2447,7 @@ ast::NodePtr Parser::parseClassMember() {
                 activeLabels_.swap(savedLabels);
                 iterationDepth_ = prevIter;
                 switchDepth_ = prevSwitch;
+                functionDepth_ = prevFuncDepth;
                 inAsync_ = prevAsync;
                 inGenerator_ = prevGen;
                 superAllowed_ = prevSuperAllowed;
@@ -2431,6 +2456,7 @@ ast::NodePtr Parser::parseClassMember() {
             activeLabels_.swap(savedLabels);
             iterationDepth_ = prevIter;
             switchDepth_ = prevSwitch;
+            functionDepth_ = prevFuncDepth;
             inAsync_ = prevAsync;
             inGenerator_ = prevGen;
             superAllowed_ = prevSuperAllowed;
