@@ -1262,6 +1262,23 @@ ast::NodePtr Parser::parseBindingNameOrPattern() {
                 "identifier in strict mode",
                 fileName_, current_.line, std::string(current_.text)));
         }
+        // Per ECMA-262 12.7.1: the FutureReservedWords `implements`,
+        // `interface`, `let`, `package`, `private`, `protected`, `public`,
+        // and `static` are reserved in strict-mode code and cannot be used
+        // as BindingIdentifiers. (`yield`/`await` are handled above; these
+        // are lexed as KW_* tokens, except `package` which is a plain
+        // Identifier.) In sloppy mode they remain valid binding names.
+        if (strictMode_) {
+            static const std::unordered_set<std::string> kStrictFRW = {
+                "implements", "interface", "let",    "package",
+                "private",    "protected", "public", "static"};
+            if (kStrictFRW.count(std::string(current_.text))) {
+                throw std::runtime_error(fmt::format(
+                    "{}:{}: SyntaxError: '{}' is a reserved word in strict "
+                    "mode and cannot be used as a binding identifier",
+                    fileName_, current_.line, std::string(current_.text)));
+            }
+        }
     }
     // Simple identifier
     auto id = std::make_unique<ast::Identifier>();
