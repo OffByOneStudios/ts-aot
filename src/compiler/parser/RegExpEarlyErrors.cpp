@@ -219,6 +219,21 @@ static bool isPropertyOfStrings(const std::string& name) {
     return false;
 }
 
+// Binary Unicode properties that ICU recognizes but ECMA-262 22.2.1.10 does
+// NOT include in its allowed-binary-property set. Using them as a lone
+// `\p{...}` / `\P{...}` is a SyntaxError even though ICU would compile them.
+static bool isUnsupportedBinaryProperty(const std::string& name) {
+    static const char* kUnsupported[] = {
+        "Full_Composition_Exclusion",
+        "Grapheme_Link",
+        "Hyphen",
+        "Prepended_Concatenation_Mark",
+    };
+    for (const char* p : kUnsupported)
+        if (name == p) return true;
+    return false;
+}
+
 // Scan the pattern for `\p{Name}` / `\P{Name}` where Name is a property of
 // strings and enforce the early errors above. Runs in `u` and `v` modes only
 // (in non-unicode mode `\p` is the literal `p` per Annex B, not a property
@@ -257,6 +272,41 @@ static void validatePropertiesOfStrings(const std::string& body, bool hasU,
                             failSyntax(line, col,
                                 "a Unicode property of strings may not appear "
                                 "in a negated character class");
+                        }
+                    } else if (isUnsupportedBinaryProperty(name)) {
+                        // Binary properties ICU supports but ECMA-262 22.2.1.10
+                        // does not list — a lone `\p{Hyphen}` etc. is an early
+                        // error even though ICU compiles it.
+                        failSyntax(line, col,
+                            "'" + name + "' is not a valid Unicode property "
+                            "name in a regular expression");
+                    } else if (name.find('=') != std::string::npos) {
+                        // UnicodePropertyName=UnicodePropertyValue form
+                        // (ECMA-262 22.2.1.10). The only valid property names
+                        // are General_Category/gc, Script/sc, and
+                        // Script_Extensions/scx; the value must be non-empty.
+                        // ICU accepts many more (Line_Break=, Block=, etc.) and
+                        // an empty value — those are JS early errors.
+                        size_t eq = name.find('=');
+                        std::string propName = name.substr(0, eq);
+                        std::string propValue = name.substr(eq + 1);
+                        static const char* kNonBinaryNames[] = {
+                            "General_Category", "gc",
+                            "Script", "sc",
+                            "Script_Extensions", "scx",
+                        };
+                        bool nameOk = false;
+                        for (const char* n : kNonBinaryNames)
+                            if (propName == n) { nameOk = true; break; }
+                        if (!nameOk) {
+                            failSyntax(line, col,
+                                "'" + propName + "' is not a valid Unicode "
+                                "property name in a regular expression");
+                        }
+                        if (propValue.empty()) {
+                            failSyntax(line, col,
+                                "missing Unicode property value after '" +
+                                propName + "='");
                         }
                     }
                     i = close;
