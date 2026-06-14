@@ -974,10 +974,31 @@ Token Lexer::scanRegularExpression() {
 
     int bodyStart = pos_;
     bool inCharClass = false;
+    // ECMA-262 12.9.5: a RegularExpressionChar (and the char after a
+    // RegularExpressionBackslashSequence) is a SourceCharacter but NOT a
+    // LineTerminator. LineTerminator includes <LF> <CR> <LS> <PS>; the latter
+    // two are the UTF-8 sequences E2 80 A8 / E2 80 A9. A raw or escaped
+    // line-separator/paragraph-separator in a regex body is a SyntaxError.
+    auto atLineSep = [&]() {
+        return (unsigned char)peek() == 0xE2 &&
+               (unsigned char)peekAt(1) == 0x80 &&
+               ((unsigned char)peekAt(2) == 0xA8 ||
+                (unsigned char)peekAt(2) == 0xA9);
+    };
+    auto throwRegexLineTerm = [&]() {
+        char buf[128];
+        snprintf(buf, sizeof(buf),
+                 "%d:%d: SyntaxError: unterminated regular expression literal",
+                 tokenStartLine_, tokenStartColumn_);
+        throw std::runtime_error(buf);
+    };
     while (!isAtEnd()) {
         char c = peek();
         if (c == '\\') {
             advance();
+            // A LineTerminator may not follow the backslash either.
+            if (!isAtEnd() && (peek() == '\n' || peek() == '\r' || atLineSep()))
+                throwRegexLineTerm();
             if (!isAtEnd()) advance(); // escaped char
         } else if (c == '[') {
             inCharClass = true;
@@ -990,6 +1011,8 @@ Token Lexer::scanRegularExpression() {
             break;
         } else if (c == '\n' || c == '\r') {
             break; // Unterminated regex on this line
+        } else if (atLineSep()) {
+            throwRegexLineTerm();
         } else {
             advance();
         }
