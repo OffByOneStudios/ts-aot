@@ -534,6 +534,12 @@ static int64_t ts_last_call_argc = 0;
 
 extern "C" {
 
+// Defined near ts_object_set_dynamic. ECMA-262 array-index test:
+// ToString(ToUint32(s)) === s && ToUint32(s) != 2^32-1. Forward-declared
+// here so the property-descriptor / hasOwnProperty array branches above
+// it can replace their loose strtoul classification with the strict rule.
+static bool parse_canonical_array_index(const char* s, int64_t* out);
+
 void ts_set_call_this(void* thisArg) {
     ts_call_this_value = thisArg;
 }
@@ -7690,9 +7696,12 @@ TsValue* ts_value_make_int(int64_t i) {
                 }
                 bool routedToProps = false;
                 if (keyStr && keyStr[0] != '\0') {
-                    char* endp = nullptr;
-                    unsigned long idx = strtoul(keyStr, &endp, 10);
-                    if (endp && *endp == '\0') {
+                    int64_t idx = 0;
+                    // ECMA-262 array-index test (strict): rejects "-1",
+                    // "4294967295" (2^32-1), "01", "  3", "1e21", "1.5" — those
+                    // are ordinary string properties, not elements. (Was a loose
+                    // strtoul that mis-routed all of these.)
+                    if (parse_canonical_array_index(keyStr, &idx)) {
                         // Canonical array index. ECMA-262 10.4.2.1 Array
                         // [[DefineOwnProperty]]: a DATA descriptor's `value` is
                         // stored at the index and length extends to idx+1 when
@@ -8591,10 +8600,11 @@ TsValue* ts_value_make_int(int64_t i) {
                     lenVal.i_val = (int64_t)arr->Length();
                     return buildDataDesc(lenVal, true, false, false);
                 }
-                // Numeric index
-                char* endp = nullptr;
-                unsigned long idx = strtoul(keyCStr, &endp, 10);
-                if (endp && *endp == '\0') {
+                // Numeric index (strict ECMA array-index test; must match the
+                // defineProperty/hasOwnProperty branches so define and readback
+                // agree on whether a key is an element or a string property).
+                int64_t idx = 0;
+                if (parse_canonical_array_index(keyCStr, &idx)) {
                     // Accessor index (defineProperty installed __arr_getter_/
                     // __arr_setter_): report an accessor descriptor, do NOT invoke
                     // the getter.
@@ -12460,11 +12470,10 @@ TsValue* ts_value_make_int(int64_t i) {
                     TsString* ks = (TsString*)keyTV.ptr_val;
                     const char* kc = ks->ToUtf8();
                     if (kc) {
-                        char* endp = nullptr;
-                        unsigned long idx = strtoul(kc, &endp, 10);
-                        if (endp && *endp == '\0' && kc[0] != '\0') {
+                        int64_t idx = 0;
+                        if (parse_canonical_array_index(kc, &idx)) {
                             return ts_value_make_bool(
-                                idx < (unsigned long)arr->Length() &&
+                                idx < (int64_t)arr->Length() &&
                                 !arr->IsHole((size_t)idx));
                         }
                         // "length" is always present as an own property.
@@ -12496,9 +12505,8 @@ TsValue* ts_value_make_int(int64_t i) {
                     TsString* ks = (TsString*)keyTV.ptr_val;
                     const char* kc = ks->ToUtf8();
                     if (kc) {
-                        char* endp = nullptr;
-                        unsigned long idx = strtoul(kc, &endp, 10);
-                        if (endp && *endp == '\0' && kc[0] != '\0') {
+                        int64_t idx = 0;
+                        if (parse_canonical_array_index(kc, &idx)) {
                             return ts_value_make_bool((size_t)idx < rmatLen);
                         }
                         if (!strcmp(kc, "length") || !strcmp(kc, "index") ||
