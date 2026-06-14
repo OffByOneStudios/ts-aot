@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <vector>
 
 #include <unicode/regex.h>
 #include <unicode/unistr.h>
@@ -198,6 +199,90 @@ static std::string transformJsPatternForIcu(const std::string& pat) {
 
 } // namespace
 
+// ECMA-262 22.2.1: the binary Unicode "properties of strings" — these match
+// finite-length strings (sequences), not single code points. They are only
+// valid via `\p{...}` under the `v` flag; `\P{...}` (negation) is never valid,
+// and `\p{...}` is invalid under the `u` flag (it requires `v`). Under `v`,
+// a property-of-strings may not appear inside a negated class set (`[^...]`).
+static bool isPropertyOfStrings(const std::string& name) {
+    static const char* kStringProps[] = {
+        "Basic_Emoji",
+        "Emoji_Keycap_Sequence",
+        "RGI_Emoji",
+        "RGI_Emoji_Flag_Sequence",
+        "RGI_Emoji_Modifier_Sequence",
+        "RGI_Emoji_Tag_Sequence",
+        "RGI_Emoji_ZWJ_Sequence",
+    };
+    for (const char* p : kStringProps)
+        if (name == p) return true;
+    return false;
+}
+
+// Scan the pattern for `\p{Name}` / `\P{Name}` where Name is a property of
+// strings and enforce the early errors above. Runs in `u` and `v` modes only
+// (in non-unicode mode `\p` is the literal `p` per Annex B, not a property
+// escape). Throws on the first violation.
+static void validatePropertiesOfStrings(const std::string& body, bool hasU,
+                                        bool hasV, int line, int col) {
+    if (!hasU && !hasV) return;
+    // Track character-class nesting and whether any enclosing class is
+    // negated (`[^...]`). `/v` allows nested classes; a property-of-strings
+    // inside a complemented set is a SyntaxError.
+    int negatedClassDepth = 0;
+    std::vector<bool> classNegStack;
+    for (size_t i = 0; i < body.size(); i++) {
+        char ch = body[i];
+        if (ch == '\\') {
+            // Escape: check for \p{ / \P{ property escapes; otherwise skip
+            // the escaped char so a literal `\[` doesn't open a class.
+            if (i + 2 < body.size() && (body[i + 1] == 'p' || body[i + 1] == 'P') &&
+                body[i + 2] == '{') {
+                bool negated = body[i + 1] == 'P';
+                size_t close = body.find('}', i + 3);
+                if (close != std::string::npos) {
+                    std::string name = body.substr(i + 3, close - (i + 3));
+                    if (isPropertyOfStrings(name)) {
+                        if (negated) {
+                            failSyntax(line, col,
+                                "a Unicode property of strings may not be "
+                                "negated with \\P{...}");
+                        }
+                        if (!hasV) {
+                            failSyntax(line, col,
+                                "the Unicode property of strings '" + name +
+                                "' requires the 'v' flag");
+                        }
+                        if (negatedClassDepth > 0) {
+                            failSyntax(line, col,
+                                "a Unicode property of strings may not appear "
+                                "in a negated character class");
+                        }
+                    }
+                    i = close;
+                    continue;
+                }
+            }
+            i++;  // skip the escaped character
+            continue;
+        }
+        if (ch == '[') {
+            bool neg = (i + 1 < body.size() && body[i + 1] == '^');
+            classNegStack.push_back(neg);
+            if (neg) negatedClassDepth++;
+            if (neg) i++;  // consume the '^'
+            continue;
+        }
+        if (ch == ']') {
+            if (!classNegStack.empty()) {
+                if (classNegStack.back()) negatedClassDepth--;
+                classNegStack.pop_back();
+            }
+            continue;
+        }
+    }
+}
+
 void validateRegExpLiteral(const std::string& body, const std::string& flags,
                            int line, int col) {
     // 1. Flag early errors (ECMA-262 22.2.1.1).
@@ -224,7 +309,12 @@ void validateRegExpLiteral(const std::string& body, const std::string& flags,
                    "regular expression flags 'u' and 'v' may not be combined");
     }
 
-    // 2. Pattern probe via ICU with the runtime's translation. The `v` flag's
+    // 2. Unicode "properties of strings" early errors (22.2.1). Runs for both
+    // `u` and `v` modes — must precede the `hasV` early return below, since
+    // the most common violations are `v`-flag patterns.
+    validatePropertiesOfStrings(body, hasU, hasV, line, col);
+
+    // 3. Pattern probe via ICU with the runtime's translation. The `v` flag's
     // unicodeSets grammar is not ICU-compatible; skip the probe there (flag
     // checks above still apply).
     if (hasV) return;
