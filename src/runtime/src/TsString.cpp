@@ -17,6 +17,8 @@
 #include <cstring>
 #include <vector>
 #include <unordered_map>
+#include <charconv>
+#include <cstdlib>
 
 // Forward declarations for calling functions (defined in TsObject.cpp)
 extern "C" {
@@ -319,6 +321,65 @@ TsString* TsString::FromBool(bool value) {
     return GetInterned(value ? "true" : "false");
 }
 
+// ECMA-262 6.1.6.1.20 Number::toString(x, 10): format a finite double into
+// its shortest round-tripping decimal string per the spec's digit/exponent
+// rules. Replaces snprintf("%g"), which truncates to 6 significant digits
+// (123.1234567 -> "123.123") and mis-formats magnitude (1e20 -> "1e+20"
+// instead of "100000000000000000000", 1e-7 -> "1e-07" instead of "1e-7").
+// `value` must be finite. Writes a NUL-terminated result into `out`
+// (requires >= 32 bytes).
+static void ecma_number_to_string(double value, char* out) {
+    if (value == 0.0) { out[0] = '0'; out[1] = '\0'; return; }
+    char* w = out;
+    if (std::signbit(value)) { *w++ = '-'; value = -value; }
+
+    // Shortest scientific form: mantissa digits d1..dk and exponent e, with
+    // value = d1.d2...dk x 10^e.
+    char sci[40];
+    std::to_chars_result r = std::to_chars(sci, sci + sizeof(sci) - 1, value,
+                                           std::chars_format::scientific);
+    *r.ptr = '\0';
+
+    char digits[40];
+    int k = 0;
+    const char* p = sci;
+    digits[k++] = *p++;                 // d1
+    if (*p == '.') {
+        ++p;
+        while (*p && *p != 'e' && *p != 'E') digits[k++] = *p++;
+    }
+    int e = 0;
+    if (*p == 'e' || *p == 'E') e = std::atoi(p + 1);
+    digits[k] = '\0';
+
+    // ECMA: s = d1..dk (k digits), n = e + 1 (value = s x 10^(n-k)).
+    int n = e + 1;
+
+    if (k <= n && n <= 21) {
+        for (int i = 0; i < k; ++i) *w++ = digits[i];
+        for (int i = 0; i < n - k; ++i) *w++ = '0';
+    } else if (0 < n && n <= 21) {
+        for (int i = 0; i < n; ++i) *w++ = digits[i];
+        *w++ = '.';
+        for (int i = n; i < k; ++i) *w++ = digits[i];
+    } else if (-6 < n && n <= 0) {
+        *w++ = '0'; *w++ = '.';
+        for (int i = 0; i < -n; ++i) *w++ = '0';
+        for (int i = 0; i < k; ++i) *w++ = digits[i];
+    } else {
+        *w++ = digits[0];
+        if (k > 1) { *w++ = '.'; for (int i = 1; i < k; ++i) *w++ = digits[i]; }
+        *w++ = 'e';
+        int exp = n - 1;
+        *w++ = (exp >= 0) ? '+' : '-';
+        if (exp < 0) exp = -exp;
+        char eb[12];
+        int el = std::snprintf(eb, sizeof(eb), "%d", exp);
+        for (int i = 0; i < el; ++i) *w++ = eb[i];
+    }
+    *w = '\0';
+}
+
 TsString* TsString::FromDouble(double value) {
     if (std::isnan(value)) return GetInterned("NaN");
     if (std::isinf(value)) return GetInterned(value < 0 ? "-Infinity" : "Infinity");
@@ -337,7 +398,7 @@ TsString* TsString::FromDouble(double value) {
     }
 
     char buf[64];
-    int len = std::snprintf(buf, sizeof(buf), "%g", value);
+    ecma_number_to_string(value, buf);
 
     // Create in old-gen if caching (doubleStringCache is in malloc'd memory)
     TsString* str;

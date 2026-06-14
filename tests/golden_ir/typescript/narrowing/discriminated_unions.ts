@@ -1,6 +1,6 @@
 // RUN: %ts-aot %s --dump-ir -o %t.exe && %t.exe
 // OUTPUT: Testing discriminated unions...
-// OUTPUT: Circle area: 78.5397
+// OUTPUT: Circle area: 78.53975
 // OUTPUT: Square area: 16
 // OUTPUT: All tests passed!
 
