@@ -2940,6 +2940,10 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
         builder_.createCall("ts_async_generator_body_started", {},
                             HIRType::makeVoid());
     } else if (func->isGenerator) {
+        // Sync generator: eager-parameter model (marker = suspension 0 -> 1).
+        builder_.createCall("ts_generator_body_started", {},
+                            HIRType::makeVoid());
+    } else if (func->isGenerator) {
         // Sync generators: same eager-parameter model. The marker ends the
         // parameter prologue; the wrapper invokes the impl once at gen() time
         // so param-binding/default throws escape gen() synchronously (ECMA-262
@@ -10048,6 +10052,10 @@ void ASTToHIR::visitArrowFunction(ast::ArrowFunction* node) {
     if (func->isAsync && func->isGenerator) {
         builder_.createCall("ts_async_generator_body_started", {},
                             HIRType::makeVoid());
+    } else if (func->isGenerator) {
+        // Sync generator: eager-parameter model (marker = suspension 0 -> 1).
+        builder_.createCall("ts_generator_body_started", {},
+                            HIRType::makeVoid());
     }
 
     // Lower function body
@@ -10399,6 +10407,10 @@ void ASTToHIR::visitFunctionExpression(ast::FunctionExpression* node) {
     // reject the first next() promise (ts_agen_should_reject).
     if (func->isAsync && func->isGenerator) {
         builder_.createCall("ts_async_generator_body_started", {},
+                            HIRType::makeVoid());
+    } else if (func->isGenerator) {
+        // Sync generator: eager-parameter model (marker = suspension 0 -> 1).
+        builder_.createCall("ts_generator_body_started", {},
                             HIRType::makeVoid());
     }
 
@@ -10786,6 +10798,10 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
     // reject the first next() promise (ts_agen_should_reject).
     if (func->isAsync && func->isGenerator) {
         builder_.createCall("ts_async_generator_body_started", {},
+                            HIRType::makeVoid());
+    } else if (func->isGenerator) {
+        // Sync generator: eager-parameter model (marker = suspension 0 -> 1).
+        builder_.createCall("ts_generator_body_started", {},
                             HIRType::makeVoid());
     }
 
@@ -11755,6 +11771,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             if (func->isAsync && func->isGenerator) {
                 builder_.createCall("ts_async_generator_body_started", {},
                                     HIRType::makeVoid());
+            } else if (func->isGenerator) {
+                // Sync generator: eager-parameter model (marker = suspension).
+                builder_.createCall("ts_generator_body_started", {},
+                                    HIRType::makeVoid());
             }
 
             // For instance constructors, initialize instance property defaults before user code.
@@ -12343,6 +12363,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // Mirrors the FunctionDeclaration/arrow/funcExpr/method sites.
             if (func->isAsync && func->isGenerator) {
                 builder_.createCall("ts_async_generator_body_started", {},
+                                    HIRType::makeVoid());
+            } else if (func->isGenerator) {
+                // Sync generator: eager-parameter model (marker = suspension).
+                builder_.createCall("ts_generator_body_started", {},
                                     HIRType::makeVoid());
             }
 
