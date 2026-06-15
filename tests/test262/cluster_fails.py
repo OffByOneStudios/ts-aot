@@ -107,6 +107,22 @@ def oos_tag(path, _cache={}):
     return tag
 
 
+def spec_area(path):
+    """Collapse a path into a coarse, actionable spec-area LEVER bucket — the
+    dimension the reason-signature view lacks. language/* -> language/<a>/<b>;
+    built-ins/X[/prototype] -> built-ins/X[/prototype]. Lets you see where the
+    winnable mass concentrates by feature area, not just by failure message."""
+    p = path.replace("\\", "/")
+    parts = p.split("/")
+    if parts[0] == "language":
+        return "/".join(parts[:3])
+    if parts[0] == "built-ins":
+        if len(parts) >= 3 and parts[2] == "prototype":
+            return f"built-ins/{parts[1]}/prototype"
+        return f"built-ins/{parts[1]}"
+    return "/".join(parts[:2])
+
+
 def category(r):
     """Coarse failure-reason category. The concentration metric structurally
     buries low-concentration POLICY buckets (e.g. 506 parse-leniency fails over
@@ -215,6 +231,15 @@ def main():
           f"({dict(tag_counts)})" if partition else
           f"total non-pass/non-skip: {len(fails)}")
 
+    # --- HONEST conformance: pass / (pass + in-scope fails). Out-of-scope and
+    # skipped tests are excluded since they aren't winnable in an AOT compiler.
+    n_pass = sum(1 for r in seen.values() if r.get("status") == "pass")
+    n_inscope = len(fails) - n_oos
+    if partition and (n_pass + n_inscope):
+        print(f"HONEST in-scope conformance = {n_pass}/{n_pass + n_inscope} "
+              f"= {100 * n_pass / (n_pass + n_inscope):.1f}%  "
+              f"(pass / (pass + in-scope-fail); excludes OOS + skip)")
+
     # --- reason-category view (in-scope vs OOS) -------------------------
     cat_in = collections.Counter()
     cat_oos = collections.Counter()
@@ -247,6 +272,15 @@ def main():
 
     in_scope = [p for p in fails if not tags[p]]
     oos = [p for p in fails if tags[p]]
+
+    # --- spec-area LEVER map: where the in-scope winnable mass concentrates by
+    # feature area (complements the by-signature concentration tables below).
+    if partition:
+        areas = collections.Counter(spec_area(p) for p in in_scope)
+        print(f"\n== IN-SCOPE fails by spec-area LEVER (top 25) ==")
+        for a, n in areas.most_common(25):
+            print(f"  {n:5d}  {a}")
+
     table(in_scope, "IN-SCOPE clusters (mine these)" if partition
           else "ALL clusters")
     if partition and oos:
