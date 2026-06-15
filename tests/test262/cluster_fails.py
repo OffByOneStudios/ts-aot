@@ -30,6 +30,13 @@ measured ~0.3% as of 2026-06-09; this keeps it observable).
 """
 import json, collections, re, sys, os, hashlib
 
+# test262 reasons carry arbitrary Unicode (Cyrillic, emoji, U+FFFD markers);
+# force utf-8 so piping to a cp1252 console doesn't crash mid-report.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 JSONL = os.path.join(HERE, ".test262_results.jsonl")
 SIG_PREV = os.path.join(HERE, ".sig_prev.json")
@@ -273,12 +280,45 @@ def main():
     in_scope = [p for p in fails if not tags[p]]
     oos = [p for p in fails if tags[p]]
 
-    # --- spec-area LEVER map: where the in-scope winnable mass concentrates by
-    # feature area (complements the by-signature concentration tables below).
+    # --- LEVER analysis. A spec-AREA (class, Array) is NOT a lever unless it
+    # has a unified root cause; most are heterogeneous (Array/prototype alone
+    # has 300+ distinct signatures). Real levers are (a) cross-cutting FEATURES
+    # and (b) coherent LEAF clusters = one narrow dir sharing one signature.
     if partition:
+        # Honest decomposition: how much sits in workable clusters vs the
+        # irreducible singleton tail (one-at-a-time bugs, no shared fix).
+        leaf = collections.Counter((os.path.dirname(p.replace("\\", "/")),
+                                    signature(fails[p])) for p in in_scope)
+        N = len(in_scope) or 1
+        big = sum(n for n in leaf.values() if n >= 8)
+        mid = sum(n for n in leaf.values() if 3 <= n < 8)
+        tail = sum(n for n in leaf.values() if n < 3)
+        print(f"\n== LEVER decomposition of {N} in-scope fails ==")
+        print(f"  workable leaf clusters (>=8 same dir+sig): {big:5d} ({100*big//N}%)")
+        print(f"  small clusters (3-7):                      {mid:5d} ({100*mid//N}%)")
+        print(f"  irreducible singletons/pairs (no lever):   {tail:5d} ({100*tail//N}%)")
+
+        # Cross-cutting FEATURE levers (one engine spanning many paths) — these,
+        # not the spec-areas, are the real big levers. Detected by path token.
+        XCUT = [("destructuring", "/dstr/"), ("private-#", "-private"),
+                ("static-elements", "static"), ("computed-names", "computed"),
+                ("subclass-builtins", "/subclass-builtins/")]
+        print("  -- cross-cutting feature levers --")
+        for label, tok in XCUT:
+            n = sum(1 for p in in_scope if tok in p.replace("\\", "/"))
+            if n >= 30:
+                print(f"     {n:5d}  {label}  ({tok})")
+
+        # Coherent LEAF levers: one narrow dir + one signature ~= one root cause.
+        print("\n== coherent LEAF levers (dir x signature, >=10) ==")
+        for (d, s), n in leaf.most_common(20):
+            if n >= 10:
+                print(f"  {n:4d}  {d}\n        ^ {s[:64]}")
+
+        # Spec-area distribution kept for reference — feature spread, NOT levers.
         areas = collections.Counter(spec_area(p) for p in in_scope)
-        print(f"\n== IN-SCOPE fails by spec-area LEVER (top 25) ==")
-        for a, n in areas.most_common(25):
+        print(f"\n== in-scope by spec-area (reference; NOT levers - see above) ==")
+        for a, n in areas.most_common(12):
             print(f"  {n:5d}  {a}")
 
     table(in_scope, "IN-SCOPE clusters (mine these)" if partition
