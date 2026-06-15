@@ -1800,13 +1800,15 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_string_padStart_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        int64_t targetLength = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        // Pass the raw number; ts_string_padStart applies ToLength(ToIntegerOr
+        // Infinity) (NaN/undefined -> 0). ts_value_get_double preserves NaN.
+        double targetLength = (argc >= 1 && argv && argv[0]) ? ts_value_get_double(argv[0]) : 0.0;
         void* padString = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
         return ts_value_make_string((TsString*)ts_string_padStart(str, targetLength, padString));
     }
     static TsValue* ts_string_padEnd_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        int64_t targetLength = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        double targetLength = (argc >= 1 && argv && argv[0]) ? ts_value_get_double(argv[0]) : 0.0;
         void* padString = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
         return ts_value_make_string((TsString*)ts_string_padEnd(str, targetLength, padString));
     }

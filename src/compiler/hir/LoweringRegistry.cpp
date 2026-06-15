@@ -1050,7 +1050,9 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_string_padStart")
             .returnsPtr()
             .ptrArg()      // string
-            .i64Arg()      // targetLength
+            .f64Arg(ArgConversion::ToF64)  // targetLength: pass raw double so the
+                                            // runtime applies ToLength (NaN -> 0);
+                                            // a bare FPToSI here is UB on NaN.
             .ptrArg()      // padString
             .build());
 
@@ -1058,7 +1060,7 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_string_padEnd")
             .returnsPtr()
             .ptrArg()      // string
-            .i64Arg()      // targetLength
+            .f64Arg(ArgConversion::ToF64)  // targetLength (see padStart)
             .ptrArg()      // padString
             .build());
 

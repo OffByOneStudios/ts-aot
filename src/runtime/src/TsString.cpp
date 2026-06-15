@@ -1659,18 +1659,30 @@ extern "C" {
         return s->Repeat(count);
     }
 
-    void* ts_string_padStart(void* str, int64_t targetLength, void* padString) {
-        TsString* s = ts_ensure_flat(str);
-        if (!s) return str;
-        TsString* pad = ts_ensure_flat(padString);
-        return s->PadStart(targetLength, pad);
+    // ECMA-262 ToLength(ToIntegerOrInfinity(arg)) for the pad maxLength. The
+    // arg arrives as a raw double so NaN/Infinity/fractional/negative are
+    // coerced here per spec — NOT via a bare FPToSI/ToInt at the call site,
+    // whose UB on NaN produced a garbage huge length and a multi-GB allocation
+    // (OOM / multi-second hang). NaN -> 0, <=0 -> 0, fractional -> truncate,
+    // +Inf / >=2^53-1 -> 2^53-1.
+    static int64_t pad_target_length(double d) {
+        if (std::isnan(d) || d <= 0.0) return 0;
+        if (d >= 9007199254740991.0) return 9007199254740991LL;  // 2^53-1
+        return (int64_t)d;  // d > 0: truncate toward zero
     }
 
-    void* ts_string_padEnd(void* str, int64_t targetLength, void* padString) {
+    void* ts_string_padStart(void* str, double targetLength, void* padString) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return str;
         TsString* pad = ts_ensure_flat(padString);
-        return s->PadEnd(targetLength, pad);
+        return s->PadStart(pad_target_length(targetLength), pad);
+    }
+
+    void* ts_string_padEnd(void* str, double targetLength, void* padString) {
+        TsString* s = ts_ensure_flat(str);
+        if (!s) return str;
+        TsString* pad = ts_ensure_flat(padString);
+        return s->PadEnd(pad_target_length(targetLength), pad);
     }
 
     bool ts_string_startsWith(void* str, void* prefix) {
