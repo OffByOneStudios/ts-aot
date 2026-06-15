@@ -347,6 +347,12 @@ private:
     // a different create function.
     struct GeneratorLoweringOpts {
         bool isAsyncGen = false;
+        // Sync generator with a ts_generator_body_started marker: invoke the
+        // impl once at gen() time so the parameter prologue runs eagerly
+        // (param/default/destructuring throws escape gen() synchronously) and
+        // suspends at the marker. Gated on marker presence so markerless sync
+        // generators keep the lazy (pre-existing) behavior.
+        bool eagerSyncParams = false;
         const char* createGenFn = "ts_generator_create";
     };
 

@@ -1006,11 +1006,13 @@ void HIRToLLVM::computeCrossYieldSpills(HIRFunction* fn, bool markerIsSuspension
                     } else if (markerIsSuspension &&
                                inst->opcode == HIROpcode::Call &&
                                !inst->operands.empty()) {
-                        // Suspendable async generators (GEN-001 Stage 3) also
-                        // suspend at the body-started marker (state 0 -> 1).
+                        // Suspendable async generators (GEN-001 Stage 3) and
+                        // eager-param sync generators also suspend at the
+                        // body-started marker (state 0 -> 1).
                         if (auto* callee =
                                 std::get_if<std::string>(&inst->operands[0]);
-                            callee && *callee == "ts_async_generator_body_started") {
+                            callee && (*callee == "ts_async_generator_body_started" ||
+                                       *callee == "ts_generator_body_started")) {
                             yieldsInBlock.push_back(idx);
                         }
                     }
@@ -1167,12 +1169,13 @@ void HIRToLLVM::emitGeneratorWrapper(HIRFunction* fn, llvm::Function* llvmFunc,
         opts.createGenFn, createGeneratorFt);
     llvm::Value* generator = rawToGCPtr(builder_->CreateCall(createGeneratorFt, createGeneratorFn.getCallee(), { asyncCtx }, "generator"));
 
-    if (opts.isAsyncGen) {
+    if (opts.isAsyncGen || opts.eagerSyncParams) {
         // GEN-001 D5: ONE synchronous invocation of the impl at gen() time.
-        // State 0 runs the parameter prologue and suspends at the
-        // ts_async_generator_body_started marker (state transition 0 -> 1),
-        // so parameter-binding throws escape gen() synchronously while the
-        // body proper stays lazy until the first next().
+        // State 0 runs the parameter prologue and suspends at the body-started
+        // marker (state transition 0 -> 1), so parameter-binding throws escape
+        // gen() synchronously while the body proper stays lazy until the first
+        // next(). For sync generators a throw here propagates straight out of
+        // the wrapper (no impl barrier is pushed in state 0).
         builder_->CreateCall(generatorImplFunc_->getFunctionType(),
                              generatorImplFunc_, { asyncCtx });
     }
@@ -1716,9 +1719,30 @@ void HIRToLLVM::lowerFunction(HIRFunction* fn) {
         // (also sets generatorLocalCount_ / generatorNextLocalIndex_).
         int yieldCount = collectGeneratorCounts(fn).first;
 
+        // Eager-parameter sync generators (dstr/dflt-params family): a
+        // ts_generator_body_started marker after the parameter prologue is an
+        // extra suspension point (state 0 -> 1). When present, the wrapper
+        // invokes the impl once at gen() time so parameter throws escape gen()
+        // synchronously; the body stays lazy until the first next(). Gated on
+        // marker presence so markerless sync generators are unchanged.
+        int syncMarkerCount = 0;
+        for (auto& block : fn->blocks) {
+            for (auto& inst : block->instructions) {
+                if (inst->opcode == HIROpcode::Call && !inst->operands.empty()) {
+                    if (auto* callee = std::get_if<std::string>(&inst->operands[0]);
+                        callee && *callee == "ts_generator_body_started") {
+                        syncMarkerCount++;
+                    }
+                }
+            }
+        }
+        opts.eagerSyncParams = (syncMarkerCount > 0);
+        yieldCount += syncMarkerCount;
+
         // Cross-yield SSA liveness pre-pass (populates crossYieldSpillIds_ /
-        // crossYieldSlotOf_; see the helper for the full algorithm notes).
-        computeCrossYieldSpills(fn);
+        // crossYieldSlotOf_; see the helper for the full algorithm notes). The
+        // marker is a suspension point too when eager params are on.
+        computeCrossYieldSpills(fn, /*markerIsSuspension=*/opts.eagerSyncParams);
 
         // Create the implementation function (state machine)
         // Signature: void impl(AsyncContext* ctx)
@@ -5811,6 +5835,31 @@ void HIRToLLVM::lowerCall(HIRInstruction* inst) {
             // falls through into the body; the resumed value is unused (the
             // first next()'s argument is discarded per spec).
             emitAgenResumeModeDispatch({});
+        }
+        currentYieldState_++;
+        return;
+    }
+
+    // Eager-param SYNC generator: the body-started marker is suspension point
+    // 0 -> 1. Lower like a yield's suspend minus value plumbing: set_state(1) +
+    // ret void + relocate to resume block. No ts_async_context_yield is
+    // emitted, so `yielded` stays false and the wrapper's eager invocation just
+    // returns the generator; the first next() resumes the body here. A throw in
+    // the state-0 parameter prologue propagates straight out of the wrapper
+    // (no impl barrier / no handler to pop in state 0).
+    if (isGeneratorFunction_ && !isAsyncFunction_ && asyncContext_ != nullptr &&
+        funcName == "ts_generator_body_started") {
+        int nextState = currentYieldState_ + 1;
+        auto setStateFn = getOrDeclareRuntimeFunction("ts_async_context_set_state",
+            builder_->getVoidTy(), { getGCPtrTy(), builder_->getInt32Ty() });
+        builder_->CreateCall(setStateFn,
+            { asyncContext_, builder_->getInt32(nextState) });
+        llvm::BasicBlock* suspendedBlock = builder_->GetInsertBlock();
+        builder_->CreateRetVoid();
+        if (currentYieldState_ < static_cast<int>(yieldResumeBlocks_.size())) {
+            agenSuspendRelocation_[suspendedBlock] =
+                yieldResumeBlocks_[currentYieldState_];
+            builder_->SetInsertPoint(yieldResumeBlocks_[currentYieldState_]);
         }
         currentYieldState_++;
         return;

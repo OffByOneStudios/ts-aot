@@ -1712,6 +1712,11 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
             if (methPtr->isAsync && methPtr->isGenerator) {
                 builder_.createCall("ts_async_generator_body_started", {},
                                     HIRType::makeVoid());
+            } else if (methPtr->isGenerator) {
+                // Sync generator method: eager-parameter model (see the
+                // FunctionDeclaration site). Marker = suspension 0 -> 1.
+                builder_.createCall("ts_generator_body_started", {},
+                                    HIRType::makeVoid());
             }
 
             // For constructors of imported classes, emit field initializers
@@ -2933,6 +2938,15 @@ void ASTToHIR::visitFunctionDeclaration(ast::FunctionDeclaration* node) {
     // landing pad consults gen->bodyStarted (ts_agen_should_reject).
     if (func->isAsync && func->isGenerator) {
         builder_.createCall("ts_async_generator_body_started", {},
+                            HIRType::makeVoid());
+    } else if (func->isGenerator) {
+        // Sync generators: same eager-parameter model. The marker ends the
+        // parameter prologue; the wrapper invokes the impl once at gen() time
+        // so param-binding/default throws escape gen() synchronously (ECMA-262
+        // FunctionDeclarationInstantiation runs at call time, before the
+        // generator object is returned), while the body stays lazy until the
+        // first next(). HIRToLLVM lowers this marker as suspension 0 -> 1.
+        builder_.createCall("ts_generator_body_started", {},
                             HIRType::makeVoid());
     }
 

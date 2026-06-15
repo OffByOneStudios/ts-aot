@@ -1070,6 +1070,11 @@ void ts_async_generator_body_started() {
     }
 }
 
+// Sync-generator parameter-prologue marker. HIRToLLVM lowers this as the
+// SuspendedStart suspension (state 0 -> 1) and never emits a real call, so
+// this is only a defensive no-op for the (unreached) generic-call fallback.
+void ts_generator_body_started() {}
+
 // Non-protocol throw escaping the eager body synchronously (e.g. a
 // parameter-binding error): unwind the eager-body stack entry before the
 // compiler's agen.rethrow landing pad re-throws to the outer handler.
