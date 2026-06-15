@@ -6150,7 +6150,20 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
                 auto* defaultExpr = dynamic_cast<ast::Expression*>(assignDefault->right.get());
                 if (defaultExpr) {
                     auto isUndef = builder_.createIsUndefined(extracted);
+                    // ECMA-262 NamedEvaluation: an anonymous function/arrow/class
+                    // default in an assignment target takes the target's name
+                    // (`[fn = function(){}] = []` -> fn.name === "fn"). The
+                    // binding-pattern path does this; the assignment path didn't.
+                    std::string savedPCDN = pendingClosureDisplayName_;
+                    if (auto* tid = dynamic_cast<ast::Identifier*>(assignDefault->left.get())) {
+                        if (dynamic_cast<ast::ArrowFunction*>(defaultExpr) ||
+                            dynamic_cast<ast::FunctionExpression*>(defaultExpr) ||
+                            dynamic_cast<ast::ClassExpression*>(defaultExpr)) {
+                            pendingClosureDisplayName_ = tid->name;
+                        }
+                    }
                     auto defaultVal = boxValueIfNeeded(lowerExpression(defaultExpr));
+                    pendingClosureDisplayName_ = savedPCDN;
                     extracted = boxValueIfNeeded(extracted);
                     extracted = builder_.createSelect(isUndef, defaultVal, extracted);
                 }
@@ -6232,7 +6245,15 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
                 extracted = builder_.createGetPropDynamic(rhs, keyForExclude);
                 if (auto* dflt = dynamic_cast<ast::Expression*>(sh->initializer.get())) {
                     auto isUndef = builder_.createIsUndefined(extracted);
+                    // NamedEvaluation: `({ obj = function(){} } = {})` -> obj.name.
+                    std::string savedPCDN = pendingClosureDisplayName_;
+                    if (dynamic_cast<ast::ArrowFunction*>(dflt) ||
+                        dynamic_cast<ast::FunctionExpression*>(dflt) ||
+                        dynamic_cast<ast::ClassExpression*>(dflt)) {
+                        pendingClosureDisplayName_ = sh->name;
+                    }
                     auto defaultVal = boxValueIfNeeded(lowerExpression(dflt));
+                    pendingClosureDisplayName_ = savedPCDN;
                     extracted = boxValueIfNeeded(extracted);
                     extracted = builder_.createSelect(isUndef, defaultVal, extracted);
                 }
@@ -6245,7 +6266,17 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
             if (keyForExclude) consumedKeys.push_back(keyForExclude);
             if (defaultExpr) {
                 auto isUndef = builder_.createIsUndefined(extracted);
+                // NamedEvaluation: `({ a: t = function(){} } = {})` -> t.name === "t".
+                std::string savedPCDN = pendingClosureDisplayName_;
+                if (auto* tid = dynamic_cast<ast::Identifier*>(target)) {
+                    if (dynamic_cast<ast::ArrowFunction*>(defaultExpr) ||
+                        dynamic_cast<ast::FunctionExpression*>(defaultExpr) ||
+                        dynamic_cast<ast::ClassExpression*>(defaultExpr)) {
+                        pendingClosureDisplayName_ = tid->name;
+                    }
+                }
                 auto defaultVal = boxValueIfNeeded(lowerExpression(defaultExpr));
+                pendingClosureDisplayName_ = savedPCDN;
                 extracted = boxValueIfNeeded(extracted);
                 extracted = builder_.createSelect(isUndef, defaultVal, extracted);
             }
