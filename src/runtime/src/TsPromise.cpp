@@ -1357,6 +1357,25 @@ TsValue* ts_iterator_get(TsValue* iterable) {
     if (rawObj) {
         if (ts_is_unchecked<TsArray>(rawObj)) { // TsArray (tag at offset 0)
             TsArray* arr = (TsArray*)rawObj;
+            // ECMA-262 GetIterator(obj): honor an OWN overridden @@iterator
+            // (`arr[Symbol.iterator] = fn`) instead of the built-in array
+            // iterator. The default lives on Array.prototype (inherited), so an
+            // entry in the instance's own `properties` side-map is necessarily
+            // a user override — call it with `this` = the array. Without this,
+            // `var [a,b] = arrWithCustomIter` read the raw elements, ignoring
+            // the override (and never ran a custom next()).
+            if (arr->properties) {
+                TsValue ik; ik.type = ValueType::STRING_PTR;
+                ik.ptr_val = TsString::GetInterned("[Symbol.iterator]");
+                if (arr->properties->Has(ik)) {
+                    TsValue m = arr->properties->Get(ik);
+                    if ((m.type == ValueType::OBJECT_PTR ||
+                         m.type == ValueType::FUNCTION_PTR) && m.ptr_val) {
+                        extern TsValue* ts_call_with_this_0(TsValue*, TsValue*);
+                        return ts_call_with_this_0((TsValue*)m.ptr_val, iterable);
+                    }
+                }
+            }
             // Update decoded value for array iterator path below
             iterDecoded.type = ValueType::ARRAY_PTR;
             iterDecoded.ptr_val = arr;
