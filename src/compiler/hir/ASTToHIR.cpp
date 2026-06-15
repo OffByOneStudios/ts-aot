@@ -3693,12 +3693,22 @@ void ASTToHIR::lowerRestElement(ast::BindingElement* binding,
     std::vector<std::shared_ptr<HIRValue>> sliceArgs = { startIndexValue };
     auto restValue = builder_.createCallMethod(sourceValue, "slice", sliceArgs, HIRType::makeAny());
 
-    // Bind to variable
+    // Bind to a variable, or destructure the rest array into a nested pattern.
+    // ECMA-262 BindingRestElement may be a BindingPattern (`[...{ length }]`,
+    // `[...[a, b]]`), not just a BindingIdentifier — previously only the
+    // identifier case bound, so the pattern forms silently left their targets
+    // undefined.
     if (auto* ident = dynamic_cast<ast::Identifier*>(binding->name.get())) {
         auto varType = HIRType::makeAny();
         auto allocaPtr = builder_.createAlloca(varType, ident->name);
         builder_.createStore(restValue, allocaPtr, varType);
         defineVariableAlloca(ident->name, allocaPtr, varType);
+    } else if (auto* objPat =
+                   dynamic_cast<ast::ObjectBindingPattern*>(binding->name.get())) {
+        lowerObjectBindingPattern(objPat, restValue);
+    } else if (auto* arrPat =
+                   dynamic_cast<ast::ArrayBindingPattern*>(binding->name.get())) {
+        lowerArrayBindingPattern(arrPat, restValue);
     }
 }
 
