@@ -5409,6 +5409,19 @@ void HIRToLLVM::lowerGetElem(HIRInstruction* inst) {
                 }
             }
         }
+        // ECMA-262: a CONSTANT numeric key that is not a canonical array index
+        // (fractional, negative, or >= 2^32-1) is an ordinary string property
+        // even on an array receiver — `arr[1.5]` reads property "1.5", not
+        // element 1. Route such constants through the dynamic path. Non-constant
+        // double keys keep the fast FPToSI path (integer-valued runtime index is
+        // the hot case; a rare fractional runtime index isn't worth a branch).
+        if (!useDynamicAccess && idx->getType()->isDoubleTy()) {
+            if (auto* cf = llvm::dyn_cast<llvm::ConstantFP>(idx)) {
+                double kv = cf->getValueAPF().convertToDouble();
+                bool canonical = (kv == std::floor(kv)) && kv >= 0.0 && kv < 4294967295.0;
+                if (!canonical) useDynamicAccess = true;
+            }
+        }
         // Preserve the original key (pre-i64-coercion) so the dynamic path can
         // ToPropertyKey-coerce a boolean/double key correctly (obj[false] ==
         // obj["false"], obj[NaN] == obj["NaN"]); the int-coerced form would
@@ -5560,6 +5573,21 @@ void HIRToLLVM::lowerSetElem(HIRInstruction* inst) {
     bool keyIsBoolOrDouble = idx->getType()->isIntegerTy(1) || idx->getType()->isDoubleTy();
     bool useDynamicKey = idx->getType()->isPointerTy() ||
                          (keyIsBoolOrDouble && !receiverIsIndexed);
+
+    // ECMA-262: a CONSTANT numeric key that is not a canonical array index
+    // (fractional, negative, or >= 2^32-1) is an ordinary string property even
+    // on an array/typed receiver — `arr[1.5]=v` must set property "1.5", not
+    // clobber element 1. Route such constants through the dynamic path (runtime
+    // ToString). Non-constant double keys keep the fast FPToSI path: an
+    // integer-valued runtime index is the hot case, and a rare fractional
+    // runtime index isn't worth a per-access branch.
+    if (!useDynamicKey && idx->getType()->isDoubleTy()) {
+        if (auto* cf = llvm::dyn_cast<llvm::ConstantFP>(idx)) {
+            double kv = cf->getValueAPF().convertToDouble();
+            bool canonical = (kv == std::floor(kv)) && kv >= 0.0 && kv < 4294967295.0;
+            if (!canonical) useDynamicKey = true;
+        }
+    }
 
     // Check if index is a string/pointer (dynamic property access) vs numeric (array index)
     if (useDynamicKey) {
