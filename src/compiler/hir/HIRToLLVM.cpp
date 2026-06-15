@@ -2538,6 +2538,21 @@ static llvm::Value* coerceToI64Operand(
     return val;
 }
 
+// Saturating double -> signed-integer conversion for JS number ARGUMENTS to
+// builtins (lengths, counts, indices). A bare fptosi is UB on NaN/Infinity and
+// out-of-range values: depending on FP state it yields garbage that flows into
+// allocation sizes / loop counts -> multi-GB allocs, OOM, or wrong results
+// (e.g. `new ArrayBuffer(NaN)` allocated 256MB; `"x".repeat(NaN)` blew up).
+// llvm.fptosi.sat gives NaN -> 0, +Inf -> INT_MAX, -Inf -> INT_MIN, and clamps
+// out-of-range — i.e. ECMA ToIntegerOrInfinity clamped to the int width, with
+// finite in-range values converting identically to the old fptosi.
+static llvm::Value* emitSaturatingFPToSI(
+    llvm::IRBuilder<>* builder, llvm::Value* val, llvm::Type* intTy)
+{
+    return builder->CreateIntrinsic(llvm::Intrinsic::fptosi_sat,
+                                    {intTy, val->getType()}, {val});
+}
+
 void HIRToLLVM::lowerAddI64(HIRInstruction* inst) {
     llvm::Value* lhs = getOperandValue(inst->operands[0]);
     llvm::Value* rhs = getOperandValue(inst->operands[1]);
@@ -6804,9 +6819,9 @@ llvm::Value* HIRToLLVM::lowerRegisteredCall(HIRInstruction* inst, const ::hir::L
         if (argIdx < argTys.size() && arg->getType() != argTys[argIdx]) {
             llvm::Type* expected = argTys[argIdx];
             if (arg->getType()->isDoubleTy() && expected->isIntegerTy(64))
-                arg = builder_->CreateFPToSI(arg, builder_->getInt64Ty());
+                arg = emitSaturatingFPToSI(builder_.get(), arg, builder_->getInt64Ty());
             else if (arg->getType()->isDoubleTy() && expected->isIntegerTy(32))
-                arg = builder_->CreateFPToSI(arg, builder_->getInt32Ty());
+                arg = emitSaturatingFPToSI(builder_.get(), arg, builder_->getInt32Ty());
             else if (arg->getType()->isIntegerTy(64) && expected->isDoubleTy())
                 arg = builder_->CreateSIToFP(arg, builder_->getDoubleTy());
             else if (arg->getType()->isIntegerTy(64) && expected->isIntegerTy(32))
@@ -6949,7 +6964,7 @@ llvm::Value* HIRToLLVM::convertArg(llvm::Value* arg, ::hir::ArgConversion conv) 
 
         case ::hir::ArgConversion::ToI64: {
             if (arg->getType()->isDoubleTy()) {
-                return builder_->CreateFPToSI(arg, builder_->getInt64Ty());
+                return emitSaturatingFPToSI(builder_.get(), arg, builder_->getInt64Ty());
             } else if (arg->getType()->isPointerTy()) {
                 // Pointer is likely a boxed TsValue* - unbox via ts_value_get_int
                 auto ft = llvm::FunctionType::get(builder_->getInt64Ty(), { getGCPtrTy() }, false);
