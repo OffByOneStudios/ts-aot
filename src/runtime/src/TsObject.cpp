@@ -6873,6 +6873,41 @@ TsValue* ts_value_make_int(int64_t i) {
         // storage keys (user-symbol slots, private-method "\x01#m" slots) —
         // those are not property keys per ECMA-262.
         extern void* ts_map_own_string_keys(void*);
+
+        // TsArray (magic "ARRY" at offset 0): getOwnPropertyNames includes
+        // non-enumerable keys, so unlike Object.keys it must emit every present
+        // index (ascending), the own non-enumerable "length", then the side-map
+        // string keys in insertion order (skipping internal __arr_* bookkeeping).
+        // Was missing entirely — arrays fell through to an empty array.
+        if (*(uint32_t*)((char*)rawPtr) == 0x41525259) {
+            TsArray* a = (TsArray*)rawPtr;
+            int64_t len = a->Length();
+            TsArray* out = TsArray::Create(0);
+            for (int64_t i = 0; i < len; i++) {
+                if (a->IsHole((size_t)i)) continue;
+                out->Push((int64_t)(uintptr_t)ts_value_make_string(TsString::FromInt(i)));
+            }
+            out->Push((int64_t)(uintptr_t)ts_value_make_string(
+                TsString::GetInterned("length")));
+            if (a->properties) {
+                TsArray* extra = (TsArray*)ts_map_own_string_keys(a->properties);
+                if (extra) {
+                    int64_t n = extra->Length();
+                    for (int64_t i = 0; i < n; i++) {
+                        int64_t kraw = extra->Get((size_t)i);
+                        TsString* ks = (TsString*)ts_value_get_string(
+                            (TsValue*)(uintptr_t)kraw);
+                        if (ks) {
+                            const char* kc = ks->ToUtf8();
+                            if (kc && strncmp(kc, "__arr_", 6) == 0) continue;
+                        }
+                        out->Push(kraw);
+                    }
+                }
+            }
+            return ts_value_make_array(out);
+        }
+
         uint32_t magic = *(uint32_t*)((char*)rawPtr + 16);
         if (magic == 0x4D415053) { // TsMap::MAGIC
             return ts_value_make_array(ts_map_own_string_keys(rawPtr));
@@ -10734,12 +10769,23 @@ TsValue* ts_value_make_int(int64_t i) {
     // ============================================================
 
     TsValue ts_object_get_prop_v(TsValue obj, TsValue key) {
-        // If key is a number, try array access
+        // If key is a number, try array access — but only for an integer-valued
+        // key. A fractional double (`obj[1.5]`) is NOT an array index; the
+        // unconditional (int64_t)key.d_val cast used to truncate it to element 1.
+        // Mirrors the guard in ts_object_set_prop_v; non-integer doubles fall
+        // through to the ToString property path below.
         if (key.type == ValueType::NUMBER_INT || key.type == ValueType::NUMBER_DBL) {
-            int64_t idx = (key.type == ValueType::NUMBER_INT) ? key.i_val : (int64_t)key.d_val;
+            bool keyIsArrayIndex = (key.type == ValueType::NUMBER_INT);
+            int64_t idx = 0;
+            if (key.type == ValueType::NUMBER_INT) {
+                idx = key.i_val;
+            } else {
+                idx = (int64_t)key.d_val;
+                keyIsArrayIndex = (key.d_val == (double)idx);  // integer-valued only
+            }
             // Direct field access — obj is a TsValue struct, not a NaN-boxed pointer
             void* rawObj = obj.ptr_val;
-            if (rawObj) {
+            if (keyIsArrayIndex && rawObj) {
                 uint32_t magic = *(uint32_t*)rawObj;
                 if (magic == 0x41525259) { // TsArray::MAGIC
                     return ts_array_get_v(rawObj, idx);
@@ -10790,14 +10836,9 @@ TsValue* ts_value_make_int(int64_t i) {
         } else if (key.type == ValueType::NUMBER_INT) {
             keyStr = TsString::Create(std::to_string(key.i_val).c_str());
         } else if (key.type == ValueType::NUMBER_DBL) {
-            char buf[64];
-            double d = key.d_val;
-            if (d == (int64_t)d && d >= -999999999 && d <= 999999999) {
-                snprintf(buf, sizeof(buf), "%lld", (long long)(int64_t)d);
-            } else {
-                snprintf(buf, sizeof(buf), "%.17g", d);
-            }
-            keyStr = TsString::Create(buf);
+            // Conformant ECMA Number::toString for the property key (was a
+            // non-conformant %.17g that disagreed with how the key was stored).
+            keyStr = TsString::FromDouble(key.d_val);
         }
         if (!keyStr) {
             TsValue undef;
