@@ -6914,10 +6914,9 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                                 method->returnType ? method->returnType : HIRType::makeAny());
                             builder_.createCall("ts_set_call_this", {savedThis}, HIRType::makeVoid());
                             std::vector<std::shared_ptr<HIRValue>> callArgs;
-                            callArgs.push_back(boxValueIfNeeded(returnedFn));
                             for (auto& a : args) callArgs.push_back(boxValueIfNeeded(a));
-                            std::string callFn = "ts_call_" + std::to_string(args.size());
-                            lastValue_ = builder_.createCall(callFn, callArgs, HIRType::makeAny());
+                            lastValue_ = builder_.createCallIndirect(
+                                boxValueIfNeeded(returnedFn), callArgs, HIRType::makeAny());
                             return;
                         }
                         // Static methods take no 'this' parameter, but their
