@@ -271,6 +271,8 @@ extern "C" {
     void ts_object_set_dynamic(TsValue* obj, TsValue* key, TsValue* value);  // Handles both arrays and maps
     void ts_object_set_property(void* obj, void* key, void* value);  // HIR-friendly wrapper for ts_object_set_dynamic
     void ts_object_set_method(TsValue* obj, TsValue* key, TsValue* value);   // Class method/accessor install: writable+configurable, NOT enumerable
+    void ts_class_install_computed_getter(TsValue* recv, TsValue* key, TsValue* closure);  // Computed-name class getter install
+    void ts_class_install_computed_setter(TsValue* recv, TsValue* key, TsValue* closure);  // Computed-name class setter install
     bool ts_object_has_prop(TsValue* obj, TsValue* key);
     bool ts_object_delete_prop(TsValue* obj, TsValue* key);
     

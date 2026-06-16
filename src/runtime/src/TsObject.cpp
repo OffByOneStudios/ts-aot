@@ -10765,6 +10765,42 @@ TsValue* ts_value_make_int(int64_t i) {
         ts_object_set_dynamic(obj, key, value);
     }
 
+    // Install a computed-name class accessor (ECMA-262 ComputedPropertyName on
+    // a `get`/`set` MethodDefinition, e.g. `class C { get [expr]() {} }`).
+    // The compiler can't form a static `__getter_<name>` storage key for a
+    // computed name, so it evaluates the key at class-definition time and calls
+    // here. We coerce the key to a property-key string (symbols route through
+    // their storage key, matching the dynamic get/set paths), prepend the
+    // `__getter_`/`__setter_` prefix, and route through ts_object_set_method so
+    // the accessor gets the spec method descriptor {writable, !enumerable,
+    // configurable} and is found by the dynamic accessor-dispatch in
+    // ts_object_get_prop_v / ts_object_set_dynamic.
+    static void install_computed_accessor(TsValue* recv, TsValue* key,
+                                          TsValue* closure, const char* prefix) {
+        if (!recv || !key || !closure) return;
+        // ToPropertyKey: a symbol keeps its storage key; everything else is
+        // ToString'd (numbers → "1", null → "null", etc.) so the install key
+        // matches what the dynamic get/set paths build when reading the same
+        // computed key. ts_property_key_string only extracts existing strings
+        // (and symbols), so fall back to a full ToString for number/bool/etc.
+        TsString* keyStr = ts_property_key_string(key);
+        if (!keyStr) keyStr = (TsString*)ts_string_from_value(key);
+        if (!keyStr) return;
+        TsString* prefixStr = TsString::Create(prefix);
+        TsString* full = (TsString*)ts_string_concat(prefixStr, keyStr);
+        if (!full) return;
+        TsValue* keyBoxed = ts_value_make_string(full);
+        ts_object_set_method(recv, keyBoxed, closure);
+    }
+    // Two arity-3 (all-pointer) entry points so the compiler's generic
+    // ptr(ptr,ptr,ptr) runtime-call ABI matches without an int flag arg.
+    void ts_class_install_computed_getter(TsValue* recv, TsValue* key, TsValue* closure) {
+        install_computed_accessor(recv, key, closure, "__getter_");
+    }
+    void ts_class_install_computed_setter(TsValue* recv, TsValue* key, TsValue* closure) {
+        install_computed_accessor(recv, key, closure, "__setter_");
+    }
+
     // ============================================================
     // Value-passing variants (_v) - avoid heap allocation for TsValue
     // These take TsValue by value (16 bytes, fits in 2 registers)

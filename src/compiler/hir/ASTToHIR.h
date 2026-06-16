@@ -253,6 +253,12 @@ private:
     // Emit deferred static initializations and static blocks
     void emitDeferredStaticInits();
 
+    // Install a class's computed-name accessors (get/set [expr]) onto the
+    // prototype (instance) / constructor object (static).
+    void emitComputedAccessorInstalls(HIRClass* hirClass,
+                                      std::shared_ptr<HIRValue> proto,
+                                      std::shared_ptr<HIRValue> ctorVal);
+
     // Generate static init function for a class with decorators
     // (class, method, property, and parameter decorators)
     void generateClassDecoratorStaticInit(const std::string& className,

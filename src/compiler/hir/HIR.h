@@ -517,6 +517,18 @@ struct HIRClass {
     std::map<std::string, HIRFunction*> methods;
     std::map<std::string, HIRFunction*> staticMethods;
 
+    // Computed-name accessors (`get [expr]()` / `set [expr]()`). The storage
+    // key isn't known until the key expression is evaluated at class-definition
+    // time, so these can't live in the string-keyed `methods` map; they are
+    // installed at runtime in the deferred prototype-build pass.
+    struct ComputedAccessor {
+        void* keyExpr = nullptr;  // ast::Expression* (ComputedPropertyName key); void* to avoid an AST include here
+        HIRFunction* func = nullptr;
+        bool isSetter = false;
+        bool isStatic = false;
+    };
+    std::vector<ComputedAccessor> computedAccessors;
+
     // VTable for virtual dispatch
     std::vector<std::pair<std::string, HIRFunction*>> vtable;
 

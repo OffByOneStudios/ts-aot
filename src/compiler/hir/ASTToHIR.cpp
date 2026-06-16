@@ -2369,6 +2369,29 @@ std::shared_ptr<HIRType> ASTToHIR::convertType(const std::shared_ptr<ts::Type>& 
     }
 }
 
+// Install a class's computed-name accessors (`get [expr]()` / `set [expr]()`)
+// onto the freshly-built prototype (instance accessors) or constructor object
+// (static accessors). The key expression is evaluated here and the runtime
+// prepends the `__getter_`/`__setter_` prefix and applies the spec method
+// descriptor. Shared by the class-declaration deferred install and the
+// class-expression inline installs.
+void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
+                                            std::shared_ptr<HIRValue> proto,
+                                            std::shared_ptr<HIRValue> ctorVal) {
+    if (!hirClass) return;
+    for (auto& ca : hirClass->computedAccessors) {
+        if (!ca.func || !ca.keyExpr) continue;
+        auto keyVal = lowerExpression(static_cast<ast::Expression*>(ca.keyExpr));
+        auto closure = builder_.createLoadFunction(ca.func->name);
+        auto recv = ca.isStatic ? ctorVal : proto;
+        if (!recv) continue;
+        const char* installFn = ca.isSetter
+            ? "ts_class_install_computed_setter"
+            : "ts_class_install_computed_getter";
+        builder_.createCall(installFn, {recv, keyVal, closure}, HIRType::makeVoid());
+    }
+}
+
 //==============================================================================
 // Deferred Static Initialization
 //==============================================================================
@@ -2496,6 +2519,14 @@ void ASTToHIR::emitDeferredStaticInits() {
             auto methodClosure = builder_.createLoadFunction(methodFunc->name);
             installMethod(ctorVal, methodName, methodClosure);
         }
+
+        // Install computed-name accessors (`get [expr]()` / `set [expr]()`).
+        // ECMA-262 ClassDefinitionEvaluation evaluates each ComputedPropertyName
+        // at class-definition time; the resulting property key can't be a
+        // static `__getter_<name>` storage key, so the key expression is
+        // evaluated and the accessor installed onto the prototype (instance) or
+        // the constructor object (static).
+        emitComputedAccessorInstalls(hirClass, proto, ctorVal);
     }
     deferredClassPrototypes_.clear();
 
@@ -11635,12 +11666,23 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     }
 
     // Second pass: create methods
+    int computedAccessorSeq = 0;
     for (auto& memberPtr : node->members) {
         if (auto* methodDef = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
             // Skip abstract methods - they have no body
             if (methodDef->isAbstract || !methodDef->hasBody) {
                 continue;
             }
+
+            // Computed-name accessor (`get [expr]()` / `set [expr]()`): the
+            // storage key is only known once the key expression is evaluated at
+            // class-definition time, so it can't go in the string-keyed methods
+            // map. Give the function a collision-free symbol and route it to
+            // hirClass->computedAccessors for runtime install in the deferred
+            // prototype-build pass.
+            bool isComputedAccessor =
+                (methodDef->isGetter || methodDef->isSetter) &&
+                dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
 
             // Generate a unique function name for the method.
             // Static `constructor` is a static method, not the instance ctor —
@@ -11649,7 +11691,10 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // codegen on duplicate symbols).
             std::string methodFuncName;
             std::string methodKey = methodDef->name;  // Key used for registration in class
-            if (methodDef->name == "constructor" && !methodDef->isStatic) {
+            if (isComputedAccessor) {
+                methodFuncName = node->name + "___computed_acc_" +
+                                 std::to_string(computedAccessorSeq++);
+            } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 methodFuncName = node->name + "_constructor";
             } else if (methodDef->isGetter) {
                 // Getter: ClassName___getter_propName
@@ -11901,7 +11946,12 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // static method that happens to be named "constructor" — NOT
             // the class's instance constructor.
             HIRFunction* funcPtr = func.get();
-            if (methodDef->name == "constructor" && !methodDef->isStatic) {
+            if (isComputedAccessor) {
+                auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
+                hirClass->computedAccessors.push_back(
+                    {cpn ? cpn->expression.get() : nullptr, funcPtr,
+                     methodDef->isSetter, methodDef->isStatic});
+            } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {
                 // Use methodKey so static accessors get the
@@ -12095,7 +12145,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             lastValue_ = builder_.createLoadFunction(hirClass->name + "_constructor");
         }
         // Set up prototype object with instance methods for dynamic dispatch.
-        if (!hirClass->methods.empty()) {
+        if (!hirClass->methods.empty() || !hirClass->computedAccessors.empty()) {
             auto ctorVal = lastValue_;
             auto proto = builder_.createCall("ts_object_create_empty", {}, HIRType::makeAny());
             for (auto& [methodKey, methodFunc] : hirClass->methods) {
@@ -12104,6 +12154,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 builder_.createSetPropStatic(proto, methodKey, methodClosure);
             }
             builder_.createSetPropStatic(ctorVal, "prototype", proto);
+            emitComputedAccessorInstalls(hirClass, proto, ctorVal);
         }
         // Install static methods on the constructor for dynamic access.
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
@@ -12249,6 +12300,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     HIRFunction* savedFuncBeforeMethods = currentFunction_;
 
     // Second pass: create methods
+    int computedAccessorSeq = 0;
     for (auto& memberPtr : node->members) {
         if (auto* methodDef = dynamic_cast<ast::MethodDefinition*>(memberPtr.get())) {
             // Skip abstract methods - they have no body
@@ -12256,11 +12308,21 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 continue;
             }
 
+            // Computed-name accessor (`get [expr]()` / `set [expr]()`) — see
+            // the statements/class path: route to hirClass->computedAccessors
+            // for runtime install since the storage key isn't statically known.
+            bool isComputedAccessor =
+                (methodDef->isGetter || methodDef->isSetter) &&
+                dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
+
             // Generate a unique function name for the method.
             // Static `constructor` is a static method, not the instance ctor.
             std::string methodFuncName;
             std::string methodKey = methodDef->name;  // Key used for registration in class
-            if (methodDef->name == "constructor" && !methodDef->isStatic) {
+            if (isComputedAccessor) {
+                methodFuncName = className + "___computed_acc_" +
+                                 std::to_string(computedAccessorSeq++);
+            } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 methodFuncName = className + "_constructor";
             } else if (methodDef->isGetter) {
                 // Getter: ClassName___getter_propName
@@ -12512,7 +12574,12 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // static method that happens to be named "constructor" — NOT
             // the class's instance constructor.
             HIRFunction* funcPtr = func.get();
-            if (methodDef->name == "constructor" && !methodDef->isStatic) {
+            if (isComputedAccessor) {
+                auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
+                hirClass->computedAccessors.push_back(
+                    {cpn ? cpn->expression.get() : nullptr, funcPtr,
+                     methodDef->isSetter, methodDef->isStatic});
+            } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {
                 // Use methodKey so static accessors get the
@@ -12642,7 +12709,8 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // from the spec body when they have a class-expression initializer,
     // so the cache-fast-path's IR emission never happens.
     if (!currentFunction_) {
-        if (!hirClass->methods.empty() || !hirClass->staticMethods.empty()) {
+        if (!hirClass->methods.empty() || !hirClass->staticMethods.empty() ||
+            !hirClass->computedAccessors.empty()) {
             bool already = false;
             for (auto* c : deferredClassPrototypes_) if (c == hirClass) { already = true; break; }
             if (!already) deferredClassPrototypes_.push_back(hirClass);
@@ -12663,7 +12731,9 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     // Set up prototype object with instance methods for dynamic dispatch.
     // This is critical for untyped JS classes (e.g. npm modules) where method
     // calls go through ts_object_get_property -> prototype chain lookup.
-    if (!hirClass->methods.empty()) {
+    // Build the prototype when there are instance methods OR computed-name
+    // accessors (the latter aren't in the static `methods` map).
+    if (!hirClass->methods.empty() || !hirClass->computedAccessors.empty()) {
         auto ctorVal = lastValue_;
 
         // Create prototype TsMap
@@ -12683,6 +12753,10 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
 
         // Set constructor.prototype = proto
         builder_.createSetPropStatic(ctorVal, "prototype", proto);
+
+        // Computed-name accessors install inline here (the prototype is rebuilt
+        // at this point, which would clobber a deferred install).
+        emitComputedAccessorInstalls(hirClass, proto, ctorVal);
     }
     // Install static methods on the constructor itself so dynamic-dispatch
     // access like `F.method()` resolves correctly when `F` is a class-
