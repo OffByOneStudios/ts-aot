@@ -12016,6 +12016,24 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
 void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     setSourceLine(node);
 
+    // ECMA-262 ClassDefinitionEvaluation: the inferred/binding name
+    // (SetFunctionName) is applied ONLY when the class has no own `name`. A
+    // static `name` element — `static name(){}`, `static name = v`,
+    // `static get name(){}` — provides the class's .name, so suppress the
+    // pending inferred name when one is present (`xCls = class { static name(){}
+    // }` keeps the static member, not "xCls"). A non-static `name` member lives
+    // on the prototype and does NOT count.
+    if (!pendingClosureDisplayName_.empty()) {
+        for (auto& m : node->members) {
+            bool staticName = false;
+            if (auto* pd = dynamic_cast<ast::PropertyDefinition*>(m.get()))
+                staticName = pd->isStatic && pd->name == "name";
+            else if (auto* md = dynamic_cast<ast::MethodDefinition*>(m.get()))
+                staticName = md->isStatic && md->name == "name";
+            if (staticName) { pendingClosureDisplayName_.clear(); break; }
+        }
+    }
+
     // Phase 9c-i: if this AST node was already pre-registered in pass 1, skip
     // straight to the trailer (loadFunction + prototype setup) and don't
     // re-create the class. The pre-pass call had no current function so the
