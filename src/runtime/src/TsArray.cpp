@@ -3703,7 +3703,19 @@ extern "C" {
                     TsValue rf = nanbox_to_tagged(retFn);
                     if ((rf.type == ValueType::OBJECT_PTR || rf.type == ValueType::FUNCTION_PTR)
                         && rf.ptr_val) {
-                        ts_call_with_this_0(retFn, iter);
+                        TsValue* res = ts_call_with_this_0(retFn, iter);
+                        // ECMA-262 7.4.11 IteratorClose (normal completion): if
+                        // the iterator's return() yields a non-Object value,
+                        // throw a TypeError. (A return() that itself throws
+                        // propagates normally through ts_call_with_this_0.)
+                        TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
+                        if (rv.type != ValueType::OBJECT_PTR &&
+                            rv.type != ValueType::ARRAY_PTR &&
+                            rv.type != ValueType::FUNCTION_PTR) {
+                            ts_throw((TsValue*)ts_error_create_typed(
+                                "TypeError",
+                                "iterator result return() is not an object"));
+                        }
                     }
                 }
             }
