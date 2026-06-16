@@ -8186,36 +8186,27 @@ void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
         regularArgs.push_back(arg);
     }
 
-    // Use ts_call_N based on argument count
-    // All ts_call_N functions take boxed TsValue* arguments and return TsValue*
+    // Emit ONE unified ts_call(callable, argc, a0..a8): args padded to 9
+    // undefined slots, count passed explicitly (the runtime ignores slots
+    // >= argc). >9 args fall back to ts_call_n's argc/argv array.
     llvm::Value* result = nullptr;
     size_t argCount = regularArgs.size();
 
-    if (argCount == 0) {
-        auto ft = llvm::FunctionType::get(getGCPtrTy(), { getGCPtrTy() }, false);
-        auto fn = module_->getOrInsertFunction("ts_call_0", ft);
-        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr });
-    } else if (argCount == 1) {
-        auto ft = llvm::FunctionType::get(getGCPtrTy(), { getGCPtrTy(), getGCPtrTy() }, false);
-        auto fn = module_->getOrInsertFunction("ts_call_1", ft);
-        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr, regularArgs[0] });
-    } else if (argCount == 2) {
-        auto ft = llvm::FunctionType::get(getGCPtrTy(),
-            { getGCPtrTy(), getGCPtrTy(), getGCPtrTy() }, false);
-        auto fn = module_->getOrInsertFunction("ts_call_2", ft);
-        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr, regularArgs[0], regularArgs[1] });
-    } else if (argCount == 3) {
-        auto ft = llvm::FunctionType::get(getGCPtrTy(),
-            { getGCPtrTy(), getGCPtrTy(), getGCPtrTy(), getGCPtrTy() }, false);
-        auto fn = module_->getOrInsertFunction("ts_call_3", ft);
-        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr, regularArgs[0], regularArgs[1], regularArgs[2] });
-    } else if (argCount == 4) {
-        auto ft = llvm::FunctionType::get(getGCPtrTy(),
-            { getGCPtrTy(), getGCPtrTy(), getGCPtrTy(), getGCPtrTy(), getGCPtrTy() }, false);
-        auto fn = module_->getOrInsertFunction("ts_call_4", ft);
-        result = builder_->CreateCall(ft, fn.getCallee(), { callablePtr, regularArgs[0], regularArgs[1], regularArgs[2], regularArgs[3] });
+    if (argCount <= 9) {
+        llvm::Value* undef = builder_->CreateIntToPtr(
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0A), getGCPtrTy());
+        std::vector<llvm::Value*> callArgs;
+        callArgs.push_back(callablePtr);
+        callArgs.push_back(llvm::ConstantInt::get(builder_->getInt64Ty(), (int64_t)argCount));
+        for (size_t i = 0; i < 9; ++i)
+            callArgs.push_back(i < argCount ? regularArgs[i] : undef);
+        std::vector<llvm::Type*> paramTypes = { getGCPtrTy(), builder_->getInt64Ty() };
+        for (int i = 0; i < 9; ++i) paramTypes.push_back(getGCPtrTy());
+        auto ft = llvm::FunctionType::get(getGCPtrTy(), paramTypes, false);
+        auto fn = module_->getOrInsertFunction("ts_call", ft);
+        result = builder_->CreateCall(ft, fn.getCallee(), callArgs);
     } else {
-        // For >4 arguments, use ts_call_n with argc/argv array
+        // For >9 arguments, use ts_call_n with argc/argv array
         auto arrayType = llvm::ArrayType::get(getGCPtrTy(), argCount);
         auto alloca = builder_->CreateAlloca(arrayType);
         for (size_t i = 0; i < argCount; ++i) {
@@ -11814,31 +11805,28 @@ llvm::Value* HIRToLLVM::emitDynamicMethodCall(llvm::Value* funcVal, llvm::Value*
         boxedArgs.push_back(arg);
     }
 
-    // Build call args: [funcVal, thisArg, arg0, arg1, ...]
-    std::vector<llvm::Value*> callArgs;
-    callArgs.push_back(funcVal);
-    callArgs.push_back(thisArg);
-    for (auto* arg : boxedArgs) {
-        callArgs.push_back(arg);
+    // Emit ONE unified ts_call_with_this(func, thisArg, argc, a0..a8): args
+    // padded to 9 undefined slots, count explicit (runtime ignores slots
+    // >= argc). Collapses the ts_call_with_this_0..8 family and fixes the old
+    // >8-args silent-null (now >9; 9-arg method calls work).
+    if (argCount <= 9) {
+        llvm::Value* undef = builder_->CreateIntToPtr(
+            llvm::ConstantInt::get(builder_->getInt64Ty(), 0x0A), getGCPtrTy());
+        std::vector<llvm::Value*> callArgs;
+        callArgs.push_back(funcVal);
+        callArgs.push_back(thisArg);
+        callArgs.push_back(llvm::ConstantInt::get(builder_->getInt64Ty(), (int64_t)argCount));
+        for (size_t i = 0; i < 9; ++i)
+            callArgs.push_back(i < boxedArgs.size() ? boxedArgs[i] : undef);
+        std::vector<llvm::Type*> paramTypes = { getGCPtrTy(), getGCPtrTy(), builder_->getInt64Ty() };
+        for (int i = 0; i < 9; ++i) paramTypes.push_back(getGCPtrTy());
+        auto callFt = llvm::FunctionType::get(getGCPtrTy(), paramTypes, false);
+        auto callFn = module_->getOrInsertFunction("ts_call_with_this", callFt);
+        return builder_->CreateCall(callFt, callFn.getCallee(), callArgs);
     }
-
-    // Build the function type: all args are ptr (TsValue*)
-    std::vector<llvm::Type*> paramTypes(callArgs.size(), getGCPtrTy());
-    llvm::FunctionType* callFt = llvm::FunctionType::get(
-        getGCPtrTy(), paramTypes, false);
-
-    // Get the appropriate ts_call_with_this_N function
-    std::string fnName;
-    if (argCount <= 8) {
-        fnName = "ts_call_with_this_" + std::to_string(argCount);
-    } else {
-        // For more than 8 arguments, fall back to null (need array-based version)
-        SPDLOG_WARN("Dynamic method call with {} args not fully implemented", argCount);
-        return llvm::ConstantPointerNull::get(getGCPtrTy());
-    }
-
-    llvm::FunctionCallee callFn = module_->getOrInsertFunction(fnName, callFt);
-    return builder_->CreateCall(callFt, callFn.getCallee(), callArgs);
+    // >9 args: rare; the array-based dynamic-method path isn't implemented.
+    SPDLOG_WARN("Dynamic method call with {} args not fully implemented", argCount);
+    return llvm::ConstantPointerNull::get(getGCPtrTy());
 }
 
 //==============================================================================

@@ -5212,6 +5212,28 @@ TsValue* ts_value_make_int(int64_t i) {
         return ((Fn9)fp)(ctx, a1, a2, a3, a4, a5, a6, a7, a8, a9);
     }
 
+    // This-first counterpart of call_closure_padded9 for Convention-B (method)
+    // closures: trampoline shape (closure, this, arg1..arg9). Extra padding
+    // slots beyond the trampoline's declared arity are dropped by the callee
+    // (MS x64: caller cleans up).
+    static inline TsValue* call_closure_padded9_method(
+        TsClosure* closure, TsValue* thisArg,
+        TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4,
+        TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9) {
+        typedef TsValue* (*Fn10)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*,
+                                        TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+        return ((Fn10)closure->func_ptr)(closure, thisArg, a1, a2, a3, a4, a5, a6, a7, a8, a9);
+    }
+
+    // Canonical call dispatchers — the SINGLE place the closure/proxy/native/
+    // inner-closure + is_method + rest dispatch logic lives. The ts_call_N /
+    // ts_call_with_this_N families forward to these (each was previously a
+    // hand-unrolled, subtly-divergent copy — e.g. the ts_gc_base guard appeared
+    // in some N and not others). Defined after maybe_override_context below.
+    static TsValue* call_dispatch_n(TsValue* boxedFunc, int argc, TsValue** argv);
+    static TsValue* call_dispatch_with_this(TsValue* boxedFunc, TsValue* thisArg,
+                                            int argc, TsValue** argv);
+
     // Helper to extract TsClosure from a boxed or raw value
     static TsClosure* ts_extract_closure(TsValue* boxedFunc) {
         if (!boxedFunc) return nullptr;
@@ -5650,6 +5672,106 @@ TsValue* ts_value_make_int(int64_t i) {
             func->context = thisArg;
         }
         return savedCtx;
+    }
+
+    // Canonical NO-receiver call dispatch (the single implementation behind the
+    // ts_call_0..10 family). Replicates the union of their behavior: the
+    // corruption guard (ts_gc_base) that some N had and others didn't; rest-param
+    // packing on the closure path; the proxy / native / inner-closure paths.
+    static TsValue* call_dispatch_n(TsValue* boxedFunc, int argc, TsValue** argv) {
+        ts_last_call_argc = argc;
+        TsValue* u = ts_value_make_undefined();
+        auto A = [&](int i) -> TsValue* { return (i < argc && argv) ? argv[i] : u; };
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            void* fp = closure->func_ptr;
+            if (fp && ts_gc_base(fp)) return u;  // func_ptr in GC heap => corrupt
+            if (closure->rest_param_index >= 0)
+                return ts_rest_pack_and_call(closure, argc, argv);
+            return call_closure_padded9(closure, A(0), A(1), A(2), A(3), A(4),
+                                                 A(5), A(6), A(7), A(8));
+        }
+        TsProxy* proxy = ts_extract_proxy(boxedFunc);
+        if (proxy) {
+            TsArray* argsArr = TsArray::Create((size_t)(argc > 0 ? argc : 0));
+            for (int i = 0; i < argc; i++) argsArr->Push((int64_t)A(i));
+            return proxy->apply(nullptr, (TsValue*)argsArr, argc);
+        }
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) return u;
+        if (func->type == FunctionType::NATIVE) {
+            void* fp = func->funcPtr;
+            if (fp && ts_gc_base(fp)) return u;
+            return ((TsFunctionPtr)fp)(func->context, argc, argv);
+        }
+        TsClosure* innerClosure = ts_funcptr_as_closure(func->funcPtr);
+        if (innerClosure) {
+            void* fp = innerClosure->func_ptr;
+            if (fp && ts_gc_base(fp)) return u;
+            return call_closure_padded9(innerClosure, A(0), A(1), A(2), A(3), A(4),
+                                                      A(5), A(6), A(7), A(8));
+        }
+        void* fp = func->funcPtr;
+        if (fp && ts_gc_base(fp)) return u;
+        return call_funcptr_padded9(fp, func->context, A(0), A(1), A(2), A(3), A(4),
+                                                       A(5), A(6), A(7), A(8));
+    }
+
+    // Canonical WITH-receiver call dispatch (the single implementation behind the
+    // ts_call_with_this_0..8 family). Sets/restores the ts_call_this_value global,
+    // honors closure->is_method (this-first trampoline), and routes plain
+    // TsFunctions through maybe_override_context + the no-receiver dispatch —
+    // exactly as the unrolled functions did. (Matches their no-rest-on-the-
+    // closure-path behavior.)
+    static TsValue* call_dispatch_with_this(TsValue* boxedFunc, TsValue* thisArg,
+                                            int argc, TsValue** argv) {
+        ts_last_call_argc = argc;
+        void* savedThis = ts_call_this_value;
+        ts_call_this_value = thisArg;
+        TsValue* u = ts_value_make_undefined();
+        auto A = [&](int i) -> TsValue* { return (i < argc && argv) ? argv[i] : u; };
+        TsClosure* closure = ts_extract_closure(boxedFunc);
+        if (closure) {
+            void* fp = closure->func_ptr;
+            if (!fp || ts_gc_base(fp)) { ts_call_this_value = savedThis; return u; }
+            TsValue* result;
+            if (closure->is_method) {
+                result = call_closure_padded9_method(closure, thisArg,
+                    A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8));
+            } else {
+                result = call_closure_padded9(closure,
+                    A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8));
+            }
+            ts_call_this_value = savedThis;
+            return result;
+        }
+        TsFunction* func = ts_extract_function(boxedFunc);
+        if (!func) { ts_call_this_value = savedThis; return u; }
+        void* savedCtx = maybe_override_context(func, thisArg);
+        TsValue* result = call_dispatch_n(boxedFunc, argc, argv);
+        func->context = savedCtx;
+        ts_call_this_value = savedThis;
+        return result;
+    }
+
+    // Unified call entry points. The compiler emits these (instead of selecting
+    // one of ts_call_0..10 / ts_call_with_this_0..8 by arity) with the arg count
+    // passed EXPLICITLY and the unused arg slots padded with undefined. This
+    // collapses the ~20 hand-unrolled call functions to a single dispatch each
+    // and turns ts_last_call_argc from a global the caller had to set per-site
+    // into a plain parameter. For >9 args the compiler still uses the array
+    // forms (ts_call_n / ts_function_call_with_this).
+    TsValue* ts_call(TsValue* boxedFunc, int64_t argc,
+                     TsValue* a0, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4,
+                     TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8) {
+        TsValue* argv[9] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
+        return call_dispatch_n(boxedFunc, (int)argc, argv);
+    }
+    TsValue* ts_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int64_t argc,
+                               TsValue* a0, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4,
+                               TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8) {
+        TsValue* argv[9] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
+        return call_dispatch_with_this(boxedFunc, thisArg, (int)argc, argv);
     }
 
     // ts_call_with_this_X functions: call a function with a specific 'this' binding
