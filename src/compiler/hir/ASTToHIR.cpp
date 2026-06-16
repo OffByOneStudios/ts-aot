@@ -10835,6 +10835,36 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
             dp.objPattern, dp.arrPattern, dp.defaultInitializer);
     }
 
+    // Create the 'arguments' object if the method body references it (object-
+    // literal methods, getters/setters, etc. lowered via this path lacked it).
+    // In the eager param prologue so generator/async methods capture call args.
+    {
+        bool usesArguments = false;
+        for (auto& stmt : node->body) {
+            if (containsArgumentsIdentifier(stmt.get())) { usesArguments = true; break; }
+        }
+        if (usesArguments) {
+            std::vector<std::shared_ptr<HIRValue>> callArgs;
+            size_t userIdx = 0;
+            for (size_t i = 0; i < func->params.size() && userIdx < 10; ++i) {
+                if (func->params[i].first == "__closure__") continue;
+                auto paramVal = lookupVariable(func->params[i].first);
+                if (!paramVal) paramVal = builder_.createConstUndefined();
+                callArgs.push_back(paramVal);
+                userIdx++;
+            }
+            while (userIdx < 10) {
+                callArgs.push_back(builder_.createConstUndefined());
+                userIdx++;
+            }
+            auto argsArray = builder_.createCall(
+                "ts_create_arguments_from_params", callArgs, HIRType::makeAny());
+            auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
+            builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
+            defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
+        }
+    }
+
     // Async generators: end of PARAMETER prologue — body throws after this
     // reject the first next() promise (ts_agen_should_reject).
     if (func->isAsync && func->isGenerator) {
