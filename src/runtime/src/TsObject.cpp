@@ -5846,8 +5846,14 @@ TsValue* ts_value_make_int(int64_t i) {
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             TsValue* result;
-            typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            result = ((Fn5)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5);
+            if (closure->is_method) {
+                // Convention B (this-first): trampoline shape (closure, this, args).
+                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                result = ((FnM)closure->func_ptr)(closure, thisArg, arg1, arg2, arg3, arg4, arg5);
+            } else {
+                typedef TsValue* (*Fn5)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                result = ((Fn5)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5);
+            }
             ts_call_this_value = savedThis;
             return result;
         }
@@ -5875,8 +5881,13 @@ TsValue* ts_value_make_int(int64_t i) {
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             TsValue* result;
-            typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            result = ((Fn6)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6);
+            if (closure->is_method) {
+                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                result = ((FnM)closure->func_ptr)(closure, thisArg, arg1, arg2, arg3, arg4, arg5, arg6);
+            } else {
+                typedef TsValue* (*Fn6)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                result = ((Fn6)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6);
+            }
             ts_call_this_value = savedThis;
             return result;
         }
@@ -5904,8 +5915,13 @@ TsValue* ts_value_make_int(int64_t i) {
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             TsValue* result;
-            typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            result = ((Fn7)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            if (closure->is_method) {
+                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                result = ((FnM)closure->func_ptr)(closure, thisArg, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            } else {
+                typedef TsValue* (*Fn7)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                result = ((Fn7)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            }
             ts_call_this_value = savedThis;
             return result;
         }
@@ -5933,8 +5949,13 @@ TsValue* ts_value_make_int(int64_t i) {
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
             TsValue* result;
-            typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
-            result = ((Fn8)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+            if (closure->is_method) {
+                typedef TsValue* (*FnM)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                result = ((FnM)closure->func_ptr)(closure, thisArg, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+            } else {
+                typedef TsValue* (*Fn8)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+                result = ((Fn8)closure->func_ptr)(closure, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+            }
             ts_call_this_value = savedThis;
             return result;
         }
