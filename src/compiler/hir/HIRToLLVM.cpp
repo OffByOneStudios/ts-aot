@@ -7491,6 +7491,21 @@ void HIRToLLVM::lowerCallMethod(HIRInstruction* inst) {
                 args.resize(fnType->getNumParams());
             }
 
+            // Set ts_last_call_argc (JS arg count, receiver excluded) so the
+            // callee's `arguments` object reports the right length/elements.
+            // This direct method-call path bypasses ts_call_with_this_N (which
+            // would otherwise set it). operands[0]=obj, [1]=method name,
+            // [2..]=JS args.
+            {
+                int64_t jsArgc = (int64_t)inst->operands.size() - 2;
+                if (jsArgc < 0) jsArgc = 0;
+                auto setArgcFt = llvm::FunctionType::get(
+                    builder_->getVoidTy(), { builder_->getInt64Ty() }, false);
+                auto setArgcFn = module_->getOrInsertFunction("ts_set_last_call_argc", setArgcFt);
+                builder_->CreateCall(setArgcFt, setArgcFn.getCallee(),
+                    { llvm::ConstantInt::get(builder_->getInt64Ty(), jsArgc) });
+            }
+
             llvm::Value* result = builder_->CreateCall(fn, args);
             if (inst->result) {
                 setValue(inst->result, result);

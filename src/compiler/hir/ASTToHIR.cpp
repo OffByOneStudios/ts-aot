@@ -1706,6 +1706,45 @@ std::unique_ptr<HIRModule> ASTToHIR::lower(ast::Program* program,
                 }
             }
 
+            // Create the 'arguments' object if the method body references it.
+            // Class methods lowered via this monomorphized path previously lacked
+            // it, so `arguments` was undefined. Mirrors the object-literal method
+            // site; in the eager param prologue so generator/async methods
+            // capture call-time args. The physical `this` (slot 0 for instance
+            // methods) and `__closure__` are EXCLUDED — `arguments` holds JS
+            // args only, and ts_last_call_argc is already the JS argc (set by
+            // ts_call_with_this_N, receiver excluded). Always emit exactly 10
+            // operands: ts_create_arguments_from_params is declared lazily with
+            // arity fixed by the first call site, so a differing count fails LLVM
+            // verification ("Incorrect number of arguments passed").
+            {
+                bool usesArguments = false;
+                for (auto& stmt : methodNode->body) {
+                    if (containsArgumentsIdentifier(stmt.get())) { usesArguments = true; break; }
+                }
+                if (usesArguments) {
+                    std::vector<std::shared_ptr<HIRValue>> callArgs;
+                    size_t userIdx = 0;
+                    for (size_t i = 0; i < methPtr->params.size() && userIdx < 10; ++i) {
+                        if (methPtr->params[i].first == "__closure__" ||
+                            methPtr->params[i].first == "this") continue;
+                        auto paramVal = lookupVariable(methPtr->params[i].first);
+                        if (!paramVal) paramVal = builder_.createConstUndefined();
+                        callArgs.push_back(paramVal);
+                        userIdx++;
+                    }
+                    while (userIdx < 10) {
+                        callArgs.push_back(builder_.createConstUndefined());
+                        userIdx++;
+                    }
+                    auto argsArray = builder_.createCall(
+                        "ts_create_arguments_from_params", callArgs, HIRType::makeAny());
+                    auto allocaVal = builder_.createAlloca(HIRType::makeAny(), "arguments");
+                    builder_.createStore(argsArray, allocaVal, HIRType::makeAny());
+                    defineVariableAlloca("arguments", allocaVal, HIRType::makeAny());
+                }
+            }
+
             // Async generators: end of PARAMETER prologue — body throws after
             // this reject the first next() promise (ts_agen_should_reject).
             // Mirrors the FunctionDeclaration/arrow/funcExpr/method sites.
@@ -6559,6 +6598,8 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     if (method->isGenerator) {
                         resultType = HIRType::makeClass("Generator", 0);
                     }
+                    builder_.createCall("ts_set_last_call_argc",
+                        {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
                     lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
                     return;
                 }
@@ -6591,6 +6632,8 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                     std::vector<std::shared_ptr<HIRValue>> methodArgs;
                     methodArgs.push_back(obj);
                     for (auto& arg : args) methodArgs.push_back(arg);
+                    builder_.createCall("ts_set_last_call_argc",
+                        {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
                     lastValue_ = builder_.createCall(methodFuncName, methodArgs, HIRType::makeAny());
                     return;
                 }
@@ -6617,6 +6660,8 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                 if (method->isGenerator) {
                     resultType = HIRType::makeClass("Generator", 0);
                 }
+                builder_.createCall("ts_set_last_call_argc",
+                    {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
                 lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
                 return;
             } else {
@@ -6648,6 +6693,8 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         if (method->isGenerator) {
                             resultType = HIRType::makeClass("Generator", 0);
                         }
+                        builder_.createCall("ts_set_last_call_argc",
+                            {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
                         lastValue_ = builder_.createCall(method->name, methodArgs, resultType);
                         return;
                     }
@@ -6749,6 +6796,8 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                             for (auto& arg : args) {
                                 methodArgs.push_back(arg);
                             }
+                            builder_.createCall("ts_set_last_call_argc",
+                                {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
                             lastValue_ = builder_.createCall(methodFuncName, methodArgs, resultType);
                             return;
                         }
@@ -6899,6 +6948,8 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
                         auto boxedClassV = boxValueIfNeeded(classObjV);
                         auto savedThisV = builder_.createCall("ts_get_call_this", {}, HIRType::makeAny());
                         builder_.createCall("ts_set_call_this", {boxedClassV}, HIRType::makeVoid());
+                        builder_.createCall("ts_set_last_call_argc",
+                            {builder_.createConstInt((int64_t)node->arguments.size())}, HIRType::makeVoid());
                         lastValue_ = builder_.createCall(method->name, calleeArgs, method->returnType);
                         builder_.createCall("ts_set_call_this", {savedThisV}, HIRType::makeVoid());
                         return;
@@ -10878,7 +10929,11 @@ std::shared_ptr<HIRValue> ASTToHIR::lowerMethodDefinitionToFunction(ast::MethodD
             std::vector<std::shared_ptr<HIRValue>> callArgs;
             size_t userIdx = 0;
             for (size_t i = 0; i < func->params.size() && userIdx < 10; ++i) {
-                if (func->params[i].first == "__closure__") continue;
+                // `arguments` holds JS args only — exclude the receiver `this`
+                // (slot 0 for object-literal methods/getters/setters) and the
+                // synthetic closure param.
+                if (func->params[i].first == "__closure__" ||
+                    func->params[i].first == "this") continue;
                 auto paramVal = lookupVariable(func->params[i].first);
                 if (!paramVal) paramVal = builder_.createConstUndefined();
                 callArgs.push_back(paramVal);
