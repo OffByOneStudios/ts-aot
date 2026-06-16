@@ -8566,6 +8566,27 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
             funcName.find("_static_") == std::string::npos) {
             isClassMethod = true;
         }
+        // Shape-based fallback: any closure whose underlying function is
+        // `this`-first (first HIR param named "this") AND for which a real
+        // trampoline was created — i.e. the `(closure, this, args)` shape — is a
+        // method closure. This reliably catches class accessors/methods
+        // installed via the cached-closure path whose registered name doesn't
+        // match cls->methods above (e.g. `C___setter_2` for `set 0b10()`), so
+        // ts_call_with_this_N routes the receiver into the `this` slot instead
+        // of arg0. Excludes raw object-literal accessors (getOrCreateTrampoline
+        // early-returns the raw fn for the __getter_/__setter_/__method_
+        // prefixes, so trampolineFunc == fn here) and statics / free functions
+        // (first param is not "this").
+        if (!isClassMethod && trampolineFunc && trampolineFunc != fn && hirModule_) {
+            for (const auto& hirFn : hirModule_->functions) {
+                if ((hirFn->name == funcName || hirFn->mangledName == funcName)
+                    && !hirFn->params.empty()
+                    && hirFn->params[0].first == "this") {
+                    isClassMethod = true;
+                    break;
+                }
+            }
+        }
         if (isClassMethod) {
             auto setMethodFt = llvm::FunctionType::get(
                 builder_->getVoidTy(),
