@@ -170,7 +170,7 @@ TsZlibBase::~TsZlibBase() {
 void TsZlibBase::Flush(int kind, void* callback) {
     // Base implementation - subclasses override
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, nullptr);
+        tsCall((TsValue*)callback, nullptr, nullptr);
     }
 }
 
@@ -178,7 +178,7 @@ void TsZlibBase::Close(void* callback) {
     closeCallback = callback;
     // Subclasses should clean up their resources
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, nullptr);
+        tsCall((TsValue*)callback, nullptr, nullptr);
     }
 }
 
@@ -726,7 +726,7 @@ static void zlib_async_execute(void* work) {
 static void zlib_async_complete(ZlibAsyncWork* w) {
     if (w->callback) {
         // Node.js callback pattern: callback(err, result)
-        ts_call_2((TsValue*)w->callback, nullptr, (TsValue*)w->result);
+        tsCall((TsValue*)w->callback, nullptr, (TsValue*)w->result);
     }
 }
 
@@ -734,63 +734,63 @@ extern "C" void ts_zlib_gzip(void* buffer, void* options, void* callback) {
     // For simplicity, run synchronously and call callback
     void* result = ts_zlib_gzip_sync(buffer, options);
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, (TsValue*)result);
+        tsCall((TsValue*)callback, nullptr, (TsValue*)result);
     }
 }
 
 extern "C" void ts_zlib_gunzip(void* buffer, void* options, void* callback) {
     void* result = ts_zlib_gunzip_sync(buffer, options);
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, (TsValue*)result);
+        tsCall((TsValue*)callback, nullptr, (TsValue*)result);
     }
 }
 
 extern "C" void ts_zlib_deflate(void* buffer, void* options, void* callback) {
     void* result = ts_zlib_deflate_sync(buffer, options);
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, (TsValue*)result);
+        tsCall((TsValue*)callback, nullptr, (TsValue*)result);
     }
 }
 
 extern "C" void ts_zlib_inflate(void* buffer, void* options, void* callback) {
     void* result = ts_zlib_inflate_sync(buffer, options);
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, (TsValue*)result);
+        tsCall((TsValue*)callback, nullptr, (TsValue*)result);
     }
 }
 
 extern "C" void ts_zlib_deflate_raw(void* buffer, void* options, void* callback) {
     void* result = ts_zlib_deflate_raw_sync(buffer, options);
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, (TsValue*)result);
+        tsCall((TsValue*)callback, nullptr, (TsValue*)result);
     }
 }
 
 extern "C" void ts_zlib_inflate_raw(void* buffer, void* options, void* callback) {
     void* result = ts_zlib_inflate_raw_sync(buffer, options);
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, (TsValue*)result);
+        tsCall((TsValue*)callback, nullptr, (TsValue*)result);
     }
 }
 
 extern "C" void ts_zlib_unzip(void* buffer, void* options, void* callback) {
     void* result = ts_zlib_unzip_sync(buffer, options);
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, (TsValue*)result);
+        tsCall((TsValue*)callback, nullptr, (TsValue*)result);
     }
 }
 
 extern "C" void ts_zlib_brotli_compress(void* buffer, void* options, void* callback) {
     void* result = ts_zlib_brotli_compress_sync(buffer, options);
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, (TsValue*)result);
+        tsCall((TsValue*)callback, nullptr, (TsValue*)result);
     }
 }
 
 extern "C" void ts_zlib_brotli_decompress(void* buffer, void* options, void* callback) {
     void* result = ts_zlib_brotli_decompress_sync(buffer, options);
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, (TsValue*)result);
+        tsCall((TsValue*)callback, nullptr, (TsValue*)result);
     }
 }
 
@@ -1136,7 +1136,7 @@ void TsDeflate::Params(int newLevel, int newStrategy, void* callback) {
         strategy = newStrategy;
     }
     if (callback) {
-        ts_call_2((TsValue*)callback, nullptr, nullptr);
+        tsCall((TsValue*)callback, nullptr, nullptr);
     }
 }
 

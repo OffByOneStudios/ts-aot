@@ -1308,7 +1308,7 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 // `funcPtr(context)` only worked for functions that ignore
                 // argc/argv like TsGenerator's identity [Symbol.iterator].
                 TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
-                return ts_call_0(boxedFn);
+                return tsCall(boxedFn);
             }
 
             // Check if it already has a next method (is already an iterator)
@@ -1342,7 +1342,7 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                 // `funcPtr(context)` only worked for functions that ignore
                 // argc/argv like TsGenerator's identity [Symbol.iterator].
                 TsValue* boxedFn = (TsValue*)iterMethod.ptr_val;
-                return ts_call_0(boxedFn);
+                return tsCall(boxedFn);
             }
 
             // Check if it already has a next method (is already an iterator)
@@ -1628,7 +1628,7 @@ void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValu
 
     if ((cb.onFinally.type == ValueType::OBJECT_PTR ||
          cb.onFinally.type == ValueType::FUNCTION_PTR) && cb.onFinally.ptr_val) {
-        ts_call_0(nanbox_from_tagged(cb.onFinally));
+        tsCall(nanbox_from_tagged(cb.onFinally));
         if (cb.nextPromise) {
             if (promise->state == PromiseState::Fulfilled) {
                 ts_promise_resolve_internal(cb.nextPromise, nbValue);
@@ -1658,7 +1658,7 @@ void ts_promise_run_callback(TsPromise* promise, TsPromise::Callback& cb, TsValu
             // longjmp dies with STATUS_BAD_FUNCTION_TABLE (0xc00000ff).
             ((_JUMP_BUFFER*)env)->Frame = 0;
 #endif
-            result = ts_call_1(nanbox_from_tagged(handler), nbValue);
+            result = tsCall(nanbox_from_tagged(handler), nbValue);
             ts_pop_exception_handler();
         } else {
             // ts_throw already popped our handler.
@@ -1920,7 +1920,7 @@ TsValue* ts_promise_new(TsValue* executor) {
         // See promise_iterable_to_array: register-restore longjmp only.
         ((_JUMP_BUFFER*)env)->Frame = 0;
 #endif
-        ts_call_2(executor, resolveArg, rejectArg);
+        tsCall(executor, resolveArg, rejectArg);
         ts_pop_exception_handler();
     } else {
         // ts_throw already popped our handler.

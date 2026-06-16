@@ -142,7 +142,7 @@ void TsUDPSocket::Bind(int port, const char* address, void* callback) {
 
     // Call callback if provided
     if (callback) {
-        ts_call_0((TsValue*)callback);
+        tsCall((TsValue*)callback);
     }
 }
 
@@ -276,9 +276,9 @@ void TsUDPSocket::OnSend(uv_udp_send_t* req, int status) {
     if (ctx->callback) {
         if (status != 0) {
             TsValue* err = (TsValue*)ts_error_create(TsString::Create(uv_strerror(status)));
-            ts_call_1((TsValue*)ctx->callback, err);
+            tsCall((TsValue*)ctx->callback, err);
         } else {
-            ts_call_0((TsValue*)ctx->callback);
+            tsCall((TsValue*)ctx->callback);
         }
     }
 }
@@ -312,7 +312,7 @@ void TsUDPSocket::OnClose(uv_handle_t* handle) {
 
     // Call callback if provided
     if (self->closeCallback_) {
-        ts_call_0((TsValue*)self->closeCallback_);
+        tsCall((TsValue*)self->closeCallback_);
     }
 }
 
@@ -421,7 +421,7 @@ void TsUDPSocket::Connect(int port, const char* address, void* callback) {
 
     // Call callback if provided
     if (callback) {
-        ts_call_0((TsValue*)callback);
+        tsCall((TsValue*)callback);
     }
 }
 

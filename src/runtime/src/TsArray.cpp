@@ -915,7 +915,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
                 if (thisArg)
                     ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr);
                 else
-                    ts_call_3((TsValue*)callback, v, idx, arr);
+                    tsCall((TsValue*)callback, v, idx, arr);
             }
         }
         return;
@@ -942,7 +942,7 @@ void TsArray::ForEach(void* callback, void* thisArg) {
         if (thisArgV)
             ts_call_with_this_3(cbVal, thisArgV, v, idx, arr);
         else
-            ts_call_3(cbVal, v, idx, arr);
+            tsCall(cbVal, v, idx, arr);
     }
 }
 
@@ -975,7 +975,7 @@ void* TsArray::Map(void* callback, void* thisArg) {
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = thisArg
                     ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : ts_call_3((TsValue*)callback, v, idx, arr);
+                    : tsCall((TsValue*)callback, v, idx, arr);
                 result->Push((int64_t)res);
             }
         }
@@ -1006,7 +1006,7 @@ void* TsArray::Map(void* callback, void* thisArg) {
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
             ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : ts_call_3(cbVal, v, idx, arr);
+            : tsCall(cbVal, v, idx, arr);
         result->SetUnchecked(i, (int64_t)res);
     }
     return result;
@@ -1035,7 +1035,7 @@ void* TsArray::Filter(void* callback, void* thisArg) {
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = thisArg
                     ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : ts_call_3((TsValue*)callback, v, idx, arr);
+                    : tsCall((TsValue*)callback, v, idx, arr);
                 if (ts_value_to_bool(res)) {
                     result->Push(((int64_t*)elements)[i]);
                 }
@@ -1153,7 +1153,7 @@ void* TsArray::Reduce(void* callback, void* initialValue) {
         if (array_generic_absent_index(this, i)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
+        accumulator = tsCall(cbVal, accumulator, v, idx, arr);
     }
     return accumulator;
 }
@@ -1216,7 +1216,7 @@ void* TsArray::ReduceRight(void* callback, void* initialValue) {
         if (array_generic_absent_index(this, i - 1)) continue;  // skip absent array-like index
         TsValue* idx = ts_value_make_int(i - 1);
         TsValue* arr = ts_value_make_object(CallbackReceiver());
-        accumulator = ts_call_4(cbVal, accumulator, v, idx, arr);
+        accumulator = tsCall(cbVal, accumulator, v, idx, arr);
     }
     return accumulator;
 }
@@ -1239,7 +1239,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = thisArg
                     ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : ts_call_3((TsValue*)callback, v, idx, arr);
+                    : tsCall((TsValue*)callback, v, idx, arr);
                 if (ts_value_to_bool(res)) return true;
             }
         }
@@ -1266,7 +1266,7 @@ bool TsArray::Some(void* callback, void* thisArg) {
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
             ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : ts_call_3(cbVal, v, idx, arr);
+            : tsCall(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) return true;
     }
     return false;
@@ -1290,7 +1290,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = thisArg
                     ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : ts_call_3((TsValue*)callback, v, idx, arr);
+                    : tsCall((TsValue*)callback, v, idx, arr);
                 if (!ts_value_to_bool(res)) return false;
             }
         }
@@ -1317,7 +1317,7 @@ bool TsArray::Every(void* callback, void* thisArg) {
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
             ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : ts_call_3(cbVal, v, idx, arr);
+            : tsCall(cbVal, v, idx, arr);
         if (!ts_value_to_bool(res)) return false;
     }
     return true;
@@ -1341,7 +1341,7 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = thisArg
                     ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : ts_call_3((TsValue*)callback, v, idx, arr);
+                    : tsCall((TsValue*)callback, v, idx, arr);
                 if (ts_value_to_bool(res)) return GetElementBoxed(i);
             }
         }
@@ -1368,7 +1368,7 @@ TsValue* TsArray::Find(void* callback, void* thisArg) {
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
             ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : ts_call_3(cbVal, v, idx, arr);
+            : tsCall(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) {
             return v;
         }
@@ -1392,7 +1392,7 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
                 TsValue* res = thisArg
                     ? ts_call_with_this_3((TsValue*)callback, (TsValue*)thisArg, v, idx, arr)
-                    : ts_call_3((TsValue*)callback, v, idx, arr);
+                    : tsCall((TsValue*)callback, v, idx, arr);
                 if (ts_value_to_bool(res)) return (int64_t)i;
             }
         }
@@ -1410,7 +1410,7 @@ int64_t TsArray::FindIndex(void* callback, void* thisArg) {
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
             ? ts_call_with_this_3(cbVal, thisArgV, v, idx, arr)
-            : ts_call_3(cbVal, v, idx, arr);
+            : tsCall(cbVal, v, idx, arr);
         if (ts_value_to_bool(res)) return (int64_t)i;
     }
     return -1;
@@ -1433,7 +1433,7 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i - 1);
                 TsValue* idx_v = ts_value_make_int(i - 1);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = ts_call_3((TsValue*)callback, v, idx_v, arr);
+                TsValue* res = tsCall((TsValue*)callback, v, idx_v, arr);
                 if (ts_value_to_bool(res)) return GetElementBoxed(i - 1);
             }
         }
@@ -1452,7 +1452,7 @@ TsValue* TsArray::FindLast(void* callback, void* thisArg) {
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
             ? ts_call_with_this_3(cbVal, thisArgV, v, idxVal, arr)
-            : ts_call_3(cbVal, v, idxVal, arr);
+            : tsCall(cbVal, v, idxVal, arr);
         if (ts_value_to_bool(res)) {
             return GetElementBoxed(idx);
         }
@@ -1475,7 +1475,7 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
                 TsValue* v = GetElementBoxed(i - 1);
                 TsValue* idx_v = ts_value_make_int(i - 1);
                 TsValue* arr = ts_value_make_object(CallbackReceiver());
-                TsValue* res = ts_call_3((TsValue*)callback, v, idx_v, arr);
+                TsValue* res = tsCall((TsValue*)callback, v, idx_v, arr);
                 if (ts_value_to_bool(res)) return (int64_t)(i - 1);
             }
         }
@@ -1494,7 +1494,7 @@ int64_t TsArray::FindLastIndex(void* callback, void* thisArg) {
         TsValue* arr = ts_value_make_object(CallbackReceiver());
         TsValue* res = thisArgV
             ? ts_call_with_this_3(cbVal, thisArgV, v, idxVal, arr)
-            : ts_call_3(cbVal, v, idxVal, arr);
+            : tsCall(cbVal, v, idxVal, arr);
         if (ts_value_to_bool(res)) return (int64_t)idx;
     }
     return -1;
@@ -2583,7 +2583,7 @@ extern "C" {
             result = ts_closure_invoke_2v((TsClosure*)g_current_comparator, aVal, bVal);
         } else {
             // Standard TsValue/TsFunction path
-            result = ts_call_2((TsValue*)g_current_comparator, aVal, bVal);
+            result = tsCall((TsValue*)g_current_comparator, aVal, bVal);
         }
         if (!result) return a < b;
 
@@ -2606,7 +2606,7 @@ extern "C" {
             result = ts_closure_invoke_2v((TsClosure*)g_current_comparator, aVal, bVal);
         } else {
             // Standard TsValue/TsFunction path
-            result = ts_call_2((TsValue*)g_current_comparator, aVal, bVal);
+            result = tsCall((TsValue*)g_current_comparator, aVal, bVal);
         }
         if (!result) return a < b;
 
@@ -3820,7 +3820,7 @@ extern "C" {
                     // element arrived as {}/0, e.g. Array.from([1,2,3],x=>x*10)=0,0,0).
                     TsValue* elemBoxed = nanbox_from_tagged(elem);
                     TsValue* indexVal = ts_value_make_int(i);
-                    TsValue* mapped = ts_call_2(mapFnVal, elemBoxed, indexVal);
+                    TsValue* mapped = tsCall(mapFnVal, elemBoxed, indexVal);
                     // `result` was pre-sized to length N (Create(srcArr->Length()))
                     // for the set_v(i) path below; Push() appended PAST that, so the
                     // mapped values landed at indices N..2N-1 and Array.from(arr,fn)
@@ -3874,7 +3874,7 @@ extern "C" {
 
                 if (hasMapFn) {
                     TsValue* indexVal = ts_value_make_int(i);
-                    TsValue* mapped = ts_call_2(mapFnVal, charVal, indexVal);
+                    TsValue* mapped = tsCall(mapFnVal, charVal, indexVal);
                     if (mapped) {
                         result->Push((int64_t)mapped);
                     } else {
@@ -3912,7 +3912,7 @@ extern "C" {
                             TsValue* val = ts::ts_iterator_result_value(res);
                             if (hasMapFn) {
                                 TsValue* indexVal = ts_value_make_int(i);
-                                TsValue* mapped = ts_call_2(mapFnVal, val, indexVal);
+                                TsValue* mapped = tsCall(mapFnVal, val, indexVal);
                                 result->Push((int64_t)(uintptr_t)(mapped ? mapped : val));
                             } else {
                                 result->Push((int64_t)(uintptr_t)val);
@@ -4024,7 +4024,7 @@ extern "C" {
                         if (hasMapFn) {
                             TsValue* elemBoxed = ts_value_box_any(&elem);
                             TsValue* indexVal = ts_value_make_int(i);
-                            TsValue* mapped = ts_call_2(mapFnVal, elemBoxed, indexVal);
+                            TsValue* mapped = tsCall(mapFnVal, elemBoxed, indexVal);
                             if (mapped) {
                                 result->Push((int64_t)mapped);
                             } else {

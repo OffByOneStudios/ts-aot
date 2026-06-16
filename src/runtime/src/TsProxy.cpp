@@ -78,7 +78,7 @@ TsValue* TsProxy::get(TsValue* prop, void* receiver) {
         boxedTrap.type = ValueType::FUNCTION_PTR;
         boxedTrap.ptr_val = trap;
 
-        return ts_call_3(&boxedTrap, targetVal, prop, receiverVal);
+        return tsCall(&boxedTrap, targetVal, prop, receiverVal);
     }
 
     // No trap - forward to target
@@ -104,7 +104,7 @@ bool TsProxy::set(TsValue* prop, TsValue* value, void* receiver) {
         boxedTrap.type = ValueType::FUNCTION_PTR;
         boxedTrap.ptr_val = trap;
 
-        TsValue* result = ts_call_4(&boxedTrap, targetVal, prop, value, receiverVal);
+        TsValue* result = tsCall(&boxedTrap, targetVal, prop, value, receiverVal);
         return result && ts_value_get_bool(result);
     }
 
@@ -130,7 +130,7 @@ bool TsProxy::has(TsValue* prop) {
         boxedTrap.type = ValueType::FUNCTION_PTR;
         boxedTrap.ptr_val = trap;
 
-        TsValue* result = ts_call_2(&boxedTrap, targetVal, prop);
+        TsValue* result = tsCall(&boxedTrap, targetVal, prop);
         return result && ts_value_get_bool(result);
     }
 
@@ -155,7 +155,7 @@ bool TsProxy::deleteProperty(TsValue* prop) {
         boxedTrap.type = ValueType::FUNCTION_PTR;
         boxedTrap.ptr_val = trap;
 
-        TsValue* result = ts_call_2(&boxedTrap, targetVal, prop);
+        TsValue* result = tsCall(&boxedTrap, targetVal, prop);
         return result && ts_value_get_bool(result);
     }
 
@@ -182,7 +182,7 @@ TsValue* TsProxy::apply(void* thisArg, TsValue* args, int argCount) {
         boxedTrap.type = ValueType::FUNCTION_PTR;
         boxedTrap.ptr_val = trap;
 
-        return ts_call_3(&boxedTrap, targetVal, thisArgVal, argsVal);
+        return tsCall(&boxedTrap, targetVal, thisArgVal, argsVal);
     }
 
     // No trap - forward call to target
@@ -212,7 +212,7 @@ TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
         boxedTrap.type = ValueType::FUNCTION_PTR;
         boxedTrap.ptr_val = trap;
 
-        return ts_call_3(&boxedTrap, targetVal, argsVal, newTargetVal);
+        return tsCall(&boxedTrap, targetVal, argsVal, newTargetVal);
     }
 
     // No trap - forward to target
@@ -235,7 +235,7 @@ TsValue* TsProxy::ownKeys() {
         boxedTrap.type = ValueType::FUNCTION_PTR;
         boxedTrap.ptr_val = trap;
 
-        return ts_call_1(&boxedTrap, targetVal);
+        return tsCall(&boxedTrap, targetVal);
     }
 
     // No trap - return Object.keys(target)

@@ -367,7 +367,6 @@ TsValue* ts_promise_race(TsValue* iterable);
 TsValue* ts_promise_allSettled(TsValue* iterable);
 TsValue* ts_promise_any(TsValue* iterable);
 TsValue* ts_promise_then(TsValue* promise, TsValue* onFulfilled, TsValue* onRejected);
-TsValue* ts_call_0(TsValue* func);
 
 // --- Constructor function new operator (slow path) ---
 TsValue* ts_new_from_constructor_0(TsValue* constructorFn);

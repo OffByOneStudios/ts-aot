@@ -915,7 +915,7 @@ void TsServerHttp2Stream::PushStream(TsMap* headers, TsValue* options, void* cal
         // Call callback with error
         if (cbFunc) {
             TsValue* err = (TsValue*)ts_error_create(TsString::Create("Push stream not allowed"));
-            ts_call_3(cbFunc, (TsValue*)err, nullptr, nullptr);
+            tsCall(cbFunc, (TsValue*)err, nullptr, nullptr);
         }
         return;
     }
@@ -923,7 +923,7 @@ void TsServerHttp2Stream::PushStream(TsMap* headers, TsValue* options, void* cal
     if (!headers) {
         if (cbFunc) {
             TsValue* err = (TsValue*)ts_error_create(TsString::Create("Headers required for push stream"));
-            ts_call_3(cbFunc, (TsValue*)err, nullptr, nullptr);
+            tsCall(cbFunc, (TsValue*)err, nullptr, nullptr);
         }
         return;
     }
@@ -988,7 +988,7 @@ void TsServerHttp2Stream::PushStream(TsMap* headers, TsValue* options, void* cal
     if (promisedStreamId < 0) {
         if (cbFunc) {
             TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to create push promise"));
-            ts_call_3(cbFunc, (TsValue*)err, nullptr, nullptr);
+            tsCall(cbFunc, (TsValue*)err, nullptr, nullptr);
         }
         return;
     }
@@ -1005,7 +1005,7 @@ void TsServerHttp2Stream::PushStream(TsMap* headers, TsValue* options, void* cal
     // Call callback with (null, pushStream, headers)
     if (cbFunc) {
         TsObject* objPtr = dynamic_cast<TsObject*>(pushStream);
-        ts_call_3(cbFunc, nullptr, (TsValue*)ts_value_make_object(objPtr), (TsValue*)ts_value_make_object(headers));
+        tsCall(cbFunc, nullptr, (TsValue*)ts_value_make_object(objPtr), (TsValue*)ts_value_make_object(headers));
     }
 }
 
@@ -1154,7 +1154,7 @@ void TsServerHttp2Stream::RespondWithFile(const char* path, TsMap* headers, TsVa
         // File open failed
         if (onError) {
             TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to open file"));
-            ts_call_1((TsValue*)onError, err);
+            tsCall((TsValue*)onError, err);
         } else {
             // Emit error on stream
             TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to open file"));
@@ -1175,7 +1175,7 @@ void TsServerHttp2Stream::RespondWithFile(const char* path, TsMap* headers, TsVa
 
         if (onError) {
             TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to stat file"));
-            ts_call_1((TsValue*)onError, err);
+            tsCall((TsValue*)onError, err);
         } else {
             TsValue* err = (TsValue*)ts_error_create(TsString::Create("Failed to stat file"));
             void* args[] = { err };

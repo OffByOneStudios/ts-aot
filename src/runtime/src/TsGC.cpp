@@ -1204,9 +1204,14 @@ static void gc_process_weak_refs() {
 // ============================================================================
 
 // Forward declaration for calling finalizers after GC
-// Actual signature: TsValue* ts_call_1(TsValue*, TsValue*)
-// We use void* since we don't include TsObject.h here
-extern "C" void* ts_call_1(void* func, void* arg1);
+// Actual signature: TsValue* ts_call_n(TsValue*, int64_t argc, TsValue** argv)
+// We use void* since we don't include TsObject.h here. (The arity-suffixed
+// ts_call_1 was removed; the array-form entry covers the 1-arg finalizer calls.)
+extern "C" void* ts_call_n(void* func, long long argc, void** argv);
+static inline void gc_call_1(void* func, void* arg1) {
+    void* argv[1] = { arg1 };
+    ts_call_n(func, 1, argv);
+}
 
 static void gc_process_finalizers() {
     // Check each finalizer target - if dead, queue cleanup callback
@@ -1681,7 +1686,7 @@ static void gc_run_pending_callbacks() {
 
     // Execute callbacks (these may allocate, which is fine - lock is not held)
     for (auto& cb : callbacks) {
-        ts_call_1(cb.callback, cb.arg);
+        gc_call_1(cb.callback, cb.arg);
     }
 }
 
@@ -1805,7 +1810,7 @@ void* ts_gc_alloc(size_t size) {
 
     // Run finalizer callbacks outside the lock
     for (auto& cb : callbacks) {
-        ts_call_1(cb.callback, cb.arg);
+        gc_call_1(cb.callback, cb.arg);
     }
 
     return result;
@@ -1847,7 +1852,7 @@ void* ts_gc_alloc_old_gen(size_t size) {
     }
 
     for (auto& cb : callbacks) {
-        ts_call_1(cb.callback, cb.arg);
+        gc_call_1(cb.callback, cb.arg);
     }
 
     return result;
@@ -1966,7 +1971,7 @@ void ts_gc_force_collect() {
     }
     // Run finalizer callbacks outside the lock
     for (auto& cb : callbacks) {
-        ts_call_1(cb.callback, cb.arg);
+        gc_call_1(cb.callback, cb.arg);
     }
 }
 

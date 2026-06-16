@@ -757,7 +757,7 @@ void ts_process_on(void* event, void* callback) {
             uv_signal_init(uv_default_loop(), sigint_watcher);
             uv_signal_start(sigint_watcher, [](uv_signal_t*, int) {
                 for (auto* handler : sigint_handlers) {
-                    ts_call_1(handler, ts_value_make_string(TsString::Create("SIGINT")));
+                    tsCall(handler, ts_value_make_string(TsString::Create("SIGINT")));
                 }
             }, SIGINT);
             uv_unref((uv_handle_t*)sigint_watcher);
@@ -769,7 +769,7 @@ void ts_process_on(void* event, void* callback) {
             uv_signal_init(uv_default_loop(), sigterm_watcher);
             uv_signal_start(sigterm_watcher, [](uv_signal_t*, int) {
                 for (auto* handler : sigterm_handlers) {
-                    ts_call_1(handler, ts_value_make_string(TsString::Create("SIGTERM")));
+                    tsCall(handler, ts_value_make_string(TsString::Create("SIGTERM")));
                 }
             }, SIGTERM);
             uv_unref((uv_handle_t*)sigterm_watcher);

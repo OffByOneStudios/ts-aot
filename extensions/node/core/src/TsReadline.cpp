@@ -195,7 +195,7 @@ void TsReadlineInterface::ProcessBuffer() {
 
                 // Call the callback with the line
                 TsValue* lineArg = ts_value_make_string(lineStr);
-                ts_call_1((TsValue*)cb, lineArg);
+                tsCall((TsValue*)cb, lineArg);
             } else {
                 // Notify async iterators
                 for (TsReadlineAsyncIterator* iter : asyncIterators_) {
@@ -233,7 +233,7 @@ void TsReadlineInterface::OnInputEnd() {
                 questionCallback_ = nullptr;
 
                 TsValue* lineArg = ts_value_make_string(lineStr);
-                ts_call_1((TsValue*)cb, lineArg);
+                tsCall((TsValue*)cb, lineArg);
             } else {
                 void* args[] = { ts_value_make_string(lineStr) };
                 Emit("line", 1, args);

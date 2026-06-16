@@ -801,7 +801,7 @@ static TsValue* Headers_forEach_native(void* ctx, int argc, TsValue** argv) {
         TsString* key = (TsString*)keys->Get(i);
         TsValue val = map->Get(key);
         if (val.type == ValueType::STRING_PTR) {
-            ts_call_2(callback, ts_value_make_string((TsString*)val.ptr_val), ts_value_make_string(key));
+            tsCall(callback, ts_value_make_string((TsString*)val.ptr_val), ts_value_make_string(key));
         }
     }
     return ts_value_make_undefined();

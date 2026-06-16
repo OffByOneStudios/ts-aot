@@ -1593,20 +1593,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Helper: call callback with variable number of TsValue* args
     static TsValue* ts_call_variadic(TsValue* fn, TsValue** args, int count) {
-        switch (count) {
-            case 0: return ts_call_0(fn);
-            case 1: return ts_call_1(fn, args[0]);
-            case 2: return ts_call_2(fn, args[0], args[1]);
-            case 3: return ts_call_3(fn, args[0], args[1], args[2]);
-            case 4: return ts_call_4(fn, args[0], args[1], args[2], args[3]);
-            case 5: return ts_call_5(fn, args[0], args[1], args[2], args[3], args[4]);
-            case 6: return ts_call_6(fn, args[0], args[1], args[2], args[3], args[4], args[5]);
-            case 7: return ts_call_7(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
-            case 8: return ts_call_8(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
-            case 9: return ts_call_9(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
-            case 10: return ts_call_10(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
-            default: return ts_call_10(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
-        }
+        return ts_call_n(fn, count, args);
     }
 
     // String.replace with regex and callback function
@@ -1717,7 +1704,7 @@ TsValue* ts_value_make_int(int64_t i) {
         args[1] = ts_value_make_int(offset);
         args[2] = ts_value_make_string(str);
 
-        TsValue* callResult = ts_call_3(callback, args[0], args[1], args[2]);
+        TsValue* callResult = tsCall(callback, args[0], args[1], args[2]);
 
         TsString* replStr = callResult ? (TsString*)ts_string_from_value(callResult) : TsString::Create("undefined");
         const char* replUtf8 = replStr->ToUtf8();
@@ -5125,14 +5112,14 @@ TsValue* ts_value_make_int(int64_t i) {
 
         switch (arity) {
             case 0:
-                return ts_call_0(boxedFunc);
+                return tsCall(boxedFunc);
             case 1:
-                return ts_call_1(boxedFunc, arg1);
+                return tsCall(boxedFunc, arg1);
             case 2:
-                return ts_call_2(boxedFunc, arg1, arg2);
+                return tsCall(boxedFunc, arg1, arg2);
             case 3:
             default:
-                return ts_call_3(boxedFunc, arg1, arg2, arg3);
+                return tsCall(boxedFunc, arg1, arg2, arg3);
         }
     }
 
@@ -5279,64 +5266,11 @@ TsValue* ts_value_make_int(int64_t i) {
         return nullptr;
     }
 
-    // The ts_call_N / ts_call_with_this_N families are now a thin typed-argument
-    // convenience layer over the canonical dispatchers (call_dispatch_n /
-    // call_dispatch_with_this). They keep their signatures so the ~40 internal
-    // callers (TsArray callbacks, Core/EventLoop/TsGC, etc.) are unchanged, but
-    // hold no dispatch logic of their own — that lives once in the canonical.
-    TsValue* ts_call_0(TsValue* boxedFunc) {
-        return call_dispatch_n(boxedFunc, 0, nullptr);
-    }
-
-    TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1) {
-        TsValue* argv[1] = { arg1 };
-        return call_dispatch_n(boxedFunc, 1, argv);
-    }
-
-    TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2) {
-        TsValue* argv[2] = { arg1, arg2 };
-        return call_dispatch_n(boxedFunc, 2, argv);
-    }
-
-    TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3) {
-        TsValue* argv[3] = { arg1, arg2, arg3 };
-        return call_dispatch_n(boxedFunc, 3, argv);
-    }
-
-    TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4) {
-        TsValue* argv[4] = { arg1, arg2, arg3, arg4 };
-        return call_dispatch_n(boxedFunc, 4, argv);
-    }
-
-    TsValue* ts_call_5(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5) {
-        TsValue* argv[5] = { arg1, arg2, arg3, arg4, arg5 };
-        return call_dispatch_n(boxedFunc, 5, argv);
-    }
-
-    TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6) {
-        TsValue* argv[6] = { arg1, arg2, arg3, arg4, arg5, arg6 };
-        return call_dispatch_n(boxedFunc, 6, argv);
-    }
-
-    TsValue* ts_call_7(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7) {
-        TsValue* argv[7] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
-        return call_dispatch_n(boxedFunc, 7, argv);
-    }
-
-    TsValue* ts_call_8(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8) {
-        TsValue* argv[8] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
-        return call_dispatch_n(boxedFunc, 8, argv);
-    }
-
-    TsValue* ts_call_9(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9) {
-        TsValue* argv[9] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 };
-        return call_dispatch_n(boxedFunc, 9, argv);
-    }
-
-    TsValue* ts_call_10(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9, TsValue* arg10) {
-        TsValue* argv[10] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 };
-        return call_dispatch_n(boxedFunc, 10, argv);
-    }
+    // (The arity-suffixed ts_call_0..10 are gone — internal C++ callers use the
+    // `tsCall(...)` variadic template in TsObject.h, which funnels through
+    // call_dispatch_n; the compiler emits ts_call / ts_call_n directly. The
+    // ts_call_with_this_0..8 family below stays as thin forwarders because the
+    // compiler still emits them by name from ASTToHIR.)
 
     // Forward decl: TsFlatObject.cpp's bound-method trampoline. We need
     // its address to detect bound methods so ts_call_with_this_N doesn't
@@ -8634,7 +8568,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
             // Call callback with (element, index)
             TsValue* indexVal = ts_value_make_int(i);
-            TsValue* keyResult = ts_call_2(callbackFn, elem, indexVal);
+            TsValue* keyResult = tsCall(callbackFn, elem, indexVal);
 
             if (!keyResult) continue;
 
@@ -8732,7 +8666,7 @@ TsValue* ts_value_make_int(int64_t i) {
 
             // Call callback with (element, index)
             TsValue* indexVal = ts_value_make_int(i);
-            TsValue* keyResult = ts_call_2(callbackFn, elem, indexVal);
+            TsValue* keyResult = tsCall(callbackFn, elem, indexVal);
 
             if (!keyResult) continue;
 
@@ -11688,7 +11622,7 @@ TsValue* ts_value_make_int(int64_t i) {
         void* handler = ts_push_exception_handler();
         jmp_buf* env = (jmp_buf*)handler;
         if (setjmp(*env) == 0) {
-            ts_call_0(fn);
+            tsCall(fn);
             ts_pop_exception_handler();
             return ts_value_make_undefined();
         } else {

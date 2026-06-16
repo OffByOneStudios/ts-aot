@@ -20,18 +20,10 @@
 #include <charconv>
 #include <cstdlib>
 
-// Forward declarations for calling functions (defined in TsObject.cpp)
+// Forward declarations for calling functions (defined in TsObject.cpp).
+// The arity-suffixed ts_call_N are gone; the tsCall(...) variadic template
+// (TsObject.h, transitively included via TsRuntime.h) replaces them.
 extern "C" {
-    TsValue* ts_call_1(TsValue* func, TsValue* a1);
-    TsValue* ts_call_2(TsValue* func, TsValue* a1, TsValue* a2);
-    TsValue* ts_call_3(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3);
-    TsValue* ts_call_4(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4);
-    TsValue* ts_call_5(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5);
-    TsValue* ts_call_6(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6);
-    TsValue* ts_call_7(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6, TsValue* a7);
-    TsValue* ts_call_8(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8);
-    TsValue* ts_call_9(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9);
-    TsValue* ts_call_10(TsValue* func, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5, TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9, TsValue* a10);
     void* ts_string_from_value(TsValue* val);
 }
 
@@ -48,22 +40,14 @@ static bool ts_nanbox_is_callable(void* val) {
     return false;
 }
 
-// Call a function with a variable number of TsValue* args
+// Call a function with a variable number of TsValue* args (array form).
 static TsValue* ts_call_variadic_impl(TsValue* fn, TsValue** args, int count) {
-    TsValue* u = ts_value_make_undefined();
-    switch (count) {
-        case 0: return ts_call_1(fn, u);
-        case 1: return ts_call_1(fn, args[0]);
-        case 2: return ts_call_2(fn, args[0], args[1]);
-        case 3: return ts_call_3(fn, args[0], args[1], args[2]);
-        case 4: return ts_call_4(fn, args[0], args[1], args[2], args[3]);
-        case 5: return ts_call_5(fn, args[0], args[1], args[2], args[3], args[4]);
-        case 6: return ts_call_6(fn, args[0], args[1], args[2], args[3], args[4], args[5]);
-        case 7: return ts_call_7(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
-        case 8: return ts_call_8(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
-        case 9: return ts_call_9(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8]);
-        default: return ts_call_10(fn, args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9]);
+    if (count <= 0) {
+        // Preserve the historical quirk: a 0-arg call here passes one undefined.
+        TsValue* u = ts_value_make_undefined();
+        return ts_call_n(fn, 1, &u);
     }
+    return ts_call_n(fn, count, args);
 }
 
 // CRITICAL FIX: Cache for common numeric strings (0-999)
@@ -1959,7 +1943,7 @@ extern "C" {
         size_t needleLen = strlen(needle);
 
         // Call callback with (match, offset, originalString)
-        TsValue* callResult = ts_call_3(callback,
+        TsValue* callResult = tsCall(callback,
             ts_value_make_string(pattern),
             ts_value_make_int(offset),
             ts_value_make_string(str));

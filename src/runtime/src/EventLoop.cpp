@@ -28,7 +28,7 @@ struct PromiseTimerData {
 // so their GC pointers (the boxed callback / promise / resolve value) are
 // INVISIBLE to the collector. A GC between scheduling a timer and its callback
 // firing would move/collect the callback, leaving data->callback stale ->
-// ts_call_0(stale) invokes a moved/freed closure -> stale captured key ->
+// tsCall(stale) invokes a moved/freed closure -> stale captured key ->
 // crash in find_slot (seen in lodash's qunit setTimeout-driven test harness via
 // uv__run_timers). Same unscanned-container class as the microtask queue. Fix:
 // a registry of live timers + a GC mark-scanner (keep callbacks alive) and a
@@ -120,7 +120,7 @@ static void on_timer_callback(uv_timer_t* handle) {
 
     // Call the callback - ts_call_0 handles TsValue*, TsClosure*, and TsFunction*
     if (data->callback) {
-        ts_call_0(data->callback);
+        tsCall(data->callback);
     }
 
     if (!data->isInterval) {
@@ -193,7 +193,7 @@ extern "C" TsValue* ts_set_immediate(TsValue* callback) {
 
 extern "C" void ts_process_next_tick(TsValue* callback) {
     ts_queue_microtask([](void* data) {
-        ts_call_0((TsValue*)data);
+        tsCall((TsValue*)data);
     }, callback);
 }
 

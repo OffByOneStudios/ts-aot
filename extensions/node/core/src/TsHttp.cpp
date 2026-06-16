@@ -381,7 +381,7 @@ void TsServerResponse::OnTimeout(uv_timer_t* handle) {
 
     // Call the timeout callback if provided
     if (res->timeoutCallback) {
-        ts_call_0((TsValue*)res->timeoutCallback);
+        tsCall((TsValue*)res->timeoutCallback);
     }
 }
 
@@ -1094,7 +1094,7 @@ void TsClientRequest::OnTimeout(uv_timer_t* handle) {
 
     // Call the timeout callback if provided
     if (req->timeoutCallback) {
-        ts_call_0((TsValue*)req->timeoutCallback);
+        tsCall((TsValue*)req->timeoutCallback);
     }
 }
 

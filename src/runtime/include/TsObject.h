@@ -200,18 +200,9 @@ extern "C" {
     bool ts_is_htmldda(TsValue* val);
     bool ts_value_is_undefined(TsValue* v);
     bool ts_value_is_null(TsValue* v);
-    TsValue* ts_call_0(TsValue* boxedFunc);
-    TsValue* ts_call_1(TsValue* boxedFunc, TsValue* arg1);
-    TsValue* ts_call_2(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2);
-    TsValue* ts_call_3(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3);
+    // Arity-suffixed ts_call_N are gone — the compiler emits ts_call / ts_call_n
+    // and internal C++ callers use the tsCall(...) variadic template below.
     TsValue* ts_call_with_arity(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3);  // Respects func's declared arity
-    TsValue* ts_call_4(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4);
-    TsValue* ts_call_5(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5);
-    TsValue* ts_call_6(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6);
-    TsValue* ts_call_7(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7);
-    TsValue* ts_call_8(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8);
-    TsValue* ts_call_9(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9);
-    TsValue* ts_call_10(TsValue* boxedFunc, TsValue* arg1, TsValue* arg2, TsValue* arg3, TsValue* arg4, TsValue* arg5, TsValue* arg6, TsValue* arg7, TsValue* arg8, TsValue* arg9, TsValue* arg10);
     // ts_call_with_this_X - call with explicit 'this' binding (for method calls)
     TsValue* ts_call_with_this_0(TsValue* boxedFunc, TsValue* thisArg);
     TsValue* ts_call_with_this_1(TsValue* boxedFunc, TsValue* thisArg, TsValue* arg1);
@@ -352,4 +343,15 @@ extern "C" {
     int64_t ts_number_parseInt(TsValue* arg);
     double ts_number_isNaN(TsValue* arg);
     double ts_number_isFinite(TsValue* arg);
+}
+
+// Variadic C++ convenience for INTERNAL callers (TsArray callbacks, timers, GC
+// finalizers, etc.). Replaces the old hand-written ts_call_0..10 arity overloads
+// — those were internal-only (the compiler emits ts_call / ts_call_n directly),
+// so a single template suffices. The arg count is deduced from the pack; this
+// forwards to the array-form entry which funnels through the canonical dispatch.
+template <class... A>
+inline TsValue* tsCall(TsValue* fn, A... args) {
+    TsValue* argv[sizeof...(A) ? sizeof...(A) : 1] = { args... };
+    return ts_call_n(fn, static_cast<int64_t>(sizeof...(A)), argv);
 }

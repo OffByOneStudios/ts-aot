@@ -140,10 +140,10 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
     // Actually invoke the target constructor
     TsValue* boxedTarget = (TsValue*)targetArg;
     if (len == 0) {
-        result = ts_call_0(boxedTarget);
+        result = tsCall(boxedTarget);
     } else if (len >= 1 && argsArray) {
         TsValue* arg0 = (TsValue*)argsArray->Get(0);
-        result = ts_call_1(boxedTarget, arg0);
+        result = tsCall(boxedTarget, arg0);
     }
 
     // Per spec: if result is an object, return it; else return a new object
