@@ -1068,7 +1068,9 @@ void LoweringRegistry::registerBuiltinsImpl() {
         lowering("ts_string_repeat")
             .returnsPtr()
             .ptrArg()      // string
-            .i64Arg()      // count
+            .f64Arg(ArgConversion::ToF64)  // count: pass raw double so the runtime
+                                            // applies ToIntegerOrInfinity + RangeError
+                                            // (a bare FPToSI here is UB on NaN/Inf)
             .build());
 
     reg.registerLowering("ts_string_replace",

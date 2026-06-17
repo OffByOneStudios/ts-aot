@@ -1629,10 +1629,30 @@ extern "C" {
         return s->Slice(start, end);
     }
 
-    void* ts_string_repeat(void* str, int64_t count) {
+    // ECMA-262 22.1.3.18 String.prototype.repeat. count arrives as a raw double
+    // (NOT pre-truncated via FPToSI, whose UB on NaN/Infinity produced a garbage
+    // huge count and a multi-GB allocation / OOM). n = ToIntegerOrInfinity(count);
+    // RangeError if n < 0 or n is +Infinity; RangeError if the result would
+    // exceed the max string length (instead of attempting the alloc).
+    void* ts_string_repeat(void* str, double count) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return str;
-        return s->Repeat(count);
+        double n = std::isnan(count) ? 0.0 : std::trunc(count);
+        if (n < 0 || std::isinf(n)) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "Invalid count value"));
+            return str;  // unreachable (ts_throw longjmps)
+        }
+        int64_t slen = s->Length();
+        if (slen > 0 && n > 0) {
+            const double kMaxStringLength = 1073741823.0;  // 2^30 - 1
+            if (n * (double)slen > kMaxStringLength) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "Invalid string length"));
+                return str;  // unreachable
+            }
+        }
+        return s->Repeat((int64_t)n);
     }
 
     // ECMA-262 ToLength(ToIntegerOrInfinity(arg)) for the pad maxLength. The

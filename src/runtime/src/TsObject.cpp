@@ -1763,7 +1763,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_string_repeat_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        int64_t count = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        // Pass the raw double; ts_string_repeat applies ToIntegerOrInfinity +
+        // the RangeError checks (a bare ts_value_get_int here is UB on NaN).
+        double count = (argc >= 1 && argv && argv[0]) ? ts_value_get_double(argv[0]) : 0.0;
         return ts_value_make_string((TsString*)ts_string_repeat(str, count));
     }
     static TsValue* ts_string_charAt_native(void* ctx, int argc, TsValue** argv) {
