@@ -1681,6 +1681,31 @@ extern "C" {
     TsValue* ts_regexp_test_native(void* ctx, int argc, TsValue** argv);
 }
 
+// Brand-check for the RegExp.prototype accessor getters (ECMA-262 22.2.6.x).
+// Returns the TsRegExp* when `ctx` is a RegExp instance; sets *isProto when ctx
+// is %RegExp.prototype% (the getters return the spec defaults there); otherwise
+// throws TypeError and returns nullptr. ts_nanbox_safe_unbox => no crash on a
+// non-object receiver.
+static TsRegExp* regexp_accessor_this(void* ctx, bool* isProto) {
+    *isProto = false;
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    if (raw && *(uint32_t*)raw == 0x52454758 /*TsRegExp "REGX"*/)
+        return (TsRegExp*)raw;
+    if (raw) {
+        extern void* ts_get_global_RegExp();
+        void* g = ts_get_global_RegExp();
+        if (g) {
+            TsValue* p = ts_object_get_property(g, "prototype");
+            void* pr = p ? ts_value_get_object(p) : nullptr;
+            if (pr && pr == raw) { *isProto = true; return nullptr; }
+        }
+    }
+    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+        "RegExp.prototype accessor called on a non-RegExp receiver"));
+    return nullptr;
+}
+
 void* ts_get_global_RegExp() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -1709,6 +1734,45 @@ void* ts_get_global_RegExp() {
                 addMethod(reproto, "[Symbol.replace]", (void*)ts_regexp_symbol_replace_native, 2);
                 addMethod(reproto, "[Symbol.split]", (void*)ts_regexp_symbol_split_native, 2);
                 addMethod(reproto, "[Symbol.matchAll]", (void*)ts_regexp_symbol_matchAll_native, 1);
+
+                // RegExp.prototype accessor getters as REAL accessors (ES2017+
+                // 22.2.6) so getOwnPropertyDescriptor returns the {get,...}
+                // descriptor and propertyHelper.js verifyProperty passes. The
+                // get_dynamic specials (TsObject.cpp ~4023, REGX-magic instances)
+                // remain the instance fast path; these handle gOPD + .get.call().
+                // On %RegExp.prototype% they return the spec defaults.
+                addAccessorGetter(reproto, "source", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
+                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
+                    if (re) return ts_value_make_string(re->GetSource());
+                    if (isProto) return ts_value_make_string(TsString::Create("(?:)"));
+                    return ts_value_make_undefined();
+                });
+                addAccessorGetter(reproto, "flags", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
+                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
+                    if (re) return ts_value_make_string(re->GetFlags());
+                    if (isProto) return ts_value_make_string(TsString::Create(""));
+                    return ts_value_make_undefined();
+                });
+                addAccessorGetter(reproto, "global", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
+                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
+                    return re ? ts_value_make_bool(re->IsGlobal()) : ts_value_make_undefined();
+                });
+                addAccessorGetter(reproto, "ignoreCase", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
+                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
+                    return re ? ts_value_make_bool(re->IsIgnoreCase()) : ts_value_make_undefined();
+                });
+                addAccessorGetter(reproto, "multiline", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
+                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
+                    return re ? ts_value_make_bool(re->IsMultiline()) : ts_value_make_undefined();
+                });
+                addAccessorGetter(reproto, "sticky", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
+                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
+                    return re ? ts_value_make_bool(re->IsSticky()) : ts_value_make_undefined();
+                });
+                addAccessorGetter(reproto, "hasIndices", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
+                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
+                    return re ? ts_value_make_bool(re->HasIndices()) : ts_value_make_undefined();
+                });
             }
         }
     }
