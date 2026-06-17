@@ -6,10 +6,22 @@ single root cause that flips many tests.
 
 Usage:
     python cluster_fails.py                 # report: categories + in-scope/OOS clusters + migrations
+    python cluster_fails.py --structural    # re-bucket by structural FAMILY (got-undefined /
+                                            #   missing-throw / crash / ...) + per-family spec-area.
+                                            #   THIS is the view that finds shared roots: one bug
+                                            #   surfaces with many messages across many dirs, and a
+                                            #   read returning undefined fakes 1000s of "mismatches".
+    python cluster_fails.py --family <name> # list in-scope tests in a structural family (substring)
     python cluster_fails.py --sig "<text>"  # list tests matching a signature substring
     python cluster_fails.py --crashes       # just the crash subset (for -g re-triage)
     python cluster_fails.py --oos           # list out-of-scope fails with their tag
     python cluster_fails.py --include-oos   # legacy single table, OOS not partitioned
+
+Workflow to find a STRUCTURAL root (not chase edge cases):
+    1. --structural             -> see which families dominate + where they concentrate
+    2. --family got-undefined   -> list the tests in the biggest family
+    3. reduce 2-3 to a minimal repro (run_test262.py --one) -> confirm ONE root
+    4. probe siblings: does the same root also crash / no-throw elsewhere?
 
 Key metric: a signature with a HIGH count concentrated in FEW paths is the best
 single-root-cause candidate. A high count spread over many paths is heterogeneous
@@ -162,6 +174,79 @@ def category(r):
     return "other"
 
 
+RE_GOT_UNDEF = re.compile(r"SameValue\([«�]?undefined")
+
+
+def structural_family(r):
+    """Finer than category(): map a failure to a symptom CLASS that tends to
+    share ONE structural root, so a few roots explain thousands of fails.
+
+    The key split category() misses: 'got-undefined' (a read/lookup/install
+    returned undefined where a value was due) vs a generic value-mismatch.
+    A read silently returning undefined is the classic multiplier — it fakes
+    thousands of distinct 'mismatches' across every dir. Likewise CRASH is
+    pulled out of the fail bucket (a VectoredException is recorded as 'fail',
+    not 'crash' status — it hides there)."""
+    if r.get("status") == "timeout":
+        return "timeout"
+    if r.get("status") == "compile_error":
+        return "compile-error"
+    reason = r.get("reason") or ""
+    if is_crash(r):
+        return "CRASH (access-violation, hidden in fail bucket)"
+    if "expected parse error" in reason.lower():
+        return "PARSER-too-lenient (missing early error)"
+    if "no exception was thrown" in reason:
+        return "MISSING-THROW (spec throw not raised)"
+    if RE_GOT_UNDEF.search(reason):
+        return "GOT-UNDEFINED (read/install returned undefined)"
+    if "without async flag" in reason or "without calling $DONE" in reason \
+       or "asyncTest" in reason:
+        return "ASYNC-HARNESS ($DONE / async-flag integration)"
+    if "Cannot read properties" in reason or "Cannot destructure" in reason:
+        return "NULL-DEREF (read prop of undefined/null)"
+    if "is not a function" in reason:
+        return "NOT-CALLABLE (x is not a function)"
+    if "is not defined" in reason:
+        return "BINDING-MISSING (identifier not defined)"
+    if "should have an own property" in reason or "descriptor should be" in reason \
+       or "verifyProperty" in reason:
+        return "PROPERTY-DESCRIPTOR (own-prop / verifyProperty)"
+    if "SameValue" in reason or "Expected true but got false" in reason \
+       or "Expected false but got true" in reason:
+        return "VALUE-MISMATCH (wrong non-undefined value)"
+    if not reason.strip() or "no message" in reason:
+        return "opaque (no message)"
+    return "other"
+
+
+def report_structural(seen):
+    """Re-bucket in-scope fails by structural FAMILY, then decompose each family
+    by spec-area. Reveals the handful of roots behind the long tail; the
+    per-area split tells you where to reduce a minimal repro first."""
+    fails = {p: r for p, r in seen.items()
+             if r.get("status") not in ("pass", "skip")}
+    in_scope = {p: r for p, r in fails.items() if not oos_tag(p)}
+    fam = collections.Counter()
+    fam_area = collections.defaultdict(collections.Counter)
+    fam_ex = {}
+    for p, r in in_scope.items():
+        f = structural_family(r)
+        fam[f] += 1
+        fam_area[f][spec_area(p)] += 1
+        fam_ex.setdefault(f, p.replace("\\", "/"))
+    print(f"== STRUCTURAL FAMILIES (in-scope fails: {len(in_scope)}) ==")
+    print("Each family tends to share a few roots; reduce a sample per top area.\n")
+    for f, n in fam.most_common():
+        print(f"{n:6d}  {f}")
+        # Drop only the leading built-ins/language segment so Array/prototype
+        # vs DataView/prototype stay distinct (the bare leaf 'prototype' hides it).
+        top = "  ".join(f"{a.split('/', 1)[-1]}:{c}"
+                        for a, c in fam_area[f].most_common(5))
+        print(f"        by-area: {top}")
+        print(f"        e.g.   : {fam_ex[f]}")
+
+
 def fingerprint():
     h = hashlib.md5()
     with open(JSONL, "rb") as f:
@@ -215,6 +300,18 @@ def main():
     if "--crashes" in sys.argv:
         for p, r in seen.items():
             if r.get("status") == "fail" and is_crash(r):
+                print(p.replace("\\", "/"))
+        return
+    if "--structural" in sys.argv:
+        report_structural(seen)
+        return
+    if "--family" in sys.argv:
+        # List in-scope tests in a given structural family (substring match).
+        needle = sys.argv[sys.argv.index("--family") + 1].lower()
+        for p, r in sorted(seen.items()):
+            if r.get("status") in ("pass", "skip") or oos_tag(p):
+                continue
+            if needle in structural_family(r).lower():
                 print(p.replace("\\", "/"))
         return
 
