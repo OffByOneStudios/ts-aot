@@ -8045,10 +8045,22 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
             argVal = lowerExpression(node->arguments[0].get());
             if (argVal && argVal->type) {
                 if (argVal->type->kind == HIRTypeKind::Float64) {
+                    // ECMA-262 ToIndex on the length: a raw FPToSI is UB on
+                    // NaN (-> INT64_MIN -> huge length -> OOM/RangeError). Map
+                    // NaN -> 0 first (d != d is true only for NaN), then FPToSI;
+                    // negative / huge fall to the allocator's RangeError.
+                    auto isNaN = builder_.createCmpNeF64(argVal, argVal);
+                    auto zeroF = builder_.createConstFloat(0.0);
+                    argVal = builder_.createSelect(isNaN, zeroF, argVal);
                     argVal = builder_.createCastF64ToI64(argVal);
-                } else if (argVal->type->kind == HIRTypeKind::Any ||
+                } else if (argVal->type->kind == HIRTypeKind::String ||
+                           argVal->type->kind == HIRTypeKind::Any ||
                            argVal->type->kind == HIRTypeKind::Array ||
                            argVal->type->kind == HIRTypeKind::Object) {
+                    // String/Any/Array/Object: route through the dispatcher,
+                    // which ToNumber-coerces a string and copies array-likes.
+                    // (A string-TYPED arg previously matched no branch and the
+                    // raw TsString* was passed as the int64 length.)
                     argIsNonInt = true;
                 }
             }

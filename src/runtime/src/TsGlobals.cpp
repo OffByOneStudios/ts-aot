@@ -4404,7 +4404,9 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
             uintptr_t p = (uintptr_t)rawSrc;                                             \
             if (p > 0x1000 && p < 0x0000800000000000ULL) srcIsObject = true;             \
         }                                                                                \
-        if (srcIsObject) {                                                               \
+        /* A STRING primitive is not an array-like source — fall through to    */       \
+        /* the ToNumber length path below (same as the ctor macro).            */       \
+        if (srcIsObject && !ts_is_any_string(rawSrc)) {                                  \
             uint32_t srcMagic0 = *(uint32_t*)rawSrc;                                     \
             uint32_t srcMagic16 = *(uint32_t*)((char*)rawSrc + 16);                      \
             /* TsBuffer (ArrayBuffer): share backing — Phase 3. */                       \
