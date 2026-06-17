@@ -374,15 +374,7 @@ static void agen_protocol_throw(TsValue* exc) {
 // IsCallable for yield* protocol checks: TsFunction/TsClosure carry their
 // magic at offset 0 (native fns) or 16 (canonical TsObject slot).
 static bool agen_is_callable(TsValue* val) {
-    if (!val) return false;
-    uint64_t nb = nanbox_from_tsvalue_ptr(val);
-    if (!nanbox_is_ptr(nb)) return false;
-    void* ptr = nanbox_to_ptr(nb);
-    if (!ptr) return false;
-    uint32_t magic0 = *(uint32_t*)ptr;
-    if (magic0 == 0x434C5352 || magic0 == 0x46554E43) return true;
-    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-    return magic16 == 0x434C5352 || magic16 == 0x46554E43;
+    return ts_is_callable((void*)val);  // canonical IsCallable (TsObject.cpp)
 }
 
 static bool agen_is_undef_or_null(TsValue* val) {

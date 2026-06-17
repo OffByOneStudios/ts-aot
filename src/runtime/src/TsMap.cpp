@@ -618,15 +618,7 @@ extern "C" void* ts_error_create_typed(const char* type, const char* message);
 
 // Helper: returns true iff val is a callable function/closure.
 static bool ts_is_callable_map(void* val) {
-    if (!val) return false;
-    uint64_t nb = (uint64_t)(uintptr_t)val;
-    if (!nanbox_is_ptr(nb) || nb <= NANBOX_UNDEFINED) return false;
-    void* ptr = nanbox_to_ptr(nb);
-    if (!ptr) return false;
-    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-    if (magic16 == 0x434C5352) return true; // TsClosure::MAGIC "CLSR"
-    if (magic16 == 0x46554E43) return true; // TsFunction::MAGIC "FUNC"
-    return false;
+    return ts_is_callable(val);  // canonical IsCallable (TsObject.cpp)
 }
 
 void ts_map_forEach(void* map, void* callback, void* thisArg) {

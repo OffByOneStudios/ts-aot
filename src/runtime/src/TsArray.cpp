@@ -3337,23 +3337,8 @@ extern "C" {
     // reached directly from compiler-emitted IR (bypassing the *_native
     // wrappers), so the check must live here too.
     static bool array_require_callable(void* callback, const char* name) {
-        if (callback) {
-            uint64_t nb = (uint64_t)(uintptr_t)callback;
-            if (!nanbox_is_undefined(nb) && !nanbox_is_null(nb) &&
-                !nanbox_is_number(nb) && !nanbox_is_bool(nb)) {
-                void* raw = ts_nanbox_safe_unbox(callback);
-                if (!raw) raw = callback;
-                uintptr_t p = (uintptr_t)raw;
-                if (p > 0x1000 && p < 0x0000800000000000ULL) {
-                    uint32_t m16 = *(uint32_t*)((char*)raw + 16);  // canonical TsObject::magic
-                    auto isCallable = [](uint32_t m) {
-                        return m == 0x46554E43 /* FUNC */ || m == 0x434C5352 /* CLSR */;
-                    };
-                    if (isCallable(m16)) {
-                        return true;
-                    }
-                }
-            }
+        if (ts_is_callable(callback)) {  // canonical IsCallable (TsObject.cpp)
+            return true;
         }
         char msg[160];
         snprintf(msg, sizeof(msg),
@@ -3774,19 +3759,7 @@ extern "C" {
             if (nanbox_is_undefined(mfNB)) {
                 mapFn = nullptr;
             } else {
-                bool isCallable = false;
-                if (nanbox_is_ptr(mfNB)) {
-                    void* rawMf = ts_nanbox_safe_unbox(mapFn);
-                    if (!rawMf) rawMf = mapFn;
-                    uintptr_t p = (uintptr_t)rawMf;
-                    if (p > 0x1000 && p < 0x0000800000000000ULL) {
-                        uint32_t m16 = *(uint32_t*)((char*)rawMf + 16);
-                        if (m16 == 0x46554E43 /* FUNC */ ||
-                            m16 == 0x434C5352 /* CLSR */) {
-                            isCallable = true;
-                        }
-                    }
-                }
+                bool isCallable = ts_is_callable(mapFn);  // canonical IsCallable
                 if (!isCallable) {
                     ts_throw((TsValue*)ts_error_create_typed("TypeError",
                         "Array.from: when provided, mapFn must be callable"));
@@ -3947,18 +3920,8 @@ extern "C" {
             if (iterMethod.type == ValueType::FUNCTION_PTR ||
                 iterMethod.type == ValueType::OBJECT_PTR) {
                 TsValue* methodVal = nanbox_from_tagged(iterMethod);
-                // Verify it's actually callable (function/closure shape).
-                void* methodRaw = ts_value_get_object(methodVal);
-                if (!methodRaw) methodRaw = methodVal;
-                bool isCallable = false;
-                if (methodRaw) {
-                    uintptr_t p = (uintptr_t)methodRaw;
-                    if (p > 0x1000 && (p & 0xFFFF000000000000ULL) == 0) {
-                        uint32_t m16 = *(uint32_t*)((char*)methodRaw + 16);
-                        isCallable = (m16 == 0x46554E43 /* FUNC */ ||
-                                      m16 == 0x434C5352 /* CLSR */);
-                    }
-                }
+                // Verify it's actually callable (function/closure/proxy).
+                bool isCallable = ts_is_callable(methodVal);  // canonical IsCallable
                 if (isCallable) {
                     // Invoke the @@iterator method with `this` = items.
                     TsValue* itemsBoxed = ts_value_make_object(rawPtr);

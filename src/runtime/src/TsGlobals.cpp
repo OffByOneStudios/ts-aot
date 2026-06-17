@@ -2396,15 +2396,7 @@ static TsValue* iterseq_done_result() {
 }
 
 static bool iterseq_is_callable(TsValue* v) {
-    if (!v) return false;
-    uint64_t nb = nanbox_from_tsvalue_ptr(v);
-    if (!nanbox_is_ptr(nb)) return false;
-    void* p = nanbox_to_ptr(nb);
-    if (!p) return false;
-    uint32_t m0 = *(uint32_t*)p;
-    if (m0 == 0x434C5352 || m0 == 0x46554E43) return true;  // CLSR / FUNC
-    uint32_t m16 = *(uint32_t*)((char*)p + 16);
-    return m16 == 0x434C5352 || m16 == 0x46554E43;
+    return ts_is_callable((void*)v);  // canonical IsCallable (TsObject.cpp)
 }
 
 // next() of the iterator returned by Iterator.concat. State (ctx) is the
@@ -3856,17 +3848,7 @@ static TsValue* ts_typed_array_from_native(void* ctx, int argc, TsValue** argv) 
         TsValue* iterMethod = ts_object_get_property(source, "[Symbol.iterator]");
         if (iterMethod && !ts_value_is_undefined(iterMethod) &&
             !ts_value_is_null(iterMethod)) {
-            void* methodRaw = ts_value_get_object(iterMethod);
-            if (!methodRaw) methodRaw = iterMethod;
-            bool isCallable = false;
-            if (methodRaw) {
-                uintptr_t p = (uintptr_t)methodRaw;
-                if (p > 0x1000 && (p & 0xFFFF000000000000ULL) == 0) {
-                    uint32_t m16 = *(uint32_t*)((char*)methodRaw + 16);
-                    isCallable = (m16 == 0x46554E43 /* FUNC */ ||
-                                  m16 == 0x434C5352 /* CLSR */);
-                }
-            }
+            bool isCallable = ts_is_callable((void*)iterMethod);  // canonical IsCallable
             if (isCallable) {
                 TsValue* sourceBoxed = ts_value_make_object(source);
                 TsValue* iter = ts_call_with_this_0(iterMethod, sourceBoxed);

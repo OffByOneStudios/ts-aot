@@ -1579,16 +1579,7 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     // Helper: check if a TsValue is callable (closure or function)
     static bool ts_value_is_callable(TsValue* val) {
-        if (!val) return false;
-        uint64_t nb = nanbox_from_tsvalue_ptr(val);
-        if (!nanbox_is_ptr(nb)) return false;
-        void* ptr = nanbox_to_ptr(nb);
-        if (!ptr) return false;
-        // Check for TsClosure magic at offset 16
-        uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-        if (magic16 == 0x434C5352) return true; // TsClosure::MAGIC "CLSR"
-        if (magic16 == 0x46554E43) return true; // TsFunction::MAGIC "FUNC"
-        return false;
+        return ts_is_callable((void*)val);  // canonical IsCallable (defined below)
     }
 
     // Helper: call callback with variable number of TsValue* args
@@ -5264,6 +5255,26 @@ TsValue* ts_value_make_int(int64_t i) {
         }
 
         return nullptr;
+    }
+
+    // Canonical IsCallable (ECMA-262 7.2.3) — the single source of truth shared
+    // by every builtin that guards a callback (Array/Map/Set/String/Promise/
+    // iterator helpers). Defined to match EXACTLY what call_dispatch_n can
+    // invoke: a closure (CLSR), a TsFunction (FUNC — covers native + bound
+    // functions, whose magic is FUNC@16), or a Proxy whose [[ProxyTarget]] is
+    // callable. It replaces 8 hand-rolled copies that disagreed (some also
+    // checked a dead CLSR/FUNC@offset-0; none accepted proxies/bound fns), so
+    // `arr.forEach.call(arr, new Proxy(fn, {}))` wrongly threw "not callable".
+    // Takes void* because callers hold the value as a TsValue* or a raw nanbox
+    // — bit-identical, since nanbox_from_tsvalue_ptr is a reinterpret cast.
+    extern "C" bool ts_is_callable(void* val) {
+        if (!val) return false;
+        TsValue* boxed = (TsValue*)val;
+        if (ts_extract_closure(boxed)) return true;
+        if (ts_extract_function(boxed)) return true;
+        TsProxy* proxy = ts_extract_proxy(boxed);
+        if (proxy) return ts_is_callable(proxy->target);  // IsCallable([[ProxyTarget]])
+        return false;
     }
 
     // (The arity-suffixed ts_call_0..10 are gone — internal C++ callers use the

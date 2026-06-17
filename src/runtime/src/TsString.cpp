@@ -29,15 +29,7 @@ extern "C" {
 
 // Check if a NaN-boxed TsValue is a callable function (closure or TsFunction)
 static bool ts_nanbox_is_callable(void* val) {
-    if (!val) return false;
-    uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)val);
-    if (!nanbox_is_ptr(nb)) return false;
-    void* ptr = nanbox_to_ptr(nb);
-    if (!ptr) return false;
-    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-    if (magic16 == 0x434C5352) return true; // TsClosure::MAGIC "CLSR"
-    if (magic16 == 0x46554E43) return true; // TsFunction::MAGIC "FUNC"
-    return false;
+    return ts_is_callable(val);  // canonical IsCallable (TsObject.cpp)
 }
 
 // Call a function with a variable number of TsValue* args (array form).

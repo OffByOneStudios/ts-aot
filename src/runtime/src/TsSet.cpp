@@ -338,17 +338,8 @@ extern "C" void* ts_error_create_typed(const char* type, const char* message);
 
 // Helper: returns true iff val is a callable function/closure.
 // Per ECMA-262, callbacks must be IsCallable; otherwise throw TypeError.
-static bool ts_is_callable(void* val) {
-    if (!val) return false;
-    uint64_t nb = (uint64_t)(uintptr_t)val;
-    if (!nanbox_is_ptr(nb) || nb <= NANBOX_UNDEFINED) return false;
-    void* ptr = nanbox_to_ptr(nb);
-    if (!ptr) return false;
-    uint32_t magic16 = *(uint32_t*)((char*)ptr + 16);
-    if (magic16 == 0x434C5352) return true; // TsClosure::MAGIC "CLSR"
-    if (magic16 == 0x46554E43) return true; // TsFunction::MAGIC "FUNC"
-    return false;
-}
+// IsCallable is the canonical ts_is_callable (TsObject.cpp), declared in
+// TsRuntime.h; call sites below bind to it directly.
 
 void ts_set_forEach(void* set, void* callback, void* thisArg) {
     void* rawCtx = requireSet(set, "forEach");
