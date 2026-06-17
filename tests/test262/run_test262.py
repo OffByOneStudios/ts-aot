@@ -558,6 +558,23 @@ def _shared_runtime_config(compiler_str: str):
     comp_dir = Path(compiler_str).resolve().parent            # build/src/compiler/Release
     dll_dir = comp_dir.parent.parent / "sharedrt" / "Release" # build/src/sharedrt/Release
     icu_dir = comp_dir                                         # icudt74l.dat sits next to ts-aot.exe
+    # Freshness guard: a stale tsruntime_shared.dll (older than ts-aot.exe, e.g.
+    # after rebuilding only the compiler) link-bombs EVERY test exe that needs a
+    # newly-exported runtime symbol -> the whole sweep records compile_errors,
+    # indistinguishable from a real regression cliff. Warn loudly up front.
+    dll = dll_dir / "tsruntime_shared.dll"
+    try:
+        comp_exe = Path(compiler_str).resolve()
+        if dll.exists() and comp_exe.exists() and dll.stat().st_mtime < comp_exe.stat().st_mtime:
+            sys.stderr.write(
+                "\n*** [shared-DLL STALE] tsruntime_shared.dll is OLDER than ts-aot.exe.\n"
+                "    A new exported runtime symbol will link-fail across ALL test exes\n"
+                "    (every test -> compile_error). Run a FULL `cmake --build` first.\n"
+                f"    dll : {dll}\n    exe : {comp_exe}\n\n")
+        elif not dll.exists():
+            sys.stderr.write(f"\n*** [shared-DLL MISSING] {dll} not found; build sharedrt.\n\n")
+    except OSError:
+        pass
     run_env = dict(os.environ)
     run_env["PATH"] = str(dll_dir) + os.pathsep + run_env.get("PATH", "")
     run_env.setdefault("ICU_DATA", str(icu_dir))
@@ -977,6 +994,22 @@ class Test262Runner:
                 baseline = json.loads(BASELINE_FILE.read_text())
             except Exception:
                 pass
+            # Staleness guard: the regression gate is only meaningful if the
+            # baseline reflects the CURRENT compiler. A baseline older than
+            # ts-aot.exe silently reports month-old "new passes" and hides
+            # regressions that landed into the stale set. Warn loudly.
+            try:
+                comp_exe = Path(self.compiler).resolve()
+                if comp_exe.exists():
+                    age_days = (comp_exe.stat().st_mtime - BASELINE_FILE.stat().st_mtime) / 86400.0
+                    if age_days > 1.0:
+                        sys.stderr.write(
+                            f"\n*** [baseline STALE] .test262_baseline.json is {age_days:.0f} day(s) "
+                            f"older than ts-aot.exe.\n    The regression gate compares against stale "
+                            f"truth: fixed tests show as 'new passes' forever and\n    regressions into "
+                            f"the old set are invisible. Re-save with --save-baseline after a clean sweep.\n\n")
+            except (OSError, AttributeError):
+                pass
 
         # Open result log (append mode preserves any prior entries for resume)
         self._result_log = ResultLog(self.results_jsonl)
@@ -1318,7 +1351,41 @@ def main():
                         help="Override the results JSONL path (default: "
                              ".test262_results.jsonl). Use for sample-gate runs so "
                              "they don't pollute the full-sweep log.")
+    parser.add_argument("--one",
+                        help="Compile+run ONE test through the EXACT sweep pipeline "
+                             "(same harness, $262 stub, strict/async handling, shared "
+                             "runtime) and print its verdict + full stderr/stdout. Path "
+                             "is relative to test262/test/ (or absolute). Use this to "
+                             "diagnose a single test instead of hand-rolling a harness.")
     args = parser.parse_args()
+
+    # --one: single-test verdict via the real pipeline (no baseline/log churn).
+    if args.one:
+        p = Path(args.one)
+        if not p.is_absolute():
+            cand = TEST_DIR / args.one
+            p = cand if cand.exists() else p
+        if not p.exists():
+            print(f"Error: test not found: {args.one}\n  (looked under {TEST_DIR})")
+            sys.exit(2)
+        compiler = get_compiler_path()
+        BUILD_DIR.mkdir(parents=True, exist_ok=True)
+        res = run_single_test(p, compiler, BUILD_DIR, timeout=args.timeout, verbose=True)
+        rel = p.name
+        try:
+            rel = str(p.resolve().relative_to(TEST_DIR.resolve())).replace('\\', '/')
+        except ValueError:
+            pass
+        print(f"\n=== {rel} ===")
+        print(f"STATUS : {res.status}")
+        if res.reason:
+            print(f"REASON : {res.reason}")
+        print(f"EXIT   : {res.exit_code}   ({res.time_ms:.0f} ms)")
+        if res.stdout and res.stdout.strip():
+            print("--- stdout ---\n" + res.stdout.rstrip())
+        if res.stderr and res.stderr.strip():
+            print("--- stderr ---\n" + res.stderr.rstrip())
+        sys.exit(0 if res.status == "pass" else 1)
 
     # --consolidate-baseline: build baseline from existing JSONL and exit
     if args.consolidate_baseline:
