@@ -4926,6 +4926,21 @@ static void install_uint8_hex_methods(void* ctorVal) {
     }
 }
 
+// ECMA-262 22.2.4.2 TypedArray(length): ToIndex(length) + a practical byte cap
+// so a huge length throws RangeError instead of attempting a multi-GB
+// allocation (the OOM/hang bug: `new Int8Array(1e12)` previously eager-allocated
+// ~1 TB). NaN -> 0; negative / > 2^53-1 / over the ~2 GB byte cap -> RangeError.
+static int64_t ta_to_index_length(double d, int64_t elemSize) {
+    double n = std::isnan(d) ? 0.0 : std::trunc(d);   // ToIntegerOrInfinity: NaN -> 0
+    int64_t es = elemSize > 0 ? elemSize : 1;
+    if (n < 0 || n > 9007199254740991.0 || n > (double)0x7FFFFFFFLL / (double)es) {
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Invalid typed array length"));
+        return 0;  // unreachable (ts_throw longjmps)
+    }
+    return (int64_t)n;
+}
+
 #define DEFINE_TYPED_ARRAY_CTOR(JsName, CName, RuntimeFn, ElemSize)                     \
 void* ts_get_global_##CName() {                                                         \
     static void* cached = nullptr;                                                      \
@@ -4954,8 +4969,7 @@ void* ts_get_global_##CName() {                                                 
             }                                                                           \
             int64_t length = 0;                                                         \
             if (argc >= 1 && argv && argv[0]) {                                         \
-                length = (int64_t)ts_to_number(argv[0]);                                \
-                if (length < 0) length = 0;                                             \
+                length = ta_to_index_length(ts_to_number(argv[0]), (ElemSize));         \
             }                                                                           \
             return (TsValue*)RuntimeFn(length);                                         \
         };                                                                              \
