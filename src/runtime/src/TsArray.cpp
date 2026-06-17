@@ -26,6 +26,11 @@
 extern "C" {
     TsMap* g_array_prototype_map = nullptr;
     uint64_t g_array_prototype_version = 0;
+    // Set when `delete Array.prototype[Symbol.iterator]` runs. The default
+    // array iterator lives in a built-in fast path (not in the prototype map),
+    // so its removal isn't otherwise observable; ts_iterator_get consults this
+    // flag to throw TypeError per GetIterator.
+    bool g_array_default_iterator_deleted = false;
     double ts_to_number(TsValue* v);  // defined in Primitives.cpp
 }
 
@@ -3614,7 +3619,10 @@ extern "C" {
             uintptr_t p = (uintptr_t)rawIter;
             if (p > 0x1000 && p < 0x0000800000000000ULL) {
                 uint32_t mg = *(uint32_t*)rawIter;
-                if (mg == TsArray::MAGIC) {
+                // Fast path only when Array.prototype[@@iterator] is pristine.
+                // After a user override/delete (version != 0), fall through to
+                // the iterator protocol so the mutation is honored / throws.
+                if (mg == TsArray::MAGIC && g_array_prototype_version == 0) {
                     TsArray* src = (TsArray*)rawIter;
                     for (size_t i = 0; i < src->Length(); ++i) {
                         dst->Push(src->Get(i));

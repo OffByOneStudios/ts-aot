@@ -1229,6 +1229,13 @@ void ts_async_generator_resolve(AsyncContext* ctx, TsValue* value, bool done) {
     }
 }
 
+// Array.prototype[@@iterator] mutation tracking (defined in TsArray.cpp).
+// Declared at file scope so the references in ts_iterator_get link with C
+// linkage (block-scope `extern "C"` is illegal).
+extern "C" uint64_t g_array_prototype_version;
+extern "C" bool g_array_default_iterator_deleted;
+extern "C" TsMap* g_array_prototype_map;
+
 // yield* delegation support - get an iterator from an iterable
 TsValue* ts_iterator_get(TsValue* iterable) {
     if (!iterable) {
@@ -1361,6 +1368,7 @@ TsValue* ts_iterator_get(TsValue* iterable) {
             // a user override — call it with `this` = the array. Without this,
             // `var [a,b] = arrWithCustomIter` read the raw elements, ignoring
             // the override (and never ran a custom next()).
+            extern TsValue* ts_call_with_this_0(TsValue*, TsValue*);
             if (arr->properties) {
                 TsValue ik; ik.type = ValueType::STRING_PTR;
                 ik.ptr_val = TsString::GetInterned("[Symbol.iterator]");
@@ -1368,8 +1376,43 @@ TsValue* ts_iterator_get(TsValue* iterable) {
                     TsValue m = arr->properties->Get(ik);
                     if ((m.type == ValueType::OBJECT_PTR ||
                          m.type == ValueType::FUNCTION_PTR) && m.ptr_val) {
-                        extern TsValue* ts_call_with_this_0(TsValue*, TsValue*);
                         return ts_call_with_this_0((TsValue*)m.ptr_val, iterable);
+                    }
+                    // Own @@iterator present but undefined/non-callable:
+                    // GetIterator throws TypeError (no fall-back to the
+                    // built-in array iterator).
+                    ts_throw((TsValue*)ts_error_create_typed(
+                        "TypeError", "(intermediate value)[Symbol.iterator] is not a function"));
+                    return nullptr;  // unreachable (ts_throw longjmps)
+                }
+            }
+            // ECMA-262 GetIterator also consults Array.prototype[@@iterator].
+            // ts-aot serves the default iterator from a built-in fast path, so
+            // a user mutation of Array.prototype[Symbol.iterator] (override or
+            // `delete`) is only observable via the prototype map / deleted
+            // flag. Gate on the version counter so the unmutated path stays hot.
+            {
+                if (g_array_prototype_version != 0 && g_array_prototype_map) {
+                    TsValue pk; pk.type = ValueType::STRING_PTR;
+                    pk.ptr_val = TsString::GetInterned("[Symbol.iterator]");
+                    if (g_array_prototype_map->Has(pk)) {
+                        TsValue pm = g_array_prototype_map->Get(pk);
+                        if ((pm.type == ValueType::OBJECT_PTR ||
+                             pm.type == ValueType::FUNCTION_PTR) && pm.ptr_val) {
+                            // Overridden Array.prototype[@@iterator]. A re-assigned
+                            // default reads back as the array `values` native, so
+                            // this also restores normal behavior after a restore.
+                            return ts_call_with_this_0((TsValue*)pm.ptr_val, iterable);
+                        }
+                        ts_throw((TsValue*)ts_error_create_typed(
+                            "TypeError", "Array.prototype[Symbol.iterator] is not a function"));
+                        return nullptr;  // unreachable
+                    }
+                    if (g_array_default_iterator_deleted) {
+                        // `delete Array.prototype[Symbol.iterator]` -> no iterator.
+                        ts_throw((TsValue*)ts_error_create_typed(
+                            "TypeError", "Array.prototype[Symbol.iterator] is not a function"));
+                        return nullptr;  // unreachable
                     }
                 }
             }

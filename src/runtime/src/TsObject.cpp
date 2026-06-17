@@ -7069,6 +7069,7 @@ TsValue* ts_value_make_int(int64_t i) {
     // Supports: value, get, set, writable (partial), enumerable (partial), configurable (partial)
     extern "C" void ts_array_prototype_bump_version();
     extern "C" bool ts_array_is_prototype_map(void* maybeMap);
+    extern "C" bool g_array_default_iterator_deleted;  // defined in TsArray.cpp
 
     TsValue* ts_object_defineProperty(TsValue* obj, TsValue* prop, TsValue* descriptor) {
         // Spec step 1: If Type(O) is not Object, throw a TypeError exception.
@@ -10207,6 +10208,20 @@ TsValue* ts_value_make_int(int64_t i) {
             }
         }
 
+        // `Array.prototype[Symbol.iterator] = fn` must bump the version so
+        // ts_iterator_get / spread consult the overridden iterator. Scope the
+        // bump to the @@iterator key only: a broad bump on every prototype
+        // write flips the array methods (filter/forEach/...) onto their slow
+        // enumeration path and is unnecessary here. A re-assigned @@iterator
+        // also clears the deleted flag implicitly (the map now Has the key,
+        // which ts_iterator_get checks before the flag).
+        if (magic16 == 0x4D415053 && ts_array_is_prototype_map((void*)rawObj)) {
+            TsString* sk = ts_property_key_string((TsValue*)key);
+            if (sk && strcmp(sk->ToUtf8(), "[Symbol.iterator]") == 0) {
+                ts_array_prototype_bump_version();
+            }
+        }
+
         // Delegate to ts_object_set_prop_v which handles all cases
         TsValue objVal = nanbox_to_tagged(obj);
         TsValue keyVal = nanbox_to_tagged(key);
@@ -10958,6 +10973,16 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue keyVal;
             keyVal.type = ValueType::STRING_PTR;
             keyVal.ptr_val = keyStr;
+            // `delete Array.prototype[Symbol.iterator]` removes the default
+            // array iterator. The built-in lives in a fast path (not in the
+            // prototype map), so a plain map->Delete here is a no-op. Record
+            // the deletion in a flag ts_iterator_get consults, and bump the
+            // version so array iteration takes the spec-compliant slow path.
+            if (ts_array_is_prototype_map(map) &&
+                strcmp(keyStr->ToUtf8(), "[Symbol.iterator]") == 0) {
+                g_array_default_iterator_deleted = true;
+                ts_array_prototype_bump_version();
+            }
             // Per ES spec: [[Delete]] on a non-configurable property
             // returns false (and throws TypeError in strict mode, handled
             // by the compiler wrapper).
@@ -11135,6 +11160,16 @@ TsValue* ts_value_make_int(int64_t i) {
         // Decode key via nanbox
         TsString* keyStr = ts_property_key_string((TsValue*)keyArg);
         if (!keyStr) return 0;
+
+        // `delete Array.prototype[Symbol.iterator]` removes the default array
+        // iterator, which is served from a built-in fast path (not stored in
+        // this map). Record the deletion in a flag ts_iterator_get consults and
+        // bump the version so array iteration takes the spec-compliant path.
+        if (ts_array_is_prototype_map(map) &&
+            strcmp(keyStr->ToUtf8(), "[Symbol.iterator]") == 0) {
+            g_array_default_iterator_deleted = true;
+            ts_array_prototype_bump_version();
+        }
 
         // Create proper TsValue key for map delete
         TsValue keyVal;
