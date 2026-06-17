@@ -33,6 +33,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ts_test_platform import get_compiler_path, get_exe_suffix
 
 # ---------------------------------------------------------------------------
+# Child-process priority.  A full sweep is a background batch job — dozens of
+# LLVM-bearing ts-aot compiles + test exes. At normal priority it saturates the
+# machine and can starve interactive work (notably the Claude session that may
+# have launched it in the background), dropping the harness mid-sweep — the
+# "we crashed" failures. Spawn every child BELOW-normal so the OS gives
+# interactive work CPU preference: the sweep still runs full-tilt when the
+# machine is idle but yields the moment something else needs the core.
+# TS262_LOW_PRIORITY=0 disables (e.g. dedicated CI hosts).
+# ---------------------------------------------------------------------------
+if os.environ.get("TS262_LOW_PRIORITY", "1") != "0" and sys.platform == "win32":
+    _SPAWN_KW = {"creationflags": subprocess.BELOW_NORMAL_PRIORITY_CLASS}
+elif os.environ.get("TS262_LOW_PRIORITY", "1") != "0" and hasattr(os, "nice"):
+    # POSIX: renice the child via a preexec hook (best-effort).
+    _SPAWN_KW = {"preexec_fn": lambda: os.nice(10)}
+else:
+    _SPAWN_KW = {}
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -706,7 +724,7 @@ def _run_test_exe(job, timeout):
     try:
         run = subprocess.run(
             [str(job["tmp_exe"])], capture_output=True, text=True, timeout=timeout,
-            encoding='utf-8', errors='replace', env=job["run_env"]
+            encoding='utf-8', errors='replace', env=job["run_env"], **_SPAWN_KW
         )
     except subprocess.TimeoutExpired:
         return TestResult(test_path, "timeout", "execution timeout",
@@ -766,7 +784,7 @@ def run_single_test(test_path: Path, compiler: Path, build_dir: Path,
     compile_cmd += job["shared_flags"]
     try:
         comp = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=30,
-                              encoding='utf-8', errors='replace')
+                              encoding='utf-8', errors='replace', **_SPAWN_KW)
         rc, stderr = comp.returncode, comp.stderr or ""
     except subprocess.TimeoutExpired:
         rc, stderr = None, ""
@@ -805,7 +823,7 @@ def _compile_batch(jobs, compiler, base_extra_flags):
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,
                                   timeout=max(60, len(jobs) * 10),
-                                  encoding='utf-8', errors='replace')
+                                  encoding='utf-8', errors='replace', **_SPAWN_KW)
             for line in proc.stdout.splitlines():
                 parts = line.split("\t")
                 if len(parts) >= 3:
@@ -841,7 +859,7 @@ def _compile_batch(jobs, compiler, base_extra_flags):
         single = [str(compiler), str(j["tmp_js"]), "-o", str(j["tmp_exe"])] + base_extra_flags + shared_flags
         try:
             sp = subprocess.run(single, capture_output=True, text=True, timeout=30,
-                                encoding='utf-8', errors='replace')
+                                encoding='utf-8', errors='replace', **_SPAWN_KW)
             rc_by_input[key] = sp.returncode
         except subprocess.TimeoutExpired:
             rc_by_input[key] = None  # compile timeout
