@@ -6232,10 +6232,21 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
                 auto* defaultExpr = dynamic_cast<ast::Expression*>(assignDefault->right.get());
                 if (defaultExpr) {
                     auto isUndef = builder_.createIsUndefined(extracted);
-                    // ECMA-262 NamedEvaluation: an anonymous function/arrow/class
-                    // default in an assignment target takes the target's name
-                    // (`[fn = function(){}] = []` -> fn.name === "fn"). The
-                    // binding-pattern path does this; the assignment path didn't.
+                    // ECMA-262: the Initializer is evaluated only in the "value
+                    // is undefined" step, so a SKIPPED side-effecting default
+                    // must NOT run (`[a = se()] = [1]` -> se not called). The old
+                    // createSelect evaluated both operands eagerly. Mirror the
+                    // binding path (lowerBindingElement): branch + merge slot.
+                    // NamedEvaluation (anon fn/arrow/class default takes the
+                    // target name) stays inside the default block so it can't
+                    // leak when skipped.
+                    auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "dstr_dflt");
+                    auto* defaultBB = currentFunction_->createBlock("dstr_default");
+                    auto* usedBB = currentFunction_->createBlock("dstr_used");
+                    auto* mergeBB = currentFunction_->createBlock("dstr_merge");
+                    builder_.createCondBranch(isUndef, defaultBB, usedBB);
+
+                    builder_.setInsertPoint(defaultBB); currentBlock_ = defaultBB;
                     std::string savedPCDN = pendingClosureDisplayName_;
                     if (auto* tid = dynamic_cast<ast::Identifier*>(assignDefault->left.get())) {
                         if (dynamic_cast<ast::ArrowFunction*>(defaultExpr) ||
@@ -6244,10 +6255,17 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
                             pendingClosureDisplayName_ = tid->name;
                         }
                     }
-                    auto defaultVal = boxValueIfNeeded(lowerExpression(defaultExpr));
+                    auto defaultValue = boxValueIfNeeded(lowerExpression(defaultExpr));
                     pendingClosureDisplayName_ = savedPCDN;
-                    extracted = boxValueIfNeeded(extracted);
-                    extracted = builder_.createSelect(isUndef, defaultVal, extracted);
+                    builder_.createStore(defaultValue, mergeSlot);
+                    builder_.createBranch(mergeBB);
+
+                    builder_.setInsertPoint(usedBB); currentBlock_ = usedBB;
+                    builder_.createStore(boxValueIfNeeded(extracted), mergeSlot);
+                    builder_.createBranch(mergeBB);
+
+                    builder_.setInsertPoint(mergeBB); currentBlock_ = mergeBB;
+                    extracted = builder_.createLoad(HIRType::makeAny(), mergeSlot);
                 }
                 target = dynamic_cast<ast::Expression*>(assignDefault->left.get());
             }
@@ -6326,18 +6344,29 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
                 keyForExclude = builder_.createConstString(sh->name);
                 extracted = builder_.createGetPropDynamic(rhs, keyForExclude);
                 if (auto* dflt = dynamic_cast<ast::Expression*>(sh->initializer.get())) {
+                    // Lazy default: a skipped side-effecting default must not run.
                     auto isUndef = builder_.createIsUndefined(extracted);
-                    // NamedEvaluation: `({ obj = function(){} } = {})` -> obj.name.
+                    auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "dstr_dflt");
+                    auto* defaultBB = currentFunction_->createBlock("dstr_default");
+                    auto* usedBB = currentFunction_->createBlock("dstr_used");
+                    auto* mergeBB = currentFunction_->createBlock("dstr_merge");
+                    builder_.createCondBranch(isUndef, defaultBB, usedBB);
+                    builder_.setInsertPoint(defaultBB); currentBlock_ = defaultBB;
                     std::string savedPCDN = pendingClosureDisplayName_;
                     if (dynamic_cast<ast::ArrowFunction*>(dflt) ||
                         dynamic_cast<ast::FunctionExpression*>(dflt) ||
                         dynamic_cast<ast::ClassExpression*>(dflt)) {
                         pendingClosureDisplayName_ = sh->name;
                     }
-                    auto defaultVal = boxValueIfNeeded(lowerExpression(dflt));
+                    auto defaultValue = boxValueIfNeeded(lowerExpression(dflt));
                     pendingClosureDisplayName_ = savedPCDN;
-                    extracted = boxValueIfNeeded(extracted);
-                    extracted = builder_.createSelect(isUndef, defaultVal, extracted);
+                    builder_.createStore(defaultValue, mergeSlot);
+                    builder_.createBranch(mergeBB);
+                    builder_.setInsertPoint(usedBB); currentBlock_ = usedBB;
+                    builder_.createStore(boxValueIfNeeded(extracted), mergeSlot);
+                    builder_.createBranch(mergeBB);
+                    builder_.setInsertPoint(mergeBB); currentBlock_ = mergeBB;
+                    extracted = builder_.createLoad(HIRType::makeAny(), mergeSlot);
                 }
                 assignDestructureName(sh->name, extracted);
                 consumedKeys.push_back(keyForExclude);
@@ -6347,8 +6376,14 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
             }
             if (keyForExclude) consumedKeys.push_back(keyForExclude);
             if (defaultExpr) {
+                // Lazy default: a skipped side-effecting default must not run.
                 auto isUndef = builder_.createIsUndefined(extracted);
-                // NamedEvaluation: `({ a: t = function(){} } = {})` -> t.name === "t".
+                auto mergeSlot = builder_.createAlloca(HIRType::makeAny(), "dstr_dflt");
+                auto* defaultBB = currentFunction_->createBlock("dstr_default");
+                auto* usedBB = currentFunction_->createBlock("dstr_used");
+                auto* mergeBB = currentFunction_->createBlock("dstr_merge");
+                builder_.createCondBranch(isUndef, defaultBB, usedBB);
+                builder_.setInsertPoint(defaultBB); currentBlock_ = defaultBB;
                 std::string savedPCDN = pendingClosureDisplayName_;
                 if (auto* tid = dynamic_cast<ast::Identifier*>(target)) {
                     if (dynamic_cast<ast::ArrowFunction*>(defaultExpr) ||
@@ -6357,10 +6392,15 @@ void ASTToHIR::destructureAssignmentPattern(ast::Expression* lhs,
                         pendingClosureDisplayName_ = tid->name;
                     }
                 }
-                auto defaultVal = boxValueIfNeeded(lowerExpression(defaultExpr));
+                auto defaultValue = boxValueIfNeeded(lowerExpression(defaultExpr));
                 pendingClosureDisplayName_ = savedPCDN;
-                extracted = boxValueIfNeeded(extracted);
-                extracted = builder_.createSelect(isUndef, defaultVal, extracted);
+                builder_.createStore(defaultValue, mergeSlot);
+                builder_.createBranch(mergeBB);
+                builder_.setInsertPoint(usedBB); currentBlock_ = usedBB;
+                builder_.createStore(boxValueIfNeeded(extracted), mergeSlot);
+                builder_.createBranch(mergeBB);
+                builder_.setInsertPoint(mergeBB); currentBlock_ = mergeBB;
+                extracted = builder_.createLoad(HIRType::makeAny(), mergeSlot);
             }
             if (target) assignToTarget(target, extracted);
         }
