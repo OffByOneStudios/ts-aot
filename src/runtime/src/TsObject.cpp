@@ -4551,6 +4551,20 @@ TsValue* ts_value_make_int(int64_t i) {
                 return arrayCtor ? (TsValue*)ts_value_make_object(arrayCtor)
                                  : ts_value_make_undefined();
             }
+            // ECMA-262 OrdinaryGet: an own property whose name collides with an
+            // inherited builtin method (`arr.fill = 5`, `Object.defineProperty(
+            // arr, "map", {value})`) shadows the method — own props win. The
+            // strcmp ladder below answered first, so the builtin wrongly won.
+            // Normal arrays store only prefixed __arr_getter_/__arr_setter_/
+            // __arr_attrs_<i> keys (per-index descriptors), so a plain builtin
+            // name never matches -> the common `[].map` path still falls through
+            // to the builtin. (length/constructor are exotic, handled above.)
+            if (arr->properties) {
+                TsValue k; k.type = ValueType::STRING_PTR;
+                k.ptr_val = TsString::GetInterned(keyStr);
+                TsValue v = arr->properties->Get(k);
+                if (v.type != ValueType::UNDEFINED) return nanbox_from_tagged(v);
+            }
             // Object.prototype methods inherited by arrays. The array branch
             // is a method-name allowlist that never fell through to
             // Object.prototype, so `arr.hasOwnProperty(k)` resolved to
