@@ -4138,6 +4138,16 @@ TsValue* ts_value_make_int(int64_t i) {
                 return ctor ? (TsValue*)ts_value_make_object(ctor)
                             : ts_value_make_undefined();
             }
+            // ECMA-262 OrdinaryGet: an own property shadows an inherited Date
+            // method (`d.getTime = 5; d.getTime` -> 5). The method ladder below
+            // answered first. Own props live in the g_native_object_props
+            // side-map; a Date instance normally has none, so a builtin name
+            // doesn't match -> the methods below still resolve.
+            if (TsMap* nprops = getNativeProps(obj)) {
+                TsValue nk; nk.type = ValueType::STRING_PTR;
+                nk.ptr_val = TsString::GetInterned(keyStr);
+                if (nprops->Has(nk)) return nanbox_from_tagged(nprops->Get(nk));
+            }
             if (strcmp(keyStr, "getTime") == 0) return makeNamedNativeFunction((void*)ts_date_getTime_native, date, "getTime", 0);
             if (strcmp(keyStr, "getFullYear") == 0) return makeNamedNativeFunction((void*)ts_date_getFullYear_native, date, "getFullYear", 0);
             if (strcmp(keyStr, "getMonth") == 0) return makeNamedNativeFunction((void*)ts_date_getMonth_native, date, "getMonth", 0);
@@ -4179,18 +4189,8 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "setUTCMinutes") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCMinutes_native, date, "setUTCMinutes", 3);
             if (strcmp(keyStr, "setUTCSeconds") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCSeconds_native, date, "setUTCSeconds", 2);
             if (strcmp(keyStr, "setUTCMilliseconds") == 0) return makeNamedNativeFunction((void*)ts_date_setUTCMilliseconds_native, date, "setUTCMilliseconds", 1);
-            // Own properties assigned dynamically or via Object.defineProperty
-            // are stored in the per-object side-map (g_native_object_props);
-            // they shadow Date.prototype. Without this, `d.foo = 5; d.foo` and
-            // `Object.defineProperty(d,'p',{value:11}); d.p` both read undefined
-            // (the Date fast-path returned before the generic side-map fallback).
-            if (TsMap* nprops = getNativeProps(obj)) {
-                TsValue nk; nk.type = ValueType::STRING_PTR;
-                nk.ptr_val = TsString::GetInterned(keyStr);
-                if (nprops->Has(nk)) {
-                    return nanbox_from_tagged(nprops->Get(nk));
-                }
-            }
+            // (own-property shadow check moved ABOVE the method ladder so own
+            // props win per OrdinaryGet — see the getNativeProps block above.)
             // Fall through to Date.prototype lookup for methods not in this
             // fast-path table (e.g. getDay, getUTCDay, getTimezoneOffset,
             // toLocale* — registered in dateInitPrototype). Without this
