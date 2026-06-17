@@ -1948,6 +1948,34 @@ void* ts_get_global_Symbol() {
                 };
                 addMethod(proto, "valueOf", (void*)+symValueOf, 0);
 
+                // Symbol.prototype.description (ES2019) — install as a REAL
+                // accessor property (not just a get_dynamic special) so
+                // getOwnPropertyDescriptor returns {get, set:undefined,
+                // enumerable:false, configurable:true} and propertyHelper.js
+                // verifyProperty (delete/redefine/for-in) passes. The
+                // get_dynamic special at TsObject.cpp ~9319 remains as a fast
+                // path; this installed getter is what gOPD + .call() see.
+                addAccessorGetter(proto, "description", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+                    if (!ctx) ctx = ts_get_call_this();
+                    void* raw = ts_nanbox_safe_unbox(ctx);  // nullptr for non-objects (no crash)
+                    // Symbol wrapper object (Object(sym)): unwrap __SymbolData.
+                    if (raw && *(uint32_t*)((char*)raw + 16) == 0x4D415053 /*TsMap "MAPS"*/) {
+                        TsValue dk; dk.type = ValueType::STRING_PTR;
+                        dk.ptr_val = TsString::GetInterned("__SymbolData");
+                        TsValue v = ((TsMap*)raw)->Get(dk);
+                        if (v.type == ValueType::SYMBOL_PTR && v.ptr_val) raw = v.ptr_val;
+                    }
+                    if (raw && *(uint32_t*)raw == 0x53594D42 /*TsSymbol "SYMB"*/) {
+                        extern void* ts_symbol_get_description(void* sym);
+                        void* d = ts_symbol_get_description(raw);
+                        return d ? ts_value_make_string((TsString*)d) : ts_value_make_undefined();
+                    }
+                    // ECMA-262 thisSymbolValue: TypeError when not a Symbol.
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Symbol.prototype.description requires that 'this' be a Symbol"));
+                    return ts_value_make_undefined();
+                });
+
                 // Symbol.prototype.toString (ECMA-262 20.4.3.3): returns
                 // "Symbol(<description>)". Without this a symbol inherited
                 // Object.prototype.toString -> "[object Symbol]" and
@@ -2091,6 +2119,15 @@ void* ts_get_global_Map() {
             return ts_value_make_undefined();
         }, 1);
 
+        // Map.prototype.size — REAL accessor (the get_dynamic special at
+        // TsObject.cpp ~4392 remains a fast path) so getOwnPropertyDescriptor
+        // returns the accessor descriptor and verifyProperty passes. Reuses the
+        // brand-checking ts_map_size_wrapper (throws TypeError on non-Map).
+        addAccessorGetter(proto, "size", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_map_size_wrapper(ctx);
+        });
+
         // Static Map.groupBy(items, keyFn) — ES2024.
         extern TsValue* ts_map_groupBy(TsValue* iterable, TsValue* callbackFn);
         addMethod(ctor, "groupBy", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
@@ -2178,6 +2215,13 @@ void* ts_get_global_Set() {
                 proto->SetWithAttrs(ik, vfn, TsHashTable::ATTR_WRITABLE | TsHashTable::ATTR_CONFIGURABLE);
             }
         }
+
+        // Set.prototype.size — REAL accessor (see Map.prototype.size). Reuses
+        // the brand-checking ts_set_size_wrapper (throws TypeError on non-Set).
+        addAccessorGetter(proto, "size", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            if (!ctx) ctx = ts_get_call_this();
+            return ts_set_size_wrapper(ctx);
+        });
 
         setProtoStringTag(proto, "Set");
         cached = wrapAsCallable(ctor, "Set", 0);
