@@ -4964,7 +4964,11 @@ void* ts_get_global_##CName() {                                                 
                     uintptr_t p = (uintptr_t)rawSrc;                                    \
                     if (p > 0x1000 && p < 0x0000800000000000ULL) srcIsObject = true;    \
                 }                                                                       \
-                if (srcIsObject) {                                                      \
+                /* A STRING primitive is not an Object: `new TA("0")` must take  */     \
+                /* the length path (ToIndex(ToNumber("0"))=0), NOT be read as an */     \
+                /* array-like of length "0".length==1. String WRAPPER objects    */     \
+                /* (TsMap) are real Objects and stay array-like.                 */     \
+                if (srcIsObject && !ts_is_any_string(rawSrc)) {                          \
                     TsValue* lenVal = ts_object_get_property(rawSrc, "length");         \
                     if (lenVal && !ts_value_is_undefined(lenVal)) {                     \
                         double lenD = ts_to_number(lenVal);                             \
