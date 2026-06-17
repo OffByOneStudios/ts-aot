@@ -2424,9 +2424,10 @@ void ASTToHIR::emitComputedAccessorInstalls(HIRClass* hirClass,
         auto closure = builder_.createLoadFunction(ca.func->name);
         auto recv = ca.isStatic ? ctorVal : proto;
         if (!recv) continue;
-        const char* installFn = ca.isSetter
-            ? "ts_class_install_computed_setter"
-            : "ts_class_install_computed_getter";
+        const char* installFn = ca.isMethod
+            ? "ts_class_install_computed_method"
+            : ca.isSetter ? "ts_class_install_computed_setter"
+                          : "ts_class_install_computed_getter";
         builder_.createCall(installFn, {recv, keyVal, closure}, HIRType::makeVoid());
     }
 }
@@ -11853,15 +11854,20 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // map. Give the function a collision-free symbol and route it to
             // hirClass->computedAccessors for runtime install in the deferred
             // prototype-build pass.
-            bool isComputedAccessor =
-                (methodDef->isGetter || methodDef->isSetter) &&
+            // Any computed-name member (accessor OR regular method) can't use a
+            // static string key; route all of them through the runtime-install
+            // path. Regular methods install without the __getter_/__setter_
+            // prefix (isMethod below). Previously only accessors were handled,
+            // so `class C { [1](){} }` was stored under the literal key
+            // "[computed]" and `new C()[1]()` read undefined.
+            bool isComputedName =
                 dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
 
             // Generate a unique function name for the method (shared with the
             // class-expression path via computeClassMethodFuncName).
             std::string methodKey;
             std::string methodFuncName = computeClassMethodFuncName(
-                node->name, methodDef, isComputedAccessor, computedAccessorSeq, methodKey);
+                node->name, methodDef, isComputedName, computedAccessorSeq, methodKey);
 
             // Create HIR function for this method
             auto func = std::make_unique<HIRFunction>(methodFuncName);
@@ -12099,11 +12105,12 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
             // static method that happens to be named "constructor" — NOT
             // the class's instance constructor.
             HIRFunction* funcPtr = func.get();
-            if (isComputedAccessor) {
+            if (isComputedName) {
                 auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
+                bool isMethod = !methodDef->isGetter && !methodDef->isSetter;
                 hirClass->computedAccessors.push_back(
                     {cpn ? cpn->expression.get() : nullptr, funcPtr,
-                     methodDef->isSetter, methodDef->isStatic});
+                     methodDef->isSetter, methodDef->isStatic, isMethod});
             } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {
@@ -12462,18 +12469,17 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 continue;
             }
 
-            // Computed-name accessor (`get [expr]()` / `set [expr]()`) — see
-            // the statements/class path: route to hirClass->computedAccessors
-            // for runtime install since the storage key isn't statically known.
-            bool isComputedAccessor =
-                (methodDef->isGetter || methodDef->isSetter) &&
+            // Any computed-name member (accessor OR regular method) — see the
+            // statements/class path: route to hirClass->computedAccessors for
+            // runtime install since the storage key isn't statically known.
+            bool isComputedName =
                 dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
 
             // Generate a unique function name for the method (shared with the
             // class-declaration path via computeClassMethodFuncName).
             std::string methodKey;
             std::string methodFuncName = computeClassMethodFuncName(
-                className, methodDef, isComputedAccessor, computedAccessorSeq, methodKey);
+                className, methodDef, isComputedName, computedAccessorSeq, methodKey);
 
             // Create HIR function for this method
             auto func = std::make_unique<HIRFunction>(methodFuncName);
@@ -12711,11 +12717,12 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // static method that happens to be named "constructor" — NOT
             // the class's instance constructor.
             HIRFunction* funcPtr = func.get();
-            if (isComputedAccessor) {
+            if (isComputedName) {
                 auto* cpn = dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
+                bool isMethod = !methodDef->isGetter && !methodDef->isSetter;
                 hirClass->computedAccessors.push_back(
                     {cpn ? cpn->expression.get() : nullptr, funcPtr,
-                     methodDef->isSetter, methodDef->isStatic});
+                     methodDef->isSetter, methodDef->isStatic, isMethod});
             } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
                 hirClass->constructor = funcPtr;
             } else if (methodDef->isStatic) {

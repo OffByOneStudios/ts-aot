@@ -10324,6 +10324,19 @@ TsValue* ts_value_make_int(int64_t i) {
     void ts_class_install_computed_setter(TsValue* recv, TsValue* key, TsValue* closure) {
         install_computed_accessor(recv, key, closure, "__setter_");
     }
+    // Install a computed-name class METHOD (`class C { [expr]() {} }`) — same
+    // as the accessor install but with NO __getter_/__setter_ prefix, so a
+    // later `obj[key]()` dynamic-get finds the method closure directly. The key
+    // is ToPropertyKey'd (symbol keeps its storage key; number/bool/etc. ToString)
+    // so it matches what the dynamic get path builds for the same computed key.
+    void ts_class_install_computed_method(TsValue* recv, TsValue* key, TsValue* closure) {
+        if (!recv || !key || !closure) return;
+        TsString* keyStr = ts_property_key_string(key);
+        if (!keyStr) keyStr = (TsString*)ts_string_from_value(key);
+        if (!keyStr) return;
+        TsValue* keyBoxed = ts_value_make_string(keyStr);
+        ts_object_set_method(recv, keyBoxed, closure);
+    }
 
     // ============================================================
     // Value-passing variants (_v) - avoid heap allocation for TsValue

@@ -528,6 +528,7 @@ struct HIRClass {
         HIRFunction* func = nullptr;
         bool isSetter = false;
         bool isStatic = false;
+        bool isMethod = false;  // computed-name regular method (not get/set) -> install with no __getter_/__setter_ prefix
     };
     std::vector<ComputedAccessor> computedAccessors;
 
