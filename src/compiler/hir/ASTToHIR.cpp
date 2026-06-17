@@ -4235,6 +4235,13 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                                 auto obj = lowerExpression(ea->expression.get());
                                 auto idx = lowerExpression(ea->argumentExpression.get());
                                 builder_.createSetElem(obj, idx, value);
+                            } else if (dynamic_cast<ast::ArrayLiteralExpression*>(tgt) ||
+                                       dynamic_cast<ast::ObjectLiteralExpression*>(tgt)) {
+                                // Nested destructuring target, e.g. `for ([{x}] of ...)`.
+                                // Recurse through the assignment-pattern engine — was
+                                // silently dropped (no require-object TypeError, nested
+                                // vars left unbound).
+                                destructureAssignmentPattern(tgt, boxValueIfNeeded(value));
                             }
                             ++index;
                         }
@@ -4398,6 +4405,13 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                                 auto obj = lowerExpression(ea->expression.get());
                                 auto idx = lowerExpression(ea->argumentExpression.get());
                                 builder_.createSetElem(obj, idx, value);
+                            } else if (dynamic_cast<ast::ArrayLiteralExpression*>(tgt) ||
+                                       dynamic_cast<ast::ObjectLiteralExpression*>(tgt)) {
+                                // Nested destructuring target, e.g. `for ([{x}] of ...)`.
+                                // Recurse through the assignment-pattern engine — was
+                                // silently dropped (no require-object TypeError, nested
+                                // vars left unbound).
+                                destructureAssignmentPattern(tgt, boxValueIfNeeded(value));
                             }
                             ++index;
                         }
