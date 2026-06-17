@@ -2404,6 +2404,8 @@ void HIRToLLVM::lowerInstruction(HIRInstruction* inst) {
         case HIROpcode::CallMethod:   lowerCallMethod(inst); break;
         case HIROpcode::CallVirtual:  lowerCallVirtual(inst); break;
         case HIROpcode::CallIndirect: lowerCallIndirect(inst); break;
+        case HIROpcode::CallValueWithThis: lowerCallValueWithThis(inst); break;
+        case HIROpcode::ConstructFromValue: lowerConstructFromValue(inst); break;
 
         // Globals
         case HIROpcode::LoadGlobal:   lowerLoadGlobal(inst); break;
@@ -8253,6 +8255,58 @@ void HIRToLLVM::lowerCallIndirect(HIRInstruction* inst) {
     }
 }
 
+// Call an already-resolved function value with an explicit `this` receiver.
+// operands[0]=funcVal, operands[1]=thisVal, operands[2..]=raw args. Delegates
+// to the single unified ts_call_with_this emitter (which boxes args, pads to 9,
+// passes argc, and sets ts_last_call_argc). Replaces the by-name
+// ts_call_with_this_N family that the .call() and obj[key]() sites used.
+void HIRToLLVM::lowerCallValueWithThis(HIRInstruction* inst) {
+    llvm::Value* funcVal = getOperandValue(inst->operands[0]);
+    llvm::Value* thisArg = getOperandValue(inst->operands[1]);
+    llvm::Value* result = emitDynamicMethodCall(funcVal, thisArg, inst, /*argStartIdx=*/2);
+    if (inst->result) setValue(inst->result, result);
+}
+
+// Construct an instance from an already-resolved constructor value.
+// operands[0]=ctorVal, operands[1..]=args. Packs argc/argv and calls the single
+// unified ts_new_from_constructor entry. Replaces the by-name
+// ts_new_from_constructor_N family (which also silently dropped args past 8).
+void HIRToLLVM::lowerConstructFromValue(HIRInstruction* inst) {
+    llvm::Value* ctorVal = getOperandValue(inst->operands[0]);
+    size_t argCount = inst->operands.size() - 1;
+
+    // Box each argument to a TsValue* for the argc/argv runtime ABI.
+    std::vector<llvm::Value*> boxedArgs;
+    for (size_t i = 1; i < inst->operands.size(); ++i) {
+        llvm::Value* arg = getOperandValue(inst->operands[i]);
+        arg = boxArgumentForDynamicCall(arg, inst->operands[i]);
+        boxedArgs.push_back(arg);
+    }
+
+    llvm::Value* argvPtr;
+    if (argCount == 0) {
+        argvPtr = llvm::ConstantPointerNull::get(getGCPtrTy());
+    } else {
+        auto arrayType = llvm::ArrayType::get(getGCPtrTy(), argCount);
+        auto alloca = builder_->CreateAlloca(arrayType);
+        for (size_t i = 0; i < argCount; ++i) {
+            auto gep = builder_->CreateConstGEP2_32(arrayType, alloca, 0, (unsigned)i);
+            builder_->CreateStore(boxedArgs[i], gep);
+        }
+        argvPtr = builder_->CreateConstGEP2_32(arrayType, alloca, 0, 0);
+    }
+
+    auto ft = llvm::FunctionType::get(getGCPtrTy(),
+        { getGCPtrTy(), builder_->getInt32Ty(), getGCPtrTy() }, false);
+    auto fn = module_->getOrInsertFunction("ts_new_from_constructor", ft);
+    llvm::Value* result = builder_->CreateCall(ft, fn.getCallee(), {
+        ctorVal,
+        llvm::ConstantInt::get(builder_->getInt32Ty(), (int)argCount),
+        argvPtr
+    });
+    if (inst->result) setValue(inst->result, result);
+}
+
 //==============================================================================
 // Globals
 //==============================================================================
@@ -11824,9 +11878,24 @@ llvm::Value* HIRToLLVM::emitDynamicMethodCall(llvm::Value* funcVal, llvm::Value*
         auto callFn = module_->getOrInsertFunction("ts_call_with_this", callFt);
         return builder_->CreateCall(callFt, callFn.getCallee(), callArgs);
     }
-    // >9 args: rare; the array-based dynamic-method path isn't implemented.
-    SPDLOG_WARN("Dynamic method call with {} args not fully implemented", argCount);
-    return llvm::ConstantPointerNull::get(getGCPtrTy());
+    // >9 args: pack into an argc/argv array and use the variable-arity
+    // ts_function_call_with_this(fn, thisArg, argc, argv) entry. (Previously
+    // returned null — a silent miscompile for 10+-arg method/.call() sites.)
+    auto arrayType = llvm::ArrayType::get(getGCPtrTy(), argCount);
+    auto alloca = builder_->CreateAlloca(arrayType);
+    for (size_t i = 0; i < argCount; ++i) {
+        auto gep = builder_->CreateConstGEP2_32(arrayType, alloca, 0, (unsigned)i);
+        builder_->CreateStore(boxedArgs[i], gep);
+    }
+    auto argvPtr = builder_->CreateConstGEP2_32(arrayType, alloca, 0, 0);
+    auto ft = llvm::FunctionType::get(getGCPtrTy(),
+        { getGCPtrTy(), getGCPtrTy(), builder_->getInt32Ty(), getGCPtrTy() }, false);
+    auto fn = module_->getOrInsertFunction("ts_function_call_with_this", ft);
+    return builder_->CreateCall(ft, fn.getCallee(), {
+        funcVal, thisArg,
+        llvm::ConstantInt::get(builder_->getInt32Ty(), (int)argCount),
+        argvPtr
+    });
 }
 
 //==============================================================================

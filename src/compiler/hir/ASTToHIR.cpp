@@ -7212,15 +7212,13 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         if (propAccess->name == "call" && !args.empty()) {
             auto func = lowerExpression(propAccess->expression.get());
             auto boxedFunc = boxValueIfNeeded(func);
-            auto thisArg = args[0];
-            auto boxedThis = boxValueIfNeeded(thisArg);
-            std::vector<std::shared_ptr<HIRValue>> callArgs = {boxedFunc, boxedThis};
-            for (size_t i = 1; i < args.size(); i++) {
-                callArgs.push_back(boxValueIfNeeded(args[i]));
-            }
-            size_t numArgs = args.size() - 1; // minus thisArg
-            std::string callFn = "ts_call_with_this_" + std::to_string(numArgs);
-            lastValue_ = builder_.createCall(callFn, callArgs, HIRType::makeAny());
+            auto boxedThis = boxValueIfNeeded(args[0]);
+            // Remaining args (raw — the unified ts_call_with_this lowering boxes
+            // them). Routes through createCallWithThis instead of the by-name
+            // ts_call_with_this_N family (which had no arity cap → >8 args
+            // referenced a nonexistent symbol).
+            std::vector<std::shared_ptr<HIRValue>> callArgs(args.begin() + 1, args.end());
+            lastValue_ = builder_.createCallWithThis(boxedFunc, boxedThis, callArgs, HIRType::makeAny());
             return;
         }
 
@@ -7939,18 +7937,16 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
     // ts_call_with_this_N(func, obj, ...args). (Static obj.method() is handled
     // by the PropertyAccess block above.)
     if (auto* ea = dynamic_cast<ast::ElementAccessExpression*>(node->callee.get())) {
-        if (args.size() <= 8) {
-            auto obj = lowerExpression(ea->expression.get());
-            auto boxedObj = boxValueIfNeeded(obj);
-            auto keyVal = lowerExpression(ea->argumentExpression.get());
-            auto func = builder_.createCall("ts_object_get_dynamic",
-                {boxedObj, boxValueIfNeeded(keyVal)}, HIRType::makeAny());
-            std::vector<std::shared_ptr<HIRValue>> callArgs = {func, boxedObj};
-            for (auto& a : args) callArgs.push_back(boxValueIfNeeded(a));
-            std::string callFn = "ts_call_with_this_" + std::to_string(args.size());
-            lastValue_ = builder_.createCall(callFn, callArgs, HIRType::makeAny());
-            return;
-        }
+        auto obj = lowerExpression(ea->expression.get());
+        auto boxedObj = boxValueIfNeeded(obj);
+        auto keyVal = lowerExpression(ea->argumentExpression.get());
+        auto func = builder_.createCall("ts_object_get_dynamic",
+            {boxedObj, boxValueIfNeeded(keyVal)}, HIRType::makeAny());
+        // obj[key](...) binds obj as `this` for all arities. Routes through the
+        // unified ts_call_with_this; previously >8 args fell through to the
+        // generic indirect call below and silently lost the receiver.
+        lastValue_ = builder_.createCallWithThis(func, boxedObj, args, HIRType::makeAny());
+        return;
     }
 
     // Generic case - callee is an expression (IIFE, function expression, etc.)
@@ -8480,28 +8476,11 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         }
         auto constructorVal = lowerExpression(node->expression.get());
         if (constructorVal) {
-            // Use ts_new_from_constructor to properly set up prototype chain
-            // and call the constructor function with this = new object
-            std::string funcName;
-            std::vector<std::shared_ptr<HIRValue>> callArgs;
-            callArgs.push_back(constructorVal);
-
-            size_t numArgs = args.size();
-            if (numArgs <= 8) {
-                funcName = "ts_new_from_constructor_" + std::to_string(numArgs);
-                for (size_t i = 0; i < numArgs; i++) {
-                    callArgs.push_back(args[i]);
-                }
-            } else {
-                // Cap at 8 args, drop extras
-                SPDLOG_WARN("Constructor call with {} args, capping at 8", numArgs);
-                funcName = "ts_new_from_constructor_8";
-                for (size_t i = 0; i < 8; i++) {
-                    callArgs.push_back(args[i]);
-                }
-            }
-
-            lastValue_ = builder_.createCall(funcName, callArgs, HIRType::makeAny());
+            // Unified construct path (ts_new_from_constructor argc/argv) sets up
+            // the prototype chain and calls the constructor with this = new
+            // object. Replaces the by-name ts_new_from_constructor_N family,
+            // which silently dropped any arguments past the 8th.
+            lastValue_ = builder_.createConstruct(constructorVal, args, HIRType::makeAny());
             return;
         }
         // Expression couldn't be lowered, fall back to plain dynamic object

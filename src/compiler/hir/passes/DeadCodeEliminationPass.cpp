@@ -249,6 +249,8 @@ bool DeadCodeEliminationPass::hasSideEffects(HIRInstruction* inst) const {
         case HIROpcode::CallMethod:
         case HIROpcode::CallVirtual:
         case HIROpcode::CallIndirect:
+        case HIROpcode::CallValueWithThis:
+        case HIROpcode::ConstructFromValue:
             return true;
 
         // Memory writes

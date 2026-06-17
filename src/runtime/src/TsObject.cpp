@@ -5831,6 +5831,13 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_new_from_constructor_impl(constructorFn, 8, argv);
     }
 
+    // Unified variable-arity entry — the compiler emits this (ConstructFromValue)
+    // instead of the per-arity ts_new_from_constructor_N forwarders, so `new
+    // F(...)` no longer caps/drops arguments past 8.
+    TsValue* ts_new_from_constructor(TsValue* constructorFn, int argc, TsValue** argv) {
+        return ts_new_from_constructor_impl(constructorFn, argc, argv);
+    }
+
     TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv) {
         ts_last_call_argc = argc;
         // Save/set/restore the global 'this' context so that functions compiled

@@ -253,6 +253,8 @@ enum class HIROpcode {
     CallMethod,         // %r = call_method %obj, "method", (%args...)
     CallVirtual,        // %r = call_virtual %obj, <vtable_idx>, (%args...)
     CallIndirect,       // %r = call_indirect %fn_ptr, (%args...)
+    CallValueWithThis,  // %r = call_with_this %fn, %this, (%args...)  (unified ts_call_with_this)
+    ConstructFromValue, // %r = construct %ctor, (%args...)            (unified ts_new_from_constructor)
 
     // Globals
     LoadGlobal,         // %r = load_global "name" (console, Math, JSON, etc.)

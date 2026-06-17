@@ -584,6 +584,8 @@ private:
     void lowerCallMethod(HIRInstruction* inst);
     void lowerCallVirtual(HIRInstruction* inst);
     void lowerCallIndirect(HIRInstruction* inst);
+    void lowerCallValueWithThis(HIRInstruction* inst);
+    void lowerConstructFromValue(HIRInstruction* inst);
 
     // Registry-based call lowering
     llvm::Value* lowerRegisteredCall(HIRInstruction* inst, const ::hir::LoweringSpec& spec);

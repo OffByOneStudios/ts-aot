@@ -1006,6 +1006,49 @@ public:
         return result;
     }
 
+    // Call an already-resolved function value with an explicit `this` receiver
+    // (Function.prototype.call, computed method call obj[key]()). Lowers to the
+    // single unified ts_call_with_this — pass RAW (unboxed) args; the lowering
+    // boxes them. operands = [funcVal, thisVal, args...].
+    std::shared_ptr<HIRValue> createCallWithThis(std::shared_ptr<HIRValue> funcVal,
+                                                  std::shared_ptr<HIRValue> thisVal,
+                                                  const std::vector<std::shared_ptr<HIRValue>>& args,
+                                                  std::shared_ptr<HIRType> returnType) {
+        std::shared_ptr<HIRValue> result = nullptr;
+        if (returnType->kind != HIRTypeKind::Void) {
+            result = createValue(returnType);
+        }
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::CallValueWithThis);
+        inst->result = result;
+        inst->operands.push_back(funcVal);
+        inst->operands.push_back(thisVal);
+        for (auto& arg : args) {
+            inst->operands.push_back(arg);
+        }
+        emit(std::move(inst));
+        return result;
+    }
+
+    // Construct an instance from an already-resolved constructor value
+    // (`new <expr>(args)`). Lowers to the single unified ts_new_from_constructor
+    // (argc/argv). operands = [ctorVal, args...].
+    std::shared_ptr<HIRValue> createConstruct(std::shared_ptr<HIRValue> ctorVal,
+                                               const std::vector<std::shared_ptr<HIRValue>>& args,
+                                               std::shared_ptr<HIRType> returnType) {
+        std::shared_ptr<HIRValue> result = nullptr;
+        if (returnType->kind != HIRTypeKind::Void) {
+            result = createValue(returnType);
+        }
+        auto inst = std::make_unique<HIRInstruction>(HIROpcode::ConstructFromValue);
+        inst->result = result;
+        inst->operands.push_back(ctorVal);
+        for (auto& arg : args) {
+            inst->operands.push_back(arg);
+        }
+        emit(std::move(inst));
+        return result;
+    }
+
     //==========================================================================
     // Globals
     //==========================================================================
