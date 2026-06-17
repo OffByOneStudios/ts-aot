@@ -363,6 +363,15 @@ private:
                                            bool isComputedAccessor,
                                            int& computedAccessorSeq,
                                            std::string& outMethodKey);
+    // Install a class method/accessor/static member on a receiver with the spec
+    // method descriptor {writable, configurable, NON-enumerable} via
+    // ts_object_set_method (NOT createSetPropStatic, which is enumerable).
+    // Applies the private-name "\x01#"-prefix remap. Shared by the deferred
+    // declaration path and the class-expression install trailers so a class
+    // expression's methods are non-enumerable like a class declaration's.
+    void installClassMember(std::shared_ptr<HIRValue> recv,
+                            const std::string& key,
+                            std::shared_ptr<HIRValue> closure);
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node) override;
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node) override;
     void visitArrayBindingPattern(ast::ArrayBindingPattern* node) override;

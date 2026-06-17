@@ -2466,19 +2466,7 @@ void ASTToHIR::emitDeferredStaticInits() {
     auto installMethod = [&](std::shared_ptr<HIRValue> recv,
                              const std::string& key,
                              std::shared_ptr<HIRValue> closure) {
-        // Private methods ("#m") must never appear as own property keys
-        // (ECMA-262: private names are not property keys — tests assert
-        // !hasOwnProperty(C.prototype, "#m")). Store under the hidden
-        // internal key "\x01#m"; the runtime get paths consult the hidden
-        // key first for '#'-literal lookups, and key enumeration skips all
-        // '\x01'-prefixed storage keys.
-        std::string storageKey = key;
-        if (!key.empty() && key[0] == '#') {
-            storageKey = std::string("\x01") + key;
-        }
-        auto keyStr = builder_.createConstString(storageKey);
-        std::vector<std::shared_ptr<HIRValue>> args = {recv, keyStr, closure};
-        builder_.createCall("ts_object_set_method", args, HIRType::makeVoid());
+        installClassMember(recv, key, closure);  // shared with the class-expr trailer
     };
     for (auto* hirClass : deferredClassPrototypes_) {
         if (!hirClass) continue;
@@ -11560,6 +11548,22 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
     }
 }
 
+void ASTToHIR::installClassMember(std::shared_ptr<HIRValue> recv,
+                                  const std::string& key,
+                                  std::shared_ptr<HIRValue> closure) {
+    // Private methods ("#m") must never be own property keys (ECMA-262: private
+    // names are not property keys). Store under the hidden "\x01#m" key; the
+    // runtime get paths consult it for '#'-literal lookups and enumeration skips
+    // '\x01'-prefixed keys.
+    std::string storageKey = key;
+    if (!key.empty() && key[0] == '#') {
+        storageKey = std::string("\x01") + key;
+    }
+    auto keyStr = builder_.createConstString(storageKey);
+    builder_.createCall("ts_object_set_method",
+        {recv, keyStr, closure}, HIRType::makeVoid());
+}
+
 std::string ASTToHIR::computeClassMethodFuncName(const std::string& className,
                                                  ast::MethodDefinition* methodDef,
                                                  bool isComputedAccessor,
@@ -12202,16 +12206,17 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             for (auto& [methodKey, methodFunc] : hirClass->methods) {
                 if (!methodFunc) continue;
                 auto methodClosure = builder_.createLoadFunction(methodFunc->name);
-                builder_.createSetPropStatic(proto, methodKey, methodClosure);
+                installClassMember(proto, methodKey, methodClosure);  // non-enumerable
             }
             builder_.createSetPropStatic(ctorVal, "prototype", proto);
+            installClassMember(proto, "constructor", ctorVal);
             emitComputedAccessorInstalls(hirClass, proto, ctorVal);
         }
         // Install static methods on the constructor for dynamic access.
         for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
             if (!methodFunc) continue;
             auto methodClosure = builder_.createLoadFunction(methodFunc->name);
-            builder_.createSetPropStatic(lastValue_, methodName, methodClosure);
+            installClassMember(lastValue_, methodName, methodClosure);  // non-enumerable
         }
         return;
     }
@@ -12780,13 +12785,18 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
             // Load the method as a closure (LoadFunction wraps in TsClosure)
             auto methodClosure = builder_.createLoadFunction(methodFunc->name);
 
-            // Store on prototype: proto.methodName = closure
-            // For getters/setters, methodKey already has __getter_/__setter_ prefix
-            builder_.createSetPropStatic(proto, methodKey, methodClosure);
+            // Store on prototype: proto.methodName = closure (non-enumerable,
+            // matching a class DECLARATION — createSetPropStatic made class-
+            // expression methods wrongly enumerable). methodKey already has the
+            // __getter_/__setter_ prefix for accessors.
+            installClassMember(proto, methodKey, methodClosure);
         }
 
         // Set constructor.prototype = proto
         builder_.createSetPropStatic(ctorVal, "prototype", proto);
+        // proto.constructor = ctor (non-enumerable backref) — the decl path adds
+        // this via emitDeferredStaticInits; the expr trailer was omitting it.
+        installClassMember(proto, "constructor", ctorVal);
 
         // Computed-name accessors install inline here (the prototype is rebuilt
         // at this point, which would clobber a deferred install).
@@ -12800,7 +12810,7 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
     for (auto& [methodName, methodFunc] : hirClass->staticMethods) {
         if (!methodFunc) continue;
         auto methodClosure = builder_.createLoadFunction(methodFunc->name);
-        builder_.createSetPropStatic(lastValue_, methodName, methodClosure);
+        installClassMember(lastValue_, methodName, methodClosure);  // non-enumerable
     }
 }
 
