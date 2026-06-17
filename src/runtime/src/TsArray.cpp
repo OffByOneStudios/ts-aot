@@ -4287,6 +4287,13 @@ extern "C" {
         TsArray* array = (TsArray*)arr;
         int64_t len = (int64_t)array->Length();
 
+        // INT64_MIN sentinel = "argument not provided" (the compiler fast-path
+        // passes it for an omitted start/end). The typed-array path above
+        // decodes it; the regular-array path did NOT, so `[1,2,3].fill(0)` got
+        // end = max(0, len + INT64_MIN) = 0 -> start>=end -> no fill at all.
+        if (start == INT64_MIN) start = 0;
+        if (end == INT64_MIN) end = len;
+
         // Handle negative indices and clamp to valid range
         if (start < 0) start = std::max((int64_t)0, len + start);
         if (end < 0) end = std::max((int64_t)0, len + end);
