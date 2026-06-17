@@ -1040,11 +1040,14 @@ class Test262Runner:
         finally:
             self._result_log.close()
 
-        # Add previously-completed results (from resume) to the totals
+        # Add previously-completed results (from resume) to the totals.
         if completed_map:
-            # Build synthetic TestResult objects for baseline comparison
+            # Build the set of this-session rel-paths ONCE (was an O(n^2) scan
+            # of `results` per completed entry — crippling on a near-complete
+            # resume of ~50k tests).
+            ran_this_session = {str(r.path.relative_to(TEST_DIR)) for r in results}
             for rel_path, status in completed_map.items():
-                if any(str(r.path.relative_to(TEST_DIR)) == rel_path for r in results):
+                if rel_path in ran_this_session:
                     continue
                 results.append(TestResult(
                     path=TEST_DIR / rel_path,
