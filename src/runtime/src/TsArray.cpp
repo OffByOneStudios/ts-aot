@@ -3727,9 +3727,14 @@ extern "C" {
                         // throw a TypeError. (A return() that itself throws
                         // propagates normally through ts_call_with_this_0.)
                         TsValue rv = res ? nanbox_to_tagged(res) : TsValue();
-                        if (rv.type != ValueType::OBJECT_PTR &&
-                            rv.type != ValueType::ARRAY_PTR &&
-                            rv.type != ValueType::FUNCTION_PTR) {
+                        // Must be an Object. `null` is carried as OBJECT_PTR with
+                        // a null ptr_val, so the bare type check let it through —
+                        // require a non-null pointer (Type(value) is Object).
+                        bool isObject = (rv.type == ValueType::OBJECT_PTR ||
+                                         rv.type == ValueType::ARRAY_PTR ||
+                                         rv.type == ValueType::FUNCTION_PTR) &&
+                                        rv.ptr_val != nullptr;
+                        if (!isObject) {
                             ts_throw((TsValue*)ts_error_create_typed(
                                 "TypeError",
                                 "iterator result return() is not an object"));
