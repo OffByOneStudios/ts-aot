@@ -68,6 +68,10 @@ public:
     bool IsIgnoreCase() const { return ignoreCase; }
     bool IsMultiline() const { return multiline; }
     bool HasIndices() const { return hasIndices; }
+    // dotAll ('s') and unicode ('u') aren't tracked as bool fields; derive
+    // from the canonical flags string (flag chars are a fixed single-letter set).
+    bool IsDotAll() const { return flagsStr.find('s') != std::string::npos; }
+    bool IsUnicode() const { return flagsStr.find('u') != std::string::npos; }
     void* GetMatcher() const { return matcher; }
 
     // Named capture groups support

@@ -1773,6 +1773,14 @@ void* ts_get_global_RegExp() {
                     bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
                     return re ? ts_value_make_bool(re->HasIndices()) : ts_value_make_undefined();
                 });
+                addAccessorGetter(reproto, "dotAll", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
+                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
+                    return re ? ts_value_make_bool(re->IsDotAll()) : ts_value_make_undefined();
+                });
+                addAccessorGetter(reproto, "unicode", (void*)+[](void* ctx, int, TsValue**) -> TsValue* {
+                    bool isProto; TsRegExp* re = regexp_accessor_this(ctx, &isProto);
+                    return re ? ts_value_make_bool(re->IsUnicode()) : ts_value_make_undefined();
+                });
             }
         }
     }

@@ -4041,6 +4041,12 @@ TsValue* ts_value_make_int(int64_t i) {
             if (strcmp(keyStr, "hasIndices") == 0) {
                 return ts_value_make_bool(re->HasIndices());
             }
+            if (strcmp(keyStr, "dotAll") == 0) {
+                return ts_value_make_bool(re->IsDotAll());
+            }
+            if (strcmp(keyStr, "unicode") == 0) {
+                return ts_value_make_bool(re->IsUnicode());
+            }
             if (strcmp(keyStr, "lastIndex") == 0) {
                 return ts_value_make_int(re->GetLastIndex());
             }
