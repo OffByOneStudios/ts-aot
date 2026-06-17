@@ -4479,7 +4479,15 @@ extern "C" void* ts_typed_array_new_##Suffix(TsValue* arg,                      
         }                                                                                \
     }                                                                                    \
     double lenD = arg ? ts_to_number(arg) : 0;                                           \
-    int64_t length = (lenD == lenD && lenD >= 0) ? (int64_t)lenD : 0;                    \
+    /* ECMA-262 ToIndex: NaN -> 0; negative / > 2^53-1 -> RangeError (parity with */     \
+    /* the ctor-macro's ta_to_index_length; negative previously became length 0). */     \
+    double nn = (lenD == lenD) ? lenD : 0.0;                                             \
+    if (nn < 0 || nn > 9007199254740991.0) {                                            \
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",                          \
+            "Invalid typed array length"));                                             \
+        return CreateFn(0);  /* unreachable (ts_throw longjmps) */                       \
+    }                                                                                    \
+    int64_t length = (int64_t)nn;                                                        \
     return CreateFn(length);                                                             \
 }
 
