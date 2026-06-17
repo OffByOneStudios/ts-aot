@@ -4180,6 +4180,28 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                         // handling) and assign to the target.
                         builder_.createCall("ts_destructure_require_object",
                                             {elemVal}, HIRType::makeVoid());
+                        // Materialize through the iterator protocol so a custom
+                        // iterable is consumed via next() and closed via return()
+                        // (IteratorClose). The raw index access below only works
+                        // for real arrays; real arrays go through their array
+                        // iterator here too -> same values. Mirrors the binding
+                        // path (lowerArrayBindingPattern). Fixes the for-of/dstr
+                        // array-elem-iter-*-close cluster (the element was being
+                        // read as a raw array, so a custom iterable was never
+                        // iterated or closed). An empty `[]` assignment pattern
+                        // still GetIterator+closes (consumeCount 0 -> no next(),
+                        // return() fires), unlike the binding `[]` which doesn't.
+                        {
+                            bool patHasRest = false; int64_t patCount = 0;
+                            for (auto& el : arrLit->elements) {
+                                if (dynamic_cast<ast::SpreadElement*>(el.get())) { patHasRest = true; break; }
+                                patCount++;
+                            }
+                            elemVal = builder_.createCall("ts_destructure_iterate",
+                                { elemVal, builder_.createConstInt(patCount),
+                                  builder_.createConstInt(patHasRest ? 1 : 0) },
+                                HIRType::makeArray(HIRType::makeAny()));
+                        }
                         int64_t index = 0;
                         for (auto& slotPtr : arrLit->elements) {
                             ast::Expression* slot = slotPtr.get();
@@ -4350,6 +4372,28 @@ void ASTToHIR::visitForOfStatement(ast::ForOfStatement* node) {
                         // handling) and assign to the target.
                         builder_.createCall("ts_destructure_require_object",
                                             {elemVal}, HIRType::makeVoid());
+                        // Materialize through the iterator protocol so a custom
+                        // iterable is consumed via next() and closed via return()
+                        // (IteratorClose). The raw index access below only works
+                        // for real arrays; real arrays go through their array
+                        // iterator here too -> same values. Mirrors the binding
+                        // path (lowerArrayBindingPattern). Fixes the for-of/dstr
+                        // array-elem-iter-*-close cluster (the element was being
+                        // read as a raw array, so a custom iterable was never
+                        // iterated or closed). An empty `[]` assignment pattern
+                        // still GetIterator+closes (consumeCount 0 -> no next(),
+                        // return() fires), unlike the binding `[]` which doesn't.
+                        {
+                            bool patHasRest = false; int64_t patCount = 0;
+                            for (auto& el : arrLit->elements) {
+                                if (dynamic_cast<ast::SpreadElement*>(el.get())) { patHasRest = true; break; }
+                                patCount++;
+                            }
+                            elemVal = builder_.createCall("ts_destructure_iterate",
+                                { elemVal, builder_.createConstInt(patCount),
+                                  builder_.createConstInt(patHasRest ? 1 : 0) },
+                                HIRType::makeArray(HIRType::makeAny()));
+                        }
                         int64_t index = 0;
                         for (auto& slotPtr : arrLit->elements) {
                             ast::Expression* slot = slotPtr.get();
