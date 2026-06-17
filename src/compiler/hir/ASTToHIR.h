@@ -354,6 +354,15 @@ private:
     void visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) override;
     void visitClassDeclaration(ast::ClassDeclaration* node) override;
     void visitClassExpression(ast::ClassExpression* node) override;
+    // Compute a class method's unique global symbol name + its registration key.
+    // Shared by the class-declaration and class-expression lowering paths so the
+    // two naming schemes never drift (the "works as class decl, broken as class
+    // expression" hazard). Returns the func name; sets outMethodKey.
+    std::string computeClassMethodFuncName(const std::string& className,
+                                           ast::MethodDefinition* methodDef,
+                                           bool isComputedAccessor,
+                                           int& computedAccessorSeq,
+                                           std::string& outMethodKey);
     void visitInterfaceDeclaration(ast::InterfaceDeclaration* node) override;
     void visitObjectBindingPattern(ast::ObjectBindingPattern* node) override;
     void visitArrayBindingPattern(ast::ArrayBindingPattern* node) override;

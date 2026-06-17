@@ -11548,6 +11548,32 @@ void ASTToHIR::visitPostfixUnaryExpression(ast::PostfixUnaryExpression* node) {
     }
 }
 
+std::string ASTToHIR::computeClassMethodFuncName(const std::string& className,
+                                                 ast::MethodDefinition* methodDef,
+                                                 bool isComputedAccessor,
+                                                 int& computedAccessorSeq,
+                                                 std::string& outMethodKey) {
+    // Static `constructor` is a static method, not the instance ctor — it must
+    // NOT share the canonical "<Class>_constructor" symbol (would collide with
+    // the real instance constructor and crash codegen on duplicate symbols).
+    outMethodKey = methodDef->name;  // Key used for registration in class
+    if (isComputedAccessor) {
+        return className + "___computed_acc_" + std::to_string(computedAccessorSeq++);
+    } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
+        return className + "_constructor";
+    } else if (methodDef->isGetter) {
+        outMethodKey = "__getter_" + methodDef->name;
+        return className + "___getter_" + methodDef->name;
+    } else if (methodDef->isSetter) {
+        outMethodKey = "__setter_" + methodDef->name;
+        return className + "___setter_" + methodDef->name;
+    } else if (methodDef->isStatic) {
+        return className + "_static_" + methodDef->name;
+    } else {
+        return className + "_" + methodDef->name;
+    }
+}
+
 void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
     setSourceLine(node);
     SPDLOG_WARN("visitClassDeclaration: name={} currentFunc={}",
@@ -11717,31 +11743,11 @@ void ASTToHIR::visitClassDeclaration(ast::ClassDeclaration* node) {
                 (methodDef->isGetter || methodDef->isSetter) &&
                 dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
 
-            // Generate a unique function name for the method.
-            // Static `constructor` is a static method, not the instance ctor —
-            // it must NOT share the canonical "<Class>_constructor" symbol
-            // (would collide with the real instance constructor and crash
-            // codegen on duplicate symbols).
-            std::string methodFuncName;
-            std::string methodKey = methodDef->name;  // Key used for registration in class
-            if (isComputedAccessor) {
-                methodFuncName = node->name + "___computed_acc_" +
-                                 std::to_string(computedAccessorSeq++);
-            } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
-                methodFuncName = node->name + "_constructor";
-            } else if (methodDef->isGetter) {
-                // Getter: ClassName___getter_propName
-                methodFuncName = node->name + "___getter_" + methodDef->name;
-                methodKey = "__getter_" + methodDef->name;
-            } else if (methodDef->isSetter) {
-                // Setter: ClassName___setter_propName
-                methodFuncName = node->name + "___setter_" + methodDef->name;
-                methodKey = "__setter_" + methodDef->name;
-            } else if (methodDef->isStatic) {
-                methodFuncName = node->name + "_static_" + methodDef->name;
-            } else {
-                methodFuncName = node->name + "_" + methodDef->name;
-            }
+            // Generate a unique function name for the method (shared with the
+            // class-expression path via computeClassMethodFuncName).
+            std::string methodKey;
+            std::string methodFuncName = computeClassMethodFuncName(
+                node->name, methodDef, isComputedAccessor, computedAccessorSeq, methodKey);
 
             // Create HIR function for this method
             auto func = std::make_unique<HIRFunction>(methodFuncName);
@@ -12348,28 +12354,11 @@ void ASTToHIR::visitClassExpression(ast::ClassExpression* node) {
                 (methodDef->isGetter || methodDef->isSetter) &&
                 dynamic_cast<ast::ComputedPropertyName*>(methodDef->nameNode.get());
 
-            // Generate a unique function name for the method.
-            // Static `constructor` is a static method, not the instance ctor.
-            std::string methodFuncName;
-            std::string methodKey = methodDef->name;  // Key used for registration in class
-            if (isComputedAccessor) {
-                methodFuncName = className + "___computed_acc_" +
-                                 std::to_string(computedAccessorSeq++);
-            } else if (methodDef->name == "constructor" && !methodDef->isStatic) {
-                methodFuncName = className + "_constructor";
-            } else if (methodDef->isGetter) {
-                // Getter: ClassName___getter_propName
-                methodFuncName = className + "___getter_" + methodDef->name;
-                methodKey = "__getter_" + methodDef->name;
-            } else if (methodDef->isSetter) {
-                // Setter: ClassName___setter_propName
-                methodFuncName = className + "___setter_" + methodDef->name;
-                methodKey = "__setter_" + methodDef->name;
-            } else if (methodDef->isStatic) {
-                methodFuncName = className + "_static_" + methodDef->name;
-            } else {
-                methodFuncName = className + "_" + methodDef->name;
-            }
+            // Generate a unique function name for the method (shared with the
+            // class-declaration path via computeClassMethodFuncName).
+            std::string methodKey;
+            std::string methodFuncName = computeClassMethodFuncName(
+                className, methodDef, isComputedAccessor, computedAccessorSeq, methodKey);
 
             // Create HIR function for this method
             auto func = std::make_unique<HIRFunction>(methodFuncName);
