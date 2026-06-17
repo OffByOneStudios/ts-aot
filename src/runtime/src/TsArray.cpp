@@ -3663,7 +3663,32 @@ extern "C" {
 
         TsArray* dst = TsArray::Create(0);
         TsValue* iter = ts::ts_iterator_get((TsValue*)source);
-        if (!iter) return dst;  // non-iterable object: best-effort empty
+        // ECMA-262 GetIterator: a source with no (or non-callable) @@iterator is
+        // not iterable -> throw TypeError. ts_iterator_get falls back to
+        // returning the SOURCE itself for a non-iterable, so a null iter OR an
+        // iter that isn't a heap object with a callable `next` means "not
+        // iterable" (was a silent best-effort empty -> mis-bound `var [a]=5`).
+        // Only reached for non-empty patterns (empty binding `[]` returns before
+        // this call; null/undefined is caught by ts_destructure_require_object).
+        {
+            bool isIterable = false;
+            void* rawIter = iter ? ts_value_get_object(iter) : nullptr;
+            if (rawIter && (uintptr_t)rawIter >= 0x1000 &&
+                (uintptr_t)rawIter < 0x0000800000000000ULL) {
+                extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+                TsValue* nx = ts_object_get_property(rawIter, "next");
+                if (nx) {
+                    TsValue nv = nanbox_to_tagged(nx);
+                    isIterable = (nv.type == ValueType::OBJECT_PTR ||
+                                  nv.type == ValueType::FUNCTION_PTR) && nv.ptr_val;
+                }
+            }
+            if (!isIterable) {
+                ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                    "source is not iterable"));
+                return dst;  // unreachable (ts_throw longjmps)
+            }
+        }
         int64_t i = 0;
         bool iteratorDone = false;
         while (hasRest || i < maxCount) {
