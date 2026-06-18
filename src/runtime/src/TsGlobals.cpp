@@ -2684,6 +2684,10 @@ extern "C" {
     TsValue* ts_temporal_plaindatetime_toPlainDate_native(void*,int,TsValue**);
     TsValue* ts_temporal_plaindatetime_toPlainTime_native(void*,int,TsValue**);
     TsValue* ts_temporal_plaindatetime_from_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_add_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_subtract_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_until_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_since_native(void*,int,TsValue**);
 }
 extern "C" {
     TsValue* ts_temporal_now_plaindatetimeiso_native(void*,int,TsValue**);
@@ -3035,6 +3039,10 @@ void* ts_get_global_Temporal() {
         addMethod(dtProto, "valueOf",     (void*)ts_temporal_plaindatetime_valueOf_native, 0);
         addMethod(dtProto, "equals",      (void*)ts_temporal_plaindatetime_equals_native, 1);
         addMethod(dtProto, "with",        (void*)ts_temporal_plaindatetime_with_native, 1);
+        addMethod(dtProto, "add",         (void*)ts_temporal_plaindatetime_add_native, 1);
+        addMethod(dtProto, "subtract",    (void*)ts_temporal_plaindatetime_subtract_native, 1);
+        addMethod(dtProto, "until",       (void*)ts_temporal_plaindatetime_until_native, 1);
+        addMethod(dtProto, "since",       (void*)ts_temporal_plaindatetime_since_native, 1);
         addMethod(dtProto, "toPlainDate", (void*)ts_temporal_plaindatetime_toPlainDate_native, 0);
         addMethod(dtProto, "toPlainTime", (void*)ts_temporal_plaindatetime_toPlainTime_native, 0);
         void* dtFn = wrapAsCallable(dtCtor, "PlainDateTime", 3);
