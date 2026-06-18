@@ -2861,6 +2861,17 @@ static TsValue* temporal_plaintime_field(void* ctx, int which, const char* gette
     return ts_value_make_int((int64_t)v);
 }
 
+extern "C" {
+    TsValue* ts_temporal_plaindate_toPlainDateTime_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindate_toPlainYearMonth_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindate_toPlainMonthDay_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_toPlainYearMonth_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_toPlainMonthDay_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_toZonedDateTime_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_toPlainDate_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainmonthday_toPlainDate_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_toZonedDateTimeISO_native(void*,int,TsValue**);
+}
 void* ts_get_global_Temporal() {
     TenureScope _tenure;
     static TsMap* cached = nullptr;
@@ -2967,6 +2978,9 @@ void* ts_get_global_Temporal() {
         addMethod(pdProto, "subtract", (void*)ts_temporal_plaindate_subtract_native, 1);
         addMethod(pdProto, "until",    (void*)ts_temporal_plaindate_until_native, 1);
         addMethod(pdProto, "since",    (void*)ts_temporal_plaindate_since_native, 1);
+        addMethod(pdProto, "toPlainDateTime",  (void*)ts_temporal_plaindate_toPlainDateTime_native, 0);
+        addMethod(pdProto, "toPlainYearMonth", (void*)ts_temporal_plaindate_toPlainYearMonth_native, 0);
+        addMethod(pdProto, "toPlainMonthDay",  (void*)ts_temporal_plaindate_toPlainMonthDay_native, 0);
         void* pdFn = wrapAsCallable(pdCtor, "PlainDate", 3);
         g_temporal_plaindate_ctor = pdFn;
         ts_gc_register_root(&g_temporal_plaindate_ctor);
@@ -2995,6 +3009,7 @@ void* ts_get_global_Temporal() {
         addMethod(ymProto, "valueOf",  (void*)ts_temporal_plainyearmonth_valueOf_native, 0);
         addMethod(ymProto, "equals",   (void*)ts_temporal_plainyearmonth_equals_native, 1);
         addMethod(ymProto, "with",     (void*)ts_temporal_plainyearmonth_with_native, 1);
+        addMethod(ymProto, "toPlainDate", (void*)ts_temporal_plainyearmonth_toPlainDate_native, 1);
         void* ymFn = wrapAsCallable(ymCtor, "PlainYearMonth", 2);
         g_temporal_plainyearmonth_ctor = ymFn;
         ts_gc_register_root(&g_temporal_plainyearmonth_ctor);
@@ -3015,6 +3030,7 @@ void* ts_get_global_Temporal() {
         addMethod(mdProto, "valueOf",  (void*)ts_temporal_plainmonthday_valueOf_native, 0);
         addMethod(mdProto, "equals",   (void*)ts_temporal_plainmonthday_equals_native, 1);
         addMethod(mdProto, "with",     (void*)ts_temporal_plainmonthday_with_native, 1);
+        addMethod(mdProto, "toPlainDate", (void*)ts_temporal_plainmonthday_toPlainDate_native, 1);
         void* mdFn = wrapAsCallable(mdCtor, "PlainMonthDay", 2);
         g_temporal_plainmonthday_ctor = mdFn;
         ts_gc_register_root(&g_temporal_plainmonthday_ctor);
@@ -3059,6 +3075,9 @@ void* ts_get_global_Temporal() {
         addMethod(dtProto, "since",       (void*)ts_temporal_plaindatetime_since_native, 1);
         addMethod(dtProto, "toPlainDate", (void*)ts_temporal_plaindatetime_toPlainDate_native, 0);
         addMethod(dtProto, "toPlainTime", (void*)ts_temporal_plaindatetime_toPlainTime_native, 0);
+        addMethod(dtProto, "toPlainYearMonth",(void*)ts_temporal_plaindatetime_toPlainYearMonth_native, 0);
+        addMethod(dtProto, "toPlainMonthDay", (void*)ts_temporal_plaindatetime_toPlainMonthDay_native, 0);
+        addMethod(dtProto, "toZonedDateTime", (void*)ts_temporal_plaindatetime_toZonedDateTime_native, 1);
         void* dtFn = wrapAsCallable(dtCtor, "PlainDateTime", 3);
         g_temporal_plaindatetime_ctor = dtFn;
         ts_gc_register_root(&g_temporal_plaindatetime_ctor);
@@ -3083,6 +3102,7 @@ void* ts_get_global_Temporal() {
         addMethod(inProto, "subtract", (void*)ts_temporal_instant_subtract_native, 1);
         addMethod(inProto, "until",    (void*)ts_temporal_instant_until_native, 1);
         addMethod(inProto, "since",    (void*)ts_temporal_instant_since_native, 1);
+        addMethod(inProto, "toZonedDateTimeISO", (void*)ts_temporal_instant_toZonedDateTimeISO_native, 1);
         void* inFn = wrapAsCallable(inCtor, "Instant", 1);
         g_temporal_instant_ctor = inFn;
         ts_gc_register_root(&g_temporal_instant_ctor);

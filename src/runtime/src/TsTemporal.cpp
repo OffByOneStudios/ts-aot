@@ -1964,3 +1964,60 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
     return ts_value_make_double(totalNs/unitNs);
 }
 }
+
+// ===================== Cross-type conversions =====================
+extern "C" {
+TsValue* ts_temporal_plaindate_toPlainDateTime_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDate* pd=require_plaindate(ctx,"toPlainDateTime");
+    int h=0,mi=0,s=0,ms=0,us=0,ns=0;
+    if(argc>=1&&argv&&argv[0]&&!ts_value_is_undefined(argv[0])){
+        TsPlainTime* t=coerce_plaintime_arg(argv[0]);
+        if(t){ h=t->iso_hour;mi=t->iso_minute;s=t->iso_second;ms=t->iso_millisecond;us=t->iso_microsecond;ns=t->iso_nanosecond; }
+    }
+    return ts_value_make_object(TsPlainDateTime::Create(pd->iso_year,pd->iso_month,pd->iso_day,h,mi,s,ms,us,ns));
+}
+TsValue* ts_temporal_plaindate_toPlainYearMonth_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDate* pd=require_plaindate(ctx,"toPlainYearMonth");
+    return ts_value_make_object(TsPlainYearMonth::Create(pd->iso_year,pd->iso_month,pd->iso_day));
+}
+TsValue* ts_temporal_plaindate_toPlainMonthDay_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDate* pd=require_plaindate(ctx,"toPlainMonthDay");
+    return ts_value_make_object(TsPlainMonthDay::Create(pd->iso_month,pd->iso_day,1972));
+}
+TsValue* ts_temporal_plaindatetime_toPlainYearMonth_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDateTime* d=require_plaindatetime(ctx,"toPlainYearMonth");
+    return ts_value_make_object(TsPlainYearMonth::Create(d->iso_year,d->iso_month,d->iso_day));
+}
+TsValue* ts_temporal_plaindatetime_toPlainMonthDay_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDateTime* d=require_plaindatetime(ctx,"toPlainMonthDay");
+    return ts_value_make_object(TsPlainMonthDay::Create(d->iso_month,d->iso_day,1972));
+}
+TsValue* ts_temporal_plainyearmonth_toPlainDate_native(void* ctx,int argc,TsValue** argv){
+    TsPlainYearMonth* ym=require_plainyearmonth(ctx,"toPlainDate");
+    int day=ym->iso_day;
+    if(argc>=1&&argv&&argv[0]){ void* raw=ts_nanbox_safe_unbox(argv[0]); if(raw){ TsValue* fd=ts_object_get_property(raw,"day"); if(fd&&!ts_value_is_undefined(fd)){ double dd=ts_to_number(fd); if(dd==dd&&!std::isinf(dd)) day=(int)std::trunc(dd); } } }
+    int dim=iso_days_in_month(ym->iso_year,ym->iso_month); if(day<1)day=1; if(day>dim)day=dim;
+    return ts_value_make_object(TsPlainDate::Create(ym->iso_year,ym->iso_month,day));
+}
+TsValue* ts_temporal_plainmonthday_toPlainDate_native(void* ctx,int argc,TsValue** argv){
+    TsPlainMonthDay* md=require_plainmonthday(ctx,"toPlainDate");
+    int year=md->iso_year;
+    if(argc>=1&&argv&&argv[0]){ void* raw=ts_nanbox_safe_unbox(argv[0]); if(raw){ TsValue* fy=ts_object_get_property(raw,"year"); if(fy&&!ts_value_is_undefined(fy)){ double yy=ts_to_number(fy); if(yy==yy&&!std::isinf(yy)) year=(int)std::trunc(yy); } } }
+    int dim=iso_days_in_month(year,md->iso_month); int day=md->iso_day; if(day>dim)day=dim;
+    return ts_value_make_object(TsPlainDate::Create(year,md->iso_month,day));
+}
+TsValue* ts_temporal_instant_toZonedDateTimeISO_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* it=require_instant(ctx,"toZonedDateTimeISO");
+    int off=0; bool utc=true;
+    if(argc>=1&&argv&&argv[0]){ std::string tz; if(tsvalue_to_stdstring(argv[0],&tz)){ if(!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","toZonedDateTimeISO: unsupported time zone")); return ts_value_make_undefined(); } } }
+    return ts_value_make_object(TsZonedDateTime::Create(it->epoch_ms,it->sub_ns,off,utc));
+}
+TsValue* ts_temporal_plaindatetime_toZonedDateTime_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDateTime* d=require_plaindatetime(ctx,"toZonedDateTime");
+    int off=0; bool utc=true;
+    if(argc>=1&&argv&&argv[0]){ std::string tz; if(tsvalue_to_stdstring(argv[0],&tz)){ if(!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); } } }
+    long long localMs=iso_days_from_civil(d->iso_year,d->iso_month,d->iso_day)*86400000LL + (long long)d->iso_hour*3600000+(long long)d->iso_minute*60000+(long long)d->iso_second*1000+d->iso_ms;
+    long long epoch_ms=localMs-(long long)off*60000LL;
+    return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, d->iso_us*1000+d->iso_ns, off, utc));
+}
+}
