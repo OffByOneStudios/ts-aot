@@ -5486,28 +5486,27 @@ TsValue* ts_value_make_int(int64_t i) {
     // 10-user-arg padded variants (the canonical dispatchers funnel through these
     // so they cover the full ts_call_0..10 / ts_call_with_this range; extra slots
     // beyond a callee's declared arity are dropped per the MS x64 ABI).
-    // Pass a fixed 16 positional args so functions declared with up to 16 params
-    // receive them all (the old "padded10" dropped params 11+, silently feeding
-    // garbage to any 11+-param callee — e.g. test262's 12-param assertDuration).
-    // Passing MORE args than a callee declares is harmless on the Windows x64
-    // convention (the callee ignores the extra register/stack slots).
-    #define TS_PAD16_T TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,\
-                       TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*
-    #define TS_PAD16_P a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16
-    #define TS_PAD16_D TsValue* a1,TsValue* a2,TsValue* a3,TsValue* a4,TsValue* a5,TsValue* a6,\
-        TsValue* a7,TsValue* a8,TsValue* a9,TsValue* a10,TsValue* a11,TsValue* a12,TsValue* a13,\
-        TsValue* a14,TsValue* a15,TsValue* a16
-    static inline TsValue* call_closure_padded10(TsClosure* closure, TS_PAD16_D) {
-        typedef TsValue* (*Fn)(void*, TS_PAD16_T);
-        return ((Fn)closure->func_ptr)(closure, TS_PAD16_P);
+    static inline TsValue* call_closure_padded10(
+        TsClosure* closure, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5,
+        TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9, TsValue* a10) {
+        typedef TsValue* (*Fn10)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*,
+                                        TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+        return ((Fn10)closure->func_ptr)(closure, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
     }
-    static inline TsValue* call_funcptr_padded10(void* fp, void* ctx, TS_PAD16_D) {
-        typedef TsValue* (*Fn)(void*, TS_PAD16_T);
-        return ((Fn)fp)(ctx, TS_PAD16_P);
+    static inline TsValue* call_funcptr_padded10(
+        void* fp, void* ctx, TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5,
+        TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9, TsValue* a10) {
+        typedef TsValue* (*Fn10)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*,
+                                        TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+        return ((Fn10)fp)(ctx, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
     }
-    static inline TsValue* call_closure_padded10_method(TsClosure* closure, TsValue* thisArg, TS_PAD16_D) {
-        typedef TsValue* (*Fn)(void*, TsValue*, TS_PAD16_T);
-        return ((Fn)closure->func_ptr)(closure, thisArg, TS_PAD16_P);
+    static inline TsValue* call_closure_padded10_method(
+        TsClosure* closure, TsValue* thisArg,
+        TsValue* a1, TsValue* a2, TsValue* a3, TsValue* a4, TsValue* a5,
+        TsValue* a6, TsValue* a7, TsValue* a8, TsValue* a9, TsValue* a10) {
+        typedef TsValue* (*Fn11)(void*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*, TsValue*,
+                                        TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
+        return ((Fn11)closure->func_ptr)(closure, thisArg, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
     }
 
     // Canonical call dispatchers — the SINGLE place the closure/proxy/native/
@@ -5595,7 +5594,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (closure->rest_param_index >= 0)
                 return ts_rest_pack_and_call(closure, argc, argv);
             return call_closure_padded10(closure, A(0), A(1), A(2), A(3), A(4),
-                                                  A(5), A(6), A(7), A(8), A(9), A(10), A(11), A(12), A(13), A(14), A(15));
+                                                  A(5), A(6), A(7), A(8), A(9));
         }
         TsProxy* proxy = ts_extract_proxy(boxedFunc);
         if (proxy) {
@@ -5615,12 +5614,12 @@ TsValue* ts_value_make_int(int64_t i) {
             void* fp = innerClosure->func_ptr;
             if (fp && ts_gc_base(fp)) return u;
             return call_closure_padded10(innerClosure, A(0), A(1), A(2), A(3), A(4),
-                                                       A(5), A(6), A(7), A(8), A(9), A(10), A(11), A(12), A(13), A(14), A(15));
+                                                       A(5), A(6), A(7), A(8), A(9));
         }
         void* fp = func->funcPtr;
         if (fp && ts_gc_base(fp)) return u;
         return call_funcptr_padded10(fp, func->context, A(0), A(1), A(2), A(3), A(4),
-                                                        A(5), A(6), A(7), A(8), A(9), A(10), A(11), A(12), A(13), A(14), A(15));
+                                                        A(5), A(6), A(7), A(8), A(9));
     }
 
     // Canonical WITH-receiver call dispatch (the single implementation behind the
@@ -5643,10 +5642,10 @@ TsValue* ts_value_make_int(int64_t i) {
             TsValue* result;
             if (closure->is_method) {
                 result = call_closure_padded10_method(closure, thisArg,
-                    A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9), A(10), A(11), A(12), A(13), A(14), A(15));
+                    A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9));
             } else {
                 result = call_closure_padded10(closure,
-                    A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9), A(10), A(11), A(12), A(13), A(14), A(15));
+                    A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9));
             }
             ts_call_this_value = savedThis;
             return result;
