@@ -2610,6 +2610,9 @@ extern "C" {
     TsValue* ts_temporal_duration_abs_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_duration_with_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_duration_from_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_duration_add_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_duration_subtract_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_duration_total_native(void* ctx, int argc, TsValue** argv);
 }
 static void* g_temporal_duration_ctor = nullptr;  // GC-rooted in ts_get_global_Temporal
 static void* g_temporal_plaindate_ctor = nullptr; // GC-rooted in ts_get_global_Temporal
@@ -2923,6 +2926,9 @@ void* ts_get_global_Temporal() {
         addMethod(duProto, "negated",  (void*)ts_temporal_duration_negated_native, 0);
         addMethod(duProto, "abs",      (void*)ts_temporal_duration_abs_native, 0);
         addMethod(duProto, "with",     (void*)ts_temporal_duration_with_native, 1);
+        addMethod(duProto, "add",      (void*)ts_temporal_duration_add_native, 1);
+        addMethod(duProto, "subtract", (void*)ts_temporal_duration_subtract_native, 1);
+        addMethod(duProto, "total",    (void*)ts_temporal_duration_total_native, 1);
         void* duFn = wrapAsCallable(duCtor, "Duration", 0);
         g_temporal_duration_ctor = duFn;
         ts_gc_register_root(&g_temporal_duration_ctor);

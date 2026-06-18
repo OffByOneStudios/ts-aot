@@ -1916,3 +1916,51 @@ TsValue* ts_temporal_zdt_since_native(void* ctx,int argc,TsValue** argv){
     return zdt_diff(b,a, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","hour"));
 }
 }
+
+// ====================== Arithmetic: Duration ======================
+static TsValue* duration_add_impl(TsDuration* a, TsDuration* b, int bsign){
+    if(a->years||a->months||a->weeks||b->years||b->months||b->weeks){
+        ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration arithmetic with calendar units requires relativeTo"));
+        return ts_value_make_undefined();
+    }
+    const long long DAY=86400000000000LL;
+    long long totalDays = a->days + bsign*b->days;
+    long long ns = dur_time_ns(a) + bsign*dur_time_ns(b);
+    totalDays += ns/DAY; ns %= DAY;
+    if(totalDays>0 && ns<0){ totalDays--; ns+=DAY; } else if(totalDays<0 && ns>0){ totalDays++; ns-=DAY; }
+    int sign=(totalDays<0||ns<0)?-1:1; long long ad=totalDays<0?-totalDays:totalDays; long long an=ns<0?-ns:ns;
+    long long h=an/3600000000000LL; an%=3600000000000LL; long long mi=an/60000000000LL; an%=60000000000LL;
+    long long s=an/1000000000LL; an%=1000000000LL; long long ms=an/1000000LL; an%=1000000LL; long long us=an/1000LL; long long nn=an%1000LL;
+    return ts_value_make_object(TsDuration::Create(0,0,0, sign*ad, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn));
+}
+extern "C" {
+TsValue* ts_temporal_duration_add_native(void* ctx,int argc,TsValue** argv){
+    TsDuration* a=require_duration(ctx,"add"); TsDuration* b=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.add: invalid duration")); return ts_value_make_undefined(); }
+    return duration_add_impl(a,b,1);
+}
+TsValue* ts_temporal_duration_subtract_native(void* ctx,int argc,TsValue** argv){
+    TsDuration* a=require_duration(ctx,"subtract"); TsDuration* b=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
+    return duration_add_impl(a,b,-1);
+}
+// Duration.total({unit}) for time/day units -> a Number (no relativeTo support).
+TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
+    TsDuration* d=require_duration(ctx,"total");
+    std::string unit; TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!tsvalue_to_stdstring(arg,&unit)) unit = read_string_option(arg,"unit","");
+    if(d->years||d->months||d->weeks){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total with calendar units requires relativeTo")); return ts_value_make_undefined(); }
+    double totalNs = (double)d->days*86400000000000.0 + (double)d->hours*3600000000000.0 + (double)d->minutes*60000000000.0
+        + (double)d->seconds*1000000000.0 + (double)d->milliseconds*1000000.0 + (double)d->microseconds*1000.0 + (double)d->nanoseconds;
+    double unitNs;
+    if(unit=="day"||unit=="days") unitNs=86400000000000.0;
+    else if(unit=="hour"||unit=="hours") unitNs=3600000000000.0;
+    else if(unit=="minute"||unit=="minutes") unitNs=60000000000.0;
+    else if(unit=="second"||unit=="seconds") unitNs=1000000000.0;
+    else if(unit=="millisecond"||unit=="milliseconds") unitNs=1000000.0;
+    else if(unit=="microsecond"||unit=="microseconds") unitNs=1000.0;
+    else if(unit=="nanosecond"||unit=="nanoseconds") unitNs=1.0;
+    else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: invalid unit")); return ts_value_make_undefined(); }
+    return ts_value_make_double(totalNs/unitNs);
+}
+}
