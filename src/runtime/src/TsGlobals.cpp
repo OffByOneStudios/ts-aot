@@ -2622,6 +2622,12 @@ extern "C" {
     TsValue* ts_temporal_plaindatetime_toPlainTime_native(void*,int,TsValue**);
     TsValue* ts_temporal_plaindatetime_from_native(void*,int,TsValue**);
 }
+extern "C" {
+    TsValue* ts_temporal_now_plaindatetimeiso_native(void*,int,TsValue**);
+    TsValue* ts_temporal_now_plaindateiso_native(void*,int,TsValue**);
+    TsValue* ts_temporal_now_plaintimeiso_native(void*,int,TsValue**);
+    TsValue* ts_temporal_now_timezoneid_native(void*,int,TsValue**);
+}
 static TsValue* temporal_plaindatetime_field(void* ctx, const char* name) {
     if (!ctx) ctx = ts_get_call_this();
     void* raw = ts_nanbox_safe_unbox(ctx);
@@ -2963,6 +2969,16 @@ void* ts_get_global_Temporal() {
         addMethod(dtCtor, "compare", (void*)ts_temporal_plaindatetime_compare_native, 2);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainDateTime");
           TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=dtFn; cached->Set(k,v); }
+
+        // ---- Temporal.Now (clock function namespace) ----
+        TsMap* nowNs = TsMap::Create();
+        setProtoStringTag(nowNs, "Temporal.Now");
+        addMethod(nowNs, "plainDateTimeISO", (void*)ts_temporal_now_plaindatetimeiso_native, 0);
+        addMethod(nowNs, "plainDateISO",     (void*)ts_temporal_now_plaindateiso_native, 0);
+        addMethod(nowNs, "plainTimeISO",     (void*)ts_temporal_now_plaintimeiso_native, 0);
+        addMethod(nowNs, "timeZoneId",       (void*)ts_temporal_now_timezoneid_native, 0);
+        { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("Now");
+          TsValue v; v.type=ValueType::OBJECT_PTR; v.ptr_val=nowNs; cached->Set(k,v); }
     }
     return cached;
 }

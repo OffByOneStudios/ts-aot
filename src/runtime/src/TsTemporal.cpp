@@ -1267,3 +1267,39 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
     }
     ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.from: invalid argument")); return ts_value_make_undefined();
 }
+
+// ============================ Temporal.Now ============================
+#include <chrono>
+#include <ctime>
+static void temporal_now_fields(int* Y,int* M,int* D,int* h,int* m,int* s,int* ms,int* us,int* ns){
+    using namespace std::chrono;
+    auto now = system_clock::now();
+    std::time_t tt = system_clock::to_time_t(now);
+    long long sub = duration_cast<nanoseconds>(now.time_since_epoch()).count() % 1000000000LL;
+    std::tm tmv{};
+#ifdef _WIN32
+    gmtime_s(&tmv, &tt);
+#else
+    gmtime_r(&tt, &tmv);
+#endif
+    *Y=tmv.tm_year+1900; *M=tmv.tm_mon+1; *D=tmv.tm_mday;
+    *h=tmv.tm_hour; *m=tmv.tm_min; *s=tmv.tm_sec;
+    *ms=(int)(sub/1000000); *us=(int)((sub/1000)%1000); *ns=(int)(sub%1000);
+}
+extern "C" {
+TsValue* ts_temporal_now_plaindatetimeiso_native(void* ctx,int argc,TsValue** argv){
+    int Y,M,D,h,m,s,ms,us,ns; temporal_now_fields(&Y,&M,&D,&h,&m,&s,&ms,&us,&ns);
+    return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,m,s,ms,us,ns));
+}
+TsValue* ts_temporal_now_plaindateiso_native(void* ctx,int argc,TsValue** argv){
+    int Y,M,D,h,m,s,ms,us,ns; temporal_now_fields(&Y,&M,&D,&h,&m,&s,&ms,&us,&ns);
+    return ts_value_make_object(TsPlainDate::Create(Y,M,D));
+}
+TsValue* ts_temporal_now_plaintimeiso_native(void* ctx,int argc,TsValue** argv){
+    int Y,M,D,h,m,s,ms,us,ns; temporal_now_fields(&Y,&M,&D,&h,&m,&s,&ms,&us,&ns);
+    return ts_value_make_object(TsPlainTime::Create(h,m,s,ms,us,ns));
+}
+TsValue* ts_temporal_now_timezoneid_native(void* ctx,int argc,TsValue** argv){
+    (void)ctx; return ts_value_make_string(TsString::Create("UTC"));
+}
+}
