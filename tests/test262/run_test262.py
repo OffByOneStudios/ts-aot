@@ -264,7 +264,10 @@ def discover_tests(base_dir: Path, category: str = None,
     tests = [t for t in tests if not t.name.endswith("_FIXTURE.js")]
 
     if filter_str:
-        tests = [t for t in tests if filter_str in str(t)]
+        # Slash-agnostic so a forward-slash filter matches Windows backslash
+        # paths (e.g. --filter built-ins/Temporal/PlainTime).
+        fs = filter_str.replace("\\", "/")
+        tests = [t for t in tests if fs in str(t).replace("\\", "/")]
 
     return tests
 
@@ -274,6 +277,13 @@ def should_skip(meta: TestMetadata) -> Optional[str]:
     # Skip tests requiring unsupported features
     for feat in meta.features:
         if feat in UNSUPPORTED_FEATURES:
+            # Temporal is being implemented incrementally; TS262_RUN_TEMPORAL=1
+            # un-skips it for a library-scoped gate (pair with
+            # --filter built-ins/Temporal/<Type>). The default full sweep still
+            # skips Temporal so the reported conformance number is unaffected
+            # until we choose to un-skip it for real.
+            if feat == "Temporal" and os.environ.get("TS262_RUN_TEMPORAL"):
+                continue
             return f"unsupported feature: {feat}"
 
     # Skip tests with unsupported flags
