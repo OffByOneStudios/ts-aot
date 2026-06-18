@@ -3900,6 +3900,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 magic16 == 0x48415348 ||  // TsCryptoHash::MAGIC "HASH"
                 magic16 == 0x484D4143 ||  // TsCryptoHmac::MAGIC "HMAC"
                 magic16 == 0x42554646 ||  // TsBuffer::MAGIC "BUFF"
+                magic16 == 0x504C5449 ||  // TsPlainTime::MAGIC "PLTI" (Temporal)
                 magic16 == 0x44564945) {  // TsDataView::MAGIC "DVIE"
                 // PROMISES: own properties (the native-props side map where
                 // `p.then = fn` writes land) take precedence over the builtin
@@ -5734,6 +5735,15 @@ TsValue* ts_value_make_int(int64_t i) {
                     return re ? ts_value_make_object(re) : ts_value_make_undefined();
                 }
                 {
+                    // new Temporal.PlainTime(...) — a namespace sub-constructor,
+                    // matched via its own cached-ctor getter.
+                    extern void* ts_temporal_get_plaintime_ctor();
+                    extern TsValue* ts_temporal_plaintime_construct(int argc, TsValue** argv);
+                    if (isGlobal(ts_temporal_get_plaintime_ctor)) {
+                        return ts_temporal_plaintime_construct(argc, argv);
+                    }
+                }
+                {
                     // `new Promise(executor)` reached through a runtime
                     // constructor value (`var P = Promise; new P(fn)` — and
                     // the literal form also lowers through this dispatcher).
@@ -6672,6 +6682,10 @@ TsValue* ts_value_make_int(int64_t i) {
 
         // Check if obj is a TsMap
         uint32_t magic = *(uint32_t*)((char*)objRaw + 16);
+        if (magic == 0x504C5449) { // TsPlainTime "PLTI" (Temporal) -> Temporal.PlainTime.prototype
+            extern void* ts_temporal_get_plaintime_ctor();
+            return getCtorPrototype(ts_temporal_get_plaintime_ctor());
+        }
         if (magic == 0x4D415053) { // TsMap::MAGIC
             TsMap* objMap = (TsMap*)objRaw;
             // Object.create(null): a genuinely prototype-less object.

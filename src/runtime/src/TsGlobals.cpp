@@ -2590,6 +2590,7 @@ void* ts_get_global_Reflect() {
 }
 
 // ===================== Temporal (TC39) =====================
+static void* g_temporal_plaintime_ctor = nullptr;  // GC-rooted in ts_get_global_Temporal
 // Brand-checked reader for Temporal.PlainTime.prototype accessors: per spec each
 // getter does thisTemporalTime(this) — if `this` isn't a PlainTime, TypeError.
 static TsValue* temporal_plaintime_field(void* ctx, int which, const char* getter) {
@@ -2619,7 +2620,7 @@ void* ts_get_global_Temporal() {
     static TsMap* cached = nullptr;
     if (!cached) {
         cached = TsMap::Create();
-        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); ts_gc_register_root(&g_temporal_plaintime_ctor); } }
         setProtoStringTag(cached, "Temporal");
 
         // ---- Temporal.PlainTime ----
@@ -2636,11 +2637,20 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(ptProto, "microsecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,4,"microsecond"); });
         addAccessorGetter(ptProto, "nanosecond",  (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,5,"nanosecond"); });
         void* ptFn = wrapAsCallable(ptCtor, "PlainTime", 0);
+        g_temporal_plaintime_ctor = ptFn;
         TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("PlainTime");
         TsValue cv; cv.type = ValueType::FUNCTION_PTR; cv.ptr_val = ptFn;
         cached->Set(ck, cv);
     }
     return cached;
+}
+
+// The cached Temporal.PlainTime constructor function, for the new-dispatch
+// match in ts_new_from_constructor_impl (PlainTime is a namespace sub-property,
+// not a top-level global getter, so it needs its own getter).
+void* ts_temporal_get_plaintime_ctor() {
+    ts_get_global_Temporal();  // ensure built
+    return g_temporal_plaintime_ctor;
 }
 
 // --- Iterator global (TC39 iterator-sequencing: Iterator.concat) ---------
