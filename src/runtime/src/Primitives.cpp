@@ -770,6 +770,7 @@ extern "C" void* ts_temporal_get_plaindate_ctor();  // TsTemporal.h
 extern "C" void* ts_temporal_get_plainyearmonth_ctor();
 extern "C" void* ts_temporal_get_plainmonthday_ctor();
 extern "C" void* ts_temporal_get_plaindatetime_ctor();
+extern "C" void* ts_temporal_get_instant_ctor();
 static const BuiltinInstanceCheck g_builtin_checks[] = {
     { 0x44415445, 0,  ts_get_global_Date    },   // TsDate     "DATE"
     { 0x52454758, 0,  ts_get_global_RegExp  },   // TsRegExp   "REGX"
@@ -783,6 +784,7 @@ static const BuiltinInstanceCheck g_builtin_checks[] = {
     { 0x504C594D, 16, ts_temporal_get_plainyearmonth_ctor }, // PlainYearMonth
     { 0x504C4D44, 16, ts_temporal_get_plainmonthday_ctor }, // PlainMonthDay
     { 0x50444D54, 16, ts_temporal_get_plaindatetime_ctor }, // PlainDateTime
+    { 0x494E5354, 16, ts_temporal_get_instant_ctor }, // Instant
 };
 } // namespace
 

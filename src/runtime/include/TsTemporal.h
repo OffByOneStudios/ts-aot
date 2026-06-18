@@ -80,11 +80,25 @@ public:
     TsValue GetPropertyVirtual(const char* key) override;
 };
 
+// Temporal.Instant — an exact point in time, epoch nanoseconds. Stored as
+// truncated int64 milliseconds + int sub-millisecond nanoseconds (same sign),
+// so epochNanoseconds (BigInt-range) is built from a decimal string.
+class TsInstant : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x494E5354; // 'INST'
+    long long epoch_ms = 0;
+    int sub_ns = 0;  // -999999..999999, same sign as epoch_ms
+    static TsInstant* Create(long long ms, int subNs);
+    TsValue GetPropertyVirtual(const char* key) override;
+};
+
 extern "C" {
     // The Temporal namespace object (globalThis.Temporal). Cached.
     void* ts_get_global_Temporal();
     TsValue* ts_temporal_duration_construct(int argc, TsValue** argv);
     void* ts_temporal_get_duration_ctor();
+    TsValue* ts_temporal_instant_construct(int argc, TsValue** argv);
+    void* ts_temporal_get_instant_ctor();
     TsValue* ts_temporal_plaindatetime_construct(int argc, TsValue** argv);
     void* ts_temporal_get_plaindatetime_ctor();
     TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv);

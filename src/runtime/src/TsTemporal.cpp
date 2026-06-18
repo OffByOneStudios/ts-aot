@@ -1303,3 +1303,159 @@ TsValue* ts_temporal_now_timezoneid_native(void* ctx,int argc,TsValue** argv){
     (void)ctx; return ts_value_make_string(TsString::Create("UTC"));
 }
 }
+
+// ============================ Temporal.Instant ============================
+extern "C" {
+    void* ts_bigint_create_int(int64_t val);
+    void* ts_bigint_create_str(void* tsStr, int32_t radix);
+    void* ts_bigint_to_string(void* bi, int32_t radix);
+    TsValue* ts_value_make_bigint(void* b);
+}
+static void iso_civil_from_days(long long z, int* y, int* m, int* d){
+    z += 719468;
+    long long era = (z >= 0 ? z : z - 146096) / 146097;
+    unsigned doe = (unsigned)(z - era * 146097);
+    unsigned yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
+    int yy = (int)yoe + (int)(era * 400);
+    unsigned doy = doe - (365*yoe + yoe/4 - yoe/100);
+    unsigned mp = (5*doy + 2)/153;
+    unsigned dd = doy - (153*mp+2)/5 + 1;
+    unsigned mm = mp < 10 ? mp+3 : mp-9;
+    *y = yy + (mm <= 2); *m = (int)mm; *d = (int)dd;
+}
+TsInstant* TsInstant::Create(long long ms, int subNs){
+    void* mem=ts_alloc(sizeof(TsInstant)); TsInstant* o=new(mem) TsInstant();
+    o->magic=MAGIC; o->epoch_ms=ms; o->sub_ns=subNs; return o;
+}
+// epoch nanoseconds as a decimal string (sign + |ms| + 6-digit |sub_ns|).
+static void instant_ns_string(TsInstant* it, char* buf, size_t n){
+    const char* sign = (it->epoch_ms < 0 || it->sub_ns < 0) ? "-" : "";
+    long long ams = it->epoch_ms < 0 ? -it->epoch_ms : it->epoch_ms;
+    int asub = it->sub_ns < 0 ? -it->sub_ns : it->sub_ns;
+    snprintf(buf, n, "%s%lld%06d", sign, ams, asub);
+}
+TsValue TsInstant::GetPropertyVirtual(const char* key){
+    if(strcmp(key,"epochMilliseconds")==0){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=epoch_ms; return r; }
+    if(strcmp(key,"epochSeconds")==0){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=epoch_ms/1000; return r; }
+    if(strcmp(key,"epochNanoseconds")==0){ char b[40]; instant_ns_string(this,b,sizeof(b)); TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_str((void*)TsString::Create(b),10); return r; }
+    if(strcmp(key,"epochMicroseconds")==0){ TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(epoch_ms*1000LL + sub_ns/1000); return r; }
+    TsValue u; u.type=ValueType::UNDEFINED; u.i_val=0; return u;
+}
+static TsInstant* as_instant(void* raw){
+    if(!raw) return nullptr; uint32_t m0=*(uint32_t*)raw;
+    if(m0==0x53545247||m0==0x434F4E53) return nullptr;
+    return (*(uint32_t*)((char*)raw+16)==TsInstant::MAGIC)?(TsInstant*)raw:nullptr;
+}
+extern "C" { void* ts_temporal_get_instant_ctor(); TsValue* ts_temporal_instant_from(int argc, TsValue** argv); }
+static TsInstant* require_instant(void* ctx, const char* method){
+    if(!ctx) ctx=ts_get_call_this(); TsInstant* d=as_instant(ts_nanbox_safe_unbox(ctx));
+    if(!d){ std::string msg=std::string("Temporal.Instant.prototype.")+method+" called on an object that is not a Temporal.Instant"; ts_throw((TsValue*)ts_error_create_typed("TypeError",msg.c_str())); }
+    return d;
+}
+// Decompose a decimal nanoseconds string into truncated ms + sub-ns. Returns
+// false if out of the valid Instant range (|ns| <= 8.64e21).
+static bool ns_string_to_ms_sub(const char* s, long long* ms, int* sub){
+    bool neg=false; const char* p=s; if(*p=='+'||*p=='-'){neg=(*p=='-');p++;}
+    int len=0; const char* q=p; while(*q>='0'&&*q<='9'){len++;q++;}
+    if(len==0||*q) return false;
+    // last 6 digits -> sub_ns, the rest -> ms
+    int subDigits = len>=6?6:len;
+    long long subv=0; for(int i=len-subDigits;i<len;i++) subv=subv*10+(p[i]-'0');
+    // pad if fewer than 6 (small magnitudes): subv is the low digits, ms=0
+    for(int i=subDigits;i<6;i++) subv*=10;  // shouldn't happen for len>=6
+    long long msv=0; for(int i=0;i<len-6;i++){ msv=msv*10+(p[i]-'0'); if(msv> 9000000000000000LL) return false; }
+    if(len<=6){ msv=0; }
+    *ms = neg ? -msv : msv;
+    *sub = (int)(neg ? -subv : subv);
+    if(msv > 8640000000000000LL) return false;  // ~ +/-100M days in ms
+    return true;
+}
+extern "C" TsValue* ts_temporal_instant_construct(int argc, TsValue** argv){
+    // new Temporal.Instant(epochNanoseconds: bigint)
+    TsValue* a0=(argc>=1&&argv)?argv[0]:nullptr;
+    void* raw=a0?ts_nanbox_safe_unbox(a0):nullptr;
+    if(!raw || *(uint32_t*)((char*)raw+16)!=0x42494749 /*BigInt at off16*/){
+        // also accept bare-bigint magic at offset 0
+        if(!raw || *(uint32_t*)raw!=0x42494749){
+            ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant: epochNanoseconds must be a BigInt"));
+            return ts_value_make_undefined();
+        }
+    }
+    void* str = ts_bigint_to_string(raw, 10);
+    const char* u = str ? ((TsString*)str)->ToUtf8() : nullptr;
+    long long ms; int sub;
+    if(!u || !ns_string_to_ms_sub(u,&ms,&sub)){
+        ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant: epochNanoseconds out of range"));
+        return ts_value_make_undefined();
+    }
+    return ts_value_make_object(TsInstant::Create(ms,sub));
+}
+static TsString* instant_iso_string(TsInstant* it){
+    long long ms=it->epoch_ms;
+    long long days = ms / 86400000LL; long long rem = ms % 86400000LL;
+    if(rem < 0){ rem += 86400000LL; days -= 1; }
+    int Y,M,D; iso_civil_from_days(days,&Y,&M,&D);
+    int h=(int)(rem/3600000); rem%=3600000; int mi=(int)(rem/60000); rem%=60000; int s=(int)(rem/1000); int msr=(int)(rem%1000);
+    long frac=(long)msr*1000000L + (it->sub_ns<0?-it->sub_ns:it->sub_ns); // ns within second
+    char buf[48]; int n;
+    if(Y<0||Y>9999) n=snprintf(buf,sizeof(buf),"%+07d-%02d-%02dT%02d:%02d:%02d",Y,M,D,h,mi,s);
+    else n=snprintf(buf,sizeof(buf),"%04d-%02d-%02dT%02d:%02d:%02d",Y,M,D,h,mi,s);
+    if(frac>0){ char fb[16]; snprintf(fb,sizeof(fb),"%09ld",frac); int len=9; while(len>1&&fb[len-1]=='0')len--; buf[n++]='.'; for(int i=0;i<len;i++)buf[n++]=fb[i]; }
+    buf[n++]='Z'; buf[n]='\0';
+    return TsString::Create(buf);
+}
+extern "C" {
+TsValue* ts_temporal_instant_epochNs_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* it=require_instant(ctx,"epochNanoseconds"); char b[40]; instant_ns_string(it,b,sizeof(b));
+    void* bi=ts_bigint_create_str((void*)TsString::Create(b),10); return ts_value_make_bigint(bi);
+}
+TsValue* ts_temporal_instant_epochMicros_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* it=require_instant(ctx,"epochMicroseconds"); long long micros=it->epoch_ms*1000LL + it->sub_ns/1000;
+    return ts_value_make_bigint(ts_bigint_create_int(micros));
+}
+TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){ return ts_value_make_string(instant_iso_string(require_instant(ctx,"toString"))); }
+TsValue* ts_temporal_instant_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.Instant; use compare() or equals() instead")); return ts_value_make_undefined(); }
+TsValue* ts_temporal_instant_equals_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* a=require_instant(ctx,"equals"); TsValue* o=(argc>=1&&argv)?argv[0]:nullptr;
+    TsInstant* b=as_instant(o?ts_nanbox_safe_unbox(o):nullptr);
+    if(!b){ TsValue* c=ts_temporal_instant_from(o?1:0,&o); b=as_instant(ts_nanbox_safe_unbox(c)); if(!b) return ts_value_make_bool(false); }
+    return ts_value_make_bool(a->epoch_ms==b->epoch_ms && a->sub_ns==b->sub_ns);
+}
+TsValue* ts_temporal_instant_compare_native(void* ctx,int argc,TsValue** argv){
+    (void)ctx; auto to=[](TsValue* v)->TsInstant*{ TsInstant* p=as_instant(v?ts_nanbox_safe_unbox(v):nullptr); if(p)return p; TsValue* c=ts_temporal_instant_from(v?1:0,&v); return as_instant(ts_nanbox_safe_unbox(c)); };
+    TsInstant* a=to((argc>=1)?argv[0]:nullptr),*b=to((argc>=2)?argv[1]:nullptr); if(!a||!b) return ts_value_make_int(0);
+    if(a->epoch_ms!=b->epoch_ms) return ts_value_make_int(a->epoch_ms<b->epoch_ms?-1:1);
+    if(a->sub_ns!=b->sub_ns) return ts_value_make_int(a->sub_ns<b->sub_ns?-1:1);
+    return ts_value_make_int(0);
+}
+TsValue* ts_temporal_instant_fromEpochMs_native(void* ctx,int argc,TsValue** argv){
+    (void)ctx; double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):0; if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochMilliseconds: not finite")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsInstant::Create((long long)d,0));
+}
+TsValue* ts_temporal_instant_fromEpochSec_native(void* ctx,int argc,TsValue** argv){
+    (void)ctx; double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):0; if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochSeconds: not finite")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsInstant::Create((long long)d*1000LL,0));
+}
+TsValue* ts_temporal_instant_from_native(void* ctx,int argc,TsValue** argv){ (void)ctx; return ts_temporal_instant_from(argc,argv); }
+}
+extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
+    TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: argument is undefined")); return ts_value_make_undefined(); }
+    void* raw=ts_nanbox_safe_unbox(item);
+    if(raw){
+        if(*(uint32_t*)((char*)raw+16)==TsInstant::MAGIC){ TsInstant* o=(TsInstant*)raw; return ts_value_make_object(TsInstant::Create(o->epoch_ms,o->sub_ns)); }
+        uint32_t m0=*(uint32_t*)raw;
+        if(m0==0x53545247||m0==0x434F4E53){
+            const char* u=((TsString*)ts_value_get_string(item))->ToUtf8();
+            // Parse "YYYY-MM-DDTHH:MM:SS[.frac](Z|+/-HH:MM)" -> epoch.
+            int Y,M,D,h,mi,s,ms,us,ns;
+            if(!u || !parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
+            long long days=iso_days_from_civil(Y,M,D);
+            long long epoch_ms = days*86400000LL + (long long)h*3600000LL + (long long)mi*60000LL + (long long)s*1000LL + ms;
+            int subNs = us*1000 + ns;
+            // NOTE: an explicit numeric offset in the string is not yet applied (treated as UTC).
+            return ts_value_make_object(TsInstant::Create(epoch_ms, subNs));
+        }
+    }
+    ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: invalid argument")); return ts_value_make_undefined();
+}

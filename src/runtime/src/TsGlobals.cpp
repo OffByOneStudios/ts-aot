@@ -2612,6 +2612,33 @@ static void* g_temporal_plaindate_ctor = nullptr; // GC-rooted in ts_get_global_
 static void* g_temporal_plainyearmonth_ctor = nullptr;
 static void* g_temporal_plainmonthday_ctor = nullptr;
 static void* g_temporal_plaindatetime_ctor = nullptr;
+static void* g_temporal_instant_ctor = nullptr;
+extern "C" {
+    TsValue* ts_temporal_instant_epochNs_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_epochMicros_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_toString_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_valueOf_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_equals_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_compare_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_from_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_fromEpochMs_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_fromEpochSec_native(void*,int,TsValue**);
+}
+static TsValue* temporal_instant_field(void* ctx, const char* name) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    TsInstant* d = nullptr;
+    if (raw) { uint32_t m0=*(uint32_t*)raw;
+        if (m0!=0x53545247 && m0!=0x434F4E53 && *(uint32_t*)((char*)raw+16)==TsInstant::MAGIC) d=(TsInstant*)raw; }
+    if (!d) {
+        std::string msg = std::string("get Temporal.Instant.prototype.") + name + " called on an incompatible receiver";
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg.c_str()));
+        return ts_value_make_undefined();
+    }
+    TsValue v = d->GetPropertyVirtual(name);
+    if (v.type == ValueType::NUMBER_INT) return ts_value_make_int(v.i_val);
+    return ts_value_make_undefined();
+}
 extern "C" {
     TsValue* ts_temporal_plaindatetime_toString_native(void*,int,TsValue**);
     TsValue* ts_temporal_plaindatetime_valueOf_native(void*,int,TsValue**);
@@ -2970,6 +2997,28 @@ void* ts_get_global_Temporal() {
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainDateTime");
           TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=dtFn; cached->Set(k,v); }
 
+        // ---- Temporal.Instant ----
+        TsMap* inCtor = makeSimpleConstructorGlobal("Instant");
+        TsMap* inProto = (TsMap*)inCtor->Get(protoKey).ptr_val;
+        setProtoStringTag(inProto, "Temporal.Instant");
+        addAccessorGetter(inProto, "epochMilliseconds", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_instant_field(c,"epochMilliseconds"); });
+        addAccessorGetter(inProto, "epochSeconds",      (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_instant_field(c,"epochSeconds"); });
+        addAccessorGetter(inProto, "epochNanoseconds",  (void*)ts_temporal_instant_epochNs_native);
+        addAccessorGetter(inProto, "epochMicroseconds", (void*)ts_temporal_instant_epochMicros_native);
+        addMethod(inProto, "toString", (void*)ts_temporal_instant_toString_native, 0);
+        addMethod(inProto, "toJSON",   (void*)ts_temporal_instant_toString_native, 0);
+        addMethod(inProto, "valueOf",  (void*)ts_temporal_instant_valueOf_native, 0);
+        addMethod(inProto, "equals",   (void*)ts_temporal_instant_equals_native, 1);
+        void* inFn = wrapAsCallable(inCtor, "Instant", 1);
+        g_temporal_instant_ctor = inFn;
+        ts_gc_register_root(&g_temporal_instant_ctor);
+        addMethod(inCtor, "from",                  (void*)ts_temporal_instant_from_native, 1);
+        addMethod(inCtor, "fromEpochMilliseconds", (void*)ts_temporal_instant_fromEpochMs_native, 1);
+        addMethod(inCtor, "fromEpochSeconds",      (void*)ts_temporal_instant_fromEpochSec_native, 1);
+        addMethod(inCtor, "compare",               (void*)ts_temporal_instant_compare_native, 2);
+        { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("Instant");
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=inFn; cached->Set(k,v); }
+
         // ---- Temporal.Now (clock function namespace) ----
         TsMap* nowNs = TsMap::Create();
         setProtoStringTag(nowNs, "Temporal.Now");
@@ -2996,6 +3045,7 @@ void* ts_temporal_get_plaindate_ctor() {
 void* ts_temporal_get_plainyearmonth_ctor() { ts_get_global_Temporal(); return g_temporal_plainyearmonth_ctor; }
 void* ts_temporal_get_plainmonthday_ctor() { ts_get_global_Temporal(); return g_temporal_plainmonthday_ctor; }
 void* ts_temporal_get_plaindatetime_ctor() { ts_get_global_Temporal(); return g_temporal_plaindatetime_ctor; }
+void* ts_temporal_get_instant_ctor() { ts_get_global_Temporal(); return g_temporal_instant_ctor; }
 
 // The cached Temporal.PlainTime constructor function, for the new-dispatch
 // match in ts_new_from_constructor_impl (PlainTime is a namespace sub-property,
