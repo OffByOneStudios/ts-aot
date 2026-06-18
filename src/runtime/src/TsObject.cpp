@@ -2846,23 +2846,74 @@ TsValue* ts_value_make_int(int64_t i) {
         return result ? ts_value_make_string((TsString*)result) : ts_value_make_string(TsString::Create(""));
     }
 
+    // thisNumberValue(this) per ECMA-262: the receiver (ctx) must be a number
+    // primitive OR a Number wrapper object carrying [[NumberData]]. When invoked
+    // via .call/.apply the bound receiver is overridden, so a non-Number `this`
+    // (string/boolean/null/undefined/plain object) must throw a TypeError rather
+    // than silently coercing to 0.
+    static double numberThisValueOrThrow(void* ctx, const char* method) {
+        uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+        if (nanbox_is_int32(nb)) return (double)nanbox_to_int32(nb);
+        if (nanbox_is_double(nb)) return nanbox_to_double(nb);
+        if (nanbox_is_ptr(nb)) {
+            void* raw = nanbox_to_ptr(nb);
+            if (raw && *(uint32_t*)((char*)raw + 16) == 0x4D415053) {  // TsMap
+                TsMap* obj = (TsMap*)raw;
+                TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+                ndKey.ptr_val = TsString::GetInterned("__NumberData");
+                TsValue v = obj->Get(ndKey);
+                if (v.type == ValueType::NUMBER_DBL) return v.d_val;
+                if (v.type == ValueType::NUMBER_INT) return (double)v.i_val;
+            }
+        }
+        char msg[128];
+        snprintf(msg, sizeof(msg),
+                 "Number.prototype.%s requires that 'this' be a Number", method);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return 0.0;  // unreachable
+    }
+
+    // thisBooleanValue(this) per ECMA-262: the receiver (ctx) must be a boolean
+    // primitive OR a Boolean wrapper object carrying [[BooleanData]]; else throw.
+    static bool booleanThisValueOrThrow(void* ctx, const char* method) {
+        uint64_t nb = nanbox_from_tsvalue_ptr((TsValue*)ctx);
+        if (nanbox_is_bool(nb)) return nanbox_to_bool(nb);
+        if (nanbox_is_ptr(nb)) {
+            void* raw = nanbox_to_ptr(nb);
+            if (raw && *(uint32_t*)((char*)raw + 16) == 0x4D415053) {  // TsMap
+                TsMap* obj = (TsMap*)raw;
+                TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+                ndKey.ptr_val = TsString::GetInterned("__BooleanData");
+                TsValue v = obj->Get(ndKey);
+                if (v.type == ValueType::BOOLEAN) return v.i_val != 0;
+            }
+        }
+        char msg[128];
+        snprintf(msg, sizeof(msg),
+                 "Boolean.prototype.%s requires that 'this' be a Boolean", method);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+        return false;  // unreachable
+    }
+
     // Native wrapper for number.toString() - ctx is a NaN-boxed number value
     static TsValue* ts_number_toString_native(void* ctx, int argc, TsValue** argv) {
-        double value = nanbox_extract_double((TsValue*)ctx);
+        double value = numberThisValueOrThrow(ctx, "toString");
         int64_t radix = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 10;
         return ts_value_make_string((TsString*)ts_number_to_string(value, radix));
     }
 
     static TsValue* ts_number_toFixed_native(void* ctx, int argc, TsValue** argv) {
-        double value = nanbox_extract_double((TsValue*)ctx);
+        double value = numberThisValueOrThrow(ctx, "toFixed");
         int64_t digits = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
         return ts_value_make_string((TsString*)ts_number_to_fixed(value, digits));
     }
     static TsValue* ts_number_valueOf_native(void* ctx, int argc, TsValue** argv) {
-        return (TsValue*)ctx; // Return the NaN-boxed number as-is
+        // Validate receiver, then return the underlying primitive number.
+        double value = numberThisValueOrThrow(ctx, "valueOf");
+        return ts_value_make_double(value);
     }
     static TsValue* ts_number_toPrecision_native(void* ctx, int argc, TsValue** argv) {
-        double value = nanbox_extract_double((TsValue*)ctx);
+        double value = numberThisValueOrThrow(ctx, "toPrecision");
         if (argc < 1 || !argv || !argv[0]) {
             return ts_value_make_string((TsString*)ts_number_to_string(value, 10));
         }
@@ -2872,7 +2923,7 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_string(TsString::Create(buf));
     }
     static TsValue* ts_number_toExponential_native(void* ctx, int argc, TsValue** argv) {
-        double value = nanbox_extract_double((TsValue*)ctx);
+        double value = numberThisValueOrThrow(ctx, "toExponential");
         int64_t digits = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 6;
         char buf[64];
         snprintf(buf, sizeof(buf), "%.*e", (int)digits, value);
@@ -2881,12 +2932,13 @@ TsValue* ts_value_make_int(int64_t i) {
 
     // Native wrappers for boolean methods
     static TsValue* ts_boolean_toString_native(void* ctx, int argc, TsValue** argv) {
-        bool value = nanbox_is_bool(nanbox_from_tsvalue_ptr((TsValue*)ctx)) &&
-                     nanbox_to_bool(nanbox_from_tsvalue_ptr((TsValue*)ctx));
+        bool value = booleanThisValueOrThrow(ctx, "toString");
         return ts_value_make_string(TsString::Create(value ? "true" : "false"));
     }
     static TsValue* ts_boolean_valueOf_native(void* ctx, int argc, TsValue** argv) {
-        return (TsValue*)ctx; // Return the NaN-boxed boolean as-is
+        // Validate receiver, then return the underlying primitive boolean.
+        bool value = booleanThisValueOrThrow(ctx, "valueOf");
+        return ts_value_make_bool(value);
     }
 
     // Helper: require a TsDate receiver, else throw TypeError. Returns the

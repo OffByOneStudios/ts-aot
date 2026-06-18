@@ -1360,6 +1360,36 @@ static double ts_number_data_of(void* ctx) {
     return 0.0;
 }
 
+// thisNumberValue(this) per ECMA-262: returns the underlying double if the
+// receiver is a number primitive or a Number wrapper object holding
+// [[NumberData]]; otherwise throws a TypeError. Number.prototype methods must
+// reject string/boolean/null/undefined/plain-object receivers rather than
+// silently coercing them to 0.
+static double ts_number_value_or_throw(void* ctx, const char* method) {
+    if (ctx) {
+        uint64_t nb = (uint64_t)(uintptr_t)ctx;
+        if (nanbox_is_int32(nb)) return (double)nanbox_to_int32(nb);
+        if (nanbox_is_double(nb)) return nanbox_to_double(nb);
+        void* raw = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : ctx;
+        if (raw) {
+            uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+            if (m16 == 0x4D415053) {  // TsMap — only valid if it carries [[NumberData]]
+                TsMap* obj = (TsMap*)raw;
+                TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+                ndKey.ptr_val = TsString::GetInterned("__NumberData");
+                TsValue v = obj->Get(ndKey);
+                if (v.type == ValueType::NUMBER_DBL) return v.d_val;
+                if (v.type == ValueType::NUMBER_INT) return (double)v.i_val;
+            }
+        }
+    }
+    char msg[128];
+    std::snprintf(msg, sizeof(msg),
+                  "Number.prototype.%s requires that 'this' be a Number", method);
+    ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    return 0.0;  // unreachable
+}
+
 extern "C" void* ts_number_to_string(double value, int64_t radix);
 
 // Number.prototype, captured for numberFn's new-vs-call disambiguation
@@ -1423,14 +1453,14 @@ void* ts_get_global_Number() {
         // Number.prototype methods that read [[NumberData]] from receiver.
         auto numProtoToString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            double d = ts_number_data_of(ctx);
+            double d = ts_number_value_or_throw(ctx, "toString");
             int64_t radix = (argc >= 1 && argv && argv[0])
                 ? ts_value_get_int(argv[0]) : 10;
             return ts_value_make_string((TsString*)ts_number_to_string(d, radix));
         };
         auto numProtoValueOf = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_value_make_double(ts_number_data_of(ctx));
+            return ts_value_make_double(ts_number_value_or_throw(ctx, "valueOf"));
         };
         addMethod(proto, "toString", (void*)+numProtoToString, 1);
         addMethod(proto, "valueOf",  (void*)+numProtoValueOf,  0);
@@ -1438,7 +1468,7 @@ void* ts_get_global_Number() {
         // minimal impls; tests for name/length pass once registered.
         addMethod(proto, "toFixed", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            double d = ts_number_data_of(ctx);
+            double d = ts_number_value_or_throw(ctx, "toFixed");
             int digits = (argc >= 1 && argv && argv[0]) ? (int)ts_value_get_int(argv[0]) : 0;
             if (digits < 0 || digits > 100) digits = 0;
             char buf[128];
@@ -1447,7 +1477,7 @@ void* ts_get_global_Number() {
         }, 1);
         addMethod(proto, "toExponential", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            double d = ts_number_data_of(ctx);
+            double d = ts_number_value_or_throw(ctx, "toExponential");
             int digits = (argc >= 1 && argv && argv[0]) ? (int)ts_value_get_int(argv[0]) : 6;
             if (digits < 0 || digits > 100) digits = 6;
             char buf[128];
@@ -1456,7 +1486,7 @@ void* ts_get_global_Number() {
         }, 1);
         addMethod(proto, "toPrecision", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            double d = ts_number_data_of(ctx);
+            double d = ts_number_value_or_throw(ctx, "toPrecision");
             if (argc < 1 || !argv || !argv[0] || ts_value_is_undefined(argv[0])) {
                 return ts_value_make_string((TsString*)ts_number_to_string(d, 10));
             }
@@ -1525,6 +1555,34 @@ static bool ts_boolean_data_of(void* ctx) {
     return false;
 }
 
+// thisBooleanValue(this) per ECMA-262: returns the underlying bool if the
+// receiver is a boolean primitive or a Boolean wrapper object holding
+// [[BooleanData]]; otherwise throws a TypeError. Boolean.prototype methods must
+// reject non-boolean receivers rather than silently yielding false.
+static bool ts_boolean_value_or_throw(void* ctx, const char* method) {
+    if (ctx) {
+        uint64_t nb = (uint64_t)(uintptr_t)ctx;
+        if (nb == NANBOX_TRUE) return true;
+        if (nb == NANBOX_FALSE) return false;
+        void* raw = nanbox_is_ptr(nb) ? nanbox_to_ptr(nb) : ctx;
+        if (raw) {
+            uint32_t m16 = *(uint32_t*)((char*)raw + 16);
+            if (m16 == 0x4D415053) {  // TsMap — only valid if it carries [[BooleanData]]
+                TsMap* obj = (TsMap*)raw;
+                TsValue ndKey; ndKey.type = ValueType::STRING_PTR;
+                ndKey.ptr_val = TsString::GetInterned("__BooleanData");
+                TsValue v = obj->Get(ndKey);
+                if (v.type == ValueType::BOOLEAN) return v.i_val != 0;
+            }
+        }
+    }
+    char msg[128];
+    std::snprintf(msg, sizeof(msg),
+                  "Boolean.prototype.%s requires that 'this' be a Boolean", method);
+    ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    return false;  // unreachable
+}
+
 static TsMap* g_boolean_wrapper_proto = nullptr;  // for boolFn new-vs-call check
 
 void* ts_get_global_Boolean() {
@@ -1580,11 +1638,11 @@ void* ts_get_global_Boolean() {
         auto boolProtoToString = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
             return ts_value_make_string(TsString::Create(
-                ts_boolean_data_of(ctx) ? "true" : "false"));
+                ts_boolean_value_or_throw(ctx, "toString") ? "true" : "false"));
         };
         auto boolProtoValueOf = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_value_make_bool(ts_boolean_data_of(ctx));
+            return ts_value_make_bool(ts_boolean_value_or_throw(ctx, "valueOf"));
         };
         addMethod(proto, "toString", (void*)+boolProtoToString, 0);
         addMethod(proto, "valueOf",  (void*)+boolProtoValueOf,  0);
