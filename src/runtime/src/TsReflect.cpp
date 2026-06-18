@@ -20,9 +20,17 @@ extern "C" {
 // Reflect provides static methods for interceptable JavaScript operations
 // These methods directly access targets without going through Proxy traps
 
+// ECMA-262: Reflect.{get,set,has,deleteProperty,ownKeys,getPrototypeOf,
+// setPrototypeOf,isExtensible,preventExtensions,getOwnPropertyDescriptor,
+// defineProperty} step 1 require Type(target) is Object, else a TypeError.
+// A NaN-boxed primitive (number/bool/null/undefined), or a Symbol/String
+// primitive, is NOT an Object. Throws on a non-object; returns the unboxed
+// object pointer otherwise. (Forward-declared here, defined below.)
+static void* reflect_require_object(void* targetArg, const char* msg);
+
 extern "C" TsValue* ts_reflect_get(void* targetArg, void* propArg, void* receiverArg) {
-    void* target = ts_nanbox_safe_unbox(targetArg);
-    if (!target) return ts_value_make_undefined();
+    void* target = reflect_require_object(targetArg,
+        "Reflect.get called on non-object");
 
     // If receiver is null, use target
     if (!receiverArg) receiverArg = target;
@@ -32,8 +40,8 @@ extern "C" TsValue* ts_reflect_get(void* targetArg, void* propArg, void* receive
 }
 
 extern "C" int64_t ts_reflect_set(void* targetArg, void* propArg, void* valueArg, void* receiverArg) {
-    void* target = ts_nanbox_safe_unbox(targetArg);
-    if (!target) return 0;
+    void* target = reflect_require_object(targetArg,
+        "Reflect.set called on non-object");
 
     // If receiver is null, use target
     if (!receiverArg) receiverArg = target;
@@ -44,15 +52,15 @@ extern "C" int64_t ts_reflect_set(void* targetArg, void* propArg, void* valueArg
 }
 
 extern "C" int64_t ts_reflect_has(void* targetArg, void* propArg) {
-    void* target = ts_nanbox_safe_unbox(targetArg);
-    if (!target) return 0;
+    void* target = reflect_require_object(targetArg,
+        "Reflect.has called on non-object");
 
     return ts_object_has_prop(ts_value_box_any(target), (TsValue*)propArg) ? 1 : 0;
 }
 
 extern "C" int64_t ts_reflect_deleteProperty(void* targetArg, void* propArg) {
-    void* target = ts_nanbox_safe_unbox(targetArg);
-    if (!target) return 0;
+    void* target = reflect_require_object(targetArg,
+        "Reflect.deleteProperty called on non-object");
 
     return ts_object_delete_prop(ts_value_box_any(target), (TsValue*)propArg) ? 1 : 0;
 }
@@ -155,11 +163,17 @@ extern "C" TsValue* ts_reflect_construct(void* targetArg, void* argsArg, void* n
 }
 
 extern "C" TsValue* ts_reflect_getPrototypeOf(void* targetArg) {
+    // ECMA-262 step 1: Type(target) must be Object.
+    reflect_require_object(targetArg,
+        "Reflect.getPrototypeOf called on non-object");
     // ts-aot doesn't have a prototype chain currently
     return ts_value_make_undefined();
 }
 
 extern "C" int64_t ts_reflect_setPrototypeOf(void* targetArg, void* protoArg) {
+    // ECMA-262 step 1: Type(target) must be Object.
+    reflect_require_object(targetArg,
+        "Reflect.setPrototypeOf called on non-object");
     // ts-aot doesn't support prototype chain modification
     return 0;
 }
@@ -287,8 +301,8 @@ extern "C" int64_t ts_reflect_defineProperty(void* targetArg, void* propArg, voi
 }
 
 extern "C" TsValue* ts_reflect_ownKeys(void* targetArg) {
-    void* target = ts_nanbox_safe_unbox(targetArg);
-    if (!target) return ts_value_make_array(TsArray::Create());
+    void* target = reflect_require_object(targetArg,
+        "Reflect.ownKeys called on non-object");
 
     // Use ts_object_keys which returns an array
     return ts_object_keys(ts_value_box_any(target));
