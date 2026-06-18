@@ -5043,6 +5043,35 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!target) target = (TsValue*)ts_get_call_this();
         TsValue* thisArg = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
         TsValue* argsArray = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+
+        // ECMA-262 Function.prototype.apply: if argArray is undefined/null the
+        // argument list is empty; otherwise CreateListFromArrayLike(argArray)
+        // requires argArray to be an Object — a primitive (number/string/
+        // boolean/symbol/bigint) must throw a TypeError.
+        if (argc >= 2 && argv) {
+            uint64_t nb = nanbox_from_tsvalue_ptr(argsArray);
+            if (!nanbox_is_undefined(nb) && !nanbox_is_null(nb)) {
+                bool isObject = false;
+                if (nanbox_is_ptr(nb)) {
+                    void* ptr = nanbox_to_ptr(nb);
+                    if (ptr && (uintptr_t)ptr >= 0x10000) {
+                        // Primitive strings are NaN-boxed pointers but are not
+                        // objects — reject them (magic STRG / CONS at offset 0).
+                        uint32_t magic0 = *(uint32_t*)ptr;
+                        if (magic0 != 0x53545247 /* STRG */ &&
+                            magic0 != 0x434F4E53 /* CONS */) {
+                            isObject = true;
+                        }
+                    }
+                }
+                if (!isObject) {
+                    ts_throw((TsValue*)ts_error_create_typed(
+                        "TypeError",
+                        "CreateListFromArrayLike called on non-object"));
+                }
+            }
+        }
+
         return ts_function_apply(target, thisArg, argsArray);
     }
 
