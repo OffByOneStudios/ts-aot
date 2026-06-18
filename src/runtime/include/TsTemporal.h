@@ -92,11 +92,27 @@ public:
     TsValue GetPropertyVirtual(const char* key) override;
 };
 
+// Temporal.ZonedDateTime — an Instant + a time zone (ISO calendar). This
+// implementation supports the "UTC" zone and fixed numeric offsets (+HH:MM);
+// named IANA zones (with DST) require a timezone database (not yet present).
+class TsZonedDateTime : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x5A44544D; // 'ZDTM'
+    long long epoch_ms = 0;
+    int sub_ns = 0;
+    int offset_minutes = 0;  // fixed offset from UTC
+    bool is_utc = true;      // "UTC" named zone vs a numeric offset zone
+    static TsZonedDateTime* Create(long long ms, int subNs, int offMin, bool utc);
+    TsValue GetPropertyVirtual(const char* key) override;
+};
+
 extern "C" {
     // The Temporal namespace object (globalThis.Temporal). Cached.
     void* ts_get_global_Temporal();
     TsValue* ts_temporal_duration_construct(int argc, TsValue** argv);
     void* ts_temporal_get_duration_ctor();
+    TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv);
+    void* ts_temporal_get_zoneddatetime_ctor();
     TsValue* ts_temporal_instant_construct(int argc, TsValue** argv);
     void* ts_temporal_get_instant_ctor();
     TsValue* ts_temporal_plaindatetime_construct(int argc, TsValue** argv);

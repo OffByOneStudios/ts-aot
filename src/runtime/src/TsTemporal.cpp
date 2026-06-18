@@ -1459,3 +1459,131 @@ extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
     }
     ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: invalid argument")); return ts_value_make_undefined();
 }
+
+// ====================== Temporal.ZonedDateTime ======================
+TsZonedDateTime* TsZonedDateTime::Create(long long ms, int subNs, int offMin, bool utc){
+    void* mem=ts_alloc(sizeof(TsZonedDateTime)); TsZonedDateTime* o=new(mem) TsZonedDateTime();
+    o->magic=MAGIC; o->epoch_ms=ms; o->sub_ns=subNs; o->offset_minutes=offMin; o->is_utc=utc; return o;
+}
+// Local wall-clock breakdown (epoch + fixed offset).
+static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns){
+    long long local = z->epoch_ms + (long long)z->offset_minutes*60000LL;
+    long long days = local/86400000LL; long long rem = local%86400000LL;
+    if(rem<0){ rem+=86400000LL; days-=1; }
+    iso_civil_from_days(days,Y,M,D);
+    *h=(int)(rem/3600000); rem%=3600000; *mi=(int)(rem/60000); rem%=60000; *s=(int)(rem/1000); *ms=(int)(rem%1000);
+    int an = z->sub_ns<0?-z->sub_ns:z->sub_ns; *us=an/1000; *ns=an%1000;
+}
+static void zdt_offset_string(int offMin, char* buf, size_t n){
+    char sign = offMin<0?'-':'+'; int a=offMin<0?-offMin:offMin;
+    snprintf(buf,n,"%c%02d:%02d",sign,a/60,a%60);
+}
+TsValue TsZonedDateTime::GetPropertyVirtual(const char* key){
+    auto mkInt=[](long long v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
+    auto mkBool=[](bool v){ TsValue r; r.type=ValueType::BOOLEAN; r.i_val=v?1:0; return r; };
+    auto mkStr=[](const char* s){ TsValue r; r.type=ValueType::STRING_PTR; r.ptr_val=TsString::Create(s); return r; };
+    TsValue undef; undef.type=ValueType::UNDEFINED; undef.i_val=0;
+    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(this,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    if(strcmp(key,"year")==0) return mkInt(Y);
+    if(strcmp(key,"month")==0) return mkInt(M);
+    if(strcmp(key,"day")==0) return mkInt(D);
+    if(strcmp(key,"hour")==0) return mkInt(h);
+    if(strcmp(key,"minute")==0) return mkInt(mi);
+    if(strcmp(key,"second")==0) return mkInt(s);
+    if(strcmp(key,"millisecond")==0) return mkInt(ms);
+    if(strcmp(key,"microsecond")==0) return mkInt(us);
+    if(strcmp(key,"nanosecond")==0) return mkInt(ns);
+    if(strcmp(key,"calendarId")==0) return mkStr("iso8601");
+    if(strcmp(key,"dayOfWeek")==0) return mkInt(iso_day_of_week(Y,M,D));
+    if(strcmp(key,"dayOfYear")==0) return mkInt(iso_day_of_year(Y,M,D));
+    if(strcmp(key,"daysInWeek")==0) return mkInt(7);
+    if(strcmp(key,"daysInMonth")==0) return mkInt(iso_days_in_month(Y,M));
+    if(strcmp(key,"daysInYear")==0) return mkInt(iso_is_leap(Y)?366:365);
+    if(strcmp(key,"monthsInYear")==0) return mkInt(12);
+    if(strcmp(key,"inLeapYear")==0) return mkBool(iso_is_leap(Y));
+    if(strcmp(key,"hoursInDay")==0) return mkInt(24);
+    if(strcmp(key,"monthCode")==0){ char b[8]; snprintf(b,sizeof(b),"M%02d",M); return mkStr(b); }
+    if(strcmp(key,"epochMilliseconds")==0) return mkInt(epoch_ms);
+    if(strcmp(key,"epochSeconds")==0) return mkInt(epoch_ms/1000);
+    if(strcmp(key,"offsetNanoseconds")==0) return mkInt((long long)offset_minutes*60000000000LL);
+    if(strcmp(key,"timeZoneId")==0){ if(is_utc) return mkStr("UTC"); char tb[8]; zdt_offset_string(offset_minutes,tb,sizeof(tb)); return mkStr(tb); }
+    if(strcmp(key,"offset")==0){ char b[8]; zdt_offset_string(offset_minutes,b,sizeof(b)); return mkStr(b); }
+    if(strcmp(key,"weekOfYear")==0||strcmp(key,"yearOfWeek")==0){
+        int isoDow=iso_day_of_week(Y,M,D); int ordinal=iso_day_of_year(Y,M,D);
+        int week=(ordinal-isoDow+10)/7; int yow=Y;
+        if(week<1){yow=Y-1;week=iso_weeks_in_year(Y-1);} else if(week>iso_weeks_in_year(Y)){yow=Y+1;week=1;}
+        return (key[0]=='w')?mkInt(week):mkInt(yow);
+    }
+    if(strcmp(key,"epochNanoseconds")==0){ const char* sign=(epoch_ms<0||sub_ns<0)?"-":""; long long ams=epoch_ms<0?-epoch_ms:epoch_ms; int asub=sub_ns<0?-sub_ns:sub_ns; char b[40]; snprintf(b,sizeof(b),"%s%lld%06d",sign,ams,asub); TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_str((void*)TsString::Create(b),10); return r; }
+    if(strcmp(key,"epochMicroseconds")==0){ TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(epoch_ms*1000LL+sub_ns/1000); return r; }
+    return undef;
+}
+static TsZonedDateTime* as_zoneddatetime(void* raw){
+    if(!raw) return nullptr; uint32_t m0=*(uint32_t*)raw;
+    if(m0==0x53545247||m0==0x434F4E53) return nullptr;
+    return (*(uint32_t*)((char*)raw+16)==TsZonedDateTime::MAGIC)?(TsZonedDateTime*)raw:nullptr;
+}
+extern "C" { void* ts_temporal_get_zoneddatetime_ctor(); }
+static TsZonedDateTime* require_zoneddatetime(void* ctx, const char* method){
+    if(!ctx) ctx=ts_get_call_this(); TsZonedDateTime* d=as_zoneddatetime(ts_nanbox_safe_unbox(ctx));
+    if(!d){ std::string msg=std::string("Temporal.ZonedDateTime.prototype.")+method+" called on an object that is not a Temporal.ZonedDateTime"; ts_throw((TsValue*)ts_error_create_typed("TypeError",msg.c_str())); }
+    return d;
+}
+// Parse a time-zone string: "UTC" or a numeric offset "+HH:MM"/"-HH:MM"/"+HHMM"/Z.
+static bool parse_timezone(const char* s, int* offMin, bool* isUtc){
+    if(!s) return false;
+    if(strcmp(s,"UTC")==0||strcmp(s,"utc")==0){ *offMin=0; *isUtc=true; return true; }
+    const char* p=s; if(*p=='Z'||*p=='z'){ *offMin=0; *isUtc=true; return true; }
+    int sign=0; if(*p=='+')sign=1; else if(*p=='-')sign=-1; else return false; p++;
+    if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false;
+    int hh=(p[0]-'0')*10+(p[1]-'0'); p+=2; if(*p==':')p++;
+    int mm=0; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])) mm=(p[0]-'0')*10+(p[1]-'0');
+    *offMin=sign*(hh*60+mm); *isUtc=false; return true;
+}
+extern "C" TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv){
+    // new Temporal.ZonedDateTime(epochNanoseconds: bigint, timeZone: string)
+    TsValue* a0=(argc>=1&&argv)?argv[0]:nullptr; void* raw0=a0?ts_nanbox_safe_unbox(a0):nullptr;
+    bool isBig = raw0 && (*(uint32_t*)raw0==0x42494749 || *(uint32_t*)((char*)raw0+16)==0x42494749);
+    if(!isBig){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime: epochNanoseconds must be a BigInt")); return ts_value_make_undefined(); }
+    void* str=ts_bigint_to_string(raw0,10); const char* u=str?((TsString*)str)->ToUtf8():nullptr;
+    long long ms; int sub; if(!u||!ns_string_to_ms_sub(u,&ms,&sub)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: epochNanoseconds out of range")); return ts_value_make_undefined(); }
+    TsValue* a1=(argc>=2&&argv)?argv[1]:nullptr; void* raw1=a1?ts_nanbox_safe_unbox(a1):nullptr;
+    if(!raw1 || (*(uint32_t*)raw1!=0x53545247 && *(uint32_t*)raw1!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime: timeZone must be a string")); return ts_value_make_undefined(); }
+    const char* tz=((TsString*)ts_value_get_string(a1))->ToUtf8(); int off; bool utc;
+    if(!parse_timezone(tz,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: unsupported time zone (only UTC and numeric offsets)")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsZonedDateTime::Create(ms,sub,off,utc));
+}
+static TsString* zdt_iso_string(TsZonedDateTime* z){
+    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    char buf[80]; int n;
+    if(Y<0||Y>9999) n=snprintf(buf,sizeof(buf),"%+07d-%02d-%02dT%02d:%02d:%02d",Y,M,D,h,mi,s);
+    else n=snprintf(buf,sizeof(buf),"%04d-%02d-%02dT%02d:%02d:%02d",Y,M,D,h,mi,s);
+    long frac=(long)ms*1000000L+(long)us*1000L+ns;
+    if(frac>0){ char fb[16]; snprintf(fb,sizeof(fb),"%09ld",frac); int len=9; while(len>1&&fb[len-1]=='0')len--; buf[n++]='.'; for(int i=0;i<len;i++)buf[n++]=fb[i]; }
+    char ob[8]; zdt_offset_string(z->offset_minutes,ob,sizeof(ob)); for(int i=0;ob[i];i++)buf[n++]=ob[i];
+    buf[n++]='['; const char* id=z->is_utc?"UTC":ob; for(int i=0;id[i];i++)buf[n++]=id[i]; buf[n++]=']'; buf[n]='\0';
+    return TsString::Create(buf);
+}
+extern "C" {
+TsValue* ts_temporal_zdt_epochNs_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"epochNanoseconds"); TsValue v=z->GetPropertyVirtual("epochNanoseconds"); return (TsValue*)v.ptr_val; }
+TsValue* ts_temporal_zdt_epochMicros_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"epochMicroseconds"); TsValue v=z->GetPropertyVirtual("epochMicroseconds"); return (TsValue*)v.ptr_val; }
+TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){ return ts_value_make_string(zdt_iso_string(require_zoneddatetime(ctx,"toString"))); }
+TsValue* ts_temporal_zdt_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.ZonedDateTime; use compare() or equals() instead")); return ts_value_make_undefined(); }
+TsValue* ts_temporal_zdt_equals_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* a=require_zoneddatetime(ctx,"equals"); TsValue* o=(argc>=1&&argv)?argv[0]:nullptr;
+    TsZonedDateTime* b=as_zoneddatetime(o?ts_nanbox_safe_unbox(o):nullptr); if(!b) return ts_value_make_bool(false);
+    return ts_value_make_bool(a->epoch_ms==b->epoch_ms&&a->sub_ns==b->sub_ns&&a->offset_minutes==b->offset_minutes&&a->is_utc==b->is_utc);
+}
+TsValue* ts_temporal_zdt_compare_native(void* ctx,int argc,TsValue** argv){
+    (void)ctx; TsZonedDateTime* a=as_zoneddatetime((argc>=1&&argv)?ts_nanbox_safe_unbox(argv[0]):nullptr);
+    TsZonedDateTime* b=as_zoneddatetime((argc>=2&&argv)?ts_nanbox_safe_unbox(argv[1]):nullptr);
+    if(!a||!b) return ts_value_make_int(0);
+    if(a->epoch_ms!=b->epoch_ms) return ts_value_make_int(a->epoch_ms<b->epoch_ms?-1:1);
+    if(a->sub_ns!=b->sub_ns) return ts_value_make_int(a->sub_ns<b->sub_ns?-1:1);
+    return ts_value_make_int(0);
+}
+TsValue* ts_temporal_zdt_toInstant_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"toInstant"); return ts_value_make_object(TsInstant::Create(z->epoch_ms,z->sub_ns)); }
+TsValue* ts_temporal_zdt_toPlainDateTime_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"toPlainDateTime"); int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns); return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,mi,s,ms,us,ns)); }
+TsValue* ts_temporal_zdt_toPlainDate_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"toPlainDate"); int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns); return ts_value_make_object(TsPlainDate::Create(Y,M,D)); }
+TsValue* ts_temporal_zdt_toPlainTime_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"toPlainTime"); int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns); return ts_value_make_object(TsPlainTime::Create(h,mi,s,ms,us,ns)); }
+}

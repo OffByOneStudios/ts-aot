@@ -3907,6 +3907,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 magic16 == 0x504C4D44 ||  // TsPlainMonthDay "PLMD"
                 magic16 == 0x50444D54 ||  // TsPlainDateTime "PDMT"
                 magic16 == 0x494E5354 ||  // TsInstant "INST"
+                magic16 == 0x5A44544D ||  // TsZonedDateTime "ZDTM"
                 magic16 == 0x44564945) {  // TsDataView::MAGIC "DVIE"
                 // PROMISES: own properties (the native-props side map where
                 // `p.then = fn` writes land) take precedence over the builtin
@@ -4014,6 +4015,16 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (magic16 == 0x494E5354) {  // Temporal.Instant: methods via prototype
                     extern void* ts_temporal_get_instant_ctor();
                     void* ctor = ts_temporal_get_instant_ctor();
+                    if (ctor) {
+                        TsValue* protoV = ts_object_get_property(ctor, "prototype");
+                        void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
+                        if (protoRaw && protoRaw != obj)
+                            return ts_object_get_property(protoRaw, keyStr);
+                    }
+                }
+                if (magic16 == 0x5A44544D) {  // Temporal.ZonedDateTime: methods via prototype
+                    extern void* ts_temporal_get_zoneddatetime_ctor();
+                    void* ctor = ts_temporal_get_zoneddatetime_ctor();
                     if (ctor) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
@@ -5872,6 +5883,14 @@ TsValue* ts_value_make_int(int64_t i) {
                     }
                 }
                 {
+                    // new Temporal.ZonedDateTime(...)
+                    extern void* ts_temporal_get_zoneddatetime_ctor();
+                    extern TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv);
+                    if (isGlobal(ts_temporal_get_zoneddatetime_ctor)) {
+                        return ts_temporal_zoneddatetime_construct(argc, argv);
+                    }
+                }
+                {
                     // `new Promise(executor)` reached through a runtime
                     // constructor value (`var P = Promise; new P(fn)` — and
                     // the literal form also lowers through this dispatcher).
@@ -6837,6 +6856,10 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == 0x494E5354) { // TsInstant "INST"
             extern void* ts_temporal_get_instant_ctor();
             return getCtorPrototype(ts_temporal_get_instant_ctor());
+        }
+        if (magic == 0x5A44544D) { // TsZonedDateTime "ZDTM"
+            extern void* ts_temporal_get_zoneddatetime_ctor();
+            return getCtorPrototype(ts_temporal_get_zoneddatetime_ctor());
         }
         if (magic == 0x4D415053) { // TsMap::MAGIC
             TsMap* objMap = (TsMap*)objRaw;

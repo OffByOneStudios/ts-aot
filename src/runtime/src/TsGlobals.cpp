@@ -2613,6 +2613,38 @@ static void* g_temporal_plainyearmonth_ctor = nullptr;
 static void* g_temporal_plainmonthday_ctor = nullptr;
 static void* g_temporal_plaindatetime_ctor = nullptr;
 static void* g_temporal_instant_ctor = nullptr;
+static void* g_temporal_zoneddatetime_ctor = nullptr;
+extern "C" {
+    TsValue* ts_temporal_zdt_epochNs_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_epochMicros_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_toString_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_valueOf_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_equals_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_compare_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_toInstant_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_toPlainDateTime_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_toPlainDate_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_toPlainTime_native(void*,int,TsValue**);
+}
+static TsValue* temporal_zdt_field(void* ctx, const char* name) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    TsZonedDateTime* d = nullptr;
+    if (raw) { uint32_t m0=*(uint32_t*)raw;
+        if (m0!=0x53545247 && m0!=0x434F4E53 && *(uint32_t*)((char*)raw+16)==TsZonedDateTime::MAGIC) d=(TsZonedDateTime*)raw; }
+    if (!d) {
+        std::string msg = std::string("get Temporal.ZonedDateTime.prototype.") + name + " called on an incompatible receiver";
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg.c_str()));
+        return ts_value_make_undefined();
+    }
+    TsValue v = d->GetPropertyVirtual(name);
+    switch (v.type) {
+        case ValueType::NUMBER_INT: return ts_value_make_int(v.i_val);
+        case ValueType::BOOLEAN:    return ts_value_make_bool(v.i_val != 0);
+        case ValueType::STRING_PTR: return ts_value_make_string((TsString*)v.ptr_val);
+        default:                    return ts_value_make_undefined();
+    }
+}
 extern "C" {
     TsValue* ts_temporal_instant_epochNs_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_epochMicros_native(void*,int,TsValue**);
@@ -3019,6 +3051,53 @@ void* ts_get_global_Temporal() {
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("Instant");
           TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=inFn; cached->Set(k,v); }
 
+        // ---- Temporal.ZonedDateTime ----
+        TsMap* zdCtor = makeSimpleConstructorGlobal("ZonedDateTime");
+        TsMap* zdProto = (TsMap*)zdCtor->Get(protoKey).ptr_val;
+        setProtoStringTag(zdProto, "Temporal.ZonedDateTime");
+        addAccessorGetter(zdProto, "year", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"year"); });
+        addAccessorGetter(zdProto, "month", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"month"); });
+        addAccessorGetter(zdProto, "monthCode", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"monthCode"); });
+        addAccessorGetter(zdProto, "day", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"day"); });
+        addAccessorGetter(zdProto, "dayOfWeek", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"dayOfWeek"); });
+        addAccessorGetter(zdProto, "dayOfYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"dayOfYear"); });
+        addAccessorGetter(zdProto, "weekOfYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"weekOfYear"); });
+        addAccessorGetter(zdProto, "yearOfWeek", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"yearOfWeek"); });
+        addAccessorGetter(zdProto, "daysInWeek", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"daysInWeek"); });
+        addAccessorGetter(zdProto, "daysInMonth", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"daysInMonth"); });
+        addAccessorGetter(zdProto, "daysInYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"daysInYear"); });
+        addAccessorGetter(zdProto, "monthsInYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"monthsInYear"); });
+        addAccessorGetter(zdProto, "inLeapYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"inLeapYear"); });
+        addAccessorGetter(zdProto, "hour", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"hour"); });
+        addAccessorGetter(zdProto, "minute", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"minute"); });
+        addAccessorGetter(zdProto, "second", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"second"); });
+        addAccessorGetter(zdProto, "millisecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"millisecond"); });
+        addAccessorGetter(zdProto, "microsecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"microsecond"); });
+        addAccessorGetter(zdProto, "nanosecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"nanosecond"); });
+        addAccessorGetter(zdProto, "calendarId", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"calendarId"); });
+        addAccessorGetter(zdProto, "offset", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"offset"); });
+        addAccessorGetter(zdProto, "offsetNanoseconds", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"offsetNanoseconds"); });
+        addAccessorGetter(zdProto, "timeZoneId", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"timeZoneId"); });
+        addAccessorGetter(zdProto, "epochMilliseconds", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"epochMilliseconds"); });
+        addAccessorGetter(zdProto, "epochSeconds", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"epochSeconds"); });
+        addAccessorGetter(zdProto, "hoursInDay", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_zdt_field(c,"hoursInDay"); });
+        addAccessorGetter(zdProto, "epochNanoseconds",  (void*)ts_temporal_zdt_epochNs_native);
+        addAccessorGetter(zdProto, "epochMicroseconds", (void*)ts_temporal_zdt_epochMicros_native);
+        addMethod(zdProto, "toString",        (void*)ts_temporal_zdt_toString_native, 0);
+        addMethod(zdProto, "toJSON",          (void*)ts_temporal_zdt_toString_native, 0);
+        addMethod(zdProto, "valueOf",         (void*)ts_temporal_zdt_valueOf_native, 0);
+        addMethod(zdProto, "equals",          (void*)ts_temporal_zdt_equals_native, 1);
+        addMethod(zdProto, "toInstant",       (void*)ts_temporal_zdt_toInstant_native, 0);
+        addMethod(zdProto, "toPlainDateTime", (void*)ts_temporal_zdt_toPlainDateTime_native, 0);
+        addMethod(zdProto, "toPlainDate",     (void*)ts_temporal_zdt_toPlainDate_native, 0);
+        addMethod(zdProto, "toPlainTime",     (void*)ts_temporal_zdt_toPlainTime_native, 0);
+        void* zdFn = wrapAsCallable(zdCtor, "ZonedDateTime", 2);
+        g_temporal_zoneddatetime_ctor = zdFn;
+        ts_gc_register_root(&g_temporal_zoneddatetime_ctor);
+        addMethod(zdCtor, "compare", (void*)ts_temporal_zdt_compare_native, 2);
+        { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("ZonedDateTime");
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=zdFn; cached->Set(k,v); }
+
         // ---- Temporal.Now (clock function namespace) ----
         TsMap* nowNs = TsMap::Create();
         setProtoStringTag(nowNs, "Temporal.Now");
@@ -3046,6 +3125,7 @@ void* ts_temporal_get_plainyearmonth_ctor() { ts_get_global_Temporal(); return g
 void* ts_temporal_get_plainmonthday_ctor() { ts_get_global_Temporal(); return g_temporal_plainmonthday_ctor; }
 void* ts_temporal_get_plaindatetime_ctor() { ts_get_global_Temporal(); return g_temporal_plaindatetime_ctor; }
 void* ts_temporal_get_instant_ctor() { ts_get_global_Temporal(); return g_temporal_instant_ctor; }
+void* ts_temporal_get_zoneddatetime_ctor() { ts_get_global_Temporal(); return g_temporal_zoneddatetime_ctor; }
 
 // The cached Temporal.PlainTime constructor function, for the new-dispatch
 // match in ts_new_from_constructor_impl (PlainTime is a namespace sub-property,
