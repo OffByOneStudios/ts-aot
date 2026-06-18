@@ -888,10 +888,10 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_array_at",
-        lowering("ts_array_at")
+        lowering("ts_array_at_coerced")
             .returnsBoxed()
             .ptrArg()      // array
-            .i64Arg(ArgConversion::ToI64)  // index - convert from double
+            .boxedArg()    // index - ToInteger in runtime (throws on Symbol/BigInt)
             .build());
 
     // ========================================
@@ -1104,10 +1104,10 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_at",
-        lowering("ts_string_at")
+        lowering("ts_string_at_coerced")
             .returnsPtr()
             .ptrArg()      // string
-            .i64Arg(ArgConversion::ToI64)  // index - convert from double
+            .boxedArg()    // index - ToInteger in runtime (throws on Symbol/BigInt)
             .build());
 
     reg.registerLowering("ts_string_raw",

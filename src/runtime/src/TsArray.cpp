@@ -32,6 +32,8 @@ extern "C" {
     // flag to throw TypeError per GetIterator.
     bool g_array_default_iterator_deleted = false;
     double ts_to_number(TsValue* v);  // defined in Primitives.cpp
+    // ToInteger for an index arg: throws TypeError on Symbol/BigInt (Primitives.cpp).
+    int64_t ts_to_index_integer(TsValue* v);
 }
 
 extern "C" void ts_array_prototype_bump_version() {
@@ -2856,6 +2858,15 @@ extern "C" {
         }
         // Return a properly boxed value based on array type
         return a->GetElementBoxed(index);
+    }
+
+    // Compiler fast-path entry for `arr.at(index)`: coerces the still-boxed
+    // index via ToIntegerOrInfinity (throws TypeError on a Symbol/BigInt/
+    // throwing-valueOf index) BEFORE delegating to ts_array_at. The typed
+    // lowering boxes the index and calls this instead of doing a bare i64 cast.
+    void* ts_array_at_coerced(void* arr, TsValue* index) {
+        int64_t i = ts_to_index_integer(index);  // may throw
+        return ts_array_at(arr, i);
     }
 
     // Forward decl for non-TsArray receiver fallback (plain objects,

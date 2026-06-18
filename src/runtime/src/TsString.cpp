@@ -1180,6 +1180,9 @@ bool TsString::Equals(TsString* other) {
 }
 
 extern "C" {
+    // ToInteger for an index arg: throws TypeError on Symbol/BigInt (Primitives.cpp).
+    int64_t ts_to_index_integer(TsValue* v);
+
     void* ts_int_to_string(int64_t value, int64_t radix) {
         if (radix == 10) {
             return TsString::FromInt(value);
@@ -1470,6 +1473,15 @@ extern "C" {
         TsString* result = s->At(index);
         if (!result) return ts_value_make_undefined();
         return result;
+    }
+
+    // Compiler fast-path entry for `str.at(index)`: coerces the still-boxed
+    // index via ToIntegerOrInfinity (throws TypeError on a Symbol/BigInt/
+    // throwing-valueOf index) BEFORE delegating to ts_string_at. The typed
+    // lowering boxes the index and calls this instead of doing a bare i64 cast.
+    void* ts_string_at_coerced(void* str, TsValue* index) {
+        int64_t i = ts_to_index_integer(index);  // may throw
+        return ts_string_at(str, i);
     }
 
     void* ts_string_concat(void* a, void* b) {

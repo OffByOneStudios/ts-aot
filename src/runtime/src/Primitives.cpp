@@ -1259,6 +1259,30 @@ double ts_to_number(TsValue* v) {
     return std::numeric_limits<double>::quiet_NaN();
 }
 
+// ToIntegerOrInfinity for an index argument (Array/String .at, etc).
+// Routes through ts_to_number so a Symbol index throws TypeError, and
+// throws TypeError on a BigInt index (ToNumber(BigInt) is a TypeError per
+// ECMA-262 7.1.4). Returns a truncated i64 (NaN/±0 -> 0, ±Inf saturates).
+// Shared by both the runtime prototype natives and the compiler fast-path
+// `_coerced` entry points so a non-coercible index always throws.
+int64_t ts_to_index_integer(TsValue* v) {
+    if (!v) return 0;
+    uint64_t nb = nanbox_from_tsvalue_ptr(v);
+    if (nanbox_is_undefined(nb)) return 0;  // ToInteger(undefined) -> NaN -> 0
+    if (nanbox_is_ptr(nb)) {
+        void* ptr = nanbox_to_ptr(nb);
+        if (ptr && *(uint32_t*)ptr == 0x42494749) {  // TsBigInt magic
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a BigInt value to a number"));
+            return 0;  // unreachable
+        }
+    }
+    double d = ts_to_number(v);  // throws TypeError on Symbol
+    if (d != d || d == 0) return 0;  // NaN / ±0 -> 0
+    if (std::isinf(d)) return d > 0 ? INT64_MAX : INT64_MIN;
+    return (int64_t)d;  // truncate toward zero
+}
+
 // Helper: native function that returns globalThis when called
 static TsValue* ts_return_globalThis_native(void* ctx, int argc, TsValue** argv) {
     extern TsValue* globalThis;

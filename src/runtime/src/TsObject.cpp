@@ -90,6 +90,8 @@ extern "C" void ts_pop_exception_handler();
 extern "C" void ts_set_exception(TsValue* exception);
 extern "C" TsValue* ts_get_exception();
 extern "C" double ts_to_number(TsValue* v);
+// ToInteger for an index arg: throws TypeError on Symbol/BigInt (Primitives.cpp).
+extern "C" int64_t ts_to_index_integer(TsValue* v);
 
 // Wrapper globals used for ToObject-style primitive receivers in
 // require_array_or_throw. Defined in TsGlobals.cpp.
@@ -1836,7 +1838,8 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_string_at_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        // ToIntegerOrInfinity: a Symbol/BigInt/throwing-valueOf index must throw.
+        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_to_index_integer(argv[0]) : 0;
         return ts_value_make_string((TsString*)ts_string_at(str, index));
     }
     static TsValue* ts_string_concat_native(void* ctx, int argc, TsValue** argv) {
@@ -2684,7 +2687,8 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_array_at_native(void* ctx, int argc, TsValue** argv) {
         TsArray* arr = require_array_or_throw(ctx, "at");
         if (!arr) return ts_value_make_undefined();
-        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
+        // ToIntegerOrInfinity: a Symbol/BigInt/throwing-valueOf index must throw.
+        int64_t index = (argc >= 1 && argv && argv[0]) ? ts_to_index_integer(argv[0]) : 0;
         void* result = ts_array_at(arr, index);
         return result ? (TsValue*)result : ts_value_make_undefined();
     }
