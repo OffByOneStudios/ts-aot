@@ -1,6 +1,8 @@
 #include "TsDate.h"
 #include "TsString.h"
 #include "TsNanBox.h"
+#include "TsRuntime.h"
+#include "TsError.h"
 #include "GC.h"
 #include <chrono>
 #include <cmath>
@@ -379,6 +381,20 @@ extern "C" {
         }
         if (magic0 == TsString::MAGIC) {
             return TsDate::Create(((TsString*)p)->ToUtf8());
+        }
+        // ECMA-262 21.4.2.2: the single-value Date(value) ctor does
+        // ToPrimitive(value) then ToNumber on the result. ToNumber throws a
+        // TypeError for a Symbol and for a BigInt, so `new Date(Symbol())` /
+        // `new Date(0n)` must throw rather than coerce to a garbage timestamp.
+        if (magic0 == 0x53594D42) {  // TsSymbol 'SYMB'
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a Symbol value to a number"));
+            return TsDate::Create(TsDate::INVALID);  // unreachable
+        }
+        if (magic0 == 0x42494749) {  // TsBigInt 'BIGI'
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a BigInt value to a number"));
+            return TsDate::Create(TsDate::INVALID);  // unreachable
         }
         // Any other object (e.g. new Date({})): ToPrimitive yields a string like
         // "[object Object]" which Date.parse rejects -> Invalid Date. Returning
