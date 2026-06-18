@@ -32,6 +32,11 @@ public:
     bool is_method = false;  // True for method trampolines (expect 'this' as arg 2)
     TsMap* properties = nullptr;  // For storing properties like .prototype
     int32_t arity = 0;           // Number of user-visible parameters (for Function.length)
+    // PHYSICAL user param count (the compiled trampoline's positional params,
+    // i.e. counting params WITH defaults — unlike `arity`/.length which stops at
+    // the first default). Used to dispatch >10-param calls with the exact arg
+    // count the LLVM signature expects. 0 = unset (fall back to arity).
+    int32_t num_params = 0;
     // ECMA-262 rest-parameter dispatch. Set by ts_closure_set_rest_index when
     // the underlying function declares `...rest`. -1 means no rest parameter.
     // Used by ts_call_N to pack trailing args[rest_param_index..N-1] into a
@@ -87,6 +92,8 @@ extern "C" {
 
     // Set the arity (user-visible parameter count) on a TsClosure
     void ts_closure_set_arity(TsClosure* closure, int32_t arity);
+    // Set the PHYSICAL user param count (counts params with defaults too).
+    void ts_closure_set_num_params(TsClosure* closure, int32_t n);
 
     // Set the rest-parameter index on a TsClosure. idx is the zero-based
     // position of the rest binding in the declared parameter list (excluding

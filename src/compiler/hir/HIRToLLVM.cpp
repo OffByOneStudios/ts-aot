@@ -8652,6 +8652,7 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
     // (SIZE_MAX if all params are simple) carries this from ASTToHIR.
     {
         int32_t arity = 0;
+        int32_t physNumParams = 0;      // physical user params (incl. defaults)
         int32_t restParamUserIdx = -1;  // for ts_closure_set_rest_index
         bool foundHirFn = false;
         if (hirModule_) {
@@ -8667,8 +8668,9 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
                             p.first.find("__arg") == 0) {
                             continue;
                         }
+                        physNumParams++;  // counts params with defaults too
                         if (userIdx >= hirFn->firstNonSimpleParamIndex) {
-                            break;
+                            continue;  // keep counting physical, stop counting .length
                         }
                         arity++;
                         userIdx++;
@@ -8702,6 +8704,7 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
             int nParams = fn->arg_size();
             if (nParams > 1) arity = nParams - 1; // minus __closure__
         }
+        if (physNumParams < arity) physNumParams = arity;  // never below .length
         {
             auto setArityFt = llvm::FunctionType::get(
                 builder_->getVoidTy(),
@@ -8710,6 +8713,9 @@ llvm::Value* HIRToLLVM::createClosureForFunction(const std::string& funcName, ll
             auto setArityFn = module_->getOrInsertFunction("ts_closure_set_arity", setArityFt);
             builder_->CreateCall(setArityFt, setArityFn.getCallee(),
                 { closure, llvm::ConstantInt::get(builder_->getInt32Ty(), arity) });
+            auto setNumFn = module_->getOrInsertFunction("ts_closure_set_num_params", setArityFt);
+            builder_->CreateCall(setArityFt, setNumFn.getCallee(),
+                { closure, llvm::ConstantInt::get(builder_->getInt32Ty(), physNumParams) });
             // Emit ts_closure_set_rest_index when the function has a rest
             // parameter. The runtime uses this to pack trailing args into
             // a TsArray before forwarding to the fixed-arity callee.

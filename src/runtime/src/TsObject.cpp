@@ -5524,7 +5524,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* u = ts_value_make_undefined();
         #define A(i) (((i) < argc && argv) ? argv[i] : u)
         void* fp = closure->func_ptr;
-        switch (closure->arity) {
+        switch (closure->num_params > 0 ? closure->num_params : closure->arity) {
         case 11: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10)); }
         case 12: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11)); }
         case 13: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12)); }
@@ -5553,7 +5553,7 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* u = ts_value_make_undefined();
         #define A(i) (((i) < argc && argv) ? argv[i] : u)
         void* fp = closure->func_ptr;
-        switch (closure->arity) {
+        switch (closure->num_params > 0 ? closure->num_params : closure->arity) {
         case 11: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,thisArg,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10)); }
         case 12: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,thisArg,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11)); }
         case 13: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,thisArg,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12)); }
@@ -5650,7 +5650,7 @@ TsValue* ts_value_make_int(int64_t i) {
             if (fp && ts_gc_base(fp)) return u;  // func_ptr in GC heap => corrupt
             if (closure->rest_param_index >= 0)
                 return ts_rest_pack_and_call(closure, argc, argv);
-            if (closure->arity >= 11 && closure->arity <= 16)
+            if ((closure->num_params > 0 ? closure->num_params : closure->arity) >= 11 && (closure->num_params > 0 ? closure->num_params : closure->arity) <= 16)
                 return call_closure_exact(closure, argc, argv);
             return call_closure_padded10(closure, A(0), A(1), A(2), A(3), A(4),
                                                   A(5), A(6), A(7), A(8), A(9));
@@ -5672,7 +5672,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (innerClosure) {
             void* fp = innerClosure->func_ptr;
             if (fp && ts_gc_base(fp)) return u;
-            if (innerClosure->arity >= 11 && innerClosure->arity <= 16)
+            if ((innerClosure->num_params > 0 ? innerClosure->num_params : innerClosure->arity) >= 11 && (innerClosure->num_params > 0 ? innerClosure->num_params : innerClosure->arity) <= 16)
                 return call_closure_exact(innerClosure, argc, argv);
             return call_closure_padded10(innerClosure, A(0), A(1), A(2), A(3), A(4),
                                                        A(5), A(6), A(7), A(8), A(9));
@@ -5704,13 +5704,13 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!fp || ts_gc_base(fp)) { ts_call_this_value = savedThis; return u; }
             TsValue* result;
             if (closure->is_method) {
-                if (closure->arity >= 11 && closure->arity <= 16)
+                if ((closure->num_params > 0 ? closure->num_params : closure->arity) >= 11 && (closure->num_params > 0 ? closure->num_params : closure->arity) <= 16)
                     result = call_closure_method_exact(closure, thisArg, argc, argv);
                 else
                 result = call_closure_padded10_method(closure, thisArg,
                     A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9));
             } else {
-                if (closure->arity >= 11 && closure->arity <= 16)
+                if ((closure->num_params > 0 ? closure->num_params : closure->arity) >= 11 && (closure->num_params > 0 ? closure->num_params : closure->arity) <= 16)
                     result = call_closure_exact(closure, argc, argv);
                 else
                 result = call_closure_padded10(closure,

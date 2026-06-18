@@ -312,6 +312,10 @@ static void closure_store_own_property(TsClosure* cl, const char* keyName, TsVal
     cl->properties->SetWithAttrs(key, val, attrs);
 }
 
+void ts_closure_set_num_params(TsClosure* closure, int32_t n) {
+    if (closure) closure->num_params = n;
+}
+
 void ts_closure_set_arity(TsClosure* closure, int32_t arity) {
     if (closure) {
         closure->arity = arity;
