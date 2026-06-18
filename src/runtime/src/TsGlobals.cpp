@@ -2591,12 +2591,28 @@ void* ts_get_global_Reflect() {
 
 // ===================== Temporal (TC39) =====================
 static void* g_temporal_plaintime_ctor = nullptr;  // GC-rooted in ts_get_global_Temporal
+extern "C" {
+    TsValue* ts_temporal_plaintime_toString_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaintime_valueOf_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaintime_equals_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaintime_compare_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaintime_from_native(void* ctx, int argc, TsValue** argv);
+}
 // Brand-checked reader for Temporal.PlainTime.prototype accessors: per spec each
 // getter does thisTemporalTime(this) — if `this` isn't a PlainTime, TypeError.
 static TsValue* temporal_plaintime_field(void* ctx, int which, const char* getter) {
     if (!ctx) ctx = ts_get_call_this();
     void* raw = ts_nanbox_safe_unbox(ctx);
-    TsPlainTime* pt = raw ? dynamic_cast<TsPlainTime*>((TsObject*)raw) : nullptr;
+    // Magic brand-check (NOT dynamic_cast: a string receiver isn't a TsObject
+    // and dynamic_cast<TsPlainTime*>((TsObject*)str) is UB/crash).
+    TsPlainTime* pt = nullptr;
+    if (raw) {
+        uint32_t m0 = *(uint32_t*)raw;
+        if (m0 != 0x53545247 && m0 != 0x434F4E53 &&
+            *(uint32_t*)((char*)raw + 16) == TsPlainTime::MAGIC) {
+            pt = (TsPlainTime*)raw;
+        }
+    }
     if (!pt) {
         std::string msg = std::string("get Temporal.PlainTime.prototype.") + getter +
             " called on an object that is not a Temporal.PlainTime";
@@ -2636,7 +2652,16 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(ptProto, "millisecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,3,"millisecond"); });
         addAccessorGetter(ptProto, "microsecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,4,"microsecond"); });
         addAccessorGetter(ptProto, "nanosecond",  (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,5,"nanosecond"); });
+        // Prototype methods.
+        addMethod(ptProto, "toString",       (void*)ts_temporal_plaintime_toString_native, 0);
+        addMethod(ptProto, "toJSON",         (void*)ts_temporal_plaintime_toString_native, 0);
+        addMethod(ptProto, "toLocaleString", (void*)ts_temporal_plaintime_toString_native, 0);
+        addMethod(ptProto, "valueOf",        (void*)ts_temporal_plaintime_valueOf_native, 0);
+        addMethod(ptProto, "equals",         (void*)ts_temporal_plaintime_equals_native, 1);
         void* ptFn = wrapAsCallable(ptCtor, "PlainTime", 0);
+        // Static methods on the constructor.
+        addMethod(ptCtor, "from",    (void*)ts_temporal_plaintime_from_native, 1);
+        addMethod(ptCtor, "compare", (void*)ts_temporal_plaintime_compare_native, 2);
         g_temporal_plaintime_ctor = ptFn;
         TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("PlainTime");
         TsValue cv; cv.type = ValueType::FUNCTION_PTR; cv.ptr_val = ptFn;

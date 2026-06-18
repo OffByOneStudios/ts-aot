@@ -3941,6 +3941,19 @@ TsValue* ts_value_make_int(int64_t i) {
                     extern void* ts_get_global_ArrayBuffer();
                     return (TsValue*)ts_get_global_ArrayBuffer();
                 }
+                // Temporal.PlainTime: GetPropertyVirtual answers the field
+                // getters (hour..nanosecond); methods/constructor/@@toStringTag
+                // resolve up Temporal.PlainTime.prototype.
+                if (magic16 == 0x504C5449) {
+                    extern void* ts_temporal_get_plaintime_ctor();
+                    void* ctor = ts_temporal_get_plaintime_ctor();
+                    if (ctor) {
+                        TsValue* protoV = ts_object_get_property(ctor, "prototype");
+                        void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
+                        if (protoRaw && protoRaw != obj)
+                            return ts_object_get_property(protoRaw, keyStr);
+                    }
+                }
             }
             // Virtual-inheritance classes (stream classes) have TsObject::magic at a large offset
             // (not offset 16) due to MSVC's virtual base layout. We can't use (TsObject*)obj cast
