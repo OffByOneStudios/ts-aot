@@ -15,6 +15,38 @@ extern "C" void* ts_alloc(size_t size);
 #include "TsGC.h"
 // TsString tag is enrolled in TsString.h.
 
+// JS exception machinery (defined elsewhere in the runtime). Declared at file
+// scope per runtime-safety rules (block-scope extern "C" is illegal).
+extern "C" void ts_throw(TsValue* err);
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
+// ECMA-262 22.2.3.4 (RegExpInitialize) step 1: validate the flags string.
+// Each code unit must be one of d g i m s u v y, with NO duplicates; otherwise
+// throw a SyntaxError. Returns true if flags are valid (or null).
+static bool validateRegExpFlags(const char* flags) {
+    if (!flags) return true;
+    unsigned int seen = 0;  // bitmask over the 8 valid flag letters
+    for (const char* p = flags; *p; ++p) {
+        int bit;
+        switch (*p) {
+            case 'd': bit = 0; break;
+            case 'g': bit = 1; break;
+            case 'i': bit = 2; break;
+            case 'm': bit = 3; break;
+            case 's': bit = 4; break;
+            case 'u': bit = 5; break;
+            case 'v': bit = 6; break;
+            case 'y': bit = 7; break;
+            default:
+                return false;  // invalid flag character
+        }
+        unsigned int mask = 1u << bit;
+        if (seen & mask) return false;  // duplicate flag
+        seen |= mask;
+    }
+    return true;
+}
+
 // TsRegExpMatchArray implementation
 TsRegExpMatchArray* TsRegExpMatchArray::Create(TsArray* source, int64_t matchIndex, TsString* input) {
     void* mem = ts_gc_alloc_old_gen(sizeof(TsRegExpMatchArray));
@@ -42,7 +74,21 @@ TsRegExp* TsRegExp::Create(const char* pattern, const char* flags) {
     // module-level arrays (e.g. semver's re[] array) and contain complex
     // C++ objects (ICU RegexMatcher, std::vector). Nursery promotion would
     // require forwarding pointer updates in all referencing arrays.
+    // ECMA-262 22.2.3.4: validate flags (allowed set, no duplicates) BEFORE
+    // constructing, so an invalid/duplicate flag surfaces as a JS SyntaxError
+    // rather than silently building a regex that ignores the bad flag.
+    if (!validateRegExpFlags(flags)) {
+        ts_throw((TsValue*)ts_error_create_typed(
+            "SyntaxError", "Invalid flags supplied to RegExp constructor"));
+        return nullptr;
+    }
     void* mem = ts_gc_alloc_old_gen(sizeof(TsRegExp));
+    // NOTE: a pattern-compile failure is intentionally NOT turned into a JS
+    // SyntaxError here. ICU 74 rejects some patterns that are VALID JS regexes
+    // (annexB legacy escapes, newer-Unicode \p{Script=...}), so a matcher==null
+    // throw regressed ~24 RegExp/property-escapes + annexB tests. Flag
+    // validation above is exact and kept; pattern-level SyntaxError would need a
+    // real JS-grammar check (not "ICU couldn't compile it") — deferred.
     return new(mem) TsRegExp(pattern, flags);
 }
 
