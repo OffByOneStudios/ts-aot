@@ -22,6 +22,12 @@ extern "C" {
     void* ts_bigint_to_string(void* bi, int32_t radix);
     void* ts_bigint_from_value(TsValue* val);
 
+    // BigInt.prototype method natives (ctx = receiver). Each performs a
+    // thisBigIntValue brand-check and throws TypeError on a non-BigInt `this`.
+    TsValue* ts_bigint_toString_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_bigint_valueOf_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_bigint_toLocaleString_native(void* ctx, int argc, TsValue** argv);
+
     // Arithmetic operations
     void* ts_bigint_add(void* a, void* b);
     void* ts_bigint_sub(void* a, void* b);

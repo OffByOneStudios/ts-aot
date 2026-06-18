@@ -2999,11 +2999,22 @@ void* ts_get_global_BigInt() {
     static void* cached = nullptr;
     if (!cached) {
         TsMap* ctor = makeSimpleConstructorGlobal("BigInt");
-        {   // BigInt.prototype[@@toStringTag] = "BigInt"
+        {   // BigInt.prototype[@@toStringTag] = "BigInt" + prototype methods.
             TsValue pkey; pkey.type = ValueType::STRING_PTR; pkey.ptr_val = TsString::GetInterned("prototype");
             TsValue protoT = ctor->Get(pkey);
-            if (protoT.type == ValueType::OBJECT_PTR && protoT.ptr_val)
-                setProtoStringTag((TsMap*)protoT.ptr_val, "BigInt");
+            if (protoT.type == ValueType::OBJECT_PTR && protoT.ptr_val) {
+                TsMap* bigProto = (TsMap*)protoT.ptr_val;
+                setProtoStringTag(bigProto, "BigInt");
+                // BigInt.prototype.{toString,valueOf,toLocaleString}: each
+                // brand-checks `this` (thisBigIntValue) and throws TypeError on
+                // a non-BigInt receiver. Without these the methods inherited
+                // Object.prototype.{toString,valueOf} and silently returned
+                // garbage instead of throwing (e.g.
+                // BigInt.prototype.valueOf.call({})).
+                addMethod(bigProto, "toString",       (void*)ts_bigint_toString_native, 0);
+                addMethod(bigProto, "valueOf",        (void*)ts_bigint_valueOf_native, 0);
+                addMethod(bigProto, "toLocaleString", (void*)ts_bigint_toLocaleString_native, 0);
+            }
         }
         // BigInt.asIntN(bits, bigint) — wrap to a signed two's-complement
         // value with `bits` bits. Implementation: out = bigint mod 2^bits;

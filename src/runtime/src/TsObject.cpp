@@ -2441,10 +2441,15 @@ TsValue* ts_value_make_int(int64_t i) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (throwIfDetached(ta, "includes")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
+        // ECMA-262 %TypedArray%.prototype.includes step 4: len 0 -> false before
+        // coercing search/fromIndex (throwing valueOf must not run on empty).
+        if (len == 0) return ts_value_make_bool(false);
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_bool(false);
         double search = ts_to_number(argv[0]);
         int64_t from = 0;
         if (argc >= 2 && argv[1]) from = (int64_t)ts_to_number(argv[1]);
+        // fromIndex coercion can detach the buffer -> no elements -> false.
+        if (ta->IsDetachedBuffer()) return ts_value_make_bool(false);
         if (from < 0) from = std::max((int64_t)0, len + from);
         bool searchNaN = (search != search);
         for (int64_t i = from; i < len; i++) {
@@ -2460,11 +2465,19 @@ TsValue* ts_value_make_int(int64_t i) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (throwIfDetached(ta, "indexOf")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
+        // ECMA-262 %TypedArray%.prototype.indexOf step 4: if len is 0, return -1
+        // BEFORE coercing the search element or fromIndex (a throwing valueOf
+        // must not run on an empty array). (Previously a BigInt search coerced
+        // to NaN masked this; ts_to_number(BigInt) is now exact.)
+        if (len == 0) return ts_value_make_int(-1);
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_int(-1);
         double search = ts_to_number(argv[0]);
         if (search != search) return ts_value_make_int(-1);  // NaN never matches via ===
         int64_t from = 0;
         if (argc >= 2 && argv[1]) from = (int64_t)ts_to_number(argv[1]);
+        // ToInteger(fromIndex) can detach the buffer; a detached buffer has no
+        // elements, so the search finds nothing.
+        if (ta->IsDetachedBuffer()) return ts_value_make_int(-1);
         if (from < 0) from = std::max((int64_t)0, len + from);
         for (int64_t i = from; i < len; i++) {
             if (ta->Get((size_t)i) == search) return ts_value_make_int(i);
@@ -2477,6 +2490,8 @@ TsValue* ts_value_make_int(int64_t i) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (throwIfDetached(ta, "lastIndexOf")) return ts_value_make_undefined();
         int64_t len = (int64_t)ta->GetLength();
+        // ECMA-262 step 4: len 0 -> -1 before coercing search/fromIndex.
+        if (len == 0) return ts_value_make_int(-1);
         if (argc < 1 || !argv || !argv[0]) return ts_value_make_int(-1);
         double search = ts_to_number(argv[0]);
         if (search != search) return ts_value_make_int(-1);
@@ -2485,6 +2500,8 @@ TsValue* ts_value_make_int(int64_t i) {
             from = (int64_t)ts_to_number(argv[1]);
             if (from < 0) from = len + from;
         }
+        // fromIndex coercion can detach the buffer -> no elements -> not found.
+        if (ta->IsDetachedBuffer()) return ts_value_make_int(-1);
         if (from >= len) from = len - 1;
         for (int64_t i = from; i >= 0; i--) {
             if (ta->Get((size_t)i) == search) return ts_value_make_int(i);
@@ -4034,6 +4051,27 @@ TsValue* ts_value_make_int(int64_t i) {
         // so dynamic_cast on them would cause undefined behavior/crashes.
         uint32_t magic0 = *(uint32_t*)obj;                 // POD types: Array/String/RegExp/Flat
         uint32_t magic16 = *(uint32_t*)((char*)obj + 16);  // TsObject subclasses: Map/EventEmitter/...
+        // BigInt primitive receiver (magic 'BIGI' at offset 0): a bare bigint
+        // such as `(5n).toString()`. Resolve the brand-checked prototype
+        // methods bound to this receiver, then fall through to any
+        // user-extended BigInt.prototype props.
+        if (magic0 == 0x42494749) { // TsBigInt
+            if (strcmp(keyStr, "toString") == 0)
+                return makeNamedNativeFunction((void*)ts_bigint_toString_native, obj, "toString", 0);
+            if (strcmp(keyStr, "valueOf") == 0)
+                return makeNamedNativeFunction((void*)ts_bigint_valueOf_native, obj, "valueOf", 0);
+            if (strcmp(keyStr, "toLocaleString") == 0)
+                return makeNamedNativeFunction((void*)ts_bigint_toLocaleString_native, obj, "toLocaleString", 0);
+            extern void* ts_get_global_BigInt();
+            void* biCtor = ts_value_get_object((TsValue*)ts_get_global_BigInt());
+            if (biCtor) {
+                TsValue* protoVal = ts_object_get_property(biCtor, "prototype");
+                void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
+                if (protoRaw && protoRaw != obj)
+                    return ts_object_get_property(protoRaw, keyStr);
+            }
+            return ts_value_make_undefined();
+        }
         // Check for flat inline-slot object (magic at offset 0)
         if (magic0 == 0x464C4154) { // FLAT_MAGIC
             TsValue* result = (TsValue*)ts_flat_object_get_property(obj, keyStr);

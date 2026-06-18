@@ -1,11 +1,18 @@
 #include "TsBigInt.h"
 #include "TsRuntime.h"
 #include "TsString.h"
+#include "TsMap.h"
 #include "TsGC.h"
 #include "GC.h"
 #include <cstring>
 #include <string>
 #include <cstring>
+
+// Cross-TU runtime symbols (declared at file scope per runtime-safety rules;
+// block-scope `extern "C"` is illegal here).
+extern "C" void* ts_error_create_typed(const char* name, const char* message);
+extern "C" void* ts_get_call_this();
+extern "C" double ts_to_number(TsValue* v);
 
 static bool tommath_initialized = false;
 
@@ -125,6 +132,67 @@ void* ts_bigint_create_str(void* strArg, int32_t radix) {
 void* ts_bigint_to_string(void* bi, int32_t radix) {
     if (!bi) return TsString::Create("0");
     return TsString::Create(((TsBigInt*)bi)->ToString(radix));
+}
+
+// thisBigIntValue(this) per ECMA-262 21.2.3: a BigInt.prototype method requires
+// `this` to be either a BigInt primitive or a BigInt wrapper object (Object(b));
+// otherwise throw TypeError. `ctx` is the method receiver — it may be a raw
+// pointer, a NaN-boxed primitive (number/bool/null/undefined), or a wrapper
+// TsMap carrying a hidden __BigIntData slot. Returns the underlying TsBigInt*
+// or throws (and returns nullptr).
+static TsBigInt* requireBigIntOrThrow(void* ctx, const char* methodName) {
+    if (!ctx) ctx = ts_get_call_this();
+    // ts_nanbox_safe_unbox returns nullptr for NaN-boxed specials
+    // (null/undefined/true/false/numbers), avoiding a wild deref below.
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    if (raw) {
+        // Bare BigInt primitive: magic 'BIGI' at offset 0.
+        if (*(uint32_t*)raw == 0x42494749) {
+            return (TsBigInt*)raw;
+        }
+        // BigInt wrapper object (Object(b)): a TsMap ("MAPS" at offset 16)
+        // carrying the hidden __BigIntData slot.
+        if (*(uint32_t*)((char*)raw + 16) == 0x4D415053) {
+            TsValue dk; dk.type = ValueType::STRING_PTR;
+            dk.ptr_val = TsString::GetInterned("__BigIntData");
+            TsValue v = ((TsMap*)raw)->Get(dk);
+            if (v.type == ValueType::BIGINT_PTR && v.ptr_val) {
+                return (TsBigInt*)v.ptr_val;
+            }
+        }
+    }
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+             "BigInt.prototype.%s requires that 'this' be a BigInt", methodName);
+    ts_throw((TsValue*)ts_error_create_typed("TypeError", buf));
+    return nullptr;
+}
+
+// BigInt.prototype.toString([radix]) — ECMA-262 21.2.3.3.
+TsValue* ts_bigint_toString_native(void* ctx, int argc, TsValue** argv) {
+    TsBigInt* bi = requireBigIntOrThrow(ctx, "toString");
+    if (!bi) return ts_value_make_undefined();  // unreachable (threw)
+    int radix = 10;
+    if (argc >= 1 && argv && argv[0]) {
+        double r = ts_to_number(argv[0]);
+        if (r >= 2 && r <= 36) radix = (int)r;
+    }
+    return ts_value_make_string(TsString::Create(bi->ToString(radix)));
+}
+
+// BigInt.prototype.valueOf() — ECMA-262 21.2.3.4. Returns the BigInt primitive.
+TsValue* ts_bigint_valueOf_native(void* ctx, int argc, TsValue** argv) {
+    TsBigInt* bi = requireBigIntOrThrow(ctx, "valueOf");
+    if (!bi) return ts_value_make_undefined();  // unreachable (threw)
+    return ts_value_make_bigint(bi);
+}
+
+// BigInt.prototype.toLocaleString() — ECMA-262 21.2.3.2. We approximate with the
+// decimal toString (no locale formatting), matching the brand-check requirement.
+TsValue* ts_bigint_toLocaleString_native(void* ctx, int argc, TsValue** argv) {
+    TsBigInt* bi = requireBigIntOrThrow(ctx, "toLocaleString");
+    if (!bi) return ts_value_make_undefined();  // unreachable (threw)
+    return ts_value_make_string(TsString::Create(bi->ToString(10)));
 }
 
 void* ts_bigint_from_value(TsValue* val) {
