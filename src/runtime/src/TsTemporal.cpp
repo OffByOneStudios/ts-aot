@@ -1857,3 +1857,62 @@ TsValue* ts_temporal_instant_since_native(void* ctx,int argc,TsValue** argv){
     return duration_from_ms_sub(ms,sub, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","second"));
 }
 }
+
+// ==================== Arithmetic: ZonedDateTime ====================
+// Fixed-offset only: do the arithmetic on the local wall-clock, then re-derive
+// the epoch (no DST transitions to worry about).
+static TsValue* zdt_add(TsZonedDateTime* z, TsDuration* d, int sign){
+    const long long DAY=86400000000000LL;
+    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    long long timeNs = ((((long long)h*60+mi)*60+s)*1000000000LL) + (long long)ms*1000000LL + (long long)us*1000LL + ns;
+    timeNs += sign*dur_time_ns(d);
+    long long carry = timeNs/DAY; long long rem=timeNs%DAY; if(rem<0){rem+=DAY;carry--;}
+    int nY,nM,nD; add_iso_date(Y,M,D, sign*d->years, sign*d->months, sign*d->weeks, sign*d->days+carry, &nY,&nM,&nD);
+    if(!iso_date_valid(nY,nM,nD)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
+    int nh=(int)(rem/3600000000000LL); rem%=3600000000000LL; int nmi=(int)(rem/60000000000LL); rem%=60000000000LL;
+    int nss=(int)(rem/1000000000LL); rem%=1000000000LL; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
+    long long localMs = iso_days_from_civil(nY,nM,nD)*86400000LL + (long long)nh*3600000 + (long long)nmi*60000 + (long long)nss*1000 + nms;
+    long long epoch_ms = localMs - (long long)z->offset_minutes*60000LL;
+    return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, nus*1000+nns, z->offset_minutes, z->is_utc));
+}
+static TsValue* zdt_diff(TsZonedDateTime* a, TsZonedDateTime* b, const std::string& lu){
+    const long long DAY=86400000000000LL;
+    int aY,aM,aD,ah,ami,as,ams,aus,ans; zdt_local(a,&aY,&aM,&aD,&ah,&ami,&as,&ams,&aus,&ans);
+    int bY,bM,bD,bh,bmi,bs,bms,bus,bns; zdt_local(b,&bY,&bM,&bD,&bh,&bmi,&bs,&bms,&bus,&bns);
+    long long dateDays = iso_days_from_civil(bY,bM,bD) - iso_days_from_civil(aY,aM,aD);
+    long long timeNs = (((((long long)bh*60+bmi)*60+bs)*1000000000LL)+(long long)bms*1000000LL+(long long)bus*1000LL+bns)
+                     - (((((long long)ah*60+ami)*60+as)*1000000000LL)+(long long)ams*1000000LL+(long long)aus*1000LL+ans);
+    long long days=dateDays, t=timeNs;
+    if(days>0&&t<0){days--;t+=DAY;} else if(days<0&&t>0){days++;t-=DAY;}
+    int tsign=t<0?-1:1; long long at=t<0?-t:t;
+    long long hh=at/3600000000000LL; at%=3600000000000LL; long long mm=at/60000000000LL; at%=60000000000LL;
+    long long ss=at/1000000000LL; at%=1000000000LL; long long mms=at/1000000LL; at%=1000000LL; long long uus=at/1000LL; long long nns=at%1000LL;
+    if(lu=="year"||lu=="years"||lu=="month"||lu=="months"||lu=="week"||lu=="weeks"){
+        long long acivil=iso_days_from_civil(aY,aM,aD); int ey,em,ed; iso_civil_from_days(acivil+days,&ey,&em,&ed);
+        long long yr,mo,wk,dy; diff_iso_date(aY,aM,aD,ey,em,ed,lu,&yr,&mo,&wk,&dy);
+        return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy, tsign*hh,tsign*mm,tsign*ss,tsign*mms,tsign*uus,tsign*nns));
+    }
+    return ts_value_make_object(TsDuration::Create(0,0,0,days, tsign*hh,tsign*mm,tsign*ss,tsign*mms,tsign*uus,tsign*nns));
+}
+extern "C" {
+TsValue* ts_temporal_zdt_add_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.add: invalid duration")); return ts_value_make_undefined(); }
+    return zdt_add(z,d,1);
+}
+TsValue* ts_temporal_zdt_subtract_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
+    return zdt_add(z,d,-1);
+}
+TsValue* ts_temporal_zdt_until_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* a=require_zoneddatetime(ctx,"until"); TsZonedDateTime* b=as_zoneddatetime((argc>=1&&argv)?ts_nanbox_safe_unbox(argv[0]):nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.until: invalid argument")); return ts_value_make_undefined(); }
+    return zdt_diff(a,b, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","hour"));
+}
+TsValue* ts_temporal_zdt_since_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* a=require_zoneddatetime(ctx,"since"); TsZonedDateTime* b=as_zoneddatetime((argc>=1&&argv)?ts_nanbox_safe_unbox(argv[0]):nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.since: invalid argument")); return ts_value_make_undefined(); }
+    return zdt_diff(b,a, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","hour"));
+}
+}

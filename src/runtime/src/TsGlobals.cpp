@@ -2629,6 +2629,10 @@ extern "C" {
     TsValue* ts_temporal_zdt_toPlainDateTime_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_toPlainDate_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_toPlainTime_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_add_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_subtract_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_until_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_since_native(void*,int,TsValue**);
 }
 static TsValue* temporal_zdt_field(void* ctx, const char* name) {
     if (!ctx) ctx = ts_get_call_this();
@@ -3119,6 +3123,10 @@ void* ts_get_global_Temporal() {
         addMethod(zdProto, "toJSON",          (void*)ts_temporal_zdt_toString_native, 0);
         addMethod(zdProto, "valueOf",         (void*)ts_temporal_zdt_valueOf_native, 0);
         addMethod(zdProto, "equals",          (void*)ts_temporal_zdt_equals_native, 1);
+        addMethod(zdProto, "add",             (void*)ts_temporal_zdt_add_native, 1);
+        addMethod(zdProto, "subtract",        (void*)ts_temporal_zdt_subtract_native, 1);
+        addMethod(zdProto, "until",           (void*)ts_temporal_zdt_until_native, 1);
+        addMethod(zdProto, "since",           (void*)ts_temporal_zdt_since_native, 1);
         addMethod(zdProto, "toInstant",       (void*)ts_temporal_zdt_toInstant_native, 0);
         addMethod(zdProto, "toPlainDateTime", (void*)ts_temporal_zdt_toPlainDateTime_native, 0);
         addMethod(zdProto, "toPlainDate",     (void*)ts_temporal_zdt_toPlainDate_native, 0);
