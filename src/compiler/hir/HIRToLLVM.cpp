@@ -9284,6 +9284,7 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
     // Set the function arity (user-visible parameter count for Function.length)
     {
         int32_t arity = 0;
+        int32_t physNumParams = 0;
         int32_t restParamUserIdx = -1;
         bool foundHirFn = false;
         if (hirModule_) {
@@ -9298,8 +9299,9 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
                             p.first.find("__arg") == 0) {
                             continue;
                         }
+                        physNumParams++;
                         if (userIdx >= hirFn->firstNonSimpleParamIndex) {
-                            break;
+                            continue;
                         }
                         arity++;
                         userIdx++;
@@ -9328,6 +9330,7 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
             int nParams = fn->arg_size();
             if (nParams > 1) arity = nParams - 1;
         }
+        if (physNumParams < arity) physNumParams = arity;
         auto setArityFt = llvm::FunctionType::get(
             builder_->getVoidTy(),
             { getGCPtrTy(), builder_->getInt32Ty() },
@@ -9335,6 +9338,9 @@ void HIRToLLVM::lowerMakeClosure(HIRInstruction* inst) {
         auto setArityFn = module_->getOrInsertFunction("ts_closure_set_arity", setArityFt);
         builder_->CreateCall(setArityFt, setArityFn.getCallee(),
             { gcPtrToRaw(closure), llvm::ConstantInt::get(builder_->getInt32Ty(), arity) });
+        auto setNumFn2 = module_->getOrInsertFunction("ts_closure_set_num_params", setArityFt);
+        builder_->CreateCall(setArityFt, setNumFn2.getCallee(),
+            { gcPtrToRaw(closure), llvm::ConstantInt::get(builder_->getInt32Ty(), physNumParams) });
         if (restParamUserIdx >= 0) {
             auto setRestFt = llvm::FunctionType::get(
                 builder_->getVoidTy(),
