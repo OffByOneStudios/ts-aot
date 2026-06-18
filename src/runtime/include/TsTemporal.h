@@ -52,6 +52,24 @@ public:
     TsValue GetPropertyVirtual(const char* key) override;
 };
 
+// Temporal.PlainYearMonth — a calendar year+month (ISO), with a reference day.
+class TsPlainYearMonth : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x504C594D; // 'PLYM'
+    int iso_year = 0; int iso_month = 1; int iso_day = 1;  // ref day (default 1)
+    static TsPlainYearMonth* Create(int y, int m, int refDay);
+    TsValue GetPropertyVirtual(const char* key) override;
+};
+
+// Temporal.PlainMonthDay — a calendar month+day (ISO), with a reference year.
+class TsPlainMonthDay : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x504C4D44; // 'PLMD'
+    int iso_year = 1972; int iso_month = 1; int iso_day = 1;  // ref year (leap)
+    static TsPlainMonthDay* Create(int m, int d, int refYear);
+    TsValue GetPropertyVirtual(const char* key) override;
+};
+
 extern "C" {
     // The Temporal namespace object (globalThis.Temporal). Cached.
     void* ts_get_global_Temporal();
@@ -59,6 +77,10 @@ extern "C" {
     void* ts_temporal_get_duration_ctor();
     TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv);
     void* ts_temporal_get_plaindate_ctor();
+    TsValue* ts_temporal_plainyearmonth_construct(int argc, TsValue** argv);
+    void* ts_temporal_get_plainyearmonth_ctor();
+    TsValue* ts_temporal_plainmonthday_construct(int argc, TsValue** argv);
+    void* ts_temporal_get_plainmonthday_ctor();
     // new Temporal.PlainTime(h,m,s,ms,us,ns): ToIntegerWithTruncation each arg
     // (missing -> 0), RejectTime range-check, then Create. Boxed object result.
     TsValue* ts_temporal_plaintime_construct(int argc, TsValue** argv);

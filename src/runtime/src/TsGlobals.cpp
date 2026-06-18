@@ -2609,6 +2609,61 @@ extern "C" {
 }
 static void* g_temporal_duration_ctor = nullptr;  // GC-rooted in ts_get_global_Temporal
 static void* g_temporal_plaindate_ctor = nullptr; // GC-rooted in ts_get_global_Temporal
+static void* g_temporal_plainyearmonth_ctor = nullptr;
+static void* g_temporal_plainmonthday_ctor = nullptr;
+extern "C" {
+    TsValue* ts_temporal_plainyearmonth_toString_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_valueOf_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_equals_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_compare_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_with_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_from_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainmonthday_toString_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainmonthday_valueOf_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainmonthday_equals_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainmonthday_with_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainmonthday_from_native(void*,int,TsValue**);
+}
+static TsValue* temporal_plainyearmonth_field(void* ctx, const char* name) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    TsPlainYearMonth* d = nullptr;
+    if (raw) { uint32_t m0=*(uint32_t*)raw;
+        if (m0!=0x53545247 && m0!=0x434F4E53 && *(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC) d=(TsPlainYearMonth*)raw; }
+    if (!d) {
+        std::string msg = std::string("get Temporal.PlainYearMonth.prototype.") + name +
+            " called on an incompatible receiver";
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg.c_str()));
+        return ts_value_make_undefined();
+    }
+    TsValue v = d->GetPropertyVirtual(name);
+    switch (v.type) {
+        case ValueType::NUMBER_INT: return ts_value_make_int(v.i_val);
+        case ValueType::BOOLEAN:    return ts_value_make_bool(v.i_val != 0);
+        case ValueType::STRING_PTR: return ts_value_make_string((TsString*)v.ptr_val);
+        default:                    return ts_value_make_undefined();
+    }
+}
+static TsValue* temporal_plainmonthday_field(void* ctx, const char* name) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    TsPlainMonthDay* d = nullptr;
+    if (raw) { uint32_t m0=*(uint32_t*)raw;
+        if (m0!=0x53545247 && m0!=0x434F4E53 && *(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC) d=(TsPlainMonthDay*)raw; }
+    if (!d) {
+        std::string msg = std::string("get Temporal.PlainMonthDay.prototype.") + name +
+            " called on an incompatible receiver";
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg.c_str()));
+        return ts_value_make_undefined();
+    }
+    TsValue v = d->GetPropertyVirtual(name);
+    switch (v.type) {
+        case ValueType::NUMBER_INT: return ts_value_make_int(v.i_val);
+        case ValueType::BOOLEAN:    return ts_value_make_bool(v.i_val != 0);
+        case ValueType::STRING_PTR: return ts_value_make_string((TsString*)v.ptr_val);
+        default:                    return ts_value_make_undefined();
+    }
+}
 extern "C" {
     TsValue* ts_temporal_plaindate_toString_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaindate_valueOf_native(void* ctx, int argc, TsValue** argv);
@@ -2791,6 +2846,52 @@ void* ts_get_global_Temporal() {
         TsValue pdck; pdck.type = ValueType::STRING_PTR; pdck.ptr_val = TsString::GetInterned("PlainDate");
         TsValue pdcv; pdcv.type = ValueType::FUNCTION_PTR; pdcv.ptr_val = pdFn;
         cached->Set(pdck, pdcv);
+
+        // ---- Temporal.PlainYearMonth ----
+        TsMap* ymCtor = makeSimpleConstructorGlobal("PlainYearMonth");
+        TsMap* ymProto = (TsMap*)ymCtor->Get(protoKey).ptr_val;
+        setProtoStringTag(ymProto, "Temporal.PlainYearMonth");
+        addAccessorGetter(ymProto, "year", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"year"); });
+        addAccessorGetter(ymProto, "month", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"month"); });
+        addAccessorGetter(ymProto, "monthCode", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"monthCode"); });
+        addAccessorGetter(ymProto, "calendarId", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"calendarId"); });
+        addAccessorGetter(ymProto, "daysInMonth", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"daysInMonth"); });
+        addAccessorGetter(ymProto, "daysInYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"daysInYear"); });
+        addAccessorGetter(ymProto, "monthsInYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"monthsInYear"); });
+        addAccessorGetter(ymProto, "inLeapYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"inLeapYear"); });
+        addAccessorGetter(ymProto, "era", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"era"); });
+        addAccessorGetter(ymProto, "eraYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"eraYear"); });
+        addMethod(ymProto, "toString", (void*)ts_temporal_plainyearmonth_toString_native, 0);
+        addMethod(ymProto, "toJSON",   (void*)ts_temporal_plainyearmonth_toString_native, 0);
+        addMethod(ymProto, "valueOf",  (void*)ts_temporal_plainyearmonth_valueOf_native, 0);
+        addMethod(ymProto, "equals",   (void*)ts_temporal_plainyearmonth_equals_native, 1);
+        addMethod(ymProto, "with",     (void*)ts_temporal_plainyearmonth_with_native, 1);
+        void* ymFn = wrapAsCallable(ymCtor, "PlainYearMonth", 2);
+        g_temporal_plainyearmonth_ctor = ymFn;
+        ts_gc_register_root(&g_temporal_plainyearmonth_ctor);
+        addMethod(ymCtor, "from",    (void*)ts_temporal_plainyearmonth_from_native, 1);
+        addMethod(ymCtor, "compare", (void*)ts_temporal_plainyearmonth_compare_native, 2);
+        { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainYearMonth");
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=ymFn; cached->Set(k,v); }
+
+        // ---- Temporal.PlainMonthDay ----
+        TsMap* mdCtor = makeSimpleConstructorGlobal("PlainMonthDay");
+        TsMap* mdProto = (TsMap*)mdCtor->Get(protoKey).ptr_val;
+        setProtoStringTag(mdProto, "Temporal.PlainMonthDay");
+        addAccessorGetter(mdProto, "monthCode", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainmonthday_field(c,"monthCode"); });
+        addAccessorGetter(mdProto, "day", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainmonthday_field(c,"day"); });
+        addAccessorGetter(mdProto, "calendarId", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainmonthday_field(c,"calendarId"); });
+        addMethod(mdProto, "toString", (void*)ts_temporal_plainmonthday_toString_native, 0);
+        addMethod(mdProto, "toJSON",   (void*)ts_temporal_plainmonthday_toString_native, 0);
+        addMethod(mdProto, "valueOf",  (void*)ts_temporal_plainmonthday_valueOf_native, 0);
+        addMethod(mdProto, "equals",   (void*)ts_temporal_plainmonthday_equals_native, 1);
+        addMethod(mdProto, "with",     (void*)ts_temporal_plainmonthday_with_native, 1);
+        void* mdFn = wrapAsCallable(mdCtor, "PlainMonthDay", 2);
+        g_temporal_plainmonthday_ctor = mdFn;
+        ts_gc_register_root(&g_temporal_plainmonthday_ctor);
+        addMethod(mdCtor, "from", (void*)ts_temporal_plainmonthday_from_native, 1);
+        { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainMonthDay");
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=mdFn; cached->Set(k,v); }
     }
     return cached;
 }
@@ -2804,6 +2905,9 @@ void* ts_temporal_get_plaindate_ctor() {
     ts_get_global_Temporal();
     return g_temporal_plaindate_ctor;
 }
+
+void* ts_temporal_get_plainyearmonth_ctor() { ts_get_global_Temporal(); return g_temporal_plainyearmonth_ctor; }
+void* ts_temporal_get_plainmonthday_ctor() { ts_get_global_Temporal(); return g_temporal_plainmonthday_ctor; }
 
 // The cached Temporal.PlainTime constructor function, for the new-dispatch
 // match in ts_new_from_constructor_impl (PlainTime is a namespace sub-property,
