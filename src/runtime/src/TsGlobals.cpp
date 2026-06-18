@@ -2871,6 +2871,8 @@ extern "C" {
     TsValue* ts_temporal_plainyearmonth_toPlainDate_native(void*,int,TsValue**);
     TsValue* ts_temporal_plainmonthday_toPlainDate_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_toZonedDateTimeISO_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_round_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_round_native(void*,int,TsValue**);
 }
 void* ts_get_global_Temporal() {
     TenureScope _tenure;
@@ -3069,6 +3071,7 @@ void* ts_get_global_Temporal() {
         addMethod(dtProto, "valueOf",     (void*)ts_temporal_plaindatetime_valueOf_native, 0);
         addMethod(dtProto, "equals",      (void*)ts_temporal_plaindatetime_equals_native, 1);
         addMethod(dtProto, "with",        (void*)ts_temporal_plaindatetime_with_native, 1);
+        addMethod(dtProto, "round",       (void*)ts_temporal_plaindatetime_round_native, 1);
         addMethod(dtProto, "add",         (void*)ts_temporal_plaindatetime_add_native, 1);
         addMethod(dtProto, "subtract",    (void*)ts_temporal_plaindatetime_subtract_native, 1);
         addMethod(dtProto, "until",       (void*)ts_temporal_plaindatetime_until_native, 1);
@@ -3153,6 +3156,7 @@ void* ts_get_global_Temporal() {
         addMethod(zdProto, "subtract",        (void*)ts_temporal_zdt_subtract_native, 1);
         addMethod(zdProto, "until",           (void*)ts_temporal_zdt_until_native, 1);
         addMethod(zdProto, "since",           (void*)ts_temporal_zdt_since_native, 1);
+        addMethod(zdProto, "round",           (void*)ts_temporal_zdt_round_native, 1);
         addMethod(zdProto, "toInstant",       (void*)ts_temporal_zdt_toInstant_native, 0);
         addMethod(zdProto, "toPlainDateTime", (void*)ts_temporal_zdt_toPlainDateTime_native, 0);
         addMethod(zdProto, "toPlainDate",     (void*)ts_temporal_zdt_toPlainDate_native, 0);

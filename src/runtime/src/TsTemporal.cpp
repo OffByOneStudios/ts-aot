@@ -2021,3 +2021,74 @@ TsValue* ts_temporal_plaindatetime_toZonedDateTime_native(void* ctx,int argc,TsV
     return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, d->iso_us*1000+d->iso_ns, off, utc));
 }
 }
+
+// ======================= round helpers + more =======================
+static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode){
+    *inc=1; *mode="halfExpand";
+    if(tsvalue_to_stdstring(roundTo, unit)) return true;
+    void* raw = roundTo?ts_nanbox_safe_unbox(roundTo):nullptr; if(!raw) return false;
+    TsValue* su=ts_object_get_property(raw,"smallestUnit");
+    if(!su||ts_value_is_undefined(su)||!tsvalue_to_stdstring(su,unit)) return false;
+    TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
+    if(ri&&!ts_value_is_undefined(ri)){ double d=ts_to_number(ri); if(d==d&&!std::isinf(d))*inc=(long long)std::trunc(d); }
+    TsValue* rm=ts_object_get_property(raw,"roundingMode"); std::string m; if(rm&&tsvalue_to_stdstring(rm,&m))*mode=m;
+    return true;
+}
+static long long round_nonneg(long long v, long long q, const std::string& mode){
+    long long quo=v/q, r=v%q; if(r==0) return v;
+    if(mode=="ceil"||mode=="expand") return (quo+1)*q;
+    if(mode=="floor"||mode=="trunc") return quo*q;
+    if(mode=="halfEven"){ if(r*2>q)return (quo+1)*q; if(r*2<q)return quo*q; return (quo%2==0)?quo*q:(quo+1)*q; }
+    if(mode=="halfFloor"||mode=="halfTrunc") return (r*2>q)?(quo+1)*q:quo*q;
+    return (r*2>=q)?(quo+1)*q:quo*q; // halfExpand / halfCeil
+}
+static long long unit_ns(const std::string& u, bool* ok){
+    *ok=true;
+    if(u=="day"||u=="days") return 86400000000000LL;
+    if(u=="hour"||u=="hours") return 3600000000000LL;
+    if(u=="minute"||u=="minutes") return 60000000000LL;
+    if(u=="second"||u=="seconds") return 1000000000LL;
+    if(u=="millisecond"||u=="milliseconds") return 1000000LL;
+    if(u=="microsecond"||u=="microseconds") return 1000LL;
+    if(u=="nanosecond"||u=="nanoseconds") return 1LL;
+    *ok=false; return 0;
+}
+extern "C" {
+TsValue* ts_temporal_plaindatetime_round_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDateTime* dt=require_plaindatetime(ctx,"round");
+    TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
+    std::string unit,mode; long long inc;
+    if(!parse_round_options(rt,&unit,&inc,&mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
+    bool ok; long long un=unit_ns(unit,&ok);
+    if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
+    if(inc<1)inc=1;
+    long long q=un*inc; long long nsOfDay=pdt_time_ns(dt);
+    long long rounded=round_nonneg(nsOfDay,q,mode);
+    const long long DAY=86400000000000LL; long long carry=rounded/DAY; long long rem=rounded%DAY;
+    int Y,M,D; add_iso_date(dt->iso_year,dt->iso_month,dt->iso_day, 0,0,0, carry, &Y,&M,&D);
+    int h=(int)(rem/3600000000000LL); rem%=3600000000000LL; int mi=(int)(rem/60000000000LL); rem%=60000000000LL;
+    int s=(int)(rem/1000000000LL); rem%=1000000000LL; int ms=(int)(rem/1000000LL); rem%=1000000LL; int us=(int)(rem/1000LL); int ns=(int)(rem%1000LL);
+    return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,mi,s,ms,us,ns));
+}
+TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"round");
+    TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
+    std::string unit,mode; long long inc;
+    if(!parse_round_options(rt,&unit,&inc,&mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
+    bool ok; long long un=unit_ns(unit,&ok);
+    if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
+    if(inc<1)inc=1;
+    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    long long nsOfDay = ((((long long)h*60+mi)*60+s)*1000000000LL)+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+    long long q=un*inc; long long rounded=round_nonneg(nsOfDay,q,mode);
+    const long long DAY=86400000000000LL; long long carry=rounded/DAY; long long rem=rounded%DAY;
+    int nY,nM,nD; add_iso_date(Y,M,D, 0,0,0, carry, &nY,&nM,&nD);
+    int nh=(int)(rem/3600000000000LL); rem%=3600000000000LL; int nmi=(int)(rem/60000000000LL); rem%=60000000000LL;
+    int nss=(int)(rem/1000000000LL); rem%=1000000000LL; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
+    long long localMs=iso_days_from_civil(nY,nM,nD)*86400000LL+(long long)nh*3600000+(long long)nmi*60000+(long long)nss*1000+nms;
+    long long epoch_ms=localMs-(long long)z->offset_minutes*60000LL;
+    return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, nus*1000+nns, z->offset_minutes, z->is_utc));
+}
+}
