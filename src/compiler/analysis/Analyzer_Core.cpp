@@ -170,6 +170,7 @@ void Analyzer::analyzeModule(std::shared_ptr<Module> module) {
         ensureAny("Promise");
         ensureAny("Proxy");
         ensureAny("Reflect");
+        ensureAny("Temporal");
         ensureAny("Error");
         ensureAny("TypeError");
         ensureAny("RangeError");

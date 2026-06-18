@@ -544,6 +544,7 @@ void BuiltinRegistry::registerMathBuiltins() {
     auto intType = HIRType::makeInt64();
 
     builtinGlobals_.insert("Math");
+    builtinGlobals_.insert("Temporal");
 
     // Single-argument functions
     globalTable_[{"Math", "abs"}] =

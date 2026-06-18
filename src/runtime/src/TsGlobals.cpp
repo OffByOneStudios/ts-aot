@@ -18,6 +18,7 @@
 #include "TsArray.h"   // for TsArray source in typed array constructors
 #include "TsBigInt.h"  // for BigInt.asIntN / asUintN
 #include "TsRegExp.h"  // for ts_regexp_create (plain-call RegExp(pattern))
+#include "TsTemporal.h" // Temporal.PlainTime (and other Temporal types)
 #include <unicode/unistr.h>
 #include <unicode/utypes.h>
 #include <unicode/locid.h>
@@ -2584,6 +2585,60 @@ void* ts_get_global_Reflect() {
         addMethod(cached, "isExtensible", (void*)reflect_isExtensible_native, 1);
         addMethod(cached, "preventExtensions", (void*)reflect_preventExtensions_native, 1);
         setProtoStringTag(cached, "Reflect");
+    }
+    return cached;
+}
+
+// ===================== Temporal (TC39) =====================
+// Brand-checked reader for Temporal.PlainTime.prototype accessors: per spec each
+// getter does thisTemporalTime(this) — if `this` isn't a PlainTime, TypeError.
+static TsValue* temporal_plaintime_field(void* ctx, int which, const char* getter) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    TsPlainTime* pt = raw ? dynamic_cast<TsPlainTime*>((TsObject*)raw) : nullptr;
+    if (!pt) {
+        std::string msg = std::string("get Temporal.PlainTime.prototype.") + getter +
+            " called on an object that is not a Temporal.PlainTime";
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg.c_str()));
+        return ts_value_make_undefined();
+    }
+    int v = 0;
+    switch (which) {
+        case 0: v = pt->iso_hour; break;
+        case 1: v = pt->iso_minute; break;
+        case 2: v = pt->iso_second; break;
+        case 3: v = pt->iso_millisecond; break;
+        case 4: v = pt->iso_microsecond; break;
+        case 5: v = pt->iso_nanosecond; break;
+    }
+    return ts_value_make_int((int64_t)v);
+}
+
+void* ts_get_global_Temporal() {
+    TenureScope _tenure;
+    static TsMap* cached = nullptr;
+    if (!cached) {
+        cached = TsMap::Create();
+        { static bool _rooted=false; if(!_rooted){ _rooted=true; ts_gc_register_root((void**)&cached); } }
+        setProtoStringTag(cached, "Temporal");
+
+        // ---- Temporal.PlainTime ----
+        TsMap* ptCtor = makeSimpleConstructorGlobal("PlainTime");
+        TsValue protoKey; protoKey.type = ValueType::STRING_PTR;
+        protoKey.ptr_val = TsString::GetInterned("prototype");
+        TsValue protoT = ptCtor->Get(protoKey);
+        TsMap* ptProto = (TsMap*)protoT.ptr_val;
+        setProtoStringTag(ptProto, "Temporal.PlainTime");
+        addAccessorGetter(ptProto, "hour",        (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,0,"hour"); });
+        addAccessorGetter(ptProto, "minute",      (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,1,"minute"); });
+        addAccessorGetter(ptProto, "second",      (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,2,"second"); });
+        addAccessorGetter(ptProto, "millisecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,3,"millisecond"); });
+        addAccessorGetter(ptProto, "microsecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,4,"microsecond"); });
+        addAccessorGetter(ptProto, "nanosecond",  (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,5,"nanosecond"); });
+        void* ptFn = wrapAsCallable(ptCtor, "PlainTime", 0);
+        TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("PlainTime");
+        TsValue cv; cv.type = ValueType::FUNCTION_PTR; cv.ptr_val = ptFn;
+        cached->Set(ck, cv);
     }
     return cached;
 }

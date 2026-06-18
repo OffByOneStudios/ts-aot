@@ -68,6 +68,7 @@ add_library(tsruntime STATIC
     src/TsGlobals.cpp
     src/TsProfileRuntime.cpp
     src/TsDate.cpp
+    src/TsTemporal.cpp
     src/TsRegExp.cpp
     src/TsPromise.cpp
     src/TsTextEncoding.cpp

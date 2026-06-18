@@ -9599,6 +9599,8 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "GeneratorFunction", "AsyncFunction", "AsyncGeneratorFunction",
             // Intl (ECMA-402) namespace
             "Intl",
+            // Temporal (TC39) namespace
+            "Temporal",
         };
         if (jsBuiltinGlobals.count(node->name)) {
             // A local `function NAME(...) {...}` declaration MUST shadow the
@@ -9773,7 +9775,7 @@ void ASTToHIR::visitIdentifier(ast::Identifier* node) {
             "process", "global", "globalThis", "Symbol", "Map", "Set",
             "WeakMap", "WeakSet", "Proxy", "Reflect", "Iterator",
             "EvalError", "RangeError", "ReferenceError", "SyntaxError",
-            "TypeError", "URIError", "Function",
+            "TypeError", "URIError", "Function", "Temporal",
         };
         if (builtinObjects.count(node->name)) {
             lastValue_ = builder_.createLoadGlobal(node->name);

@@ -8356,6 +8356,8 @@ void HIRToLLVM::lowerLoadGlobal(HIRInstruction* inst) {
         funcName = "ts_get_global_Error";
     } else if (globalName == "Intl") {
         funcName = "ts_get_global_Intl";
+    } else if (globalName == "Temporal") {
+        funcName = "ts_get_global_Temporal";
     } else if (globalName == "Buffer") {
         funcName = "ts_get_global_Buffer";
     } else if (globalName == "Function") {

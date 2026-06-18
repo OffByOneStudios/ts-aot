@@ -1262,6 +1262,9 @@ Analyzer::Analyzer() {
     // Register Intl global (ECMA-402; Collator/NumberFormat/PluralRules/etc. accessed as fields).
     symbols.define("Intl", std::make_shared<Type>(TypeKind::Any));
 
+    // Register Temporal global (TC39 Temporal; PlainTime/Duration/Instant/etc. as fields).
+    symbols.define("Temporal", std::make_shared<Type>(TypeKind::Any));
+
     // Register Array global (for static methods like Array.isArray)
     auto arrayGlobalType = std::make_shared<ObjectType>();
     
