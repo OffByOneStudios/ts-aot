@@ -1696,6 +1696,23 @@ extern "C" {
         return s->PadEnd(pad_target_length(targetLength), pad);
     }
 
+    // Compiler fast-path entries: the .f64Arg(ToF64) lowering silently swallowed
+    // a Symbol/non-coercible numeric argument (no ToNumber). These coerce the
+    // still-boxed argument via ts_to_number — which THROWS a TypeError on a
+    // Symbol (the confirmed bug; BigInt->Number also rejects, returning NaN ->
+    // mapped to 0 by the impls below) — BEFORE the bare-double implementation,
+    // whose existing ToLength/ToIntegerOrInfinity + RangeError handling is kept.
+    double ts_to_number(TsValue* v);  // file scope, C linkage (Primitives.cpp)
+    void* ts_string_repeat_coerced(void* str, TsValue* count) {
+        return ts_string_repeat(str, ts_to_number(count));
+    }
+    void* ts_string_padStart_coerced(void* str, TsValue* targetLength, void* padString) {
+        return ts_string_padStart(str, ts_to_number(targetLength), padString);
+    }
+    void* ts_string_padEnd_coerced(void* str, TsValue* targetLength, void* padString) {
+        return ts_string_padEnd(str, ts_to_number(targetLength), padString);
+    }
+
     bool ts_string_startsWith(void* str, void* prefix) {
         TsString* s = ts_ensure_flat(str);
         if (!s) return false;

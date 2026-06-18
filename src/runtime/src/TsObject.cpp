@@ -1573,7 +1573,12 @@ TsValue* ts_value_make_int(int64_t i) {
         // limit was previously ignored; lodash `_.split(str, sep, limit)`
         // forwards it to String.prototype.split.
         if (argc >= 2 && argv[1] && !ts_value_is_undefined((TsValue*)argv[1]) && resultArr) {
-            int64_t limit = ts_value_get_int((TsValue*)argv[1]);
+            // ECMA-262 22.1.3.23 step 6: limit goes through ToUint32, whose
+            // ToNumber step THROWS a TypeError on a Symbol (BigInt->Number throws
+            // too). Coerce via ts_to_number first so a non-coercible limit throws;
+            // ToUint32(NaN/Infinity) == 0 (limit 0 -> empty array).
+            double limD = ts_to_number((TsValue*)argv[1]);
+            int64_t limit = (limD != limD || std::isinf(limD)) ? 0 : (int64_t)limD;
             if (limit >= 0) {
                 TsArray* arr = (TsArray*)resultArr;
                 if (arr->Length() > limit) arr->SetLength((size_t)limit);
@@ -1767,9 +1772,11 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_string_repeat_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        // Pass the raw double; ts_string_repeat applies ToIntegerOrInfinity +
-        // the RangeError checks (a bare ts_value_get_int here is UB on NaN).
-        double count = (argc >= 1 && argv && argv[0]) ? ts_value_get_double(argv[0]) : 0.0;
+        // ECMA-262 22.1.3.18: count goes through ToIntegerOrInfinity, whose
+        // ToNumber step THROWS a TypeError on a Symbol (and BigInt->Number also
+        // throws). ts_to_number performs that coercion (and preserves NaN, which
+        // ts_string_repeat then maps to 0 while still RangeError-checking count<0).
+        double count = (argc >= 1 && argv && argv[0]) ? ts_to_number(argv[0]) : 0.0;
         return ts_value_make_string((TsString*)ts_string_repeat(str, count));
     }
     static TsValue* ts_string_charAt_native(void* ctx, int argc, TsValue** argv) {
@@ -1784,15 +1791,19 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_string_padStart_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        // Pass the raw number; ts_string_padStart applies ToLength(ToIntegerOr
-        // Infinity) (NaN/undefined -> 0). ts_value_get_double preserves NaN.
-        double targetLength = (argc >= 1 && argv && argv[0]) ? ts_value_get_double(argv[0]) : 0.0;
+        // ECMA-262 22.1.3.16: maxLength goes through ToLength(ToIntegerOrInfinity),
+        // whose ToNumber step THROWS a TypeError on a Symbol (BigInt->Number throws
+        // too). ts_to_number performs that coercion and preserves NaN/undefined
+        // (which ts_string_padStart's ToLength then maps to 0).
+        double targetLength = (argc >= 1 && argv && argv[0]) ? ts_to_number(argv[0]) : 0.0;
         void* padString = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
         return ts_value_make_string((TsString*)ts_string_padStart(str, targetLength, padString));
     }
     static TsValue* ts_string_padEnd_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        double targetLength = (argc >= 1 && argv && argv[0]) ? ts_value_get_double(argv[0]) : 0.0;
+        // ECMA-262 22.1.3.15: maxLength goes through ToLength(ToIntegerOrInfinity);
+        // ToNumber THROWS a TypeError on a Symbol (BigInt->Number throws too).
+        double targetLength = (argc >= 1 && argv && argv[0]) ? ts_to_number(argv[0]) : 0.0;
         void* padString = (argc >= 2 && argv && argv[1]) ? ts_value_get_string(argv[1]) : nullptr;
         return ts_value_make_string((TsString*)ts_string_padEnd(str, targetLength, padString));
     }

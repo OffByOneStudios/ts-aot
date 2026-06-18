@@ -1047,30 +1047,29 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_padStart",
-        lowering("ts_string_padStart")
+        lowering("ts_string_padStart_coerced")
             .returnsPtr()
             .ptrArg()      // string
-            .f64Arg(ArgConversion::ToF64)  // targetLength: pass raw double so the
-                                            // runtime applies ToLength (NaN -> 0);
-                                            // a bare FPToSI here is UB on NaN.
+            .boxedArg()    // targetLength: boxed so the runtime does ToNumber
+                            // (throws TypeError on a Symbol) then ToLength (NaN->0);
+                            // .f64Arg(ToF64) silently swallowed a Symbol.
             .ptrArg()      // padString
             .build());
 
     reg.registerLowering("ts_string_padEnd",
-        lowering("ts_string_padEnd")
+        lowering("ts_string_padEnd_coerced")
             .returnsPtr()
             .ptrArg()      // string
-            .f64Arg(ArgConversion::ToF64)  // targetLength (see padStart)
+            .boxedArg()    // targetLength (see padStart)
             .ptrArg()      // padString
             .build());
 
     reg.registerLowering("ts_string_repeat",
-        lowering("ts_string_repeat")
+        lowering("ts_string_repeat_coerced")
             .returnsPtr()
             .ptrArg()      // string
-            .f64Arg(ArgConversion::ToF64)  // count: pass raw double so the runtime
-                                            // applies ToIntegerOrInfinity + RangeError
-                                            // (a bare FPToSI here is UB on NaN/Inf)
+            .boxedArg()    // count: boxed so the runtime does ToNumber (throws on
+                            // Symbol) then ToIntegerOrInfinity + RangeError.
             .build());
 
     reg.registerLowering("ts_string_replace",
