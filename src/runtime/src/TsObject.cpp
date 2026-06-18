@@ -5516,6 +5516,55 @@ TsValue* ts_value_make_int(int64_t i) {
                                         TsValue*, TsValue*, TsValue*, TsValue*, TsValue*);
         return ((Fn11)closure->func_ptr)(closure, thisArg, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
     }
+    // Exact-arity dispatch for functions declared with 11..16 params: call
+    // Fn<arity> with EXACTLY arity args so the call matches the compiled
+    // function's LLVM signature (closure + arity params). The <=10 path is
+    // unchanged (padded10). >16 falls back to padded10 (drops 11+, rare).
+    static TsValue* call_closure_exact(TsClosure* closure, int argc, TsValue** argv) {
+        TsValue* u = ts_value_make_undefined();
+        #define A(i) (((i) < argc && argv) ? argv[i] : u)
+        void* fp = closure->func_ptr;
+        switch (closure->arity) {
+        case 11: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10)); }
+        case 12: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11)); }
+        case 13: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12)); }
+        case 14: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12),A(13)); }
+        case 15: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12),A(13),A(14)); }
+        case 16: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12),A(13),A(14),A(15)); }
+        }
+        return call_closure_padded10(closure, A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9));
+        #undef A
+    }
+    static TsValue* call_funcptr_exact(void* fp, void* ctx, int arity, int argc, TsValue** argv) {
+        TsValue* u = ts_value_make_undefined();
+        #define A(i) (((i) < argc && argv) ? argv[i] : u)
+        switch (arity) {
+        case 11: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(ctx,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10)); }
+        case 12: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(ctx,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11)); }
+        case 13: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(ctx,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12)); }
+        case 14: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(ctx,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12),A(13)); }
+        case 15: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(ctx,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12),A(13),A(14)); }
+        case 16: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(ctx,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12),A(13),A(14),A(15)); }
+        }
+        return call_funcptr_padded10(fp, ctx, A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9));
+        #undef A
+    }
+    static TsValue* call_closure_method_exact(TsClosure* closure, TsValue* thisArg, int argc, TsValue** argv) {
+        TsValue* u = ts_value_make_undefined();
+        #define A(i) (((i) < argc && argv) ? argv[i] : u)
+        void* fp = closure->func_ptr;
+        switch (closure->arity) {
+        case 11: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,thisArg,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10)); }
+        case 12: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,thisArg,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11)); }
+        case 13: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,thisArg,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12)); }
+        case 14: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,thisArg,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12),A(13)); }
+        case 15: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,thisArg,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12),A(13),A(14)); }
+        case 16: { typedef TsValue* (*F)(void*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*,TsValue*); return ((F)fp)(closure,thisArg,A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9),A(10),A(11),A(12),A(13),A(14),A(15)); }
+        }
+        return call_closure_padded10_method(closure, thisArg, A(0),A(1),A(2),A(3),A(4),A(5),A(6),A(7),A(8),A(9));
+        #undef A
+    }
+
 
     // Canonical call dispatchers — the SINGLE place the closure/proxy/native/
     // inner-closure + is_method + rest dispatch logic lives. The ts_call_N /
@@ -5601,6 +5650,8 @@ TsValue* ts_value_make_int(int64_t i) {
             if (fp && ts_gc_base(fp)) return u;  // func_ptr in GC heap => corrupt
             if (closure->rest_param_index >= 0)
                 return ts_rest_pack_and_call(closure, argc, argv);
+            if (closure->arity >= 11 && closure->arity <= 16)
+                return call_closure_exact(closure, argc, argv);
             return call_closure_padded10(closure, A(0), A(1), A(2), A(3), A(4),
                                                   A(5), A(6), A(7), A(8), A(9));
         }
@@ -5621,11 +5672,15 @@ TsValue* ts_value_make_int(int64_t i) {
         if (innerClosure) {
             void* fp = innerClosure->func_ptr;
             if (fp && ts_gc_base(fp)) return u;
+            if (innerClosure->arity >= 11 && innerClosure->arity <= 16)
+                return call_closure_exact(innerClosure, argc, argv);
             return call_closure_padded10(innerClosure, A(0), A(1), A(2), A(3), A(4),
                                                        A(5), A(6), A(7), A(8), A(9));
         }
         void* fp = func->funcPtr;
         if (fp && ts_gc_base(fp)) return u;
+        if (func->arity >= 11 && func->arity <= 16)
+            return call_funcptr_exact(fp, func->context, func->arity, argc, argv);
         return call_funcptr_padded10(fp, func->context, A(0), A(1), A(2), A(3), A(4),
                                                         A(5), A(6), A(7), A(8), A(9));
     }
@@ -5649,9 +5704,15 @@ TsValue* ts_value_make_int(int64_t i) {
             if (!fp || ts_gc_base(fp)) { ts_call_this_value = savedThis; return u; }
             TsValue* result;
             if (closure->is_method) {
+                if (closure->arity >= 11 && closure->arity <= 16)
+                    result = call_closure_method_exact(closure, thisArg, argc, argv);
+                else
                 result = call_closure_padded10_method(closure, thisArg,
                     A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9));
             } else {
+                if (closure->arity >= 11 && closure->arity <= 16)
+                    result = call_closure_exact(closure, argc, argv);
+                else
                 result = call_closure_padded10(closure,
                     A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9));
             }
