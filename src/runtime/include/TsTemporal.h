@@ -41,11 +41,24 @@ public:
     TsValue GetPropertyVirtual(const char* key) override;
 };
 
+// Temporal.PlainDate — a calendar date (ISO-8601 calendar), no time/zone.
+class TsPlainDate : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x504C4454; // 'PLDT'
+    int iso_year = 0;
+    int iso_month = 1;  // 1-12
+    int iso_day = 1;    // 1-31
+    static TsPlainDate* Create(int y, int m, int d);
+    TsValue GetPropertyVirtual(const char* key) override;
+};
+
 extern "C" {
     // The Temporal namespace object (globalThis.Temporal). Cached.
     void* ts_get_global_Temporal();
     TsValue* ts_temporal_duration_construct(int argc, TsValue** argv);
     void* ts_temporal_get_duration_ctor();
+    TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv);
+    void* ts_temporal_get_plaindate_ctor();
     // new Temporal.PlainTime(h,m,s,ms,us,ns): ToIntegerWithTruncation each arg
     // (missing -> 0), RejectTime range-check, then Create. Boxed object result.
     TsValue* ts_temporal_plaintime_construct(int argc, TsValue** argv);

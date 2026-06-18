@@ -3902,6 +3902,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 magic16 == 0x42554646 ||  // TsBuffer::MAGIC "BUFF"
                 magic16 == 0x504C5449 ||  // TsPlainTime::MAGIC "PLTI" (Temporal)
                 magic16 == 0x54445552 ||  // TsDuration::MAGIC "TDUR" (Temporal)
+                magic16 == 0x504C4454 ||  // TsPlainDate::MAGIC "PLDT" (Temporal)
                 magic16 == 0x44564945) {  // TsDataView::MAGIC "DVIE"
                 // PROMISES: own properties (the native-props side map where
                 // `p.then = fn` writes land) take precedence over the builtin
@@ -3958,6 +3959,16 @@ TsValue* ts_value_make_int(int64_t i) {
                 if (magic16 == 0x54445552) {  // Temporal.Duration: methods via prototype
                     extern void* ts_temporal_get_duration_ctor();
                     void* ctor = ts_temporal_get_duration_ctor();
+                    if (ctor) {
+                        TsValue* protoV = ts_object_get_property(ctor, "prototype");
+                        void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
+                        if (protoRaw && protoRaw != obj)
+                            return ts_object_get_property(protoRaw, keyStr);
+                    }
+                }
+                if (magic16 == 0x504C4454) {  // Temporal.PlainDate: methods via prototype
+                    extern void* ts_temporal_get_plaindate_ctor();
+                    void* ctor = ts_temporal_get_plaindate_ctor();
                     if (ctor) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
@@ -5776,6 +5787,14 @@ TsValue* ts_value_make_int(int64_t i) {
                     }
                 }
                 {
+                    // new Temporal.PlainDate(...)
+                    extern void* ts_temporal_get_plaindate_ctor();
+                    extern TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv);
+                    if (isGlobal(ts_temporal_get_plaindate_ctor)) {
+                        return ts_temporal_plaindate_construct(argc, argv);
+                    }
+                }
+                {
                     // `new Promise(executor)` reached through a runtime
                     // constructor value (`var P = Promise; new P(fn)` — and
                     // the literal form also lowers through this dispatcher).
@@ -6721,6 +6740,10 @@ TsValue* ts_value_make_int(int64_t i) {
         if (magic == 0x54445552) { // TsDuration "TDUR" -> Temporal.Duration.prototype
             extern void* ts_temporal_get_duration_ctor();
             return getCtorPrototype(ts_temporal_get_duration_ctor());
+        }
+        if (magic == 0x504C4454) { // TsPlainDate "PLDT" -> Temporal.PlainDate.prototype
+            extern void* ts_temporal_get_plaindate_ctor();
+            return getCtorPrototype(ts_temporal_get_plaindate_ctor());
         }
         if (magic == 0x4D415053) { // TsMap::MAGIC
             TsMap* objMap = (TsMap*)objRaw;
