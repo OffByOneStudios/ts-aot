@@ -2106,7 +2106,37 @@ extern "C" {
     TsValue* ts_map_size_wrapper(void* context);
     TsValue* ts_map_getOrInsert_wrapper(void* context, TsValue* key, TsValue* value);
     TsValue* ts_map_getOrInsertComputed_wrapper(void* context, TsValue* key, TsValue* callbackfn);
+
+    // Brand-checked prototype-method entry points (ECMA-262 cross-receiver
+    // TypeError). The trailing int is the collection brand the receiver must
+    // match. Map-family codes (CollBrand in TsMap.cpp): 0=Map, 2=WeakMap.
+    // Set-family codes (SetBrand in TsSet.cpp): 0=Set, 1=WeakSet.
+    TsValue* ts_map_get_wrapper_branded(void* context, TsValue* key, int brand);
+    TsValue* ts_map_set_wrapper_branded(void* context, TsValue* key, TsValue* value, int brand);
+    TsValue* ts_map_has_wrapper_branded(void* context, TsValue* key, int brand);
+    TsValue* ts_map_delete_wrapper_branded(void* context, TsValue* key, int brand);
+    TsValue* ts_map_clear_wrapper_branded(void* context, int brand);
+    TsValue* ts_map_size_wrapper_branded(void* context, int brand);
+    TsValue* ts_map_getOrInsert_wrapper_branded(void* context, TsValue* key, TsValue* value, int brand);
+    TsValue* ts_map_getOrInsertComputed_wrapper_branded(void* context, TsValue* key, TsValue* callbackfn, int brand);
+    TsValue* ts_set_add_wrapper_branded(void* context, TsValue* value, int brand);
+    TsValue* ts_set_has_wrapper_branded(void* context, TsValue* value, int brand);
+    TsValue* ts_set_delete_wrapper_branded(void* context, TsValue* value, int brand);
+    TsValue* ts_set_clear_wrapper_branded(void* context, int brand);
+    TsValue* ts_set_size_wrapper_branded(void* context, int brand);
+    TsValue* ts_set_forEach_wrapper_branded(void* context, TsValue* callback, TsValue* thisArg, int brand);
+    TsValue* ts_set_values_iter_wrapper_branded(void* context, int argc, TsValue** argv, int brand);
+    TsValue* ts_set_entries_iter_wrapper_branded(void* context, int argc, TsValue** argv, int brand);
 }
+
+// Collection brand codes shared with TsMap.cpp (CollBrand) / TsSet.cpp (SetBrand).
+// Keep in sync with those enums' declaration order.
+enum {
+    TS_BRAND_MAP = 0,       // CollBrand::Map
+    TS_BRAND_WEAKMAP = 2,   // CollBrand::WeakMap
+    TS_BRAND_SET = 0,       // SetBrand::Set
+    TS_BRAND_WEAKSET = 1,   // SetBrand::WeakSet
+};
 
 void* ts_get_global_Map() {
     TenureScope _tenure;
@@ -2121,38 +2151,38 @@ void* ts_get_global_Map() {
 
         addMethod(proto, "get", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_get_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_map_get_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_MAP);
         });
         addMethod(proto, "set", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_set_wrapper(ctx,
+            return ts_map_set_wrapper_branded(ctx,
                 (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
-                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined(), TS_BRAND_MAP);
         }, 2);
         addMethod(proto, "has", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_has_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_map_has_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_MAP);
         });
         addMethod(proto, "delete", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_map_delete_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_MAP);
         });
         // TC39 upsert proposal — Map.prototype.getOrInsert / getOrInsertComputed.
         addMethod(proto, "getOrInsert", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_getOrInsert_wrapper(ctx,
+            return ts_map_getOrInsert_wrapper_branded(ctx,
                 (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
-                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined(), TS_BRAND_MAP);
         }, 2);
         addMethod(proto, "getOrInsertComputed", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_getOrInsertComputed_wrapper(ctx,
+            return ts_map_getOrInsertComputed_wrapper_branded(ctx,
                 (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
-                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined(), TS_BRAND_MAP);
         }, 2);
         addMethod(proto, "clear", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_clear_wrapper(ctx);
+            return ts_map_clear_wrapper_branded(ctx, TS_BRAND_MAP);
         }, 0);
         // Iteration methods: entries, keys, values (return iterator-like
         // arrays). Implementations exist in TsMap.cpp.
@@ -2197,7 +2227,7 @@ void* ts_get_global_Map() {
         // brand-checking ts_map_size_wrapper (throws TypeError on non-Map).
         addAccessorGetter(proto, "size", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_size_wrapper(ctx);
+            return ts_map_size_wrapper_branded(ctx, TS_BRAND_MAP);
         });
 
         // Static Map.groupBy(items, keyFn) — ES2024.
@@ -2237,45 +2267,43 @@ void* ts_get_global_Set() {
         TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
             ? (TsMap*)protoVal.ptr_val : TsMap::Create();
 
-        // Register Set.prototype methods — these use ctx as the Set object
+        // Register Set.prototype methods — these use ctx as the Set object.
+        // Branded entry points reject a WeakSet (or any non-Set) receiver.
         addMethod(proto, "has", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_has_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_set_has_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_SET);
         });
         addMethod(proto, "add", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_add_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_set_add_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_SET);
         });
         addMethod(proto, "delete", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_set_delete_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_SET);
         });
         addMethod(proto, "clear", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_clear_wrapper(ctx);
+            return ts_set_clear_wrapper_branded(ctx, TS_BRAND_SET);
         }, 0);
         // Set.prototype iteration methods (entries/keys/values). For a Set,
         // values and keys are the same; entries returns [v, v] pairs.
-        extern TsValue* ts_set_values_iter_wrapper(void* context, int argc, TsValue** argv);
-        extern TsValue* ts_set_entries_iter_wrapper(void* context, int argc, TsValue** argv);
         addMethod(proto, "values", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_values_iter_wrapper(ctx, argc, argv);
+            return ts_set_values_iter_wrapper_branded(ctx, argc, argv, TS_BRAND_SET);
         }, 0);
         addMethod(proto, "keys", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_values_iter_wrapper(ctx, argc, argv);
+            return ts_set_values_iter_wrapper_branded(ctx, argc, argv, TS_BRAND_SET);
         }, 0);
         addMethod(proto, "entries", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_entries_iter_wrapper(ctx, argc, argv);
+            return ts_set_entries_iter_wrapper_branded(ctx, argc, argv, TS_BRAND_SET);
         }, 0);
         addMethod(proto, "forEach", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            void* callback = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
-            void* thisArg = (argc >= 2 && argv) ? (void*)argv[1] : nullptr;
-            ts_set_forEach(ctx, callback, thisArg);
-            return ts_value_make_undefined();
+            TsValue* callback = (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined();
+            TsValue* thisArg = (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined();
+            return ts_set_forEach_wrapper_branded(ctx, callback, thisArg, TS_BRAND_SET);
         });
 
         // Set.prototype[@@iterator] === Set.prototype.values (same function).
@@ -2289,10 +2317,11 @@ void* ts_get_global_Set() {
         }
 
         // Set.prototype.size — REAL accessor (see Map.prototype.size). Reuses
-        // the brand-checking ts_set_size_wrapper (throws TypeError on non-Set).
+        // the brand-checking ts_set_size_wrapper_branded (throws TypeError on a
+        // non-Set, including a WeakSet, receiver).
         addAccessorGetter(proto, "size", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_size_wrapper(ctx);
+            return ts_set_size_wrapper_branded(ctx, TS_BRAND_SET);
         });
 
         setProtoStringTag(proto, "Set");
@@ -2314,38 +2343,39 @@ void* ts_get_global_WeakMap() {
         TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
             ? (TsMap*)protoVal.ptr_val : TsMap::Create();
 
-        // WeakMap.prototype methods — share implementations with Map
-        // via the dual-purpose ts_map_*_wrapper functions.
+        // WeakMap.prototype methods — share the TsMap-backed ops with Map via the
+        // branded entry points, validating the WeakMap brand so a Map/Set/WeakSet
+        // receiver throws TypeError (ECMA-262 cross-receiver brand check).
         addMethod(proto, "has", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_has_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_map_has_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_WEAKMAP);
         });
         addMethod(proto, "get", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_get_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_map_get_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_WEAKMAP);
         });
         addMethod(proto, "set", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_set_wrapper(ctx,
+            return ts_map_set_wrapper_branded(ctx,
                 (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
-                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined(), TS_BRAND_WEAKMAP);
         }, 2);
         addMethod(proto, "delete", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_map_delete_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_WEAKMAP);
         });
         // TC39 upsert proposal — WeakMap.prototype.getOrInsert / getOrInsertComputed.
         addMethod(proto, "getOrInsert", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_getOrInsert_wrapper(ctx,
+            return ts_map_getOrInsert_wrapper_branded(ctx,
                 (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
-                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined(), TS_BRAND_WEAKMAP);
         }, 2);
         addMethod(proto, "getOrInsertComputed", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_map_getOrInsertComputed_wrapper(ctx,
+            return ts_map_getOrInsertComputed_wrapper_branded(ctx,
                 (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(),
-                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined());
+                (argc >= 2 && argv) ? argv[1] : ts_value_make_undefined(), TS_BRAND_WEAKMAP);
         }, 2);
         setProtoStringTag(proto, "WeakMap");
         cached = wrapAsCallable(ctor, "WeakMap", 0);
@@ -2365,18 +2395,20 @@ void* ts_get_global_WeakSet() {
         TsMap* proto = (protoVal.type != ValueType::UNDEFINED && protoVal.ptr_val)
             ? (TsMap*)protoVal.ptr_val : TsMap::Create();
 
-        // WeakSet.prototype methods — share Set implementations
+        // WeakSet.prototype methods — share the TsSet-backed ops via the branded
+        // entry points, validating the WeakSet brand so a Set/Map/WeakMap
+        // receiver throws TypeError (ECMA-262 cross-receiver brand check).
         addMethod(proto, "has", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_has_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_set_has_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_WEAKSET);
         });
         addMethod(proto, "add", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_add_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_set_add_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_WEAKSET);
         });
         addMethod(proto, "delete", (void*)+[](void* ctx, int argc, TsValue** argv) -> TsValue* {
             if (!ctx) ctx = ts_get_call_this();
-            return ts_set_delete_wrapper(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined());
+            return ts_set_delete_wrapper_branded(ctx, (argc >= 1 && argv) ? argv[0] : ts_value_make_undefined(), TS_BRAND_WEAKSET);
         });
         setProtoStringTag(proto, "WeakSet");
         cached = wrapAsCallable(ctor, "WeakSet", 0);

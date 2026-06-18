@@ -608,8 +608,31 @@ extern "C" TsValue* ts_create_array_iterator_pub(void* items) {
     return ts_create_iterator((TsArray*)items);
 }
 
-// Forward decl: defined later in this TU.
-static void* requireMapData(void* context, const char* methodName);
+// Collection brand for receiver validation. Map/Set/WeakMap/WeakSet share the
+// TsMap/TsSet impl but a method from one collection must throw TypeError when
+// called with a receiver of a different collection (ECMA-262 brand check).
+//   Map/Set/WeakMap/WeakSet : strict single-brand (used by the prototype-method
+//                             dynamic-dispatch sites in TsGlobals.cpp).
+//   MapLike                 : permissive Map|Set|WeakMap|WeakSet — the legacy
+//                             default (matches the pre-brand-check behavior) for
+//                             the shared wrappers that several non-prototype
+//                             dispatch paths route through:
+//                               * the compiler's *typed* Map/Set dispatch
+//                                 (ts_map_has/delete/clear_wrapper);
+//                               * the fast TsMap-vtable property accessor
+//                                 ts_map_get_property, which is also the vtable
+//                                 of WeakMap instances (so weakmap.get(k) lands
+//                                 here with a WEAKMAP_MAGIC receiver).
+//                             These paths only ever see a same-type receiver in
+//                             practice; the cross-receiver spec check is done by
+//                             the brand-explicit entry points below. Keeping
+//                             MapLike fully permissive avoids regressing them.
+enum class CollBrand { Map, Set, WeakMap, WeakSet, MapLike };
+
+// Forward decl: defined later in this TU. The brand selects which magic the
+// receiver must carry; the underlying ops are shared and unchanged.
+static void* requireMapData(void* context, const char* methodName,
+                            CollBrand brand = CollBrand::MapLike);
 
 // Forward decls for TypeError throw helpers (defined later in this TU
 // at line ~415).
@@ -652,7 +675,7 @@ void* ts_map_copy_excluding_v2(void* obj, void* excluded_keys_array) {
 extern "C" void ts_throw(TsValue* err);
 extern "C" void* ts_error_create_typed(const char* type, const char* message);
 
-static void* requireMapData(void* context, const char* methodName) {
+static void* requireMapData(void* context, const char* methodName, CollBrand brand) {
     if (!context) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Method Map.prototype.get called on incompatible receiver"));
@@ -700,13 +723,34 @@ static void* requireMapData(void* context, const char* methodName) {
             m20 == WEAKMAP_MAGIC || m24 == WEAKMAP_MAGIC || m20 == WEAKSET_MAGIC || m24 == WEAKSET_MAGIC)
             ts_offcanon_note("requireMapData", rawCtx);
     }
+    // Brand check: the receiver must carry the magic of THIS method's own
+    // collection. A method from one collection (e.g. Map.prototype.get) called
+    // on a sibling (e.g. a Set) must throw TypeError per spec. Plain object
+    // literals are also TsMap::MAGIC, so the Map brand additionally requires
+    // IsExplicitMap() to exclude them.
     bool isValid = false;
-    if (hasWeakMapMagic || hasWeakSetMagic || hasSetMagic) {
-        // WeakMap/WeakSet/Set are explicit instances — accept directly.
-        isValid = true;
-    } else if (hasMapMagic) {
-        // Distinguish explicit Map from plain object literal.
-        isValid = ((TsMap*)rawCtx)->IsExplicitMap();
+    switch (brand) {
+        case CollBrand::Map:
+            isValid = hasMapMagic && ((TsMap*)rawCtx)->IsExplicitMap();
+            break;
+        case CollBrand::Set:
+            isValid = hasSetMagic;
+            break;
+        case CollBrand::WeakMap:
+            isValid = hasWeakMapMagic;
+            break;
+        case CollBrand::WeakSet:
+            isValid = hasWeakSetMagic;
+            break;
+        case CollBrand::MapLike:
+            // Permissive: any explicit collection (Set/WeakMap/WeakSet) OR an
+            // explicit Map — the legacy pre-brand-check behavior for the shared
+            // dispatch paths (typed compiler path + the TsMap-vtable property
+            // accessor that WeakMap instances also use). Cross-receiver brand
+            // enforcement happens in the brand-explicit entry points.
+            isValid = hasSetMagic || hasWeakMapMagic || hasWeakSetMagic ||
+                      (hasMapMagic && ((TsMap*)rawCtx)->IsExplicitMap());
+            break;
     }
     if (!isValid) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -854,6 +898,98 @@ TsValue* ts_map_getOrInsertComputed_wrapper(void* context, TsValue* key, TsValue
     ts_map_set_wrapper(rawCtx, key, value);
     return value;
 }
+
+// ============================================================
+// Brand-checked prototype-method entry points
+// ============================================================
+// Map.prototype.* and WeakMap.prototype.* are distinct collections that share
+// the TsMap-backed ops, but a method from one must throw TypeError when invoked
+// with a receiver of the OTHER (ECMA-262 brand check; e.g.
+// `Map.prototype.get.call(new WeakMap())` or `... .call(new Set())`).
+//
+// The plain ts_map_*_wrapper functions above stay permissive (CollBrand::MapLike)
+// because the compiler's TYPED Map/Set dispatch and the TsMap-vtable property
+// accessor (also used by WeakMap instances) route through them. These branded
+// entry points are what the TsGlobals.cpp prototype-method dynamic-dispatch
+// lambdas call, so a wrong-collection receiver is rejected.
+// They validate the requested brand, then delegate to the SAME underlying ops
+// (ts_map_*) — for Map/WeakMap the receiver is never a Set, so no Set branch.
+
+// NOTE: after brand validation, rawCtx is a verified raw TsMap/TsWeakMap pointer.
+// We must NOT re-enter the permissive ts_map_*_wrapper functions: those re-run
+// requireMapData(MapLike) which requires Map|Set magic and would WRONGLY reject a
+// WeakMap (WEAKMAP_MAGIC). Instead delegate to the brandless raw ops, which call
+// ((TsMap*)rawCtx)->Get/Set/Has/Delete/Clear/Size directly (WeakMap IS-A TsMap).
+
+extern "C" TsValue* ts_map_get_wrapper_branded(void* context, TsValue* key, int brand) {
+    void* rawCtx = requireMapData(context, "get", (CollBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    return ts_map_get_fast(rawCtx, key);
+}
+
+extern "C" TsValue* ts_map_set_wrapper_branded(void* context, TsValue* key, TsValue* value, int brand) {
+    void* rawCtx = requireMapData(context, "set", (CollBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    ts_map_set_fast(rawCtx, key, value);
+    return ts_value_make_undefined();
+}
+
+extern "C" TsValue* ts_map_has_wrapper_branded(void* context, TsValue* key, int brand) {
+    void* rawCtx = requireMapData(context, "has", (CollBrand)brand);
+    if (!rawCtx) return ts_value_make_bool(false);
+    return ts_value_make_bool(ts_map_has(rawCtx, key));
+}
+
+extern "C" TsValue* ts_map_delete_wrapper_branded(void* context, TsValue* key, int brand) {
+    void* rawCtx = requireMapData(context, "delete", (CollBrand)brand);
+    if (!rawCtx) return ts_value_make_bool(false);
+    return ts_value_make_bool(ts_map_delete(rawCtx, key));
+}
+
+extern "C" TsValue* ts_map_clear_wrapper_branded(void* context, int brand) {
+    void* rawCtx = requireMapData(context, "clear", (CollBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    ts_map_clear(rawCtx);
+    return ts_value_make_undefined();
+}
+
+extern "C" TsValue* ts_map_size_wrapper_branded(void* context, int brand) {
+    void* rawCtx = requireMapData(context, "size", (CollBrand)brand);
+    if (!rawCtx) return ts_value_make_int(0);
+    return ts_value_make_int(ts_map_size(rawCtx));
+}
+
+extern "C" TsValue* ts_map_getOrInsert_wrapper_branded(void* context, TsValue* key, TsValue* value, int brand) {
+    void* rawCtx = requireMapData(context, "getOrInsert", (CollBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    if (ts_map_has(rawCtx, key)) {
+        return ts_map_get_fast(rawCtx, key);
+    }
+    ts_map_set_fast(rawCtx, key, value);
+    return value;
+}
+
+extern "C" TsValue* ts_map_getOrInsertComputed_wrapper_branded(void* context, TsValue* key, TsValue* callbackfn, int brand) {
+    void* rawCtx = requireMapData(context, "getOrInsertComputed", (CollBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    if (!ts_is_callable_map((void*)callbackfn)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Map.prototype.getOrInsertComputed callback is not callable"));
+        return ts_value_make_undefined();
+    }
+    if (ts_map_has(rawCtx, key)) {
+        return ts_map_get_fast(rawCtx, key);
+    }
+    TsValue* args[1] = { key };
+    TsValue* value = ts_function_call((TsValue*)callbackfn, 1, args);
+    if (!value) value = ts_value_make_undefined();
+    ts_map_set_fast(rawCtx, key, value);
+    return value;
+}
+
+// Brand integer codes shared with TsGlobals.cpp (must match CollBrand order).
+//   0=Map, 1=Set, 2=WeakMap, 3=WeakSet
+// (MapLike is internal-only and never passed across the TU boundary.)
 
 // ============================================================
 // Iterator Protocol - Map/Set/Array .keys()/.values()/.entries()

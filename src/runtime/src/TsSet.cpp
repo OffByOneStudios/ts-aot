@@ -328,9 +328,18 @@ void* ts_set_isDisjointFrom(void* set, void* other) {
     return ts_value_make_bool(true);
 }
 
+// Collection brand for receiver validation. Set/WeakSet share the TsSet impl,
+// and a method from one must throw TypeError when called with a receiver of the
+// other (ECMA-262 brand check). SetLike is the permissive default (Set|WeakSet)
+// preserving the legacy shared-wrapper behavior the compiler's typed path and
+// the WeakSet.prototype registration both depend on.
+enum class SetBrand { Set, WeakSet, SetLike };
+
 // Forward decl (defined below). Used by ts_set_forEach to validate
-// the receiver before dereferencing as a TsSet pointer.
-static void* requireSet(void* context, const char* methodName);
+// the receiver before dereferencing as a TsSet pointer. The brand selects which
+// magic the receiver must carry; the underlying ops are shared and unchanged.
+static void* requireSet(void* context, const char* methodName,
+                        SetBrand brand = SetBrand::SetLike);
 
 // Forward decls for TypeError throw helpers (defined later in this TU).
 extern "C" void ts_throw(TsValue* err);
@@ -357,7 +366,7 @@ void ts_set_forEach(void* set, void* callback, void* thisArg) {
 extern "C" void ts_throw(TsValue* err);
 extern "C" void* ts_error_create_typed(const char* type, const char* message);
 
-static void* requireSet(void* context, const char* methodName) {
+static void* requireSet(void* context, const char* methodName, SetBrand brand) {
     if (!context) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Set method called on incompatible receiver"));
@@ -383,14 +392,22 @@ static void* requireSet(void* context, const char* methodName) {
             "Set method called on incompatible receiver"));
         return nullptr;
     }
-    // Check for TsSet or TsWeakSet magic at multiple offsets
-    // (TsSet extends TsObject → magic at 16, 20, or 24)
+    // Brand check: the receiver must carry the magic of THIS method's own
+    // collection. A method from one collection (e.g. Set.prototype.has) called
+    // on a sibling (e.g. a WeakSet) must throw TypeError per spec. WeakSet's
+    // ctor overrides TsObject::magic to WEAKSET_MAGIC, so the two are
+    // distinguishable even though TsWeakSet IS-A TsSet.
     constexpr uint32_t WEAKSET_MAGIC = 0x57534554; // "WSET"
-    auto is_valid = [](uint32_t m) {
-        return m == TsSet::MAGIC || m == WEAKSET_MAGIC;
-    };
     uint32_t m16 = *(uint32_t*)((char*)rawCtx + 16);  // canonical TsObject::magic
-    if (!is_valid(m16)) {
+    bool hasSetMagic = (m16 == TsSet::MAGIC);
+    bool hasWeakSetMagic = (m16 == WEAKSET_MAGIC);
+    bool isValid = false;
+    switch (brand) {
+        case SetBrand::Set:     isValid = hasSetMagic; break;
+        case SetBrand::WeakSet: isValid = hasWeakSetMagic; break;
+        case SetBrand::SetLike: isValid = hasSetMagic || hasWeakSetMagic; break;
+    }
+    if (!isValid) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Set method called on incompatible receiver"));
         return nullptr;
@@ -428,6 +445,77 @@ TsValue* ts_set_size_wrapper(void* context) {
     void* rawCtx = requireSet(context, "size");
     if (!rawCtx) return ts_value_make_int(0);
     return ts_value_make_int(ts_set_size(rawCtx));
+}
+
+// ============================================================
+// Brand-checked prototype-method entry points
+// ============================================================
+// Set.prototype.* and WeakSet.prototype.* are distinct collections sharing the
+// TsSet-backed ops; a method from one must throw TypeError when invoked with a
+// receiver of the OTHER (ECMA-262 brand check; e.g.
+// `Set.prototype.add.call(new WeakSet())`).
+//
+// The plain ts_set_*_wrapper functions above stay permissive (SetBrand::SetLike
+// = Set|WeakSet): the compiler's typed Set dispatch and the WeakSet.prototype
+// registration both route through them. These branded entry points are what the
+// TsGlobals.cpp Set/WeakSet prototype-method lambdas call, so a wrong-collection
+// receiver is rejected. After validation the receiver is a verified raw TsSet/
+// TsWeakSet pointer, so they delegate to the brandless raw ops (ts_set_*).
+//   brand codes (must match SetBrand order with offset): 0=Set, 1=WeakSet
+
+TsValue* ts_set_add_wrapper_branded(void* context, TsValue* value, int brand) {
+    void* rawCtx = requireSet(context, "add", (SetBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    ts_set_add(rawCtx, value);
+    return ts_value_make_object(rawCtx);
+}
+
+TsValue* ts_set_has_wrapper_branded(void* context, TsValue* value, int brand) {
+    void* rawCtx = requireSet(context, "has", (SetBrand)brand);
+    if (!rawCtx) return ts_value_make_bool(false);
+    return ts_value_make_bool(ts_set_has(rawCtx, value));
+}
+
+TsValue* ts_set_delete_wrapper_branded(void* context, TsValue* value, int brand) {
+    void* rawCtx = requireSet(context, "delete", (SetBrand)brand);
+    if (!rawCtx) return ts_value_make_bool(false);
+    return ts_value_make_bool(ts_set_delete(rawCtx, value));
+}
+
+TsValue* ts_set_clear_wrapper_branded(void* context, int brand) {
+    void* rawCtx = requireSet(context, "clear", (SetBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    ts_set_clear(rawCtx);
+    return ts_value_make_undefined();
+}
+
+TsValue* ts_set_size_wrapper_branded(void* context, int brand) {
+    void* rawCtx = requireSet(context, "size", (SetBrand)brand);
+    if (!rawCtx) return ts_value_make_int(0);
+    return ts_value_make_int(ts_set_size(rawCtx));
+}
+
+// forEach with brand check (Set brand only; WeakSet has no forEach in spec).
+TsValue* ts_set_forEach_wrapper_branded(void* context, TsValue* callback, TsValue* thisArg, int brand) {
+    void* rawCtx = requireSet(context, "forEach", (SetBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    ts_set_forEach(rawCtx, (void*)callback, (void*)thisArg);
+    return ts_value_make_undefined();
+}
+
+// Iterator entry points with brand check (Set brand). Delegate to the existing
+// permissive iterator wrappers on the already-validated raw receiver.
+extern TsValue* ts_set_values_iter_wrapper(void* context, int argc, TsValue** argv);
+extern TsValue* ts_set_entries_iter_wrapper(void* context, int argc, TsValue** argv);
+TsValue* ts_set_values_iter_wrapper_branded(void* context, int argc, TsValue** argv, int brand) {
+    void* rawCtx = requireSet(context, "values", (SetBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    return ts_set_values_iter_wrapper(rawCtx, argc, argv);
+}
+TsValue* ts_set_entries_iter_wrapper_branded(void* context, int argc, TsValue** argv, int brand) {
+    void* rawCtx = requireSet(context, "entries", (SetBrand)brand);
+    if (!rawCtx) return ts_value_make_undefined();
+    return ts_set_entries_iter_wrapper(rawCtx, argc, argv);
 }
 
 // Iterators: values() and keys() are identical for Set; entries() yields

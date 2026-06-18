@@ -288,18 +288,38 @@ static nlohmann::ordered_json ts_to_json(void* p) {
     return ts_to_json_internal(p, visited);
 }
 
+// JS exception machinery (defined elsewhere in the runtime). Declared at file
+// scope per runtime-safety rules (block-scope extern "C" is illegal).
+extern "C" void ts_throw(TsValue* err);
+extern "C" void* ts_error_create_typed(const char* type, const char* message);
+
 extern "C" {
     void* ts_json_parse(void* json_str) {
-        if (!json_str) return nullptr;
-        TsString* s = (TsString*)json_str;
-        try {
-            nlohmann::ordered_json j = nlohmann::ordered_json::parse(s->ToUtf8());
-            TsValue val = json_to_ts(j);
-            // Convert TsValue struct to NaN-boxed representation
-            return (void*)nanbox_from_tagged(val);
-        } catch (...) {
+        if (!json_str) {
+            // JSON.parse(undefined) -> SyntaxError ("undefined" is not valid JSON)
+            ts_throw((TsValue*)ts_error_create_typed(
+                "SyntaxError", "Unexpected token u in JSON"));
             return nullptr;
         }
+        TsString* s = (TsString*)json_str;
+        // Parse the text. Malformed input must surface as a JS SyntaxError
+        // (ECMA-262 25.5.1), not as an internal C++ exception escaping the
+        // runtime. Only the parse step can throw on bad input; isolate it.
+        nlohmann::ordered_json j;
+        try {
+            j = nlohmann::ordered_json::parse(s->ToUtf8());
+        } catch (const std::exception& e) {
+            ts_throw((TsValue*)ts_error_create_typed("SyntaxError", e.what()));
+            return nullptr;
+        } catch (...) {
+            ts_throw((TsValue*)ts_error_create_typed(
+                "SyntaxError", "Unexpected token in JSON"));
+            return nullptr;
+        }
+        // Valid parse: build the runtime value (unchanged behavior).
+        TsValue val = json_to_ts(j);
+        // Convert TsValue struct to NaN-boxed representation
+        return (void*)nanbox_from_tagged(val);
     }
 
     void* ts_json_stringify(void* obj, void* replacer, void* space) {
