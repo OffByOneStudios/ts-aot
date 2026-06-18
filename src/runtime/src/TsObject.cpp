@@ -3375,6 +3375,9 @@ TsValue* ts_value_make_int(int64_t i) {
     // numeric-looking strings. Most test262 tests only check metadata
     // (typeof/length/name/isConstructor), so a stub suffices for those.
     // A full ISO 8601 parser is a larger separate project.
+    // fwd (defined near ts_object_get_property): receiver-correct prototype walk.
+    static TsValue* temporal_proto_get(void* obj, void* protoRaw, const char* keyStr);
+
     static TsValue* ts_date_parse_native(void* ctx, int argc, TsValue** argv) {
         if (argc < 1 || !argv || !argv[0]) {
             return ts_value_make_double(std::numeric_limits<double>::quiet_NaN());
@@ -3959,7 +3962,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
                         if (protoRaw && protoRaw != obj)
-                            return ts_object_get_property(protoRaw, keyStr);
+                            return temporal_proto_get(obj, protoRaw, keyStr);
                     }
                 }
                 if (magic16 == 0x54445552) {  // Temporal.Duration: methods via prototype
@@ -3969,7 +3972,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
                         if (protoRaw && protoRaw != obj)
-                            return ts_object_get_property(protoRaw, keyStr);
+                            return temporal_proto_get(obj, protoRaw, keyStr);
                     }
                 }
                 if (magic16 == 0x504C4454) {  // Temporal.PlainDate: methods via prototype
@@ -3979,7 +3982,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
                         if (protoRaw && protoRaw != obj)
-                            return ts_object_get_property(protoRaw, keyStr);
+                            return temporal_proto_get(obj, protoRaw, keyStr);
                     }
                 }
                 if (magic16 == 0x504C594D) {  // Temporal.PlainYearMonth: methods via prototype
@@ -3989,7 +3992,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
                         if (protoRaw && protoRaw != obj)
-                            return ts_object_get_property(protoRaw, keyStr);
+                            return temporal_proto_get(obj, protoRaw, keyStr);
                     }
                 }
                 if (magic16 == 0x504C4D44) {  // Temporal.PlainMonthDay: methods via prototype
@@ -3999,7 +4002,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
                         if (protoRaw && protoRaw != obj)
-                            return ts_object_get_property(protoRaw, keyStr);
+                            return temporal_proto_get(obj, protoRaw, keyStr);
                     }
                 }
                 if (magic16 == 0x50444D54) {  // Temporal.PlainDateTime: methods via prototype
@@ -4009,7 +4012,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
                         if (protoRaw && protoRaw != obj)
-                            return ts_object_get_property(protoRaw, keyStr);
+                            return temporal_proto_get(obj, protoRaw, keyStr);
                     }
                 }
                 if (magic16 == 0x494E5354) {  // Temporal.Instant: methods via prototype
@@ -4019,7 +4022,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
                         if (protoRaw && protoRaw != obj)
-                            return ts_object_get_property(protoRaw, keyStr);
+                            return temporal_proto_get(obj, protoRaw, keyStr);
                     }
                 }
                 if (magic16 == 0x5A44544D) {  // Temporal.ZonedDateTime: methods via prototype
@@ -4029,7 +4032,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue* protoV = ts_object_get_property(ctor, "prototype");
                         void* protoRaw = protoV ? ts_value_get_object(protoV) : nullptr;
                         if (protoRaw && protoRaw != obj)
-                            return ts_object_get_property(protoRaw, keyStr);
+                            return temporal_proto_get(obj, protoRaw, keyStr);
                     }
                 }
             }
@@ -4059,6 +4062,23 @@ TsValue* ts_value_make_int(int64_t i) {
     TsValue* ts_object_defineSetter_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_object_lookupGetter_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_object_lookupSetter_native(void* ctx, int argc, TsValue** argv);
+
+    TsValue* ts_object_get_property(void* obj, const char* keyStr);  // fwd (defined below)
+    // Walk a builtin instance's prototype for keyStr. If the prototype property
+    // is an accessor, invoke its getter with the ORIGINAL receiver (obj) — a
+    // plain ts_object_get_property(proto, key) would invoke it with this=proto,
+    // breaking the getter's brand-check (e.g. era/eraYear, which return undefined
+    // for the ISO calendar but must throw on a non-instance receiver). Data
+    // properties (methods) fall through to the ordinary lookup.
+    static TsValue* temporal_proto_get(void* obj, void* protoRaw, const char* keyStr) {
+        std::string gk = std::string("__getter_") + keyStr;
+        TsValue keyv; keyv.type = ValueType::STRING_PTR; keyv.ptr_val = TsString::GetInterned(gk.c_str());
+        TsValue gv = ((TsMap*)protoRaw)->Get(keyv);
+        if (gv.type == ValueType::FUNCTION_PTR && gv.ptr_val) {
+            return ts_function_call_with_this((TsValue*)gv.ptr_val, ts_value_make_object(obj), 0, nullptr);
+        }
+        return temporal_proto_get(obj, protoRaw, keyStr);
+    }
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
         if (!obj) {
@@ -4120,7 +4140,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue* protoVal = ts_object_get_property(numCtor, "prototype");
                 void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
                 if (protoRaw && protoRaw != obj)
-                    return ts_object_get_property(protoRaw, keyStr);
+                    return temporal_proto_get(obj, protoRaw, keyStr);
             }
             return ts_value_make_undefined();
         }
@@ -4135,7 +4155,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue* protoVal = ts_object_get_property(boolCtor, "prototype");
                 void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
                 if (protoRaw && protoRaw != obj)
-                    return ts_object_get_property(protoRaw, keyStr);
+                    return temporal_proto_get(obj, protoRaw, keyStr);
             }
             return ts_value_make_undefined();
         }
@@ -4171,7 +4191,7 @@ TsValue* ts_value_make_int(int64_t i) {
                 TsValue* protoVal = ts_object_get_property(biCtor, "prototype");
                 void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
                 if (protoRaw && protoRaw != obj)
-                    return ts_object_get_property(protoRaw, keyStr);
+                    return temporal_proto_get(obj, protoRaw, keyStr);
             }
             return ts_value_make_undefined();
         }
@@ -4925,7 +4945,7 @@ TsValue* ts_value_make_int(int64_t i) {
                     TsValue* protoVal = ts_object_get_property(strCtor, "prototype");
                     void* protoRaw = protoVal ? ts_value_get_object(protoVal) : nullptr;
                     if (protoRaw && protoRaw != obj)
-                        return ts_object_get_property(protoRaw, keyStr);
+                        return temporal_proto_get(obj, protoRaw, keyStr);
                 }
             }
             return ts_value_make_undefined();
