@@ -134,6 +134,89 @@ TsValue* ts_temporal_plaintime_valueOf_native(void* ctx, int argc, TsValue** arg
     return ts_value_make_undefined();
 }
 
+// Extract a std::string from a TsValue iff it is actually a string.
+static bool tsvalue_to_stdstring(TsValue* v, std::string* out) {
+    void* raw = v ? ts_nanbox_safe_unbox(v) : nullptr;
+    if (!raw) return false;
+    uint32_t m0 = *(uint32_t*)raw;
+    if (m0 != 0x53545247 && m0 != 0x434F4E53) return false;
+    void* sp = ts_value_get_string(v);
+    const char* u = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
+    if (!u) return false;
+    *out = u; return true;
+}
+
+// Temporal.PlainTime.prototype.round(roundTo) — round the wall-clock time to a
+// smallestUnit (hour..nanosecond) with a roundingIncrement and roundingMode.
+TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv) {
+    TsPlainTime* pt = require_plaintime(ctx, "round");
+    TsValue* roundTo = (argc >= 1 && argv) ? argv[0] : nullptr;
+    if (!roundTo || ts_value_is_undefined(roundTo)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Temporal.PlainTime.prototype.round: roundTo is required"));
+        return ts_value_make_undefined();
+    }
+    std::string unit, mode = "halfExpand";
+    long increment = 1;
+    if (!tsvalue_to_stdstring(roundTo, &unit)) {
+        // options bag: smallestUnit (required), roundingIncrement, roundingMode.
+        void* raw = ts_nanbox_safe_unbox(roundTo);
+        if (!raw) {
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Temporal.PlainTime.prototype.round: roundTo must be a string or object"));
+            return ts_value_make_undefined();
+        }
+        TsValue* su = ts_object_get_property(raw, "smallestUnit");
+        if (!su || ts_value_is_undefined(su) || !tsvalue_to_stdstring(su, &unit)) {
+            ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                "Temporal.PlainTime.prototype.round: smallestUnit is required"));
+            return ts_value_make_undefined();
+        }
+        TsValue* ri = ts_object_get_property(raw, "roundingIncrement");
+        if (ri && !ts_value_is_undefined(ri)) {
+            double d = ts_to_number(ri);
+            if (d == d && !std::isinf(d)) increment = (long)std::trunc(d);
+        }
+        TsValue* rm = ts_object_get_property(raw, "roundingMode");
+        std::string m; if (rm && tsvalue_to_stdstring(rm, &m)) mode = m;
+    }
+    long long unitNs;
+    if (unit == "hour" || unit == "hours") unitNs = 3600000000000LL;
+    else if (unit == "minute" || unit == "minutes") unitNs = 60000000000LL;
+    else if (unit == "second" || unit == "seconds") unitNs = 1000000000LL;
+    else if (unit == "millisecond" || unit == "milliseconds") unitNs = 1000000LL;
+    else if (unit == "microsecond" || unit == "microseconds") unitNs = 1000LL;
+    else if (unit == "nanosecond" || unit == "nanoseconds") unitNs = 1LL;
+    else {
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Temporal.PlainTime.prototype.round: invalid smallestUnit"));
+        return ts_value_make_undefined();
+    }
+    if (increment < 1) increment = 1;
+    long long quantum = unitNs * (long long)increment;
+    long long nsOfDay = ((((long long)pt->iso_hour * 60 + pt->iso_minute) * 60 + pt->iso_second) * 1000000000LL)
+        + (long long)pt->iso_millisecond * 1000000LL + (long long)pt->iso_microsecond * 1000LL + pt->iso_nanosecond;
+    long long q = nsOfDay / quantum, r = nsOfDay % quantum;
+    long long rounded;
+    if (mode == "ceil" || mode == "expand") rounded = (r > 0) ? (q + 1) * quantum : nsOfDay;
+    else if (mode == "floor" || mode == "trunc") rounded = q * quantum;
+    else if (mode == "halfEven") {
+        if (r * 2 > quantum) rounded = (q + 1) * quantum;
+        else if (r * 2 < quantum) rounded = q * quantum;
+        else rounded = (q % 2 == 0) ? q * quantum : (q + 1) * quantum;
+    } else if (mode == "halfFloor" || mode == "halfTrunc")
+        rounded = (r * 2 > quantum) ? (q + 1) * quantum : q * quantum;
+    else  // halfExpand (default), halfCeil
+        rounded = (r * 2 >= quantum) ? (q + 1) * quantum : q * quantum;
+    rounded %= 86400000000000LL;  // wrap within a 24h day
+    int h  = (int)(rounded / 3600000000000LL); rounded %= 3600000000000LL;
+    int m  = (int)(rounded / 60000000000LL);   rounded %= 60000000000LL;
+    int s  = (int)(rounded / 1000000000LL);    rounded %= 1000000000LL;
+    int ms = (int)(rounded / 1000000LL);       rounded %= 1000000LL;
+    int us = (int)(rounded / 1000LL);          int ns = (int)(rounded % 1000LL);
+    return ts_value_make_object(TsPlainTime::Create(h, m, s, ms, us, ns));
+}
+
 // Temporal.PlainTime.prototype.with(timeLike, options?) — returns a new
 // PlainTime with the provided fields overridden (others kept). The argument
 // must be a plain object with >=1 recognized field; a Temporal type or a
