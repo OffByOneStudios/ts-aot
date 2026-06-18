@@ -1658,3 +1658,79 @@ TsValue* ts_temporal_plaintime_since_native(void* ctx,int argc,TsValue** argv){
     return duration_from_time_ns(pt_to_ns(a) - pt_to_ns(b));
 }
 }
+
+// ======================= Arithmetic: PlainDate =======================
+static void add_iso_date(int y,int m,int d, long long years,long long months,long long weeks,long long days,
+                         int* Y,int* M,int* D){
+    long long ym = (long long)(m-1) + months;           // 0-based month index
+    long long yy = (long long)y + years + (ym>=0 ? ym/12 : (ym-11)/12);
+    int mm = (int)(ym - (yy-(long long)y-years)*12) + 1; // 1-based month after balance
+    if(mm<1){mm+=12;yy--;} if(mm>12){mm-=12;yy++;}
+    int yi=(int)yy;
+    int dim=iso_days_in_month(yi,mm); int dd=d; if(dd>dim) dd=dim; if(dd<1) dd=1;
+    long long civil = iso_days_from_civil(yi,mm,dd) + days + weeks*7;
+    iso_civil_from_days(civil, Y, M, D);
+}
+static std::string read_string_option(TsValue* opts, const char* key, const char* def){
+    if(!opts) return def;
+    void* raw = ts_nanbox_safe_unbox(opts);
+    if(!raw) return def;
+    uint32_t m0=*(uint32_t*)raw; if(m0==0x53545247||m0==0x434F4E53) return def;
+    TsValue* v = ts_object_get_property(raw, key);
+    std::string s;
+    if(v && !ts_value_is_undefined(v) && tsvalue_to_stdstring(v,&s)){ if(s=="auto") return def; return s; }
+    return def;
+}
+// Calendar difference from (ay/am/ad) to (by/bm/bd) per largestUnit.
+static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::string& largest,
+                          long long* yr,long long* mo,long long* wk,long long* dy){
+    *yr=*mo=*wk=*dy=0;
+    long long totalDays = iso_days_from_civil(by,bm,bd) - iso_days_from_civil(ay,am,ad);
+    if(largest=="day"||largest=="days"){ *dy=totalDays; return; }
+    if(largest=="week"||largest=="weeks"){ *wk=totalDays/7; *dy=totalDays%7; return; }
+    if(totalDays==0) return;
+    int sign = totalDays<0?-1:1;
+    int sy=ay,sm=am,sd=ad, ey=by,em=bm,ed=bd;
+    if(sign<0){ sy=by;sm=bm;sd=bd; ey=ay;em=am;ed=ad; }
+    int years = ey - sy, months = em - sm, dd = ed - sd;
+    if(dd<0){ months -= 1; int pm=em-1, py=ey; if(pm<1){pm=12;py--;} dd += iso_days_in_month(py,pm); }
+    if(months<0){ years -= 1; months += 12; }
+    if(largest=="month"||largest=="months"){ months += years*12; years=0; }
+    *yr=sign*years; *mo=sign*months; *wk=0; *dy=sign*dd;
+}
+static TsPlainDate* coerce_plaindate_arg(TsValue* v){
+    TsPlainDate* p = as_plaindate(v?ts_nanbox_safe_unbox(v):nullptr);
+    if(p) return p;
+    TsValue* c = ts_temporal_plaindate_from(v?1:0,&v);
+    return as_plaindate(ts_nanbox_safe_unbox(c));
+}
+extern "C" {
+TsValue* ts_temporal_plaindate_add_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDate* pd=require_plaindate(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.add: invalid duration")); return ts_value_make_undefined(); }
+    int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, d->years,d->months,d->weeks,d->days,&Y,&M,&D);
+    if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: result out of range")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsPlainDate::Create(Y,M,D));
+}
+TsValue* ts_temporal_plaindate_subtract_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDate* pd=require_plaindate(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
+    int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, -d->years,-d->months,-d->weeks,-d->days,&Y,&M,&D);
+    if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsPlainDate::Create(Y,M,D));
+}
+TsValue* ts_temporal_plaindate_until_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDate* a=require_plaindate(ctx,"until"); TsPlainDate* b=coerce_plaindate_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.until: invalid argument")); return ts_value_make_undefined(); }
+    std::string lu = read_string_option((argc>=2&&argv)?argv[1]:nullptr, "largestUnit", "day");
+    long long yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day,b->iso_year,b->iso_month,b->iso_day,lu,&yr,&mo,&wk,&dy);
+    return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+}
+TsValue* ts_temporal_plaindate_since_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDate* a=require_plaindate(ctx,"since"); TsPlainDate* b=coerce_plaindate_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.since: invalid argument")); return ts_value_make_undefined(); }
+    std::string lu = read_string_option((argc>=2&&argv)?argv[1]:nullptr, "largestUnit", "day");
+    long long yr,mo,wk,dy; diff_iso_date(b->iso_year,b->iso_month,b->iso_day,a->iso_year,a->iso_month,a->iso_day,lu,&yr,&mo,&wk,&dy);
+    return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+}
+}

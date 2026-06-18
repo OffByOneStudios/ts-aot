@@ -2770,6 +2770,10 @@ extern "C" {
     TsValue* ts_temporal_plaindate_compare_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaindate_with_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaindate_from_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaindate_add_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaindate_subtract_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaindate_until_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaindate_since_native(void* ctx, int argc, TsValue** argv);
 }
 static TsValue* temporal_plaindate_field(void* ctx, const char* name) {
     if (!ctx) ctx = ts_get_call_this();
@@ -2941,6 +2945,10 @@ void* ts_get_global_Temporal() {
         addMethod(pdProto, "valueOf",  (void*)ts_temporal_plaindate_valueOf_native, 0);
         addMethod(pdProto, "equals",   (void*)ts_temporal_plaindate_equals_native, 1);
         addMethod(pdProto, "with",     (void*)ts_temporal_plaindate_with_native, 1);
+        addMethod(pdProto, "add",      (void*)ts_temporal_plaindate_add_native, 1);
+        addMethod(pdProto, "subtract", (void*)ts_temporal_plaindate_subtract_native, 1);
+        addMethod(pdProto, "until",    (void*)ts_temporal_plaindate_until_native, 1);
+        addMethod(pdProto, "since",    (void*)ts_temporal_plaindate_since_native, 1);
         void* pdFn = wrapAsCallable(pdCtor, "PlainDate", 3);
         g_temporal_plaindate_ctor = pdFn;
         ts_gc_register_root(&g_temporal_plaindate_ctor);
