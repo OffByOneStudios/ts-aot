@@ -1800,3 +1800,60 @@ TsValue* ts_temporal_plaindatetime_since_native(void* ctx,int argc,TsValue** arg
     return pdt_diff(b,a, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","day"));
 }
 }
+
+// ======================= Arithmetic: Instant =======================
+// Build a time-only Duration from a sign-aligned (ms, sub-ns) magnitude.
+static TsValue* duration_from_ms_sub(long long ms, long long subNs, const std::string& largest){
+    int sign = (ms<0||subNs<0)?-1:1; long long ams=ms<0?-ms:ms; long long asub=subNs<0?-subNs:subNs;
+    long long h=0,mi=0,s=0,msr=0; long long rem=ams;
+    if(largest=="hour"||largest=="hours"){ h=rem/3600000; rem%=3600000; mi=rem/60000; rem%=60000; s=rem/1000; msr=rem%1000; }
+    else if(largest=="minute"||largest=="minutes"){ mi=rem/60000; rem%=60000; s=rem/1000; msr=rem%1000; }
+    else if(largest=="millisecond"||largest=="milliseconds"){ msr=rem; }
+    else { s=rem/1000; msr=rem%1000; } // second (default)
+    long long us=asub/1000, ns=asub%1000;
+    return ts_value_make_object(TsDuration::Create(0,0,0,0, sign*h, sign*mi, sign*s, sign*msr, sign*us, sign*ns));
+}
+static void instant_add_time(long long ems,int esub, TsDuration* d, int sign, long long* oms, int* osub){
+    long long addNs = dur_time_ns(d);
+    long long newMs = ems + sign*(addNs/1000000LL);
+    long long newSub = (long long)esub + sign*(addNs%1000000LL);
+    newMs += newSub/1000000LL; newSub %= 1000000LL;
+    if(newMs>0 && newSub<0){ newMs--; newSub+=1000000LL; } else if(newMs<0 && newSub>0){ newMs++; newSub-=1000000LL; }
+    *oms=newMs; *osub=(int)newSub;
+}
+static TsInstant* coerce_instant_arg(TsValue* v){
+    TsInstant* p = as_instant(v?ts_nanbox_safe_unbox(v):nullptr);
+    if(p) return p;
+    TsValue* c = ts_temporal_instant_from(v?1:0,&v);
+    return as_instant(ts_nanbox_safe_unbox(c));
+}
+extern "C" {
+TsValue* ts_temporal_instant_add_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* it=require_instant(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.add: invalid duration")); return ts_value_make_undefined(); }
+    if(d->years||d->months||d->weeks||d->days){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.add: duration must be time-only")); return ts_value_make_undefined(); }
+    long long oms; int osub; instant_add_time(it->epoch_ms,it->sub_ns,d,1,&oms,&osub);
+    return ts_value_make_object(TsInstant::Create(oms,osub));
+}
+TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* it=require_instant(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
+    if(d->years||d->months||d->weeks||d->days){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.subtract: duration must be time-only")); return ts_value_make_undefined(); }
+    long long oms; int osub; instant_add_time(it->epoch_ms,it->sub_ns,d,-1,&oms,&osub);
+    return ts_value_make_object(TsInstant::Create(oms,osub));
+}
+TsValue* ts_temporal_instant_until_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* a=require_instant(ctx,"until"); TsInstant* b=coerce_instant_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.until: invalid argument")); return ts_value_make_undefined(); }
+    long long ms=b->epoch_ms-a->epoch_ms; long long sub=(long long)b->sub_ns-a->sub_ns;
+    if(ms>0&&sub<0){ms--;sub+=1000000;} else if(ms<0&&sub>0){ms++;sub-=1000000;}
+    return duration_from_ms_sub(ms,sub, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","second"));
+}
+TsValue* ts_temporal_instant_since_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* a=require_instant(ctx,"since"); TsInstant* b=coerce_instant_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.since: invalid argument")); return ts_value_make_undefined(); }
+    long long ms=a->epoch_ms-b->epoch_ms; long long sub=(long long)a->sub_ns-b->sub_ns;
+    if(ms>0&&sub<0){ms--;sub+=1000000;} else if(ms<0&&sub>0){ms++;sub-=1000000;}
+    return duration_from_ms_sub(ms,sub, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","second"));
+}
+}
