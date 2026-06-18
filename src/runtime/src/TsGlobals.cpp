@@ -2611,6 +2611,36 @@ static void* g_temporal_duration_ctor = nullptr;  // GC-rooted in ts_get_global_
 static void* g_temporal_plaindate_ctor = nullptr; // GC-rooted in ts_get_global_Temporal
 static void* g_temporal_plainyearmonth_ctor = nullptr;
 static void* g_temporal_plainmonthday_ctor = nullptr;
+static void* g_temporal_plaindatetime_ctor = nullptr;
+extern "C" {
+    TsValue* ts_temporal_plaindatetime_toString_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_valueOf_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_equals_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_compare_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_with_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_toPlainDate_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_toPlainTime_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_from_native(void*,int,TsValue**);
+}
+static TsValue* temporal_plaindatetime_field(void* ctx, const char* name) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    TsPlainDateTime* d = nullptr;
+    if (raw) { uint32_t m0=*(uint32_t*)raw;
+        if (m0!=0x53545247 && m0!=0x434F4E53 && *(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC) d=(TsPlainDateTime*)raw; }
+    if (!d) {
+        std::string msg = std::string("get Temporal.PlainDateTime.prototype.") + name + " called on an incompatible receiver";
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg.c_str()));
+        return ts_value_make_undefined();
+    }
+    TsValue v = d->GetPropertyVirtual(name);
+    switch (v.type) {
+        case ValueType::NUMBER_INT: return ts_value_make_int(v.i_val);
+        case ValueType::BOOLEAN:    return ts_value_make_bool(v.i_val != 0);
+        case ValueType::STRING_PTR: return ts_value_make_string((TsString*)v.ptr_val);
+        default:                    return ts_value_make_undefined();
+    }
+}
 extern "C" {
     TsValue* ts_temporal_plainyearmonth_toString_native(void*,int,TsValue**);
     TsValue* ts_temporal_plainyearmonth_valueOf_native(void*,int,TsValue**);
@@ -2892,6 +2922,47 @@ void* ts_get_global_Temporal() {
         addMethod(mdCtor, "from", (void*)ts_temporal_plainmonthday_from_native, 1);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainMonthDay");
           TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=mdFn; cached->Set(k,v); }
+
+        // ---- Temporal.PlainDateTime ----
+        TsMap* dtCtor = makeSimpleConstructorGlobal("PlainDateTime");
+        TsMap* dtProto = (TsMap*)dtCtor->Get(protoKey).ptr_val;
+        setProtoStringTag(dtProto, "Temporal.PlainDateTime");
+        addAccessorGetter(dtProto, "year", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"year"); });
+        addAccessorGetter(dtProto, "month", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"month"); });
+        addAccessorGetter(dtProto, "monthCode", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"monthCode"); });
+        addAccessorGetter(dtProto, "day", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"day"); });
+        addAccessorGetter(dtProto, "dayOfWeek", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"dayOfWeek"); });
+        addAccessorGetter(dtProto, "dayOfYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"dayOfYear"); });
+        addAccessorGetter(dtProto, "weekOfYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"weekOfYear"); });
+        addAccessorGetter(dtProto, "yearOfWeek", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"yearOfWeek"); });
+        addAccessorGetter(dtProto, "daysInWeek", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"daysInWeek"); });
+        addAccessorGetter(dtProto, "daysInMonth", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"daysInMonth"); });
+        addAccessorGetter(dtProto, "daysInYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"daysInYear"); });
+        addAccessorGetter(dtProto, "monthsInYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"monthsInYear"); });
+        addAccessorGetter(dtProto, "inLeapYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"inLeapYear"); });
+        addAccessorGetter(dtProto, "hour", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"hour"); });
+        addAccessorGetter(dtProto, "minute", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"minute"); });
+        addAccessorGetter(dtProto, "second", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"second"); });
+        addAccessorGetter(dtProto, "millisecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"millisecond"); });
+        addAccessorGetter(dtProto, "microsecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"microsecond"); });
+        addAccessorGetter(dtProto, "nanosecond", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"nanosecond"); });
+        addAccessorGetter(dtProto, "calendarId", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"calendarId"); });
+        addAccessorGetter(dtProto, "era", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"era"); });
+        addAccessorGetter(dtProto, "eraYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"eraYear"); });
+        addMethod(dtProto, "toString",    (void*)ts_temporal_plaindatetime_toString_native, 0);
+        addMethod(dtProto, "toJSON",      (void*)ts_temporal_plaindatetime_toString_native, 0);
+        addMethod(dtProto, "valueOf",     (void*)ts_temporal_plaindatetime_valueOf_native, 0);
+        addMethod(dtProto, "equals",      (void*)ts_temporal_plaindatetime_equals_native, 1);
+        addMethod(dtProto, "with",        (void*)ts_temporal_plaindatetime_with_native, 1);
+        addMethod(dtProto, "toPlainDate", (void*)ts_temporal_plaindatetime_toPlainDate_native, 0);
+        addMethod(dtProto, "toPlainTime", (void*)ts_temporal_plaindatetime_toPlainTime_native, 0);
+        void* dtFn = wrapAsCallable(dtCtor, "PlainDateTime", 3);
+        g_temporal_plaindatetime_ctor = dtFn;
+        ts_gc_register_root(&g_temporal_plaindatetime_ctor);
+        addMethod(dtCtor, "from",    (void*)ts_temporal_plaindatetime_from_native, 1);
+        addMethod(dtCtor, "compare", (void*)ts_temporal_plaindatetime_compare_native, 2);
+        { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainDateTime");
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=dtFn; cached->Set(k,v); }
     }
     return cached;
 }
@@ -2908,6 +2979,7 @@ void* ts_temporal_get_plaindate_ctor() {
 
 void* ts_temporal_get_plainyearmonth_ctor() { ts_get_global_Temporal(); return g_temporal_plainyearmonth_ctor; }
 void* ts_temporal_get_plainmonthday_ctor() { ts_get_global_Temporal(); return g_temporal_plainmonthday_ctor; }
+void* ts_temporal_get_plaindatetime_ctor() { ts_get_global_Temporal(); return g_temporal_plaindatetime_ctor; }
 
 // The cached Temporal.PlainTime constructor function, for the new-dispatch
 // match in ts_new_from_constructor_impl (PlainTime is a namespace sub-property,

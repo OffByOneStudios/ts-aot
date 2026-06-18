@@ -70,11 +70,23 @@ public:
     TsValue GetPropertyVirtual(const char* key) override;
 };
 
+// Temporal.PlainDateTime — a calendar date + wall-clock time (ISO), no zone.
+class TsPlainDateTime : public TsObject {
+public:
+    static constexpr uint32_t MAGIC = 0x50444D54; // 'PDMT'
+    int iso_year=0, iso_month=1, iso_day=1;
+    int iso_hour=0, iso_minute=0, iso_second=0, iso_ms=0, iso_us=0, iso_ns=0;
+    static TsPlainDateTime* Create(int y,int mo,int d,int h,int mi,int s,int ms,int us,int ns);
+    TsValue GetPropertyVirtual(const char* key) override;
+};
+
 extern "C" {
     // The Temporal namespace object (globalThis.Temporal). Cached.
     void* ts_get_global_Temporal();
     TsValue* ts_temporal_duration_construct(int argc, TsValue** argv);
     void* ts_temporal_get_duration_ctor();
+    TsValue* ts_temporal_plaindatetime_construct(int argc, TsValue** argv);
+    void* ts_temporal_get_plaindatetime_ctor();
     TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv);
     void* ts_temporal_get_plaindate_ctor();
     TsValue* ts_temporal_plainyearmonth_construct(int argc, TsValue** argv);
