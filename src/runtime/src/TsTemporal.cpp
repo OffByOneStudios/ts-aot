@@ -134,6 +134,54 @@ TsValue* ts_temporal_plaintime_valueOf_native(void* ctx, int argc, TsValue** arg
     return ts_value_make_undefined();
 }
 
+// Temporal.PlainTime.prototype.with(timeLike, options?) — returns a new
+// PlainTime with the provided fields overridden (others kept). The argument
+// must be a plain object with >=1 recognized field; a Temporal type or a
+// primitive throws TypeError. Default overflow "constrain" clamps.
+TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv) {
+    TsPlainTime* pt = require_plaintime(ctx, "with");
+    TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
+    void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
+    if (!raw) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Temporal.PlainTime.prototype.with: argument must be an object"));
+        return ts_value_make_undefined();
+    }
+    uint32_t m0 = *(uint32_t*)raw;
+    if (m0 == 0x53545247 || m0 == 0x434F4E53 ||
+        *(uint32_t*)((char*)raw + 16) == TsPlainTime::MAGIC) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Temporal.PlainTime.prototype.with: argument must be a plain object"));
+        return ts_value_make_undefined();
+    }
+    static const char* names[6] = {"hour","minute","second","millisecond","microsecond","nanosecond"};
+    const int lim[6] = {23,59,59,999,999,999};
+    int vals[6] = {pt->iso_hour,pt->iso_minute,pt->iso_second,
+                   pt->iso_millisecond,pt->iso_microsecond,pt->iso_nanosecond};
+    bool any = false;
+    for (int i = 0; i < 6; i++) {
+        TsValue* f = ts_object_get_property(raw, names[i]);
+        if (f && !ts_value_is_undefined(f)) {
+            any = true;
+            double d = ts_to_number(f);
+            if (d != d || std::isinf(d)) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError",
+                    "Temporal.PlainTime.prototype.with: field is not finite"));
+                return ts_value_make_undefined();
+            }
+            int v = (int)std::trunc(d);
+            if (v < 0) v = 0; if (v > lim[i]) v = lim[i];
+            vals[i] = v;
+        }
+    }
+    if (!any) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Temporal.PlainTime.prototype.with: object has no recognized time fields"));
+        return ts_value_make_undefined();
+    }
+    return ts_value_make_object(TsPlainTime::Create(vals[0],vals[1],vals[2],vals[3],vals[4],vals[5]));
+}
+
 TsValue* ts_temporal_plaintime_equals_native(void* ctx, int argc, TsValue** argv) {
     TsPlainTime* a = require_plaintime(ctx, "equals");
     // ToTemporalTime(other) then compare ISO fields.

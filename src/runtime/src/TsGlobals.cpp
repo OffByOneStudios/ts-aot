@@ -2594,6 +2594,7 @@ static void* g_temporal_plaintime_ctor = nullptr;  // GC-rooted in ts_get_global
 extern "C" {
     TsValue* ts_temporal_plaintime_toString_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaintime_valueOf_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaintime_equals_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaintime_compare_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaintime_from_native(void* ctx, int argc, TsValue** argv);
@@ -2657,6 +2658,7 @@ void* ts_get_global_Temporal() {
         addMethod(ptProto, "toJSON",         (void*)ts_temporal_plaintime_toString_native, 0);
         addMethod(ptProto, "toLocaleString", (void*)ts_temporal_plaintime_toString_native, 0);
         addMethod(ptProto, "valueOf",        (void*)ts_temporal_plaintime_valueOf_native, 0);
+        addMethod(ptProto, "with",           (void*)ts_temporal_plaintime_with_native, 1);
         addMethod(ptProto, "equals",         (void*)ts_temporal_plaintime_equals_native, 1);
         void* ptFn = wrapAsCallable(ptCtor, "PlainTime", 0);
         // Static methods on the constructor.
