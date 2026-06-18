@@ -20,6 +20,7 @@ extern "C" double ts_to_number(TsValue* v);  // Primitives.cpp (throws on Symbol
 // Forward declarations for arithmetic/rounding helpers defined later in the file
 // (so earlier method natives can call them).
 static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest);
+static std::string read_string_option(TsValue* opts, const char* key, const char* def);
 
 TsPlainTime* TsPlainTime::Create(int h, int m, int s, int ms, int us, int ns) {
     void* mem = ts_alloc(sizeof(TsPlainTime));
@@ -992,9 +993,19 @@ static bool parse_iso_yearmonth(const char* s, int* Y, int* M) {
 }
 extern "C" {
 TsValue* ts_temporal_plainyearmonth_toString_native(void* ctx,int argc,TsValue** argv){
-    TsPlainYearMonth* d=require_plainyearmonth(ctx,"toString"); char b[24];
-    if(d->iso_year<0||d->iso_year>9999) snprintf(b,sizeof(b),"%+07d-%02d",d->iso_year,d->iso_month);
-    else snprintf(b,sizeof(b),"%04d-%02d",d->iso_year,d->iso_month);
+    TsPlainYearMonth* d=require_plainyearmonth(ctx,"toString");
+    std::string cal = read_string_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto");
+    bool showCal = (cal=="always"||cal=="critical");
+    const char* ann = (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
+    char b[48];
+    if(showCal){
+        // calendarName always/critical: include the reference ISO day + annotation.
+        if(d->iso_year<0||d->iso_year>9999) snprintf(b,sizeof(b),"%+07d-%02d-%02d%s",d->iso_year,d->iso_month,d->iso_day,ann);
+        else snprintf(b,sizeof(b),"%04d-%02d-%02d%s",d->iso_year,d->iso_month,d->iso_day,ann);
+    } else {
+        if(d->iso_year<0||d->iso_year>9999) snprintf(b,sizeof(b),"%+07d-%02d",d->iso_year,d->iso_month);
+        else snprintf(b,sizeof(b),"%04d-%02d",d->iso_year,d->iso_month);
+    }
     return ts_value_make_string(TsString::Create(b));
 }
 TsValue* ts_temporal_plainyearmonth_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.PlainYearMonth; use compare() or equals() instead")); return ts_value_make_undefined(); }
@@ -1088,7 +1099,13 @@ static bool parse_iso_monthday(const char* s, int* M, int* D) {
 }
 extern "C" {
 TsValue* ts_temporal_plainmonthday_toString_native(void* ctx,int argc,TsValue** argv){
-    TsPlainMonthDay* d=require_plainmonthday(ctx,"toString"); char b[16]; snprintf(b,sizeof(b),"%02d-%02d",d->iso_month,d->iso_day);
+    TsPlainMonthDay* d=require_plainmonthday(ctx,"toString");
+    std::string cal = read_string_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto");
+    bool showCal = (cal=="always"||cal=="critical");
+    const char* ann = (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
+    char b[48];
+    if(showCal) snprintf(b,sizeof(b),"%04d-%02d-%02d%s",d->iso_year,d->iso_month,d->iso_day,ann);
+    else snprintf(b,sizeof(b),"%02d-%02d",d->iso_month,d->iso_day);
     return ts_value_make_string(TsString::Create(b));
 }
 TsValue* ts_temporal_plainmonthday_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.PlainMonthDay; use equals() instead")); return ts_value_make_undefined(); }
