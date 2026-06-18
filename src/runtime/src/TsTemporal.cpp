@@ -414,3 +414,253 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
         "Temporal.PlainTime.from: invalid argument"));
     return ts_value_make_undefined();
 }
+
+// ============================ Temporal.Duration ============================
+TsDuration* TsDuration::Create(long long y, long long mo, long long w, long long d, long long h,
+                               long long mi, long long s, long long ms, long long us, long long ns) {
+    void* mem = ts_alloc(sizeof(TsDuration));
+    TsDuration* du = new (mem) TsDuration();
+    du->magic = MAGIC;
+    du->years=y; du->months=mo; du->weeks=w; du->days=d; du->hours=h;
+    du->minutes=mi; du->seconds=s; du->milliseconds=ms; du->microseconds=us; du->nanoseconds=ns;
+    return du;
+}
+
+int TsDuration::Sign() const {
+    long long f[10] = {years,months,weeks,days,hours,minutes,seconds,milliseconds,microseconds,nanoseconds};
+    for (int i = 0; i < 10; i++) { if (f[i] > 0) return 1; if (f[i] < 0) return -1; }
+    return 0;
+}
+
+TsValue TsDuration::GetPropertyVirtual(const char* key) {
+    auto mk = [](long long v) { TsValue r; r.type = ValueType::NUMBER_INT; r.i_val = v; return r; };
+    if (strcmp(key,"years")==0) return mk(years);
+    if (strcmp(key,"months")==0) return mk(months);
+    if (strcmp(key,"weeks")==0) return mk(weeks);
+    if (strcmp(key,"days")==0) return mk(days);
+    if (strcmp(key,"hours")==0) return mk(hours);
+    if (strcmp(key,"minutes")==0) return mk(minutes);
+    if (strcmp(key,"seconds")==0) return mk(seconds);
+    if (strcmp(key,"milliseconds")==0) return mk(milliseconds);
+    if (strcmp(key,"microseconds")==0) return mk(microseconds);
+    if (strcmp(key,"nanoseconds")==0) return mk(nanoseconds);
+    if (strcmp(key,"sign")==0) return mk(Sign());
+    if (strcmp(key,"blank")==0) { TsValue r; r.type=ValueType::BOOLEAN; r.i_val=(Sign()==0); return r; }
+    TsValue u; u.type = ValueType::UNDEFINED; u.i_val = 0; return u;
+}
+
+static TsDuration* as_duration(void* raw) {
+    if (!raw) return nullptr;
+    uint32_t m0 = *(uint32_t*)raw;
+    if (m0 == 0x53545247 || m0 == 0x434F4E53) return nullptr;
+    return (*(uint32_t*)((char*)raw + 16) == TsDuration::MAGIC) ? (TsDuration*)raw : nullptr;
+}
+
+// ToIntegerIfIntegral: finite + integral, else RangeError.
+static long long duration_field(TsValue* v, bool* ok) {
+    if (!v || ts_value_is_undefined(v)) return 0;
+    double d = ts_to_number(v);  // throws on Symbol
+    if (d != d || std::isinf(d) || d != std::trunc(d)) {
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Temporal.Duration: components must be integers"));
+        *ok = false; return 0;
+    }
+    return (long long)d;
+}
+
+// All non-zero components must share one sign.
+static bool duration_same_sign(long long* f) {
+    int sign = 0;
+    for (int i = 0; i < 10; i++) {
+        if (f[i] == 0) continue;
+        int s = f[i] > 0 ? 1 : -1;
+        if (sign == 0) sign = s; else if (s != sign) return false;
+    }
+    return true;
+}
+
+extern "C" TsValue* ts_temporal_duration_construct(int argc, TsValue** argv) {
+    long long f[10]; bool ok = true;
+    for (int i = 0; i < 10; i++) {
+        f[i] = duration_field((i < argc && argv) ? argv[i] : nullptr, &ok);
+        if (!ok) return ts_value_make_undefined();
+    }
+    if (!duration_same_sign(f)) {
+        ts_throw((TsValue*)ts_error_create_typed("RangeError",
+            "Temporal.Duration: mixed-sign components are not allowed"));
+        return ts_value_make_undefined();
+    }
+    return ts_value_make_object(TsDuration::Create(f[0],f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9]));
+}
+
+extern "C" {
+    void* ts_temporal_get_duration_ctor();
+    TsValue* ts_temporal_duration_from(int argc, TsValue** argv);
+}
+
+static TsDuration* require_duration(void* ctx, const char* method) {
+    if (!ctx) ctx = ts_get_call_this();
+    TsDuration* d = as_duration(ts_nanbox_safe_unbox(ctx));
+    if (!d) {
+        std::string msg = std::string("Temporal.Duration.prototype.") + method +
+            " called on an object that is not a Temporal.Duration";
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg.c_str()));
+    }
+    return d;
+}
+
+// ISO-8601 duration string. Sign prefix; PnYnMnWnD then T nH nM nS (seconds
+// carries a decimal fraction from ms/us/ns). All-zero -> "PT0S".
+static TsString* duration_iso_string(TsDuration* d) {
+    int sign = d->Sign();
+    std::string out;
+    if (sign < 0) out += "-";
+    out += "P";
+    auto u = [](long long v) -> long long { return v < 0 ? -v : v; };
+    char b[32];
+    if (d->years)  { snprintf(b,sizeof(b),"%lldY",u(d->years));  out += b; }
+    if (d->months) { snprintf(b,sizeof(b),"%lldM",u(d->months)); out += b; }
+    if (d->weeks)  { snprintf(b,sizeof(b),"%lldW",u(d->weeks));  out += b; }
+    if (d->days)   { snprintf(b,sizeof(b),"%lldD",u(d->days));   out += b; }
+    bool anyTime = d->hours||d->minutes||d->seconds||d->milliseconds||d->microseconds||d->nanoseconds;
+    if (anyTime) {
+        out += "T";
+        if (d->hours)   { snprintf(b,sizeof(b),"%lldH",u(d->hours));   out += b; }
+        if (d->minutes) { snprintf(b,sizeof(b),"%lldM",u(d->minutes)); out += b; }
+        long long frac = u(d->milliseconds)*1000000LL + u(d->microseconds)*1000LL + u(d->nanoseconds);
+        if (d->seconds || frac) {
+            snprintf(b,sizeof(b),"%lld",u(d->seconds)); out += b;
+            if (frac) {
+                char fb[16]; snprintf(fb,sizeof(fb),"%09lld",frac);
+                int len = 9; while (len>1 && fb[len-1]=='0') len--;
+                out += "."; out.append(fb, len);
+            }
+            out += "S";
+        }
+    }
+    if (out == "P" || out == "-P") out += "T0S";
+    return TsString::Create(out.c_str());
+}
+
+extern "C" {
+
+TsValue* ts_temporal_duration_toString_native(void* ctx, int argc, TsValue** argv) {
+    TsDuration* d = require_duration(ctx, "toString");
+    return ts_value_make_string(duration_iso_string(d));
+}
+
+TsValue* ts_temporal_duration_valueOf_native(void* ctx, int argc, TsValue** argv) {
+    (void)ctx;
+    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+        "Called valueOf on a Temporal.Duration; use compare() instead"));
+    return ts_value_make_undefined();
+}
+
+TsValue* ts_temporal_duration_negated_native(void* ctx, int argc, TsValue** argv) {
+    TsDuration* d = require_duration(ctx, "negated");
+    return ts_value_make_object(TsDuration::Create(-d->years,-d->months,-d->weeks,-d->days,-d->hours,
+        -d->minutes,-d->seconds,-d->milliseconds,-d->microseconds,-d->nanoseconds));
+}
+
+TsValue* ts_temporal_duration_abs_native(void* ctx, int argc, TsValue** argv) {
+    TsDuration* d = require_duration(ctx, "abs");
+    auto a = [](long long v){ return v<0?-v:v; };
+    return ts_value_make_object(TsDuration::Create(a(d->years),a(d->months),a(d->weeks),a(d->days),
+        a(d->hours),a(d->minutes),a(d->seconds),a(d->milliseconds),a(d->microseconds),a(d->nanoseconds)));
+}
+
+TsValue* ts_temporal_duration_with_native(void* ctx, int argc, TsValue** argv) {
+    TsDuration* d = require_duration(ctx, "with");
+    TsValue* arg = (argc>=1&&argv)?argv[0]:nullptr;
+    void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
+    if (!raw || *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError",
+            "Temporal.Duration.prototype.with: argument must be a plain object"));
+        return ts_value_make_undefined();
+    }
+    static const char* names[10] = {"years","months","weeks","days","hours","minutes","seconds","milliseconds","microseconds","nanoseconds"};
+    long long cur[10] = {d->years,d->months,d->weeks,d->days,d->hours,d->minutes,d->seconds,d->milliseconds,d->microseconds,d->nanoseconds};
+    bool any=false, ok=true;
+    for (int i=0;i<10;i++){
+        TsValue* f = ts_object_get_property(raw, names[i]);
+        if (f && !ts_value_is_undefined(f)) { any=true; cur[i]=duration_field(f,&ok); if(!ok) return ts_value_make_undefined(); }
+    }
+    if (!any) { ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
+    if (!duration_same_sign(cur)) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.with: mixed signs")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsDuration::Create(cur[0],cur[1],cur[2],cur[3],cur[4],cur[5],cur[6],cur[7],cur[8],cur[9]));
+}
+
+TsValue* ts_temporal_duration_from_native(void* ctx, int argc, TsValue** argv) {
+    (void)ctx; return ts_temporal_duration_from(argc, argv);
+}
+
+} // extern "C"
+
+// Parse an ISO-8601 duration. Returns false on malformed input.
+static bool parse_iso_duration(const char* s, long long* f) {
+    for (int i=0;i<10;i++) f[i]=0;
+    const char* p = s;
+    int sign = 1;
+    if (*p=='+'||*p=='-') { if(*p=='-') sign=-1; p++; }
+    if (*p!='P'&&*p!='p') return false;
+    p++;
+    bool inTime=false, anyField=false;
+    while (*p) {
+        if (*p=='T'||*p=='t') { inTime=true; p++; continue; }
+        if (!isdigit((unsigned char)*p)) return false;
+        long long val=0; while(isdigit((unsigned char)*p)){ val=val*10+(*p-'0'); p++; }
+        long long fracNs=0; bool hasFrac=false;
+        if (*p=='.'||*p==',') { hasFrac=true; p++; char fb[10]="000000000"; int i=0; while(i<9&&isdigit((unsigned char)*p)){fb[i++]=*p++;} while(isdigit((unsigned char)*p))p++; fracNs=atol(fb); }
+        char unit=*p; if(!unit) return false; p++;
+        anyField=true;
+        if (!inTime) {
+            if (hasFrac) return false;
+            switch(unit){ case 'Y':case 'y':f[0]=sign*val;break; case 'M':case 'm':f[1]=sign*val;break;
+                case 'W':case 'w':f[2]=sign*val;break; case 'D':case 'd':f[3]=sign*val;break; default:return false; }
+        } else {
+            switch(unit){
+                case 'H':case 'h': f[4]=sign*val; break;
+                case 'M':case 'm': f[5]=sign*val; break;
+                case 'S':case 's':
+                    f[6]=sign*val;
+                    if (fracNs){ f[7]=sign*(fracNs/1000000); f[8]=sign*((fracNs/1000)%1000); f[9]=sign*(fracNs%1000); }
+                    break;
+                default: return false;
+            }
+        }
+    }
+    return anyField;
+}
+
+extern "C" TsValue* ts_temporal_duration_from(int argc, TsValue** argv) {
+    TsValue* item = (argc>=1&&argv)?argv[0]:nullptr;
+    if (!item || ts_value_is_undefined(item)) {
+        ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.from: argument is undefined"));
+        return ts_value_make_undefined();
+    }
+    void* raw = ts_nanbox_safe_unbox(item);
+    if (raw) {
+        uint32_t m0 = *(uint32_t*)raw;
+        if (m0==0x53545247 || m0==0x434F4E53) {
+            const char* utf = ((TsString*)ts_value_get_string(item))->ToUtf8();
+            long long f[10];
+            if (!utf || !parse_iso_duration(utf, f)) {
+                ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: invalid ISO duration string"));
+                return ts_value_make_undefined();
+            }
+            return ts_value_make_object(TsDuration::Create(f[0],f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9]));
+        }
+        if (*(uint32_t*)((char*)raw+16)==TsDuration::MAGIC) {
+            TsDuration* o = (TsDuration*)raw;
+            return ts_value_make_object(TsDuration::Create(o->years,o->months,o->weeks,o->days,o->hours,o->minutes,o->seconds,o->milliseconds,o->microseconds,o->nanoseconds));
+        }
+        static const char* names[10] = {"years","months","weeks","days","hours","minutes","seconds","milliseconds","microseconds","nanoseconds"};
+        long long f[10]={0,0,0,0,0,0,0,0,0,0}; bool any=false, ok=true;
+        for (int i=0;i<10;i++){ TsValue* x=ts_object_get_property(raw,names[i]); if(x&&!ts_value_is_undefined(x)){any=true; f[i]=duration_field(x,&ok); if(!ok) return ts_value_make_undefined();} }
+        if (!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.from: object has no recognized duration fields")); return ts_value_make_undefined(); }
+        if (!duration_same_sign(f)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: mixed signs")); return ts_value_make_undefined(); }
+        return ts_value_make_object(TsDuration::Create(f[0],f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9]));
+    }
+    ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.from: invalid argument"));
+    return ts_value_make_undefined();
+}

@@ -765,6 +765,7 @@ struct BuiltinInstanceCheck {
     void* (*get_global)();
 };
 extern "C" void* ts_temporal_get_plaintime_ctor();  // TsTemporal.h
+extern "C" void* ts_temporal_get_duration_ctor();   // TsTemporal.h
 static const BuiltinInstanceCheck g_builtin_checks[] = {
     { 0x44415445, 0,  ts_get_global_Date    },   // TsDate     "DATE"
     { 0x52454758, 0,  ts_get_global_RegExp  },   // TsRegExp   "REGX"
@@ -773,6 +774,7 @@ static const BuiltinInstanceCheck g_builtin_checks[] = {
     { 0x574D4150, 16, ts_get_global_WeakMap },   // TsWeakMap  "WMAP"
     { 0x57534554, 16, ts_get_global_WeakSet },   // TsWeakSet  "WSET"
     { 0x504C5449, 16, ts_temporal_get_plaintime_ctor }, // TsPlainTime "PLTI"
+    { 0x54445552, 16, ts_temporal_get_duration_ctor },  // TsDuration "TDUR"
 };
 } // namespace
 

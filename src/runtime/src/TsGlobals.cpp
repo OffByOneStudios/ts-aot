@@ -2599,6 +2599,32 @@ extern "C" {
     TsValue* ts_temporal_plaintime_equals_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaintime_compare_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaintime_from_native(void* ctx, int argc, TsValue** argv);
+    // Duration natives (TsTemporal.cpp)
+    TsValue* ts_temporal_duration_toString_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_duration_valueOf_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_duration_negated_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_duration_abs_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_duration_with_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_duration_from_native(void* ctx, int argc, TsValue** argv);
+}
+static void* g_temporal_duration_ctor = nullptr;  // GC-rooted in ts_get_global_Temporal
+// Brand-checked Duration.prototype accessor reader (10 fields + sign + blank).
+static TsValue* temporal_duration_field(void* ctx, int which, const char* getter) {
+    if (!ctx) ctx = ts_get_call_this();
+    void* raw = ts_nanbox_safe_unbox(ctx);
+    TsDuration* d = nullptr;
+    if (raw) { uint32_t m0=*(uint32_t*)raw;
+        if (m0!=0x53545247 && m0!=0x434F4E53 && *(uint32_t*)((char*)raw+16)==TsDuration::MAGIC) d=(TsDuration*)raw; }
+    if (!d) {
+        std::string msg = std::string("get Temporal.Duration.prototype.") + getter +
+            " called on an object that is not a Temporal.Duration";
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg.c_str()));
+        return ts_value_make_undefined();
+    }
+    long long v[10] = {d->years,d->months,d->weeks,d->days,d->hours,d->minutes,d->seconds,d->milliseconds,d->microseconds,d->nanoseconds};
+    if (which >= 0 && which < 10) return ts_value_make_int(v[which]);
+    if (which == 10) return ts_value_make_int(d->Sign());
+    return ts_value_make_bool(d->Sign()==0);
 }
 // Brand-checked reader for Temporal.PlainTime.prototype accessors: per spec each
 // getter does thisTemporalTime(this) — if `this` isn't a PlainTime, TypeError.
@@ -2670,8 +2696,44 @@ void* ts_get_global_Temporal() {
         TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("PlainTime");
         TsValue cv; cv.type = ValueType::FUNCTION_PTR; cv.ptr_val = ptFn;
         cached->Set(ck, cv);
+
+        // ---- Temporal.Duration ----
+        TsMap* duCtor = makeSimpleConstructorGlobal("Duration");
+        TsValue duProtoT = duCtor->Get(protoKey);
+        TsMap* duProto = (TsMap*)duProtoT.ptr_val;
+        setProtoStringTag(duProto, "Temporal.Duration");
+        addAccessorGetter(duProto, "years", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,0,"years"); });
+        addAccessorGetter(duProto, "months", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,1,"months"); });
+        addAccessorGetter(duProto, "weeks", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,2,"weeks"); });
+        addAccessorGetter(duProto, "days", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,3,"days"); });
+        addAccessorGetter(duProto, "hours", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,4,"hours"); });
+        addAccessorGetter(duProto, "minutes", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,5,"minutes"); });
+        addAccessorGetter(duProto, "seconds", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,6,"seconds"); });
+        addAccessorGetter(duProto, "milliseconds", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,7,"milliseconds"); });
+        addAccessorGetter(duProto, "microseconds", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,8,"microseconds"); });
+        addAccessorGetter(duProto, "nanoseconds", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,9,"nanoseconds"); });
+        addAccessorGetter(duProto, "sign", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,10,"sign"); });
+        addAccessorGetter(duProto, "blank", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,11,"blank"); });
+        addMethod(duProto, "toString", (void*)ts_temporal_duration_toString_native, 0);
+        addMethod(duProto, "toJSON",   (void*)ts_temporal_duration_toString_native, 0);
+        addMethod(duProto, "valueOf",  (void*)ts_temporal_duration_valueOf_native, 0);
+        addMethod(duProto, "negated",  (void*)ts_temporal_duration_negated_native, 0);
+        addMethod(duProto, "abs",      (void*)ts_temporal_duration_abs_native, 0);
+        addMethod(duProto, "with",     (void*)ts_temporal_duration_with_native, 1);
+        void* duFn = wrapAsCallable(duCtor, "Duration", 0);
+        g_temporal_duration_ctor = duFn;
+        ts_gc_register_root(&g_temporal_duration_ctor);
+        addMethod(duCtor, "from", (void*)ts_temporal_duration_from_native, 1);
+        TsValue dck; dck.type = ValueType::STRING_PTR; dck.ptr_val = TsString::GetInterned("Duration");
+        TsValue dcv; dcv.type = ValueType::FUNCTION_PTR; dcv.ptr_val = duFn;
+        cached->Set(dck, dcv);
     }
     return cached;
+}
+
+void* ts_temporal_get_duration_ctor() {
+    ts_get_global_Temporal();
+    return g_temporal_duration_ctor;
 }
 
 // The cached Temporal.PlainTime constructor function, for the new-dispatch
