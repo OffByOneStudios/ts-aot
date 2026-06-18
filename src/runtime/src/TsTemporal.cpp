@@ -1676,10 +1676,13 @@ static void add_iso_date(int y,int m,int d, long long years,long long months,lon
     iso_civil_from_days(civil, Y, M, D);
 }
 static std::string read_string_option(TsValue* opts, const char* key, const char* def){
-    if(!opts) return def;
+    // ECMA-262 GetOptionsObject: undefined -> defaults; an object -> use it;
+    // anything else (a primitive: string/number/boolean/null) -> TypeError.
+    if(!opts || ts_value_is_undefined(opts)) return def;
     void* raw = ts_nanbox_safe_unbox(opts);
-    if(!raw) return def;
-    uint32_t m0=*(uint32_t*)raw; if(m0==0x53545247||m0==0x434F4E53) return def;
+    if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
+    uint32_t m0=*(uint32_t*)raw;
+    if(m0==0x53545247||m0==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
     TsValue* v = ts_object_get_property(raw, key);
     std::string s;
     if(v && !ts_value_is_undefined(v) && tsvalue_to_stdstring(v,&s)){ if(s=="auto") return def; return s; }
