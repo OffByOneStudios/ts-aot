@@ -1587,3 +1587,74 @@ TsValue* ts_temporal_zdt_toPlainDateTime_native(void* ctx,int argc,TsValue** arg
 TsValue* ts_temporal_zdt_toPlainDate_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"toPlainDate"); int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns); return ts_value_make_object(TsPlainDate::Create(Y,M,D)); }
 TsValue* ts_temporal_zdt_toPlainTime_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"toPlainTime"); int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns); return ts_value_make_object(TsPlainTime::Create(h,mi,s,ms,us,ns)); }
 }
+
+// ======================= Arithmetic: PlainTime =======================
+static long long pt_to_ns(TsPlainTime* p){
+    return ((((long long)p->iso_hour*60 + p->iso_minute)*60 + p->iso_second)*1000000000LL)
+        + (long long)p->iso_millisecond*1000000LL + (long long)p->iso_microsecond*1000LL + p->iso_nanosecond;
+}
+static TsValue* pt_from_ns(long long ns){
+    int h=(int)(ns/3600000000000LL); ns%=3600000000000LL;
+    int mi=(int)(ns/60000000000LL); ns%=60000000000LL;
+    int s=(int)(ns/1000000000LL); ns%=1000000000LL;
+    int ms=(int)(ns/1000000LL); ns%=1000000LL;
+    int us=(int)(ns/1000LL); int nn=(int)(ns%1000LL);
+    return ts_value_make_object(TsPlainTime::Create(h,mi,s,ms,us,nn));
+}
+static TsDuration* coerce_duration_arg(TsValue* v){
+    TsDuration* d = as_duration(v?ts_nanbox_safe_unbox(v):nullptr);
+    if(d) return d;
+    TsValue* c = ts_temporal_duration_from(v?1:0,&v);
+    return as_duration(ts_nanbox_safe_unbox(c));
+}
+// Add a duration's time components to a time (mod 24h). Each component reduced
+// mod its day-cycle so the sum stays within int64.
+static long long add_time_ns(long long base, TsDuration* d, int sign){
+    const long long DAY=86400000000000LL;
+    long long ns = base;
+    ns += sign * (d->hours % 24) * 3600000000000LL;
+    ns += sign * (d->minutes % 1440) * 60000000000LL;
+    ns += sign * (d->seconds % 86400) * 1000000000LL;
+    ns += sign * (d->milliseconds % 86400000LL) * 1000000LL;
+    ns += sign * (d->microseconds % 86400000000LL) * 1000LL;
+    ns += sign * (d->nanoseconds % DAY);
+    ns = ((ns % DAY) + DAY) % DAY;
+    return ns;
+}
+static TsValue* duration_from_time_ns(long long diff){
+    int sign = diff<0?-1:1; long long ad = diff<0?-diff:diff;
+    long long h=ad/3600000000000LL; ad%=3600000000000LL;
+    long long mi=ad/60000000000LL; ad%=60000000000LL;
+    long long s=ad/1000000000LL; ad%=1000000000LL;
+    long long ms=ad/1000000LL; ad%=1000000LL;
+    long long us=ad/1000LL; long long nn=ad%1000LL;
+    return ts_value_make_object(TsDuration::Create(0,0,0,0, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn));
+}
+static TsPlainTime* coerce_plaintime_arg(TsValue* v){
+    TsPlainTime* p = as_plaintime(v?ts_nanbox_safe_unbox(v):nullptr);
+    if(p) return p;
+    TsValue* c = ts_temporal_plaintime_from(v?1:0,&v);
+    return as_plaintime(ts_nanbox_safe_unbox(c));
+}
+extern "C" {
+TsValue* ts_temporal_plaintime_add_native(void* ctx,int argc,TsValue** argv){
+    TsPlainTime* pt=require_plaintime(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainTime.prototype.add: invalid duration")); return ts_value_make_undefined(); }
+    return pt_from_ns(add_time_ns(pt_to_ns(pt),d,1));
+}
+TsValue* ts_temporal_plaintime_subtract_native(void* ctx,int argc,TsValue** argv){
+    TsPlainTime* pt=require_plaintime(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainTime.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
+    return pt_from_ns(add_time_ns(pt_to_ns(pt),d,-1));
+}
+TsValue* ts_temporal_plaintime_until_native(void* ctx,int argc,TsValue** argv){
+    TsPlainTime* a=require_plaintime(ctx,"until"); TsPlainTime* b=coerce_plaintime_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainTime.prototype.until: invalid argument")); return ts_value_make_undefined(); }
+    return duration_from_time_ns(pt_to_ns(b) - pt_to_ns(a));
+}
+TsValue* ts_temporal_plaintime_since_native(void* ctx,int argc,TsValue** argv){
+    TsPlainTime* a=require_plaintime(ctx,"since"); TsPlainTime* b=coerce_plaintime_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainTime.prototype.since: invalid argument")); return ts_value_make_undefined(); }
+    return duration_from_time_ns(pt_to_ns(a) - pt_to_ns(b));
+}
+}

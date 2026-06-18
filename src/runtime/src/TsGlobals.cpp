@@ -2599,6 +2599,10 @@ extern "C" {
     TsValue* ts_temporal_plaintime_equals_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaintime_compare_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_plaintime_from_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaintime_add_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaintime_subtract_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaintime_until_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_plaintime_since_native(void* ctx, int argc, TsValue** argv);
     // Duration natives (TsTemporal.cpp)
     TsValue* ts_temporal_duration_toString_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_duration_valueOf_native(void* ctx, int argc, TsValue** argv);
@@ -2866,6 +2870,10 @@ void* ts_get_global_Temporal() {
         addMethod(ptProto, "valueOf",        (void*)ts_temporal_plaintime_valueOf_native, 0);
         addMethod(ptProto, "with",           (void*)ts_temporal_plaintime_with_native, 1);
         addMethod(ptProto, "round",          (void*)ts_temporal_plaintime_round_native, 1);
+        addMethod(ptProto, "add",            (void*)ts_temporal_plaintime_add_native, 1);
+        addMethod(ptProto, "subtract",       (void*)ts_temporal_plaintime_subtract_native, 1);
+        addMethod(ptProto, "until",          (void*)ts_temporal_plaintime_until_native, 1);
+        addMethod(ptProto, "since",          (void*)ts_temporal_plaintime_since_native, 1);
         addMethod(ptProto, "equals",         (void*)ts_temporal_plaintime_equals_native, 1);
         void* ptFn = wrapAsCallable(ptCtor, "PlainTime", 0);
         // Static methods on the constructor.
