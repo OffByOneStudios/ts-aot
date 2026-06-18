@@ -174,9 +174,12 @@ private:
             if (v->getType()->isIntegerTy(64)) return v;
             if (v->getType()->isDoubleTy()) return builder.CreateFPToSI(v, builder.getInt64Ty());
             if (v->getType()->isPointerTy()) {
+                // A boxed start/deleteCount: route through ToIntegerOrInfinity
+                // (ts_to_index_integer) so a Symbol/BigInt/throwing-valueOf
+                // index throws TypeError instead of being silently unboxed.
                 auto ft = llvm::FunctionType::get(
                     builder.getInt64Ty(), { builder.getPtrTy() }, false);
-                auto fn = module.getOrInsertFunction("ts_value_get_int", ft);
+                auto fn = module.getOrInsertFunction("ts_to_index_integer", ft);
                 return builder.CreateCall(ft, fn.getCallee(), { v });
             }
             return builder.CreateSExtOrTrunc(v, builder.getInt64Ty());
@@ -329,11 +332,13 @@ private:
                         }
                     }
                 }
-                // Generic boxed-int unbox
+                // Generic boxed index: route through ToIntegerOrInfinity
+                // (ts_to_index_integer) so a Symbol/BigInt/throwing-valueOf
+                // start/end throws TypeError instead of being silently unboxed.
                 llvm::FunctionType* ftU = llvm::FunctionType::get(
                     builder.getInt64Ty(), { builder.getPtrTy() }, false);
                 llvm::FunctionCallee fnU = module.getOrInsertFunction(
-                    "ts_value_get_int", ftU);
+                    "ts_to_index_integer", ftU);
                 return builder.CreateCall(ftU, fnU.getCallee(), { v });
             }
             return v;

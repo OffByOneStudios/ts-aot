@@ -34,6 +34,11 @@ extern "C" {
     double ts_to_number(TsValue* v);  // defined in Primitives.cpp
     // ToInteger for an index arg: throws TypeError on Symbol/BigInt (Primitives.cpp).
     int64_t ts_to_index_integer(TsValue* v);
+    // Like ts_to_index_integer but returns INT64_MIN for an omitted (null) or
+    // undefined argument so the "argument not provided" default path is kept.
+    int64_t ts_to_index_integer_or_sentinel(TsValue* v);
+    // ToNumber for a fromIndex arg (throws on Symbol/BigInt), preserving +/-Inf.
+    double ts_to_index_number_or(TsValue* v, double deflt);
 }
 
 extern "C" void ts_array_prototype_bump_version() {
@@ -2867,6 +2872,38 @@ extern "C" {
     void* ts_array_at_coerced(void* arr, TsValue* index) {
         int64_t i = ts_to_index_integer(index);  // may throw
         return ts_array_at(arr, i);
+    }
+
+    // Compiler fast-path entries for fill/copyWithin: coerce the still-boxed
+    // index/count arguments via ToIntegerOrInfinity (throws TypeError on a
+    // Symbol/BigInt/throwing-valueOf argument) BEFORE delegating to the bare
+    // i64 implementation. An omitted optional arg arrives as null and maps to
+    // the INT64_MIN "not provided" sentinel the implementations already honor.
+    // The fill VALUE argument is left boxed (it is not an index).
+    void* ts_array_fill_coerced(void* arr, void* value, TsValue* start, TsValue* end) {
+        int64_t s = ts_to_index_integer_or_sentinel(start);  // may throw
+        int64_t e = ts_to_index_integer_or_sentinel(end);    // may throw
+        return ts_array_fill(arr, value, s, e);
+    }
+    void* ts_array_copyWithin_coerced(void* arr, TsValue* target,
+                                      TsValue* start, TsValue* end) {
+        int64_t t = ts_to_index_integer_or_sentinel(target);  // may throw
+        int64_t s = ts_to_index_integer_or_sentinel(start);   // may throw
+        int64_t e = ts_to_index_integer_or_sentinel(end);     // may throw
+        return ts_array_copyWithin(arr, t, s, e);
+    }
+
+    // Compiler fast-path entries for indexOf/lastIndexOf with a fromIndex:
+    // coerce the still-boxed fromIndex via ToNumber (throws on Symbol/BigInt)
+    // while preserving +/-Infinity. The search VALUE is left as the raw bit
+    // pattern (its own comparison path handles coercion).
+    int64_t ts_array_indexOf_from_coerced(void* arr, int64_t value, TsValue* fromIndex) {
+        double fi = ts_to_index_number_or(fromIndex, 0.0);  // may throw
+        return ts_array_indexOf_from(arr, value, fi);
+    }
+    int64_t ts_array_lastIndexOf_from_coerced(void* arr, int64_t value, TsValue* fromIndex) {
+        double fi = ts_to_index_number_or(fromIndex, 0.0);  // may throw
+        return ts_array_lastIndexOf_from(arr, value, fi);
     }
 
     // Forward decl for non-TsArray receiver fallback (plain objects,

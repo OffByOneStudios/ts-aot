@@ -691,11 +691,11 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_array_indexOf_from",
-        lowering("ts_array_indexOf_from")
+        lowering("ts_array_indexOf_from_coerced")
             .returnsI64()
             .ptrArg()      // array
             .boxedArg()    // value
-            .f64Arg(ArgConversion::ToF64)  // fromIndex (double to preserve Infinity)
+            .boxedArg()    // fromIndex - ToNumber in runtime (throws on Symbol/BigInt)
             .build());
 
     reg.registerLowering("ts_array_lastIndexOf",
@@ -706,11 +706,11 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_array_lastIndexOf_from",
-        lowering("ts_array_lastIndexOf_from")
+        lowering("ts_array_lastIndexOf_from_coerced")
             .returnsI64()
             .ptrArg()      // array
             .boxedArg()    // value
-            .f64Arg(ArgConversion::ToF64)  // fromIndex (double to preserve Infinity)
+            .boxedArg()    // fromIndex - ToNumber in runtime (throws on Symbol/BigInt)
             .build());
 
     reg.registerLowering("ts_array_find",
@@ -817,21 +817,21 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_array_fill",
-        lowering("ts_array_fill")
+        lowering("ts_array_fill_coerced")
             .returnsPtr()
             .ptrArg()      // array
             .boxedArg()    // value
-            .i64Arg(ArgConversion::ToI64)      // start (convert f64 to i64)
-            .i64Arg(ArgConversion::ToI64)      // end (convert f64 to i64)
+            .boxedArg()    // start - ToInteger in runtime (throws on Symbol/BigInt)
+            .boxedArg()    // end   - ToInteger in runtime (throws on Symbol/BigInt)
             .build());
 
     reg.registerLowering("ts_array_copyWithin",
-        lowering("ts_array_copyWithin")
+        lowering("ts_array_copyWithin_coerced")
             .returnsPtr()
             .ptrArg()      // array
-            .i64Arg()      // target
-            .i64Arg()      // start
-            .i64Arg()      // end
+            .boxedArg()    // target - ToInteger in runtime (throws on Symbol/BigInt)
+            .boxedArg()    // start  - ToInteger in runtime (throws on Symbol/BigInt)
+            .boxedArg()    // end    - ToInteger in runtime (throws on Symbol/BigInt)
             .build());
 
     reg.registerLowering("ts_array_sort",
@@ -968,11 +968,11 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_indexOf_from",
-        lowering("ts_string_indexOf_from")
+        lowering("ts_string_indexOf_from_coerced")
             .returnsI64()
             .ptrArg()      // string
             .ptrArg()      // searchString
-            .i64Arg()      // startPos
+            .boxedArg()    // startPos - ToInteger in runtime (throws on Symbol/BigInt)
             .build());
 
     // Workaround: ts_path_indexOf is generated when a variable named 'path'
@@ -993,11 +993,11 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .build());
 
     reg.registerLowering("ts_string_slice",
-        lowering("ts_string_slice")
+        lowering("ts_string_slice_coerced")
             .returnsPtr()
             .ptrArg()      // string
-            .i64Arg()      // start
-            .i64Arg()      // end
+            .boxedArg()    // start - ToInteger in runtime (throws on Symbol/BigInt)
+            .boxedArg()    // end   - ToInteger in runtime (throws on Symbol/BigInt)
             .build());
 
     reg.registerLowering("ts_string_substring",

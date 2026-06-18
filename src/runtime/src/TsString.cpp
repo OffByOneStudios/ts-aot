@@ -1182,6 +1182,9 @@ bool TsString::Equals(TsString* other) {
 extern "C" {
     // ToInteger for an index arg: throws TypeError on Symbol/BigInt (Primitives.cpp).
     int64_t ts_to_index_integer(TsValue* v);
+    // Like ts_to_index_integer but returns INT64_MIN for an omitted (null) or
+    // undefined argument so the "argument not provided" default path is kept.
+    int64_t ts_to_index_integer_or_sentinel(TsValue* v);
 
     void* ts_int_to_string(int64_t value, int64_t radix) {
         if (radix == 10) {
@@ -1744,6 +1747,23 @@ extern "C" {
             return startPos > len ? len : startPos;
         }
         return s->IndexOf(search, startPos);
+    }
+
+    // Compiler fast-path entries for `str.slice(start, end)` /
+    // `str.indexOf(search, pos)`: coerce the still-boxed numeric index/position
+    // arguments via ToIntegerOrInfinity (throws TypeError on a Symbol/BigInt/
+    // throwing-valueOf argument) BEFORE delegating to the bare i64 entry. An
+    // omitted optional arg arrives as null and maps to the INT64_MIN sentinel
+    // (ts_string_slice treats an INT64_MIN end as "use length").
+    void* ts_string_slice_coerced(void* str, TsValue* start, TsValue* end) {
+        int64_t s = ts_to_index_integer_or_sentinel(start);  // may throw
+        int64_t e = ts_to_index_integer_or_sentinel(end);    // may throw
+        return ts_string_slice(str, s, e);
+    }
+    int64_t ts_string_indexOf_from_coerced(void* str, void* searchString, TsValue* startPos) {
+        // ToIntegerOrInfinity(position); undefined/omitted -> 0 per spec.
+        int64_t p = ts_to_index_integer(startPos);  // may throw
+        return ts_string_indexOf_from(str, searchString, p);
     }
 
     int64_t ts_string_lastIndexOf(void* str, void* searchString) {

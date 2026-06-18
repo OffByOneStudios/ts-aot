@@ -1283,6 +1283,38 @@ int64_t ts_to_index_integer(TsValue* v) {
     return (int64_t)d;  // truncate toward zero
 }
 
+// Like ts_to_index_integer, but preserves the "argument not provided" / undefined
+// sentinel (INT64_MIN) that the array/string index-taking natives rely on for
+// their default-value logic (e.g. fill/copyWithin/slice "use length"). A present
+// Symbol/BigInt/throwing-valueOf index still throws TypeError. Used by the
+// compiler fast-path `_coerced` entry points where an omitted optional argument
+// arrives as a null pointer.
+int64_t ts_to_index_integer_or_sentinel(TsValue* v) {
+    if (!v) return INT64_MIN;  // argument not provided
+    uint64_t nb = nanbox_from_tsvalue_ptr(v);
+    if (nanbox_is_undefined(nb)) return INT64_MIN;  // ToInteger(undefined) -> default
+    return ts_to_index_integer(v);  // may throw on Symbol/BigInt
+}
+
+// ToNumber for an index/position argument that must throw on a Symbol/BigInt/
+// throwing-valueOf value but otherwise returns the raw double so callers that
+// need +/-Infinity semantics (Array indexOf/lastIndexOf fromIndex) keep them.
+// Returns the default when the argument is omitted (null) or undefined.
+double ts_to_index_number_or(TsValue* v, double deflt) {
+    if (!v) return deflt;
+    uint64_t nb = nanbox_from_tsvalue_ptr(v);
+    if (nanbox_is_undefined(nb)) return deflt;
+    if (nanbox_is_ptr(nb)) {
+        void* ptr = nanbox_to_ptr(nb);
+        if (ptr && *(uint32_t*)ptr == 0x42494749) {  // TsBigInt magic
+            ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                "Cannot convert a BigInt value to a number"));
+            return 0;  // unreachable
+        }
+    }
+    return ts_to_number(v);  // throws TypeError on Symbol
+}
+
 // Helper: native function that returns globalThis when called
 static TsValue* ts_return_globalThis_native(void* ctx, int argc, TsValue** argv) {
     extern TsValue* globalThis;

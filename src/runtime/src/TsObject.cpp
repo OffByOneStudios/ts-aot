@@ -1406,7 +1406,8 @@ TsValue* ts_value_make_int(int64_t i) {
         void* search = (argc >= 1 && argv && argv[0]) ? ts_value_get_string(argv[0]) : nullptr;
         if (!search) search = (argc >= 1 && argv) ? (void*)argv[0] : nullptr;
         if (argc >= 2 && argv && argv[1]) {
-            int64_t startPos = ts_value_get_int(argv[1]);
+            // ToIntegerOrInfinity(position): Symbol/BigInt position throws TypeError.
+            int64_t startPos = ts_to_index_integer(argv[1]);
             return ts_value_make_int(ts_string_indexOf_from(str, search, startPos));
         }
         return ts_value_make_int(ts_string_indexOf(str, search));
@@ -1419,8 +1420,9 @@ TsValue* ts_value_make_int(int64_t i) {
     }
     static TsValue* ts_string_slice_native(void* ctx, int argc, TsValue** argv) {
         TsString* str = (TsString*)ctx;
-        int64_t start = (argc >= 1 && argv && argv[0]) ? ts_value_get_int(argv[0]) : 0;
-        int64_t end = (argc >= 2 && argv && argv[1]) ? ts_value_get_int(argv[1]) : ts_string_length(str);
+        // ToIntegerOrInfinity: Symbol/BigInt/throwing-valueOf index throws TypeError.
+        int64_t start = (argc >= 1 && argv && argv[0]) ? ts_to_index_integer(argv[0]) : 0;
+        int64_t end = (argc >= 2 && argv && argv[1]) ? ts_to_index_integer(argv[1]) : ts_string_length(str);
         return ts_value_make_string((TsString*)ts_string_slice(str, start, end));
     }
     // ECMA-262 B.2.3.1 String.prototype.substr(start, length): legacy/annexB.
@@ -2207,10 +2209,8 @@ TsValue* ts_value_make_int(int64_t i) {
         if (!v) return deflt;
         uint64_t nb = nanbox_from_tsvalue_ptr(v);
         if (nanbox_is_undefined(nb)) return deflt;
-        double d = ts_to_number(v);  // throws TypeError on Symbol
-        if (d != d || d == 0) return 0;  // NaN / ±0 → 0
-        if (std::isinf(d)) return d > 0 ? INT64_MAX : INT64_MIN;
-        return (int64_t)d;  // truncate toward zero
+        // ToIntegerOrInfinity: throws TypeError on Symbol AND BigInt (mirrors .at()).
+        return ts_to_index_integer(v);
     }
 
     static int64_t parseFromIndex(int argc, TsValue** argv, int64_t length,
@@ -2218,7 +2218,19 @@ TsValue* ts_value_make_int(int64_t i) {
         if (argc < 2 || !argv || !argv[1]) {
             return isLastIndex ? (length - 1) : 0;
         }
-        // Use ts_to_number so Symbol fromIndex throws TypeError per spec.
+        // ToNumber(fromIndex): throws TypeError on Symbol; a BigInt fromIndex
+        // must also throw (ToNumber(BigInt) is a TypeError per ECMA-262 7.1.4).
+        {
+            uint64_t fnb = nanbox_from_tsvalue_ptr(argv[1]);
+            if (nanbox_is_ptr(fnb)) {
+                void* fptr = nanbox_to_ptr(fnb);
+                if (fptr && *(uint32_t*)fptr == 0x42494749) {  // TsBigInt magic
+                    ts_throw((TsValue*)ts_error_create_typed("TypeError",
+                        "Cannot convert a BigInt value to a number"));
+                    return 0;  // unreachable
+                }
+            }
+        }
         double fd = ts_to_number(argv[1]);
         if (fd != fd) return 0; // NaN -> 0
         if (std::isinf(fd)) {
