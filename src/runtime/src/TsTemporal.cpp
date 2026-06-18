@@ -17,6 +17,10 @@
 
 extern "C" double ts_to_number(TsValue* v);  // Primitives.cpp (throws on Symbol)
 
+// Forward declarations for arithmetic/rounding helpers defined later in the file
+// (so earlier method natives can call them).
+static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest);
+
 TsPlainTime* TsPlainTime::Create(int h, int m, int s, int ms, int us, int ns) {
     void* mem = ts_alloc(sizeof(TsPlainTime));
     TsPlainTime* pt = new (mem) TsPlainTime();
@@ -1650,12 +1654,12 @@ TsValue* ts_temporal_plaintime_subtract_native(void* ctx,int argc,TsValue** argv
 TsValue* ts_temporal_plaintime_until_native(void* ctx,int argc,TsValue** argv){
     TsPlainTime* a=require_plaintime(ctx,"until"); TsPlainTime* b=coerce_plaintime_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainTime.prototype.until: invalid argument")); return ts_value_make_undefined(); }
-    return duration_from_time_ns(pt_to_ns(b) - pt_to_ns(a));
+    return time_diff_with_opts(pt_to_ns(b) - pt_to_ns(a), (argc>=2&&argv)?argv[1]:nullptr, "hour");
 }
 TsValue* ts_temporal_plaintime_since_native(void* ctx,int argc,TsValue** argv){
     TsPlainTime* a=require_plaintime(ctx,"since"); TsPlainTime* b=coerce_plaintime_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainTime.prototype.since: invalid argument")); return ts_value_make_undefined(); }
-    return duration_from_time_ns(pt_to_ns(a) - pt_to_ns(b));
+    return time_diff_with_opts(pt_to_ns(a) - pt_to_ns(b), (argc>=2&&argv)?argv[1]:nullptr, "hour");
 }
 }
 
@@ -2091,4 +2095,30 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
     long long epoch_ms=localMs-(long long)z->offset_minutes*60000LL;
     return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, nus*1000+nns, z->offset_minutes, z->is_utc));
 }
+}
+
+// Time-only difference -> Duration, honoring largestUnit + smallestUnit rounding.
+static TsValue* duration_from_time_opts(long long diff, const std::string& largest, long long smallestNs, const std::string& mode){
+    int sign=diff<0?-1:1; long long ad=diff<0?-diff:diff;
+    if(smallestNs>1) ad = round_nonneg(ad, smallestNs, mode);
+    long long h=0,mi=0,s=0,ms=0,us=0,ns=0; long long rem=ad;
+    std::string L = largest.empty()?"hour":largest;
+    if(L=="hour"||L=="hours"){ h=rem/3600000000000LL; rem%=3600000000000LL; mi=rem/60000000000LL; rem%=60000000000LL; s=rem/1000000000LL; rem%=1000000000LL; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
+    else if(L=="minute"||L=="minutes"){ mi=rem/60000000000LL; rem%=60000000000LL; s=rem/1000000000LL; rem%=1000000000LL; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
+    else if(L=="second"||L=="seconds"){ s=rem/1000000000LL; rem%=1000000000LL; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
+    else if(L=="millisecond"||L=="milliseconds"){ ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
+    else if(L=="microsecond"||L=="microseconds"){ us=rem/1000LL; ns=rem%1000LL; }
+    else if(L=="nanosecond"||L=="nanoseconds"){ ns=rem; }
+    else { h=rem/3600000000000LL; rem%=3600000000000LL; mi=rem/60000000000LL; rem%=60000000000LL; s=rem/1000000000LL; rem%=1000000000LL; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
+    return ts_value_make_object(TsDuration::Create(0,0,0,0, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*ns));
+}
+// Read largestUnit / smallestUnit / roundingMode for a time-diff and produce the Duration.
+static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest){
+    std::string largest = read_string_option(opts, "largestUnit", defLargest);
+    std::string smallest = read_string_option(opts, "smallestUnit", "nanosecond");
+    std::string mode = read_string_option(opts, "roundingMode", "trunc");
+    bool ok; long long sNs = unit_ns(smallest, &ok); if(!ok) sNs=1;
+    long long inc=1; { void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr; if(raw){ uint32_t m0=*(uint32_t*)raw; if(m0!=0x53545247&&m0!=0x434F4E53){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double d=ts_to_number(ri); if(d==d&&!std::isinf(d))inc=(long long)std::trunc(d); } } } }
+    if(inc<1)inc=1;
+    return duration_from_time_opts(diff, largest, sNs*inc, mode);
 }
