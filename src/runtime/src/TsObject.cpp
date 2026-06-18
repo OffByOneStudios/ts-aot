@@ -4071,13 +4071,21 @@ TsValue* ts_value_make_int(int64_t i) {
     // for the ISO calendar but must throw on a non-instance receiver). Data
     // properties (methods) fall through to the ordinary lookup.
     static TsValue* temporal_proto_get(void* obj, void* protoRaw, const char* keyStr) {
-        std::string gk = std::string("__getter_") + keyStr;
-        TsValue keyv; keyv.type = ValueType::STRING_PTR; keyv.ptr_val = TsString::GetInterned(gk.c_str());
-        TsValue gv = ((TsMap*)protoRaw)->Get(keyv);
-        if (gv.type == ValueType::FUNCTION_PTR && gv.ptr_val) {
-            return ts_function_call_with_this((TsValue*)gv.ptr_val, ts_value_make_object(obj), 0, nullptr);
+        // Only divert to an accessor getter if the prototype (a TsMap) actually
+        // HAS a __getter_<key> slot — Get() on a missing key returns an
+        // unspecified TsValue, and methods have no __getter_ slot.
+        if (protoRaw && *(uint32_t*)((char*)protoRaw + 16) == 0x4D415053) {  // TsMap MAGIC
+            TsMap* pm = (TsMap*)protoRaw;
+            std::string gk = std::string("__getter_") + keyStr;
+            TsValue keyv; keyv.type = ValueType::STRING_PTR; keyv.ptr_val = TsString::GetInterned(gk.c_str());
+            if (pm->Has(keyv)) {
+                TsValue gv = pm->Get(keyv);
+                if (gv.ptr_val && (gv.type == ValueType::FUNCTION_PTR || gv.type == ValueType::OBJECT_PTR)) {
+                    return ts_function_call_with_this((TsValue*)gv.ptr_val, ts_value_make_object(obj), 0, nullptr);
+                }
+            }
         }
-        return temporal_proto_get(obj, protoRaw, keyStr);
+        return ts_object_get_property(protoRaw, keyStr);  // method / data property
     }
 
     TsValue* ts_object_get_property(void* obj, const char* keyStr) {
