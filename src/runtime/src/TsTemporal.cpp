@@ -859,6 +859,8 @@ static bool parse_iso_date(const char* s, int* Y, int* M, int* D) {
     int y=0, nd=0;
     while (isdigit((unsigned char)*p)) { y=y*10+(*p-'0'); p++; nd++; }
     if (nd < 4) return false;
+    // ECMA-262: a minus-signed extended year of zero ("-000000") is invalid.
+    if (sign<0 && y==0) return false;
     if (*p=='-') p++;
     if (!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false;
     int mo=(p[0]-'0')*10+(p[1]-'0'); p+=2;
