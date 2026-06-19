@@ -2356,7 +2356,18 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
                  TsValue* rm=ts_object_get_property(raw,"roundingMode"); std::string m; if(rm&&!ts_value_is_undefined(rm)&&tsvalue_to_stdstring(rm,&m))mode=m; }
     }
     auto isCal=[](const std::string&u){ return u=="year"||u=="years"||u=="month"||u=="months"||u=="week"||u=="weeks"; };
-    if(d->years||d->months||d->weeks||isCal(sUnit)||isCal(lUnit)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
+    bool calInvolved = d->years||d->months||d->weeks||isCal(sUnit)||isCal(lUnit);
+    if(calInvolved){
+        TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
+        TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_plaindate_arg(relTo) : nullptr;
+        if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
+        std::string L=lUnit;
+        if(L=="auto"){ if(d->years)L="year"; else if(d->months)L="month"; else if(d->weeks)L="week"; else L="day"; if(date_unit_rank(L)<date_unit_rank(sUnit))L=sUnit; }
+        long long extraDays=(d->hours*3600000000000LL+d->minutes*60000000000LL+d->seconds*1000000000LL+d->milliseconds*1000000LL+d->microseconds*1000LL+d->nanoseconds)/86400000000000LL;
+        int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+extraDays, &ey,&em,&ed);
+        long long yr,mo,wk,dy; round_date_duration(rd->iso_year,rd->iso_month,rd->iso_day, ey,em,ed, sUnit, L, inc, mode, &yr,&mo,&wk,&dy);
+        return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+    }
     bool ok; long long sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
     long long tot = d->days*86400000000000LL + d->hours*3600000000000LL + d->minutes*60000000000LL
         + d->seconds*1000000000LL + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
