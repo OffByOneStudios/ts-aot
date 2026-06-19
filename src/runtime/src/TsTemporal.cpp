@@ -1782,18 +1782,34 @@ static TsString* zdt_iso_string(TsZonedDateTime* z){
     return TsString::Create(buf);
 }
 extern "C" {
+static TsZonedDateTime* coerce_zdt_arg(TsValue* v);  // defined later in this block
 TsValue* ts_temporal_zdt_epochNs_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"epochNanoseconds"); TsValue v=z->GetPropertyVirtual("epochNanoseconds"); return (TsValue*)v.ptr_val; }
 TsValue* ts_temporal_zdt_epochMicros_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"epochMicroseconds"); TsValue v=z->GetPropertyVirtual("epochMicroseconds"); return (TsValue*)v.ptr_val; }
-TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){ return append_cal_annotation(zdt_iso_string(require_zoneddatetime(ctx,"toString")), (argc>=1&&argv)?argv[0]:nullptr); }
+TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"toString");
+    TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(zdt_iso_string(z));
+    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
+    std::string out=db; out+="T"; out+=format_time_opts(h,mi,s,ms,us,ns,opts);
+    char ob[8]; zdt_offset_string(z->offset_minutes,ob,sizeof(ob));
+    std::string offMode=read_string_option(opts,"offset","auto");
+    if(offMode!="never") out+=ob;
+    std::string tzn=read_string_option(opts,"timeZoneName","auto");
+    if(tzn!="never"){ out+="["; out+= z->is_utc?"UTC":ob; out+="]"; }
+    std::string cal=read_string_option(opts,"calendarName","auto");
+    if(cal=="always"||cal=="critical") out += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";
+    return ts_value_make_string(TsString::Create(out.c_str()));
+}
 TsValue* ts_temporal_zdt_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.ZonedDateTime; use compare() or equals() instead")); return ts_value_make_undefined(); }
 TsValue* ts_temporal_zdt_equals_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* a=require_zoneddatetime(ctx,"equals"); TsValue* o=(argc>=1&&argv)?argv[0]:nullptr;
-    TsZonedDateTime* b=as_zoneddatetime(o?ts_nanbox_safe_unbox(o):nullptr); if(!b) return ts_value_make_bool(false);
+    TsZonedDateTime* b=coerce_zdt_arg(o); if(!b) return ts_value_make_bool(false);
     return ts_value_make_bool(a->epoch_ms==b->epoch_ms&&a->sub_ns==b->sub_ns&&a->offset_minutes==b->offset_minutes&&a->is_utc==b->is_utc);
 }
 TsValue* ts_temporal_zdt_compare_native(void* ctx,int argc,TsValue** argv){
-    (void)ctx; TsZonedDateTime* a=as_zoneddatetime((argc>=1&&argv)?ts_nanbox_safe_unbox(argv[0]):nullptr);
-    TsZonedDateTime* b=as_zoneddatetime((argc>=2&&argv)?ts_nanbox_safe_unbox(argv[1]):nullptr);
+    (void)ctx; TsZonedDateTime* a=coerce_zdt_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsZonedDateTime* b=coerce_zdt_arg((argc>=2&&argv)?argv[1]:nullptr);
     if(!a||!b) return ts_value_make_int(0);
     if(a->epoch_ms!=b->epoch_ms) return ts_value_make_int(a->epoch_ms<b->epoch_ms?-1:1);
     if(a->sub_ns!=b->sub_ns) return ts_value_make_int(a->sub_ns<b->sub_ns?-1:1);
