@@ -2630,6 +2630,10 @@ extern "C" {
     TsValue* ts_temporal_zdt_equals_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_compare_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_from_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_withTimeZone_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_withCalendar_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_withPlainTime_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_with_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_toInstant_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_toPlainDateTime_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_toPlainDate_native(void*,int,TsValue**);
@@ -3172,6 +3176,10 @@ void* ts_get_global_Temporal() {
         addMethod(zdProto, "toPlainDateTime", (void*)ts_temporal_zdt_toPlainDateTime_native, 0);
         addMethod(zdProto, "toPlainDate",     (void*)ts_temporal_zdt_toPlainDate_native, 0);
         addMethod(zdProto, "toPlainTime",     (void*)ts_temporal_zdt_toPlainTime_native, 0);
+        addMethod(zdProto, "withTimeZone",    (void*)ts_temporal_zdt_withTimeZone_native, 1);
+        addMethod(zdProto, "withCalendar",    (void*)ts_temporal_zdt_withCalendar_native, 1);
+        addMethod(zdProto, "withPlainTime",   (void*)ts_temporal_zdt_withPlainTime_native, 1);
+        addMethod(zdProto, "with",            (void*)ts_temporal_zdt_with_native, 1);
         void* zdFn = wrapAsCallable(zdCtor, "ZonedDateTime", 2);
         g_temporal_zoneddatetime_ctor = zdFn;
         ts_gc_register_root(&g_temporal_zoneddatetime_ctor);

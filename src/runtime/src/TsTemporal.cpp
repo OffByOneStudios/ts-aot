@@ -2235,6 +2235,46 @@ TsValue* ts_temporal_zdt_since_native(void* ctx,int argc,TsValue** argv){
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.since: invalid argument")); return ts_value_make_undefined(); }
     return zdt_diff_opts(b,a,(argc>=2&&argv)?argv[1]:nullptr);
 }
+static TsValue* zdt_from_local(int Y,int M,int D,int h,int mi,int s,int ms,int us,int ns,int off,bool utc){
+    long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)h*3600000+(long long)mi*60000+(long long)s*1000+ms;
+    return ts_value_make_object(TsZonedDateTime::Create(localMs-(long long)off*60000LL, us*1000+ns, off, utc));
+}
+TsValue* ts_temporal_zdt_withTimeZone_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"withTimeZone");
+    TsValue* tzf=(argc>=1&&argv)?argv[0]:nullptr; void* tzr=tzf?ts_nanbox_safe_unbox(tzf):nullptr;
+    if(!tzr||(*(uint32_t*)tzr!=0x53545247&&*(uint32_t*)tzr!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.withTimeZone: timeZone must be a string")); return ts_value_make_undefined(); }
+    const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); int off; bool utc;
+    if(!tu||!parse_timezone(tu,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.withTimeZone: unsupported time zone")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms, z->sub_ns, off, utc));  // same instant
+}
+TsValue* ts_temporal_zdt_withCalendar_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"withCalendar");
+    TsValue* cf=(argc>=1&&argv)?argv[0]:nullptr; void* cr=cf?ts_nanbox_safe_unbox(cf):nullptr;
+    if(cr&&(*(uint32_t*)cr==0x53545247||*(uint32_t*)cr==0x434F4E53)){ std::string s=((TsString*)ts_value_get_string(cf))->ToUtf8(); for(char&c:s)if(c>='A'&&c<='Z')c+=32; if(s!="iso8601"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.withCalendar: only iso8601 is supported")); return ts_value_make_undefined(); } }
+    return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms,z->sub_ns,z->offset_minutes,z->is_utc));
+}
+TsValue* ts_temporal_zdt_withPlainTime_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"withPlainTime");
+    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    int nh=0,nmi=0,nss=0,nms=0,nus=0,nns=0;
+    if(argc>=1&&argv&&argv[0]&&!ts_value_is_undefined(argv[0])){
+        TsPlainTime* pt=coerce_plaintime_arg(argv[0]);
+        if(pt){ nh=pt->iso_hour;nmi=pt->iso_minute;nss=pt->iso_second;nms=pt->iso_millisecond;nus=pt->iso_microsecond;nns=pt->iso_nanosecond; }
+    }
+    return zdt_from_local(Y,M,D,nh,nmi,nss,nms,nus,nns,z->offset_minutes,z->is_utc);
+}
+TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"with");
+    void* raw=(argc>=1&&argv&&argv[0])?ts_nanbox_safe_unbox(argv[0]):nullptr;
+    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be an object")); return ts_value_make_undefined(); }
+    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    auto rd=[&](const char* k,int cur)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return cur; double d=ts_to_number(f); if(d!=d||std::isinf(d))return cur; return (int)std::trunc(d); };
+    Y=rd("year",Y); int bagM=read_bag_month(raw); if(bagM>=1)M=bagM; D=rd("day",D);
+    h=rd("hour",h); mi=rd("minute",mi); s=rd("second",s); ms=rd("millisecond",ms); us=rd("microsecond",us); ns=rd("nanosecond",ns);
+    if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
+    const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&h,&mi,&s,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
+    return zdt_from_local(Y,M,D,h,mi,s,ms,us,ns,z->offset_minutes,z->is_utc);
+}
 }
 
 // ====================== Arithmetic: Duration ======================
