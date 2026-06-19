@@ -1502,7 +1502,22 @@ TsValue* ts_temporal_instant_epochMicros_native(void* ctx,int argc,TsValue** arg
     TsInstant* it=require_instant(ctx,"epochMicroseconds"); long long micros=it->epoch_ms*1000LL + it->sub_ns/1000;
     return ts_value_make_bigint(ts_bigint_create_int(micros));
 }
-TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){ return ts_value_make_string(instant_iso_string(require_instant(ctx,"toString"))); }
+TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* it=require_instant(ctx,"toString");
+    TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(instant_iso_string(it));
+    // timeZone-rendered output is unsupported here -> fall back to default UTC string.
+    void* raw=ts_nanbox_safe_unbox(opts);
+    if(raw){ TsValue* tz=ts_object_get_property(raw,"timeZone"); if(tz&&!ts_value_is_undefined(tz)) return ts_value_make_string(instant_iso_string(it)); }
+    long long ms=it->epoch_ms; long long days=ms/86400000LL; long long rem=ms%86400000LL;
+    if(rem<0){ rem+=86400000LL; days-=1; }
+    int Y,M,D; iso_civil_from_days(days,&Y,&M,&D);
+    int h=(int)(rem/3600000); rem%=3600000; int mi=(int)(rem/60000); rem%=60000; int s=(int)(rem/1000); int msr=(int)(rem%1000);
+    long sub=(it->sub_ns<0?-it->sub_ns:it->sub_ns); int us=(int)(sub/1000), ns=(int)(sub%1000);
+    char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
+    std::string out=db; out+="T"; out+=format_time_opts(h,mi,s,msr,us,ns,opts); out+="Z";
+    return ts_value_make_string(TsString::Create(out.c_str()));
+}
 TsValue* ts_temporal_instant_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.Instant; use compare() or equals() instead")); return ts_value_make_undefined(); }
 TsValue* ts_temporal_instant_equals_native(void* ctx,int argc,TsValue** argv){
     TsInstant* a=require_instant(ctx,"equals"); TsValue* o=(argc>=1&&argv)?argv[0]:nullptr;
