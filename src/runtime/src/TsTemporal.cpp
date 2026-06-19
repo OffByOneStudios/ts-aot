@@ -21,6 +21,7 @@ extern "C" double ts_to_number(TsValue* v);  // Primitives.cpp (throws on Symbol
 // (so earlier method natives can call them).
 static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest);
 static std::string read_string_option(TsValue* opts, const char* key, const char* def);
+static bool iso_annotations_valid(const char* s);
 static int date_unit_rank(const std::string& u);
 static long long unit_ns(const std::string& u, bool* ok);
 static long long round_nonneg(long long v, long long q, const std::string& mode);
@@ -431,7 +432,7 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
         const char* utf = strPtr ? ((TsString*)strPtr)->ToUtf8() : nullptr;
         int H, M, S, ms, us, ns;
         if (!utf || !parse_iso_time(utf, &H, &M, &S, &ms, &us, &ns) ||
-            H < 0 || H > 23 || M < 0 || M > 59 || S < 0 || S > 59) {
+            H < 0 || H > 23 || M < 0 || M > 59 || S < 0 || S > 59 || !iso_annotations_valid(utf)) {
             ts_throw((TsValue*)ts_error_create_typed("RangeError",
                 "Temporal.PlainTime.from: string is not a valid ISO time"));
             return ts_value_make_undefined();
@@ -853,6 +854,30 @@ static TsString* plaindate_iso_string(TsPlainDate* d) {
 }
 
 // Parse "YYYY-MM-DD" (optionally a longer datetime; takes the date portion).
+// Validate trailing ISO annotations ([key=value], [!key=value] critical, [tz]).
+// Rules: at most one calendar (u-ca) and one time-zone annotation; lowercase keys;
+// no unknown annotation with the critical (!) flag; non-empty calendar value.
+static bool iso_annotations_valid(const char* s){
+    int calCount=0, tzCount=0;
+    const char* p=strchr(s,'[');
+    while(p){
+        const char* end=strchr(p,']'); if(!end) return false;
+        std::string ann(p+1, (size_t)(end-p-1));
+        bool critical = !ann.empty() && ann[0]=='!';
+        std::string body = critical ? ann.substr(1) : ann;
+        size_t eq = body.find('=');
+        if(eq!=std::string::npos){
+            std::string key=body.substr(0,eq), val=body.substr(eq+1);
+            for(char c: key) if(c>='A'&&c<='Z') return false;  // keys must be lowercase
+            if(key=="u-ca"){ if(val.empty()) return false; if(++calCount>1) return false; }
+            else if(critical) return false;                    // unknown critical annotation
+        } else {
+            if(++tzCount>1) return false;                      // >1 time-zone annotation
+        }
+        p=strchr(end+1,'[');
+    }
+    return true;
+}
 static bool parse_iso_date(const char* s, int* Y, int* M, int* D) {
     int sign = 1; const char* p = s;
     if (*p=='+'||*p=='-') { if(*p=='-') sign=-1; p++; }
@@ -972,7 +997,7 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         if (m0==0x53545247 || m0==0x434F4E53) {
             const char* utf = ((TsString*)ts_value_get_string(item))->ToUtf8();
             int Y,M,D;
-            if (!utf || !parse_iso_date(utf,&Y,&M,&D) || !iso_date_valid(Y,M,D)) {
+            if (!utf || !parse_iso_date(utf,&Y,&M,&D) || !iso_date_valid(Y,M,D) || !iso_annotations_valid(utf)) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: invalid ISO date string"));
                 return ts_value_make_undefined();
             }
@@ -1102,7 +1127,7 @@ extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
+        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ TsPlainYearMonth* o=(TsPlainYearMonth*)raw; return ts_value_make_object(TsPlainYearMonth::Create(o->iso_year,o->iso_month,o->iso_day)); }
         TsValue* fy=ts_object_get_property(raw,"year"); TsValue* fm=ts_object_get_property(raw,"month");
         bool hY=fy&&!ts_value_is_undefined(fy),hM=fm&&!ts_value_is_undefined(fm);
@@ -1198,7 +1223,7 @@ extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
+        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ TsPlainMonthDay* o=(TsPlainMonthDay*)raw; return ts_value_make_object(TsPlainMonthDay::Create(o->iso_month,o->iso_day,o->iso_year)); }
         TsValue* fm=ts_object_get_property(raw,"month"); TsValue* fd=ts_object_get_property(raw,"day");
         bool hM=fm&&!ts_value_is_undefined(fm),hD=fd&&!ts_value_is_undefined(fd);
@@ -1349,7 +1374,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
         if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M,D,H,Mi,S,ms,us,ns;
-            if(!u||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
+            if(!u||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
             return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,H,Mi,S,ms,us,ns)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ TsPlainDateTime* o=(TsPlainDateTime*)raw; return ts_value_make_object(TsPlainDateTime::Create(o->iso_year,o->iso_month,o->iso_day,o->iso_hour,o->iso_minute,o->iso_second,o->iso_ms,o->iso_us,o->iso_ns)); }
         TsValue* fy=ts_object_get_property(raw,"year"),*fm=ts_object_get_property(raw,"month"),*fd=ts_object_get_property(raw,"day");
@@ -1561,7 +1586,7 @@ extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
             const char* u=((TsString*)ts_value_get_string(item))->ToUtf8();
             // Parse "YYYY-MM-DDTHH:MM:SS[.frac](Z|+/-HH:MM)" -> epoch.
             int Y,M,D,h,mi,s,ms,us,ns;
-            if(!u || !parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
+            if(!u || !parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
             long long days=iso_days_from_civil(Y,M,D);
             long long epoch_ms = days*86400000LL + (long long)h*3600000LL + (long long)mi*60000LL + (long long)s*1000LL + ms;
             int subNs = us*1000 + ns;
