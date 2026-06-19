@@ -878,6 +878,20 @@ static bool iso_annotations_valid(const char* s){
     }
     return true;
 }
+// Read the month from a property bag: prefer numeric "month", else "monthCode"
+// ("M01".."M12"). Returns -1 if neither present/valid.
+static int read_bag_month(void* raw){
+    TsValue* fm=ts_object_get_property(raw,"month");
+    if(fm && !ts_value_is_undefined(fm)){ double d=ts_to_number(fm); if(d==d&&!std::isinf(d)) return (int)std::trunc(d); }
+    TsValue* mc=ts_object_get_property(raw,"monthCode");
+    if(mc && !ts_value_is_undefined(mc)){
+        std::string s; if(tsvalue_to_stdstring(mc,&s) && s.size()>=2 && (s[0]=='M'||s[0]=='m')){
+            int m=0; size_t i=1; while(i<s.size()&&s[i]>='0'&&s[i]<='9'){ m=m*10+(s[i]-'0'); i++; }
+            if(m>=1&&m<=12) return m;
+        }
+    }
+    return -1;
+}
 static bool parse_iso_date(const char* s, int* Y, int* M, int* D) {
     int sign = 1; const char* p = s;
     if (*p=='+'||*p=='-') { if(*p=='-') sign=-1; p++; }
@@ -1009,18 +1023,17 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         }
         // property bag: year/month(or monthCode)/day all required.
         TsValue* fy = ts_object_get_property(raw,"year");
-        TsValue* fm = ts_object_get_property(raw,"month");
         TsValue* fd = ts_object_get_property(raw,"day");
         bool hasY = fy && !ts_value_is_undefined(fy);
-        bool hasM = fm && !ts_value_is_undefined(fm);
+        int bagM = read_bag_month(raw);
         bool hasD = fd && !ts_value_is_undefined(fd);
-        if (!hasY || !hasM || !hasD) {
+        if (!hasY || bagM<1 || !hasD) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.from: object needs year, month and day"));
             return ts_value_make_undefined();
         }
-        double dy=ts_to_number(fy), dm=ts_to_number(fm), dd=ts_to_number(fd);
-        if (dy!=dy||dm!=dm||dd!=dd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
-        int Y=(int)std::trunc(dy), M=(int)std::trunc(dm), D=(int)std::trunc(dd);
+        double dy=ts_to_number(fy), dd=ts_to_number(fd);
+        if (dy!=dy||dd!=dd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
+        int Y=(int)std::trunc(dy), M=bagM, D=(int)std::trunc(dd);
         // from default overflow constrain
         if (M<1) M=1; if (M>12) M=12;
         int dim=iso_days_in_month(Y,M); if (D<1) D=1; if (D>dim) D=dim;
@@ -1129,11 +1142,11 @@ extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
         uint32_t m0=*(uint32_t*)raw;
         if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ TsPlainYearMonth* o=(TsPlainYearMonth*)raw; return ts_value_make_object(TsPlainYearMonth::Create(o->iso_year,o->iso_month,o->iso_day)); }
-        TsValue* fy=ts_object_get_property(raw,"year"); TsValue* fm=ts_object_get_property(raw,"month");
-        bool hY=fy&&!ts_value_is_undefined(fy),hM=fm&&!ts_value_is_undefined(fm);
-        if(!hY||!hM){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.from: object needs year and month")); return ts_value_make_undefined(); }
-        double dy=ts_to_number(fy),dm=ts_to_number(fm); if(dy!=dy||dm!=dm){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
-        int Y=(int)std::trunc(dy),M=(int)std::trunc(dm); if(M<1)M=1; if(M>12)M=12;
+        TsValue* fy=ts_object_get_property(raw,"year");
+        bool hY=fy&&!ts_value_is_undefined(fy); int bagM=read_bag_month(raw);
+        if(!hY||bagM<1){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.from: object needs year and month")); return ts_value_make_undefined(); }
+        double dy=ts_to_number(fy); if(dy!=dy){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
+        int Y=(int)std::trunc(dy),M=bagM;
         if(!iso_date_valid(Y,M,1)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","out of range")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1));
     }
@@ -1225,11 +1238,11 @@ extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
         uint32_t m0=*(uint32_t*)raw;
         if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ TsPlainMonthDay* o=(TsPlainMonthDay*)raw; return ts_value_make_object(TsPlainMonthDay::Create(o->iso_month,o->iso_day,o->iso_year)); }
-        TsValue* fm=ts_object_get_property(raw,"month"); TsValue* fd=ts_object_get_property(raw,"day");
-        bool hM=fm&&!ts_value_is_undefined(fm),hD=fd&&!ts_value_is_undefined(fd);
-        if(!hM||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: object needs month and day")); return ts_value_make_undefined(); }
-        double dm=ts_to_number(fm),dd=ts_to_number(fd); if(dm!=dm||dd!=dd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
-        int M=(int)std::trunc(dm),D=(int)std::trunc(dd); if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(1972,M); if(D<1)D=1; if(D>dim)D=dim;
+        TsValue* fd=ts_object_get_property(raw,"day");
+        int bagM=read_bag_month(raw); bool hD=fd&&!ts_value_is_undefined(fd);
+        if(bagM<1||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: object needs month and day")); return ts_value_make_undefined(); }
+        double dd=ts_to_number(fd); if(dd!=dd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
+        int M=bagM,D=(int)std::trunc(dd); if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(1972,M); if(D<1)D=1; if(D>dim)D=dim;
         return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972));
     }
     ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: invalid argument")); return ts_value_make_undefined();
@@ -1377,11 +1390,12 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
             if(!u||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
             return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,H,Mi,S,ms,us,ns)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ TsPlainDateTime* o=(TsPlainDateTime*)raw; return ts_value_make_object(TsPlainDateTime::Create(o->iso_year,o->iso_month,o->iso_day,o->iso_hour,o->iso_minute,o->iso_second,o->iso_ms,o->iso_us,o->iso_ns)); }
-        TsValue* fy=ts_object_get_property(raw,"year"),*fm=ts_object_get_property(raw,"month"),*fd=ts_object_get_property(raw,"day");
-        bool hY=fy&&!ts_value_is_undefined(fy),hM=fm&&!ts_value_is_undefined(fm),hD=fd&&!ts_value_is_undefined(fd);
-        if(!hY||!hM||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.from: object needs year, month and day")); return ts_value_make_undefined(); }
+        TsValue* fy=ts_object_get_property(raw,"year"),*fd=ts_object_get_property(raw,"day");
+        int bagM=read_bag_month(raw);
+        bool hY=fy&&!ts_value_is_undefined(fy),hD=fd&&!ts_value_is_undefined(fd);
+        if(!hY||bagM<1||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.from: object needs year, month and day")); return ts_value_make_undefined(); }
         auto rd=[&](const char* k,int def)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return def; double d=ts_to_number(f); if(d!=d||std::isinf(d))return def; return (int)std::trunc(d); };
-        int Y=rd("year",0),M=rd("month",1),D=rd("day",1),H=rd("hour",0),Mi=rd("minute",0),S=rd("second",0),ms=rd("millisecond",0),us=rd("microsecond",0),ns=rd("nanosecond",0);
+        int Y=rd("year",0),M=bagM,D=rd("day",1),H=rd("hour",0),Mi=rd("minute",0),S=rd("second",0),ms=rd("millisecond",0),us=rd("microsecond",0),ns=rd("nanosecond",0);
         if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
         const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&H,&Mi,&S,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
         if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","out of range")); return ts_value_make_undefined(); }
