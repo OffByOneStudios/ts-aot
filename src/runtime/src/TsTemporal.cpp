@@ -1907,6 +1907,56 @@ static TsValue* pdt_diff(TsPlainDateTime* a, TsPlainDateTime* b, const std::stri
     long long yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day, ey,em,ed, lu, &yr,&mo,&wk,&dy);
     return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy, tsign*h, tsign*mi, tsign*s, tsign*ms, tsign*us, tsign*ns));
 }
+// Split a signed time-of-day nanosecond count into a Duration's time fields.
+static void split_time_ns(long long t, long long* h,long long* mi,long long* s,long long* ms,long long* us,long long* ns){
+    long long sg=t<0?-1:1, a=t<0?-t:t;
+    *h=sg*(a/3600000000000LL); a%=3600000000000LL; *mi=sg*(a/60000000000LL); a%=60000000000LL;
+    *s=sg*(a/1000000000LL); a%=1000000000LL; *ms=sg*(a/1000000LL); a%=1000000LL; *us=sg*(a/1000LL); *ns=sg*(a%1000LL);
+}
+static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts){
+    const long long DAY=86400000000000LL;
+    std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
+    std::string largest=read_string_option(opts,"largestUnit","auto");
+    std::string mode=read_string_option(opts,"roundingMode","trunc");
+    long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
+    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
+    if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank("day")) ? smallest : std::string("day");
+    // No-rounding default -> unchanged fast path.
+    if((smallest=="nanosecond"||smallest=="nanoseconds") && mode=="trunc" && inc<=1) return pdt_diff(a,b,largest);
+    long long dateDays = iso_days_from_civil(b->iso_year,b->iso_month,b->iso_day) - iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
+    long long timeNs = pdt_time_ns(b) - pdt_time_ns(a);
+    // smallestUnit week or smaller rounds the combined ns exactly (PDT day == 24h);
+    // only month/year need the calendar nudge.
+    bool sIsCalendar = (date_unit_rank(smallest)>=4);
+    if(!sIsCalendar){
+        long long totalNs = dateDays*DAY + timeNs;   // PlainDateTime day == 24h
+        long long sNs;
+        if(smallest=="week"||smallest=="weeks") sNs=7*DAY;
+        else if(smallest=="day"||smallest=="days") sNs=DAY;
+        else { bool ok; sNs=unit_ns(smallest,&ok); if(!ok) sNs=1; }
+        long long sign=totalNs<0?-1:1, av=totalNs<0?-totalNs:totalNs;
+        long long r=round_nonneg(av, sNs*(inc>0?inc:1), mode)*sign;
+        long long days=r/DAY, t=r%DAY;
+        long long h,mi,s,ms,us,ns; split_time_ns(t,&h,&mi,&s,&ms,&us,&ns);
+        if(date_unit_rank(largest)>=4){ // month/year: balance days to calendar
+            int ey,em,ed; iso_civil_from_days(iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day)+days,&ey,&em,&ed);
+            long long yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,largest,&yr,&mo,&wk,&dy);
+            return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,h,mi,s,ms,us,ns));
+        }
+        if(largest=="week"||largest=="weeks"){ long long wk=days/7, dy=days%7; return ts_value_make_object(TsDuration::Create(0,0,wk,dy,h,mi,s,ms,us,ns)); }
+        if(largest=="day"||largest=="days") return ts_value_make_object(TsDuration::Create(0,0,0,days,h,mi,s,ms,us,ns));
+        // largest < day: fold days into the time fields
+        split_time_ns(r, &h,&mi,&s,&ms,&us,&ns);
+        return ts_value_make_object(TsDuration::Create(0,0,0,0,h,mi,s,ms,us,ns));
+    }
+    // DATE smallestUnit: bring the end date toward the start by the time sign, then nudge
+    // (sub-day fraction is dropped — exact for trunc, the default for date rounding).
+    long long days=dateDays, t=timeNs;
+    if(days>0 && t<0) days--; else if(days<0 && t>0) days++;
+    int ey,em,ed; iso_civil_from_days(iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day)+days,&ey,&em,&ed);
+    long long yr,mo,wk,dy; round_date_duration(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,smallest,largest,inc,mode,&yr,&mo,&wk,&dy);
+    return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+}
 extern "C" {
 TsValue* ts_temporal_plaindatetime_add_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* dt=require_plaindatetime(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
@@ -1921,12 +1971,12 @@ TsValue* ts_temporal_plaindatetime_subtract_native(void* ctx,int argc,TsValue** 
 TsValue* ts_temporal_plaindatetime_until_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* a=require_plaindatetime(ctx,"until"); TsPlainDateTime* b=coerce_plaindatetime_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.until: invalid argument")); return ts_value_make_undefined(); }
-    return pdt_diff(a,b, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","day"));
+    return pdt_diff_opts(a,b,(argc>=2&&argv)?argv[1]:nullptr);
 }
 TsValue* ts_temporal_plaindatetime_since_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* a=require_plaindatetime(ctx,"since"); TsPlainDateTime* b=coerce_plaindatetime_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.since: invalid argument")); return ts_value_make_undefined(); }
-    return pdt_diff(b,a, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","day"));
+    return pdt_diff_opts(b,a,(argc>=2&&argv)?argv[1]:nullptr);
 }
 }
 
