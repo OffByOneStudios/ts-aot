@@ -2629,6 +2629,7 @@ extern "C" {
     TsValue* ts_temporal_zdt_valueOf_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_equals_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_compare_native(void*,int,TsValue**);
+    TsValue* ts_temporal_zdt_from_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_toInstant_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_toPlainDateTime_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_toPlainDate_native(void*,int,TsValue**);
@@ -3175,6 +3176,7 @@ void* ts_get_global_Temporal() {
         g_temporal_zoneddatetime_ctor = zdFn;
         ts_gc_register_root(&g_temporal_zoneddatetime_ctor);
         addMethod(zdCtor, "compare", (void*)ts_temporal_zdt_compare_native, 2);
+        addMethod(zdCtor, "from", (void*)ts_temporal_zdt_from_native, 1);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("ZonedDateTime");
           TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=zdFn; cached->Set(k,v); }
 
