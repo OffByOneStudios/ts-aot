@@ -22,6 +22,8 @@ extern "C" double ts_to_number(TsValue* v);  // Primitives.cpp (throws on Symbol
 static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest);
 static std::string read_string_option(TsValue* opts, const char* key, const char* def);
 static int date_unit_rank(const std::string& u);
+static long long unit_ns(const std::string& u, bool* ok);
+static long long round_nonneg(long long v, long long q, const std::string& mode);
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
     long long* oy,long long* omo,long long* owk,long long* ody);
@@ -1969,19 +1971,34 @@ TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
     long long oms; int osub; instant_add_time(it->epoch_ms,it->sub_ns,d,-1,&oms,&osub);
     return ts_value_make_object(TsInstant::Create(oms,osub));
 }
+// Instant diff with smallestUnit rounding (time units only; default largestUnit second).
+static TsValue* instant_diff_rounded(long long ms, long long sub, TsValue* opts){
+    std::string largest=read_string_option(opts,"largestUnit","second");
+    std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
+    std::string mode=read_string_option(opts,"roundingMode","trunc");
+    long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
+    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
+    long long totalNs = ms*1000000LL + sub;
+    bool ok; long long sNs=unit_ns(smallest,&ok);
+    if(ok && (sNs>1 || inc>1)){
+        long long sign=totalNs<0?-1:1, a=totalNs<0?-totalNs:totalNs;
+        totalNs = round_nonneg(a, sNs*(inc>0?inc:1), mode)*sign;
+    }
+    return duration_from_ms_sub(totalNs/1000000LL, totalNs%1000000LL, largest);
+}
 TsValue* ts_temporal_instant_until_native(void* ctx,int argc,TsValue** argv){
     TsInstant* a=require_instant(ctx,"until"); TsInstant* b=coerce_instant_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.until: invalid argument")); return ts_value_make_undefined(); }
     long long ms=b->epoch_ms-a->epoch_ms; long long sub=(long long)b->sub_ns-a->sub_ns;
     if(ms>0&&sub<0){ms--;sub+=1000000;} else if(ms<0&&sub>0){ms++;sub-=1000000;}
-    return duration_from_ms_sub(ms,sub, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","second"));
+    return instant_diff_rounded(ms,sub,(argc>=2&&argv)?argv[1]:nullptr);
 }
 TsValue* ts_temporal_instant_since_native(void* ctx,int argc,TsValue** argv){
     TsInstant* a=require_instant(ctx,"since"); TsInstant* b=coerce_instant_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.since: invalid argument")); return ts_value_make_undefined(); }
     long long ms=a->epoch_ms-b->epoch_ms; long long sub=(long long)a->sub_ns-b->sub_ns;
     if(ms>0&&sub<0){ms--;sub+=1000000;} else if(ms<0&&sub>0){ms++;sub-=1000000;}
-    return duration_from_ms_sub(ms,sub, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","second"));
+    return instant_diff_rounded(ms,sub,(argc>=2&&argv)?argv[1]:nullptr);
 }
 }
 
