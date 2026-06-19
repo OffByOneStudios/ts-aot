@@ -21,6 +21,10 @@ extern "C" double ts_to_number(TsValue* v);  // Primitives.cpp (throws on Symbol
 // (so earlier method natives can call them).
 static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest);
 static std::string read_string_option(TsValue* opts, const char* key, const char* def);
+static int date_unit_rank(const std::string& u);
+static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
+    const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
+    long long* oy,long long* omo,long long* owk,long long* ody);
 
 TsPlainTime* TsPlainTime::Create(int h, int m, int s, int ms, int us, int ns) {
     void* mem = ts_alloc(sizeof(TsPlainTime));
@@ -1826,19 +1830,35 @@ TsValue* ts_temporal_plaindate_subtract_native(void* ctx,int argc,TsValue** argv
     if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
 }
+// Shared option reader for PlainDate until/since (largest/smallest/inc/mode).
+static void read_date_diff_opts(TsValue* opts, std::string* smallest, std::string* largest, long long* inc, std::string* mode){
+    *smallest=read_string_option(opts,"smallestUnit","day");
+    *largest=read_string_option(opts,"largestUnit","auto");
+    *mode=read_string_option(opts,"roundingMode","trunc");
+    *inc=1;
+    void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
+    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))*inc=(long long)std::trunc(dd); } }
+    if(*largest=="auto") *largest = (date_unit_rank(*smallest)>date_unit_rank("day")) ? *smallest : std::string("day");
+}
+static TsValue* plaindate_diff(int aY,int aM,int aD,int bY,int bM,int bD,TsValue* opts){
+    std::string smallest,largest,mode; long long inc;
+    read_date_diff_opts(opts,&smallest,&largest,&inc,&mode);
+    long long yr,mo,wk,dy;
+    if((smallest=="day"||smallest=="days") && mode=="trunc" && inc<=1)
+        diff_iso_date(aY,aM,aD,bY,bM,bD,largest,&yr,&mo,&wk,&dy);
+    else
+        round_date_duration(aY,aM,aD,bY,bM,bD,smallest,largest,inc,mode,&yr,&mo,&wk,&dy);
+    return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+}
 TsValue* ts_temporal_plaindate_until_native(void* ctx,int argc,TsValue** argv){
     TsPlainDate* a=require_plaindate(ctx,"until"); TsPlainDate* b=coerce_plaindate_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.until: invalid argument")); return ts_value_make_undefined(); }
-    std::string lu = read_string_option((argc>=2&&argv)?argv[1]:nullptr, "largestUnit", "day");
-    long long yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day,b->iso_year,b->iso_month,b->iso_day,lu,&yr,&mo,&wk,&dy);
-    return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+    return plaindate_diff(a->iso_year,a->iso_month,a->iso_day,b->iso_year,b->iso_month,b->iso_day,(argc>=2&&argv)?argv[1]:nullptr);
 }
 TsValue* ts_temporal_plaindate_since_native(void* ctx,int argc,TsValue** argv){
     TsPlainDate* a=require_plaindate(ctx,"since"); TsPlainDate* b=coerce_plaindate_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.since: invalid argument")); return ts_value_make_undefined(); }
-    std::string lu = read_string_option((argc>=2&&argv)?argv[1]:nullptr, "largestUnit", "day");
-    long long yr,mo,wk,dy; diff_iso_date(b->iso_year,b->iso_month,b->iso_day,a->iso_year,a->iso_month,a->iso_day,lu,&yr,&mo,&wk,&dy);
-    return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+    return plaindate_diff(b->iso_year,b->iso_month,b->iso_day,a->iso_year,a->iso_month,a->iso_day,(argc>=2&&argv)?argv[1]:nullptr);
 }
 }
 
@@ -2148,6 +2168,53 @@ static long long round_nonneg(long long v, long long q, const std::string& mode)
     if(mode=="halfEven"){ if(r*2>q)return (quo+1)*q; if(r*2<q)return quo*q; return (quo%2==0)?quo*q:(quo+1)*q; }
     if(mode=="halfFloor"||mode=="halfTrunc") return (r*2>q)?(quo+1)*q:quo*q;
     return (r*2>=q)?(quo+1)*q:quo*q; // halfExpand / halfCeil
+}
+static int date_unit_rank(const std::string& u){
+    if(u=="year"||u=="years")return 5; if(u=="month"||u=="months")return 4;
+    if(u=="week"||u=="weeks")return 3; if(u=="day"||u=="days")return 2; return 0;
+}
+// Round (q + num/span) to a multiple of inc (exact integer arithmetic).
+static long long round_frac(long long q,long long num,long long span,long long inc,const std::string& mode){
+    if(span<=0) span=1; if(inc<=0) inc=1;
+    long long val=q*span+num, step=inc*span;
+    return round_nonneg(val,step,mode)/span;
+}
+// Round a date difference (a -> b) to smallestUnit with largestUnit balancing,
+// using the spec NudgeToCalendarUnit (anchor at the earlier date, fractional
+// part from the days between the truncated end and the next smallest-unit step).
+static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
+    const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
+    long long* oy,long long* omo,long long* owk,long long* ody){
+    long long ae=iso_days_from_civil(aY,aM,aD), be=iso_days_from_civil(bY,bM,bD);
+    int sign=(be>=ae)?1:-1;
+    int sY=aY,sM=aM,sD=aD, eY=bY,eM=bM,eD=bD;
+    if(sign<0){ sY=bY;sM=bM;sD=bD; eY=aY;eM=aM;eD=aD; }   // magnitude direction (start<=end)
+    long long y,mo,wk,dy; diff_iso_date(sY,sM,sD,eY,eM,eD,largest,&y,&mo,&wk,&dy);
+    long long startE=iso_days_from_civil(sY,sM,sD), endE=iso_days_from_civil(eY,eM,eD);
+    long long oy_=y,omo_=mo,owk_=wk,ody_=dy;
+    if(smallest=="day"||smallest=="days"){
+        long long totalD=endE-startE, r=round_nonneg(totalD,inc>0?inc:1,mode);
+        if(largest=="week"||largest=="weeks"){ owk_=r/7; ody_=r%7; oy_=0;omo_=0; }
+        else { ody_=r; owk_=0;oy_=0;omo_=0; }
+    } else if(smallest=="week"||smallest=="weeks"){
+        int axY,axM,axD; add_iso_date(sY,sM,sD,y,mo,wk,0,&axY,&axM,&axD);
+        int bxY,bxM,bxD; add_iso_date(axY,axM,axD,0,0,1,0,&bxY,&bxM,&bxD);
+        long long nA=iso_days_from_civil(axY,axM,axD), nB=iso_days_from_civil(bxY,bxM,bxD);
+        long long span=nB-nA, num=endE-nA;
+        owk_=round_frac(wk,num,span,inc,mode); oy_=y;omo_=mo;ody_=0;
+    } else { // month or year
+        bool isYear=(smallest=="year"||smallest=="years");
+        long long q=isYear?y:mo;
+        long long ty=y, tmo=isYear?0:mo;
+        int axY,axM,axD; add_iso_date(sY,sM,sD,ty,tmo,0,0,&axY,&axM,&axD);
+        int bxY,bxM,bxD; add_iso_date(axY,axM,axD,isYear?1:0,isYear?0:1,0,0,&bxY,&bxM,&bxD);
+        long long nA=iso_days_from_civil(axY,axM,axD), nB=iso_days_from_civil(bxY,bxM,bxD);
+        long long span=nB-nA, num=endE-nA;
+        long long rq=round_frac(q,num,span,inc,mode);
+        if(isYear){ oy_=rq;omo_=0; } else { oy_=y;omo_=rq; }
+        owk_=0;ody_=0;
+    }
+    *oy=sign*oy_;*omo=sign*omo_;*owk=sign*owk_;*ody=sign*ody_;
 }
 static long long unit_ns(const std::string& u, bool* ok){
     *ok=true;
