@@ -125,9 +125,54 @@ static TsString* plaintime_iso_string(TsPlainTime* pt) {
 
 extern "C" {
 
+// Format HH:MM[:SS[.frac]] honoring smallestUnit / fractionalSecondDigits /
+// roundingMode (default trunc). Returns the time-of-day clamped mod 24h (carry
+// is dropped — fine for PlainTime; PlainDateTime trunc default never carries).
+static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts){
+    std::string smallest = read_string_option(opts,"smallestUnit","");
+    std::string mode = read_string_option(opts,"roundingMode","trunc");
+    int fsd=-1; // -1 = auto
+    void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
+    if(raw){ TsValue* f=ts_object_get_property(raw,"fractionalSecondDigits");
+        if(f&&!ts_value_is_undefined(f)){
+            double dv=ts_to_number(f);       // "auto" -> NaN -> leaves fsd=-1 (auto)
+            if(dv==dv && !std::isinf(dv)) fsd=(int)dv; } }
+    long long tns = ((long long)h*3600+(long long)mi*60+s)*1000000000LL + (long long)ms*1000000 + (long long)us*1000 + ns;
+    int digits=-1; bool dropSeconds=false; long long unitNs=1;
+    if(smallest=="minute"||smallest=="minutes"){ dropSeconds=true; digits=0; unitNs=60000000000LL; }
+    else if(smallest=="second"||smallest=="seconds"){ digits=0; unitNs=1000000000LL; }
+    else if(smallest=="millisecond"||smallest=="milliseconds"){ digits=3; unitNs=1000000LL; }
+    else if(smallest=="microsecond"||smallest=="microseconds"){ digits=6; unitNs=1000LL; }
+    else if(smallest=="nanosecond"||smallest=="nanoseconds"){ digits=9; unitNs=1LL; }
+    else if(fsd>=0){ digits=fsd; unitNs=1; for(int i=0;i<9-fsd;i++)unitNs*=10; }
+    if(unitNs>1){
+        long long q=unitNs,v=tns,quo=v/q,r=v%q,rounded;
+        if(r==0) rounded=v;
+        else if(mode=="trunc"||mode=="floor") rounded=quo*q;
+        else if(mode=="ceil"||mode=="expand") rounded=(quo+1)*q;
+        else if(mode=="halfExpand"||mode=="halfCeil") rounded=(r*2>=q)?(quo+1)*q:quo*q;
+        else if(mode=="halfTrunc"||mode=="halfFloor") rounded=(r*2>q)?(quo+1)*q:quo*q;
+        else if(mode=="halfEven"){ if(r*2>q)rounded=(quo+1)*q; else if(r*2<q)rounded=quo*q; else rounded=(quo%2==0)?quo*q:(quo+1)*q; }
+        else rounded=quo*q;
+        tns=rounded % 86400000000000LL; if(tns<0) tns+=86400000000000LL;
+    }
+    int H=(int)(tns/3600000000000LL); tns%=3600000000000LL;
+    int M=(int)(tns/60000000000LL); tns%=60000000000LL;
+    int S=(int)(tns/1000000000LL); long long frac=tns%1000000000LL;
+    char hb[24];
+    if(dropSeconds){ snprintf(hb,sizeof(hb),"%02d:%02d",H,M); return hb; }
+    snprintf(hb,sizeof(hb),"%02d:%02d:%02d",H,M,S); std::string out=hb;
+    if(digits>0){ char fb[16]; snprintf(fb,sizeof(fb),"%09lld",frac); out += "."+std::string(fb).substr(0,digits); }
+    else if(digits<0 && frac>0){ char fb[16]; snprintf(fb,sizeof(fb),"%09lld",frac); std::string f(fb); while(!f.empty()&&f.back()=='0')f.pop_back(); out+="."+f; }
+    return out;
+}
+
 TsValue* ts_temporal_plaintime_toString_native(void* ctx, int argc, TsValue** argv) {
     TsPlainTime* pt = require_plaintime(ctx, "toString");
-    return ts_value_make_string(plaintime_iso_string(pt));
+    TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(plaintime_iso_string(pt));
+    return ts_value_make_string(TsString::Create(
+        format_time_opts(pt->iso_hour,pt->iso_minute,pt->iso_second,pt->iso_millisecond,pt->iso_microsecond,pt->iso_nanosecond,opts).c_str()));
 }
 
 TsValue* ts_temporal_plaintime_valueOf_native(void* ctx, int argc, TsValue** argv) {
