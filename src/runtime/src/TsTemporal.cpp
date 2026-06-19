@@ -2089,6 +2089,35 @@ static long long unit_ns(const std::string& u, bool* ok){
     *ok=false; return 0;
 }
 extern "C" {
+TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
+    TsDuration* d=require_duration(ctx,"round");
+    TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
+    std::string sUnit,mode; long long inc;
+    if(!parse_round_options(rt,&sUnit,&inc,&mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: smallestUnit is required")); return ts_value_make_undefined(); }
+    std::string lUnit="auto";
+    { void* raw=ts_nanbox_safe_unbox(rt); if(raw){ TsValue* lu=ts_object_get_property(raw,"largestUnit"); std::string s; if(lu&&!ts_value_is_undefined(lu)&&tsvalue_to_stdstring(lu,&s)) lUnit=s; } }
+    auto isCal=[](const std::string&u){ return u=="year"||u=="years"||u=="month"||u=="months"||u=="week"||u=="weeks"; };
+    if(d->years||d->months||d->weeks||isCal(sUnit)||isCal(lUnit)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
+    bool ok; long long sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
+    long long tot = d->days*86400000000000LL + d->hours*3600000000000LL + d->minutes*60000000000LL
+        + d->seconds*1000000000LL + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
+    long long sign = tot<0?-1:1; long long a=tot<0?-tot:tot;
+    long long q=sNs*(inc>0?inc:1);
+    long long rounded = round_nonneg(a,q,mode)*sign;
+    std::string L=lUnit;
+    if(L=="auto"){
+        if(d->days) L="day"; else if(d->hours) L="hour"; else if(d->minutes) L="minute";
+        else if(d->seconds) L="second"; else if(d->milliseconds) L="millisecond";
+        else if(d->microseconds) L="microsecond"; else L="nanosecond";
+        if(unit_ns(L,&ok) < sNs) L=sUnit;
+    }
+    long long Lns=unit_ns(L,&ok); if(!ok) Lns=86400000000000LL;
+    long long rem = rounded<0?-rounded:rounded; long long rs = rounded<0?-1:1;
+    long long out[7]={0,0,0,0,0,0,0}; long long uns[7]={86400000000000LL,3600000000000LL,60000000000LL,1000000000LL,1000000LL,1000LL,1LL};
+    for(int i=0;i<7;i++){ if(uns[i]>=sNs && uns[i]<=Lns){ out[i]=(rem/uns[i])*rs; rem%=uns[i]; } }
+    return ts_value_make_object(TsDuration::Create(0,0,0,out[0],out[1],out[2],out[3],out[4],out[5],out[6]));
+}
 TsValue* ts_temporal_plaindatetime_round_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* dt=require_plaindatetime(ctx,"round");
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
