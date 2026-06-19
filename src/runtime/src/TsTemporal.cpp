@@ -2119,6 +2119,50 @@ TsValue* ts_temporal_plaindatetime_toPlainMonthDay_native(void* ctx,int argc,TsV
     TsPlainDateTime* d=require_plaindatetime(ctx,"toPlainMonthDay");
     return ts_value_make_object(TsPlainMonthDay::Create(d->iso_month,d->iso_day,1972));
 }
+static TsPlainYearMonth* coerce_pym_arg(TsValue* v){
+    TsPlainYearMonth* p=as_plainyearmonth(v?ts_nanbox_safe_unbox(v):nullptr); if(p) return p;
+    TsValue* c=ts_temporal_plainyearmonth_from(v?1:0,&v); return as_plainyearmonth(ts_nanbox_safe_unbox(c));
+}
+static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts){
+    std::string smallest=read_string_option(opts,"smallestUnit","month");
+    std::string largest=read_string_option(opts,"largestUnit","year");
+    std::string mode=read_string_option(opts,"roundingMode","trunc");
+    long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
+    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
+    long long yr,mo,wk,dy;
+    if((smallest=="month"||smallest=="months")&&mode=="trunc"&&inc<=1)
+        diff_iso_date(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,largest,&yr,&mo,&wk,&dy);
+    else
+        round_date_duration(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,smallest,largest,inc,mode,&yr,&mo,&wk,&dy);
+    return ts_value_make_object(TsDuration::Create(yr,mo,0,0,0,0,0,0,0,0));
+}
+TsValue* ts_temporal_plainyearmonth_until_native(void* ctx,int argc,TsValue** argv){
+    TsPlainYearMonth* a=require_plainyearmonth(ctx,"until"); TsPlainYearMonth* b=coerce_pym_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.until: invalid argument")); return ts_value_make_undefined(); }
+    return pym_diff(a,b,(argc>=2&&argv)?argv[1]:nullptr);
+}
+TsValue* ts_temporal_plainyearmonth_since_native(void* ctx,int argc,TsValue** argv){
+    TsPlainYearMonth* a=require_plainyearmonth(ctx,"since"); TsPlainYearMonth* b=coerce_pym_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.since: invalid argument")); return ts_value_make_undefined(); }
+    return pym_diff(b,a,(argc>=2&&argv)?argv[1]:nullptr);
+}
+static TsValue* pym_add_impl(TsPlainYearMonth* a,TsDuration* d,int neg){
+    long long y=d->years*neg, mo=d->months*neg, wk=d->weeks*neg, dd=d->days*neg;
+    int sign=(y<0||mo<0||wk<0||dd<0)?-1:1;
+    int refDay=(sign<0)?iso_days_in_month(a->iso_year,a->iso_month):1;
+    int nY,nM,nD; add_iso_date(a->iso_year,a->iso_month,refDay,y,mo,wk,dd,&nY,&nM,&nD);
+    return ts_value_make_object(TsPlainYearMonth::Create(nY,nM,1));
+}
+TsValue* ts_temporal_plainyearmonth_add_native(void* ctx,int argc,TsValue** argv){
+    TsPlainYearMonth* a=require_plainyearmonth(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.add: invalid argument")); return ts_value_make_undefined(); }
+    return pym_add_impl(a,d,1);
+}
+TsValue* ts_temporal_plainyearmonth_subtract_native(void* ctx,int argc,TsValue** argv){
+    TsPlainYearMonth* a=require_plainyearmonth(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.subtract: invalid argument")); return ts_value_make_undefined(); }
+    return pym_add_impl(a,d,-1);
+}
 TsValue* ts_temporal_plainyearmonth_toPlainDate_native(void* ctx,int argc,TsValue** argv){
     TsPlainYearMonth* ym=require_plainyearmonth(ctx,"toPlainDate");
     int day=ym->iso_day;

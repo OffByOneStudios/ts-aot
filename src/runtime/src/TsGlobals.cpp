@@ -2870,6 +2870,10 @@ extern "C" {
     TsValue* ts_temporal_plaindatetime_toPlainMonthDay_native(void*,int,TsValue**);
     TsValue* ts_temporal_plaindatetime_toZonedDateTime_native(void*,int,TsValue**);
     TsValue* ts_temporal_plainyearmonth_toPlainDate_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_until_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_since_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_add_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plainyearmonth_subtract_native(void*,int,TsValue**);
     TsValue* ts_temporal_plainmonthday_toPlainDate_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_toZonedDateTimeISO_native(void*,int,TsValue**);
     TsValue* ts_temporal_plaindatetime_round_native(void*,int,TsValue**);
@@ -3014,6 +3018,10 @@ void* ts_get_global_Temporal() {
         addMethod(ymProto, "equals",   (void*)ts_temporal_plainyearmonth_equals_native, 1);
         addMethod(ymProto, "with",     (void*)ts_temporal_plainyearmonth_with_native, 1);
         addMethod(ymProto, "toPlainDate", (void*)ts_temporal_plainyearmonth_toPlainDate_native, 1);
+        addMethod(ymProto, "until",    (void*)ts_temporal_plainyearmonth_until_native, 1);
+        addMethod(ymProto, "since",    (void*)ts_temporal_plainyearmonth_since_native, 1);
+        addMethod(ymProto, "add",      (void*)ts_temporal_plainyearmonth_add_native, 1);
+        addMethod(ymProto, "subtract", (void*)ts_temporal_plainyearmonth_subtract_native, 1);
         void* ymFn = wrapAsCallable(ymCtor, "PlainYearMonth", 2);
         g_temporal_plainyearmonth_ctor = ymFn;
         ts_gc_register_root(&g_temporal_plainyearmonth_ctor);
