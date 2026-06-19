@@ -1291,7 +1291,19 @@ static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi
     return true;
 }
 extern "C" {
-TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** argv){ return append_cal_annotation(plaindatetime_iso_string(require_plaindatetime(ctx,"toString")), (argc>=1&&argv)?argv[0]:nullptr); }
+TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDateTime* d=require_plaindatetime(ctx,"toString");
+    TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(plaindatetime_iso_string(d));
+    char db[24];
+    if(d->iso_year<0||d->iso_year>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",d->iso_year,d->iso_month,d->iso_day);
+    else snprintf(db,sizeof(db),"%04d-%02d-%02d",d->iso_year,d->iso_month,d->iso_day);
+    std::string base=db; base+="T";
+    base+=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts);
+    std::string cal=read_string_option(opts,"calendarName","auto");
+    if(cal=="always"||cal=="critical") base += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";
+    return ts_value_make_string(TsString::Create(base.c_str()));
+}
 TsValue* ts_temporal_plaindatetime_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.PlainDateTime; use compare() or equals() instead")); return ts_value_make_undefined(); }
 TsValue* ts_temporal_plaindatetime_equals_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* a=require_plaindatetime(ctx,"equals"); TsValue* o=(argc>=1&&argv)?argv[0]:nullptr;
