@@ -2165,10 +2165,18 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     TsDuration* d=require_duration(ctx,"round");
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
-    std::string sUnit,mode; long long inc;
-    if(!parse_round_options(rt,&sUnit,&inc,&mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: smallestUnit is required")); return ts_value_make_undefined(); }
+    std::string sUnit,mode="halfExpand"; long long inc=1;
+    bool haveS = parse_round_options(rt,&sUnit,&inc,&mode);
     std::string lUnit="auto";
-    { void* raw=ts_nanbox_safe_unbox(rt); if(raw){ TsValue* lu=ts_object_get_property(raw,"largestUnit"); std::string s; if(lu&&!ts_value_is_undefined(lu)&&tsvalue_to_stdstring(lu,&s)) lUnit=s; } }
+    void* raw=ts_nanbox_safe_unbox(rt);
+    if(raw){ TsValue* lu=ts_object_get_property(raw,"largestUnit"); std::string s; if(lu&&!ts_value_is_undefined(lu)&&tsvalue_to_stdstring(lu,&s)) lUnit=s; }
+    if(!haveS){
+        // smallestUnit may be omitted iff largestUnit is given; defaults to nanosecond.
+        if(lUnit=="auto"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: smallestUnit or largestUnit is required")); return ts_value_make_undefined(); }
+        sUnit="nanosecond";
+        if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); }
+                 TsValue* rm=ts_object_get_property(raw,"roundingMode"); std::string m; if(rm&&!ts_value_is_undefined(rm)&&tsvalue_to_stdstring(rm,&m))mode=m; }
+    }
     auto isCal=[](const std::string&u){ return u=="year"||u=="years"||u=="month"||u=="months"||u=="week"||u=="weeks"; };
     if(d->years||d->months||d->weeks||isCal(sUnit)||isCal(lUnit)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
     bool ok; long long sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
