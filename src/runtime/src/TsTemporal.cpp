@@ -2020,14 +2020,14 @@ static void split_time_ns(long long t, long long* h,long long* mi,long long* s,l
     *h=sg*(a/3600000000000LL); a%=3600000000000LL; *mi=sg*(a/60000000000LL); a%=60000000000LL;
     *s=sg*(a/1000000000LL); a%=1000000000LL; *ms=sg*(a/1000000LL); a%=1000000LL; *us=sg*(a/1000LL); *ns=sg*(a%1000LL);
 }
-static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts){
+static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts, const char* defLargest="day"){
     const long long DAY=86400000000000LL;
     std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
     std::string largest=read_string_option(opts,"largestUnit","auto");
     std::string mode=read_string_option(opts,"roundingMode","trunc");
     long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
     if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
-    if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank("day")) ? smallest : std::string("day");
+    if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank(defLargest)) ? smallest : std::string(defLargest);
     // No-rounding default -> unchanged fast path.
     if((smallest=="nanosecond"||smallest=="nanoseconds") && mode=="trunc" && inc<=1) return pdt_diff(a,b,largest);
     long long dateDays = iso_days_from_civil(b->iso_year,b->iso_month,b->iso_day) - iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
@@ -2206,15 +2206,34 @@ TsValue* ts_temporal_zdt_subtract_native(void* ctx,int argc,TsValue** argv){
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
     return zdt_add(z,d,-1);
 }
+static TsZonedDateTime* coerce_zdt_arg(TsValue* v){
+    TsZonedDateTime* z=as_zoneddatetime(v?ts_nanbox_safe_unbox(v):nullptr); if(z) return z;
+    TsValue* args[1]={v}; TsValue* c=ts_temporal_zdt_from(v?1:0,args); return as_zoneddatetime(ts_nanbox_safe_unbox(c));
+}
+// ZDT diff via the local datetimes (valid for fixed-offset/UTC zones), with
+// smallestUnit rounding (default largestUnit hour). No-rounding -> existing zdt_diff.
+static TsValue* zdt_diff_opts(TsZonedDateTime* a, TsZonedDateTime* b, TsValue* opts){
+    std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
+    std::string mode=read_string_option(opts,"roundingMode","trunc");
+    long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
+    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
+    std::string largest=read_string_option(opts,"largestUnit","hour"); if(largest=="auto") largest="hour";
+    if((smallest=="nanosecond"||smallest=="nanoseconds")&&mode=="trunc"&&inc<=1) return zdt_diff(a,b,largest);
+    int aY,aM,aD,ah,ami,as_,ams,aus,ans; zdt_local(a,&aY,&aM,&aD,&ah,&ami,&as_,&ams,&aus,&ans);
+    int bY,bM,bD,bh,bmi,bs,bms,bus,bns; zdt_local(b,&bY,&bM,&bD,&bh,&bmi,&bs,&bms,&bus,&bns);
+    TsPlainDateTime* pa=TsPlainDateTime::Create(aY,aM,aD,ah,ami,as_,ams,aus,ans);
+    TsPlainDateTime* pb=TsPlainDateTime::Create(bY,bM,bD,bh,bmi,bs,bms,bus,bns);
+    return pdt_diff_opts(pa,pb,opts,"hour");
+}
 TsValue* ts_temporal_zdt_until_native(void* ctx,int argc,TsValue** argv){
-    TsZonedDateTime* a=require_zoneddatetime(ctx,"until"); TsZonedDateTime* b=as_zoneddatetime((argc>=1&&argv)?ts_nanbox_safe_unbox(argv[0]):nullptr);
+    TsZonedDateTime* a=require_zoneddatetime(ctx,"until"); TsZonedDateTime* b=coerce_zdt_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.until: invalid argument")); return ts_value_make_undefined(); }
-    return zdt_diff(a,b, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","hour"));
+    return zdt_diff_opts(a,b,(argc>=2&&argv)?argv[1]:nullptr);
 }
 TsValue* ts_temporal_zdt_since_native(void* ctx,int argc,TsValue** argv){
-    TsZonedDateTime* a=require_zoneddatetime(ctx,"since"); TsZonedDateTime* b=as_zoneddatetime((argc>=1&&argv)?ts_nanbox_safe_unbox(argv[0]):nullptr);
+    TsZonedDateTime* a=require_zoneddatetime(ctx,"since"); TsZonedDateTime* b=coerce_zdt_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.since: invalid argument")); return ts_value_make_undefined(); }
-    return zdt_diff(b,a, read_string_option((argc>=2&&argv)?argv[1]:nullptr,"largestUnit","hour"));
+    return zdt_diff_opts(b,a,(argc>=2&&argv)?argv[1]:nullptr);
 }
 }
 
