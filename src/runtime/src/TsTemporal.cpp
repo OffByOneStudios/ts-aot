@@ -820,9 +820,20 @@ static bool parse_iso_date(const char* s, int* Y, int* M, int* D) {
 
 extern "C" {
 
+// Append [u-ca=iso8601] (or [!...] for critical) when calendarName is
+// always/critical; otherwise return the base string unchanged.
+static TsValue* append_cal_annotation(TsString* base, TsValue* opts){
+    std::string cal = read_string_option(opts, "calendarName", "auto");
+    if(cal!="always" && cal!="critical") return ts_value_make_string(base);
+    const char* u = base ? base->ToUtf8() : "";
+    std::string s = u ? u : "";
+    s += (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
+    return ts_value_make_string(TsString::Create(s.c_str()));
+}
+
 TsValue* ts_temporal_plaindate_toString_native(void* ctx, int argc, TsValue** argv) {
     TsPlainDate* d = require_plaindate(ctx, "toString");
-    return ts_value_make_string(plaindate_iso_string(d));
+    return append_cal_annotation(plaindate_iso_string(d), (argc>=1&&argv)?argv[0]:nullptr);
 }
 
 TsValue* ts_temporal_plaindate_valueOf_native(void* ctx, int argc, TsValue** argv) {
@@ -1235,7 +1246,7 @@ static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi
     return true;
 }
 extern "C" {
-TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** argv){ return ts_value_make_string(plaindatetime_iso_string(require_plaindatetime(ctx,"toString"))); }
+TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** argv){ return append_cal_annotation(plaindatetime_iso_string(require_plaindatetime(ctx,"toString")), (argc>=1&&argv)?argv[0]:nullptr); }
 TsValue* ts_temporal_plaindatetime_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.PlainDateTime; use compare() or equals() instead")); return ts_value_make_undefined(); }
 TsValue* ts_temporal_plaindatetime_equals_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* a=require_plaindatetime(ctx,"equals"); TsValue* o=(argc>=1&&argv)?argv[0]:nullptr;
@@ -1588,7 +1599,7 @@ static TsString* zdt_iso_string(TsZonedDateTime* z){
 extern "C" {
 TsValue* ts_temporal_zdt_epochNs_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"epochNanoseconds"); TsValue v=z->GetPropertyVirtual("epochNanoseconds"); return (TsValue*)v.ptr_val; }
 TsValue* ts_temporal_zdt_epochMicros_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"epochMicroseconds"); TsValue v=z->GetPropertyVirtual("epochMicroseconds"); return (TsValue*)v.ptr_val; }
-TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){ return ts_value_make_string(zdt_iso_string(require_zoneddatetime(ctx,"toString"))); }
+TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){ return append_cal_annotation(zdt_iso_string(require_zoneddatetime(ctx,"toString")), (argc>=1&&argv)?argv[0]:nullptr); }
 TsValue* ts_temporal_zdt_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.ZonedDateTime; use compare() or equals() instead")); return ts_value_make_undefined(); }
 TsValue* ts_temporal_zdt_equals_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* a=require_zoneddatetime(ctx,"equals"); TsValue* o=(argc>=1&&argv)?argv[0]:nullptr;
