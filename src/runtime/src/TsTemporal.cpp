@@ -2021,8 +2021,15 @@ static TsValue* pdt_diff(TsPlainDateTime* a, TsPlainDateTime* b, const std::stri
     int tsign = t<0?-1:1; long long at=t<0?-t:t;
     long long h=at/3600000000000LL; at%=3600000000000LL; long long mi=at/60000000000LL; at%=60000000000LL;
     long long s=at/1000000000LL; at%=1000000000LL; long long ms=at/1000000LL; at%=1000000LL; long long us=at/1000LL; long long ns=at%1000LL;
-    if(lu=="day"||lu=="days"||lu=="hour"||lu=="hours"||lu=="minute"||lu=="minutes"||lu=="second"||lu=="seconds"||lu=="millisecond"||lu=="milliseconds"||lu=="microsecond"||lu=="microseconds"||lu=="nanosecond"||lu=="nanoseconds"){
+    if(lu=="day"||lu=="days"){
         return ts_value_make_object(TsDuration::Create(0,0,0, days, tsign*h, tsign*mi, tsign*s, tsign*ms, tsign*us, tsign*ns));
+    }
+    if(lu=="hour"||lu=="hours"||lu=="minute"||lu=="minutes"||lu=="second"||lu=="seconds"||lu=="millisecond"||lu=="milliseconds"||lu=="microsecond"||lu=="microseconds"||lu=="nanosecond"||lu=="nanoseconds"){
+        long long totalNs=days*DAY + t; long long sg=totalNs<0?-1:1, av=totalNs<0?-totalNs:totalNs;
+        bool ok2; long long Lns=unit_ns(lu,&ok2); if(!ok2)Lns=3600000000000LL;
+        long long uns[6]={3600000000000LL,60000000000LL,1000000000LL,1000000LL,1000LL,1LL}; long long o[6]={0,0,0,0,0,0};
+        for(int i=0;i<6;i++){ if(uns[i]<=Lns){ o[i]=(av/uns[i])*sg; av%=uns[i]; } }
+        return ts_value_make_object(TsDuration::Create(0,0,0,0, o[0],o[1],o[2],o[3],o[4],o[5]));
     }
     // year/month/week: convert the day count to calendar units (adjusted end date).
     long long acivil = iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
@@ -2209,7 +2216,14 @@ static TsValue* zdt_diff(TsZonedDateTime* a, TsZonedDateTime* b, const std::stri
         long long yr,mo,wk,dy; diff_iso_date(aY,aM,aD,ey,em,ed,lu,&yr,&mo,&wk,&dy);
         return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy, tsign*hh,tsign*mm,tsign*ss,tsign*mms,tsign*uus,tsign*nns));
     }
-    return ts_value_make_object(TsDuration::Create(0,0,0,days, tsign*hh,tsign*mm,tsign*ss,tsign*mms,tsign*uus,tsign*nns));
+    if(lu=="day"||lu=="days")
+        return ts_value_make_object(TsDuration::Create(0,0,0,days, tsign*hh,tsign*mm,tsign*ss,tsign*mms,tsign*uus,tsign*nns));
+    // time largestUnit (hour..ns): fold the days into the largest time unit.
+    long long totalNs=days*DAY + t; long long sg=totalNs<0?-1:1, av=totalNs<0?-totalNs:totalNs;
+    bool ok2; long long Lns=unit_ns(lu,&ok2); if(!ok2)Lns=3600000000000LL;
+    long long uns[6]={3600000000000LL,60000000000LL,1000000000LL,1000000LL,1000LL,1LL}; long long o[6]={0,0,0,0,0,0};
+    for(int i=0;i<6;i++){ if(uns[i]<=Lns){ o[i]=(av/uns[i])*sg; av%=uns[i]; } }
+    return ts_value_make_object(TsDuration::Create(0,0,0,0, o[0],o[1],o[2],o[3],o[4],o[5]));
 }
 extern "C" {
 TsValue* ts_temporal_zdt_add_native(void* ctx,int argc,TsValue** argv){
