@@ -428,7 +428,10 @@ static bool parse_iso_time(const char* s, int* H, int* M, int* S,
                            int* ms, int* us, int* ns) {
     if (has_unicode_minus(s) || has_negative_zero_year(s)) return false;
     const char* t = s;
-    for (const char* p = s; *p; p++) { if (*p == 'T' || *p == 't') { t = p + 1; break; } }
+    // Only the date/time 'T' separator counts — stop at '[' so a 'T' inside a
+    // time-zone annotation like "[UTC]"/"[America/St_Johns]" is not mistaken
+    // for the separator (which would make us parse time from mid-annotation).
+    for (const char* p = s; *p && *p != '['; p++) { if (*p == 'T' || *p == 't') { t = p + 1; break; } }
     auto two = [](const char* p, int* out) -> const char* {
         if (!isdigit((unsigned char)p[0]) || !isdigit((unsigned char)p[1])) return nullptr;
         *out = (p[0]-'0')*10 + (p[1]-'0'); return p + 2;
@@ -887,6 +890,15 @@ static bool iso_datetime_in_limits(int y, int m, int d, long long timeNs) {
     if (days > DMAX) return false;
     if (days < DMIN) return false;
     if (days == DMIN) return timeNs > 0;
+    return true;
+}
+// An Instant is representable when |epochNanoseconds| <= 8.64e21, i.e.
+// |epoch_ms| <= 8.64e18 (with sub-ms ns 0 at the positive boundary).
+static bool instant_epoch_in_limits(long long ms, int subNs) {
+    const long long MAXMS = 8640000000000000LL; // 8.64e21 ns / 1e6 ns-per-ms = 8.64e15 ms
+    if (ms > MAXMS) return false;
+    if (ms == MAXMS && subNs > 0) return false;
+    if (ms < -MAXMS) return false;
     return true;
 }
 // A PlainYearMonth is representable when any day of the month is in range.
@@ -1632,7 +1644,7 @@ extern "C" TsValue* ts_temporal_instant_construct(int argc, TsValue** argv){
     void* str = ts_bigint_to_string(raw, 10);
     const char* u = str ? ((TsString*)str)->ToUtf8() : nullptr;
     long long ms; int sub;
-    if(!u || !ns_string_to_ms_sub(u,&ms,&sub)){
+    if(!u || !ns_string_to_ms_sub(u,&ms,&sub) || !instant_epoch_in_limits(ms,sub)){
         ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant: epochNanoseconds out of range"));
         return ts_value_make_undefined();
     }
@@ -1717,6 +1729,9 @@ extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
             long long days=iso_days_from_civil(Y,M,D);
             long long epoch_ms = days*86400000LL + (long long)h*3600000LL + (long long)mi*60000LL + (long long)s*1000LL + ms;
             int subNs = us*1000 + ns;
+            // NOTE: a string's numeric offset is not yet applied, so the range
+            // check is deferred for the from-string path (would reject valid
+            // offset-shifted instants). The constructor path is range-checked.
             // NOTE: an explicit numeric offset in the string is not yet applied (treated as UTC).
             return ts_value_make_object(TsInstant::Create(epoch_ms, subNs));
         }
