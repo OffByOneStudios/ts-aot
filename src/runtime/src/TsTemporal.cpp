@@ -2200,6 +2200,47 @@ static long long dur_time_ns(TsDuration* d){
     return d->hours*3600000000000LL + d->minutes*60000000000LL + d->seconds*1000000000LL
         + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
 }
+extern "C" {
+// Temporal.Now.instant() — the current instant.
+TsValue* ts_temporal_now_instant_native(void* ctx,int argc,TsValue** argv){
+    (void)ctx;(void)argc;(void)argv;
+    using namespace std::chrono;
+    long long totalNs = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
+    return ts_value_make_object(TsInstant::Create(totalNs/1000000LL, (int)(totalNs%1000000LL)));
+}
+// Temporal.Now.zonedDateTimeISO(timeZone?) — current zoned datetime (fixed offset/UTC).
+TsValue* ts_temporal_now_zoneddatetimeiso_native(void* ctx,int argc,TsValue** argv){
+    (void)ctx;
+    using namespace std::chrono;
+    long long totalNs = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
+    long long ms = totalNs/1000000LL; int sub=(int)(totalNs%1000000LL);
+    int off=0; bool utc=true;
+    TsValue* tzv=(argc>=1&&argv)?argv[0]:nullptr;
+    if(tzv && !ts_value_is_undefined(tzv)){
+        std::string tz;
+        if(tsvalue_to_stdstring(tzv,&tz) && !parse_timezone(tz.c_str(),&off,&utc)){
+            ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Now.zonedDateTimeISO: unsupported time zone")); return ts_value_make_undefined();
+        }
+    }
+    return ts_value_make_object(TsZonedDateTime::Create(ms, sub, off, utc));
+}
+// Temporal.Instant.fromEpochNanoseconds(epochNanoseconds: bigint).
+TsValue* ts_temporal_instant_fromEpochNs_native(void* ctx,int argc,TsValue** argv){
+    (void)ctx; TsValue* a0=(argc>=1&&argv)?argv[0]:nullptr; void* raw=a0?ts_nanbox_safe_unbox(a0):nullptr;
+    if(!raw || (*(uint32_t*)raw!=0x42494749 && *(uint32_t*)((char*)raw+16)!=0x42494749)){
+        ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.fromEpochNanoseconds: argument must be a BigInt")); return ts_value_make_undefined();
+    }
+    void* str=ts_bigint_to_string(raw,10); const char* u=str?((TsString*)str)->ToUtf8():nullptr;
+    long long ms; int sub;
+    if(!u || !ns_string_to_ms_sub(u,&ms,&sub) || !instant_epoch_in_limits(ms,sub)){
+        ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochNanoseconds: out of range")); return ts_value_make_undefined();
+    }
+    return ts_value_make_object(TsInstant::Create(ms,sub));
+}
+// NOTE: Temporal.Duration.compare is deferred — a correct implementation needs
+// relativeTo handling (calendar/time-zone durations), and a naive time-only
+// compare regresses the relativeTo conformance tests.
+}
 static TsPlainDateTime* coerce_plaindatetime_arg(TsValue* v){
     TsPlainDateTime* p = as_plaindatetime(v?ts_nanbox_safe_unbox(v):nullptr);
     if(p) return p;
@@ -2346,6 +2387,7 @@ TsValue* ts_temporal_instant_add_native(void* ctx,int argc,TsValue** argv){
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.add: invalid duration")); return ts_value_make_undefined(); }
     if(d->years||d->months||d->weeks||d->days){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.add: duration must be time-only")); return ts_value_make_undefined(); }
     long long oms; int osub; instant_add_time(it->epoch_ms,it->sub_ns,d,1,&oms,&osub);
+    if(!instant_epoch_in_limits(oms,osub)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.add: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsInstant::Create(oms,osub));
 }
 TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
@@ -2353,6 +2395,7 @@ TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
     if(d->years||d->months||d->weeks||d->days){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.subtract: duration must be time-only")); return ts_value_make_undefined(); }
     long long oms; int osub; instant_add_time(it->epoch_ms,it->sub_ns,d,-1,&oms,&osub);
+    if(!instant_epoch_in_limits(oms,osub)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsInstant::Create(oms,osub));
 }
 // Instant diff with smallestUnit rounding (time units only; default largestUnit second).

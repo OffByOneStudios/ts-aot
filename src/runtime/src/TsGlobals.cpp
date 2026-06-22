@@ -2674,6 +2674,9 @@ extern "C" {
     TsValue* ts_temporal_instant_from_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_fromEpochMs_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_fromEpochSec_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_fromEpochNs_native(void*,int,TsValue**);
+    TsValue* ts_temporal_now_instant_native(void*,int,TsValue**);
+    TsValue* ts_temporal_now_zoneddatetimeiso_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_add_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_subtract_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_until_native(void*,int,TsValue**);
@@ -3136,6 +3139,7 @@ void* ts_get_global_Temporal() {
         g_temporal_instant_ctor = inFn;
         ts_gc_register_root(&g_temporal_instant_ctor);
         addMethod(inCtor, "from",                  (void*)ts_temporal_instant_from_native, 1);
+        addMethod(inCtor, "fromEpochNanoseconds",  (void*)ts_temporal_instant_fromEpochNs_native, 1);
         addMethod(inCtor, "fromEpochMilliseconds", (void*)ts_temporal_instant_fromEpochMs_native, 1);
         addMethod(inCtor, "fromEpochSeconds",      (void*)ts_temporal_instant_fromEpochSec_native, 1);
         addMethod(inCtor, "compare",               (void*)ts_temporal_instant_compare_native, 2);
@@ -3204,6 +3208,8 @@ void* ts_get_global_Temporal() {
         TsMap* nowNs = TsMap::Create();
         setProtoStringTag(nowNs, "Temporal.Now");
         addMethod(nowNs, "plainDateTimeISO", (void*)ts_temporal_now_plaindatetimeiso_native, 0);
+        addMethod(nowNs, "instant",          (void*)ts_temporal_now_instant_native, 0);
+        addMethod(nowNs, "zonedDateTimeISO", (void*)ts_temporal_now_zoneddatetimeiso_native, 0);
         addMethod(nowNs, "plainDateISO",     (void*)ts_temporal_now_plaindateiso_native, 0);
         addMethod(nowNs, "plainTimeISO",     (void*)ts_temporal_now_plaintimeiso_native, 0);
         addMethod(nowNs, "timeZoneId",       (void*)ts_temporal_now_timezoneid_native, 0);
