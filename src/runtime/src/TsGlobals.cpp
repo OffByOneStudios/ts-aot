@@ -2632,6 +2632,8 @@ extern "C" {
     TsValue* ts_temporal_zdt_from_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_withTimeZone_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_withCalendar_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindate_withCalendar_native(void*,int,TsValue**);
+    TsValue* ts_temporal_plaindatetime_withCalendar_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_withPlainTime_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_with_native(void*,int,TsValue**);
     TsValue* ts_temporal_zdt_toInstant_native(void*,int,TsValue**);
@@ -2990,6 +2992,7 @@ void* ts_get_global_Temporal() {
         addMethod(pdProto, "valueOf",  (void*)ts_temporal_plaindate_valueOf_native, 0);
         addMethod(pdProto, "equals",   (void*)ts_temporal_plaindate_equals_native, 1);
         addMethod(pdProto, "with",     (void*)ts_temporal_plaindate_with_native, 1);
+        addMethod(pdProto, "withCalendar", (void*)ts_temporal_plaindate_withCalendar_native, 1);
         addMethod(pdProto, "add",      (void*)ts_temporal_plaindate_add_native, 1);
         addMethod(pdProto, "subtract", (void*)ts_temporal_plaindate_subtract_native, 1);
         addMethod(pdProto, "until",    (void*)ts_temporal_plaindate_until_native, 1);
@@ -3092,6 +3095,7 @@ void* ts_get_global_Temporal() {
         addMethod(dtProto, "valueOf",     (void*)ts_temporal_plaindatetime_valueOf_native, 0);
         addMethod(dtProto, "equals",      (void*)ts_temporal_plaindatetime_equals_native, 1);
         addMethod(dtProto, "with",        (void*)ts_temporal_plaindatetime_with_native, 1);
+        addMethod(dtProto, "withCalendar", (void*)ts_temporal_plaindatetime_withCalendar_native, 1);
         addMethod(dtProto, "round",       (void*)ts_temporal_plaindatetime_round_native, 1);
         addMethod(dtProto, "add",         (void*)ts_temporal_plaindatetime_add_native, 1);
         addMethod(dtProto, "subtract",    (void*)ts_temporal_plaindatetime_subtract_native, 1);

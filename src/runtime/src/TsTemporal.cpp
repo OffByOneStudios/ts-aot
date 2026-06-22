@@ -2493,6 +2493,26 @@ TsValue* ts_temporal_zdt_withCalendar_native(void* ctx,int argc,TsValue** argv){
     if(cr&&(*(uint32_t*)cr==0x53545247||*(uint32_t*)cr==0x434F4E53)){ std::string s=((TsString*)ts_value_get_string(cf))->ToUtf8(); for(char&c:s)if(c>='A'&&c<='Z')c+=32; if(s!="iso8601"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.withCalendar: only iso8601 is supported")); return ts_value_make_undefined(); } }
     return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms,z->sub_ns,z->offset_minutes,z->is_utc));
 }
+// Validate that a calendar argument is iso8601 (the only supported calendar),
+// throwing RangeError otherwise. A bare non-string is left to the caller.
+static void require_iso_calendar(TsValue* cf, const char* method){
+    void* cr=cf?ts_nanbox_safe_unbox(cf):nullptr;
+    if(cr&&(*(uint32_t*)cr==0x53545247||*(uint32_t*)cr==0x434F4E53)){
+        std::string s=((TsString*)ts_value_get_string(cf))->ToUtf8();
+        for(char&c:s) if(c>='A'&&c<='Z') c+=32;
+        if(s!="iso8601"){ ts_throw((TsValue*)ts_error_create_typed("RangeError", method)); }
+    }
+}
+TsValue* ts_temporal_plaindate_withCalendar_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDate* d=require_plaindate(ctx,"withCalendar");
+    require_iso_calendar((argc>=1&&argv)?argv[0]:nullptr,"Temporal.PlainDate.prototype.withCalendar: only iso8601 is supported");
+    return ts_value_make_object(TsPlainDate::Create(d->iso_year,d->iso_month,d->iso_day));
+}
+TsValue* ts_temporal_plaindatetime_withCalendar_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDateTime* d=require_plaindatetime(ctx,"withCalendar");
+    require_iso_calendar((argc>=1&&argv)?argv[0]:nullptr,"Temporal.PlainDateTime.prototype.withCalendar: only iso8601 is supported");
+    return ts_value_make_object(TsPlainDateTime::Create(d->iso_year,d->iso_month,d->iso_day,d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns));
+}
 TsValue* ts_temporal_zdt_withPlainTime_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"withPlainTime");
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
