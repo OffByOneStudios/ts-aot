@@ -870,6 +870,34 @@ static bool iso_date_valid(int y, int m, int d) {
     if (y < -271821 || y > 275760) return false;
     return true;
 }
+// Temporal representable range: the ISO date must fall within
+// [-271821-04-19, +275760-09-13] (PlainDate). For a PlainDateTime the lower
+// bound is exclusive of midnight on the first day (the first representable
+// instant is -271821-04-19T00:00:00.000000001).
+static bool iso_date_in_limits(int y, int m, int d) {
+    static const long long DMIN = iso_days_from_civil(-271821, 4, 19);
+    static const long long DMAX = iso_days_from_civil(275760, 9, 13);
+    long long days = iso_days_from_civil(y, m, d);
+    return days >= DMIN && days <= DMAX;
+}
+static bool iso_datetime_in_limits(int y, int m, int d, long long timeNs) {
+    static const long long DMIN = iso_days_from_civil(-271821, 4, 19);
+    static const long long DMAX = iso_days_from_civil(275760, 9, 13);
+    long long days = iso_days_from_civil(y, m, d);
+    if (days > DMAX) return false;
+    if (days < DMIN) return false;
+    if (days == DMIN) return timeNs > 0;
+    return true;
+}
+// A PlainYearMonth is representable when any day of the month is in range.
+static bool iso_yearmonth_in_limits(int y, int m) {
+    static const long long DMIN = iso_days_from_civil(-271821, 4, 19);
+    static const long long DMAX = iso_days_from_civil(275760, 9, 13);
+    if (m < 1 || m > 12) return false;
+    long long first = iso_days_from_civil(y, m, 1);
+    long long last = iso_days_from_civil(y, m, iso_days_in_month(y, m));
+    return last >= DMIN && first <= DMAX;
+}
 
 extern "C" TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv) {
     auto field = [&](int i, bool* ok) -> int {
@@ -888,7 +916,7 @@ extern "C" TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv) {
         ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate: year, month and day are required"));
         return ts_value_make_undefined();
     }
-    if (!iso_date_valid(y, m, d)) {
+    if (!iso_date_valid(y, m, d) || !iso_date_in_limits(y, m, d)) {
         ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate: date out of range"));
         return ts_value_make_undefined();
     }
@@ -1082,7 +1110,7 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         if (m0==0x53545247 || m0==0x434F4E53) {
             const char* utf = ((TsString*)ts_value_get_string(item))->ToUtf8();
             int Y,M,D;
-            if (!utf || has_utc_designator(utf) || !parse_iso_date(utf,&Y,&M,&D) || !iso_date_valid(Y,M,D) || !iso_annotations_valid(utf)) {
+            if (!utf || has_utc_designator(utf) || !parse_iso_date(utf,&Y,&M,&D) || !iso_date_valid(Y,M,D) || !iso_date_in_limits(Y,M,D) || !iso_annotations_valid(utf)) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: invalid ISO date string"));
                 return ts_value_make_undefined();
             }
@@ -1156,7 +1184,7 @@ extern "C" TsValue* ts_temporal_plainyearmonth_construct(int argc, TsValue** arg
     bool oy=true,om=true,ord=true; int y=fld(0,&oy),m=fld(1,&om);
     int refDay=fld(3,&ord); if(!ord) refDay=1;
     if(!oy||!om){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: year and month are required")); return ts_value_make_undefined(); }
-    if(m<1||m>12||!iso_date_valid(y,m,refDay)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: out of range")); return ts_value_make_undefined(); }
+    if(m<1||m>12||!iso_date_valid(y,m,refDay)||!iso_yearmonth_in_limits(y,m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainYearMonth::Create(y,m,refDay));
 }
 static bool parse_iso_yearmonth(const char* s, int* Y, int* M) {
@@ -1216,7 +1244,7 @@ extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
+        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_yearmonth_in_limits(Y,M)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ TsPlainYearMonth* o=(TsPlainYearMonth*)raw; return ts_value_make_object(TsPlainYearMonth::Create(o->iso_year,o->iso_month,o->iso_day)); }
         TsValue* fy=ts_object_get_property(raw,"year");
         bool hY=fy&&!ts_value_is_undefined(fy); int bagM=read_bag_month(raw);
@@ -1392,7 +1420,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_construct(int argc, TsValue** argv
     int h=fld(3,0,false,&ok), mi=fld(4,0,false,&ok), s=fld(5,0,false,&ok);
     int ms=fld(6,0,false,&ok), us=fld(7,0,false,&ok), ns=fld(8,0,false,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: year, month and day are required")); return ts_value_make_undefined(); }
-    if(!iso_date_valid(y,mo,d)||!pdt_time_valid(h,mi,s,ms,us,ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: out of range")); return ts_value_make_undefined(); }
+    if(!iso_date_valid(y,mo,d)||!pdt_time_valid(h,mi,s,ms,us,ns)||!iso_datetime_in_limits(y,mo,d,(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDateTime::Create(y,mo,d,h,mi,s,ms,us,ns));
 }
 static TsString* plaindatetime_iso_string(TsPlainDateTime* d){
@@ -1470,7 +1498,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
         if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M,D,H,Mi,S,ms,us,ns;
-            if(!u||has_utc_designator(u)||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
+            if(!u||has_utc_designator(u)||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_datetime_in_limits(Y,M,D,(long long)H*3600000000000LL+(long long)Mi*60000000000LL+(long long)S*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
             return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,H,Mi,S,ms,us,ns)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ TsPlainDateTime* o=(TsPlainDateTime*)raw; return ts_value_make_object(TsPlainDateTime::Create(o->iso_year,o->iso_month,o->iso_day,o->iso_hour,o->iso_minute,o->iso_second,o->iso_ms,o->iso_us,o->iso_ns)); }
         TsValue* fy=ts_object_get_property(raw,"year"),*fd=ts_object_get_property(raw,"day");
