@@ -447,6 +447,7 @@ static bool parse_iso_time(const char* s, int* H, int* M, int* S,
 }
 
 extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
+    require_options_object((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item = (argc >= 1 && argv) ? argv[0] : nullptr;
     if (!item || ts_value_is_undefined(item)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
@@ -1058,6 +1059,7 @@ TsValue* ts_temporal_plaindate_from_native(void* ctx, int argc, TsValue** argv) 
 } // extern "C"
 
 extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
+    require_options_object((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item = (argc>=1&&argv)?argv[0]:nullptr;
     if (!item || ts_value_is_undefined(item)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.from: argument is undefined"));
@@ -1197,6 +1199,7 @@ TsValue* ts_temporal_plainyearmonth_with_native(void* ctx,int argc,TsValue** arg
 TsValue* ts_temporal_plainyearmonth_from_native(void* ctx,int argc,TsValue** argv){ (void)ctx; return ts_temporal_plainyearmonth_from(argc,argv); }
 }
 extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
+    require_options_object((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -1296,6 +1299,7 @@ TsValue* ts_temporal_plainmonthday_with_native(void* ctx,int argc,TsValue** argv
 TsValue* ts_temporal_plainmonthday_from_native(void* ctx,int argc,TsValue** argv){ (void)ctx; return ts_temporal_plainmonthday_from(argc,argv); }
 }
 extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
+    require_options_object((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -1448,6 +1452,7 @@ TsValue* ts_temporal_plaindatetime_toPlainTime_native(void* ctx,int argc,TsValue
 TsValue* ts_temporal_plaindatetime_from_native(void* ctx,int argc,TsValue** argv){ (void)ctx; return ts_temporal_plaindatetime_from(argc,argv); }
 }
 extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
+    require_options_object((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -1785,6 +1790,7 @@ static bool zdt_extract_tz(const char* s, int* offMin, bool* utc){
     return false;
 }
 extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
+    require_options_object((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item); if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: invalid argument")); return ts_value_make_undefined(); }
