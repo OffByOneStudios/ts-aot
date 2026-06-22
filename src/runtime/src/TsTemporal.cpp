@@ -1941,7 +1941,8 @@ static std::string read_string_option(TsValue* opts, const char* key, const char
     void* raw = ts_nanbox_safe_unbox(opts);
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
     uint32_t m0=*(uint32_t*)raw;
-    if(m0==0x53545247||m0==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
+    // string (STRG/CONS), symbol (SYMB), bigint (BIGI) are primitive wrappers, not objects.
+    if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
     TsValue* v = ts_object_get_property(raw, key);
     std::string s;
     if(v && !ts_value_is_undefined(v) && tsvalue_to_stdstring(v,&s)){ if(s=="auto") return def; return s; }
@@ -1977,7 +1978,8 @@ static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
     void* raw = ts_nanbox_safe_unbox(opts);
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
     uint32_t m0=*(uint32_t*)raw;
-    if(m0==0x53545247||m0==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
+    // string (STRG/CONS), symbol (SYMB), bigint (BIGI) are primitive wrappers, not objects.
+    if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
     // roundingMode: validate only when it is a string (avoid false TypeError on
     // ToString-coercible values); an invalid string value is a RangeError.
     TsValue* rm = ts_object_get_property(raw,"roundingMode");
