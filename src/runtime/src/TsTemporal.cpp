@@ -44,6 +44,10 @@ static inline long long round_signed(long long v, long long q, const std::string
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
     long long* oy,long long* omo,long long* owk,long long* ody);
+// Validate the shared rounding/diff option bag (roundingMode/smallestUnit/
+// largestUnit/roundingIncrement), throwing TypeError/RangeError per spec.
+// No-op when opts is undefined. Defined after read_string_option.
+static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank);
 
 TsPlainTime* TsPlainTime::Create(int h, int m, int s, int ms, int us, int ns) {
     void* mem = ts_alloc(sizeof(TsPlainTime));
@@ -1933,6 +1937,66 @@ static std::string read_string_option(TsValue* opts, const char* key, const char
     if(v && !ts_value_is_undefined(v) && tsvalue_to_stdstring(v,&s)){ if(s=="auto") return def; return s; }
     return def;
 }
+static bool temporal_mode_valid(const std::string& m){
+    return m=="ceil"||m=="floor"||m=="expand"||m=="trunc"||m=="halfCeil"
+         ||m=="halfFloor"||m=="halfExpand"||m=="halfTrunc"||m=="halfEven";
+}
+// Coarseness rank: nanosecond=1 .. year=10 (0 = not a temporal unit).
+static int unit_rank(const std::string& u){
+    if(u=="nanosecond"||u=="nanoseconds")return 1;
+    if(u=="microsecond"||u=="microseconds")return 2;
+    if(u=="millisecond"||u=="milliseconds")return 3;
+    if(u=="second"||u=="seconds")return 4;
+    if(u=="minute"||u=="minutes")return 5;
+    if(u=="hour"||u=="hours")return 6;
+    if(u=="day"||u=="days")return 7;
+    if(u=="week"||u=="weeks")return 8;
+    if(u=="month"||u=="months")return 9;
+    if(u=="year"||u=="years")return 10;
+    return 0;
+}
+// A unit string is allowed for a method when its rank is within [minRank,maxRank].
+static bool unit_in_range(const std::string& u, int minRank, int maxRank){
+    int r = unit_rank(u);
+    return r>=minRank && r<=maxRank;
+}
+// Validate the shared rounding/diff options. minRank/maxRank bound which units
+// the calling method accepts (e.g. Instant.until: hour..nanosecond = [1,6]).
+static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
+    if(!opts || ts_value_is_undefined(opts)) return;
+    void* raw = ts_nanbox_safe_unbox(opts);
+    if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
+    uint32_t m0=*(uint32_t*)raw;
+    if(m0==0x53545247||m0==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
+    // roundingMode: validate only when it is a string (avoid false TypeError on
+    // ToString-coercible values); an invalid string value is a RangeError.
+    TsValue* rm = ts_object_get_property(raw,"roundingMode");
+    if(rm && !ts_value_is_undefined(rm)){
+        std::string s;
+        if(tsvalue_to_stdstring(rm,&s) && !temporal_mode_valid(s)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); return; }
+    }
+    // smallestUnit: must be a unit in range (string values only).
+    TsValue* su = ts_object_get_property(raw,"smallestUnit");
+    if(su && !ts_value_is_undefined(su)){
+        std::string s;
+        if(tsvalue_to_stdstring(su,&s) && !unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); return; }
+    }
+    // largestUnit (also accepts "auto").
+    TsValue* lu = ts_object_get_property(raw,"largestUnit");
+    if(lu && !ts_value_is_undefined(lu)){
+        std::string s;
+        if(tsvalue_to_stdstring(lu,&s) && s!="auto" && !unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); return; }
+    }
+    // roundingIncrement: ToNumber; must be finite, then truncate(value) in [1, 1e9].
+    // Non-integers are truncated (2.5 -> 2), not rejected; 0.9 -> 0 -> RangeError.
+    TsValue* ri = ts_object_get_property(raw,"roundingIncrement");
+    if(ri && !ts_value_is_undefined(ri)){
+        double dv = ts_to_number(ri);
+        if(!(dv==dv) || std::isinf(dv)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
+        double ii = std::trunc(dv);
+        if(ii<1.0 || ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
+    }
+}
 // Calendar difference from (ay/am/ad) to (by/bm/bd) per largestUnit.
 static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::string& largest,
                           long long* yr,long long* mo,long long* wk,long long* dy){
@@ -1982,6 +2046,7 @@ static void read_date_diff_opts(TsValue* opts, std::string* smallest, std::strin
     if(*largest=="auto") *largest = (date_unit_rank(*smallest)>date_unit_rank("day")) ? *smallest : std::string("day");
 }
 static TsValue* plaindate_diff(int aY,int aM,int aD,int bY,int bM,int bD,TsValue* opts){
+    validate_round_diff_opts(opts,7,10);
     std::string smallest,largest,mode; long long inc;
     read_date_diff_opts(opts,&smallest,&largest,&inc,&mode);
     long long yr,mo,wk,dy;
@@ -2060,6 +2125,7 @@ static void split_time_ns(long long t, long long* h,long long* mi,long long* s,l
     *s=sg*(a/1000000000LL); a%=1000000000LL; *ms=sg*(a/1000000LL); a%=1000000LL; *us=sg*(a/1000LL); *ns=sg*(a%1000LL);
 }
 static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts, const char* defLargest="day"){
+    validate_round_diff_opts(opts,1,10);
     const long long DAY=86400000000000LL;
     std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
     std::string largest=read_string_option(opts,"largestUnit","auto");
@@ -2168,6 +2234,7 @@ TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
 }
 // Instant diff with smallestUnit rounding (time units only; default largestUnit second).
 static TsValue* instant_diff_rounded(long long ms, long long sub, TsValue* opts){
+    validate_round_diff_opts(opts,1,6);
     std::string largest=read_string_option(opts,"largestUnit","auto");
     std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
     std::string mode=read_string_option(opts,"roundingMode","trunc");
@@ -2262,6 +2329,7 @@ static TsZonedDateTime* coerce_zdt_arg(TsValue* v){
 // ZDT diff via the local datetimes (valid for fixed-offset/UTC zones), with
 // smallestUnit rounding (default largestUnit hour). No-rounding -> existing zdt_diff.
 static TsValue* zdt_diff_opts(TsZonedDateTime* a, TsZonedDateTime* b, TsValue* opts){
+    validate_round_diff_opts(opts,1,10);
     std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
     std::string mode=read_string_option(opts,"roundingMode","trunc");
     long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
@@ -2406,6 +2474,7 @@ static TsPlainYearMonth* coerce_pym_arg(TsValue* v){
     TsValue* c=ts_temporal_plainyearmonth_from(v?1:0,&v); return as_plainyearmonth(ts_nanbox_safe_unbox(c));
 }
 static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts){
+    validate_round_diff_opts(opts,9,10);
     std::string smallest=read_string_option(opts,"smallestUnit","month");
     std::string largest=read_string_option(opts,"largestUnit","year");
     std::string mode=read_string_option(opts,"roundingMode","trunc");
@@ -2476,15 +2545,45 @@ TsValue* ts_temporal_plaindatetime_toZonedDateTime_native(void* ctx,int argc,TsV
 }
 
 // ======================= round helpers + more =======================
-static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode){
+static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank){
     *inc=1; *mode="halfExpand";
-    if(tsvalue_to_stdstring(roundTo, unit)) return true;
+    // String shorthand: roundTo IS the smallestUnit. Validate it.
+    if(roundTo && !ts_value_is_undefined(roundTo) && tsvalue_to_stdstring(roundTo, unit)){
+        if(!unit_in_range(*unit,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); }
+        return true;
+    }
     void* raw = roundTo?ts_nanbox_safe_unbox(roundTo):nullptr; if(!raw) return false;
-    TsValue* su=ts_object_get_property(raw,"smallestUnit");
-    if(!su||ts_value_is_undefined(su)||!tsvalue_to_stdstring(su,unit)) return false;
+    // roundingMode: validate only when a string; invalid string -> RangeError.
+    TsValue* rm=ts_object_get_property(raw,"roundingMode");
+    if(rm&&!ts_value_is_undefined(rm)){
+        std::string m;
+        if(tsvalue_to_stdstring(rm,&m)){
+            if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
+            *mode=m;
+        }
+    }
+    // roundingIncrement: ToNumber; finite, then truncate(value) in [1, 1e9].
     TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
-    if(ri&&!ts_value_is_undefined(ri)){ double d=ts_to_number(ri); if(d==d&&!std::isinf(d))*inc=(long long)std::trunc(d); }
-    TsValue* rm=ts_object_get_property(raw,"roundingMode"); std::string m; if(rm&&tsvalue_to_stdstring(rm,&m))*mode=m;
+    if(ri&&!ts_value_is_undefined(ri)){
+        double d=ts_to_number(ri);
+        if(!(d==d)||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); }
+        double ii=std::trunc(d);
+        if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); }
+        *inc=(long long)ii;
+    }
+    // largestUnit (optional): validate only when a string.
+    TsValue* lu=ts_object_get_property(raw,"largestUnit");
+    if(lu&&!ts_value_is_undefined(lu)){
+        std::string s;
+        if(tsvalue_to_stdstring(lu,&s) && s!="auto" && !unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); }
+    }
+    // smallestUnit (required for the object form).
+    TsValue* su=ts_object_get_property(raw,"smallestUnit");
+    if(!su||ts_value_is_undefined(su)) return false;
+    std::string s;
+    if(!tsvalue_to_stdstring(su,&s)) return false;
+    if(!unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); }
+    *unit=s;
     return true;
 }
 static long long round_nonneg(long long v, long long q, const std::string& mode){
@@ -2559,7 +2658,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
     std::string sUnit,mode="halfExpand"; long long inc=1;
-    bool haveS = parse_round_options(rt,&sUnit,&inc,&mode);
+    bool haveS = parse_round_options(rt,&sUnit,&inc,&mode,1,10);
     std::string lUnit="auto";
     void* raw=ts_nanbox_safe_unbox(rt);
     if(raw){ TsValue* lu=ts_object_get_property(raw,"largestUnit"); std::string s; if(lu&&!ts_value_is_undefined(lu)&&tsvalue_to_stdstring(lu,&s)) lUnit=s; }
@@ -2606,7 +2705,7 @@ TsValue* ts_temporal_plaindatetime_round_native(void* ctx,int argc,TsValue** arg
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
     std::string unit,mode; long long inc;
-    if(!parse_round_options(rt,&unit,&inc,&mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
+    if(!parse_round_options(rt,&unit,&inc,&mode,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
     bool ok; long long un=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
     if(inc<1)inc=1;
@@ -2623,7 +2722,7 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
     std::string unit,mode; long long inc;
-    if(!parse_round_options(rt,&unit,&inc,&mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
+    if(!parse_round_options(rt,&unit,&inc,&mode,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
     bool ok; long long un=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
     if(inc<1)inc=1;
@@ -2657,6 +2756,7 @@ static TsValue* duration_from_time_opts(long long diff, const std::string& large
 }
 // Read largestUnit / smallestUnit / roundingMode for a time-diff and produce the Duration.
 static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest){
+    validate_round_diff_opts(opts,1,6);
     std::string largest = read_string_option(opts, "largestUnit", defLargest);
     std::string smallest = read_string_option(opts, "smallestUnit", "nanosecond");
     std::string mode = read_string_option(opts, "roundingMode", "trunc");
