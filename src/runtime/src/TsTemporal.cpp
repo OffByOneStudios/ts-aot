@@ -25,6 +25,22 @@ static bool iso_annotations_valid(const char* s);
 static int date_unit_rank(const std::string& u);
 static long long unit_ns(const std::string& u, bool* ok);
 static long long round_nonneg(long long v, long long q, const std::string& mode);
+// ceil/floor/halfCeil/halfFloor are not symmetric about zero. round_nonneg rounds a
+// non-negative magnitude; when the true value is negative and we re-apply the sign,
+// the directional modes must be swapped so e.g. ceil(-x) rounds toward +inf, not -inf.
+// trunc/expand/halfExpand/halfTrunc/halfEven are symmetric and stay unchanged.
+static inline std::string flip_mode_neg(const std::string& mode){
+    if(mode=="ceil") return "floor";
+    if(mode=="floor") return "ceil";
+    if(mode=="halfCeil") return "halfFloor";
+    if(mode=="halfFloor") return "halfCeil";
+    return mode;
+}
+// Round a true signed value v (any sign) under roundingMode `mode`, quantum q>0.
+static inline long long round_signed(long long v, long long q, const std::string& mode){
+    if(v<0) return -round_nonneg(-v, q, flip_mode_neg(mode));
+    return round_nonneg(v, q, mode);
+}
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
     long long* oy,long long* omo,long long* owk,long long* ody);
@@ -2064,8 +2080,7 @@ static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* o
         if(smallest=="week"||smallest=="weeks") sNs=7*DAY;
         else if(smallest=="day"||smallest=="days") sNs=DAY;
         else { bool ok; sNs=unit_ns(smallest,&ok); if(!ok) sNs=1; }
-        long long sign=totalNs<0?-1:1, av=totalNs<0?-totalNs:totalNs;
-        long long r=round_nonneg(av, sNs*(inc>0?inc:1), mode)*sign;
+        long long r=round_signed(totalNs, sNs*(inc>0?inc:1), mode);
         long long days=r/DAY, t=r%DAY;
         long long h,mi,s,ms,us,ns; split_time_ns(t,&h,&mi,&s,&ms,&us,&ns);
         if(date_unit_rank(largest)>=4){ // month/year: balance days to calendar
@@ -2153,16 +2168,20 @@ TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
 }
 // Instant diff with smallestUnit rounding (time units only; default largestUnit second).
 static TsValue* instant_diff_rounded(long long ms, long long sub, TsValue* opts){
-    std::string largest=read_string_option(opts,"largestUnit","second");
+    std::string largest=read_string_option(opts,"largestUnit","auto");
     std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
     std::string mode=read_string_option(opts,"roundingMode","trunc");
+    // largestUnit "auto" resolves to the coarser of smallestUnit and "second".
+    if(largest=="auto"){
+        bool oa,ob; long long sN=unit_ns(smallest,&oa), secN=unit_ns("second",&ob);
+        largest = (oa && sN>secN) ? smallest : std::string("second");
+    }
     long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
     if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
     long long totalNs = ms*1000000LL + sub;
     bool ok; long long sNs=unit_ns(smallest,&ok);
     if(ok && (sNs>1 || inc>1)){
-        long long sign=totalNs<0?-1:1, a=totalNs<0?-totalNs:totalNs;
-        totalNs = round_nonneg(a, sNs*(inc>0?inc:1), mode)*sign;
+        totalNs = round_signed(totalNs, sNs*(inc>0?inc:1), mode);
     }
     return duration_from_ms_sub(totalNs/1000000LL, totalNs%1000000LL, largest);
 }
@@ -2567,9 +2586,8 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     bool ok; long long sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
     long long tot = d->days*86400000000000LL + d->hours*3600000000000LL + d->minutes*60000000000LL
         + d->seconds*1000000000LL + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
-    long long sign = tot<0?-1:1; long long a=tot<0?-tot:tot;
     long long q=sNs*(inc>0?inc:1);
-    long long rounded = round_nonneg(a,q,mode)*sign;
+    long long rounded = round_signed(tot,q,mode);
     std::string L=lUnit;
     if(L=="auto"){
         if(d->days) L="day"; else if(d->hours) L="hour"; else if(d->minutes) L="minute";
@@ -2625,7 +2643,7 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
 // Time-only difference -> Duration, honoring largestUnit + smallestUnit rounding.
 static TsValue* duration_from_time_opts(long long diff, const std::string& largest, long long smallestNs, const std::string& mode){
     int sign=diff<0?-1:1; long long ad=diff<0?-diff:diff;
-    if(smallestNs>1) ad = round_nonneg(ad, smallestNs, mode);
+    if(smallestNs>1) ad = round_nonneg(ad, smallestNs, sign<0?flip_mode_neg(mode):mode);
     long long h=0,mi=0,s=0,ms=0,us=0,ns=0; long long rem=ad;
     std::string L = largest.empty()?"hour":largest;
     if(L=="hour"||L=="hours"){ h=rem/3600000000000LL; rem%=3600000000000LL; mi=rem/60000000000LL; rem%=60000000000LL; s=rem/1000000000LL; rem%=1000000000LL; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
