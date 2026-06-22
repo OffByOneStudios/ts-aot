@@ -49,6 +49,7 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
 // No-op when opts is undefined. Defined after read_string_option.
 static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank);
 static void validate_overflow_option(TsValue* opts);
+static void require_options_object(TsValue* opts);
 
 TsPlainTime* TsPlainTime::Create(int h, int m, int s, int ms, int us, int ns) {
     void* mem = ts_alloc(sizeof(TsPlainTime));
@@ -197,6 +198,7 @@ static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsV
 
 TsValue* ts_temporal_plaintime_toString_native(void* ctx, int argc, TsValue** argv) {
     TsPlainTime* pt = require_plaintime(ctx, "toString");
+    require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(plaintime_iso_string(pt));
     return ts_value_make_string(TsString::Create(
@@ -400,6 +402,14 @@ TsValue* ts_temporal_plaintime_from_native(void* ctx, int argc, TsValue** argv) 
 // rejected outright (used for year and UTC-offset signs in test262).
 static inline bool has_unicode_minus(const char* s){
     return s && strstr(s, "\xe2\x88\x92") != nullptr;
+}
+// A wall-clock type (PlainDate/Time/DateTime/YearMonth/MonthDay) must reject a
+// string carrying the UTC designator 'Z'/'z' (that denotes an exact instant).
+// The designator appears in the datetime portion, before any '[' annotation.
+static inline bool has_utc_designator(const char* s){
+    if(!s) return false;
+    for(const char* p=s; *p && *p!='['; p++){ if(*p=='Z'||*p=='z') return true; }
+    return false;
 }
 // Parse an ISO-8601 time (optionally preceded by a date + 'T'). Fills the six
 // fields. Returns false on malformed input or a UTC 'Z' designator (a bare
@@ -971,6 +981,7 @@ static TsValue* append_cal_annotation(TsString* base, TsValue* opts){
 
 TsValue* ts_temporal_plaindate_toString_native(void* ctx, int argc, TsValue** argv) {
     TsPlainDate* d = require_plaindate(ctx, "toString");
+    require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     return append_cal_annotation(plaindate_iso_string(d), (argc>=1&&argv)?argv[0]:nullptr);
 }
 
@@ -1058,7 +1069,7 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         if (m0==0x53545247 || m0==0x434F4E53) {
             const char* utf = ((TsString*)ts_value_get_string(item))->ToUtf8();
             int Y,M,D;
-            if (!utf || !parse_iso_date(utf,&Y,&M,&D) || !iso_date_valid(Y,M,D) || !iso_annotations_valid(utf)) {
+            if (!utf || has_utc_designator(utf) || !parse_iso_date(utf,&Y,&M,&D) || !iso_date_valid(Y,M,D) || !iso_annotations_valid(utf)) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: invalid ISO date string"));
                 return ts_value_make_undefined();
             }
@@ -1146,6 +1157,7 @@ static bool parse_iso_yearmonth(const char* s, int* Y, int* M) {
 extern "C" {
 TsValue* ts_temporal_plainyearmonth_toString_native(void* ctx,int argc,TsValue** argv){
     TsPlainYearMonth* d=require_plainyearmonth(ctx,"toString");
+    require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     std::string cal = read_string_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto");
     bool showCal = (cal=="always"||cal=="critical");
     const char* ann = (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
@@ -1190,7 +1202,7 @@ extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
+        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ TsPlainYearMonth* o=(TsPlainYearMonth*)raw; return ts_value_make_object(TsPlainYearMonth::Create(o->iso_year,o->iso_month,o->iso_day)); }
         TsValue* fy=ts_object_get_property(raw,"year");
         bool hY=fy&&!ts_value_is_undefined(fy); int bagM=read_bag_month(raw);
@@ -1254,6 +1266,7 @@ static bool parse_iso_monthday(const char* s, int* M, int* D) {
 extern "C" {
 TsValue* ts_temporal_plainmonthday_toString_native(void* ctx,int argc,TsValue** argv){
     TsPlainMonthDay* d=require_plainmonthday(ctx,"toString");
+    require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     std::string cal = read_string_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto");
     bool showCal = (cal=="always"||cal=="critical");
     const char* ann = (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
@@ -1288,7 +1301,7 @@ extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
+        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||has_utc_designator(u)||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ TsPlainMonthDay* o=(TsPlainMonthDay*)raw; return ts_value_make_object(TsPlainMonthDay::Create(o->iso_month,o->iso_day,o->iso_year)); }
         TsValue* fd=ts_object_get_property(raw,"day");
         int bagM=read_bag_month(raw); bool hD=fd&&!ts_value_is_undefined(fd);
@@ -1392,6 +1405,7 @@ static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi
 extern "C" {
 TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* d=require_plaindatetime(ctx,"toString");
+    require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(plaindatetime_iso_string(d));
     char db[24];
@@ -1440,7 +1454,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
         if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M,D,H,Mi,S,ms,us,ns;
-            if(!u||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
+            if(!u||has_utc_designator(u)||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
             return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,H,Mi,S,ms,us,ns)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ TsPlainDateTime* o=(TsPlainDateTime*)raw; return ts_value_make_object(TsPlainDateTime::Create(o->iso_year,o->iso_month,o->iso_day,o->iso_hour,o->iso_minute,o->iso_second,o->iso_ms,o->iso_us,o->iso_ns)); }
         TsValue* fy=ts_object_get_property(raw,"year"),*fd=ts_object_get_property(raw,"day");
@@ -1605,6 +1619,7 @@ TsValue* ts_temporal_instant_epochMicros_native(void* ctx,int argc,TsValue** arg
 }
 TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
     TsInstant* it=require_instant(ctx,"toString");
+    require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(instant_iso_string(it));
     // timeZone-rendered output is unsupported here -> fall back to default UTC string.
@@ -1820,6 +1835,7 @@ TsValue* ts_temporal_zdt_epochNs_native(void* ctx,int argc,TsValue** argv){ TsZo
 TsValue* ts_temporal_zdt_epochMicros_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"epochMicroseconds"); TsValue v=z->GetPropertyVirtual("epochMicroseconds"); return (TsValue*)v.ptr_val; }
 TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"toString");
+    require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(zdt_iso_string(z));
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
@@ -2011,6 +2027,20 @@ static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
         double ii = std::trunc(dv);
         if(ii<1.0 || ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
     }
+}
+// GetOptionsObject (object-type check only): throw TypeError for any primitive
+// options value. Uses nanbox tag math directly so a primitive (null/bool/number/
+// string/symbol/bigint) is never dereferenced as an object (which can corrupt the
+// heap). undefined and real objects pass.
+static void require_options_object(TsValue* opts){
+    if(!opts || ts_value_is_undefined(opts)) return;
+    uint64_t nb=(uint64_t)(uintptr_t)opts;
+    bool isObj = ((nb & 0xFFFF000000000000ULL)==0) && (nb >= 0x10000);
+    if(isObj){
+        uint32_t m0=*(uint32_t*)(void*)nb;
+        if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749) isObj=false;
+    }
+    if(!isObj){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); }
 }
 // GetOptionsObject + validate the "overflow" option (constrain|reject) for
 // add/subtract/with/from. Throws TypeError for a primitive options value and
