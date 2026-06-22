@@ -2730,6 +2730,50 @@ TsValue* ts_temporal_plaindatetime_toZonedDateTime_native(void* ctx,int argc,TsV
     long long epoch_ms=localMs-(long long)off*60000LL;
     return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, d->iso_us*1000+d->iso_ns, off, utc));
 }
+// Temporal.PlainDateTime.prototype.withPlainTime(plainTimeLike?) — keep the date,
+// replace the time (default midnight when the argument is absent/undefined).
+TsValue* ts_temporal_plaindatetime_withPlainTime_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDateTime* d=require_plaindatetime(ctx,"withPlainTime");
+    int h=0,mi=0,s=0,ms=0,us=0,ns=0;
+    TsValue* a=(argc>=1&&argv)?argv[0]:nullptr;
+    if(a && !ts_value_is_undefined(a)){
+        TsPlainTime* pt=coerce_plaintime_arg(a);
+        if(!pt){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.withPlainTime: invalid time")); return ts_value_make_undefined(); }
+        h=pt->iso_hour;mi=pt->iso_minute;s=pt->iso_second;ms=pt->iso_millisecond;us=pt->iso_microsecond;ns=pt->iso_nanosecond;
+    }
+    return ts_value_make_object(TsPlainDateTime::Create(d->iso_year,d->iso_month,d->iso_day,h,mi,s,ms,us,ns));
+}
+// Temporal.ZonedDateTime.prototype.startOfDay() — midnight in the local day.
+TsValue* ts_temporal_zdt_startOfDay_native(void* ctx,int argc,TsValue** argv){
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"startOfDay");
+    int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    long long localMs=iso_days_from_civil(Y,M,D)*86400000LL;
+    return ts_value_make_object(TsZonedDateTime::Create(localMs-(long long)z->offset_minutes*60000LL, 0, z->offset_minutes, z->is_utc));
+}
+// Temporal.PlainDate.prototype.toZonedDateTime(item) — item is a time-zone string
+// or { timeZone, plainTime? }. The wall time defaults to midnight.
+TsValue* ts_temporal_plaindate_toZonedDateTime_native(void* ctx,int argc,TsValue** argv){
+    TsPlainDate* d=require_plaindate(ctx,"toZonedDateTime");
+    TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
+    void* raw=item?ts_nanbox_safe_unbox(item):nullptr;
+    if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.toZonedDateTime: invalid argument")); return ts_value_make_undefined(); }
+    int off=0; bool utc=true; int h=0,mi=0,s=0,ms=0,us=0,ns=0;
+    if(*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53){
+        std::string tz=((TsString*)ts_value_get_string(item))->ToUtf8();
+        if(!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); }
+    } else {
+        TsValue* tzv=ts_object_get_property(raw,"timeZone");
+        std::string tz;
+        if(!tzv||ts_value_is_undefined(tzv)||!tsvalue_to_stdstring(tzv,&tz)||!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); }
+        TsValue* ptv=ts_object_get_property(raw,"plainTime");
+        if(ptv && !ts_value_is_undefined(ptv)){
+            TsPlainTime* pt=coerce_plaintime_arg(ptv);
+            if(pt){ h=pt->iso_hour;mi=pt->iso_minute;s=pt->iso_second;ms=pt->iso_millisecond;us=pt->iso_microsecond;ns=pt->iso_nanosecond; }
+        }
+    }
+    long long localMs=iso_days_from_civil(d->iso_year,d->iso_month,d->iso_day)*86400000LL + (long long)h*3600000+(long long)mi*60000+(long long)s*1000+ms;
+    return ts_value_make_object(TsZonedDateTime::Create(localMs-(long long)off*60000LL, us*1000+ns, off, utc));
+}
 }
 
 // ======================= round helpers + more =======================
