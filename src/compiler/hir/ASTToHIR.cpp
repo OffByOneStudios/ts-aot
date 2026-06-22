@@ -9989,6 +9989,10 @@ void ASTToHIR::visitBigIntLiteral(ast::BigIntLiteral* node) {
         else if (p == 'o' || p == 'O') { radixInt = 8;  valueStr = valueStr.substr(2); }
         else if (p == 'b' || p == 'B') { radixInt = 2;  valueStr = valueStr.substr(2); }
     }
+    // Strip ES2021 numeric separators ('_'): ts_bigint_create_str does not
+    // understand them and would otherwise parse e.g. "217178610_123_456_789"
+    // as 0. Separators only appear between digits, so removing them is safe.
+    valueStr.erase(std::remove(valueStr.begin(), valueStr.end(), '_'), valueStr.end());
 
     // Create the string constant for the BigInt value
     auto strVal = builder_.createConstString(valueStr);
