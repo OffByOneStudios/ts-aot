@@ -949,7 +949,7 @@ static TsString* plaindate_iso_string(TsPlainDate* d) {
 // Rules: at most one calendar (u-ca) and one time-zone annotation; lowercase keys;
 // no unknown annotation with the critical (!) flag; non-empty calendar value.
 static bool iso_annotations_valid(const char* s){
-    int calCount=0, tzCount=0;
+    int calCount=0, tzCount=0; bool calCritical=false;
     const char* p=strchr(s,'[');
     while(p){
         const char* end=strchr(p,']'); if(!end) return false;
@@ -960,7 +960,10 @@ static bool iso_annotations_valid(const char* s){
         if(eq!=std::string::npos){
             std::string key=body.substr(0,eq), val=body.substr(eq+1);
             for(char c: key) if(c>='A'&&c<='Z') return false;  // keys must be lowercase
-            if(key=="u-ca"){ if(val.empty()) return false; if(++calCount>1) return false; }
+            // Multiple calendar annotations are allowed (first wins, rest ignored)
+            // UNLESS two or more appear and ANY of them is critical — a critical
+            // annotation must not be silently ignored.
+            if(key=="u-ca"){ if(val.empty()) return false; calCount++; if(critical) calCritical=true; if(calCount>1 && calCritical) return false; }
             else if(critical) return false;                    // unknown critical annotation
         } else {
             if(++tzCount>1) return false;                      // >1 time-zone annotation
