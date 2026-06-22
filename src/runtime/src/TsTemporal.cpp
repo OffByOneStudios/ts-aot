@@ -48,6 +48,7 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
 // largestUnit/roundingIncrement), throwing TypeError/RangeError per spec.
 // No-op when opts is undefined. Defined after read_string_option.
 static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank);
+static void validate_overflow_option(TsValue* opts);
 
 TsPlainTime* TsPlainTime::Create(int h, int m, int s, int ms, int us, int ns) {
     void* mem = ts_alloc(sizeof(TsPlainTime));
@@ -300,6 +301,7 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
 // primitive throws TypeError. Default overflow "constrain" clamps.
 TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv) {
     TsPlainTime* pt = require_plaintime(ctx, "with");
+    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
     void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
     if (!raw) {
@@ -1009,6 +1011,7 @@ TsValue* ts_temporal_plaindate_compare_native(void* ctx, int argc, TsValue** arg
 
 TsValue* ts_temporal_plaindate_with_native(void* ctx, int argc, TsValue** argv) {
     TsPlainDate* pd = require_plaindate(ctx, "with");
+    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* arg = (argc>=1&&argv)?argv[0]:nullptr;
     void* raw = arg?ts_nanbox_safe_unbox(arg):nullptr;
     if (!raw || *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53 ||
@@ -1171,7 +1174,7 @@ TsValue* ts_temporal_plainyearmonth_compare_native(void* ctx,int argc,TsValue** 
     for(int i=0;i<3;i++){ if(af[i]<bf[i])return ts_value_make_int(-1); if(af[i]>bf[i])return ts_value_make_int(1);} return ts_value_make_int(0);
 }
 TsValue* ts_temporal_plainyearmonth_with_native(void* ctx,int argc,TsValue** argv){
-    TsPlainYearMonth* pd=require_plainyearmonth(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
+    TsPlainYearMonth* pd=require_plainyearmonth(ctx,"with"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     int vals[2]={pd->iso_year,pd->iso_month}; static const char* names[2]={"year","month"}; bool any=false;
     for(int i=0;i<2;i++){ TsValue* f=ts_object_get_property(raw,names[i]); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[i]=(int)std::trunc(d);} }
@@ -1267,7 +1270,7 @@ TsValue* ts_temporal_plainmonthday_equals_native(void* ctx,int argc,TsValue** ar
     return ts_value_make_bool(a->iso_month==b->iso_month&&a->iso_day==b->iso_day&&a->iso_year==b->iso_year);
 }
 TsValue* ts_temporal_plainmonthday_with_native(void* ctx,int argc,TsValue** argv){
-    TsPlainMonthDay* pd=require_plainmonthday(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
+    TsPlainMonthDay* pd=require_plainmonthday(ctx,"with"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     int M=pd->iso_month,D=pd->iso_day; bool any=false;
     TsValue* fm=ts_object_get_property(raw,"month"); TsValue* fd=ts_object_get_property(raw,"day");
@@ -1415,7 +1418,7 @@ TsValue* ts_temporal_plaindatetime_compare_native(void* ctx,int argc,TsValue** a
     for(int i=0;i<9;i++){ if(af[i]<bf[i])return ts_value_make_int(-1); if(af[i]>bf[i])return ts_value_make_int(1);} return ts_value_make_int(0);
 }
 TsValue* ts_temporal_plaindatetime_with_native(void* ctx,int argc,TsValue** argv){
-    TsPlainDateTime* pd=require_plaindatetime(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
+    TsPlainDateTime* pd=require_plaindatetime(ctx,"with"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     static const char* names[9]={"year","month","day","hour","minute","second","millisecond","microsecond","nanosecond"};
     int vals[9]={pd->iso_year,pd->iso_month,pd->iso_day,pd->iso_hour,pd->iso_minute,pd->iso_second,pd->iso_ms,pd->iso_us,pd->iso_ns};
@@ -2009,6 +2012,21 @@ static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
         if(ii<1.0 || ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
     }
 }
+// GetOptionsObject + validate the "overflow" option (constrain|reject) for
+// add/subtract/with/from. Throws TypeError for a primitive options value and
+// RangeError for an out-of-range overflow string (string values only).
+static void validate_overflow_option(TsValue* opts){
+    if(!opts || ts_value_is_undefined(opts)) return;
+    void* raw = ts_nanbox_safe_unbox(opts);
+    if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
+    uint32_t m0=*(uint32_t*)raw;
+    if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
+    TsValue* ov = ts_object_get_property(raw,"overflow");
+    if(ov && !ts_value_is_undefined(ov)){
+        std::string s;
+        if(tsvalue_to_stdstring(ov,&s) && s!="constrain" && s!="reject"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid overflow")); return; }
+    }
+}
 // Calendar difference from (ay/am/ad) to (by/bm/bd) per largestUnit.
 static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::string& largest,
                           long long* yr,long long* mo,long long* wk,long long* dy){
@@ -2034,14 +2052,14 @@ static TsPlainDate* coerce_plaindate_arg(TsValue* v){
 }
 extern "C" {
 TsValue* ts_temporal_plaindate_add_native(void* ctx,int argc,TsValue** argv){
-    TsPlainDate* pd=require_plaindate(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsPlainDate* pd=require_plaindate(ctx,"add"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.add: invalid duration")); return ts_value_make_undefined(); }
     int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, d->years,d->months,d->weeks,d->days,&Y,&M,&D);
     if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
 }
 TsValue* ts_temporal_plaindate_subtract_native(void* ctx,int argc,TsValue** argv){
-    TsPlainDate* pd=require_plaindate(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsPlainDate* pd=require_plaindate(ctx,"subtract"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
     int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, -d->years,-d->months,-d->weeks,-d->days,&Y,&M,&D);
     if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
@@ -2182,12 +2200,12 @@ static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* o
 }
 extern "C" {
 TsValue* ts_temporal_plaindatetime_add_native(void* ctx,int argc,TsValue** argv){
-    TsPlainDateTime* dt=require_plaindatetime(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsPlainDateTime* dt=require_plaindatetime(ctx,"add"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.add: invalid duration")); return ts_value_make_undefined(); }
     return pdt_add(dt,d,1);
 }
 TsValue* ts_temporal_plaindatetime_subtract_native(void* ctx,int argc,TsValue** argv){
-    TsPlainDateTime* dt=require_plaindatetime(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsPlainDateTime* dt=require_plaindatetime(ctx,"subtract"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
     return pdt_add(dt,d,-1);
 }
@@ -2325,12 +2343,12 @@ static TsValue* zdt_diff(TsZonedDateTime* a, TsZonedDateTime* b, const std::stri
 }
 extern "C" {
 TsValue* ts_temporal_zdt_add_native(void* ctx,int argc,TsValue** argv){
-    TsZonedDateTime* z=require_zoneddatetime(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"add"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.add: invalid duration")); return ts_value_make_undefined(); }
     return zdt_add(z,d,1);
 }
 TsValue* ts_temporal_zdt_subtract_native(void* ctx,int argc,TsValue** argv){
-    TsZonedDateTime* z=require_zoneddatetime(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"subtract"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
     return zdt_add(z,d,-1);
 }
@@ -2394,6 +2412,7 @@ TsValue* ts_temporal_zdt_withPlainTime_native(void* ctx,int argc,TsValue** argv)
 }
 TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"with");
+    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     void* raw=(argc>=1&&argv&&argv[0])?ts_nanbox_safe_unbox(argv[0]):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be an object")); return ts_value_make_undefined(); }
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
@@ -2517,12 +2536,12 @@ static TsValue* pym_add_impl(TsPlainYearMonth* a,TsDuration* d,int neg){
     return ts_value_make_object(TsPlainYearMonth::Create(nY,nM,1));
 }
 TsValue* ts_temporal_plainyearmonth_add_native(void* ctx,int argc,TsValue** argv){
-    TsPlainYearMonth* a=require_plainyearmonth(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsPlainYearMonth* a=require_plainyearmonth(ctx,"add"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.add: invalid argument")); return ts_value_make_undefined(); }
     return pym_add_impl(a,d,1);
 }
 TsValue* ts_temporal_plainyearmonth_subtract_native(void* ctx,int argc,TsValue** argv){
-    TsPlainYearMonth* a=require_plainyearmonth(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsPlainYearMonth* a=require_plainyearmonth(ctx,"subtract"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.subtract: invalid argument")); return ts_value_make_undefined(); }
     return pym_add_impl(a,d,-1);
 }
