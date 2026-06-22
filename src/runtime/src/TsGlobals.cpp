@@ -2907,6 +2907,7 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(ptProto, "nanosecond",  (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaintime_field(c,5,"nanosecond"); });
         // Prototype methods.
         addMethod(ptProto, "toString",       (void*)ts_temporal_plaintime_toString_native, 0);
+        addMethod(ptProto, "toLocaleString", (void*)ts_temporal_plaintime_toString_native, 0);
         addMethod(ptProto, "toJSON",         (void*)ts_temporal_plaintime_toString_native, 0);
         addMethod(ptProto, "toLocaleString", (void*)ts_temporal_plaintime_toString_native, 0);
         addMethod(ptProto, "valueOf",        (void*)ts_temporal_plaintime_valueOf_native, 0);
@@ -2944,6 +2945,7 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(duProto, "sign", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,10,"sign"); });
         addAccessorGetter(duProto, "blank", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_duration_field(c,11,"blank"); });
         addMethod(duProto, "toString", (void*)ts_temporal_duration_toString_native, 0);
+        addMethod(duProto, "toLocaleString", (void*)ts_temporal_duration_toString_native, 0);
         addMethod(duProto, "toJSON",   (void*)ts_temporal_duration_toString_native, 0);
         addMethod(duProto, "valueOf",  (void*)ts_temporal_duration_valueOf_native, 0);
         addMethod(duProto, "negated",  (void*)ts_temporal_duration_negated_native, 0);
@@ -2983,6 +2985,7 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(pdProto, "era", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindate_field(c,"era"); });
         addAccessorGetter(pdProto, "eraYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindate_field(c,"eraYear"); });
         addMethod(pdProto, "toString", (void*)ts_temporal_plaindate_toString_native, 0);
+        addMethod(pdProto, "toLocaleString", (void*)ts_temporal_plaindate_toString_native, 0);
         addMethod(pdProto, "toJSON",   (void*)ts_temporal_plaindate_toString_native, 0);
         addMethod(pdProto, "valueOf",  (void*)ts_temporal_plaindate_valueOf_native, 0);
         addMethod(pdProto, "equals",   (void*)ts_temporal_plaindate_equals_native, 1);
@@ -3018,6 +3021,7 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(ymProto, "era", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"era"); });
         addAccessorGetter(ymProto, "eraYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainyearmonth_field(c,"eraYear"); });
         addMethod(ymProto, "toString", (void*)ts_temporal_plainyearmonth_toString_native, 0);
+        addMethod(ymProto, "toLocaleString", (void*)ts_temporal_plainyearmonth_toString_native, 0);
         addMethod(ymProto, "toJSON",   (void*)ts_temporal_plainyearmonth_toString_native, 0);
         addMethod(ymProto, "valueOf",  (void*)ts_temporal_plainyearmonth_valueOf_native, 0);
         addMethod(ymProto, "equals",   (void*)ts_temporal_plainyearmonth_equals_native, 1);
@@ -3043,6 +3047,7 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(mdProto, "day", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainmonthday_field(c,"day"); });
         addAccessorGetter(mdProto, "calendarId", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plainmonthday_field(c,"calendarId"); });
         addMethod(mdProto, "toString", (void*)ts_temporal_plainmonthday_toString_native, 0);
+        addMethod(mdProto, "toLocaleString", (void*)ts_temporal_plainmonthday_toString_native, 0);
         addMethod(mdProto, "toJSON",   (void*)ts_temporal_plainmonthday_toString_native, 0);
         addMethod(mdProto, "valueOf",  (void*)ts_temporal_plainmonthday_valueOf_native, 0);
         addMethod(mdProto, "equals",   (void*)ts_temporal_plainmonthday_equals_native, 1);
@@ -3082,6 +3087,7 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(dtProto, "era", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"era"); });
         addAccessorGetter(dtProto, "eraYear", (void*)+[](void* c,int,TsValue**)->TsValue*{ return temporal_plaindatetime_field(c,"eraYear"); });
         addMethod(dtProto, "toString",    (void*)ts_temporal_plaindatetime_toString_native, 0);
+        addMethod(dtProto, "toLocaleString", (void*)ts_temporal_plaindatetime_toString_native, 0);
         addMethod(dtProto, "toJSON",      (void*)ts_temporal_plaindatetime_toString_native, 0);
         addMethod(dtProto, "valueOf",     (void*)ts_temporal_plaindatetime_valueOf_native, 0);
         addMethod(dtProto, "equals",      (void*)ts_temporal_plaindatetime_equals_native, 1);
@@ -3113,6 +3119,7 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(inProto, "epochNanoseconds",  (void*)ts_temporal_instant_epochNs_native);
         addAccessorGetter(inProto, "epochMicroseconds", (void*)ts_temporal_instant_epochMicros_native);
         addMethod(inProto, "toString", (void*)ts_temporal_instant_toString_native, 0);
+        addMethod(inProto, "toLocaleString", (void*)ts_temporal_instant_toString_native, 0);
         addMethod(inProto, "toJSON",   (void*)ts_temporal_instant_toString_native, 0);
         addMethod(inProto, "valueOf",  (void*)ts_temporal_instant_valueOf_native, 0);
         addMethod(inProto, "equals",   (void*)ts_temporal_instant_equals_native, 1);
@@ -3164,6 +3171,7 @@ void* ts_get_global_Temporal() {
         addAccessorGetter(zdProto, "epochNanoseconds",  (void*)ts_temporal_zdt_epochNs_native);
         addAccessorGetter(zdProto, "epochMicroseconds", (void*)ts_temporal_zdt_epochMicros_native);
         addMethod(zdProto, "toString",        (void*)ts_temporal_zdt_toString_native, 0);
+        addMethod(zdProto, "toLocaleString", (void*)ts_temporal_zdt_toString_native, 0);
         addMethod(zdProto, "toJSON",          (void*)ts_temporal_zdt_toString_native, 0);
         addMethod(zdProto, "valueOf",         (void*)ts_temporal_zdt_valueOf_native, 0);
         addMethod(zdProto, "equals",          (void*)ts_temporal_zdt_equals_native, 1);
