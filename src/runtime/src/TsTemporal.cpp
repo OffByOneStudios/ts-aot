@@ -393,11 +393,18 @@ TsValue* ts_temporal_plaintime_from_native(void* ctx, int argc, TsValue** argv) 
 
 } // extern "C"
 
+// ISO 8601 only permits the ASCII minus '-' (U+002D) as a sign. The Unicode
+// minus U+2212 (UTF-8 E2 88 92) is never valid, so a string containing it is
+// rejected outright (used for year and UTC-offset signs in test262).
+static inline bool has_unicode_minus(const char* s){
+    return s && strstr(s, "\xe2\x88\x92") != nullptr;
+}
 // Parse an ISO-8601 time (optionally preceded by a date + 'T'). Fills the six
 // fields. Returns false on malformed input or a UTC 'Z' designator (a bare
 // PlainTime string must not carry a zone). Lenient on separators.
 static bool parse_iso_time(const char* s, int* H, int* M, int* S,
                            int* ms, int* us, int* ns) {
+    if (has_unicode_minus(s)) return false;
     const char* t = s;
     for (const char* p = s; *p; p++) { if (*p == 'T' || *p == 't') { t = p + 1; break; } }
     auto two = [](const char* p, int* out) -> const char* {
@@ -913,6 +920,7 @@ static int read_bag_month(void* raw){
     return -1;
 }
 static bool parse_iso_date(const char* s, int* Y, int* M, int* D) {
+    if (has_unicode_minus(s)) return false;
     int sign = 1; const char* p = s;
     if (*p=='+'||*p=='-') { if(*p=='-') sign=-1; p++; }
     int y=0, nd=0;
@@ -1125,6 +1133,7 @@ extern "C" TsValue* ts_temporal_plainyearmonth_construct(int argc, TsValue** arg
     return ts_value_make_object(TsPlainYearMonth::Create(y,m,refDay));
 }
 static bool parse_iso_yearmonth(const char* s, int* Y, int* M) {
+    if (has_unicode_minus(s)) return false;
     int sign=1; const char* p=s; if(*p=='+'||*p=='-'){if(*p=='-')sign=-1;p++;}
     int y=0,nd=0; while(isdigit((unsigned char)*p)){y=y*10+(*p-'0');p++;nd++;} if(nd<4) return false;
     if(sign<0 && y==0) return false;  // reject minus-zero extended year
@@ -1229,6 +1238,7 @@ extern "C" TsValue* ts_temporal_plainmonthday_construct(int argc, TsValue** argv
     return ts_value_make_object(TsPlainMonthDay::Create(m,d,refY));
 }
 static bool parse_iso_monthday(const char* s, int* M, int* D) {
+    if (has_unicode_minus(s)) return false;
     const char* p=s; if(p[0]=='-'&&p[1]=='-') p+=2;
     // could be MM-DD or YYYY-MM-DD; if 4+ leading digits treat as date.
     int lead=0; const char* q=p; while(isdigit((unsigned char)*q)){lead++;q++;}
