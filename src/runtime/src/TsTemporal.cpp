@@ -411,12 +411,22 @@ static inline bool has_utc_designator(const char* s){
     for(const char* p=s; *p && *p!='['; p++){ if(*p=='Z'||*p=='z') return true; }
     return false;
 }
+// A signed year of zero ("-000000") is not a valid extended year. Detect a
+// leading ASCII '-' followed by one or more digits that are all zero.
+static inline bool has_negative_zero_year(const char* s){
+    if(!s || *s!='-') return false;
+    const char* d=s+1; const char* p=d;
+    while(*p>='0'&&*p<='9') p++;
+    if(p==d) return false;
+    for(const char* q=d; q<p; q++) if(*q!='0') return false;
+    return true;
+}
 // Parse an ISO-8601 time (optionally preceded by a date + 'T'). Fills the six
 // fields. Returns false on malformed input or a UTC 'Z' designator (a bare
 // PlainTime string must not carry a zone). Lenient on separators.
 static bool parse_iso_time(const char* s, int* H, int* M, int* S,
                            int* ms, int* us, int* ns) {
-    if (has_unicode_minus(s)) return false;
+    if (has_unicode_minus(s) || has_negative_zero_year(s)) return false;
     const char* t = s;
     for (const char* p = s; *p; p++) { if (*p == 'T' || *p == 't') { t = p + 1; break; } }
     auto two = [](const char* p, int* out) -> const char* {
