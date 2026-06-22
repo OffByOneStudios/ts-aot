@@ -1814,6 +1814,11 @@ static TsZonedDateTime* require_zoneddatetime(void* ctx, const char* method){
 // Parse a time-zone string: "UTC" or a numeric offset "+HH:MM"/"-HH:MM"/"+HHMM"/Z.
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc){
     if(!s) return false;
+    // A datetime-form time-zone string ("YYYYY-MM-DDThh:mm±..." or with Z) must be a
+    // valid ISO datetime: reject a Unicode minus anywhere, and a negative-zero
+    // extended year (which only appears in the datetime, not a bare ±HH:MM offset).
+    if(has_unicode_minus(s)) return false;
+    if(strchr(s,'T') && has_negative_zero_year(s)) return false;
     if(strcmp(s,"UTC")==0||strcmp(s,"utc")==0){ *offMin=0; *isUtc=true; return true; }
     const char* p=s; if(*p=='Z'||*p=='z'){ *offMin=0; *isUtc=true; return true; }
     int sign=0; if(*p=='+')sign=1; else if(*p=='-')sign=-1; else return false; p++;
@@ -2070,16 +2075,19 @@ static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
         if(tsvalue_to_stdstring(rm,&s) && !temporal_mode_valid(s)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); return; }
     }
     // smallestUnit: must be a unit in range (string values only).
+    std::string suStr, luStr;
     TsValue* su = ts_object_get_property(raw,"smallestUnit");
     if(su && !ts_value_is_undefined(su)){
-        std::string s;
-        if(tsvalue_to_stdstring(su,&s) && !unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); return; }
+        if(tsvalue_to_stdstring(su,&suStr) && !unit_in_range(suStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); return; }
     }
     // largestUnit (also accepts "auto").
     TsValue* lu = ts_object_get_property(raw,"largestUnit");
     if(lu && !ts_value_is_undefined(lu)){
-        std::string s;
-        if(tsvalue_to_stdstring(lu,&s) && s!="auto" && !unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); return; }
+        if(tsvalue_to_stdstring(lu,&luStr) && luStr!="auto" && !unit_in_range(luStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); return; }
+    }
+    // largestUnit must be coarser than or equal to smallestUnit (higher/equal rank).
+    if(!suStr.empty() && !luStr.empty() && luStr!="auto" && unit_rank(luStr) < unit_rank(suStr)){
+        ts_throw((TsValue*)ts_error_create_typed("RangeError","largestUnit must not be smaller than smallestUnit")); return;
     }
     // roundingIncrement: ToNumber; must be finite, then truncate(value) in [1, 1e9].
     // Non-integers are truncated (2.5 -> 2), not rejected; 0.9 -> 0 -> RangeError.
@@ -2804,10 +2812,10 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
         *inc=(long long)ii;
     }
     // largestUnit (optional): validate only when a string.
+    std::string luStr;
     TsValue* lu=ts_object_get_property(raw,"largestUnit");
     if(lu&&!ts_value_is_undefined(lu)){
-        std::string s;
-        if(tsvalue_to_stdstring(lu,&s) && s!="auto" && !unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); }
+        if(tsvalue_to_stdstring(lu,&luStr) && luStr!="auto" && !unit_in_range(luStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); }
     }
     // smallestUnit (required for the object form).
     TsValue* su=ts_object_get_property(raw,"smallestUnit");
@@ -2815,6 +2823,10 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
     std::string s;
     if(!tsvalue_to_stdstring(su,&s)) return false;
     if(!unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); }
+    // largestUnit must be coarser than or equal to smallestUnit.
+    if(!luStr.empty() && luStr!="auto" && unit_rank(luStr) < unit_rank(s)){
+        ts_throw((TsValue*)ts_error_create_typed("RangeError","largestUnit must not be smaller than smallestUnit"));
+    }
     *unit=s;
     return true;
 }
