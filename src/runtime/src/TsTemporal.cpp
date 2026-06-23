@@ -2820,6 +2820,8 @@ static TsValue* pdt_add(TsPlainDateTime* dt, TsDuration* d, int sign){
     if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
     int h=(int)(rem/3600000000000LL); rem%=3600000000000LL; int mi=(int)(rem/60000000000LL); rem%=60000000000LL;
     int s=(int)(rem/1000000000LL); rem%=1000000000LL; int ms=(int)(rem/1000000LL); rem%=1000000LL; int us=(int)(rem/1000LL); int ns=(int)(rem%1000LL);
+    { long long tns=(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+      if(!iso_datetime_in_limits(Y,M,D,tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: result is outside the representable range")); return ts_value_make_undefined(); } }
     return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,mi,s,ms,us,ns));
 }
 static TsValue* pdt_diff(TsPlainDateTime* a, TsPlainDateTime* b, const std::string& lu){
@@ -3601,6 +3603,8 @@ TsValue* ts_temporal_plaindatetime_round_native(void* ctx,int argc,TsValue** arg
     int Y,M,D; add_iso_date(dt->iso_year,dt->iso_month,dt->iso_day, 0,0,0, carry, &Y,&M,&D);
     int h=(int)(rem/3600000000000LL); rem%=3600000000000LL; int mi=(int)(rem/60000000000LL); rem%=60000000000LL;
     int s=(int)(rem/1000000000LL); rem%=1000000000LL; int ms=(int)(rem/1000000LL); rem%=1000000LL; int us=(int)(rem/1000LL); int ns=(int)(rem%1000LL);
+    { long long tns=(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+      if(!iso_datetime_in_limits(Y,M,D,tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: result is outside the representable range")); return ts_value_make_undefined(); } }
     return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,mi,s,ms,us,ns));
 }
 TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
