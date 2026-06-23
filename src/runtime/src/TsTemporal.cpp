@@ -21,6 +21,8 @@ extern "C" double ts_to_number(TsValue* v);  // Primitives.cpp (throws on Symbol
 // (so earlier method natives can call them).
 static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest);
 static std::string read_string_option(TsValue* opts, const char* key, const char* def);
+static bool option_to_string(TsValue* v, std::string* out);
+static bool option_is_object(TsValue* v);
 static bool iso_annotations_valid(const char* s);
 static int date_unit_rank(const std::string& u);
 static long long unit_ns(const std::string& u, bool* ok);
@@ -2077,12 +2079,62 @@ static std::string read_string_option(TsValue* opts, const char* key, const char
     if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
     TsValue* v = ts_object_get_property(raw, key);
     std::string s;
-    if(v && !ts_value_is_undefined(v) && tsvalue_to_stdstring(v,&s)){ if(s=="auto") return def; return s; }
+    // option_to_string performs the spec ToString (observable for object values,
+    // TypeError for symbol); this is the single observable read for the diff path.
+    if(v && !ts_value_is_undefined(v) && option_to_string(v,&s)){ if(s=="auto") return def; return s; }
     return def;
 }
 static bool temporal_mode_valid(const std::string& m){
     return m=="ceil"||m=="floor"||m=="expand"||m=="trunc"||m=="halfCeil"
          ||m=="halfFloor"||m=="halfExpand"||m=="halfTrunc"||m=="halfEven";
+}
+extern "C" void* ts_string_from_value(TsValue* val);
+extern "C" TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv);
+// ECMAScript ToString for a string-typed option value (GetOption type String):
+//   string -> itself; number/boolean/bigint/null -> their primitive string;
+//   symbol -> TypeError; object -> ToPrimitive(string): call toString then valueOf
+//   (observable), then ToString the primitive result. Returns false (caller skips)
+//   only for undefined; otherwise fills *out and may throw. Rejects wrong-typed
+//   option values with the right error and invokes an object's toString in spec
+//   order (the test262 wrong-type / order-of-operations probes assert this).
+static bool option_to_string(TsValue* v, std::string* out){
+    if(!v || ts_value_is_undefined(v)) return false;
+    void* raw = ts_nanbox_safe_unbox(v);
+    if(raw){
+        uint32_t m0 = *(uint32_t*)raw;
+        if(m0==0x53545247||m0==0x434F4E53){ void* sp=ts_value_get_string(v); if(sp) ((TsString*)sp)->AppendUtf8(*out); return true; }
+        if(m0!=0x53594D42 && m0!=0x42494749){  // a non-symbol, non-bigint heap object
+            const char* keys[2]={"toString","valueOf"};
+            for(int k=0;k<2;k++){
+                TsValue* fn = ts_object_get_property(raw, keys[k]);
+                if(fn && !ts_value_is_undefined(fn) && ts_is_callable((void*)fn)){
+                    TsValue* res = ts_function_call_with_this(fn, v, 0, nullptr);
+                    if(res && !ts_value_is_undefined(res)){
+                        void* rraw = ts_nanbox_safe_unbox(res);
+                        bool resObj = rraw && (*(uint32_t*)rraw!=0x53545247 && *(uint32_t*)rraw!=0x434F4E53 && *(uint32_t*)rraw!=0x53594D42);
+                        if(!resObj){ void* s=ts_string_from_value(res); if(s){ ((TsString*)s)->AppendUtf8(*out); return true; } }
+                    }
+                }
+            }
+        }
+    }
+    void* s = ts_string_from_value(v);  // primitive string / TypeError for Symbol / "[object Object]"
+    if(!s) return false;
+    ((TsString*)s)->AppendUtf8(*out);
+    return true;
+}
+// True if v is a heap OBJECT (not a string/symbol/bigint/number/boolean/null
+// primitive) — i.e. ToString would run user code (toString/valueOf). The diff
+// path validates options in two passes (validate then compute-read); to invoke
+// an object's toString exactly ONCE (the observers assert call count), the
+// validate pass skips objects and lets the single compute read_string_option
+// (which uses option_to_string) do the observable coercion.
+static bool option_is_object(TsValue* v){
+    uint64_t nb = nanbox_from_tsvalue_ptr(v);
+    if(!nanbox_is_ptr(nb)) return false;
+    void* p = nanbox_to_ptr(nb); if(!p) return false;
+    uint32_t m = *(uint32_t*)p;
+    return !(m==0x53545247||m==0x434F4E53||m==0x53594D42||m==0x42494749);
 }
 // Coarseness rank: nanosecond=1 .. year=10 (0 = not a temporal unit).
 static int unit_rank(const std::string& u){
@@ -2114,21 +2166,24 @@ static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
     if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
     // roundingMode: validate only when it is a string (avoid false TypeError on
     // ToString-coercible values); an invalid string value is a RangeError.
+    // For object values, defer the (observable) ToString to the single compute
+    // read (read_string_option); validate only primitives here so an object's
+    // toString runs exactly once. Symbol/number/null primitives still throw.
     TsValue* rm = ts_object_get_property(raw,"roundingMode");
-    if(rm && !ts_value_is_undefined(rm)){
+    if(rm && !ts_value_is_undefined(rm) && !option_is_object(rm)){
         std::string s;
-        if(tsvalue_to_stdstring(rm,&s) && !temporal_mode_valid(s)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); return; }
+        if(option_to_string(rm,&s) && !temporal_mode_valid(s)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); return; }
     }
-    // smallestUnit: must be a unit in range (string values only).
+    // smallestUnit: must be a unit in range.
     std::string suStr, luStr;
     TsValue* su = ts_object_get_property(raw,"smallestUnit");
-    if(su && !ts_value_is_undefined(su)){
-        if(tsvalue_to_stdstring(su,&suStr) && !unit_in_range(suStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); return; }
+    if(su && !ts_value_is_undefined(su) && !option_is_object(su)){
+        if(option_to_string(su,&suStr) && !unit_in_range(suStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); return; }
     }
     // largestUnit (also accepts "auto").
     TsValue* lu = ts_object_get_property(raw,"largestUnit");
-    if(lu && !ts_value_is_undefined(lu)){
-        if(tsvalue_to_stdstring(lu,&luStr) && luStr!="auto" && !unit_in_range(luStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); return; }
+    if(lu && !ts_value_is_undefined(lu) && !option_is_object(lu)){
+        if(option_to_string(lu,&luStr) && luStr!="auto" && !unit_in_range(luStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); return; }
     }
     // largestUnit must be coarser than or equal to smallestUnit (higher/equal rank).
     if(!suStr.empty() && !luStr.empty() && luStr!="auto" && unit_rank(luStr) < unit_rank(suStr)){
@@ -2143,6 +2198,49 @@ static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
         double ii = std::trunc(dv);
         if(ii<1.0 || ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
     }
+}
+// Single observable pass for the diff/round options (smallestUnit, largestUnit,
+// roundingMode, roundingIncrement): read each EXACTLY ONCE via read_string_option
+// (which ToStrings object values observably — the wrong-type/order observers
+// assert the call count), then validate. Replaces the old validate-then-reread
+// pattern which invoked an option object's toString twice.
+static void require_options_object(TsValue* opts);
+// Read an option as a string WITHOUT mapping "auto" to the default — the caller
+// validates "auto" where it is not an allowed value (roundingMode, smallestUnit)
+// and treats it as the "not provided" sentinel for largestUnit. Observable
+// ToString for object values; TypeError for a symbol.
+static std::string read_opt_str_noauto(void* raw, const char* key, const char* def){
+    if(!raw) return def;
+    TsValue* v=ts_object_get_property(raw,key);
+    std::string s;
+    if(v && !ts_value_is_undefined(v) && option_to_string(v,&s)) return s;
+    return def;
+}
+static void read_validated_diff_opts(TsValue* opts, int minRank, int maxRank,
+        const char* defSmallest, const char* defLargest,
+        std::string* smallest, std::string* largest, std::string* mode, long long* inc){
+    (void)defLargest;  // largestUnit defaults to the "auto" sentinel; the caller resolves it
+    require_options_object(opts);  // TypeError for a primitive options arg (safe, no deref)
+    void* raw0 = opts?ts_nanbox_safe_unbox(opts):nullptr;
+    *smallest = read_opt_str_noauto(raw0, "smallestUnit", defSmallest);
+    *largest  = read_opt_str_noauto(raw0, "largestUnit", "auto");
+    *mode     = read_opt_str_noauto(raw0, "roundingMode", "trunc");
+    *inc = 1;
+    void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
+    if(raw){
+        TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
+        if(ri&&!ts_value_is_undefined(ri)){
+            double dd=ts_to_number(ri);
+            if(!(dd==dd)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
+            double ii=std::trunc(dd);
+            if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
+            *inc=(long long)ii;
+        }
+    }
+    if(!temporal_mode_valid(*mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); return; }
+    if(!unit_in_range(*smallest,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); return; }
+    if(*largest!="auto" && !unit_in_range(*largest,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); return; }
+    if(*largest!="auto" && unit_rank(*largest) < unit_rank(*smallest)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","largestUnit must not be smaller than smallestUnit")); return; }
 }
 // GetOptionsObject (object-type check only): throw TypeError for any primitive
 // options value. Uses nanbox tag math directly so a primitive (null/bool/number/
@@ -2170,7 +2268,7 @@ static void validate_overflow_option(TsValue* opts){
     TsValue* ov = ts_object_get_property(raw,"overflow");
     if(ov && !ts_value_is_undefined(ov)){
         std::string s;
-        if(tsvalue_to_stdstring(ov,&s) && s!="constrain" && s!="reject"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid overflow")); return; }
+        if(option_to_string(ov,&s) && s!="constrain" && s!="reject"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid overflow")); return; }
     }
 }
 // Calendar difference from (ay/am/ad) to (by/bm/bd) per largestUnit.
@@ -2222,9 +2320,9 @@ static void read_date_diff_opts(TsValue* opts, std::string* smallest, std::strin
     if(*largest=="auto") *largest = (date_unit_rank(*smallest)>date_unit_rank("day")) ? *smallest : std::string("day");
 }
 static TsValue* plaindate_diff(int aY,int aM,int aD,int bY,int bM,int bD,TsValue* opts){
-    validate_round_diff_opts(opts,7,10);
     std::string smallest,largest,mode; long long inc;
-    read_date_diff_opts(opts,&smallest,&largest,&inc,&mode);
+    read_validated_diff_opts(opts,7,10,"day","auto",&smallest,&largest,&mode,&inc);
+    if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank("day")) ? smallest : std::string("day");
     long long yr,mo,wk,dy;
     if((smallest=="day"||smallest=="days") && mode=="trunc" && inc<=1)
         diff_iso_date(aY,aM,aD,bY,bM,bD,largest,&yr,&mo,&wk,&dy);
@@ -2342,13 +2440,9 @@ static void split_time_ns(long long t, long long* h,long long* mi,long long* s,l
     *s=sg*(a/1000000000LL); a%=1000000000LL; *ms=sg*(a/1000000LL); a%=1000000LL; *us=sg*(a/1000LL); *ns=sg*(a%1000LL);
 }
 static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts, const char* defLargest="day"){
-    validate_round_diff_opts(opts,1,10);
     const long long DAY=86400000000000LL;
-    std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
-    std::string largest=read_string_option(opts,"largestUnit","auto");
-    std::string mode=read_string_option(opts,"roundingMode","trunc");
-    long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
-    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
+    std::string smallest,largest,mode; long long inc;
+    read_validated_diff_opts(opts,1,10,"nanosecond","auto",&smallest,&largest,&mode,&inc);
     if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank(defLargest)) ? smallest : std::string(defLargest);
     // No-rounding default -> unchanged fast path.
     if((smallest=="nanosecond"||smallest=="nanoseconds") && mode=="trunc" && inc<=1) return pdt_diff(a,b,largest);
@@ -2453,17 +2547,13 @@ TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
 }
 // Instant diff with smallestUnit rounding (time units only; default largestUnit second).
 static TsValue* instant_diff_rounded(long long ms, long long sub, TsValue* opts){
-    validate_round_diff_opts(opts,1,6);
-    std::string largest=read_string_option(opts,"largestUnit","auto");
-    std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
-    std::string mode=read_string_option(opts,"roundingMode","trunc");
+    std::string largest,smallest,mode; long long inc;
+    read_validated_diff_opts(opts,1,6,"nanosecond","auto",&smallest,&largest,&mode,&inc);
     // largestUnit "auto" resolves to the coarser of smallestUnit and "second".
     if(largest=="auto"){
         bool oa,ob; long long sN=unit_ns(smallest,&oa), secN=unit_ns("second",&ob);
         largest = (oa && sN>secN) ? smallest : std::string("second");
     }
-    long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
-    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
     long long totalNs = ms*1000000LL + sub;
     bool ok; long long sNs=unit_ns(smallest,&ok);
     if(ok && (sNs>1 || inc>1)){
@@ -2548,12 +2638,9 @@ static TsZonedDateTime* coerce_zdt_arg(TsValue* v){
 // ZDT diff via the local datetimes (valid for fixed-offset/UTC zones), with
 // smallestUnit rounding (default largestUnit hour). No-rounding -> existing zdt_diff.
 static TsValue* zdt_diff_opts(TsZonedDateTime* a, TsZonedDateTime* b, TsValue* opts){
-    validate_round_diff_opts(opts,1,10);
-    std::string smallest=read_string_option(opts,"smallestUnit","nanosecond");
-    std::string mode=read_string_option(opts,"roundingMode","trunc");
-    long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
-    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
-    std::string largest=read_string_option(opts,"largestUnit","hour"); if(largest=="auto") largest="hour";
+    std::string smallest,largest,mode; long long inc;
+    read_validated_diff_opts(opts,1,10,"nanosecond","hour",&smallest,&largest,&mode,&inc);
+    if(largest=="auto") largest="hour";
     if((smallest=="nanosecond"||smallest=="nanoseconds")&&mode=="trunc"&&inc<=1) return zdt_diff(a,b,largest);
     int aY,aM,aD,ah,ami,as_,ams,aus,ans; zdt_local(a,&aY,&aM,&aD,&ah,&ami,&as_,&ams,&aus,&ans);
     int bY,bM,bD,bh,bmi,bs,bms,bus,bns; zdt_local(b,&bY,&bM,&bD,&bh,&bmi,&bs,&bms,&bus,&bns);
@@ -2714,12 +2801,9 @@ static TsPlainYearMonth* coerce_pym_arg(TsValue* v){
     TsValue* c=ts_temporal_plainyearmonth_from(v?1:0,&v); return as_plainyearmonth(ts_nanbox_safe_unbox(c));
 }
 static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts){
-    validate_round_diff_opts(opts,9,10);
-    std::string smallest=read_string_option(opts,"smallestUnit","month");
-    std::string largest=read_string_option(opts,"largestUnit","year");
-    std::string mode=read_string_option(opts,"roundingMode","trunc");
-    long long inc=1; void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
-    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); } }
+    std::string smallest,largest,mode; long long inc;
+    read_validated_diff_opts(opts,9,10,"month","year",&smallest,&largest,&mode,&inc);
+    if(largest=="auto") largest="year";
     long long yr,mo,wk,dy;
     if((smallest=="month"||smallest=="months")&&mode=="trunc"&&inc<=1)
         diff_iso_date(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,largest,&yr,&mo,&wk,&dy);
@@ -2842,7 +2926,7 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
     TsValue* rm=ts_object_get_property(raw,"roundingMode");
     if(rm&&!ts_value_is_undefined(rm)){
         std::string m;
-        if(tsvalue_to_stdstring(rm,&m)){
+        if(option_to_string(rm,&m)){
             if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
             *mode=m;
         }
@@ -2860,13 +2944,13 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
     std::string luStr;
     TsValue* lu=ts_object_get_property(raw,"largestUnit");
     if(lu&&!ts_value_is_undefined(lu)){
-        if(tsvalue_to_stdstring(lu,&luStr) && luStr!="auto" && !unit_in_range(luStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); }
+        if(option_to_string(lu,&luStr) && luStr!="auto" && !unit_in_range(luStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); }
     }
     // smallestUnit (required for the object form).
     TsValue* su=ts_object_get_property(raw,"smallestUnit");
     if(!su||ts_value_is_undefined(su)) return false;
     std::string s;
-    if(!tsvalue_to_stdstring(su,&s)) return false;
+    if(!option_to_string(su,&s)) return false;
     if(!unit_in_range(s,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); }
     // largestUnit must be coarser than or equal to smallestUnit.
     if(!luStr.empty() && luStr!="auto" && unit_rank(luStr) < unit_rank(s)){
@@ -3045,12 +3129,10 @@ static TsValue* duration_from_time_opts(long long diff, const std::string& large
 }
 // Read largestUnit / smallestUnit / roundingMode for a time-diff and produce the Duration.
 static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest){
-    validate_round_diff_opts(opts,1,6);
-    std::string largest = read_string_option(opts, "largestUnit", defLargest);
-    std::string smallest = read_string_option(opts, "smallestUnit", "nanosecond");
-    std::string mode = read_string_option(opts, "roundingMode", "trunc");
+    std::string largest,smallest,mode; long long inc;
+    read_validated_diff_opts(opts,1,6,"nanosecond",defLargest,&smallest,&largest,&mode,&inc);
+    if(largest=="auto") largest=defLargest;
     bool ok; long long sNs = unit_ns(smallest, &ok); if(!ok) sNs=1;
-    long long inc=1; { void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr; if(raw){ uint32_t m0=*(uint32_t*)raw; if(m0!=0x53545247&&m0!=0x434F4E53){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double d=ts_to_number(ri); if(d==d&&!std::isinf(d))inc=(long long)std::trunc(d); } } } }
     if(inc<1)inc=1;
     return duration_from_time_opts(diff, largest, sNs*inc, mode);
 }
