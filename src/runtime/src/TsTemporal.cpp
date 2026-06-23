@@ -1876,16 +1876,27 @@ static void temporal_now_fields(int* Y,int* M,int* D,int* h,int* m,int* s,int* m
     *h=tmv.tm_hour; *m=tmv.tm_min; *s=tmv.tm_sec;
     *ms=(int)(sub/1000000); *us=(int)((sub/1000)%1000); *ns=(int)(sub%1000);
 }
+// Temporal.Now.*ISO(timeZoneLike?) — the time-zone argument must be a valid
+// identifier even though ts-aot renders fields in UTC.
+static void validate_now_tz(int argc, TsValue** argv){
+    if(argc>=1&&argv&&argv[0]&&!ts_value_is_undefined(argv[0])){
+        std::string tz; int o; bool u;
+        if(!tsvalue_to_stdstring(argv[0],&tz)||!parse_timezone(tz.c_str(),&o,&u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Now: invalid time zone")); }
+    }
+}
 extern "C" {
 TsValue* ts_temporal_now_plaindatetimeiso_native(void* ctx,int argc,TsValue** argv){
+    validate_now_tz(argc,argv);
     int Y,M,D,h,m,s,ms,us,ns; temporal_now_fields(&Y,&M,&D,&h,&m,&s,&ms,&us,&ns);
     return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,m,s,ms,us,ns));
 }
 TsValue* ts_temporal_now_plaindateiso_native(void* ctx,int argc,TsValue** argv){
+    validate_now_tz(argc,argv);
     int Y,M,D,h,m,s,ms,us,ns; temporal_now_fields(&Y,&M,&D,&h,&m,&s,&ms,&us,&ns);
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
 }
 TsValue* ts_temporal_now_plaintimeiso_native(void* ctx,int argc,TsValue** argv){
+    validate_now_tz(argc,argv);
     int Y,M,D,h,m,s,ms,us,ns; temporal_now_fields(&Y,&M,&D,&h,&m,&s,&ms,&us,&ns);
     return ts_value_make_object(TsPlainTime::Create(h,m,s,ms,us,ns));
 }
