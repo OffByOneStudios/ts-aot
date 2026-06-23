@@ -2489,8 +2489,10 @@ TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(zdt_iso_string(z));
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    int carry=0; std::string tstr=format_time_opts(h,mi,s,ms,us,ns,opts,&carry);   // rounding may cross midnight
+    if(carry){ iso_civil_from_days(iso_days_from_civil(Y,M,D)+carry,&Y,&M,&D); }
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
-    std::string out=db; out+="T"; out+=format_time_opts(h,mi,s,ms,us,ns,opts);
+    std::string out=db; out+="T"; out+=tstr;
     char ob[8]; zdt_offset_string(z->offset_minutes,ob,sizeof(ob));
     static const char* OFFV[]={"auto","never"};
     std::string offMode=read_enum_option(opts,"offset","auto",OFFV,2);
