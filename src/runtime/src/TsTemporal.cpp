@@ -509,6 +509,7 @@ static bool parse_iso_time(const char* s, int* H, int* M, int* S,
         }
     }
     if (*p == 'Z' || *p == 'z') return false;  // UTC designator invalid for PlainTime
+    if(sec==60) sec=59;   // leap second -> constrain to :59 (Temporal has no leap seconds)
     *H = h; *M = m; *S = sec;
     *ms = (int)(frac / 1000000); *us = (int)((frac / 1000) % 1000); *ns = (int)(frac % 1000);
     return true;
@@ -1574,6 +1575,7 @@ static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi
     if(isdigit((unsigned char)q[0])&&isdigit((unsigned char)q[1])){ q=two(q,Mi); if(*q==':')q++;
         if(isdigit((unsigned char)q[0])&&isdigit((unsigned char)q[1])){ q=two(q,S);
             if(*q=='.'||*q==','){ q++; char fb[10]="000000000"; int i=0; while(i<9&&isdigit((unsigned char)*q)){fb[i++]=*q++;} long f=atol(fb); *ms=(int)(f/1000000);*us=(int)((f/1000)%1000);*ns=(int)(f%1000);} } }
+    if(*S==60) *S=59;   // leap second -> constrain to :59
     return true;
 }
 extern "C" {
