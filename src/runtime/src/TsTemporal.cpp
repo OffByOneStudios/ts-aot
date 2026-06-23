@@ -27,6 +27,7 @@ static bool temporal_mode_valid(const std::string& m);
 static std::string read_enum_option(TsValue* opts, const char* key, const char* def, const char* const* valid, int nvalid);
 static int iso_days_in_month(int y, int m);
 static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank);
+static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static long long unit_ns(const std::string& u, bool* ok);
 // ValidateTemporalRoundingIncrement (inclusive=false) for the TIME units of a
 // difference: the increment must be < the unit's max (hour 24, minute/second 60,
@@ -1960,7 +1961,12 @@ TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(instant_iso_string(it));
     // timeZone-rendered output is unsupported here -> fall back to default UTC string.
     void* raw=ts_nanbox_safe_unbox(opts);
-    if(raw){ TsValue* tz=ts_object_get_property(raw,"timeZone"); if(tz&&!ts_value_is_undefined(tz)) return ts_value_make_string(instant_iso_string(it)); }
+    if(raw){ TsValue* tz=ts_object_get_property(raw,"timeZone"); if(tz&&!ts_value_is_undefined(tz)){
+        // The timeZone must still be a valid identifier (ToTemporalTimeZoneIdentifier)
+        // even though ts-aot renders the default UTC string for it.
+        std::string tzs; int o; bool u;
+        if(!tsvalue_to_stdstring(tz,&tzs)||!parse_timezone(tzs.c_str(),&o,&u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.toString: invalid time zone")); return ts_value_make_undefined(); }
+        return ts_value_make_string(instant_iso_string(it)); } }
     long long ms=it->epoch_ms; long long sns=it->sub_ns;
     if(sns<0){ ms-=1; sns+=1000000; }   // FLOOR sub-second for negative epoch
     long long days=ms/86400000LL; long long rem=ms%86400000LL;
