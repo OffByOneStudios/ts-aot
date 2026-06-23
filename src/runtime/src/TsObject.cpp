@@ -536,6 +536,41 @@ static int64_t ts_last_call_argc = 0;
 
 extern "C" {
 
+// Forward decls (defined later in this file).
+static TsClosure* ts_funcptr_as_closure(void* funcPtr);
+static TsClosure* ts_extract_closure(TsValue* boxedFunc);
+static TsFunction* ts_extract_function(TsValue* boxedFunc);
+
+// Invoke an accessor getter with the correct calling convention. A getter is
+// usually a closure whose FIRST physical parameter is the closure CONTEXT
+// (captured cells are read via ts_closure_get_cell(closure)); when is_method it
+// also takes `this` as its SECOND parameter. The generic ts_function_call_with_this
+// path forces thisArg into the closure slot, so a getter capturing outer
+// variables would read its cells from the receiver object ("bad magic"). Invoke
+// the closure directly here; a native (non-closure) getter falls back to the
+// generic path. Scoped to accessor dispatch so other call sites are unaffected.
+static TsValue* invoke_accessor_getter(TsValue* getterFunc, TsValue* thisObj) {
+    TsClosure* gc = ts_extract_closure(getterFunc);
+    if (!gc) { TsFunction* gf = ts_extract_function(getterFunc); if (gf) gc = ts_funcptr_as_closure(gf->funcPtr); }
+    if (!gc || gc->num_captures == 0) {
+        // Non-capturing getter: the compiled body takes the receiver as its first
+        // physical parameter (this is exactly the pre-existing behavior, so these
+        // getters stay byte-for-byte unchanged).
+        return ts_function_call_with_this(getterFunc, thisObj, 0, nullptr);
+    }
+    // Capturing getter: the first physical parameter is the CLOSURE CONTEXT (so
+    // ts_closure_get_cell reads the right cells); `this` flows via the global
+    // (set below) and is also passed as a 2nd arg (ignored if the body reads it
+    // from the global). The old path forced thisObj into the closure slot, making
+    // a capturing getter read its cells from the receiver ("bad magic").
+    void* savedThis = ts_call_this_value;
+    ts_call_this_value = thisObj;
+    ts_last_call_argc = 0;
+    TsValue* r = ((TsValue*(*)(void*, TsValue*))gc->func_ptr)(gc, thisObj);
+    ts_call_this_value = savedThis;
+    return r;
+}
+
 // Defined near ts_object_set_dynamic. ECMA-262 array-index test:
 // ToString(ToUint32(s)) === s && ToUint32(s) != 2^32-1. Forward-declared
 // here so the property-descriptor / hasOwnProperty array branches above
@@ -4660,7 +4695,7 @@ TsValue* ts_value_make_int(int64_t i) {
                     // Found a getter - invoke it with 'this' as the ORIGINAL object
                     TsValue* boxedObj = (TsValue*)obj;  // NaN-boxed pointer IS obj
                     TsValue* getterFunc = nanbox_from_tagged(getterVal);
-                    return ts_function_call_with_this(getterFunc, boxedObj, 0, nullptr);
+                    return invoke_accessor_getter(getterFunc, boxedObj);
                 }
 
                 // No getter - look up the property directly
@@ -5116,7 +5151,7 @@ TsValue* ts_value_make_int(int64_t i) {
                     if (getterVal.type != ValueType::UNDEFINED) {
                         TsValue* boxedObj = (TsValue*)obj;
                         TsValue* getterFunc = nanbox_from_tagged(getterVal);
-                        return ts_function_call_with_this(getterFunc, boxedObj, 0, nullptr);
+                        return invoke_accessor_getter(getterFunc, boxedObj);
                     }
                     // Check for direct property
                     TsValue val = currentMap->Get(k);
@@ -10154,7 +10189,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         if (getterVal.type != ValueType::UNDEFINED) {
                             TsValue* boxedObj = obj;
                             TsValue* getterFunc = nanbox_from_tagged(getterVal);
-                            return ts_function_call_with_this(getterFunc, boxedObj, 0, nullptr);
+                            return invoke_accessor_getter(getterFunc, boxedObj);
                         }
                     }
                 }
@@ -10212,7 +10247,7 @@ TsValue* ts_value_make_int(int64_t i) {
                         TsValue gv = pm->Get(gk);
                         if (gv.type != ValueType::UNDEFINED) {
                             TsValue* getterFunc = nanbox_from_tagged(gv);
-                            return ts_function_call_with_this(getterFunc, obj, 0, nullptr);
+                            return invoke_accessor_getter(getterFunc, obj);
                         }
                         TsValue dv = pm->Get(dk);
                         if (dv.type != ValueType::UNDEFINED) {
@@ -10346,7 +10381,7 @@ TsValue* ts_value_make_int(int64_t i) {
                     TsValue getterVal = currentMap->Get(gk);
                     if (getterVal.type != ValueType::UNDEFINED) {
                         TsValue* getterFunc = nanbox_from_tagged(getterVal);
-                        return ts_function_call_with_this(getterFunc, obj, 0, nullptr);
+                        return invoke_accessor_getter(getterFunc, obj);
                     }
                     currentMap = currentMap->GetPrototype();
                 }
