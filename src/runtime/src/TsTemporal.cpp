@@ -3201,6 +3201,7 @@ static TsValue* pym_add_impl(TsPlainYearMonth* a,TsDuration* d,int neg){
     int sign=(y<0||mo<0||wk<0||dd<0)?-1:1;
     int refDay=(sign<0)?iso_days_in_month(a->iso_year,a->iso_month):1;
     int nY,nM,nD; add_iso_date(a->iso_year,a->iso_month,refDay,y,mo,wk,dd,&nY,&nM,&nD);
+    if(!iso_yearmonth_in_limits(nY,nM)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainYearMonth::Create(nY,nM,1));
 }
 TsValue* ts_temporal_plainyearmonth_add_native(void* ctx,int argc,TsValue** argv){
