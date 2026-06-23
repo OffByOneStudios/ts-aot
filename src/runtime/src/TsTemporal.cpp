@@ -3820,6 +3820,14 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     long long y,mo,wk,dy; diff_iso_date(sY,sM,sD,eY,eM,eD,largest,&y,&mo,&wk,&dy);
     long long startE=iso_days_from_civil(sY,sM,sD), endE=iso_days_from_civil(eY,eM,eD);
     long long oy_=y,omo_=mo,owk_=wk,ody_=dy;
+    // A time-unit smallestUnit (e.g. the default "nanosecond" when only largestUnit is
+    // given) applied to a date-only diff needs NO calendar rounding — return the raw
+    // diff already balanced to largestUnit. Only date units fall through to the rounding
+    // branches below (which stay byte-identical to avoid perturbing the calendar path).
+    if(!(smallest=="day"||smallest=="days"||smallest=="week"||smallest=="weeks"||
+         smallest=="month"||smallest=="months"||smallest=="year"||smallest=="years")){
+        *oy=sign*oy_;*omo=sign*omo_;*owk=sign*owk_;*ody=sign*ody_; return;
+    }
     if(smallest=="day"||smallest=="days"){
         long long totalD=endE-startE, r=round_nonneg(totalD,inc>0?inc:1,rmode);
         if(largest=="week"||largest=="weeks"){ owk_=r/7; ody_=r%7; oy_=0;omo_=0; }
