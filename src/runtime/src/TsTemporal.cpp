@@ -1910,7 +1910,9 @@ TsValue* ts_temporal_plaindatetime_with_native(void* ctx,int argc,TsValue** argv
     static const char* names[9]={"year","month","day","hour","minute","second","millisecond","microsecond","nanosecond"};
     int vals[9]={pd->iso_year,pd->iso_month,pd->iso_day,pd->iso_hour,pd->iso_minute,pd->iso_second,pd->iso_ms,pd->iso_us,pd->iso_ns};
     bool any=false;
-    for(int i=0;i<9;i++){ TsValue* f=ts_object_get_property(raw,names[i]); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[i]=(int)std::trunc(d);} }
+    for(int i=0;i<9;i++){ if(i==1) continue;   // month handled via read_bag_month (month/monthCode + conflict)
+        TsValue* f=ts_object_get_property(raw,names[i]); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[i]=(int)std::trunc(d);} }
+    { int bagM=read_bag_month(raw); if(bagM>=1){ any=true; vals[1]=bagM; } }
     if(!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
     if(_ovrej){ const int tl[6]={23,59,59,999,999,999}; bool bad=vals[1]<1||vals[1]>12||vals[2]<1||vals[2]>iso_days_in_month(vals[0],vals[1]); for(int i=0;i<6&&!bad;i++) if(vals[3+i]<0||vals[3+i]>tl[i]) bad=true; if(bad){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); } }
     if(vals[1]<1)vals[1]=1; if(vals[1]>12)vals[1]=12; int dim=iso_days_in_month(vals[0],vals[1]); if(vals[2]<1)vals[2]=1; if(vals[2]>dim)vals[2]=dim;
