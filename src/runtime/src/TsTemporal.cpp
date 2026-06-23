@@ -2930,13 +2930,24 @@ static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::
     if(largest=="week"||largest=="weeks"){ *wk=totalDays/7; *dy=totalDays%7; return; }
     if(totalDays==0) return;
     int sign = totalDays<0?-1:1;
-    int sy=ay,sm=am,sd=ad, ey=by,em=bm,ed=bd;
-    if(sign<0){ sy=by;sm=bm;sd=bd; ey=ay;em=am;ed=ad; }
-    int years = ey - sy, months = em - sm, dd = ed - sd;
-    if(dd<0){ months -= 1; int pm=em-1, py=ey; if(pm<1){pm=12;py--;} dd += iso_days_in_month(py,pm); }
-    if(months<0){ years -= 1; months += 12; }
-    if(largest=="month"||largest=="months"){ months += years*12; years=0; }
-    *yr=sign*years; *mo=sign*months; *wk=0; *dy=sign*dd;
+    // Spec CalendarDateUntil (ISO): anchor at `a`, take the raw year/month delta, then walk
+    // the month component back toward `a` by one step until a+years+months (constrained)
+    // does not overshoot b; the day remainder is the gap to b. Anchoring at `a` (not the
+    // earlier of a/b) is what makes end-of-month cases exact in both directions
+    // (e.g. Jan 31 -> Feb 28 is P1M, and the reverse is P-1M, not P-30D / borrow artifacts).
+    long long years = by - ay, months = bm - am;
+    int cy,cm,cd; add_iso_date(ay,am,ad, years, months, 0, 0, &cy,&cm,&cd);
+    long long cmp = iso_days_from_civil(cy,cm,cd) - iso_days_from_civil(by,bm,bd);
+    while((sign>0 && cmp>0) || (sign<0 && cmp<0)){
+        months -= sign;
+        add_iso_date(ay,am,ad, years, months, 0, 0, &cy,&cm,&cd);
+        cmp = iso_days_from_civil(cy,cm,cd) - iso_days_from_civil(by,bm,bd);
+    }
+    long long dd = iso_days_from_civil(by,bm,bd) - iso_days_from_civil(cy,cm,cd);
+    long long tm = years*12 + months;       // canonical: same sign, |months| < 12
+    if(largest=="month"||largest=="months"){ *yr=0; *mo=tm; }
+    else { *yr=tm/12; *mo=tm%12; }
+    *wk=0; *dy=dd;
 }
 static TsPlainDate* coerce_plaindate_arg(TsValue* v){
     void* raw = v?ts_nanbox_safe_unbox(v):nullptr;
