@@ -2159,13 +2159,17 @@ TsValue* ts_temporal_instant_compare_native(void* ctx,int argc,TsValue** argv){
     return ts_value_make_int(0);
 }
 TsValue* ts_temporal_instant_fromEpochMs_native(void* ctx,int argc,TsValue** argv){
-    (void)ctx; double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):0; if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochMilliseconds: not finite")); return ts_value_make_undefined(); }
+    (void)ctx; if(argc>=1&&argv&&argv[0]) reject_nonnumeric_increment(argv[0]);  // ToNumber(BigInt) -> TypeError
+    double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):0; if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochMilliseconds: not finite")); return ts_value_make_undefined(); }
+    if(d!=std::trunc(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochMilliseconds: must be an integer")); return ts_value_make_undefined(); }  // NumberToBigInt
     long long ems=(long long)d;
     if(!instant_epoch_in_limits(ems,0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochMilliseconds: epoch is out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsInstant::Create(ems,0));
 }
 TsValue* ts_temporal_instant_fromEpochSec_native(void* ctx,int argc,TsValue** argv){
-    (void)ctx; double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):0; if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochSeconds: not finite")); return ts_value_make_undefined(); }
+    (void)ctx; if(argc>=1&&argv&&argv[0]) reject_nonnumeric_increment(argv[0]);  // ToNumber(BigInt) -> TypeError
+    double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):0; if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochSeconds: not finite")); return ts_value_make_undefined(); }
+    if(d!=std::trunc(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochSeconds: must be an integer")); return ts_value_make_undefined(); }
     if(d>8640000000000.0 || d<-8640000000000.0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochSeconds: epoch is out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsInstant::Create((long long)d*1000LL,0));
 }
