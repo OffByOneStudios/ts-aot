@@ -1637,18 +1637,29 @@ TsInstant* TsInstant::Create(long long ms, int subNs){
     void* mem=ts_alloc(sizeof(TsInstant)); TsInstant* o=new(mem) TsInstant();
     o->magic=MAGIC; o->epoch_ms=ms; o->sub_ns=subNs; return o;
 }
-// epoch nanoseconds as a decimal string (sign + |ms| + 6-digit |sub_ns|).
+// Format epoch nanoseconds from a (epoch_ms, sub_ns) pair as a signed decimal
+// string. Robust to BOTH storage conventions: TRUNC-toward-zero (sub_ns same
+// sign as epoch_ms, e.g. from the bigint constructor) and FLOOR (sub_ns in
+// [0,999999], e.g. from wall-clock re-encoding via zdt_from_local). Normalizes
+// to FLOOR first, then formats with a string-level borrow so a mixed-sign value
+// can't overflow int64 (epoch_ms*1e6 would).
+static void format_epoch_ns_pair(long long ems, long long sns, char* buf, size_t n){
+    if(sns < 0){ ems -= 1; sns += 1000000; }   // TRUNC -> FLOOR (sns in [0,999999])
+    if(ems < 0){
+        if(sns == 0) snprintf(buf, n, "-%lld000000", -ems);
+        else         snprintf(buf, n, "-%lld%06lld", -ems-1, 1000000-sns);
+    } else {
+        snprintf(buf, n, "%lld%06lld", ems, sns);
+    }
+}
 static void instant_ns_string(TsInstant* it, char* buf, size_t n){
-    const char* sign = (it->epoch_ms < 0 || it->sub_ns < 0) ? "-" : "";
-    long long ams = it->epoch_ms < 0 ? -it->epoch_ms : it->epoch_ms;
-    int asub = it->sub_ns < 0 ? -it->sub_ns : it->sub_ns;
-    snprintf(buf, n, "%s%lld%06d", sign, ams, asub);
+    format_epoch_ns_pair(it->epoch_ms, it->sub_ns, buf, n);
 }
 TsValue TsInstant::GetPropertyVirtual(const char* key){
     if(strcmp(key,"epochMilliseconds")==0){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=epoch_ms; return r; }
     if(strcmp(key,"epochSeconds")==0){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=epoch_ms/1000; return r; }
     if(strcmp(key,"epochNanoseconds")==0){ char b[40]; instant_ns_string(this,b,sizeof(b)); TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_str((void*)TsString::Create(b),10); return r; }
-    if(strcmp(key,"epochMicroseconds")==0){ TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(epoch_ms*1000LL + sub_ns/1000); return r; }
+    if(strcmp(key,"epochMicroseconds")==0){ long long em=epoch_ms,sn=sub_ns; if(sn<0){em-=1;sn+=1000000;} TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(em*1000LL + sn/1000); return r; }
     TsValue u; u.type=ValueType::UNDEFINED; u.i_val=0; return u;
 }
 static TsInstant* as_instant(void* raw){
@@ -1701,12 +1712,14 @@ extern "C" TsValue* ts_temporal_instant_construct(int argc, TsValue** argv){
     return ts_value_make_object(TsInstant::Create(ms,sub));
 }
 static TsString* instant_iso_string(TsInstant* it){
-    long long ms=it->epoch_ms;
+    // FLOOR sub-second: borrow 1ms so sub_ns lands in [0,999999] for negative epoch.
+    long long ms=it->epoch_ms; long long sns=it->sub_ns;
+    if(sns<0){ ms-=1; sns+=1000000; }
     long long days = ms / 86400000LL; long long rem = ms % 86400000LL;
     if(rem < 0){ rem += 86400000LL; days -= 1; }
     int Y,M,D; iso_civil_from_days(days,&Y,&M,&D);
     int h=(int)(rem/3600000); rem%=3600000; int mi=(int)(rem/60000); rem%=60000; int s=(int)(rem/1000); int msr=(int)(rem%1000);
-    long frac=(long)msr*1000000L + (it->sub_ns<0?-it->sub_ns:it->sub_ns); // ns within second
+    long frac=(long)msr*1000000L + (long)sns; // ns within second (floored)
     char buf[48]; int n;
     if(Y<0||Y>9999) n=snprintf(buf,sizeof(buf),"%+07d-%02d-%02dT%02d:%02d:%02d",Y,M,D,h,mi,s);
     else n=snprintf(buf,sizeof(buf),"%04d-%02d-%02dT%02d:%02d:%02d",Y,M,D,h,mi,s);
@@ -1731,11 +1744,13 @@ TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
     // timeZone-rendered output is unsupported here -> fall back to default UTC string.
     void* raw=ts_nanbox_safe_unbox(opts);
     if(raw){ TsValue* tz=ts_object_get_property(raw,"timeZone"); if(tz&&!ts_value_is_undefined(tz)) return ts_value_make_string(instant_iso_string(it)); }
-    long long ms=it->epoch_ms; long long days=ms/86400000LL; long long rem=ms%86400000LL;
+    long long ms=it->epoch_ms; long long sns=it->sub_ns;
+    if(sns<0){ ms-=1; sns+=1000000; }   // FLOOR sub-second for negative epoch
+    long long days=ms/86400000LL; long long rem=ms%86400000LL;
     if(rem<0){ rem+=86400000LL; days-=1; }
     int Y,M,D; iso_civil_from_days(days,&Y,&M,&D);
     int h=(int)(rem/3600000); rem%=3600000; int mi=(int)(rem/60000); rem%=60000; int s=(int)(rem/1000); int msr=(int)(rem%1000);
-    long sub=(it->sub_ns<0?-it->sub_ns:it->sub_ns); int us=(int)(sub/1000), ns=(int)(sub%1000);
+    int us=(int)(sns/1000), ns=(int)(sns%1000);
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
     std::string out=db; out+="T"; out+=format_time_opts(h,mi,s,msr,us,ns,opts); out+="Z";
     return ts_value_make_string(TsString::Create(out.c_str()));
@@ -1796,12 +1811,18 @@ TsZonedDateTime* TsZonedDateTime::Create(long long ms, int subNs, int offMin, bo
 }
 // Local wall-clock breakdown (epoch + fixed offset).
 static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns){
-    long long local = z->epoch_ms + (long long)z->offset_minutes*60000LL;
+    // Wall-clock fields are FLOOR-based: the sub-second components must land in
+    // [0,999999] even for a negative epoch. Storage may be TRUNC-toward-zero
+    // (epoch_ms and sub_ns both negative), so first borrow 1ms to bring sub_ns
+    // into [0,999999], then decompose with floored arithmetic.
+    long long ems = z->epoch_ms; long long sns = z->sub_ns;
+    if(sns < 0){ ems -= 1; sns += 1000000; }
+    long long local = ems + (long long)z->offset_minutes*60000LL;
     long long days = local/86400000LL; long long rem = local%86400000LL;
     if(rem<0){ rem+=86400000LL; days-=1; }
     iso_civil_from_days(days,Y,M,D);
     *h=(int)(rem/3600000); rem%=3600000; *mi=(int)(rem/60000); rem%=60000; *s=(int)(rem/1000); *ms=(int)(rem%1000);
-    int an = z->sub_ns<0?-z->sub_ns:z->sub_ns; *us=an/1000; *ns=an%1000;
+    *us=(int)(sns/1000); *ns=(int)(sns%1000);
 }
 static void zdt_offset_string(int offMin, char* buf, size_t n){
     char sign = offMin<0?'-':'+'; int a=offMin<0?-offMin:offMin;
@@ -1843,8 +1864,8 @@ TsValue TsZonedDateTime::GetPropertyVirtual(const char* key){
         if(week<1){yow=Y-1;week=iso_weeks_in_year(Y-1);} else if(week>iso_weeks_in_year(Y)){yow=Y+1;week=1;}
         return (key[0]=='w')?mkInt(week):mkInt(yow);
     }
-    if(strcmp(key,"epochNanoseconds")==0){ const char* sign=(epoch_ms<0||sub_ns<0)?"-":""; long long ams=epoch_ms<0?-epoch_ms:epoch_ms; int asub=sub_ns<0?-sub_ns:sub_ns; char b[40]; snprintf(b,sizeof(b),"%s%lld%06d",sign,ams,asub); TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_str((void*)TsString::Create(b),10); return r; }
-    if(strcmp(key,"epochMicroseconds")==0){ TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(epoch_ms*1000LL+sub_ns/1000); return r; }
+    if(strcmp(key,"epochNanoseconds")==0){ char b[40]; format_epoch_ns_pair(epoch_ms,sub_ns,b,sizeof(b)); TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_str((void*)TsString::Create(b),10); return r; }
+    if(strcmp(key,"epochMicroseconds")==0){ long long em=epoch_ms,sn=sub_ns; if(sn<0){em-=1;sn+=1000000;} TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(em*1000LL+sn/1000); return r; }
     return undef;
 }
 static TsZonedDateTime* as_zoneddatetime(void* raw){
@@ -1969,14 +1990,20 @@ TsValue* ts_temporal_zdt_valueOf_native(void* ctx,int argc,TsValue** argv){ (voi
 TsValue* ts_temporal_zdt_equals_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* a=require_zoneddatetime(ctx,"equals"); TsValue* o=(argc>=1&&argv)?argv[0]:nullptr;
     TsZonedDateTime* b=coerce_zdt_arg(o); if(!b) return ts_value_make_bool(false);
-    return ts_value_make_bool(a->epoch_ms==b->epoch_ms&&a->sub_ns==b->sub_ns&&a->offset_minutes==b->offset_minutes&&a->is_utc==b->is_utc);
+    // Normalize both to FLOOR so a TRUNC-stored and a FLOOR-stored (re-encoded)
+    // instant that denote the same epoch compare equal.
+    long long aem=a->epoch_ms,asn=a->sub_ns; if(asn<0){aem-=1;asn+=1000000;}
+    long long bem=b->epoch_ms,bsn=b->sub_ns; if(bsn<0){bem-=1;bsn+=1000000;}
+    return ts_value_make_bool(aem==bem&&asn==bsn&&a->offset_minutes==b->offset_minutes&&a->is_utc==b->is_utc);
 }
 TsValue* ts_temporal_zdt_compare_native(void* ctx,int argc,TsValue** argv){
     (void)ctx; TsZonedDateTime* a=coerce_zdt_arg((argc>=1&&argv)?argv[0]:nullptr);
     TsZonedDateTime* b=coerce_zdt_arg((argc>=2&&argv)?argv[1]:nullptr);
     if(!a||!b) return ts_value_make_int(0);
-    if(a->epoch_ms!=b->epoch_ms) return ts_value_make_int(a->epoch_ms<b->epoch_ms?-1:1);
-    if(a->sub_ns!=b->sub_ns) return ts_value_make_int(a->sub_ns<b->sub_ns?-1:1);
+    long long aem=a->epoch_ms,asn=a->sub_ns; if(asn<0){aem-=1;asn+=1000000;}
+    long long bem=b->epoch_ms,bsn=b->sub_ns; if(bsn<0){bem-=1;bsn+=1000000;}
+    if(aem!=bem) return ts_value_make_int(aem<bem?-1:1);
+    if(asn!=bsn) return ts_value_make_int(asn<bsn?-1:1);
     return ts_value_make_int(0);
 }
 TsValue* ts_temporal_zdt_toInstant_native(void* ctx,int argc,TsValue** argv){ TsZonedDateTime* z=require_zoneddatetime(ctx,"toInstant"); return ts_value_make_object(TsInstant::Create(z->epoch_ms,z->sub_ns)); }
