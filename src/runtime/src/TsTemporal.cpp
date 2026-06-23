@@ -3117,6 +3117,9 @@ TsValue* ts_temporal_plaindatetime_since_native(void* ctx,int argc,TsValue** arg
 // Build a time-only Duration from a sign-aligned (ms, sub-ns) magnitude.
 static TsValue* duration_from_ms_sub(long long ms, long long subNs, const std::string& largest){
     int sign = (ms<0||subNs<0)?-1:1; long long ams=ms<0?-ms:ms; long long asub=subNs<0?-subNs:subNs;
+    // microsecond / nanosecond largestUnit: fold the whole millisecond part down too.
+    if(largest=="microsecond"||largest=="microseconds"){ long long us=ams*1000LL+asub/1000LL, ns=asub%1000LL; return ts_value_make_object(TsDuration::Create(0,0,0,0,0,0,0,0, sign*us, sign*ns)); }
+    if(largest=="nanosecond"||largest=="nanoseconds"){ long long ns=ams*1000000LL+asub; return ts_value_make_object(TsDuration::Create(0,0,0,0,0,0,0,0,0, sign*ns)); }
     long long h=0,mi=0,s=0,msr=0; long long rem=ams;
     if(largest=="hour"||largest=="hours"){ h=rem/3600000; rem%=3600000; mi=rem/60000; rem%=60000; s=rem/1000; msr=rem%1000; }
     else if(largest=="minute"||largest=="minutes"){ mi=rem/60000; rem%=60000; s=rem/1000; msr=rem%1000; }
