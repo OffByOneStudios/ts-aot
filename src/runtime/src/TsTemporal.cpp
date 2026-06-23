@@ -3015,6 +3015,11 @@ TsValue* ts_temporal_zdt_withPlainTime_native(void* ctx,int argc,TsValue** argv)
 TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"with");
     validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    { static const char* OFF[4]={"prefer","use","ignore","reject"};
+      static const char* DIS[4]={"compatible","earlier","later","reject"};
+      TsValue* o2=(argc>=2&&argv)?argv[1]:nullptr;
+      read_enum_option(o2,"offset","prefer",OFF,4);
+      read_enum_option(o2,"disambiguation","compatible",DIS,4); }
     void* raw=(argc>=1&&argv&&argv[0])?ts_nanbox_safe_unbox(argv[0]):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be an object")); return ts_value_make_undefined(); }
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
