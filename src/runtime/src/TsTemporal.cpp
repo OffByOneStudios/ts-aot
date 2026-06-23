@@ -2582,12 +2582,34 @@ static void validate_relativeto_arg(TsValue* rt){
     uint32_t m0=*(uint32_t*)rr;
     if(m0==0x53545247||m0==0x434F4E53){
         void* sp=ts_value_get_string(rt); const char* ru=sp?((TsString*)sp)->ToUtf8():nullptr;
-        bool zdtLike = ru && (strchr(ru,'[')||strchr(ru,'Z')||strchr(ru,'z'));
+        // A ZonedDateTime relativeTo needs a UTC designator or a *time-zone* bracket — a
+        // calendar-only annotation ([u-ca=...]) is NOT a time zone and stays a PlainDate.
+        bool zdtLike=false;
+        if(ru){
+            if(strchr(ru,'Z')||strchr(ru,'z')) zdtLike=true;
+            else { const char* br=strchr(ru,'['); if(br && strncmp(br,"[u-ca=",6)!=0 && strncmp(br,"[!u-ca=",7)!=0) zdtLike=true; }
+        }
         if(zdtLike) (void)ts_temporal_zdt_from(1,&rt);   // validates offset/tz/Z, throws on invalid
         else        (void)ts_temporal_plaindate_from(1,&rt);
+        return;
     }
-    // A Temporal-typed object or a property bag is accepted here; the anchoring path
-    // validates bag fields when calendar units are actually present.
+    // A Temporal-typed object carries its slot — accept it.
+    if(is_temporal_typed_object(rr)) return;
+    // Property bag: ToRelativeTemporalObject reads & validates every recognized field.
+    // A non-finite (Infinity) numeric field is a RangeError (ToIntegerWithTruncation).
+    static const char* NF[]={"year","month","day","hour","minute","second","millisecond","microsecond","nanosecond"};
+    for(const char* k : NF){ TsValue* f=ts_object_get_property(rr,k);
+        if(f&&!ts_value_is_undefined(f)){ double dv=ts_to_number(f); if(std::isinf(dv)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo field cannot be Infinity")); return; } } }
+    // An offset field, if present, must be a valid UTC-offset string.
+    TsValue* offf=ts_object_get_property(rr,"offset");
+    if(offf&&!ts_value_is_undefined(offf)){ std::string os;
+        if(!tsvalue_to_stdstring(offf,&os)||!valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid offset")); return; } }
+    // A timeZone field, if present, must be a parseable time-zone string.
+    TsValue* tzf=ts_object_get_property(rr,"timeZone");
+    if(tzf&&!ts_value_is_undefined(tzf)){ void* tr=ts_nanbox_safe_unbox(tzf);
+        if(!tr||(*(uint32_t*)tr!=0x53545247&&*(uint32_t*)tr!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo timeZone must be a string")); return; }
+        const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); int off; bool utc;
+        if(!tu||!parse_timezone(tu,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid time zone")); return; } }
 }
 // Temporal.Duration.compare(one, two[, options]). Returns -1/0/1. A calendar unit
 // (years/months/weeks) in either operand requires options.relativeTo (RangeError
@@ -3484,6 +3506,7 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
         // fractional-calendar algorithm and are still deferred.
         void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
         TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
+        validate_relativeto_arg(relTo);
         TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_plaindate_arg(relTo) : nullptr;
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         // ZonedDateTime-style relativeTo (offset / time zone / Z) needs the tz-aware
@@ -3860,6 +3883,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     bool calInvolved = d->years||d->months||d->weeks||isCal(sUnit)||isCal(lUnit);
     if(calInvolved){
         TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
+        validate_relativeto_arg(relTo);
         TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_plaindate_arg(relTo) : nullptr;
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         std::string L=lUnit;
