@@ -3364,7 +3364,9 @@ TsValue* ts_temporal_plaindate_toZonedDateTime_native(void* ctx,int argc,TsValue
         }
     }
     long long localMs=iso_days_from_civil(d->iso_year,d->iso_month,d->iso_day)*86400000LL + (long long)h*3600000+(long long)mi*60000+(long long)s*1000+ms;
-    return ts_value_make_object(TsZonedDateTime::Create(localMs-(long long)off*60000LL, us*1000+ns, off, utc));
+    long long epochMs=localMs-(long long)off*60000LL;
+    if(!instant_epoch_in_limits(epochMs, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.toZonedDateTime: result is outside the representable range")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsZonedDateTime::Create(epochMs, us*1000+ns, off, utc));
 }
 }
 
