@@ -6298,6 +6298,19 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_new_from_constructor_impl(constructorFn, argc, argv);
     }
 
+    // Construct `new constructorFn(...argsArray)` — the spread-in-new analogue of
+    // ts_function_apply. The packed argument array is built by the compiler
+    // (iterator protocol) for `new C(...args, x)`.
+    TsValue* ts_construct_apply(TsValue* constructorFn, TsValue* argsArray) {
+        int64_t argc = ts_value_length(argsArray);
+        if (argc < 0) argc = 0;
+        if (argc > 1024) argc = 1024;
+        std::vector<TsValue*> argv(static_cast<size_t>(argc), nullptr);
+        for (int64_t i = 0; i < argc; ++i)
+            argv[static_cast<size_t>(i)] = (TsValue*)ts_value_get_element(argsArray, i);
+        return ts_new_from_constructor_impl(constructorFn, static_cast<int>(argc), argv.data());
+    }
+
     TsValue* ts_function_call_with_this(TsValue* boxedFunc, TsValue* thisArg, int argc, TsValue** argv) {
         ts_last_call_argc = argc;
         // Save/set/restore the global 'this' context so that functions compiled

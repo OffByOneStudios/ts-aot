@@ -370,6 +370,7 @@ TsValue* ts_promise_any(TsValue* iterable);
 TsValue* ts_promise_then(TsValue* promise, TsValue* onFulfilled, TsValue* onRejected);
 
 // --- Constructor function new operator (slow path) ---
+TsValue* ts_construct_apply(TsValue* constructorFn, TsValue* argsArray);
 TsValue* ts_new_from_constructor_0(TsValue* constructorFn);
 TsValue* ts_new_from_constructor_1(TsValue* constructorFn, TsValue* arg1);
 TsValue* ts_new_from_constructor_2(TsValue* constructorFn, TsValue* arg1, TsValue* arg2);

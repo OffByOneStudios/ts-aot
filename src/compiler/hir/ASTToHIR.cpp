@@ -8429,6 +8429,31 @@ void ASTToHIR::visitNewExpression(ast::NewExpression* node) {
         return;
     }
 
+    // Spread in `new C(...args, x)`: the general path below lowers each argument
+    // positionally, so a SpreadElement would pass the whole array as one arg.
+    // Build the argument array via the iterator protocol (mirroring the call
+    // spread path) and construct via ts_construct_apply.
+    {
+        bool newHasSpread = false;
+        for (auto& a : node->arguments)
+            if (dynamic_cast<ast::SpreadElement*>(a.get())) { newHasSpread = true; break; }
+        if (newHasSpread) {
+            auto anyArr = HIRType::makeArray(HIRType::makeAny(), false);
+            auto packed = builder_.createCall("ts_array_create", {}, anyArr);
+            for (auto& a : node->arguments) {
+                auto v = lowerExpression(a.get());
+                if (dynamic_cast<ast::SpreadElement*>(a.get()))
+                    packed = builder_.createCall("ts_array_spread_into", {packed, boxValueIfNeeded(v)}, anyArr);
+                else
+                    builder_.createCall("ts_array_push", {packed, boxValueIfNeeded(v)}, HIRType::makeInt64());
+            }
+            auto ctorVal = lowerExpression(node->expression.get());
+            lastValue_ = builder_.createCall("ts_construct_apply",
+                {boxValueIfNeeded(ctorVal), packed}, HIRType::makeAny());
+            return;
+        }
+    }
+
     // Lower constructor arguments
     std::vector<std::shared_ptr<HIRValue>> args;
     for (auto& arg : node->arguments) {
