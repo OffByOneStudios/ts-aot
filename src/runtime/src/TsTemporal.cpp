@@ -200,7 +200,8 @@ extern "C" {
 // Format HH:MM[:SS[.frac]] honoring smallestUnit / fractionalSecondDigits /
 // roundingMode (default trunc). Returns the time-of-day clamped mod 24h (carry
 // is dropped — fine for PlainTime; PlainDateTime trunc default never carries).
-static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts){
+static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts, int* dayCarry=nullptr){
+    if(dayCarry) *dayCarry=0;
     std::string smallest = read_string_option(opts,"smallestUnit","");
     // roundingMode read WITHOUT the "auto"->default mapping: "auto" is not a valid
     // roundingMode and must be rejected (read_string_option would swallow it).
@@ -252,7 +253,8 @@ static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsV
         else if(mode=="halfTrunc"||mode=="halfFloor") rounded=(r*2>q)?(quo+1)*q:quo*q;
         else if(mode=="halfEven"){ if(r*2>q)rounded=(quo+1)*q; else if(r*2<q)rounded=quo*q; else rounded=(quo%2==0)?quo*q:(quo+1)*q; }
         else rounded=quo*q;
-        tns=rounded % 86400000000000LL; if(tns<0) tns+=86400000000000LL;
+        long long carry=rounded/86400000000000LL; tns=rounded % 86400000000000LL; if(tns<0){ tns+=86400000000000LL; carry--; }
+        if(dayCarry) *dayCarry=(int)carry;   // rounding crossed midnight -> the caller advances the date
     }
     int H=(int)(tns/3600000000000LL); tns%=3600000000000LL;
     int M=(int)(tns/60000000000LL); tns%=60000000000LL;
@@ -2137,11 +2139,12 @@ TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
     if(sns<0){ ms-=1; sns+=1000000; }   // FLOOR sub-second for negative epoch
     long long days=ms/86400000LL; long long rem=ms%86400000LL;
     if(rem<0){ rem+=86400000LL; days-=1; }
-    int Y,M,D; iso_civil_from_days(days,&Y,&M,&D);
     int h=(int)(rem/3600000); rem%=3600000; int mi=(int)(rem/60000); rem%=60000; int s=(int)(rem/1000); int msr=(int)(rem%1000);
     int us=(int)(sns/1000), ns=(int)(sns%1000);
+    int carry=0; std::string ts=format_time_opts(h,mi,s,msr,us,ns,opts,&carry);   // rounding may cross midnight
+    int Y,M,D; iso_civil_from_days(days+carry,&Y,&M,&D);
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
-    std::string out=db; out+="T"; out+=format_time_opts(h,mi,s,msr,us,ns,opts); out+="Z";
+    std::string out=db; out+="T"; out+=ts; out+="Z";
     return ts_value_make_string(TsString::Create(out.c_str()));
 }
 TsValue* ts_temporal_instant_valueOf_native(void* ctx,int argc,TsValue** argv){ (void)ctx; ts_throw((TsValue*)ts_error_create_typed("TypeError","Called valueOf on a Temporal.Instant; use compare() or equals() instead")); return ts_value_make_undefined(); }
