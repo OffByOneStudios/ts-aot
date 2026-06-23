@@ -2612,6 +2612,7 @@ extern "C" {
     TsValue* ts_temporal_duration_abs_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_duration_with_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_duration_from_native(void* ctx, int argc, TsValue** argv);
+    TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_duration_add_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_duration_subtract_native(void* ctx, int argc, TsValue** argv);
     TsValue* ts_temporal_duration_total_native(void* ctx, int argc, TsValue** argv);
@@ -2969,6 +2970,7 @@ void* ts_get_global_Temporal() {
         g_temporal_duration_ctor = duFn;
         ts_gc_register_root(&g_temporal_duration_ctor);
         addMethod(duCtor, "from", (void*)ts_temporal_duration_from_native, 1);
+        addMethod(duCtor, "compare", (void*)ts_temporal_duration_compare_native, 2);
         TsValue dck; dck.type = ValueType::STRING_PTR; dck.ptr_val = TsString::GetInterned("Duration");
         TsValue dcv; dcv.type = ValueType::FUNCTION_PTR; dcv.ptr_val = duFn;
         cached->SetWithAttrs(dck, dcv, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE);

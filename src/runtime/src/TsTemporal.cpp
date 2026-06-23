@@ -2114,6 +2114,35 @@ static TsDuration* coerce_duration_arg(TsValue* v){
     TsValue* c = ts_temporal_duration_from(v?1:0,&v);
     return as_duration(ts_nanbox_safe_unbox(c));
 }
+// Temporal.Duration.compare(one, two[, options]). Returns -1/0/1. A calendar unit
+// (years/months/weeks) in either operand requires options.relativeTo (RangeError
+// otherwise); the calendar-anchored comparison is not yet implemented, so this
+// handles the time/day case (day = 24h) which is the spec result when no calendar
+// units are present.
+extern "C" TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsValue** argv){
+    (void)ctx;
+    TsDuration* a = coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsDuration* b = coerce_duration_arg((argc>=2&&argv)?argv[1]:nullptr);
+    if(!a||!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.compare: invalid argument")); return ts_value_make_undefined(); }
+    TsValue* opts=(argc>=3&&argv)?argv[2]:nullptr;
+    require_options_object(opts);
+    bool hasRel=false;
+    if(opts && !ts_value_is_undefined(opts)){ void* r=ts_nanbox_safe_unbox(opts); if(r){ TsValue* rt=ts_object_get_property(r,"relativeTo"); if(rt&&!ts_value_is_undefined(rt)) hasRel=true; } }
+    bool cal = a->years||a->months||a->weeks||b->years||b->months||b->weeks;
+    if(cal && !hasRel){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.compare: a calendar unit requires relativeTo")); return ts_value_make_undefined(); }
+    auto norm=[](TsDuration* d, long long* sec, long long* ns){
+        long long s = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds;
+        long long n = 0;
+        s += d->milliseconds/1000;      n += (d->milliseconds%1000)*1000000LL;
+        s += d->microseconds/1000000;   n += (d->microseconds%1000000)*1000LL;
+        s += d->nanoseconds/1000000000; n += d->nanoseconds%1000000000;
+        s += n/1000000000; n %= 1000000000;
+        *sec=s; *ns=n;
+    };
+    long long sa,na,sb,nb; norm(a,&sa,&na); norm(b,&sb,&nb);
+    int r = (sa<sb)?-1:(sa>sb)?1:((na<nb)?-1:(na>nb)?1:0);
+    return ts_value_make_int(r);
+}
 // Add a duration's time components to a time (mod 24h). Each component reduced
 // mod its day-cycle so the sum stays within int64.
 static long long add_time_ns(long long base, TsDuration* d, int sign){
