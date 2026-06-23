@@ -2571,6 +2571,24 @@ static TsDuration* coerce_duration_arg(TsValue* v){
     TsValue* c = ts_temporal_duration_from(v?1:0,&v);
     return as_duration(ts_nanbox_safe_unbox(c));
 }
+// ToRelativeTemporalObject (validation half): a present relativeTo must be a valid
+// Temporal date / date-time / zoned string (or a date-bearing object). An invalid one
+// throws even when the comparison/rounding itself needs no calendar anchoring — the
+// observable parse happens regardless. Routes strings through the strict from() parsers.
+static void validate_relativeto_arg(TsValue* rt){
+    if(!rt||ts_value_is_undefined(rt)) return;
+    void* rr=ts_nanbox_safe_unbox(rt);
+    if(!rr){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo must be a string or object")); return; }
+    uint32_t m0=*(uint32_t*)rr;
+    if(m0==0x53545247||m0==0x434F4E53){
+        void* sp=ts_value_get_string(rt); const char* ru=sp?((TsString*)sp)->ToUtf8():nullptr;
+        bool zdtLike = ru && (strchr(ru,'[')||strchr(ru,'Z')||strchr(ru,'z'));
+        if(zdtLike) (void)ts_temporal_zdt_from(1,&rt);   // validates offset/tz/Z, throws on invalid
+        else        (void)ts_temporal_plaindate_from(1,&rt);
+    }
+    // A Temporal-typed object or a property bag is accepted here; the anchoring path
+    // validates bag fields when calendar units are actually present.
+}
 // Temporal.Duration.compare(one, two[, options]). Returns -1/0/1. A calendar unit
 // (years/months/weeks) in either operand requires options.relativeTo (RangeError
 // otherwise); the calendar-anchored comparison is not yet implemented, so this
@@ -2584,7 +2602,7 @@ extern "C" TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsV
     TsValue* opts=(argc>=3&&argv)?argv[2]:nullptr;
     require_options_object(opts);
     bool hasRel=false;
-    if(opts && !ts_value_is_undefined(opts)){ void* r=ts_nanbox_safe_unbox(opts); if(r){ TsValue* rt=ts_object_get_property(r,"relativeTo"); if(rt&&!ts_value_is_undefined(rt)) hasRel=true; } }
+    if(opts && !ts_value_is_undefined(opts)){ void* r=ts_nanbox_safe_unbox(opts); if(r){ TsValue* rt=ts_object_get_property(r,"relativeTo"); if(rt&&!ts_value_is_undefined(rt)){ hasRel=true; validate_relativeto_arg(rt); } } }
     bool cal = a->years||a->months||a->weeks||b->years||b->months||b->weeks;
     if(cal && !hasRel){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.compare: a calendar unit requires relativeTo")); return ts_value_make_undefined(); }
     auto norm=[](TsDuration* d, long long* sec, long long* ns){
