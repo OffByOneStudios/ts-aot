@@ -3271,6 +3271,10 @@ static TsValue* pym_add_impl(TsPlainYearMonth* a,TsDuration* d,int neg){
     long long y=d->years*neg, mo=d->months*neg, wk=d->weeks*neg, dd=d->days*neg;
     int sign=(y<0||mo<0||wk<0||dd<0)?-1:1;
     int refDay=(sign<0)?iso_days_in_month(a->iso_year,a->iso_month):1;
+    // The intermediate date at the reference day must itself be representable: at
+    // the min year-month, day 1 (-271821-04-01) is before the minimum date, so even
+    // adding a zero duration throws.
+    if(!iso_date_in_limits(a->iso_year,a->iso_month,refDay)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: out of range")); return ts_value_make_undefined(); }
     int nY,nM,nD; add_iso_date(a->iso_year,a->iso_month,refDay,y,mo,wk,dd,&nY,&nM,&nD);
     if(!iso_yearmonth_in_limits(nY,nM)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainYearMonth::Create(nY,nM,1));
