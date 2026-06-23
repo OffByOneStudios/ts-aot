@@ -1097,18 +1097,35 @@ static bool iso_annotations_valid(const char* s){
 // Read the month from a property bag: prefer numeric "month", else "monthCode"
 // ("M01".."M12"). Returns -1 if neither present/valid.
 static int read_bag_month(void* raw){
+    int fromMonth=-1;
     TsValue* fm=ts_object_get_property(raw,"month");
     if(fm && !ts_value_is_undefined(fm)){ double d=ts_to_number(fm);
         if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); }
-        if(d==d) return (int)std::trunc(d); }
+        if(d==d) fromMonth=(int)std::trunc(d); }
+    int fromCode=-1;
     TsValue* mc=ts_object_get_property(raw,"monthCode");
     if(mc && !ts_value_is_undefined(mc)){
-        std::string s; if(tsvalue_to_stdstring(mc,&s) && s.size()>=2 && (s[0]=='M'||s[0]=='m')){
-            int m=0; size_t i=1; while(i<s.size()&&s[i]>='0'&&s[i]<='9'){ m=m*10+(s[i]-'0'); i++; }
-            if(m>=1&&m<=12) return m;
+        // ECMA: monthCode is "M" + two digits + optional "L" (leap). The ISO
+        // calendar has no leap months, so a trailing "L" — and any malformed or
+        // out-of-range code — is a RangeError (not a silent -> needs-month/day).
+        std::string s; bool strok=tsvalue_to_stdstring(mc,&s);
+        bool fmt = strok && (s.size()==3||s.size()==4) && s[0]=='M'
+                   && s[1]>='0'&&s[1]<='9' && s[2]>='0'&&s[2]<='9'
+                   && (s.size()==3 || s[3]=='L');
+        int m = fmt ? (s[1]-'0')*10+(s[2]-'0') : 0;
+        bool hasL = fmt && s.size()==4;
+        if(!fmt || hasL || m<1 || m>12){
+            ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode"));
         }
+        fromCode=m;
     }
-    return -1;
+    // When both month and monthCode are given they must agree (ECMA
+    // ISOMonthCode / CalendarResolveFields: conflicting month vs monthCode throws).
+    if(fromMonth>=1 && fromCode>=1 && fromMonth!=fromCode){
+        ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month and monthCode conflict"));
+    }
+    if(fromCode>=1) return fromCode;
+    return fromMonth;
 }
 static bool parse_iso_date(const char* s, int* Y, int* M, int* D) {
     if (has_unicode_minus(s)) return false;
