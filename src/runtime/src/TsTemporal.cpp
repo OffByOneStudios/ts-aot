@@ -28,6 +28,7 @@ static std::string read_enum_option(TsValue* opts, const char* key, const char* 
 static int iso_days_in_month(int y, int m);
 static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank);
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
+static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static long long unit_ns(const std::string& u, bool* ok);
 // ValidateTemporalRoundingIncrement (inclusive=false) for the TIME units of a
 // difference: the increment must be < the unit's max (hour 24, minute/second 60,
@@ -1376,8 +1377,8 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         uint32_t m0 = *(uint32_t*)raw;
         if (m0==0x53545247 || m0==0x434F4E53) {
             const char* utf = ((TsString*)ts_value_get_string(item))->ToUtf8();
-            int Y,M,D;
-            if (!utf || has_utc_designator(utf) || !parse_iso_date(utf,&Y,&M,&D) || !date_string_suffix_ok(utf) || !iso_date_valid(Y,M,D) || !iso_date_in_limits(Y,M,D) || !iso_annotations_valid(utf)) {
+            int Y,M,D; int Yd,Md,Dd,hd,mid,sd,msd,usd,nsd;
+            if (!utf || has_utc_designator(utf) || !parse_iso_date(utf,&Y,&M,&D) || !date_string_suffix_ok(utf) || !parse_iso_datetime(utf,&Yd,&Md,&Dd,&hd,&mid,&sd,&msd,&usd,&nsd) || !iso_date_valid(Y,M,D) || !iso_date_in_limits(Y,M,D) || !iso_annotations_valid(utf) || !string_calendar_is_iso(utf)) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: invalid ISO date string"));
                 return ts_value_make_undefined();
             }
