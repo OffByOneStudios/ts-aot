@@ -91,7 +91,7 @@ static inline long long round_signed(long long v, long long q, const std::string
 // unwinder (crash in basic_string::_Tidy_deallocate). See [[longjmp-stdstring-frame-crash]].
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
-    long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr=nullptr);
+    long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr=nullptr,long long subNsMag=0);
 // Validate the shared rounding/diff option bag (roundingMode/smallestUnit/
 // largestUnit/roundingIncrement), throwing TypeError/RangeError per spec.
 // No-op when opts is undefined. Defined after read_string_option.
@@ -3838,7 +3838,7 @@ static long long round_frac(long long q,long long num,long long span,long long i
 // part from the days between the truncated end and the next smallest-unit step).
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
-    long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr){
+    long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr,long long subNsMag){
     long long ae=iso_days_from_civil(aY,aM,aD), be=iso_days_from_civil(bY,bM,bD);
     int sign=(be>=ae)?1:-1;
     int sY=aY,sM=aM,sD=aD, eY=bY,eM=bM,eD=bD;
@@ -3860,7 +3860,14 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         *oy=sign*oy_;*omo=sign*omo_;*owk=sign*owk_;*ody=sign*ody_; return;
     }
     if(smallest=="day"||smallest=="days"){
-        long long totalD=endE-startE, r=round_nonneg(totalD,inc>0?inc:1,rmode);
+        long long totalD=endE-startE, incD=(inc>0?inc:1), r;
+        // A sub-day time remainder (e.g. 6d20h -> 7d) must round the day count. Round in
+        // nanoseconds when there is one AND inc*DAY can't overflow int64; otherwise the
+        // remainder is negligible vs the increment, so round whole days (the diff callers
+        // pass subNsMag==0 and take this exact, overflow-free path unchanged).
+        const long long DAY=86400000000000LL;
+        if(subNsMag>0 && incD < 100000){ long long totalNs=totalD*DAY+subNsMag; r=round_nonneg(totalNs,incD*DAY,rmode)/DAY; }
+        else { r=round_nonneg(totalD,incD,rmode); }
         if(largest=="week"||largest=="weeks"){ owk_=r/7; ody_=r%7; oy_=0;omo_=0; }
         else { ody_=r; owk_=0;oy_=0;omo_=0; }
     } else if(smallest=="week"||smallest=="weeks"){
@@ -3933,9 +3940,11 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         std::string L=lUnit;
         if(L=="auto"){ if(d->years)L="year"; else if(d->months)L="month"; else if(d->weeks)L="week"; else L="day"; if(date_unit_rank(L)<date_unit_rank(sUnit))L=sUnit; }
-        long long extraDays=(d->hours*3600000000000LL+d->minutes*60000000000LL+d->seconds*1000000000LL+d->milliseconds*1000000LL+d->microseconds*1000LL+d->nanoseconds)/86400000000000LL;
+        long long timeNsTot=d->hours*3600000000000LL+d->minutes*60000000000LL+d->seconds*1000000000LL+d->milliseconds*1000000LL+d->microseconds*1000LL+d->nanoseconds;
+        long long extraDays=timeNsTot/86400000000000LL;
+        long long subNsMag=timeNsTot%86400000000000LL; if(subNsMag<0) subNsMag=-subNsMag;   // forward magnitude of the sub-day remainder
         int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+extraDays, &ey,&em,&ed);
-        long long yr,mo,wk,dy; bool _re=false; round_date_duration(rd->iso_year,rd->iso_month,rd->iso_day, ey,em,ed, sUnit, L, inc, mode, &yr,&mo,&wk,&dy,&_re);
+        long long yr,mo,wk,dy; bool _re=false; round_date_duration(rd->iso_year,rd->iso_month,rd->iso_day, ey,em,ed, sUnit, L, inc, mode, &yr,&mo,&wk,&dy,&_re,subNsMag);
         if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
     }
