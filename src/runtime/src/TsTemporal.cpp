@@ -1199,7 +1199,7 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         // from default overflow constrain
         if (M<1) M=1; if (M>12) M=12;
         int dim=iso_days_in_month(Y,M); if (D<1) D=1; if (D>dim) D=dim;
-        if (!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","date out of range")); return ts_value_make_undefined(); }
+        if (!iso_date_valid(Y,M,D) || !iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","date out of range")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsPlainDate::Create(Y,M,D));
     }
     ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.from: invalid argument"));
@@ -1572,7 +1572,8 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
         int Y=rd("year",0),M=bagM,D=rd("day",1),H=rd("hour",0),Mi=rd("minute",0),S=rd("second",0),ms=rd("millisecond",0),us=rd("microsecond",0),ns=rd("nanosecond",0);
         if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
         const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&H,&Mi,&S,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
-        if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","out of range")); return ts_value_make_undefined(); }
+        long long tNs=(long long)H*3600000000000LL+(long long)Mi*60000000000LL+(long long)S*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+        if(!iso_date_valid(Y,M,D) || !iso_datetime_in_limits(Y,M,D,tNs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","out of range")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,H,Mi,S,ms,us,ns));
     }
     ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.from: invalid argument")); return ts_value_make_undefined();
