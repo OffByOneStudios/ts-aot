@@ -215,8 +215,10 @@ static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsV
             uint64_t fnb=nanbox_from_tsvalue_ptr(f);
             if(nanbox_is_number(fnb)){
                 double dv=ts_to_number(f);
-                if(!(dv==dv) || std::isinf(dv) || dv<0 || dv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
-                fsd=(int)std::trunc(dv);
+                if(!(dv==dv) || std::isinf(dv)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
+                long long fv=(long long)std::floor(dv);   // floor first, then range-check (9.7 -> 9 is valid)
+                if(fv<0 || fv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
+                fsd=(int)fv;
             } else {
                 // Non-Number: ToString (invokes a toString/valueOf observer) and
                 // require "auto"; anything else is a RangeError.
@@ -766,8 +768,10 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr) {
             if (f && !ts_value_is_undefined(f)) {
                 uint64_t fnb=nanbox_from_tsvalue_ptr(f);
                 if(nanbox_is_number(fnb)){ double dv=ts_to_number(f);
-                    if(!(dv==dv)||std::isinf(dv)||dv<0||dv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
-                    fsd=(int)std::trunc(dv);
+                    if(!(dv==dv)||std::isinf(dv)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
+                    long long fv=(long long)std::floor(dv);   // floor first, then range-check (9.7 -> 9 is valid)
+                    if(fv<0||fv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
+                    fsd=(int)fv;
                 } else { std::string fs;
                     if(!option_to_string(f,&fs) || fs!="auto"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
                 } } }
