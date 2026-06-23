@@ -3388,13 +3388,24 @@ static TsValue* duration_add_impl(TsDuration* a, TsDuration* b, int bsign){
         return ts_value_make_undefined();
     }
     const long long DAY=86400000000000LL;
+    // Default largestUnit = the largest non-zero unit of either operand; the result
+    // must not balance UP past it (e.g. {hours:24} stays 24h, not 1 day).
+    auto rankOf=[](TsDuration* d)->int{ if(d->days)return 4; if(d->hours)return 5; if(d->minutes)return 6; if(d->seconds)return 7; if(d->milliseconds)return 8; if(d->microseconds)return 9; if(d->nanoseconds)return 10; return 11; };
+    int ra=rankOf(a), rb=rankOf(b), rank=ra<rb?ra:rb;
     long long totalDays = a->days + bsign*b->days;
     long long ns = dur_time_ns(a) + bsign*dur_time_ns(b);
-    totalDays += ns/DAY; ns %= DAY;
-    if(totalDays>0 && ns<0){ totalDays--; ns+=DAY; } else if(totalDays<0 && ns>0){ totalDays++; ns-=DAY; }
-    int sign=(totalDays<0||ns<0)?-1:1; long long ad=totalDays<0?-totalDays:totalDays; long long an=ns<0?-ns:ns;
-    long long h=an/3600000000000LL; an%=3600000000000LL; long long mi=an/60000000000LL; an%=60000000000LL;
-    long long s=an/1000000000LL; an%=1000000000LL; long long ms=an/1000000LL; an%=1000000LL; long long us=an/1000LL; long long nn=an%1000LL;
+    if(rank<=4){   // a day (or larger) is present -> whole days absorb the time
+        totalDays += ns/DAY; ns %= DAY;
+        if(totalDays>0 && ns<0){ totalDays--; ns+=DAY; } else if(totalDays<0 && ns>0){ totalDays++; ns-=DAY; }
+    }
+    int sign=(totalDays<0||(totalDays==0&&ns<0))?-1:1; long long ad=totalDays<0?-totalDays:totalDays; long long an=ns<0?-ns:ns;
+    long long h=0,mi=0,s=0,ms=0,us=0,nn=0;
+    if(rank<=5){ h=an/3600000000000LL; an%=3600000000000LL; }
+    if(rank<=6){ mi=an/60000000000LL; an%=60000000000LL; }
+    if(rank<=7){ s=an/1000000000LL; an%=1000000000LL; }
+    if(rank<=8){ ms=an/1000000LL; an%=1000000LL; }
+    if(rank<=9){ us=an/1000LL; an%=1000LL; }
+    nn=an;
     long long fr[10]={0,0,0, sign*ad, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn};
     if(!duration_in_range(fr)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration: result is out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsDuration::Create(0,0,0, sign*ad, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn));
