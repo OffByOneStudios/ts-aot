@@ -2935,7 +2935,7 @@ void* ts_get_global_Temporal() {
         g_temporal_plaintime_ctor = ptFn;
         TsValue ck; ck.type = ValueType::STRING_PTR; ck.ptr_val = TsString::GetInterned("PlainTime");
         TsValue cv; cv.type = ValueType::FUNCTION_PTR; cv.ptr_val = ptFn;
-        cached->Set(ck, cv);
+        cached->SetWithAttrs(ck, cv, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE);
 
         // ---- Temporal.Duration ----
         TsMap* duCtor = makeSimpleConstructorGlobal("Duration");
@@ -2971,7 +2971,7 @@ void* ts_get_global_Temporal() {
         addMethod(duCtor, "from", (void*)ts_temporal_duration_from_native, 1);
         TsValue dck; dck.type = ValueType::STRING_PTR; dck.ptr_val = TsString::GetInterned("Duration");
         TsValue dcv; dcv.type = ValueType::FUNCTION_PTR; dcv.ptr_val = duFn;
-        cached->Set(dck, dcv);
+        cached->SetWithAttrs(dck, dcv, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE);
 
         // ---- Temporal.PlainDate ----
         TsMap* pdCtor = makeSimpleConstructorGlobal("PlainDate");
@@ -3016,7 +3016,7 @@ void* ts_get_global_Temporal() {
         addMethod(pdCtor, "compare", (void*)ts_temporal_plaindate_compare_native, 2);
         TsValue pdck; pdck.type = ValueType::STRING_PTR; pdck.ptr_val = TsString::GetInterned("PlainDate");
         TsValue pdcv; pdcv.type = ValueType::FUNCTION_PTR; pdcv.ptr_val = pdFn;
-        cached->Set(pdck, pdcv);
+        cached->SetWithAttrs(pdck, pdcv, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE);
 
         // ---- Temporal.PlainYearMonth ----
         TsMap* ymCtor = makeSimpleConstructorGlobal("PlainYearMonth");
@@ -3049,7 +3049,7 @@ void* ts_get_global_Temporal() {
         addMethod(ymCtor, "from",    (void*)ts_temporal_plainyearmonth_from_native, 1);
         addMethod(ymCtor, "compare", (void*)ts_temporal_plainyearmonth_compare_native, 2);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainYearMonth");
-          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=ymFn; cached->Set(k,v); }
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=ymFn; cached->SetWithAttrs(k,v, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE); }
 
         // ---- Temporal.PlainMonthDay ----
         TsMap* mdCtor = makeSimpleConstructorGlobal("PlainMonthDay");
@@ -3070,7 +3070,7 @@ void* ts_get_global_Temporal() {
         ts_gc_register_root(&g_temporal_plainmonthday_ctor);
         addMethod(mdCtor, "from", (void*)ts_temporal_plainmonthday_from_native, 1);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainMonthDay");
-          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=mdFn; cached->Set(k,v); }
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=mdFn; cached->SetWithAttrs(k,v, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE); }
 
         // ---- Temporal.PlainDateTime ----
         TsMap* dtCtor = makeSimpleConstructorGlobal("PlainDateTime");
@@ -3122,7 +3122,7 @@ void* ts_get_global_Temporal() {
         addMethod(dtCtor, "from",    (void*)ts_temporal_plaindatetime_from_native, 1);
         addMethod(dtCtor, "compare", (void*)ts_temporal_plaindatetime_compare_native, 2);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("PlainDateTime");
-          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=dtFn; cached->Set(k,v); }
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=dtFn; cached->SetWithAttrs(k,v, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE); }
 
         // ---- Temporal.Instant ----
         TsMap* inCtor = makeSimpleConstructorGlobal("Instant");
@@ -3151,7 +3151,7 @@ void* ts_get_global_Temporal() {
         addMethod(inCtor, "fromEpochSeconds",      (void*)ts_temporal_instant_fromEpochSec_native, 1);
         addMethod(inCtor, "compare",               (void*)ts_temporal_instant_compare_native, 2);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("Instant");
-          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=inFn; cached->Set(k,v); }
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=inFn; cached->SetWithAttrs(k,v, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE); }
 
         // ---- Temporal.ZonedDateTime ----
         TsMap* zdCtor = makeSimpleConstructorGlobal("ZonedDateTime");
@@ -3210,7 +3210,7 @@ void* ts_get_global_Temporal() {
         addMethod(zdCtor, "compare", (void*)ts_temporal_zdt_compare_native, 2);
         addMethod(zdCtor, "from", (void*)ts_temporal_zdt_from_native, 1);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("ZonedDateTime");
-          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=zdFn; cached->Set(k,v); }
+          TsValue v; v.type=ValueType::FUNCTION_PTR; v.ptr_val=zdFn; cached->SetWithAttrs(k,v, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE); }
 
         // ---- Temporal.Now (clock function namespace) ----
         TsMap* nowNs = TsMap::Create();
@@ -3222,7 +3222,7 @@ void* ts_get_global_Temporal() {
         addMethod(nowNs, "plainTimeISO",     (void*)ts_temporal_now_plaintimeiso_native, 0);
         addMethod(nowNs, "timeZoneId",       (void*)ts_temporal_now_timezoneid_native, 0);
         { TsValue k; k.type=ValueType::STRING_PTR; k.ptr_val=TsString::GetInterned("Now");
-          TsValue v; v.type=ValueType::OBJECT_PTR; v.ptr_val=nowNs; cached->Set(k,v); }
+          TsValue v; v.type=ValueType::OBJECT_PTR; v.ptr_val=nowNs; cached->SetWithAttrs(k,v, TsHashTable::ATTR_WRITABLE|TsHashTable::ATTR_CONFIGURABLE); }
     }
     return cached;
 }
