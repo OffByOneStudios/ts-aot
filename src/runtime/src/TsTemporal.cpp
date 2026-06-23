@@ -2004,8 +2004,11 @@ TsValue* ts_temporal_instant_from_native(void* ctx,int argc,TsValue** argv){ (vo
 }
 // Extract a trailing UTC offset (Z, or +/-HH[:MM][:SS]) from an Instant string.
 // Returns the offset in milliseconds (Z -> 0); *found=false if there is none.
-static long long parse_instant_offset_ms(const char* s, bool* found){
-    *found=false;
+// Parse the UTC offset of an ISO datetime string into whole milliseconds, and the
+// SUB-millisecond part (seconds' fractional nanoseconds) into *offSubNs. The offset
+// VALUE may carry sub-minute precision (±HH:MM:SS.fffffffff).
+static long long parse_instant_offset_ms(const char* s, bool* found, long long* offSubNs){
+    *found=false; *offSubNs=0;
     const char* p=s; while(*p && *p!='T' && *p!='t' && *p!=' ') p++;
     if(!*p) return 0;
     p++;
@@ -2015,8 +2018,12 @@ static long long parse_instant_offset_ms(const char* s, bool* found){
         int sign=(*p=='-')?-1:1; p++;
         if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return 0;
         long long oh=(p[0]-'0')*10+(p[1]-'0'); p+=2;
-        long long om=0; if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])) om=(p[0]-'0')*10+(p[1]-'0');
-        *found=true; return sign*(oh*3600000LL + om*60000LL);
+        long long om=0,os=0,frac=0;
+        if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ om=(p[0]-'0')*10+(p[1]-'0'); p+=2; }
+        if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ os=(p[0]-'0')*10+(p[1]-'0'); p+=2; }
+        if(*p=='.'||*p==','){ p++; long long mult=100000000LL; while(isdigit((unsigned char)*p)){ frac+=(*p-'0')*mult; mult/=10; p++; } }
+        *found=true; *offSubNs = sign*frac;
+        return sign*(oh*3600000LL + om*60000LL + os*1000LL);
     }
     return 0;
 }
@@ -2036,13 +2043,14 @@ extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
             const char* u=((TsString*)ts_value_get_string(item))->ToUtf8();
             // Parse "YYYY-MM-DDTHH:MM:SS[.frac](Z|+/-HH:MM)" -> epoch.
             int Y,M,D,h,mi,s,ms,us,ns;
-            bool hasOff=false; long long offMs=parse_instant_offset_ms(u,&hasOff);
+            bool hasOff=false; long long offSubNs=0; long long offMs=parse_instant_offset_ms(u,&hasOff,&offSubNs);
             if(!u || !parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)||!iso_annotations_valid(u)||!hasOff){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
             long long days=iso_days_from_civil(Y,M,D);
             long long epoch_ms = days*86400000LL + (long long)h*3600000LL + (long long)mi*60000LL + (long long)s*1000LL + ms - offMs;
-            int subNs = us*1000 + ns;
-            if(!instant_ms_in_range(epoch_ms)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
-            return ts_value_make_object(TsInstant::Create(epoch_ms, subNs));
+            long long subNs = (long long)us*1000 + ns - offSubNs;
+            while(subNs<0){ subNs+=1000000; epoch_ms-=1; } while(subNs>=1000000){ subNs-=1000000; epoch_ms+=1; }
+            if(!instant_ms_in_range(epoch_ms) || (epoch_ms==8640000000000000LL && subNs>0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
+            return ts_value_make_object(TsInstant::Create(epoch_ms, (int)subNs));
         }
     }
     // Not an Instant or a string: ToString the argument (an object's toString is
@@ -2051,13 +2059,14 @@ extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
         std::string str;
         if(!option_to_string(item,&str)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: invalid argument")); return ts_value_make_undefined(); }
         const char* u=str.c_str(); int Y,M,D,h,mi,s,ms,us,ns;
-        bool hasOff=false; long long offMs=parse_instant_offset_ms(u,&hasOff);
+        bool hasOff=false; long long offSubNs=0; long long offMs=parse_instant_offset_ms(u,&hasOff,&offSubNs);
         if(!parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)||!iso_annotations_valid(u)||!hasOff){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
         long long days=iso_days_from_civil(Y,M,D);
         long long epoch_ms=days*86400000LL+(long long)h*3600000LL+(long long)mi*60000LL+(long long)s*1000LL+ms - offMs;
-        int subNs=us*1000+ns;
-        if(!instant_ms_in_range(epoch_ms)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
-        return ts_value_make_object(TsInstant::Create(epoch_ms, subNs));
+        long long subNs=(long long)us*1000+ns - offSubNs;
+        while(subNs<0){ subNs+=1000000; epoch_ms-=1; } while(subNs>=1000000){ subNs-=1000000; epoch_ms+=1; }
+        if(!instant_ms_in_range(epoch_ms) || (epoch_ms==8640000000000000LL && subNs>0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
+        return ts_value_make_object(TsInstant::Create(epoch_ms, (int)subNs));
     }
 }
 
