@@ -1090,7 +1090,8 @@ static bool parse_iso_monthday(const char* s, int* M, int* D);
 // non-string (null/number/bigint/symbol/object) is a TypeError.
 static bool calendar_arg_is_string(TsValue* v){
     void* raw=v?ts_nanbox_safe_unbox(v):nullptr;
-    return raw && (*(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53);
+    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>0x00007FFFFFFFFFFFULL) return false;
+    return *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53;
 }
 static void validate_iso_calendar_arg(TsValue* v){
     if(!v || ts_value_is_undefined(v)) return;
@@ -1103,14 +1104,11 @@ static void validate_iso_calendar_arg(TsValue* v){
 // withCalendar calendar argument: ToTemporalCalendarSlotValue — accepts a bare
 // calendar ID OR an ISO date/datetime/yearmonth/monthday string whose calendar
 // annotation is iso8601.
-static void validate_calendar_slot_arg(TsValue* v){
-    if(!v || ts_value_is_undefined(v)) return;
-    // A date-bearing Temporal object (PlainDate/PlainDateTime/PlainYearMonth/
-    // PlainMonthDay/ZonedDateTime) supplies its own (iso) calendar — accept it.
-    void* raw=ts_nanbox_safe_unbox(v);
-    if(raw){ uint32_t m16=*(uint32_t*)((char*)raw+16);
-        if(m16==0x504C4454||m16==0x504C594D||m16==0x504C4D44||m16==0x50444D54||m16==0x5A44544D) return; }
-    if(!calendar_arg_is_string(v)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: calendar must be a string")); return; }
+// The string branch lives in its own function so the std::string locals never
+// share a frame with the early TypeError longjmp below — a longjmp out of a
+// std::string-bearing frame (when called directly from an extern "C" native, as
+// in ZonedDateTime.withCalendar) corrupts the unwinder on MSVC.
+static void validate_calendar_string_value(TsValue* v){
     std::string cal;
     if(!tsvalue_to_stdstring(v,&cal)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar")); return; }
     std::string low=cal; for(char& c: low) if(c>='A'&&c<='Z') c=(char)(c+32);
@@ -1122,6 +1120,16 @@ static void validate_calendar_slot_arg(TsValue* v){
                || parse_iso_monthday(s,&a,&b);
     if(isoStr && iso_annotations_valid(s) && string_calendar_is_iso(s)) return;
     ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar identifier"));
+}
+static void validate_calendar_slot_arg(TsValue* v){
+    if(!v || ts_value_is_undefined(v)) return;
+    // A date-bearing Temporal object (PlainDate/PlainDateTime/PlainYearMonth/
+    // PlainMonthDay/ZonedDateTime) supplies its own (iso) calendar — accept it.
+    void* raw=ts_nanbox_safe_unbox(v);
+    if(raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=0x00007FFFFFFFFFFFULL){ uint32_t m16=*(uint32_t*)((char*)raw+16);
+        if(m16==0x504C4454||m16==0x504C594D||m16==0x504C4D44||m16==0x50444D54||m16==0x5A44544D) return; }
+    if(!calendar_arg_is_string(v)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: calendar must be a string")); return; }
+    validate_calendar_string_value(v);
 }
 extern "C" TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv) {
     auto field = [&](int i, bool* ok) -> int {
