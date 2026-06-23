@@ -2505,12 +2505,21 @@ void HIRToLLVM::lowerConstBool(HIRInstruction* inst) {
 void HIRToLLVM::lowerConstString(HIRInstruction* inst) {
     std::string value = getOperandString(inst->operands[0]);
 
-    // Create global string constant
+    // Create global string constant (the global array preserves all bytes).
     llvm::Value* strPtr = createGlobalString(value);
 
-    // Call ts_string_create to create TsString*
-    auto fn = getTsStringCreate();
-    llvm::Value* result = builder_->CreateCall(fn, {strPtr});
+    llvm::Value* result;
+    if (value.find('\0') != std::string::npos) {
+        // The literal contains an embedded NUL (e.g. "a\0b"); ts_string_create
+        // would strlen-truncate it, so pass the explicit byte length.
+        auto fn = getOrDeclareRuntimeFunction("ts_string_create_len", getGCPtrTy(),
+                                              {getGCPtrTy(), builder_->getInt64Ty()});
+        llvm::Value* lenVal = llvm::ConstantInt::get(builder_->getInt64Ty(), (uint64_t)value.size());
+        result = builder_->CreateCall(fn, {strPtr, lenVal});
+    } else {
+        auto fn = getTsStringCreate();
+        result = builder_->CreateCall(fn, {strPtr});
+    }
     result = rawToGCPtr(result);  // Mark as GC-managed for statepoints
     setValue(inst->result, result);
 }

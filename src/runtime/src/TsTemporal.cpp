@@ -221,9 +221,13 @@ static bool tsvalue_to_stdstring(TsValue* v, std::string* out) {
     uint32_t m0 = *(uint32_t*)raw;
     if (m0 != 0x53545247 && m0 != 0x434F4E53) return false;
     void* sp = ts_value_get_string(v);
-    const char* u = sp ? ((TsString*)sp)->ToUtf8() : nullptr;
-    if (!u) return false;
-    *out = u; return true;
+    if (!sp) return false;
+    // Length-aware extraction so an embedded NUL (e.g. an option value
+    // "millisecond\0") survives; a const char* + std::string assignment would
+    // re-truncate at the NUL even though the TsString stored all the bytes.
+    out->clear();
+    ((TsString*)sp)->AppendUtf8(*out);
+    return true;
 }
 
 // Temporal.PlainTime.prototype.round(roundTo) — round the wall-clock time to a

@@ -106,6 +106,34 @@ TsString* TsString::Create(const char* utf8Str) {
     }
 }
 
+// Length-aware: copies exactly `len` bytes so embedded NULs survive.
+TsString* TsString::Create(const char* utf8Str, size_t len) {
+    if (!utf8Str) { utf8Str = ""; len = 0; }
+    bool isAscii = (len < 64);
+    if (isAscii) {
+        for (size_t i = 0; i < len; ++i) {
+            if ((unsigned char)utf8Str[i] > 127) { isAscii = false; break; }
+        }
+    }
+    void* mem = ts_alloc(sizeof(TsString));
+    if (isAscii) {
+        // Inline ASCII path memcpy's exactly `len` bytes (NUL-safe).
+        return new(mem) TsString(utf8Str, (uint32_t)len);
+    }
+    // Non-ASCII: build the ICU string from exactly `len` UTF-8 bytes.
+    void* imem = ts_alloc(sizeof(icu::UnicodeString));
+    TsString* res = new(mem) TsString();
+    res->magic = MAGIC;
+    res->isSmall = false;
+    res->hashComputed = false;
+    res->cachedHash = 0;
+    res->data.heap.impl = new(imem) icu::UnicodeString(
+        icu::UnicodeString::fromUTF8(icu::StringPiece(utf8Str, (int32_t)len)));
+    res->data.heap.utf8Buffer = nullptr;
+    res->length = static_cast<icu::UnicodeString*>(res->data.heap.impl)->length();
+    return res;
+}
+
 // Create a TsString directly in old-gen (bypasses nursery).
 // Used for cached/interned strings which are long-lived and stored in
 // global caches that are invisible to the nursery GC's card table.
@@ -491,6 +519,18 @@ icu::UnicodeString TsString::getUStr() {
     if (isSmall) return icu::UnicodeString::fromUTF8(data.inlineBuffer);
     ensureImpl();
     return *static_cast<icu::UnicodeString*>(data.heap.impl);
+}
+
+// Append this string's UTF-8 bytes to `out`, preserving embedded NULs in the
+// ASCII inline buffer (the const char* path would strlen-truncate).
+void TsString::AppendUtf8(std::string& out) {
+    if (isSmall) {
+        size_t n = (length < 64) ? (size_t)length : std::strlen(data.inlineBuffer);
+        out.append(data.inlineBuffer, n);
+        return;
+    }
+    const char* u = ToUtf8();
+    if (u) out.append(u);
 }
 
 icu::UnicodeString TsString::ToUnicodeString() const {
@@ -1243,6 +1283,12 @@ extern "C" {
 
     void* ts_string_create(const char* str) {
         TsString* res = TsString::Create(str);
+        return (void*)res;
+    }
+
+    // Length-aware string-literal constructor: preserves embedded NULs.
+    void* ts_string_create_len(const char* str, int64_t len) {
+        TsString* res = TsString::Create(str, (size_t)len);
         return (void*)res;
     }
 

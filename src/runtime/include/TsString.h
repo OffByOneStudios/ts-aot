@@ -9,6 +9,9 @@ public:
 
     // Factory method to create a new TsString on the GC heap
     static TsString* Create(const char* utf8Str);
+    // Length-aware variant: copies exactly `len` bytes, preserving embedded NULs
+    // (e.g. a string literal "a\0b"); Create(const char*) would truncate at the NUL.
+    static TsString* Create(const char* utf8Str, size_t len);
     
     // Factory method with string interning (cache shared strings)
     static TsString* GetInterned(const char* utf8Str);
@@ -22,6 +25,8 @@ public:
 
     // Get UTF-8 representation (cached)
     const char* ToUtf8();
+    // Append UTF-8 bytes to `out`, preserving embedded NULs (length-aware).
+    void AppendUtf8(std::string& out);
     const char* GetBuffer() { return ToUtf8(); }
 
     // Internal ICU access
