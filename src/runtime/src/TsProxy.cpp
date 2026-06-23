@@ -29,9 +29,15 @@ TsProxy::TsProxy(void* t, TsMap* h) : target(t), handler(h), revoked(false) {
     proxyMagic = PROXY_MAGIC;
 }
 
+// Captured once on first proxy creation: the TsProxy vtable pointer (at object
+// offset 0). Lets hot paths detect a proxy with a single pointer compare instead
+// of dynamic_cast. Reading offset 0 of any polymorphic heap object is safe.
+extern "C" { void* g_ts_proxy_vtable = nullptr; }
 TsProxy* TsProxy::Create(void* target, TsMap* handler) {
     void* mem = ts_alloc(sizeof(TsProxy));
-    return new (mem) TsProxy(target, handler);
+    TsProxy* p = new (mem) TsProxy(target, handler);
+    if (!g_ts_proxy_vtable) g_ts_proxy_vtable = *(void**)p;
+    return p;
 }
 
 TsValue* TsProxy::getTrap(const char* trapName) {

@@ -22,6 +22,9 @@
 #include "TsProxy.h"
 #include "TsTextEncoding.h"
 #include "GC.h"
+// Captured in TsProxy::Create — the TsProxy vtable pointer, for cheap proxy
+// detection (single pointer compare) on the property-read hot path.
+extern "C" void* g_ts_proxy_vtable;
 #include "TsGC.h"  // For ts_gc_base()
 #include "TsFlatObject.h"
 #include "TsNanBox.h"
@@ -4217,6 +4220,15 @@ TsValue* ts_value_make_int(int64_t i) {
         // so dynamic_cast on them would cause undefined behavior/crashes.
         uint32_t magic0 = *(uint32_t*)obj;                 // POD types: Array/String/RegExp/Flat
         uint32_t magic16 = *(uint32_t*)((char*)obj + 16);  // TsObject subclasses: Map/EventEmitter/...
+        // A Proxy (a TsMap subclass) must route every property read through its get
+        // trap (this is what makes observable-operation order visible). Detect it
+        // with a single vtable-pointer compare — far cheaper than dynamic_cast on
+        // the hot path. g_ts_proxy_vtable is captured on first proxy creation.
+        if (magic16 == 0x4D415053 /*MAPS*/ && g_ts_proxy_vtable && *(void**)obj == g_ts_proxy_vtable) {
+            TsProxy* proxy = static_cast<TsProxy*>((TsObject*)obj);
+            TsValue* k = ts_value_make_string(TsString::Create(keyStr));
+            return proxy->get(k, nullptr);
+        }
         // BigInt primitive receiver (magic 'BIGI' at offset 0): a bare bigint
         // such as `(5n).toString()`. Resolve the brand-checked prototype
         // methods bound to this receiver, then fall through to any
