@@ -1083,6 +1083,20 @@ static bool parse_iso_date(const char* s, int* Y, int* M, int* D) {
     *Y=sign*y; *M=mo; *D=da;
     return true;
 }
+// After a YYYY-MM-DD date, the only valid continuations for a date-bearing type
+// are: end of string, a '[' annotation, or a 'T' DesignatedTime. A bare UTC
+// offset ("2022-09-15+00:00") or a trailing 'T' with no time ("2020-01-01T") is
+// NOT a valid date string (an offset/Z is meaningless without a time).
+static bool date_string_suffix_ok(const char* s){
+    const char* p=s; if(*p=='+'||*p=='-')p++;
+    while(isdigit((unsigned char)*p))p++;            // year (4+ digits)
+    if(*p=='-')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1]))p+=2;  // month
+    if(*p=='-')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1]))p+=2;  // day
+    if(*p=='\0' || *p=='[') return true;
+    // 'T', 't', or a space all introduce a DesignatedTime (which must start with HH).
+    if(*p=='T'||*p=='t'||*p==' ') return isdigit((unsigned char)p[1]) && isdigit((unsigned char)p[2]);
+    return false;  // bare offset / junk directly after the date
+}
 static bool parse_iso_yearmonth(const char* s, int* Y, int* M);
 static bool parse_iso_monthday(const char* s, int* M, int* D);
 // Validate a property-bag "calendar" field: absent / a Temporal object / "iso8601"
@@ -1223,7 +1237,7 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         if (m0==0x53545247 || m0==0x434F4E53) {
             const char* utf = ((TsString*)ts_value_get_string(item))->ToUtf8();
             int Y,M,D;
-            if (!utf || has_utc_designator(utf) || !parse_iso_date(utf,&Y,&M,&D) || !iso_date_valid(Y,M,D) || !iso_date_in_limits(Y,M,D) || !iso_annotations_valid(utf)) {
+            if (!utf || has_utc_designator(utf) || !parse_iso_date(utf,&Y,&M,&D) || !date_string_suffix_ok(utf) || !iso_date_valid(Y,M,D) || !iso_date_in_limits(Y,M,D) || !iso_annotations_valid(utf)) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: invalid ISO date string"));
                 return ts_value_make_undefined();
             }
