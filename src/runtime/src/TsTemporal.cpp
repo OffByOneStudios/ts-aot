@@ -323,6 +323,7 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
         return ts_value_make_undefined();
     }
     if (increment < 1) increment = 1;
+    validate_diff_time_increment(unit, increment);
     long long quantum = unitNs * (long long)increment;
     long long nsOfDay = ((((long long)pt->iso_hour * 60 + pt->iso_minute) * 60 + pt->iso_second) * 1000000000LL)
         + (long long)pt->iso_millisecond * 1000000LL + (long long)pt->iso_microsecond * 1000LL + pt->iso_nanosecond;
@@ -3428,6 +3429,7 @@ TsValue* ts_temporal_plaindatetime_round_native(void* ctx,int argc,TsValue** arg
     bool ok; long long un=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
     if(inc<1)inc=1;
+    validate_diff_time_increment(unit, inc);
     long long q=un*inc; long long nsOfDay=pdt_time_ns(dt);
     long long rounded=round_nonneg(nsOfDay,q,mode);
     const long long DAY=86400000000000LL; long long carry=rounded/DAY; long long rem=rounded%DAY;
@@ -3445,6 +3447,7 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
     bool ok; long long un=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
     if(inc<1)inc=1;
+    validate_diff_time_increment(unit, inc);
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
     long long nsOfDay = ((((long long)h*60+mi)*60+s)*1000000000LL)+(long long)ms*1000000LL+(long long)us*1000LL+ns;
     long long q=un*inc; long long rounded=round_nonneg(nsOfDay,q,mode);
