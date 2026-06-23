@@ -1033,6 +1033,16 @@ static bool iso_yearmonth_in_limits(int y, int m) {
     return last >= DMIN && first <= DMAX;
 }
 
+// The constructor `calendar` argument is ToString'd then canonicalized: only the
+// ASCII-case-insensitive identifier "iso8601" is supported. Empty string, an ISO
+// date string, a non-ASCII-dotted form (Turkish capital I), etc. are RangeErrors.
+static void validate_iso_calendar_arg(TsValue* v){
+    if(!v || ts_value_is_undefined(v)) return;
+    std::string cal;
+    if(!tsvalue_to_stdstring(v,&cal)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar")); return; }
+    for(char& c: cal) if(c>='A'&&c<='Z') c=(char)(c+32);
+    if(cal!="iso8601"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar identifier")); }
+}
 extern "C" TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv) {
     auto field = [&](int i, bool* ok) -> int {
         if (i >= argc || !argv || !argv[i] || ts_value_is_undefined(argv[i])) { *ok=false; return 0; }
@@ -1054,6 +1064,7 @@ extern "C" TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv) {
         ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate: date out of range"));
         return ts_value_make_undefined();
     }
+    validate_iso_calendar_arg((argc>=4&&argv)?argv[3]:nullptr);
     return ts_value_make_object(TsPlainDate::Create(y, m, d));
 }
 
@@ -1374,6 +1385,7 @@ extern "C" TsValue* ts_temporal_plainyearmonth_construct(int argc, TsValue** arg
     int refDay=fld(3,&ord); if(!ord) refDay=1;
     if(!oy||!om){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: year and month are required")); return ts_value_make_undefined(); }
     if(m<1||m>12||!iso_date_valid(y,m,refDay)||!iso_yearmonth_in_limits(y,m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: out of range")); return ts_value_make_undefined(); }
+    validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);
     return ts_value_make_object(TsPlainYearMonth::Create(y,m,refDay));
 }
 static bool parse_iso_yearmonth(const char* s, int* Y, int* M) {
@@ -1483,6 +1495,7 @@ extern "C" TsValue* ts_temporal_plainmonthday_construct(int argc, TsValue** argv
     bool om=true,od=true,ory=true; int m=fld(0,&om),d=fld(1,&od); int refY=fld(3,&ory); if(!ory) refY=1972;
     if(!om||!od){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay: month and day are required")); return ts_value_make_undefined(); }
     if(m<1||m>12||d<1||d>iso_days_in_month(refY,m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay: out of range")); return ts_value_make_undefined(); }
+    validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);
     return ts_value_make_object(TsPlainMonthDay::Create(m,d,refY));
 }
 static bool parse_iso_monthday(const char* s, int* M, int* D) {
@@ -1617,6 +1630,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_construct(int argc, TsValue** argv
     int ms=fld(6,0,false,&ok), us=fld(7,0,false,&ok), ns=fld(8,0,false,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: year, month and day are required")); return ts_value_make_undefined(); }
     if(!iso_date_valid(y,mo,d)||!pdt_time_valid(h,mi,s,ms,us,ns)||!iso_datetime_in_limits(y,mo,d,(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: out of range")); return ts_value_make_undefined(); }
+    validate_iso_calendar_arg((argc>=10&&argv)?argv[9]:nullptr);
     return ts_value_make_object(TsPlainDateTime::Create(y,mo,d,h,mi,s,ms,us,ns));
 }
 static TsString* plaindatetime_iso_string(TsPlainDateTime* d){
@@ -2078,6 +2092,7 @@ extern "C" TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv
     if(!raw1 || (*(uint32_t*)raw1!=0x53545247 && *(uint32_t*)raw1!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime: timeZone must be a string")); return ts_value_make_undefined(); }
     const char* tz=((TsString*)ts_value_get_string(a1))->ToUtf8(); int off; bool utc;
     if(!parse_timezone(tz,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: unsupported time zone (only UTC and numeric offsets)")); return ts_value_make_undefined(); }
+    validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);
     return ts_value_make_object(TsZonedDateTime::Create(ms,sub,off,utc));
 }
 // Extract the time-zone annotation (the first bracket group that is not u-ca).
