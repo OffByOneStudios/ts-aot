@@ -1142,7 +1142,8 @@ static void validate_calendar_string_value(TsValue* v){
     ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar identifier"));
 }
 static void validate_calendar_slot_arg(TsValue* v){
-    if(!v || ts_value_is_undefined(v)) return;
+    // withCalendar requires a calendar argument; missing/undefined is a TypeError.
+    if(!v || ts_value_is_undefined(v)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: a calendar is required")); return; }
     // A date-bearing Temporal object (PlainDate/PlainDateTime/PlainYearMonth/
     // PlainMonthDay/ZonedDateTime) supplies its own (iso) calendar — accept it.
     void* raw=ts_nanbox_safe_unbox(v);
