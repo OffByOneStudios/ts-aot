@@ -68,7 +68,7 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
 // largestUnit/roundingIncrement), throwing TypeError/RangeError per spec.
 // No-op when opts is undefined. Defined after read_string_option.
 static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank);
-static void validate_overflow_option(TsValue* opts);
+static bool validate_overflow_option(TsValue* opts);
 static void require_options_object(TsValue* opts);
 
 TsPlainTime* TsPlainTime::Create(int h, int m, int s, int ms, int us, int ns) {
@@ -1715,7 +1715,7 @@ TsValue* ts_temporal_plaindatetime_from_native(void* ctx,int argc,TsValue** argv
 }
 extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -1732,6 +1732,13 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid calendar")); return ts_value_make_undefined(); }
         auto rd=[&](const char* k,int def)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return def; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return 0; return (int)std::trunc(d); };
         int Y=rd("year",0),M=bagM,D=rd("day",1),H=rd("hour",0),Mi=rd("minute",0),S=rd("second",0),ms=rd("millisecond",0),us=rd("microsecond",0),ns=rd("nanosecond",0);
+        // overflow:"reject" -> any out-of-range field is a RangeError (no clamping).
+        if(_ovrej){
+            const int tl[6]={23,59,59,999,999,999}; int tv[6]={H,Mi,S,ms,us,ns};
+            bool bad = M<1||M>12 || D<1||D>iso_days_in_month(Y,M);
+            for(int i=0;i<6&&!bad;i++) if(tv[i]<0||tv[i]>tl[i]) bad=true;
+            if(bad){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: field out of range (overflow reject)")); return ts_value_make_undefined(); }
+        }
         if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
         const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&H,&Mi,&S,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
         long long tNs=(long long)H*3600000000000LL+(long long)Mi*60000000000LL+(long long)S*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
@@ -2119,13 +2126,14 @@ static bool zdt_extract_tz(const char* s, int* offMin, bool* utc){
 }
 extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
+    bool _ovrej=false;
     { // validate disambiguation/offset options (ToString-coerce; RangeError on invalid)
         TsValue* o=(argc>=2&&argv)?argv[1]:nullptr;
         static const char* DISV[]={"compatible","earlier","later","reject"};
         static const char* OFFFV[]={"prefer","use","ignore","reject"};
         read_enum_option(o,"disambiguation","compatible",DISV,4);
         read_enum_option(o,"offset","reject",OFFFV,4);
-        validate_overflow_option(o);
+        _ovrej = validate_overflow_option(o);
     }
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
@@ -2145,6 +2153,13 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid calendar")); return ts_value_make_undefined(); }
         auto rd=[&](const char* k,int def)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return def; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return 0; return (int)std::trunc(d); };
         int Y=rd("year",0),M=bagM,D=rd("day",1),H=rd("hour",0),Mi=rd("minute",0),S=rd("second",0),ms=rd("millisecond",0),us=rd("microsecond",0),ns=rd("nanosecond",0);
+        // overflow:"reject" -> any out-of-range field is a RangeError (no clamping).
+        if(_ovrej){
+            const int tl[6]={23,59,59,999,999,999}; int tv[6]={H,Mi,S,ms,us,ns};
+            bool bad = M<1||M>12 || D<1||D>iso_days_in_month(Y,M);
+            for(int i=0;i<6&&!bad;i++) if(tv[i]<0||tv[i]>tl[i]) bad=true;
+            if(bad){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: field out of range (overflow reject)")); return ts_value_make_undefined(); }
+        }
         if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
         const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&H,&Mi,&S,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
         long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)H*3600000+(long long)Mi*60000+(long long)S*1000+ms;
@@ -2534,17 +2549,20 @@ static void require_options_object(TsValue* opts){
 // GetOptionsObject + validate the "overflow" option (constrain|reject) for
 // add/subtract/with/from. Throws TypeError for a primitive options value and
 // RangeError for an out-of-range overflow string (string values only).
-static void validate_overflow_option(TsValue* opts){
-    if(!opts || ts_value_is_undefined(opts)) return;
+// Validate the overflow option and return true iff it is "reject" (read once, so
+// a toString observer fires exactly once).
+static bool validate_overflow_option(TsValue* opts){
+    if(!opts || ts_value_is_undefined(opts)) return false;
     void* raw = ts_nanbox_safe_unbox(opts);
-    if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
+    if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return false; }
     uint32_t m0=*(uint32_t*)raw;
-    if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
+    if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return false; }
     TsValue* ov = ts_object_get_property(raw,"overflow");
     if(ov && !ts_value_is_undefined(ov)){
         std::string s;
-        if(option_to_string(ov,&s) && s!="constrain" && s!="reject"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid overflow")); return; }
+        if(option_to_string(ov,&s)){ if(s!="constrain" && s!="reject"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid overflow")); return false; } return s=="reject"; }
     }
+    return false;
 }
 // Calendar difference from (ay/am/ad) to (by/bm/bd) per largestUnit.
 static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::string& largest,
