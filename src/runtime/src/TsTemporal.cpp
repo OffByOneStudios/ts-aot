@@ -3520,6 +3520,16 @@ static TsValue* duration_add_impl(TsDuration* a, TsDuration* b, int bsign){
         ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration arithmetic with calendar units requires relativeTo"));
         return ts_value_make_undefined();
     }
+    {   // Overflow-safe result range check: each operand is a valid duration (whole-second
+        // total <= 2^53-1), so the summed whole-second total fits int64 even though
+        // dur_time_ns below overflows for near-2^53-second operands.
+        auto secOf=[](TsDuration* d)->long long{
+            long long c=d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
+            return d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds + c;
+        };
+        long long rs = secOf(a) + (long long)bsign*secOf(b);
+        if(rs>9007199254740991LL || rs<-9007199254740991LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration: result is out of range")); return ts_value_make_undefined(); }
+    }
     const long long DAY=86400000000000LL;
     // Default largestUnit = the largest non-zero unit of either operand; the result
     // must not balance UP past it (e.g. {hours:24} stays 24h, not 1 day).
