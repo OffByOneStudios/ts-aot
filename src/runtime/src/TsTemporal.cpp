@@ -28,6 +28,16 @@ static std::string read_enum_option(TsValue* opts, const char* key, const char* 
 static int iso_days_in_month(int y, int m);
 static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank);
 static long long unit_ns(const std::string& u, bool* ok);
+// ValidateTemporalRoundingIncrement (inclusive=false) for the TIME units of a
+// difference: the increment must be < the unit's max (hour 24, minute/second 60,
+// sub-second 1000) and divide it evenly. Calendar units (day+) are unconstrained.
+static void validate_diff_time_increment(const std::string& smallest, long long inc){
+    long long maxInc=0;
+    if(smallest=="hour"||smallest=="hours") maxInc=24;
+    else if(smallest=="minute"||smallest=="minutes"||smallest=="second"||smallest=="seconds") maxInc=60;
+    else if(smallest=="millisecond"||smallest=="milliseconds"||smallest=="microsecond"||smallest=="microseconds"||smallest=="nanosecond"||smallest=="nanoseconds") maxInc=1000;
+    if(maxInc>0){ long long i=inc>0?inc:1; if(i>=maxInc || maxInc%i!=0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: roundingIncrement out of range")); } }
+}
 static long long round_nonneg(long long v, long long q, const std::string& mode);
 static long long round_signed(long long v, long long q, const std::string& mode);
 static std::string read_opt_str_noauto(void* raw, const char* key, const char* def);
@@ -2707,6 +2717,7 @@ static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* o
     const long long DAY=86400000000000LL;
     std::string smallest,largest,mode; long long inc;
     read_validated_diff_opts(opts,1,10,"nanosecond","auto",&smallest,&largest,&mode,&inc);
+    validate_diff_time_increment(smallest, inc);
     if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank(defLargest)) ? smallest : std::string(defLargest);
     // No-rounding default -> unchanged fast path.
     if((smallest=="nanosecond"||smallest=="nanoseconds") && mode=="trunc" && inc<=1) return pdt_diff(a,b,largest);
@@ -2813,14 +2824,7 @@ TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
 static TsValue* instant_diff_rounded(long long ms, long long sub, TsValue* opts){
     std::string largest,smallest,mode; long long inc;
     read_validated_diff_opts(opts,1,6,"nanosecond","auto",&smallest,&largest,&mode,&inc);
-    // ValidateTemporalRoundingIncrement (inclusive=false for since/until): the
-    // increment must be < the unit's max (hour 24, minute/second 60, sub-second
-    // 1000) and divide it evenly.
-    { long long maxInc=0;
-      if(smallest=="hour"||smallest=="hours") maxInc=24;
-      else if(smallest=="minute"||smallest=="minutes"||smallest=="second"||smallest=="seconds") maxInc=60;
-      else if(smallest=="millisecond"||smallest=="milliseconds"||smallest=="microsecond"||smallest=="microseconds"||smallest=="nanosecond"||smallest=="nanoseconds") maxInc=1000;
-      if(maxInc>0){ long long i=inc>0?inc:1; if(i>=maxInc || maxInc%i!=0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: roundingIncrement out of range")); return ts_value_make_undefined(); } } }
+    validate_diff_time_increment(smallest, inc);
     // largestUnit "auto" resolves to the coarser of smallestUnit and "second".
     if(largest=="auto"){
         bool oa,ob; long long sN=unit_ns(smallest,&oa), secN=unit_ns("second",&ob);
@@ -3473,6 +3477,7 @@ static TsValue* duration_from_time_opts(long long diff, const std::string& large
 static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest){
     std::string largest,smallest,mode; long long inc;
     read_validated_diff_opts(opts,1,6,"nanosecond",defLargest,&smallest,&largest,&mode,&inc);
+    validate_diff_time_increment(smallest, inc);
     if(largest=="auto") largest=defLargest;
     bool ok; long long sNs = unit_ns(smallest, &ok); if(!ok) sNs=1;
     if(inc<1)inc=1;
