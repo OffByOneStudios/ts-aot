@@ -884,8 +884,12 @@ static bool parse_iso_duration(const char* s, long long* f) {
                 case 'W':case 'w':f[2]=sign*val;break; case 'D':case 'd':f[3]=sign*val;break; default:return false; }
         } else {
             switch(unit){
-                case 'H':case 'h': f[4]=sign*val; break;
-                case 'M':case 'm': f[5]=sign*val; break;
+                case 'H':case 'h': f[4]=sign*val;
+                    if(hasFrac){ long long t=fracNs*3600LL; f[5]=sign*(t/60000000000LL); t%=60000000000LL; f[6]=sign*(t/1000000000LL); t%=1000000000LL; f[7]=sign*(t/1000000LL); t%=1000000LL; f[8]=sign*(t/1000LL); f[9]=sign*(t%1000LL); }
+                    break;
+                case 'M':case 'm': f[5]=sign*val;
+                    if(hasFrac){ long long t=fracNs*60LL; f[6]=sign*(t/1000000000LL); t%=1000000000LL; f[7]=sign*(t/1000000LL); t%=1000000LL; f[8]=sign*(t/1000LL); f[9]=sign*(t%1000LL); }
+                    break;
                 case 'S':case 's':
                     f[6]=sign*val;
                     if (fracNs){ f[7]=sign*(fracNs/1000000); f[8]=sign*((fracNs/1000)%1000); f[9]=sign*(fracNs%1000); }
@@ -893,6 +897,8 @@ static bool parse_iso_duration(const char* s, long long* f) {
                 default: return false;
             }
         }
+        // ISO 8601: a fraction is only allowed on the final (smallest) component.
+        if (hasFrac && *p!=0) return false;
     }
     return anyField;
 }
