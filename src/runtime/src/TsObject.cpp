@@ -5922,6 +5922,17 @@ TsValue* ts_value_make_int(int64_t i) {
                     if (!gr) gr = g;
                     return gr == rawCtor;
                 };
+                // new Proxy(target, handler) -> a real TsProxy (otherwise the
+                // generic construct produced a plain object whose traps never fire).
+                {
+                    extern void* ts_get_global_Proxy();
+                    extern TsValue* ts_proxy_create(void* target, void* handler);
+                    if (isGlobal(ts_get_global_Proxy)) {
+                        void* target  = (argc > 0 && argv) ? (void*)argv[0] : nullptr;
+                        void* handler = (argc > 1 && argv) ? (void*)argv[1] : nullptr;
+                        return ts_proxy_create(target, handler);
+                    }
+                }
                 TsValue* it = (argc >= 1 && argv) ? argv[0] : nullptr;
                 if (isGlobal(ts_get_global_Map)) {
                     void* m = ts_map_create_from_iterable(it);

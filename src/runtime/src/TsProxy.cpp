@@ -34,32 +34,22 @@ TsProxy* TsProxy::Create(void* target, TsMap* handler) {
     return new (mem) TsProxy(target, handler);
 }
 
-TsFunction* TsProxy::getTrap(const char* trapName) {
+TsValue* TsProxy::getTrap(const char* trapName) {
     if (revoked || !handler) return nullptr;
 
-    TsString* keyStr = TsString::Create(trapName);
-    TsValue key;
-    key.type = ValueType::STRING_PTR;
-    key.ptr_val = keyStr;
-    TsValue trapVal = handler->Get(key);
-
-    if (trapVal.type == ValueType::UNDEFINED) {
-        return nullptr;
-    }
-
-    // Extract function from trap value
-    if (trapVal.type == ValueType::OBJECT_PTR || trapVal.type == ValueType::FUNCTION_PTR) {
-        void* ptr = trapVal.ptr_val;
-        if (ptr) {
-            // Check magic at offset 16 for TsFunction (after C++ vtable (8) + TsObject vtable (8))
-            uint32_t fnMagic16 = *(uint32_t*)((char*)ptr + 16);
-            if (fnMagic16 == TsFunction::MAGIC) {
-                return (TsFunction*)ptr;
-            }
-        }
-    }
-
-    return nullptr;
+    // Use the generic property read so the handler resolves whether it is a flat
+    // object (shorthand-method traps like `{ get(){} }` live in the shape) or a
+    // TsMap. The trap value may be a TsFunction OR a TsClosure (object-literal
+    // shorthand methods compile to closures), so accept any callable and return
+    // the boxed value for tsCall to dispatch.
+    extern TsValue* ts_object_get_property(void* obj, const char* keyStr);
+    extern bool ts_is_callable(void* val);
+    TsValue* boxed = ts_object_get_property((void*)handler, trapName);
+    if (!boxed) return nullptr;
+    uint64_t nb = nanbox_from_tsvalue_ptr(boxed);
+    if (nanbox_is_undefined(nb) || nanbox_is_null(nb)) return nullptr;
+    if (!ts_is_callable((void*)boxed)) return nullptr;
+    return boxed;
 }
 
 TsValue* TsProxy::get(TsValue* prop, void* receiver) {
@@ -68,17 +58,14 @@ TsValue* TsProxy::get(TsValue* prop, void* receiver) {
         return ts_value_make_undefined();
     }
 
-    TsFunction* trap = getTrap("get");
+    TsValue* trap = getTrap("get");
     if (trap) {
         // Call trap(target, prop, receiver)
         TsValue* targetVal = ts_value_box_any(target);
         TsValue* receiverVal = receiver ? ts_value_box_any(receiver) : ts_value_box_any(this);
 
-        TsValue boxedTrap;
-        boxedTrap.type = ValueType::FUNCTION_PTR;
-        boxedTrap.ptr_val = trap;
 
-        return tsCall(&boxedTrap, targetVal, prop, receiverVal);
+        return tsCall(trap, targetVal, prop, receiverVal);
     }
 
     // No trap - forward to target
@@ -94,17 +81,14 @@ bool TsProxy::set(TsValue* prop, TsValue* value, void* receiver) {
         return false;
     }
 
-    TsFunction* trap = getTrap("set");
+    TsValue* trap = getTrap("set");
     if (trap) {
         // Call trap(target, prop, value, receiver)
         TsValue* targetVal = ts_value_box_any(target);
         TsValue* receiverVal = receiver ? ts_value_box_any(receiver) : ts_value_box_any(this);
 
-        TsValue boxedTrap;
-        boxedTrap.type = ValueType::FUNCTION_PTR;
-        boxedTrap.ptr_val = trap;
 
-        TsValue* result = tsCall(&boxedTrap, targetVal, prop, value, receiverVal);
+        TsValue* result = tsCall(trap, targetVal, prop, value, receiverVal);
         return result && ts_value_get_bool(result);
     }
 
@@ -121,16 +105,13 @@ bool TsProxy::has(TsValue* prop) {
         return false;
     }
 
-    TsFunction* trap = getTrap("has");
+    TsValue* trap = getTrap("has");
     if (trap) {
         // Call trap(target, prop)
         TsValue* targetVal = ts_value_box_any(target);
 
-        TsValue boxedTrap;
-        boxedTrap.type = ValueType::FUNCTION_PTR;
-        boxedTrap.ptr_val = trap;
 
-        TsValue* result = tsCall(&boxedTrap, targetVal, prop);
+        TsValue* result = tsCall(trap, targetVal, prop);
         return result && ts_value_get_bool(result);
     }
 
@@ -146,16 +127,13 @@ bool TsProxy::deleteProperty(TsValue* prop) {
         return false;
     }
 
-    TsFunction* trap = getTrap("deleteProperty");
+    TsValue* trap = getTrap("deleteProperty");
     if (trap) {
         // Call trap(target, prop)
         TsValue* targetVal = ts_value_box_any(target);
 
-        TsValue boxedTrap;
-        boxedTrap.type = ValueType::FUNCTION_PTR;
-        boxedTrap.ptr_val = trap;
 
-        TsValue* result = tsCall(&boxedTrap, targetVal, prop);
+        TsValue* result = tsCall(trap, targetVal, prop);
         return result && ts_value_get_bool(result);
     }
 
@@ -171,18 +149,15 @@ TsValue* TsProxy::apply(void* thisArg, TsValue* args, int argCount) {
         return ts_value_make_undefined();
     }
 
-    TsFunction* trap = getTrap("apply");
+    TsValue* trap = getTrap("apply");
     if (trap) {
         // Call trap(target, thisArg, argumentsList)
         TsValue* targetVal = ts_value_box_any(target);
         TsValue* thisArgVal = thisArg ? ts_value_box_any(thisArg) : ts_value_make_undefined();
         TsValue* argsVal = ts_value_box_any(args);
 
-        TsValue boxedTrap;
-        boxedTrap.type = ValueType::FUNCTION_PTR;
-        boxedTrap.ptr_val = trap;
 
-        return tsCall(&boxedTrap, targetVal, thisArgVal, argsVal);
+        return tsCall(trap, targetVal, thisArgVal, argsVal);
     }
 
     // No trap - forward call to target
@@ -201,18 +176,15 @@ TsValue* TsProxy::construct(TsValue* args, int argCount, void* newTarget) {
         return ts_value_make_undefined();
     }
 
-    TsFunction* trap = getTrap("construct");
+    TsValue* trap = getTrap("construct");
     if (trap) {
         // Call trap(target, argumentsList, newTarget)
         TsValue* targetVal = ts_value_box_any(target);
         TsValue* argsVal = ts_value_box_any(args);
         TsValue* newTargetVal = newTarget ? ts_value_box_any(newTarget) : targetVal;
 
-        TsValue boxedTrap;
-        boxedTrap.type = ValueType::FUNCTION_PTR;
-        boxedTrap.ptr_val = trap;
 
-        return tsCall(&boxedTrap, targetVal, argsVal, newTargetVal);
+        return tsCall(trap, targetVal, argsVal, newTargetVal);
     }
 
     // No trap - forward to target
@@ -226,16 +198,13 @@ TsValue* TsProxy::ownKeys() {
         return ts_value_make_array(TsArray::Create());
     }
 
-    TsFunction* trap = getTrap("ownKeys");
+    TsValue* trap = getTrap("ownKeys");
     if (trap) {
         // Call trap(target)
         TsValue* targetVal = ts_value_box_any(target);
 
-        TsValue boxedTrap;
-        boxedTrap.type = ValueType::FUNCTION_PTR;
-        boxedTrap.ptr_val = trap;
 
-        return tsCall(&boxedTrap, targetVal);
+        return tsCall(trap, targetVal);
     }
 
     // No trap - return Object.keys(target)
@@ -255,12 +224,11 @@ extern "C" TsValue* ts_proxy_create(void* targetArg, void* handlerArg) {
 
     void* handlerRaw = ts_nanbox_safe_unbox(handlerArg);
 
-    // Convert flat objects to TsMap for handler
-    if (handlerRaw && is_flat_object(handlerRaw)) {
-        handlerRaw = ts_flat_object_to_map(handlerRaw);
-    }
-
-    TsMap* handler = dynamic_cast<TsMap*>((TsObject*)handlerRaw);
+    // Keep the handler as-is (flat object or TsMap). getTrap reads it via the
+    // generic ts_object_get_property, so converting to a TsMap is unnecessary and
+    // the conversion previously dropped shorthand-method traps. Store the raw
+    // pointer (dynamic_cast<TsMap*> can spuriously return null here).
+    TsMap* handler = (TsMap*)handlerRaw;
 
     // Create proxy
     TsProxy* proxy = TsProxy::Create(target, handler);

@@ -26,8 +26,9 @@ public:
     TsValue* construct(TsValue* args, int argCount, void* newTarget = nullptr);
     TsValue* ownKeys();
 
-    // Check if a trap exists in handler
-    TsFunction* getTrap(const char* trapName);
+    // Check if a trap exists in handler; returns the boxed callable (function or
+    // closure) or nullptr.
+    TsValue* getTrap(const char* trapName);
 
 protected:
     TsProxy(void* target, TsMap* handler);
