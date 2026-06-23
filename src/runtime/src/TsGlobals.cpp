@@ -2687,6 +2687,7 @@ extern "C" {
     TsValue* ts_temporal_instant_subtract_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_until_native(void*,int,TsValue**);
     TsValue* ts_temporal_instant_since_native(void*,int,TsValue**);
+    TsValue* ts_temporal_instant_round_native(void*,int,TsValue**);
 }
 static TsValue* temporal_instant_field(void* ctx, const char* name) {
     if (!ctx) ctx = ts_get_call_this();
@@ -3143,6 +3144,7 @@ void* ts_get_global_Temporal() {
         addMethod(inProto, "subtract", (void*)ts_temporal_instant_subtract_native, 1);
         addMethod(inProto, "until",    (void*)ts_temporal_instant_until_native, 1);
         addMethod(inProto, "since",    (void*)ts_temporal_instant_since_native, 1);
+        addMethod(inProto, "round",    (void*)ts_temporal_instant_round_native, 1);
         addMethod(inProto, "toZonedDateTimeISO", (void*)ts_temporal_instant_toZonedDateTimeISO_native, 1);
         void* inFn = wrapAsCallable(inCtor, "Instant", 1);
         g_temporal_instant_ctor = inFn;

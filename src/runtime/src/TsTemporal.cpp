@@ -26,6 +26,10 @@ static bool option_is_object(TsValue* v);
 static bool temporal_mode_valid(const std::string& m);
 static std::string read_enum_option(TsValue* opts, const char* key, const char* def, const char* const* valid, int nvalid);
 static int iso_days_in_month(int y, int m);
+static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank);
+static long long unit_ns(const std::string& u, bool* ok);
+static long long round_nonneg(long long v, long long q, const std::string& mode);
+static long long round_signed(long long v, long long q, const std::string& mode);
 static std::string read_opt_str_noauto(void* raw, const char* key, const char* def);
 static bool iso_annotations_valid(const char* s);
 static int date_unit_rank(const std::string& u);
@@ -2787,6 +2791,35 @@ TsValue* ts_temporal_instant_since_native(void* ctx,int argc,TsValue** argv){
     long long ms=a->epoch_ms-b->epoch_ms; long long sub=(long long)a->sub_ns-b->sub_ns;
     if(ms>0&&sub<0){ms--;sub+=1000000;} else if(ms<0&&sub>0){ms++;sub-=1000000;}
     return instant_diff_rounded(ms,sub,(argc>=2&&argv)?argv[1]:nullptr);
+}
+// Temporal.Instant.prototype.round(roundTo) — round the epoch to a time unit
+// (hour..nanosecond; no calendar units). The rounding quantum divides a day, so
+// the (epoch_ms, sub_ns) arithmetic stays within int64.
+TsValue* ts_temporal_instant_round_native(void* ctx,int argc,TsValue** argv){
+    TsInstant* it=require_instant(ctx,"round");
+    TsValue* roundTo=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!roundTo||ts_value_is_undefined(roundTo)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
+    std::string unit; long long inc=1; std::string mode="halfExpand";
+    if(!parse_round_options(roundTo,&unit,&inc,&mode,1,6)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: smallestUnit is required")); return ts_value_make_undefined(); }
+    bool ok; long long unitNs=unit_ns(unit,&ok);
+    if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
+    long long q=unitNs*inc; const long long DAY=86400000000000LL;
+    if(q>DAY || DAY%q!=0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); }
+    long long ms=it->epoch_ms, sns=it->sub_ns;
+    if(sns<0){ ms-=1; sns+=1000000; }   // FLOOR -> sns in [0,999999]
+    long long rMs, rSns;
+    if(q<1000000){
+        long long r=round_signed(sns,q,mode);
+        rMs=ms + r/1000000; rSns=r%1000000;
+    } else {
+        long long qMs=q/1000000;
+        long long base=ms - (((ms%qMs)+qMs)%qMs);   // floor toward -inf
+        long long remNs=(ms-base)*1000000 + sns;     // ns past base, in [0, qMs*1e6)
+        long long roundedRem=round_nonneg(remNs, qMs*1000000, mode);
+        rMs=base + roundedRem/1000000; rSns=0;
+    }
+    if(!instant_ms_in_range(rMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: instant out of range")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsInstant::Create(rMs,(int)rSns));
 }
 }
 
