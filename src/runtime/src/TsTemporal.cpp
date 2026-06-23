@@ -698,7 +698,7 @@ static TsDuration* require_duration(void* ctx, const char* method) {
 
 // ISO-8601 duration string. Sign prefix; PnYnMnWnD then T nH nM nS (seconds
 // carries a decimal fraction from ms/us/ns). All-zero -> "PT0S".
-static TsString* duration_iso_string(TsDuration* d) {
+static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr) {
     int sign = d->Sign();
     std::string out;
     if (sign < 0) out += "-";
@@ -709,15 +709,42 @@ static TsString* duration_iso_string(TsDuration* d) {
     if (d->months) { snprintf(b,sizeof(b),"%lldM",u(d->months)); out += b; }
     if (d->weeks)  { snprintf(b,sizeof(b),"%lldW",u(d->weeks));  out += b; }
     if (d->days)   { snprintf(b,sizeof(b),"%lldD",u(d->days));   out += b; }
-    bool anyTime = d->hours||d->minutes||d->seconds||d->milliseconds||d->microseconds||d->nanoseconds;
+    long long sec = u(d->seconds);
+    long long frac = u(d->milliseconds)*1000000LL + u(d->microseconds)*1000LL + u(d->nanoseconds);
+    // toString options: round the sub-second to fractionalSecondDigits / smallestUnit
+    // (roundingMode applied; a carry adds whole seconds). -1 = "auto" (trim zeros).
+    int digits = -1;
+    if (opts && !ts_value_is_undefined(opts)) {
+        void* raw = ts_nanbox_safe_unbox(opts);
+        std::string smallest = read_string_option(opts, "smallestUnit", "");
+        std::string mode = read_opt_str_noauto(raw, "roundingMode", "trunc");
+        int fsd = -1;
+        if (raw) { TsValue* f = ts_object_get_property(raw, "fractionalSecondDigits");
+            if (f && !ts_value_is_undefined(f)) { void* fr=ts_nanbox_safe_unbox(f);
+                bool isAuto=false; if(fr){ uint32_t fm=*(uint32_t*)fr; if(fm==0x53545247||fm==0x434F4E53){ void* sp=ts_value_get_string(f); if(sp){ std::string fs; ((TsString*)sp)->AppendUtf8(fs); if(fs=="auto")isAuto=true; } } }
+                if(!isAuto){ double dv=ts_to_number(f); if(dv==dv && !std::isinf(dv)) fsd=(int)std::trunc(dv); } } }
+        if (smallest=="second"||smallest=="seconds") digits=0;
+        else if (smallest=="millisecond"||smallest=="milliseconds") digits=3;
+        else if (smallest=="microsecond"||smallest=="microseconds") digits=6;
+        else if (smallest=="nanosecond"||smallest=="nanoseconds") digits=9;
+        else if (fsd>=0) digits=fsd;
+        if (digits>=0 && digits<9) {
+            long long q=1; for(int i=0;i<9-digits;i++) q*=10;
+            long long rounded = round_nonneg(frac, q, mode);
+            sec += rounded/1000000000LL; frac = rounded%1000000000LL;
+        }
+    }
+    bool anyTime = d->hours||d->minutes||sec||frac||(digits>0);
     if (anyTime) {
         out += "T";
         if (d->hours)   { snprintf(b,sizeof(b),"%lldH",u(d->hours));   out += b; }
         if (d->minutes) { snprintf(b,sizeof(b),"%lldM",u(d->minutes)); out += b; }
-        long long frac = u(d->milliseconds)*1000000LL + u(d->microseconds)*1000LL + u(d->nanoseconds);
-        if (d->seconds || frac) {
-            snprintf(b,sizeof(b),"%lld",u(d->seconds)); out += b;
-            if (frac) {
+        if (sec || frac || digits>0) {
+            snprintf(b,sizeof(b),"%lld",sec); out += b;
+            if (digits>0) {
+                char fb[16]; snprintf(fb,sizeof(fb),"%09lld",frac);
+                out += "."; out.append(fb, digits);
+            } else if (digits<0 && frac) {
                 char fb[16]; snprintf(fb,sizeof(fb),"%09lld",frac);
                 int len = 9; while (len>1 && fb[len-1]=='0') len--;
                 out += "."; out.append(fb, len);
@@ -733,8 +760,9 @@ extern "C" {
 
 TsValue* ts_temporal_duration_toString_native(void* ctx, int argc, TsValue** argv) {
     TsDuration* d = require_duration(ctx, "toString");
-    require_options_object((argc>=1&&argv)?argv[0]:nullptr);
-    return ts_value_make_string(duration_iso_string(d));
+    TsValue* opts = (argc>=1&&argv)?argv[0]:nullptr;
+    require_options_object(opts);
+    return ts_value_make_string(duration_iso_string(d, opts));
 }
 
 TsValue* ts_temporal_duration_valueOf_native(void* ctx, int argc, TsValue** argv) {
