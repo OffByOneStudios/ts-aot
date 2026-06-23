@@ -2125,6 +2125,14 @@ static bool parse_timezone(const char* s, int* offMin, bool* isUtc){
     if(has_unicode_minus(s)) return false;
     if(strchr(s,'T') && has_negative_zero_year(s)) return false;
     if(strcmp(s,"UTC")==0||strcmp(s,"utc")==0){ *offMin=0; *isUtc=true; return true; }
+    // Datetime/bracketed time-zone string: the identifier is the [...] annotation
+    // (the bracket "wins" over an inline offset, e.g. "...T17:30+01:00[-08:00]").
+    { const char* lb=strchr(s,'[');
+      if(lb){ const char* rb=strchr(lb,']'); if(!rb) return false;
+          std::string ann(lb+1,(size_t)(rb-lb-1));
+          if(!ann.empty()&&ann[0]=='!') ann=ann.substr(1);
+          if(ann.compare(0,5,"u-ca=")==0) return false;   // calendar-only annotation: no tz
+          return parse_timezone(ann.c_str(), offMin, isUtc); } }
     const char* p=s; if(*p=='Z'||*p=='z'){ *offMin=0; *isUtc=true; return true; }
     int sign=0; if(*p=='+')sign=1; else if(*p=='-')sign=-1; else return false; p++;
     if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false;
@@ -2145,6 +2153,9 @@ extern "C" TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv
     TsValue* a1=(argc>=2&&argv)?argv[1]:nullptr; void* raw1=a1?ts_nanbox_safe_unbox(a1):nullptr;
     if(!raw1 || (*(uint32_t*)raw1!=0x53545247 && *(uint32_t*)raw1!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime: timeZone must be a string")); return ts_value_make_undefined(); }
     const char* tz=((TsString*)ts_value_get_string(a1))->ToUtf8(); int off; bool utc;
+    // The constructor timeZone is a bare identifier (offset / "UTC" / name); a
+    // bracketed datetime-form string is only valid in the parse-from-string paths.
+    if(tz && strchr(tz,'[')){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: time zone must be a bare identifier")); return ts_value_make_undefined(); }
     if(!parse_timezone(tz,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: unsupported time zone (only UTC and numeric offsets)")); return ts_value_make_undefined(); }
     validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);
     return ts_value_make_object(TsZonedDateTime::Create(ms,sub,off,utc));
