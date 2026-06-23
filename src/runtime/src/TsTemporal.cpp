@@ -1028,6 +1028,8 @@ static bool parse_iso_date(const char* s, int* Y, int* M, int* D) {
     *Y=sign*y; *M=mo; *D=da;
     return true;
 }
+static bool parse_iso_yearmonth(const char* s, int* Y, int* M);
+static bool parse_iso_monthday(const char* s, int* M, int* D);
 // Validate a property-bag "calendar" field: absent / a Temporal object / "iso8601"
 // (case-insensitive) / an ISO string carrying [u-ca=iso8601] / a parseable date
 // string are OK; any other string is an invalid calendar -> caller throws RangeError.
@@ -1046,7 +1048,11 @@ static bool bag_calendar_ok(void* raw){
             for(char& c:s) if(c>='A'&&c<='Z') c+=32;
             if(s=="iso8601") return true;
             if(s.find("[u-ca=iso8601]")!=std::string::npos || s.find("[!u-ca=iso8601]")!=std::string::npos) return true;
+            // Any parseable ISO temporal string (date / datetime / year-month /
+            // month-day) yields the iso8601 calendar.
             int Y,M,D; if(parse_iso_date(s.c_str(),&Y,&M,&D) && iso_date_valid(Y,M,D)) return true;
+            if(parse_iso_yearmonth(s.c_str(),&Y,&M) && M>=1 && M<=12) return true;
+            if(parse_iso_monthday(s.c_str(),&M,&D) && M>=1 && M<=12 && D>=1 && D<=31) return true;
             return false;  // invalid string -> caller throws RangeError
         }
     }
