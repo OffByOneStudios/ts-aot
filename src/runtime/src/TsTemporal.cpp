@@ -1853,6 +1853,29 @@ TsValue* ts_temporal_instant_fromEpochSec_native(void* ctx,int argc,TsValue** ar
 }
 TsValue* ts_temporal_instant_from_native(void* ctx,int argc,TsValue** argv){ (void)ctx; return ts_temporal_instant_from(argc,argv); }
 }
+// Extract a trailing UTC offset (Z, or +/-HH[:MM][:SS]) from an Instant string.
+// Returns the offset in milliseconds (Z -> 0); *found=false if there is none.
+static long long parse_instant_offset_ms(const char* s, bool* found){
+    *found=false;
+    const char* p=s; while(*p && *p!='T' && *p!='t' && *p!=' ') p++;
+    if(!*p) return 0;
+    p++;
+    while(*p && *p!='Z' && *p!='z' && *p!='+' && *p!='-' && *p!='[') p++;
+    if(*p=='Z'||*p=='z'){ *found=true; return 0; }
+    if(*p=='+'||*p=='-'){
+        int sign=(*p=='-')?-1:1; p++;
+        if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return 0;
+        long long oh=(p[0]-'0')*10+(p[1]-'0'); p+=2;
+        long long om=0; if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])) om=(p[0]-'0')*10+(p[1]-'0');
+        *found=true; return sign*(oh*3600000LL + om*60000LL);
+    }
+    return 0;
+}
+// |epochNanoseconds| <= 8.64e21 ns  <=>  epoch_ms within +/-8.64e15 (sub-ns ignored
+// at the loose boundary). Returns false if clearly out of the representable range.
+static bool instant_ms_in_range(long long epoch_ms){
+    return epoch_ms <= 8640000000000000LL && epoch_ms >= -8640000000000000LL;
+}
 extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: argument is undefined")); return ts_value_make_undefined(); }
@@ -1864,18 +1887,29 @@ extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
             const char* u=((TsString*)ts_value_get_string(item))->ToUtf8();
             // Parse "YYYY-MM-DDTHH:MM:SS[.frac](Z|+/-HH:MM)" -> epoch.
             int Y,M,D,h,mi,s,ms,us,ns;
-            if(!u || !parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
+            bool hasOff=false; long long offMs=parse_instant_offset_ms(u,&hasOff);
+            if(!u || !parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)||!iso_annotations_valid(u)||!hasOff){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
             long long days=iso_days_from_civil(Y,M,D);
-            long long epoch_ms = days*86400000LL + (long long)h*3600000LL + (long long)mi*60000LL + (long long)s*1000LL + ms;
+            long long epoch_ms = days*86400000LL + (long long)h*3600000LL + (long long)mi*60000LL + (long long)s*1000LL + ms - offMs;
             int subNs = us*1000 + ns;
-            // NOTE: a string's numeric offset is not yet applied, so the range
-            // check is deferred for the from-string path (would reject valid
-            // offset-shifted instants). The constructor path is range-checked.
-            // NOTE: an explicit numeric offset in the string is not yet applied (treated as UTC).
+            if(!instant_ms_in_range(epoch_ms)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
             return ts_value_make_object(TsInstant::Create(epoch_ms, subNs));
         }
     }
-    ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: invalid argument")); return ts_value_make_undefined();
+    // Not an Instant or a string: ToString the argument (an object's toString is
+    // invoked observably; a symbol throws TypeError) and parse it as an Instant.
+    {
+        std::string str;
+        if(!option_to_string(item,&str)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: invalid argument")); return ts_value_make_undefined(); }
+        const char* u=str.c_str(); int Y,M,D,h,mi,s,ms,us,ns;
+        bool hasOff=false; long long offMs=parse_instant_offset_ms(u,&hasOff);
+        if(!parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)||!iso_annotations_valid(u)||!hasOff){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
+        long long days=iso_days_from_civil(Y,M,D);
+        long long epoch_ms=days*86400000LL+(long long)h*3600000LL+(long long)mi*60000LL+(long long)s*1000LL+ms - offMs;
+        int subNs=us*1000+ns;
+        if(!instant_ms_in_range(epoch_ms)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
+        return ts_value_make_object(TsInstant::Create(epoch_ms, subNs));
+    }
 }
 
 // ====================== Temporal.ZonedDateTime ======================
