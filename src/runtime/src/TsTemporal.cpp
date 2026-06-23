@@ -92,6 +92,8 @@ static inline long long round_signed(long long v, long long q, const std::string
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
     long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr=nullptr,long long subNsMag=0);
+static void add_iso_date(int y,int m,int d, long long years,long long months,long long weeks,long long days,
+                         int* Y,int* M,int* D);
 // Validate the shared rounding/diff option bag (roundingMode/smallestUnit/
 // largestUnit/roundingIncrement), throwing TypeError/RangeError per spec.
 // No-op when opts is undefined. Defined after read_string_option.
@@ -2627,10 +2629,29 @@ extern "C" TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsV
     if(!a||!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.compare: invalid argument")); return ts_value_make_undefined(); }
     TsValue* opts=(argc>=3&&argv)?argv[2]:nullptr;
     require_options_object(opts);
-    bool hasRel=false;
-    if(opts && !ts_value_is_undefined(opts)){ void* r=ts_nanbox_safe_unbox(opts); if(r){ TsValue* rt=ts_object_get_property(r,"relativeTo"); if(rt&&!ts_value_is_undefined(rt)){ hasRel=true; validate_relativeto_arg(rt); } } }
+    bool hasRel=false; TsValue* relTo=nullptr;
+    if(opts && !ts_value_is_undefined(opts)){ void* r=ts_nanbox_safe_unbox(opts); if(r){ TsValue* rt=ts_object_get_property(r,"relativeTo"); if(rt&&!ts_value_is_undefined(rt)){ hasRel=true; relTo=rt; validate_relativeto_arg(rt); } } }
     bool cal = a->years||a->months||a->weeks||b->years||b->months||b->weeks;
     if(cal && !hasRel){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.compare: a calendar unit requires relativeTo")); return ts_value_make_undefined(); }
+    if(cal && hasRel){
+        // Anchor each duration to the relativeTo PlainDate and compare end instants: the
+        // whole-day offset from the anchor (calendar + time-as-days), then the sub-day
+        // remainder. Comparing the day offsets first is exact (a 1-day gap dominates any
+        // sub-day remainder) and avoids overflow.
+        TsPlainDate* rd = coerce_plaindate_arg(relTo);
+        if(rd){
+            long long ra=iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
+            auto anchor=[&](TsDuration* d,long long* dayOff,long long* remNs){
+                long long timeNs=(long long)d->hours*3600000000000LL+(long long)d->minutes*60000000000LL+(long long)d->seconds*1000000000LL+(long long)d->milliseconds*1000000LL+(long long)d->microseconds*1000LL+d->nanoseconds;
+                long long extraD=timeNs/86400000000000LL; *remNs=timeNs%86400000000000LL;
+                int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+extraD, &ey,&em,&ed);
+                *dayOff=iso_days_from_civil(ey,em,ed)-ra;
+            };
+            long long da,na,db,nb; anchor(a,&da,&na); anchor(b,&db,&nb);
+            int r = (da<db)?-1:(da>db)?1:((na<nb)?-1:(na>nb)?1:0);
+            return ts_value_make_int(r);
+        }
+    }
     auto norm=[](TsDuration* d, long long* sec, long long* ns){
         long long s = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds;
         long long n = 0;
