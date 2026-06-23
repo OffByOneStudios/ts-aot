@@ -1709,11 +1709,24 @@ static TsString* plaindatetime_iso_string(TsPlainDateTime* d){
     return TsString::Create(buf);
 }
 // Parse "YYYY-MM-DD[T ]HH:MM:SS[.frac]" — date required, time optional.
+// After the date/time, only an optional UTC offset (Z or ±HH:MM[:SS[.fff]]) then
+// any number of [..] annotations then end-of-string are valid.
+static bool iso_datetime_suffix_ok(const char* p){
+    if(*p=='Z'||*p=='z'){ p++; }
+    else if(*p=='+'||*p=='-'){ p++;
+        if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false; p+=2;
+        if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])) p+=2;
+        if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ p+=2;
+            if(*p=='.'||*p==','){ p++; if(!isdigit((unsigned char)*p)) return false; while(isdigit((unsigned char)*p))p++; } }
+    }
+    while(*p=='['){ const char* e=strchr(p,']'); if(!e) return false; p=e+1; }
+    return *p==0;
+}
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns){
     if(!parse_iso_date(s,Y,M,D)) return false;
     *H=0;*Mi=0;*S=0;*ms=0;*us=0;*ns=0;
     const char* p=s; while(*p&&*p!='T'&&*p!='t'&&*p!=' ') p++;
-    if(!*p) return true;  // date-only is valid for PlainDateTime.from
+    if(!*p) return true;  // date-only is valid for PlainDateTime.from (caller validates the suffix)
     p++;
     auto two=[](const char* q,int* o)->const char*{ if(!isdigit((unsigned char)q[0])||!isdigit((unsigned char)q[1]))return nullptr; *o=(q[0]-'0')*10+(q[1]-'0'); return q+2; };
     const char* q=two(p,H); if(!q) return false; if(*q==':')q++;
@@ -1721,6 +1734,9 @@ static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi
         if(isdigit((unsigned char)q[0])&&isdigit((unsigned char)q[1])){ q=two(q,S);
             if(*q=='.'||*q==','){ q++; char fb[10]="000000000"; int i=0; while(i<9&&isdigit((unsigned char)*q)){fb[i++]=*q++;} long f=atol(fb); *ms=(int)(f/1000000);*us=(int)((f/1000)%1000);*ns=(int)(f%1000);} } }
     if(*S==60) *S=59;   // leap second -> constrain to :59
+    // Strict validation: date/time fields in range, and no trailing junk.
+    if(!iso_date_valid(*Y,*M,*D) || *H>23 || *Mi>59 || *S>59) return false;
+    if(!iso_datetime_suffix_ok(q)) return false;
     return true;
 }
 extern "C" {
