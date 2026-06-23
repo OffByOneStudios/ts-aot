@@ -2902,7 +2902,43 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
     TsDuration* d=require_duration(ctx,"total");
     std::string unit; TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr;
     if(!tsvalue_to_stdstring(arg,&unit)) unit = read_string_option(arg,"unit","");
-    if(d->years||d->months||d->weeks){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total with calendar units requires relativeTo")); return ts_value_make_undefined(); }
+    double extraNs = 0.0;   // time-part nanoseconds contributed by a calendar-anchored span
+    if(d->years||d->months||d->weeks){
+        // Calendar units require relativeTo. Anchor to a PlainDate and expand the
+        // calendar part to a concrete day count; year/month TOTALS need the
+        // fractional-calendar algorithm and are still deferred.
+        void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
+        TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
+        TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_plaindate_arg(relTo) : nullptr;
+        if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total with calendar units requires relativeTo")); return ts_value_make_undefined(); }
+        // ZonedDateTime-style relativeTo (offset / time zone / Z) needs the tz-aware
+        // anchoring that isn't implemented yet — defer (RangeError). Pure PlainDate
+        // relativeTo (string/bag without offset/tz) is handled below.
+        { void* rr = relTo ? ts_nanbox_safe_unbox(relTo) : nullptr; bool zdtLike=false;
+          if(rr){ uint32_t rm=*(uint32_t*)rr;
+            if(rm==0x53545247||rm==0x434F4E53){ void* sp=ts_value_get_string(relTo); const char* ru=sp?((TsString*)sp)->ToUtf8():nullptr; if(ru&&(strchr(ru,'Z')||strchr(ru,'z')||strchr(ru,'['))) zdtLike=true; }
+            else { uint32_t rm16=*(uint32_t*)((char*)rr+16); if(rm16==TsZonedDateTime::MAGIC) zdtLike=true; else { TsValue* tz=ts_object_get_property(rr,"timeZone"); TsValue* of=ts_object_get_property(rr,"offset"); if((tz&&!ts_value_is_undefined(tz))||(of&&!ts_value_is_undefined(of))) zdtLike=true; } } }
+          if(zdtLike){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: ZonedDateTime relativeTo not yet supported")); return ts_value_make_undefined(); } }
+        if(unit=="year"||unit=="years"||unit=="month"||unit=="months"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: year/month total with relativeTo not yet supported")); return ts_value_make_undefined(); }
+        int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days, &ey,&em,&ed);
+        if(!iso_date_in_limits(ey,em,ed)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: result out of range")); return ts_value_make_undefined(); }
+        long long dayDiff = iso_days_from_civil(ey,em,ed) - iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
+        extraNs = (double)dayDiff*86400000000000.0
+            + (double)d->hours*3600000000000.0 + (double)d->minutes*60000000000.0 + (double)d->seconds*1000000000.0
+            + (double)d->milliseconds*1000000.0 + (double)d->microseconds*1000.0 + (double)d->nanoseconds;
+        if(!(extraNs==extraNs) || extraNs>9.007199254740992e21 || extraNs<-9.007199254740992e21){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: result out of range")); return ts_value_make_undefined(); }
+        double uNs;
+        if(unit=="week"||unit=="weeks") uNs=7.0*86400000000000.0;
+        else if(unit=="day"||unit=="days") uNs=86400000000000.0;
+        else if(unit=="hour"||unit=="hours") uNs=3600000000000.0;
+        else if(unit=="minute"||unit=="minutes") uNs=60000000000.0;
+        else if(unit=="second"||unit=="seconds") uNs=1000000000.0;
+        else if(unit=="millisecond"||unit=="milliseconds") uNs=1000000.0;
+        else if(unit=="microsecond"||unit=="microseconds") uNs=1000.0;
+        else if(unit=="nanosecond"||unit=="nanoseconds") uNs=1.0;
+        else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: invalid unit")); return ts_value_make_undefined(); }
+        return ts_value_make_double(extraNs/uNs);
+    }
     double totalNs = (double)d->days*86400000000000.0 + (double)d->hours*3600000000000.0 + (double)d->minutes*60000000000.0
         + (double)d->seconds*1000000000.0 + (double)d->milliseconds*1000000.0 + (double)d->microseconds*1000.0 + (double)d->nanoseconds;
     double unitNs;
