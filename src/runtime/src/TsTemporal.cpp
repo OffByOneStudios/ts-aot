@@ -1126,6 +1126,20 @@ static bool iso_annotations_valid(const char* s){
     }
     return true;
 }
+// True unless the string carries a non-ISO calendar annotation ("[u-ca=hebrew]").
+// Only the calendar-bearing date types that cannot ignore it call this (Instant /
+// PlainTime have no calendar and silently ignore the annotation).
+static bool string_calendar_is_iso(const char* s){
+    const char* p=strchr(s,'[');
+    while(p){ const char* e=strchr(p,']'); if(!e) break;
+        std::string ann(p+1,(size_t)(e-p-1));
+        if(!ann.empty()&&ann[0]=='!') ann=ann.substr(1);
+        if(ann.compare(0,5,"u-ca=")==0){ std::string v=ann.substr(5);
+            for(char& c:v) if(c>='A'&&c<='Z') c=(char)(c+32);
+            return v=="iso8601"; }   // only the FIRST calendar annotation matters
+        p=strchr(e+1,'['); }
+    return true;
+}
 // Read the month from a property bag: prefer numeric "month", else "monthCode"
 // ("M01".."M12"). Returns -1 if neither present/valid.
 static int read_bag_month(void* raw){
@@ -1417,7 +1431,19 @@ static bool parse_iso_yearmonth(const char* s, int* Y, int* M) {
     int y=0,nd=0; while(isdigit((unsigned char)*p)){y=y*10+(*p-'0');p++;nd++;} if(nd<4) return false;
     if(sign<0 && y==0) return false;  // reject minus-zero extended year
     if(*p=='-')p++; if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false;
-    int mo=(p[0]-'0')*10+(p[1]-'0'); *Y=sign*y; *M=mo; return true;
+    int mo=(p[0]-'0')*10+(p[1]-'0'); p+=2; *Y=sign*y; *M=mo;
+    // A date-only year-month string must carry no UTC offset (Z / ±HH:MM): after
+    // YYYY-MM only an optional "-DD" day and a '[' annotation may follow. A "-DD"
+    // followed by ':' or a third digit is actually an offset, not a day. "Time
+    // present" is a 'T'/'t' BEFORE the first '[' (a [UTC] annotation contains a 'T').
+    { const char* br=strchr(s,'['); size_t dtlen=br?(size_t)(br-s):strlen(s);
+      bool hasTime=false; for(size_t i=0;i<dtlen;i++) if(s[i]=='T'||s[i]=='t'||s[i]==' '){ hasTime=true; break; }
+      if(!hasTime){
+          if(p[0]=='-' && isdigit((unsigned char)p[1]) && isdigit((unsigned char)p[2])
+             && p[3]!=':' && !isdigit((unsigned char)p[3])) p+=3;   // consume -DD
+          if(*p!=0 && *p!='[') return false;
+      } }
+    return true;
 }
 extern "C" {
 TsValue* ts_temporal_plainyearmonth_toString_native(void* ctx,int argc,TsValue** argv){
@@ -1470,7 +1496,7 @@ extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_yearmonth_in_limits(Y,M)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
+        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_yearmonth_in_limits(Y,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ TsPlainYearMonth* o=(TsPlainYearMonth*)raw; return ts_value_make_object(TsPlainYearMonth::Create(o->iso_year,o->iso_month,o->iso_day)); }
         TsValue* fy=ts_object_get_property(raw,"year");
         bool hY=fy&&!ts_value_is_undefined(fy); int bagM=read_bag_month(raw);
@@ -1526,11 +1552,16 @@ static bool parse_iso_monthday(const char* s, int* M, int* D) {
     const char* p=s; if(p[0]=='-'&&p[1]=='-') p+=2;
     // could be MM-DD or YYYY-MM-DD; if 4+ leading digits treat as date.
     int lead=0; const char* q=p; while(isdigit((unsigned char)*q)){lead++;q++;}
-    if(lead>=4){ int yy,mm,dd; if(!parse_iso_date(s,&yy,&mm,&dd)) return false; *M=mm;*D=dd;return true; }
+    if(lead>=4){ int yy,mm,dd; if(!parse_iso_date(s,&yy,&mm,&dd)||!date_string_suffix_ok(s)) return false; *M=mm;*D=dd;return true; }
     if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false;
     int mo=(p[0]-'0')*10+(p[1]-'0'); p+=2; if(*p=='-')p++;
     if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false;
-    int da=(p[0]-'0')*10+(p[1]-'0'); *M=mo; *D=da; return true;
+    int da=(p[0]-'0')*10+(p[1]-'0'); p+=2; *M=mo; *D=da;
+    // date-only MM-DD: no UTC offset after DD (time present = a 'T'/'t' before '[').
+    { const char* br=strchr(s,'['); size_t dtlen=br?(size_t)(br-s):strlen(s);
+      bool hasTime=false; for(size_t i=0;i<dtlen;i++) if(s[i]=='T'||s[i]=='t'||s[i]==' '){ hasTime=true; break; }
+      if(!hasTime && *p!=0 && *p!='[') return false; }
+    return true;
 }
 extern "C" {
 TsValue* ts_temporal_plainmonthday_toString_native(void* ctx,int argc,TsValue** argv){
@@ -1573,7 +1604,7 @@ extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||has_utc_designator(u)||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
+        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||has_utc_designator(u)||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ TsPlainMonthDay* o=(TsPlainMonthDay*)raw; return ts_value_make_object(TsPlainMonthDay::Create(o->iso_month,o->iso_day,o->iso_year)); }
         TsValue* fd=ts_object_get_property(raw,"day");
         int bagM=read_bag_month(raw); bool hD=fd&&!ts_value_is_undefined(fd);
