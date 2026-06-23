@@ -85,9 +85,13 @@ static inline long long round_signed(long long v, long long q, const std::string
     if(v<0) return -round_nonneg(-v, q, flip_mode_neg(mode));
     return round_nonneg(v, q, mode);
 }
+// rangeErr (out): set to true instead of throwing when the rounded upper-candidate date
+// is outside the ISO range. The CALLER throws — round_date_duration holds a std::string
+// local (rmode), and a longjmp (ts_throw) unwinding through this frame corrupts the MSVC
+// unwinder (crash in basic_string::_Tidy_deallocate). See [[longjmp-stdstring-frame-crash]].
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
-    long long* oy,long long* omo,long long* owk,long long* ody);
+    long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr=nullptr);
 // Validate the shared rounding/diff option bag (roundingMode/smallestUnit/
 // largestUnit/roundingIncrement), throwing TypeError/RangeError per spec.
 // No-op when opts is undefined. Defined after read_string_option.
@@ -2991,8 +2995,10 @@ static TsValue* plaindate_diff(int aY,int aM,int aD,int bY,int bM,int bD,TsValue
     long long yr,mo,wk,dy;
     if((smallest=="day"||smallest=="days") && mode=="trunc" && inc<=1)
         diff_iso_date(aY,aM,aD,bY,bM,bD,largest,&yr,&mo,&wk,&dy);
-    else
-        round_date_duration(aY,aM,aD,bY,bM,bD,smallest,largest,inc,mode,&yr,&mo,&wk,&dy);
+    else {
+        bool _re=false; round_date_duration(aY,aM,aD,bY,bM,bD,smallest,largest,inc,mode,&yr,&mo,&wk,&dy,&_re);
+        if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
+    }
     return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
 }
 TsValue* ts_temporal_plaindate_until_native(void* ctx,int argc,TsValue** argv){
@@ -3142,7 +3148,8 @@ static TsValue* pdt_diff_rounded(TsPlainDateTime* a, TsPlainDateTime* b, const s
     long long days=dateDays, t=timeNs;
     if(days>0 && t<0) days--; else if(days<0 && t>0) days++;
     int ey,em,ed; iso_civil_from_days(iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day)+days,&ey,&em,&ed);
-    long long yr,mo,wk,dy; round_date_duration(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,smallest,largest,inc,mode,&yr,&mo,&wk,&dy);
+    long long yr,mo,wk,dy; bool _re=false; round_date_duration(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,smallest,largest,inc,mode,&yr,&mo,&wk,&dy,&_re);
+    if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
 }
 // Reads & validates the diff options once, resolves largestUnit, then rounds.
@@ -3614,8 +3621,10 @@ static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts){
     long long yr,mo,wk,dy;
     if((smallest=="month"||smallest=="months")&&mode=="trunc"&&inc<=1)
         diff_iso_date(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,largest,&yr,&mo,&wk,&dy);
-    else
-        round_date_duration(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,smallest,largest,inc,mode,&yr,&mo,&wk,&dy);
+    else {
+        bool _re=false; round_date_duration(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,smallest,largest,inc,mode,&yr,&mo,&wk,&dy,&_re);
+        if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
+    }
     return ts_value_make_object(TsDuration::Create(yr,mo,0,0,0,0,0,0,0,0));
 }
 TsValue* ts_temporal_plainyearmonth_until_native(void* ctx,int argc,TsValue** argv){
@@ -3829,7 +3838,7 @@ static long long round_frac(long long q,long long num,long long span,long long i
 // part from the days between the truncated end and the next smallest-unit step).
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
-    long long* oy,long long* omo,long long* owk,long long* ody){
+    long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr){
     long long ae=iso_days_from_civil(aY,aM,aD), be=iso_days_from_civil(bY,bM,bD);
     int sign=(be>=ae)?1:-1;
     int sY=aY,sM=aM,sD=aD, eY=bY,eM=bM,eD=bD;
@@ -3877,7 +3886,13 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         if(inc>1){ long long hiq=(q/inc)*inc+inc; int hY,hM,hD;
             if(isYear) add_iso_date(sY,sM,sD,hiq,0,0,0,&hY,&hM,&hD);
             else add_iso_date(sY,sM,sD,y,hiq,0,0,&hY,&hM,&hD);
-            if(!iso_date_in_limits(hY,hM,hD)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); } }
+            if(!iso_date_in_limits(hY,hM,hD)){ if(rangeErr)*rangeErr=true; *oy=*omo=*owk=*ody=0; return; } }
+        // Balance the rounded month count up to years when largestUnit is year: rounding
+        // can reach 12 months, which is exactly one year (e.g. {1y,11m,24d} rounded up to
+        // months -> {1y,12m} -> {2y}). Use a plain carry (12 months == 1 year in the ISO
+        // calendar) — re-diffing via diff_iso_date would reintroduce its end-of-month
+        // borrow ambiguity (May 31 + 11 months -> April 30 reads back as 10m30d not 11m).
+        if((largest=="year"||largest=="years") && (omo_>=12 || omo_<=-12)){ oy_ += omo_/12; omo_ %= 12; }
     }
     *oy=sign*oy_;*omo=sign*omo_;*owk=sign*owk_;*ody=sign*ody_;
 }
@@ -3920,7 +3935,8 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         if(L=="auto"){ if(d->years)L="year"; else if(d->months)L="month"; else if(d->weeks)L="week"; else L="day"; if(date_unit_rank(L)<date_unit_rank(sUnit))L=sUnit; }
         long long extraDays=(d->hours*3600000000000LL+d->minutes*60000000000LL+d->seconds*1000000000LL+d->milliseconds*1000000LL+d->microseconds*1000LL+d->nanoseconds)/86400000000000LL;
         int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+extraDays, &ey,&em,&ed);
-        long long yr,mo,wk,dy; round_date_duration(rd->iso_year,rd->iso_month,rd->iso_day, ey,em,ed, sUnit, L, inc, mode, &yr,&mo,&wk,&dy);
+        long long yr,mo,wk,dy; bool _re=false; round_date_duration(rd->iso_year,rd->iso_month,rd->iso_day, ey,em,ed, sUnit, L, inc, mode, &yr,&mo,&wk,&dy,&_re);
+        if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
     }
     bool ok; long long sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
