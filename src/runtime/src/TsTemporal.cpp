@@ -3884,12 +3884,13 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     long long startE=iso_days_from_civil(sY,sM,sD), endE=iso_days_from_civil(eY,eM,eD);
     long long oy_=y,omo_=mo,owk_=wk,ody_=dy;
     // A time-unit smallestUnit (e.g. the default "nanosecond" when only largestUnit is
-    // given) applied to a date-only diff needs NO calendar rounding — return the raw
-    // diff already balanced to largestUnit. Only date units fall through to the rounding
-    // branches below (which stay byte-identical to avoid perturbing the calendar path).
+    // given) applied to a date-only diff needs NO calendar rounding — return the diff
+    // balanced to largestUnit. Anchor it at `a` (b<a gives a signed result directly): the
+    // magnitude diff above is anchored at the EARLIER date, which mis-balances a negative
+    // span (e.g. -40d from Jan 1 reads -1m-9d anchored at Jan 1, not -1m-10d from the end).
     if(!(smallest=="day"||smallest=="days"||smallest=="week"||smallest=="weeks"||
          smallest=="month"||smallest=="months"||smallest=="year"||smallest=="years")){
-        *oy=sign*oy_;*omo=sign*omo_;*owk=sign*owk_;*ody=sign*ody_; return;
+        diff_iso_date(aY,aM,aD,bY,bM,bD,largest,oy,omo,owk,ody); return;
     }
     if(smallest=="day"||smallest=="days"){
         long long incD=(inc>0?inc:1);
