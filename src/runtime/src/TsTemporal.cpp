@@ -3496,7 +3496,7 @@ TsValue* ts_temporal_plaindate_toPlainDateTime_native(void* ctx,int argc,TsValue
 }
 TsValue* ts_temporal_plaindate_toPlainYearMonth_native(void* ctx,int argc,TsValue** argv){
     TsPlainDate* pd=require_plaindate(ctx,"toPlainYearMonth");
-    return ts_value_make_object(TsPlainYearMonth::Create(pd->iso_year,pd->iso_month,pd->iso_day));
+    return ts_value_make_object(TsPlainYearMonth::Create(pd->iso_year,pd->iso_month,1));   // ISO reference day is 1
 }
 TsValue* ts_temporal_plaindate_toPlainMonthDay_native(void* ctx,int argc,TsValue** argv){
     TsPlainDate* pd=require_plaindate(ctx,"toPlainMonthDay");
