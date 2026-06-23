@@ -1194,7 +1194,7 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         }
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: invalid calendar")); return ts_value_make_undefined(); }
         double dy=ts_to_number(fy), dd=ts_to_number(fd);
-        if (dy!=dy||dd!=dd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
+        if (dy!=dy||dd!=dd||std::isinf(dy)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
         int Y=(int)std::trunc(dy), M=bagM, D=(int)std::trunc(dd);
         // from default overflow constrain
         if (M<1) M=1; if (M>12) M=12;
@@ -1568,7 +1568,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
         bool hY=fy&&!ts_value_is_undefined(fy),hD=fd&&!ts_value_is_undefined(fd);
         if(!hY||bagM<1||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.from: object needs year, month and day")); return ts_value_make_undefined(); }
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid calendar")); return ts_value_make_undefined(); }
-        auto rd=[&](const char* k,int def)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return def; double d=ts_to_number(f); if(d!=d||std::isinf(d))return def; return (int)std::trunc(d); };
+        auto rd=[&](const char* k,int def)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return def; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return 0; return (int)std::trunc(d); };
         int Y=rd("year",0),M=bagM,D=rd("day",1),H=rd("hour",0),Mi=rd("minute",0),S=rd("second",0),ms=rd("millisecond",0),us=rd("microsecond",0),ns=rd("nanosecond",0);
         if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
         const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&H,&Mi,&S,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
@@ -1937,7 +1937,7 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         TsValue* fy=ts_object_get_property(raw,"year"),*fd=ts_object_get_property(raw,"day");
         if(!fy||ts_value_is_undefined(fy)||bagM<1||!fd||ts_value_is_undefined(fd)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs year, month and day")); return ts_value_make_undefined(); }
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid calendar")); return ts_value_make_undefined(); }
-        auto rd=[&](const char* k,int def)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return def; double d=ts_to_number(f); if(d!=d||std::isinf(d))return def; return (int)std::trunc(d); };
+        auto rd=[&](const char* k,int def)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return def; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return 0; return (int)std::trunc(d); };
         int Y=rd("year",0),M=bagM,D=rd("day",1),H=rd("hour",0),Mi=rd("minute",0),S=rd("second",0),ms=rd("millisecond",0),us=rd("microsecond",0),ns=rd("nanosecond",0);
         if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
         const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&H,&Mi,&S,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
@@ -2739,7 +2739,7 @@ TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     void* raw=(argc>=1&&argv&&argv[0])?ts_nanbox_safe_unbox(argv[0]):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be an object")); return ts_value_make_undefined(); }
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
-    auto rd=[&](const char* k,int cur)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return cur; double d=ts_to_number(f); if(d!=d||std::isinf(d))return cur; return (int)std::trunc(d); };
+    auto rd=[&](const char* k,int cur)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return cur; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return cur; return (int)std::trunc(d); };
     Y=rd("year",Y); int bagM=read_bag_month(raw); if(bagM>=1)M=bagM; D=rd("day",D);
     h=rd("hour",h); mi=rd("minute",mi); s=rd("second",s); ms=rd("millisecond",ms); us=rd("microsecond",us); ns=rd("nanosecond",ns);
     if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
