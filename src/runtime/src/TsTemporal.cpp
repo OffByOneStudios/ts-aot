@@ -3394,6 +3394,13 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         long long rq=round_frac(q,num,span,inc,rmode);
         if(isYear){ oy_=rq;omo_=0; } else { oy_=y;omo_=rq; }
         owk_=0;ody_=0;
+        // Spec NudgeToCalendarUnit computes the date of the UPPER candidate
+        // (floor-to-increment + increment) regardless of which is chosen; if that
+        // date is out of range it throws. A huge increment overflows here.
+        if(inc>1){ long long hiq=(q/inc)*inc+inc; int hY,hM,hD;
+            if(isYear) add_iso_date(sY,sM,sD,hiq,0,0,0,&hY,&hM,&hD);
+            else add_iso_date(sY,sM,sD,y,hiq,0,0,&hY,&hM,&hD);
+            if(!iso_date_in_limits(hY,hM,hD)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); } }
     }
     *oy=sign*oy_;*omo=sign*omo_;*owk=sign*owk_;*ody=sign*ody_;
 }
