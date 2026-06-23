@@ -2109,7 +2109,10 @@ static bool parse_timezone(const char* s, int* offMin, bool* isUtc){
     int sign=0; if(*p=='+')sign=1; else if(*p=='-')sign=-1; else return false; p++;
     if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false;
     int hh=(p[0]-'0')*10+(p[1]-'0'); p+=2; if(*p==':')p++;
-    int mm=0; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])) mm=(p[0]-'0')*10+(p[1]-'0');
+    int mm=0; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ mm=(p[0]-'0')*10+(p[1]-'0'); p+=2; }
+    // An offset time-zone IDENTIFIER is minute precision only (±HH:MM); a trailing
+    // ":SS" / ".fff" sub-minute component (or any junk) makes it invalid.
+    if(*p!=0) return false;
     *offMin=sign*(hh*60+mm); *isUtc=false; return true;
 }
 extern "C" TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv){
