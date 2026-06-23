@@ -2893,7 +2893,10 @@ TsValue* ts_temporal_plaindate_add_native(void* ctx,int argc,TsValue** argv){
     // months, before the day/week shift), else RangeError instead of clamping.
     if(_ovrej){ long long ty=pd->iso_year+d->years, tm=pd->iso_month+d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
         if(pd->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
-    int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, d->years,d->months,d->weeks,d->days,&Y,&M,&D);
+    // Time units balance to whole days (truncating) for a date-only result.
+    long long _tns=(long long)d->hours*3600000000000LL+(long long)d->minutes*60000000000LL+(long long)d->seconds*1000000000LL+(long long)d->milliseconds*1000000LL+(long long)d->microseconds*1000LL+d->nanoseconds;
+    long long _xd=_tns/86400000000000LL;
+    int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, d->years,d->months,d->weeks,d->days+_xd,&Y,&M,&D);
     if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
 }
@@ -2902,7 +2905,9 @@ TsValue* ts_temporal_plaindate_subtract_native(void* ctx,int argc,TsValue** argv
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
     if(_ovrej){ long long ty=pd->iso_year-d->years, tm=pd->iso_month-d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
         if(pd->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
-    int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, -d->years,-d->months,-d->weeks,-d->days,&Y,&M,&D);
+    long long _tns=(long long)d->hours*3600000000000LL+(long long)d->minutes*60000000000LL+(long long)d->seconds*1000000000LL+(long long)d->milliseconds*1000000LL+(long long)d->microseconds*1000LL+d->nanoseconds;
+    long long _xd=_tns/86400000000000LL;
+    int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, -d->years,-d->months,-d->weeks,-d->days-_xd,&Y,&M,&D);
     if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
 }
