@@ -3268,6 +3268,8 @@ TsValue* ts_temporal_plaindate_toPlainDateTime_native(void* ctx,int argc,TsValue
         TsPlainTime* t=coerce_plaintime_arg(argv[0]);
         if(t){ h=t->iso_hour;mi=t->iso_minute;s=t->iso_second;ms=t->iso_millisecond;us=t->iso_microsecond;ns=t->iso_nanosecond; }
     }
+    { long long tns=(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+      if(!iso_datetime_in_limits(pd->iso_year,pd->iso_month,pd->iso_day,tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.toPlainDateTime: result is outside the representable range")); return ts_value_make_undefined(); } }
     return ts_value_make_object(TsPlainDateTime::Create(pd->iso_year,pd->iso_month,pd->iso_day,h,mi,s,ms,us,ns));
 }
 TsValue* ts_temporal_plaindate_toPlainYearMonth_native(void* ctx,int argc,TsValue** argv){
