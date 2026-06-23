@@ -3517,7 +3517,29 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
             if(rm==0x53545247||rm==0x434F4E53){ void* sp=ts_value_get_string(relTo); const char* ru=sp?((TsString*)sp)->ToUtf8():nullptr; if(ru&&(strchr(ru,'Z')||strchr(ru,'z')||strchr(ru,'['))) zdtLike=true; }
             else { uint32_t rm16=*(uint32_t*)((char*)rr+16); if(rm16==TsZonedDateTime::MAGIC) zdtLike=true; else { TsValue* tz=ts_object_get_property(rr,"timeZone"); TsValue* of=ts_object_get_property(rr,"offset"); if((tz&&!ts_value_is_undefined(tz))||(of&&!ts_value_is_undefined(of))) zdtLike=true; } } }
           if(zdtLike){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: ZonedDateTime relativeTo not yet supported")); return ts_value_make_undefined(); } }
-        if(unit=="year"||unit=="years"||unit=="month"||unit=="months"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: year/month total with relativeTo not yet supported")); return ts_value_make_undefined(); }
+        if(unit=="year"||unit=="years"||unit=="month"||unit=="months"){
+            // Fractional-calendar total: anchor the whole duration to a PlainDate, count
+            // the whole years/months from anchor to the end date, then add the fractional
+            // remainder (days past the floor-unit boundary / days spanning one more unit).
+            bool isYear=(unit=="year"||unit=="years");
+            long long timeNs=(long long)d->hours*3600000000000LL+(long long)d->minutes*60000000000LL+(long long)d->seconds*1000000000LL+(long long)d->milliseconds*1000000LL+(long long)d->microseconds*1000LL+d->nanoseconds;
+            long long wholeDaysFromTime=timeNs/86400000000000LL, subDayNs=timeNs%86400000000000LL;
+            int gy,gm,gd; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+wholeDaysFromTime, &gy,&gm,&gd);
+            if(!iso_date_in_limits(gy,gm,gd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: result out of range")); return ts_value_make_undefined(); }
+            long long startE2=iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day), endE2=iso_days_from_civil(gy,gm,gd);
+            long long y2,mo2,wk2,dy2; diff_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, gy,gm,gd, isYear?std::string("year"):std::string("month"), &y2,&mo2,&wk2,&dy2);
+            long long whole = isYear ? y2 : mo2;     // diff_iso_date folds years into months for "month"
+            int sgn=(endE2>=startE2)?1:-1;
+            int mY,mM,mD; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, isYear?whole:0, isYear?0:whole, 0,0, &mY,&mM,&mD);
+            int n2Y,n2M,n2D; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, isYear?(whole+sgn):0, isYear?0:(whole+sgn), 0,0, &n2Y,&n2M,&n2D);
+            double midE=(double)iso_days_from_civil(mY,mM,mD), mid2E=(double)iso_days_from_civil(n2Y,n2M,n2D);
+            double endPos=(double)endE2 + (double)subDayNs/86400000000000.0;
+            double span=mid2E-midE, num=endPos-midE;
+            // num and span share the duration's sign, so num/span is the POSITIVE fraction
+            // magnitude in [0,1); apply the overall sign so a negative total grows downward.
+            double total=(double)whole + ((span!=0.0)? (double)sgn*(num/span) : 0.0);
+            return ts_value_make_double(total);
+        }
         int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days, &ey,&em,&ed);
         if(!iso_date_in_limits(ey,em,ed)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: result out of range")); return ts_value_make_undefined(); }
         long long dayDiff = iso_days_from_civil(ey,em,ed) - iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
