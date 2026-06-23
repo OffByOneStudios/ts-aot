@@ -767,6 +767,7 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr) {
     if (d->days)   { snprintf(b,sizeof(b),"%lldD",u(d->days));   out += b; }
     long long sec = u(d->seconds);
     long long frac = u(d->milliseconds)*1000000LL + u(d->microseconds)*1000LL + u(d->nanoseconds);
+    sec += frac/1000000000LL; frac %= 1000000000LL;   // carry whole seconds out of the sub-second total
     // toString options: round the sub-second to fractionalSecondDigits / smallestUnit
     // (roundingMode applied; a carry adds whole seconds). -1 = "auto" (trim zeros).
     int digits = -1;
