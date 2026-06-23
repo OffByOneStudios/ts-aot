@@ -1609,7 +1609,8 @@ TsValue* ts_temporal_plainyearmonth_with_native(void* ctx,int argc,TsValue** arg
     TsPlainYearMonth* pd=require_plainyearmonth(ctx,"with"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     int vals[2]={pd->iso_year,pd->iso_month}; static const char* names[2]={"year","month"}; bool any=false;
-    for(int i=0;i<2;i++){ TsValue* f=ts_object_get_property(raw,names[i]); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[i]=(int)std::trunc(d);} }
+    { TsValue* f=ts_object_get_property(raw,"year"); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[0]=(int)std::trunc(d);} }
+    { int bagM=read_bag_month(raw); if(bagM>=1){ any=true; vals[1]=bagM; } }   // month/monthCode + conflict
     if(!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
     if(vals[1]<1)vals[1]=1; if(vals[1]>12)vals[1]=12;
     return ts_value_make_object(TsPlainYearMonth::Create(vals[0],vals[1],pd->iso_day));
