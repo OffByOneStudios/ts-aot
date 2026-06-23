@@ -1628,18 +1628,19 @@ TsValue* ts_temporal_plainyearmonth_from_native(void* ctx,int argc,TsValue** arg
 }
 extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    auto _ovopt=[&]()->bool{ return validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); };   // overflow read after the input is parsed
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_yearmonth_in_limits(Y,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
-        if(*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ TsPlainYearMonth* o=(TsPlainYearMonth*)raw; return ts_value_make_object(TsPlainYearMonth::Create(o->iso_year,o->iso_month,o->iso_day)); }
+        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_yearmonth_in_limits(Y,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } _ovopt(); return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
+        if(*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ TsPlainYearMonth* o=(TsPlainYearMonth*)raw; _ovopt(); return ts_value_make_object(TsPlainYearMonth::Create(o->iso_year,o->iso_month,o->iso_day)); }
         TsValue* fy=ts_object_get_property(raw,"year");
         bool hY=fy&&!ts_value_is_undefined(fy); int bagM=read_bag_month(raw);
         if(!hY||bagM<1){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.from: object needs year and month")); return ts_value_make_undefined(); }
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid calendar")); return ts_value_make_undefined(); }
+        bool _ovrej = _ovopt();   // overflow read after the bag fields
         double dy=ts_to_number(fy); if(dy!=dy){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
         int Y=(int)std::trunc(dy),M=bagM;
         if(_ovrej){ if(M<1||M>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: month out of range (overflow reject)")); return ts_value_make_undefined(); } }
@@ -1738,14 +1739,14 @@ TsValue* ts_temporal_plainmonthday_from_native(void* ctx,int argc,TsValue** argv
 }
 extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    auto _ovopt=[&](){ validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); };   // overflow read after the input is parsed
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||has_utc_designator(u)||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
-        if(*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ TsPlainMonthDay* o=(TsPlainMonthDay*)raw; return ts_value_make_object(TsPlainMonthDay::Create(o->iso_month,o->iso_day,o->iso_year)); }
+        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||has_utc_designator(u)||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } _ovopt(); return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
+        if(*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ TsPlainMonthDay* o=(TsPlainMonthDay*)raw; _ovopt(); return ts_value_make_object(TsPlainMonthDay::Create(o->iso_month,o->iso_day,o->iso_year)); }
         TsValue* fd=ts_object_get_property(raw,"day");
         int bagM=read_bag_month(raw); bool hD=fd&&!ts_value_is_undefined(fd);
         if(bagM<1||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: object needs month and day")); return ts_value_make_undefined(); }
@@ -1754,6 +1755,7 @@ extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
         TsValue* fy=ts_object_get_property(raw,"year");
         if(fy&&!ts_value_is_undefined(fy)){ double dy=ts_to_number(fy); if(std::isinf(dy)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } }
         double dd=ts_to_number(fd); if(dd!=dd||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: day property cannot be Infinity or NaN")); return ts_value_make_undefined(); }
+        _ovopt();   // overflow read after the bag fields
         int M=bagM,D=(int)std::trunc(dd); if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(1972,M); if(D<1)D=1; if(D>dim)D=dim;
         return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972));
     }
@@ -1935,7 +1937,7 @@ TsValue* ts_temporal_plaindatetime_from_native(void* ctx,int argc,TsValue** argv
 }
 extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    auto _ovopt=[&]()->bool{ return validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); };   // overflow read after the input is parsed
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -1943,8 +1945,8 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
         uint32_t m0=*(uint32_t*)raw;
         if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M,D,H,Mi,S,ms,us,ns;
             if(!u||has_utc_designator(u)||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!date_string_suffix_ok(u)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_datetime_in_limits(Y,M,D,(long long)H*3600000000000LL+(long long)Mi*60000000000LL+(long long)S*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
-            return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,H,Mi,S,ms,us,ns)); }
-        if(*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ TsPlainDateTime* o=(TsPlainDateTime*)raw; return ts_value_make_object(TsPlainDateTime::Create(o->iso_year,o->iso_month,o->iso_day,o->iso_hour,o->iso_minute,o->iso_second,o->iso_ms,o->iso_us,o->iso_ns)); }
+            _ovopt(); return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,H,Mi,S,ms,us,ns)); }
+        if(*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ TsPlainDateTime* o=(TsPlainDateTime*)raw; _ovopt(); return ts_value_make_object(TsPlainDateTime::Create(o->iso_year,o->iso_month,o->iso_day,o->iso_hour,o->iso_minute,o->iso_second,o->iso_ms,o->iso_us,o->iso_ns)); }
         TsValue* fy=ts_object_get_property(raw,"year"),*fd=ts_object_get_property(raw,"day");
         int bagM=read_bag_month(raw);
         bool hY=fy&&!ts_value_is_undefined(fy),hD=fd&&!ts_value_is_undefined(fd);
@@ -1952,6 +1954,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid calendar")); return ts_value_make_undefined(); }
         auto rd=[&](const char* k,int def)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return def; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return 0; return (int)std::trunc(d); };
         int Y=rd("year",0),M=bagM,D=rd("day",1),H=rd("hour",0),Mi=rd("minute",0),S=rd("second",0),ms=rd("millisecond",0),us=rd("microsecond",0),ns=rd("nanosecond",0);
+        bool _ovrej = _ovopt();   // overflow read after the bag fields
         // overflow:"reject" -> any out-of-range field is a RangeError (no clamping).
         if(_ovrej){
             const int tl[6]={23,59,59,999,999,999}; int tv[6]={H,Mi,S,ms,us,ns};
