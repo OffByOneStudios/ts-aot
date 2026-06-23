@@ -26,6 +26,7 @@ static bool option_is_object(TsValue* v);
 static bool temporal_mode_valid(const std::string& m);
 static std::string read_enum_option(TsValue* opts, const char* key, const char* def, const char* const* valid, int nvalid);
 static int iso_days_in_month(int y, int m);
+static std::string read_opt_str_noauto(void* raw, const char* key, const char* def);
 static bool iso_annotations_valid(const char* s);
 static int date_unit_rank(const std::string& u);
 static long long unit_ns(const std::string& u, bool* ok);
@@ -164,7 +165,18 @@ extern "C" {
 // is dropped — fine for PlainTime; PlainDateTime trunc default never carries).
 static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts){
     std::string smallest = read_string_option(opts,"smallestUnit","");
-    std::string mode = read_string_option(opts,"roundingMode","trunc");
+    // roundingMode read WITHOUT the "auto"->default mapping: "auto" is not a valid
+    // roundingMode and must be rejected (read_string_option would swallow it).
+    void* rmraw = opts?ts_nanbox_safe_unbox(opts):nullptr;
+    std::string mode = read_opt_str_noauto(rmraw,"roundingMode","trunc");
+    // Validate the time-rounding options (RangeError on an invalid value).
+    if(!smallest.empty()){
+        bool ok = smallest=="minute"||smallest=="minutes"||smallest=="second"||smallest=="seconds"
+               || smallest=="millisecond"||smallest=="milliseconds"||smallest=="microsecond"||smallest=="microseconds"
+               || smallest=="nanosecond"||smallest=="nanoseconds";
+        if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); }
+    }
+    if(!temporal_mode_valid(mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
     int fsd=-1; // -1 = auto
     void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
     if(raw){ TsValue* f=ts_object_get_property(raw,"fractionalSecondDigits");
@@ -1199,6 +1211,7 @@ TsValue* ts_temporal_plaindate_from_native(void* ctx, int argc, TsValue** argv) 
 
 extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
+    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item = (argc>=1&&argv)?argv[0]:nullptr;
     if (!item || ts_value_is_undefined(item)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.from: argument is undefined"));
@@ -1340,6 +1353,7 @@ TsValue* ts_temporal_plainyearmonth_from_native(void* ctx,int argc,TsValue** arg
 }
 extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
+    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -1441,6 +1455,7 @@ TsValue* ts_temporal_plainmonthday_from_native(void* ctx,int argc,TsValue** argv
 }
 extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
+    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -1595,6 +1610,7 @@ TsValue* ts_temporal_plaindatetime_from_native(void* ctx,int argc,TsValue** argv
 }
 extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
+    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -1969,6 +1985,7 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         static const char* OFFFV[]={"prefer","use","ignore","reject"};
         read_enum_option(o,"disambiguation","compatible",DISV,4);
         read_enum_option(o,"offset","reject",OFFFV,4);
+        validate_overflow_option(o);
     }
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
