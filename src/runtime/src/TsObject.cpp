@@ -6407,16 +6407,15 @@ TsValue* ts_value_make_int(int64_t i) {
         int64_t argc = ts_value_length(argsArray);
         if (argc < 0) argc = 0;
 
-        // Cap to ts_call_N's maximum supported arity. ts_function_call
-        // dispatches through ts_call_0..ts_call_10; above 10 extra args
-        // get dropped with a warning.
-        int64_t cappedArgc = argc > 10 ? 10 : argc;
+        // call_dispatch_n handles up to 16 params (call_closure_exact for 11..16);
+        // only cap above that.
+        int64_t cappedArgc = argc > 16 ? 16 : argc;
         std::vector<TsValue*> argv(static_cast<size_t>(cappedArgc), ts_value_make_undefined());
         for (int64_t i = 0; i < cappedArgc; ++i) {
             argv[static_cast<size_t>(i)] = (TsValue*)ts_value_get_element(argsArray, i);
         }
-        if (argc > 10) {
-            SPDLOG_WARN("ts_function_apply truncated args from {} to 10", argc);
+        if (argc > 16) {
+            SPDLOG_WARN("ts_function_apply truncated args from {} to 16", argc);
         }
         return ts_function_call_with_this(boxedFunc, thisArg, static_cast<int>(cappedArgc), argv.data());
     }
