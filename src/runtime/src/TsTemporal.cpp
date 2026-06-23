@@ -24,6 +24,7 @@ static std::string read_string_option(TsValue* opts, const char* key, const char
 static bool option_to_string(TsValue* v, std::string* out);
 static bool option_is_object(TsValue* v);
 static bool temporal_mode_valid(const std::string& m);
+static std::string read_enum_option(TsValue* opts, const char* key, const char* def, const char* const* valid, int nvalid);
 static bool iso_annotations_valid(const char* s);
 static int date_unit_rank(const std::string& u);
 static long long unit_ns(const std::string& u, bool* ok);
@@ -1076,7 +1077,8 @@ extern "C" {
 // Append [u-ca=iso8601] (or [!...] for critical) when calendarName is
 // always/critical; otherwise return the base string unchanged.
 static TsValue* append_cal_annotation(TsString* base, TsValue* opts){
-    std::string cal = read_string_option(opts, "calendarName", "auto");
+    static const char* CALV[]={"auto","always","never","critical"};
+    std::string cal = read_enum_option(opts, "calendarName", "auto", CALV, 4);
     if(cal!="always" && cal!="critical") return ts_value_make_string(base);
     const char* u = base ? base->ToUtf8() : "";
     std::string s = u ? u : "";
@@ -1264,7 +1266,8 @@ extern "C" {
 TsValue* ts_temporal_plainyearmonth_toString_native(void* ctx,int argc,TsValue** argv){
     TsPlainYearMonth* d=require_plainyearmonth(ctx,"toString");
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
-    std::string cal = read_string_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto");
+    static const char* CALV[]={"auto","always","never","critical"};
+    std::string cal = read_enum_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto", CALV, 4);
     bool showCal = (cal=="always"||cal=="critical");
     const char* ann = (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
     char b[48];
@@ -1374,7 +1377,8 @@ extern "C" {
 TsValue* ts_temporal_plainmonthday_toString_native(void* ctx,int argc,TsValue** argv){
     TsPlainMonthDay* d=require_plainmonthday(ctx,"toString");
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
-    std::string cal = read_string_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto");
+    static const char* CALV[]={"auto","always","never","critical"};
+    std::string cal = read_enum_option((argc>=1&&argv)?argv[0]:nullptr, "calendarName", "auto", CALV, 4);
     bool showCal = (cal=="always"||cal=="critical");
     const char* ann = (cal=="critical") ? "[!u-ca=iso8601]" : "[u-ca=iso8601]";
     char b[48];
@@ -1521,7 +1525,8 @@ TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** 
     else snprintf(db,sizeof(db),"%04d-%02d-%02d",d->iso_year,d->iso_month,d->iso_day);
     std::string base=db; base+="T";
     base+=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts);
-    std::string cal=read_string_option(opts,"calendarName","auto");
+    static const char* CALV[]={"auto","always","never","critical"};
+    std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
     if(cal=="always"||cal=="critical") base += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";
     return ts_value_make_string(TsString::Create(base.c_str()));
 }
@@ -1982,11 +1987,14 @@ TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
     std::string out=db; out+="T"; out+=format_time_opts(h,mi,s,ms,us,ns,opts);
     char ob[8]; zdt_offset_string(z->offset_minutes,ob,sizeof(ob));
-    std::string offMode=read_string_option(opts,"offset","auto");
+    static const char* OFFV[]={"auto","never"};
+    std::string offMode=read_enum_option(opts,"offset","auto",OFFV,2);
     if(offMode!="never") out+=ob;
-    std::string tzn=read_string_option(opts,"timeZoneName","auto");
+    static const char* TZNV[]={"auto","never","critical"};
+    std::string tzn=read_enum_option(opts,"timeZoneName","auto",TZNV,3);
     if(tzn!="never"){ out+="["; out+= z->is_utc?"UTC":ob; out+="]"; }
-    std::string cal=read_string_option(opts,"calendarName","auto");
+    static const char* CALV[]={"auto","always","never","critical"};
+    std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
     if(cal=="always"||cal=="critical") out += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";
     return ts_value_make_string(TsString::Create(out.c_str()));
 }
@@ -2113,6 +2121,16 @@ static std::string read_string_option(TsValue* opts, const char* key, const char
     // option_to_string performs the spec ToString (observable for object values,
     // TypeError for symbol); this is the single observable read for the diff path.
     if(v && !ts_value_is_undefined(v) && option_to_string(v,&s)){ if(s=="auto") return def; return s; }
+    return def;
+}
+// Read a string option that must be one of a fixed enum (calendarName/
+// timeZoneName/offset for toString); ToString-coerces (observable) then throws
+// RangeError if the value is not allowed.
+static std::string read_enum_option(TsValue* opts, const char* key, const char* def, const char* const* valid, int nvalid){
+    std::string s = read_string_option(opts, key, def);
+    for(int i=0;i<nvalid;i++) if(s==valid[i]) return s;
+    char m[80]; snprintf(m,sizeof(m),"invalid %s value", key);
+    ts_throw((TsValue*)ts_error_create_typed("RangeError",m));
     return def;
 }
 static bool temporal_mode_valid(const std::string& m){
