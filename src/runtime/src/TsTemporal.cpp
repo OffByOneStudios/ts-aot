@@ -169,8 +169,16 @@ static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsV
     void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
     if(raw){ TsValue* f=ts_object_get_property(raw,"fractionalSecondDigits");
         if(f&&!ts_value_is_undefined(f)){
-            double dv=ts_to_number(f);       // "auto" -> NaN -> leaves fsd=-1 (auto)
-            if(dv==dv && !std::isinf(dv)) fsd=(int)dv; } }
+            // The string "auto" -> auto; otherwise ToNumber and require an integer
+            // in [0,9] (RangeError otherwise — covers NaN/Infinity/out-of-range and
+            // a non-"auto" string like "invalid" which ToNumbers to NaN).
+            bool isAuto=false; void* fr=ts_nanbox_safe_unbox(f);
+            if(fr){ uint32_t fm=*(uint32_t*)fr; if(fm==0x53545247||fm==0x434F4E53){ void* sp=ts_value_get_string(f); if(sp){ std::string fs; ((TsString*)sp)->AppendUtf8(fs); if(fs=="auto") isAuto=true; } } }
+            if(!isAuto){
+                double dv=ts_to_number(f);
+                if(!(dv==dv) || std::isinf(dv) || dv<0 || dv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
+                fsd=(int)std::trunc(dv);
+            } } }
     long long tns = ((long long)h*3600+(long long)mi*60+s)*1000000000LL + (long long)ms*1000000 + (long long)us*1000 + ns;
     int digits=-1; bool dropSeconds=false; long long unitNs=1;
     if(smallest=="minute"||smallest=="minutes"){ dropSeconds=true; digits=0; unitNs=60000000000LL; }
