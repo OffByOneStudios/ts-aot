@@ -3539,8 +3539,10 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
     std::string unit; TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr;
     if(!tsvalue_to_stdstring(arg,&unit)) unit = read_string_option(arg,"unit","");
     double extraNs = 0.0;   // time-part nanoseconds contributed by a calendar-anchored span
-    if(d->years||d->months||d->weeks){
-        // Calendar units require relativeTo. Anchor to a PlainDate and expand the
+    bool calUnit=(unit=="year"||unit=="years"||unit=="month"||unit=="months");   // year/month totals need anchoring; week=7d is fixed
+    if(d->years||d->months||d->weeks||calUnit){
+        // Calendar units (in the duration OR as the requested total unit) require relativeTo.
+        // Anchor to a PlainDate and expand the
         // calendar part to a concrete day count; year/month TOTALS need the
         // fractional-calendar algorithm and are still deferred.
         void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
@@ -3553,7 +3555,8 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
         // relativeTo (string/bag without offset/tz) is handled below.
         { void* rr = relTo ? ts_nanbox_safe_unbox(relTo) : nullptr; bool zdtLike=false;
           if(rr){ uint32_t rm=*(uint32_t*)rr;
-            if(rm==0x53545247||rm==0x434F4E53){ void* sp=ts_value_get_string(relTo); const char* ru=sp?((TsString*)sp)->ToUtf8():nullptr; if(ru&&(strchr(ru,'Z')||strchr(ru,'z')||strchr(ru,'['))) zdtLike=true; }
+            if(rm==0x53545247||rm==0x434F4E53){ void* sp=ts_value_get_string(relTo); const char* ru=sp?((TsString*)sp)->ToUtf8():nullptr;
+                if(ru){ if(strchr(ru,'Z')||strchr(ru,'z')) zdtLike=true; else { const char* br=strchr(ru,'['); if(br && strncmp(br,"[u-ca=",6)!=0 && strncmp(br,"[!u-ca=",7)!=0) zdtLike=true; } } }   // a calendar-only annotation is NOT a time zone
             else { uint32_t rm16=*(uint32_t*)((char*)rr+16); if(rm16==TsZonedDateTime::MAGIC) zdtLike=true; else { TsValue* tz=ts_object_get_property(rr,"timeZone"); TsValue* of=ts_object_get_property(rr,"offset"); if((tz&&!ts_value_is_undefined(tz))||(of&&!ts_value_is_undefined(of))) zdtLike=true; } } }
           if(zdtLike){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: ZonedDateTime relativeTo not yet supported")); return ts_value_make_undefined(); } }
         if(unit=="year"||unit=="years"||unit=="month"||unit=="months"){
@@ -3571,6 +3574,9 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
             int sgn=(endE2>=startE2)?1:-1;
             int mY,mM,mD; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, isYear?whole:0, isYear?0:whole, 0,0, &mY,&mM,&mD);
             int n2Y,n2M,n2D; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, isYear?(whole+sgn):0, isYear?0:(whole+sgn), 0,0, &n2Y,&n2M,&n2D);
+            // NudgeToCalendarUnit forms the next-unit (upper) candidate date; it must be in
+            // the ISO range even when the chosen result is the lower candidate.
+            if(!iso_date_in_limits(n2Y,n2M,n2D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: result is outside the representable range")); return ts_value_make_undefined(); }
             double midE=(double)iso_days_from_civil(mY,mM,mD), mid2E=(double)iso_days_from_civil(n2Y,n2M,n2D);
             double endPos=(double)endE2 + (double)subDayNs/86400000000000.0;
             double span=mid2E-midE, num=endPos-midE;
