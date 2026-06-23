@@ -670,6 +670,7 @@ static TsDuration* as_duration(void* raw) {
 // ToIntegerIfIntegral: finite + integral, else RangeError.
 static long long duration_field(TsValue* v, bool* ok) {
     if (!v || ts_value_is_undefined(v)) return 0;
+    reject_nonnumeric_increment(v);   // ToNumber(BigInt) is a TypeError
     double d = ts_to_number(v);  // throws on Symbol
     if (d != d || std::isinf(d) || d != std::trunc(d)) {
         ts_throw((TsValue*)ts_error_create_typed("RangeError",
