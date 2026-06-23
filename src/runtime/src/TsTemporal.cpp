@@ -2577,6 +2577,19 @@ static TsDuration* coerce_duration_arg(TsValue* v){
     TsValue* c = ts_temporal_duration_from(v?1:0,&v);
     return as_duration(ts_nanbox_safe_unbox(c));
 }
+// Extract the explicit UTC offset (minutes) from an ISO datetime string's offset/Z part,
+// scanning after the time and before any [..] annotation. Returns false when absent.
+static bool iso_string_offset_min(const char* s, int* offMin){
+    const char* br=strchr(s,'['); const char* end = br? br : s+strlen(s);
+    const char* t=strchr(s,'T'); if(!t) t=strchr(s,'t'); if(!t||t>=end) return false;
+    for(const char* p=t+1; p<end; p++){
+        if(*p=='Z'||*p=='z'){ *offMin=0; return true; }
+        if(*p=='+'||*p=='-'){ std::string off(p,(size_t)(end-p));
+            if(!valid_offset_field(off.c_str())) return false;
+            *offMin=(int)(offset_field_ns(off.c_str())/60000000000LL); return true; }
+    }
+    return false;
+}
 // ToRelativeTemporalObject (validation half): a present relativeTo must be a valid
 // Temporal date / date-time / zoned string (or a date-bearing object). An invalid one
 // throws even when the comparison/rounding itself needs no calendar anchoring — the
@@ -2595,7 +2608,15 @@ static void validate_relativeto_arg(TsValue* rt){
             if(strchr(ru,'Z')||strchr(ru,'z')) zdtLike=true;
             else { const char* br=strchr(ru,'['); if(br && strncmp(br,"[u-ca=",6)!=0 && strncmp(br,"[!u-ca=",7)!=0) zdtLike=true; }
         }
-        if(zdtLike) (void)ts_temporal_zdt_from(1,&rt);   // validates offset/tz/Z, throws on invalid
+        if(zdtLike){
+            (void)ts_temporal_zdt_from(1,&rt);   // validates offset/tz/Z, throws on invalid
+            // offset:reject (the default): an explicit string offset must match a
+            // fixed-offset zone bracket, e.g. "...+05:30[UTC]" is a RangeError.
+            int zoneOff; bool zoneUtc; int strOff;
+            if(ru && zdt_extract_tz(ru,&zoneOff,&zoneUtc) && iso_string_offset_min(ru,&strOff) && strOff!=zoneOff){
+                ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo offset does not match its time zone"));
+            }
+        }
         else        (void)ts_temporal_plaindate_from(1,&rt);
         return;
     }
@@ -3550,15 +3571,9 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
         validate_relativeto_arg(relTo);
         TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_plaindate_arg(relTo) : nullptr;
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total with calendar units requires relativeTo")); return ts_value_make_undefined(); }
-        // ZonedDateTime-style relativeTo (offset / time zone / Z) needs the tz-aware
-        // anchoring that isn't implemented yet — defer (RangeError). Pure PlainDate
-        // relativeTo (string/bag without offset/tz) is handled below.
-        { void* rr = relTo ? ts_nanbox_safe_unbox(relTo) : nullptr; bool zdtLike=false;
-          if(rr){ uint32_t rm=*(uint32_t*)rr;
-            if(rm==0x53545247||rm==0x434F4E53){ void* sp=ts_value_get_string(relTo); const char* ru=sp?((TsString*)sp)->ToUtf8():nullptr;
-                if(ru){ if(strchr(ru,'Z')||strchr(ru,'z')) zdtLike=true; else { const char* br=strchr(ru,'['); if(br && strncmp(br,"[u-ca=",6)!=0 && strncmp(br,"[!u-ca=",7)!=0) zdtLike=true; } } }   // a calendar-only annotation is NOT a time zone
-            else { uint32_t rm16=*(uint32_t*)((char*)rr+16); if(rm16==TsZonedDateTime::MAGIC) zdtLike=true; else { TsValue* tz=ts_object_get_property(rr,"timeZone"); TsValue* of=ts_object_get_property(rr,"offset"); if((tz&&!ts_value_is_undefined(tz))||(of&&!ts_value_is_undefined(of))) zdtLike=true; } } }
-          if(zdtLike){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: ZonedDateTime relativeTo not yet supported")); return ts_value_make_undefined(); } }
+        // A ZonedDateTime / zoned-string relativeTo is anchored by its LOCAL date (coerce
+        // already extracted it). For a fixed-offset zone there is no DST so this is exact;
+        // named-IANA DST anchoring (variable day length) is the Group-F tz-database work.
         if(unit=="year"||unit=="years"||unit=="month"||unit=="months"){
             // Fractional-calendar total: anchor the whole duration to a PlainDate, count
             // the whole years/months from anchor to the end date, then add the fractional
