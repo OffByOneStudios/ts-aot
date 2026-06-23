@@ -3063,13 +3063,17 @@ static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* o
 }
 extern "C" {
 TsValue* ts_temporal_plaindatetime_add_native(void* ctx,int argc,TsValue** argv){
-    TsPlainDateTime* dt=require_plaindatetime(ctx,"add"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsPlainDateTime* dt=require_plaindatetime(ctx,"add"); bool _ovrej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.add: invalid duration")); return ts_value_make_undefined(); }
+    if(_ovrej){ long long ty=dt->iso_year+d->years, tm=dt->iso_month+d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
+        if(dt->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.add: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
     return pdt_add(dt,d,1);
 }
 TsValue* ts_temporal_plaindatetime_subtract_native(void* ctx,int argc,TsValue** argv){
-    TsPlainDateTime* dt=require_plaindatetime(ctx,"subtract"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
+    TsPlainDateTime* dt=require_plaindatetime(ctx,"subtract"); bool _ovrej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
+    if(_ovrej){ long long ty=dt->iso_year-d->years, tm=dt->iso_month-d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
+        if(dt->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.subtract: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
     return pdt_add(dt,d,-1);
 }
 TsValue* ts_temporal_plaindatetime_until_native(void* ctx,int argc,TsValue** argv){
