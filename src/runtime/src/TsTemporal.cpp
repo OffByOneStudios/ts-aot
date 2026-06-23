@@ -29,6 +29,8 @@ static int iso_days_in_month(int y, int m);
 static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank);
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
+static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
+static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns);
 static long long unit_ns(const std::string& u, bool* ok);
 // A `with`/partial bag must be a plain object — reject any Temporal-typed object.
 // Magics at offset +16: PlainTime/Duration/PlainDate/PlainYearMonth/PlainMonthDay/
@@ -1394,25 +1396,15 @@ TsValue* ts_temporal_plaindate_valueOf_native(void* ctx, int argc, TsValue** arg
 TsValue* ts_temporal_plaindate_equals_native(void* ctx, int argc, TsValue** argv) {
     TsPlainDate* a = require_plaindate(ctx, "equals");
     TsValue* other = (argc>=1&&argv)?argv[0]:nullptr;
-    TsPlainDate* b = as_plaindate(other?ts_nanbox_safe_unbox(other):nullptr);
-    if (!b) {
-        TsValue* c = ts_temporal_plaindate_from(other?1:0, &other);
-        b = as_plaindate(ts_nanbox_safe_unbox(c));
-        if (!b) return ts_value_make_bool(false);
-    }
+    TsPlainDate* b = coerce_plaindate_arg(other);
+    if (!b) return ts_value_make_bool(false);
     return ts_value_make_bool(a->iso_year==b->iso_year && a->iso_month==b->iso_month && a->iso_day==b->iso_day);
 }
 
 TsValue* ts_temporal_plaindate_compare_native(void* ctx, int argc, TsValue** argv) {
     (void)ctx;
-    auto toPD = [](TsValue* v) -> TsPlainDate* {
-        TsPlainDate* p = as_plaindate(v?ts_nanbox_safe_unbox(v):nullptr);
-        if (p) return p;
-        TsValue* c = ts_temporal_plaindate_from(v?1:0, &v);
-        return as_plaindate(ts_nanbox_safe_unbox(c));
-    };
-    TsPlainDate* a = toPD((argc>=1)?argv[0]:nullptr);
-    TsPlainDate* b = toPD((argc>=2)?argv[1]:nullptr);
+    TsPlainDate* a = coerce_plaindate_arg((argc>=1)?argv[0]:nullptr);
+    TsPlainDate* b = coerce_plaindate_arg((argc>=2)?argv[1]:nullptr);
     if (!a || !b) return ts_value_make_int(0);
     int af[3]={a->iso_year,a->iso_month,a->iso_day}, bf[3]={b->iso_year,b->iso_month,b->iso_day};
     for (int i=0;i<3;i++){ if(af[i]<bf[i]) return ts_value_make_int(-1); if(af[i]>bf[i]) return ts_value_make_int(1); }
@@ -1467,6 +1459,13 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
     }
     void* raw = ts_nanbox_safe_unbox(item);
     if (raw) {
+        // A ZonedDateTime / PlainDateTime supplies its date from its internal slot —
+        // no observable property reads.
+        if((uintptr_t)raw>=4096 && (uintptr_t)raw<=0x00007FFFFFFFFFFFULL){
+            uint32_t m16f=*(uint32_t*)((char*)raw+16);
+            if(m16f==0x5A44544D){ TsZonedDateTime* z=(TsZonedDateTime*)raw; int Y2,M2,D2,h2,mi2,s2,ms2,us2,ns2; zdt_local(z,&Y2,&M2,&D2,&h2,&mi2,&s2,&ms2,&us2,&ns2); return ts_value_make_object(TsPlainDate::Create(Y2,M2,D2)); }
+            if(m16f==0x50444D54){ TsPlainDateTime* dt=(TsPlainDateTime*)raw; return ts_value_make_object(TsPlainDate::Create(dt->iso_year,dt->iso_month,dt->iso_day)); }
+        }
         uint32_t m0 = *(uint32_t*)raw;
         if (m0==0x53545247 || m0==0x434F4E53) {
             const char* utf = ((TsString*)ts_value_get_string(item))->ToUtf8();
@@ -2866,8 +2865,16 @@ static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::
     *yr=sign*years; *mo=sign*months; *wk=0; *dy=sign*dd;
 }
 static TsPlainDate* coerce_plaindate_arg(TsValue* v){
-    TsPlainDate* p = as_plaindate(v?ts_nanbox_safe_unbox(v):nullptr);
+    void* raw = v?ts_nanbox_safe_unbox(v):nullptr;
+    TsPlainDate* p = as_plaindate(raw);
     if(p) return p;
+    // A ZonedDateTime / PlainDateTime supplies its date from its internal slot —
+    // no observable property reads (year/month/day/calendar getters must NOT fire).
+    if(raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=0x00007FFFFFFFFFFFULL){
+        uint32_t m16=*(uint32_t*)((char*)raw+16);
+        if(m16==0x5A44544D){ TsZonedDateTime* z=(TsZonedDateTime*)raw; int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns); return (TsPlainDate*)TsPlainDate::Create(Y,M,D); }
+        if(m16==0x50444D54){ TsPlainDateTime* dt=(TsPlainDateTime*)raw; return (TsPlainDate*)TsPlainDate::Create(dt->iso_year,dt->iso_month,dt->iso_day); }
+    }
     TsValue* c = ts_temporal_plaindate_from(v?1:0,&v);
     return as_plaindate(ts_nanbox_safe_unbox(c));
 }
