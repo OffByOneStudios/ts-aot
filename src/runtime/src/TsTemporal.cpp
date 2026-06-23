@@ -1291,10 +1291,10 @@ static bool parse_iso_date(const char* s, int* Y, int* M, int* D) {
     if (has_unicode_minus(s)) return false;
     int sign = 1; const char* p = s;
     if (*p=='+'||*p=='-') { if(*p=='-') sign=-1; p++; }
-    int y=0, nd=0;
-    while (isdigit((unsigned char)*p)) { y=y*10+(*p-'0'); p++; nd++; }
-    // Year is exactly 4 digits, or a signed 6-digit extended year.
-    bool _sgn=(s[0]=='+'||s[0]=='-'); if(_sgn ? (nd!=6) : (nd!=4)) return false;
+    int y=0;
+    // Fixed-width year (4, or signed 6) so basic format YYYYMMDD parses.
+    bool _sgn=(s[0]=='+'||s[0]=='-'); int ywidth=_sgn?6:4;
+    for(int i=0;i<ywidth;i++){ if(!isdigit((unsigned char)*p)) return false; y=y*10+(*p-'0'); p++; }
     // ECMA-262: a minus-signed extended year of zero ("-000000") is invalid.
     if (sign<0 && y==0) return false;
     if (*p=='-') p++;
@@ -1311,9 +1311,11 @@ static bool parse_iso_date_e(const char* s, int* Y, int* M, int* D, const char**
     if (has_unicode_minus(s)) return false;
     int sign = 1; const char* p = s;
     if (*p=='+'||*p=='-') { if(*p=='-') sign=-1; p++; }
-    int y=0, nd=0;
-    while (isdigit((unsigned char)*p)) { y=y*10+(*p-'0'); p++; nd++; }
-    bool _sgn=(s[0]=='+'||s[0]=='-'); if(_sgn ? (nd!=6) : (nd!=4)) return false;
+    int y=0;
+    // Fixed-width year (4, or signed 6) so basic format YYYYMMDD parses — a greedy
+    // read would swallow the MM/DD digits.
+    bool _sgn=(s[0]=='+'||s[0]=='-'); int ywidth=_sgn?6:4;
+    for(int i=0;i<ywidth;i++){ if(!isdigit((unsigned char)*p)) return false; y=y*10+(*p-'0'); p++; }
     if (sign<0 && y==0) return false;
     if (*p=='-') p++;
     if (!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false;
