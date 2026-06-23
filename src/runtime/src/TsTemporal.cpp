@@ -3489,7 +3489,14 @@ TsValue* ts_temporal_plaindatetime_toZonedDateTime_native(void* ctx,int argc,TsV
     { static const char* DIS[4]={"compatible","earlier","later","reject"};
       read_enum_option((argc>=2&&argv)?argv[1]:nullptr,"disambiguation","compatible",DIS,4); }
     int off=0; bool utc=true;
-    if(argc>=1&&argv&&argv[0]){ std::string tz; if(tsvalue_to_stdstring(argv[0],&tz)){ if(!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); } } }
+    TsValue* tzArg=(argc>=1&&argv)?argv[0]:nullptr;
+    void* tzr=tzArg?ts_nanbox_safe_unbox(tzArg):nullptr;
+    if(tzr && *(uint32_t*)((char*)tzr+16)==0x5A44544D){ TsZonedDateTime* zz=(TsZonedDateTime*)tzr; off=zz->offset_minutes; utc=zz->is_utc; }
+    else if(tzArg && !ts_value_is_undefined(tzArg)){
+        std::string tz;
+        if(!tsvalue_to_stdstring(tzArg,&tz)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","toZonedDateTime: time zone must be a string")); return ts_value_make_undefined(); }
+        if(!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); }
+    }
     long long localMs=iso_days_from_civil(d->iso_year,d->iso_month,d->iso_day)*86400000LL + (long long)d->iso_hour*3600000+(long long)d->iso_minute*60000+(long long)d->iso_second*1000+d->iso_ms;
     long long epoch_ms=localMs-(long long)off*60000LL;
     if(!instant_epoch_in_limits(epoch_ms, d->iso_us*1000+d->iso_ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.toZonedDateTime: result is outside the representable range")); return ts_value_make_undefined(); }
