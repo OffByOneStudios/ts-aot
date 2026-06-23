@@ -532,7 +532,9 @@ static bool parse_iso_time(const char* s, int* H, int* M, int* S,
     // Only the date/time 'T' separator counts — stop at '[' so a 'T' inside a
     // time-zone annotation like "[UTC]"/"[America/St_Johns]" is not mistaken
     // for the separator (which would make us parse time from mid-annotation).
-    for (const char* p = s; *p && *p != '['; p++) { if (*p == 'T' || *p == 't') { t = p + 1; break; } }
+    // 'T'/'t' is a separator OR a bare-time prefix; a space is a separator ONLY when
+    // it follows a date (a digit) — a leading space (" 2021-12") is not a T substitute.
+    for (const char* p = s; *p && *p != '['; p++) { if (*p == 'T' || *p == 't' || (*p == ' ' && p > s && isdigit((unsigned char)p[-1]))) { t = p + 1; break; } }
     // Without a 'T', reject a string that is itself a valid (reduced) calendar
     // date — ambiguous for a PlainTime (no implicit midnight / time designator).
     if (t == s && ambiguous_date_for_time(s)) return false;
