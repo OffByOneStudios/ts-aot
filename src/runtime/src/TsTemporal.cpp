@@ -3060,12 +3060,10 @@ static void split_time_ns(long long t, long long* h,long long* mi,long long* s,l
     *h=sg*(a/3600000000000LL); a%=3600000000000LL; *mi=sg*(a/60000000000LL); a%=60000000000LL;
     *s=sg*(a/1000000000LL); a%=1000000000LL; *ms=sg*(a/1000000LL); a%=1000000LL; *us=sg*(a/1000LL); *ns=sg*(a%1000LL);
 }
-static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts, const char* defLargest="day"){
+// Rounding/diff core with options already parsed and largest already resolved
+// (no opts re-read — callers that have already read the options pass them here).
+static TsValue* pdt_diff_rounded(TsPlainDateTime* a, TsPlainDateTime* b, const std::string& smallest, const std::string& largest, const std::string& mode, long long inc){
     const long long DAY=86400000000000LL;
-    std::string smallest,largest,mode; long long inc;
-    read_validated_diff_opts(opts,1,10,"nanosecond","auto",&smallest,&largest,&mode,&inc);
-    validate_diff_time_increment(smallest, inc);
-    if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank(defLargest)) ? smallest : std::string(defLargest);
     // No-rounding default -> unchanged fast path.
     if((smallest=="nanosecond"||smallest=="nanoseconds") && mode=="trunc" && inc<=1) return pdt_diff(a,b,largest);
     long long dateDays = iso_days_from_civil(b->iso_year,b->iso_month,b->iso_day) - iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
@@ -3100,6 +3098,14 @@ static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* o
     int ey,em,ed; iso_civil_from_days(iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day)+days,&ey,&em,&ed);
     long long yr,mo,wk,dy; round_date_duration(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,smallest,largest,inc,mode,&yr,&mo,&wk,&dy);
     return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+}
+// Reads & validates the diff options once, resolves largestUnit, then rounds.
+static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts, const char* defLargest="day"){
+    std::string smallest,largest,mode; long long inc;
+    read_validated_diff_opts(opts,1,10,"nanosecond","auto",&smallest,&largest,&mode,&inc);
+    validate_diff_time_increment(smallest, inc);
+    if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank(defLargest)) ? smallest : std::string(defLargest);
+    return pdt_diff_rounded(a,b,smallest,largest,mode,inc);
 }
 extern "C" {
 TsValue* ts_temporal_plaindatetime_add_native(void* ctx,int argc,TsValue** argv){
@@ -3299,13 +3305,15 @@ static TsZonedDateTime* coerce_zdt_arg(TsValue* v){
 static TsValue* zdt_diff_opts(TsZonedDateTime* a, TsZonedDateTime* b, TsValue* opts){
     std::string smallest,largest,mode; long long inc;
     read_validated_diff_opts(opts,1,10,"nanosecond","hour",&smallest,&largest,&mode,&inc);
-    if(largest=="auto") largest="hour";
+    validate_diff_time_increment(smallest, inc);   // preserved from the former pdt_diff_opts re-read
+    // largestUnit "auto" resolves to the larger of smallestUnit and "hour" (was done by the re-read).
+    if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank("hour")) ? smallest : std::string("hour");
     if((smallest=="nanosecond"||smallest=="nanoseconds")&&mode=="trunc"&&inc<=1) return zdt_diff(a,b,largest);
     int aY,aM,aD,ah,ami,as_,ams,aus,ans; zdt_local(a,&aY,&aM,&aD,&ah,&ami,&as_,&ams,&aus,&ans);
     int bY,bM,bD,bh,bmi,bs,bms,bus,bns; zdt_local(b,&bY,&bM,&bD,&bh,&bmi,&bs,&bms,&bus,&bns);
     TsPlainDateTime* pa=TsPlainDateTime::Create(aY,aM,aD,ah,ami,as_,ams,aus,ans);
     TsPlainDateTime* pb=TsPlainDateTime::Create(bY,bM,bD,bh,bmi,bs,bms,bus,bns);
-    return pdt_diff_opts(pa,pb,opts,"hour");
+    return pdt_diff_rounded(pa,pb,smallest,largest,mode,inc);   // options already read — no second pass
 }
 TsValue* ts_temporal_zdt_until_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* a=require_zoneddatetime(ctx,"until"); TsZonedDateTime* b=coerce_zdt_arg((argc>=1&&argv)?argv[0]:nullptr);
