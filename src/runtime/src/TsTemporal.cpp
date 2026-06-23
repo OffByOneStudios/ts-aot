@@ -1504,8 +1504,8 @@ TsValue* ts_temporal_plainmonthday_with_native(void* ctx,int argc,TsValue** argv
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     int M=pd->iso_month,D=pd->iso_day; bool any=false;
     TsValue* fm=ts_object_get_property(raw,"month"); TsValue* fd=ts_object_get_property(raw,"day");
-    if(fm&&!ts_value_is_undefined(fm)){any=true; double d=ts_to_number(fm); if(d==d&&!std::isinf(d))M=(int)std::trunc(d);}
-    if(fd&&!ts_value_is_undefined(fd)){any=true; double d=ts_to_number(fd); if(d==d&&!std::isinf(d))D=(int)std::trunc(d);}
+    if(fm&&!ts_value_is_undefined(fm)){any=true; double d=ts_to_number(fm); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); return ts_value_make_undefined(); } if(d==d)M=(int)std::trunc(d);}
+    if(fd&&!ts_value_is_undefined(fd)){any=true; double d=ts_to_number(fd); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: day property cannot be Infinity")); return ts_value_make_undefined(); } if(d==d)D=(int)std::trunc(d);}
     if(!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
     if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(pd->iso_year,M); if(D<1)D=1; if(D>dim)D=dim;
     return ts_value_make_object(TsPlainMonthDay::Create(M,D,pd->iso_year));
@@ -3138,14 +3138,14 @@ TsValue* ts_temporal_plainyearmonth_subtract_native(void* ctx,int argc,TsValue**
 TsValue* ts_temporal_plainyearmonth_toPlainDate_native(void* ctx,int argc,TsValue** argv){
     TsPlainYearMonth* ym=require_plainyearmonth(ctx,"toPlainDate");
     int day=ym->iso_day;
-    if(argc>=1&&argv&&argv[0]){ void* raw=ts_nanbox_safe_unbox(argv[0]); if(raw){ TsValue* fd=ts_object_get_property(raw,"day"); if(fd&&!ts_value_is_undefined(fd)){ double dd=ts_to_number(fd); if(dd==dd&&!std::isinf(dd)) day=(int)std::trunc(dd); } } }
+    if(argc>=1&&argv&&argv[0]){ void* raw=ts_nanbox_safe_unbox(argv[0]); if(raw){ TsValue* fd=ts_object_get_property(raw,"day"); if(fd&&!ts_value_is_undefined(fd)){ double dd=ts_to_number(fd); if(std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: day property cannot be Infinity")); return ts_value_make_undefined(); } if(dd==dd) day=(int)std::trunc(dd); } } }
     int dim=iso_days_in_month(ym->iso_year,ym->iso_month); if(day<1)day=1; if(day>dim)day=dim;
     return ts_value_make_object(TsPlainDate::Create(ym->iso_year,ym->iso_month,day));
 }
 TsValue* ts_temporal_plainmonthday_toPlainDate_native(void* ctx,int argc,TsValue** argv){
     TsPlainMonthDay* md=require_plainmonthday(ctx,"toPlainDate");
     int year=md->iso_year;
-    if(argc>=1&&argv&&argv[0]){ void* raw=ts_nanbox_safe_unbox(argv[0]); if(raw){ TsValue* fy=ts_object_get_property(raw,"year"); if(fy&&!ts_value_is_undefined(fy)){ double yy=ts_to_number(fy); if(yy==yy&&!std::isinf(yy)) year=(int)std::trunc(yy); } } }
+    if(argc>=1&&argv&&argv[0]){ void* raw=ts_nanbox_safe_unbox(argv[0]); if(raw){ TsValue* fy=ts_object_get_property(raw,"year"); if(fy&&!ts_value_is_undefined(fy)){ double yy=ts_to_number(fy); if(std::isinf(yy)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } if(yy==yy) year=(int)std::trunc(yy); } } }
     int dim=iso_days_in_month(year,md->iso_month); int day=md->iso_day; if(day>dim)day=dim;
     return ts_value_make_object(TsPlainDate::Create(year,md->iso_month,day));
 }
