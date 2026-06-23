@@ -1098,7 +1098,9 @@ static bool iso_annotations_valid(const char* s){
 // ("M01".."M12"). Returns -1 if neither present/valid.
 static int read_bag_month(void* raw){
     TsValue* fm=ts_object_get_property(raw,"month");
-    if(fm && !ts_value_is_undefined(fm)){ double d=ts_to_number(fm); if(d==d&&!std::isinf(d)) return (int)std::trunc(d); }
+    if(fm && !ts_value_is_undefined(fm)){ double d=ts_to_number(fm);
+        if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); }
+        if(d==d) return (int)std::trunc(d); }
     TsValue* mc=ts_object_get_property(raw,"monthCode");
     if(mc && !ts_value_is_undefined(mc)){
         std::string s; if(tsvalue_to_stdstring(mc,&s) && s.size()>=2 && (s[0]=='M'||s[0]=='m')){
@@ -1524,7 +1526,10 @@ extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
         int bagM=read_bag_month(raw); bool hD=fd&&!ts_value_is_undefined(fd);
         if(bagM<1||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: object needs month and day")); return ts_value_make_undefined(); }
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid calendar")); return ts_value_make_undefined(); }
-        double dd=ts_to_number(fd); if(dd!=dd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
+        // year is read (and coerced) even though the reference year is 1972.
+        TsValue* fy=ts_object_get_property(raw,"year");
+        if(fy&&!ts_value_is_undefined(fy)){ double dy=ts_to_number(fy); if(std::isinf(dy)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } }
+        double dd=ts_to_number(fd); if(dd!=dd||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: day property cannot be Infinity or NaN")); return ts_value_make_undefined(); }
         int M=bagM,D=(int)std::trunc(dd); if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(1972,M); if(D<1)D=1; if(D>dim)D=dim;
         return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972));
     }
