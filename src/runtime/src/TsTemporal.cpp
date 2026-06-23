@@ -3203,6 +3203,8 @@ TsValue* ts_temporal_instant_toZonedDateTimeISO_native(void* ctx,int argc,TsValu
 TsValue* ts_temporal_plaindatetime_toZonedDateTime_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* d=require_plaindatetime(ctx,"toZonedDateTime");
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
+    { static const char* DIS[4]={"compatible","earlier","later","reject"};
+      read_enum_option((argc>=2&&argv)?argv[1]:nullptr,"disambiguation","compatible",DIS,4); }
     int off=0; bool utc=true;
     if(argc>=1&&argv&&argv[0]){ std::string tz; if(tsvalue_to_stdstring(argv[0],&tz)){ if(!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); } } }
     long long localMs=iso_days_from_civil(d->iso_year,d->iso_month,d->iso_day)*86400000LL + (long long)d->iso_hour*3600000+(long long)d->iso_minute*60000+(long long)d->iso_second*1000+d->iso_ms;
