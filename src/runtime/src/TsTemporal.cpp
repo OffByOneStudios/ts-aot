@@ -354,7 +354,7 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
 // primitive throws TypeError. Default overflow "constrain" clamps.
 TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv) {
     TsPlainTime* pt = require_plaintime(ctx, "with");
-    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
     void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
     if (!raw) {
@@ -385,6 +385,7 @@ TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv) 
                 return ts_value_make_undefined();
             }
             int v = (int)std::trunc(d);
+            if (_ovrej && (v < 0 || v > lim[i])) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); }
             if (v < 0) v = 0; if (v > lim[i]) v = lim[i];
             vals[i] = v;
         }
@@ -549,6 +550,7 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
         uint32_t m16 = *(uint32_t*)((char*)raw + 16);
         if (m16 == TsPlainTime::MAGIC) {
             TsPlainTime* o = (TsPlainTime*)raw;
+            validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);   // validated even for a PlainTime arg
             return ts_value_make_object(TsPlainTime::Create(
                 o->iso_hour, o->iso_minute, o->iso_second,
                 o->iso_millisecond, o->iso_microsecond, o->iso_nanosecond));
@@ -566,6 +568,7 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
                 "Temporal.PlainTime.from: string is not a valid ISO time"));
             return ts_value_make_undefined();
         }
+        validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);   // read AFTER a valid parse
         return ts_value_make_object(TsPlainTime::Create(H, M, S, ms, us, ns));
     }
     // Property bag: read recognized fields (default overflow "constrain" clamps).
@@ -573,7 +576,7 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
         static const char* names[6] = {"hour","minute","second","millisecond","microsecond","nanosecond"};
         int vals[6] = {0,0,0,0,0,0};
         const int lim[6] = {23,59,59,999,999,999};
-        bool any = false;
+        bool any = false; int rawv[6] = {0,0,0,0,0,0};
         for (int i = 0; i < 6; i++) {
             TsValue* f = ts_object_get_property(raw, names[i]);
             if (f && !ts_value_is_undefined(f)) {
@@ -584,15 +587,22 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
                         "Temporal.PlainTime.from: field is not finite"));
                     return ts_value_make_undefined();
                 }
-                int v = (int)std::trunc(d);
-                if (v < 0) v = 0; if (v > lim[i]) v = lim[i];
-                vals[i] = v;
+                rawv[i] = (int)std::trunc(d);
             }
         }
         if (!any) {
             ts_throw((TsValue*)ts_error_create_typed("TypeError",
                 "Temporal.PlainTime.from: object has no recognized time fields"));
             return ts_value_make_undefined();
+        }
+        // overflow is read AFTER the fields (observable order); reject rejects
+        // out-of-range, otherwise constrain clamps.
+        bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+        for (int i = 0; i < 6; i++) {
+            int v = rawv[i];
+            if (_ovrej && (v < 0 || v > lim[i])) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.from: field out of range (overflow reject)")); return ts_value_make_undefined(); }
+            if (v < 0) v = 0; if (v > lim[i]) v = lim[i];
+            vals[i] = v;
         }
         return ts_value_make_object(TsPlainTime::Create(vals[0],vals[1],vals[2],vals[3],vals[4],vals[5]));
     }
@@ -1272,7 +1282,7 @@ TsValue* ts_temporal_plaindate_compare_native(void* ctx, int argc, TsValue** arg
 
 TsValue* ts_temporal_plaindate_with_native(void* ctx, int argc, TsValue** argv) {
     TsPlainDate* pd = require_plaindate(ctx, "with");
-    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* arg = (argc>=1&&argv)?argv[0]:nullptr;
     void* raw = arg?ts_nanbox_safe_unbox(arg):nullptr;
     if (!raw || *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53 ||
@@ -1293,6 +1303,7 @@ TsValue* ts_temporal_plaindate_with_native(void* ctx, int argc, TsValue** argv) 
         }
     }
     if (!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
+    if (_ovrej && (vals[1]<1||vals[1]>12||vals[2]<1||vals[2]>iso_days_in_month(vals[0],vals[1]))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); }
     // constrain month then day
     if (vals[1]<1) vals[1]=1; if (vals[1]>12) vals[1]=12;
     int dim = iso_days_in_month(vals[0], vals[1]);
@@ -1309,7 +1320,7 @@ TsValue* ts_temporal_plaindate_from_native(void* ctx, int argc, TsValue** argv) 
 
 extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* item = (argc>=1&&argv)?argv[0]:nullptr;
     if (!item || ts_value_is_undefined(item)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.from: argument is undefined"));
@@ -1345,6 +1356,7 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         double dy=ts_to_number(fy), dd=ts_to_number(fd);
         if (dy!=dy||dd!=dd||std::isinf(dy)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
         int Y=(int)std::trunc(dy), M=bagM, D=(int)std::trunc(dd);
+        if (_ovrej && (M<1||M>12||D<1||D>iso_days_in_month(Y,M))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: field out of range (overflow reject)")); return ts_value_make_undefined(); }
         // from default overflow constrain
         if (M<1) M=1; if (M>12) M=12;
         int dim=iso_days_in_month(Y,M); if (D<1) D=1; if (D>dim) D=dim;
@@ -1698,13 +1710,14 @@ TsValue* ts_temporal_plaindatetime_compare_native(void* ctx,int argc,TsValue** a
     for(int i=0;i<9;i++){ if(af[i]<bf[i])return ts_value_make_int(-1); if(af[i]>bf[i])return ts_value_make_int(1);} return ts_value_make_int(0);
 }
 TsValue* ts_temporal_plaindatetime_with_native(void* ctx,int argc,TsValue** argv){
-    TsPlainDateTime* pd=require_plaindatetime(ctx,"with"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
+    TsPlainDateTime* pd=require_plaindatetime(ctx,"with"); bool _ovrej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     static const char* names[9]={"year","month","day","hour","minute","second","millisecond","microsecond","nanosecond"};
     int vals[9]={pd->iso_year,pd->iso_month,pd->iso_day,pd->iso_hour,pd->iso_minute,pd->iso_second,pd->iso_ms,pd->iso_us,pd->iso_ns};
     bool any=false;
     for(int i=0;i<9;i++){ TsValue* f=ts_object_get_property(raw,names[i]); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[i]=(int)std::trunc(d);} }
     if(!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
+    if(_ovrej){ const int tl[6]={23,59,59,999,999,999}; bool bad=vals[1]<1||vals[1]>12||vals[2]<1||vals[2]>iso_days_in_month(vals[0],vals[1]); for(int i=0;i<6&&!bad;i++) if(vals[3+i]<0||vals[3+i]>tl[i]) bad=true; if(bad){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); } }
     if(vals[1]<1)vals[1]=1; if(vals[1]>12)vals[1]=12; int dim=iso_days_in_month(vals[0],vals[1]); if(vals[2]<1)vals[2]=1; if(vals[2]>dim)vals[2]=dim;
     int* T=vals+3; const int lim[6]={23,59,59,999,999,999}; for(int i=0;i<6;i++){ if(T[i]<0)T[i]=0; if(T[i]>lim[i])T[i]=lim[i]; }
     return ts_value_make_object(TsPlainDateTime::Create(vals[0],vals[1],vals[2],vals[3],vals[4],vals[5],vals[6],vals[7],vals[8]));
@@ -2557,12 +2570,9 @@ static bool validate_overflow_option(TsValue* opts){
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return false; }
     uint32_t m0=*(uint32_t*)raw;
     if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return false; }
-    TsValue* ov = ts_object_get_property(raw,"overflow");
-    if(ov && !ts_value_is_undefined(ov)){
-        std::string s;
-        if(option_to_string(ov,&s)){ if(s!="constrain" && s!="reject"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid overflow")); return false; } return s=="reject"; }
-    }
-    return false;
+    static const char* OV[2]={"constrain","reject"};
+    std::string s = read_enum_option(opts,"overflow","constrain",OV,2);
+    return s=="reject";
 }
 // Calendar difference from (ay/am/ad) to (by/bm/bd) per largestUnit.
 static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::string& largest,
