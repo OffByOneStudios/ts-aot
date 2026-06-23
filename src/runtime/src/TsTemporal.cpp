@@ -1930,6 +1930,13 @@ static bool zdt_extract_tz(const char* s, int* offMin, bool* utc){
 }
 extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
+    { // validate disambiguation/offset options (ToString-coerce; RangeError on invalid)
+        TsValue* o=(argc>=2&&argv)?argv[1]:nullptr;
+        static const char* DISV[]={"compatible","earlier","later","reject"};
+        static const char* OFFFV[]={"prefer","use","ignore","reject"};
+        read_enum_option(o,"disambiguation","compatible",DISV,4);
+        read_enum_option(o,"offset","reject",OFFFV,4);
+    }
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item); if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: invalid argument")); return ts_value_make_undefined(); }
