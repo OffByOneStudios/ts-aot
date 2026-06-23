@@ -2602,14 +2602,14 @@ TsValue* ts_temporal_plaindate_add_native(void* ctx,int argc,TsValue** argv){
     TsPlainDate* pd=require_plaindate(ctx,"add"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.add: invalid duration")); return ts_value_make_undefined(); }
     int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, d->years,d->months,d->weeks,d->days,&Y,&M,&D);
-    if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: result out of range")); return ts_value_make_undefined(); }
+    if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
 }
 TsValue* ts_temporal_plaindate_subtract_native(void* ctx,int argc,TsValue** argv){
     TsPlainDate* pd=require_plaindate(ctx,"subtract"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
     int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, -d->years,-d->months,-d->weeks,-d->days,&Y,&M,&D);
-    if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
+    if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
 }
 // Shared option reader for PlainDate until/since (largest/smallest/inc/mode).
@@ -2706,7 +2706,7 @@ static TsValue* pdt_add(TsPlainDateTime* dt, TsDuration* d, int sign){
     long long t = pdt_time_ns(dt) + sign*dur_time_ns(d);
     long long carry = t/DAY; long long rem=t%DAY; if(rem<0){rem+=DAY;carry--;}
     int Y,M,D; add_iso_date(dt->iso_year,dt->iso_month,dt->iso_day, sign*d->years, sign*d->months, sign*d->weeks, sign*d->days+carry, &Y,&M,&D);
-    if(!iso_date_valid(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
+    if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
     int h=(int)(rem/3600000000000LL); rem%=3600000000000LL; int mi=(int)(rem/60000000000LL); rem%=60000000000LL;
     int s=(int)(rem/1000000000LL); rem%=1000000000LL; int ms=(int)(rem/1000000LL); rem%=1000000LL; int us=(int)(rem/1000LL); int ns=(int)(rem%1000LL);
     return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,mi,s,ms,us,ns));
