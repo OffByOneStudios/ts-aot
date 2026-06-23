@@ -30,6 +30,17 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static long long unit_ns(const std::string& u, bool* ok);
+// ToNumber on a BigInt or Symbol is a TypeError; reject before coercing an option
+// value (e.g. roundingIncrement) without changing global ts_to_number.
+static inline void reject_nonnumeric_increment(TsValue* v){
+    if(!v) return;
+    uint64_t nb=nanbox_from_tsvalue_ptr(v);
+    if(!nanbox_is_ptr(nb)) return;
+    void* r=nanbox_to_ptr(nb); if(!r) return;
+    uint32_t m0=*(uint32_t*)r, m16=*(uint32_t*)((char*)r+16);
+    if(m0==0x42494749||m16==0x42494749) ts_throw((TsValue*)ts_error_create_typed("TypeError","Cannot convert a BigInt value to a number"));
+    if(m0==0x53594D42||m16==0x53594D42) ts_throw((TsValue*)ts_error_create_typed("TypeError","Cannot convert a Symbol value to a number"));
+}
 // ValidateTemporalRoundingIncrement (inclusive=false) for the TIME units of a
 // difference: the increment must be < the unit's max (hour 24, minute/second 60,
 // sub-second 1000) and divide it evenly. Calendar units (day+) are unconstrained.
@@ -304,7 +315,7 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
         }
         TsValue* ri = ts_object_get_property(raw, "roundingIncrement");
         if (ri && !ts_value_is_undefined(ri)) {
-            double d = ts_to_number(ri);   // ToNumber: null->0, undefined skipped above
+            double d = (reject_nonnumeric_increment(ri), ts_to_number(ri));   // ToNumber: null->0, undefined skipped above
             if (!(d == d) || std::isinf(d)) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); }
             increment = (long)std::trunc(d);
             if (increment < 1) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.round: roundingIncrement out of range")); return ts_value_make_undefined(); }
@@ -2673,7 +2684,7 @@ static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
     // Non-integers are truncated (2.5 -> 2), not rejected; 0.9 -> 0 -> RangeError.
     TsValue* ri = ts_object_get_property(raw,"roundingIncrement");
     if(ri && !ts_value_is_undefined(ri)){
-        double dv = ts_to_number(ri);
+        double dv = (reject_nonnumeric_increment(ri), ts_to_number(ri));
         if(!(dv==dv) || std::isinf(dv)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
         double ii = std::trunc(dv);
         if(ii<1.0 || ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
@@ -2710,7 +2721,7 @@ static void read_validated_diff_opts(TsValue* opts, int minRank, int maxRank,
     if(raw){
         TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
         if(ri&&!ts_value_is_undefined(ri)){
-            double dd=ts_to_number(ri);
+            double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri));
             if(!(dd==dd)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
             double ii=std::trunc(dd);
             if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
@@ -2796,7 +2807,7 @@ static void read_date_diff_opts(TsValue* opts, std::string* smallest, std::strin
     *mode=read_string_option(opts,"roundingMode","trunc");
     *inc=1;
     void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
-    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))*inc=(long long)std::trunc(dd); } }
+    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(dd==dd&&!std::isinf(dd))*inc=(long long)std::trunc(dd); } }
     if(*largest=="auto") *largest = (date_unit_rank(*smallest)>date_unit_rank("day")) ? *smallest : std::string("day");
 }
 static TsValue* plaindate_diff(int aY,int aM,int aD,int bY,int bM,int bD,TsValue* opts){
@@ -3504,7 +3515,7 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
     // roundingIncrement: ToNumber; finite, then truncate(value) in [1, 1e9].
     TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
     if(ri&&!ts_value_is_undefined(ri)){
-        double d=ts_to_number(ri);
+        double d=(reject_nonnumeric_increment(ri), ts_to_number(ri));
         if(!(d==d)||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); }
         double ii=std::trunc(d);
         if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); }
@@ -3621,7 +3632,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         // smallestUnit may be omitted iff largestUnit is given; defaults to nanosecond.
         if(lUnit=="auto"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: smallestUnit or largestUnit is required")); return ts_value_make_undefined(); }
         sUnit="nanosecond";
-        if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=ts_to_number(ri); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); }
+        if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); }
                  TsValue* rm=ts_object_get_property(raw,"roundingMode"); std::string m; if(rm&&!ts_value_is_undefined(rm)&&tsvalue_to_stdstring(rm,&m))mode=m; }
     }
     auto isCal=[](const std::string&u){ return u=="year"||u=="years"||u=="month"||u=="months"||u=="week"||u=="weeks"; };
