@@ -23,6 +23,7 @@ static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* d
 static std::string read_string_option(TsValue* opts, const char* key, const char* def);
 static bool option_to_string(TsValue* v, std::string* out);
 static bool option_is_object(TsValue* v);
+static bool temporal_mode_valid(const std::string& m);
 static bool iso_annotations_valid(const char* s);
 static int date_unit_rank(const std::string& u);
 static long long unit_ns(const std::string& u, bool* ok);
@@ -260,11 +261,13 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
         }
         TsValue* ri = ts_object_get_property(raw, "roundingIncrement");
         if (ri && !ts_value_is_undefined(ri)) {
-            double d = ts_to_number(ri);
-            if (d == d && !std::isinf(d)) increment = (long)std::trunc(d);
+            double d = ts_to_number(ri);   // ToNumber: null->0, undefined skipped above
+            if (!(d == d) || std::isinf(d)) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); }
+            increment = (long)std::trunc(d);
+            if (increment < 1) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.round: roundingIncrement out of range")); return ts_value_make_undefined(); }
         }
         TsValue* rm = ts_object_get_property(raw, "roundingMode");
-        std::string m; if (rm && tsvalue_to_stdstring(rm, &m)) mode = m;
+        std::string m; if (rm && option_to_string(rm, &m)) { if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.round: invalid roundingMode")); return ts_value_make_undefined(); } mode = m; }
     }
     long long unitNs;
     if (unit == "hour" || unit == "hours") unitNs = 3600000000000LL;
