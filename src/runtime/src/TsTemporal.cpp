@@ -3102,7 +3102,9 @@ TsValue* ts_temporal_zdt_since_native(void* ctx,int argc,TsValue** argv){
 }
 static TsValue* zdt_from_local(int Y,int M,int D,int h,int mi,int s,int ms,int us,int ns,int off,bool utc){
     long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)h*3600000+(long long)mi*60000+(long long)s*1000+ms;
-    return ts_value_make_object(TsZonedDateTime::Create(localMs-(long long)off*60000LL, us*1000+ns, off, utc));
+    long long epoch_ms=localMs-(long long)off*60000LL;
+    if(!instant_epoch_in_limits(epoch_ms, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: result is outside the representable range")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, us*1000+ns, off, utc));
 }
 TsValue* ts_temporal_zdt_withTimeZone_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"withTimeZone");
@@ -3617,6 +3619,7 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
     int nss=(int)(rem/1000000000LL); rem%=1000000000LL; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
     long long localMs=iso_days_from_civil(nY,nM,nD)*86400000LL+(long long)nh*3600000+(long long)nmi*60000+(long long)nss*1000+nms;
     long long epoch_ms=localMs-(long long)z->offset_minutes*60000LL;
+    if(!instant_epoch_in_limits(epoch_ms, nus*1000+nns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.round: result is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, nus*1000+nns, z->offset_minutes, z->is_utc));
 }
 }
