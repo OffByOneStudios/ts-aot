@@ -1556,10 +1556,10 @@ static TsPlainYearMonth* require_plainyearmonth(void* ctx, const char* method) {
 extern "C" TsValue* ts_temporal_plainyearmonth_construct(int argc, TsValue** argv) {
     auto fld=[&](int i,bool* ok)->int{ if(i>=argc||!argv||!argv[i]||ts_value_is_undefined(argv[i])){*ok=false;return 0;} double d=ts_to_number(argv[i]); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: field not finite"));return 0;} return (int)std::trunc(d); };
     bool oy=true,om=true,ord=true; int y=fld(0,&oy),m=fld(1,&om);
+    validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);   // calendar validated after month, before the reference day
     int refDay=fld(3,&ord); if(!ord) refDay=1;
     if(!oy||!om){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: year and month are required")); return ts_value_make_undefined(); }
     if(m<1||m>12||!iso_date_valid(y,m,refDay)||!iso_yearmonth_in_limits(y,m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: out of range")); return ts_value_make_undefined(); }
-    validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);
     return ts_value_make_object(TsPlainYearMonth::Create(y,m,refDay));
 }
 static bool parse_iso_yearmonth(const char* s, int* Y, int* M) {
@@ -1682,10 +1682,11 @@ static TsPlainMonthDay* require_plainmonthday(void* ctx, const char* method) {
 }
 extern "C" TsValue* ts_temporal_plainmonthday_construct(int argc, TsValue** argv) {
     auto fld=[&](int i,bool* ok)->int{ if(i>=argc||!argv||!argv[i]||ts_value_is_undefined(argv[i])){*ok=false;return 0;} double d=ts_to_number(argv[i]); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay: field not finite"));return 0;} return (int)std::trunc(d); };
-    bool om=true,od=true,ory=true; int m=fld(0,&om),d=fld(1,&od); int refY=fld(3,&ory); if(!ory) refY=1972;
+    bool om=true,od=true,ory=true; int m=fld(0,&om),d=fld(1,&od);
+    validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);   // calendar validated after day, before the reference year
+    int refY=fld(3,&ory); if(!ory) refY=1972;
     if(!om||!od){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay: month and day are required")); return ts_value_make_undefined(); }
     if(m<1||m>12||d<1||d>iso_days_in_month(refY,m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay: out of range")); return ts_value_make_undefined(); }
-    validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);
     return ts_value_make_object(TsPlainMonthDay::Create(m,d,refY));
 }
 static bool parse_iso_monthday(const char* s, int* M, int* D) {
