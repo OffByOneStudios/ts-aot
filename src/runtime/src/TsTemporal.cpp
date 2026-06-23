@@ -1011,13 +1011,24 @@ static bool bag_calendar_ok(void* raw){
     TsValue* cf=ts_object_get_property(raw,"calendar");
     if(!cf||ts_value_is_undefined(cf)) return true;
     void* cr=ts_nanbox_safe_unbox(cf);
-    std::string s;
-    if(cr){ uint32_t m0=*(uint32_t*)cr; if(m0!=0x53545247 && m0!=0x434F4E53) return true; }  // object -> ok
-    if(!tsvalue_to_stdstring(cf,&s)) return true;
-    for(char& c:s) if(c>='A'&&c<='Z') c+=32;
-    if(s=="iso8601") return true;
-    if(s.find("[u-ca=iso8601]")!=std::string::npos || s.find("[!u-ca=iso8601]")!=std::string::npos) return true;
-    int Y,M,D; if(parse_iso_date(s.c_str(),&Y,&M,&D) && iso_date_valid(Y,M,D)) return true;
+    if(cr){
+        // A Temporal date-like object carries its own calendar slot (magic at +16).
+        uint32_t m16=*(uint32_t*)((char*)cr+16);
+        if(m16==TsPlainDate::MAGIC||m16==TsPlainDateTime::MAGIC||m16==TsPlainYearMonth::MAGIC||
+           m16==TsPlainMonthDay::MAGIC||m16==TsZonedDateTime::MAGIC) return true;
+        uint32_t m0=*(uint32_t*)cr;
+        if(m0==0x53545247||m0==0x434F4E53){  // string calendar value -> validate
+            std::string s; tsvalue_to_stdstring(cf,&s);
+            for(char& c:s) if(c>='A'&&c<='Z') c+=32;
+            if(s=="iso8601") return true;
+            if(s.find("[u-ca=iso8601]")!=std::string::npos || s.find("[!u-ca=iso8601]")!=std::string::npos) return true;
+            int Y,M,D; if(parse_iso_date(s.c_str(),&Y,&M,&D) && iso_date_valid(Y,M,D)) return true;
+            return false;  // invalid string -> caller throws RangeError
+        }
+    }
+    // Any other type (null/boolean/number/bigint/symbol/plain or non-date Temporal
+    // object such as Duration) is not a valid calendar -> TypeError.
+    ts_throw((TsValue*)ts_error_create_typed("TypeError","calendar must be a string or a calendar-bearing Temporal object"));
     return false;
 }
 
