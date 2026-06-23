@@ -30,6 +30,14 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static long long unit_ns(const std::string& u, bool* ok);
+// A `with`/partial bag must be a plain object — reject any Temporal-typed object.
+// Magics at offset +16: PlainTime/Duration/PlainDate/PlainYearMonth/PlainMonthDay/
+// PlainDateTime/Instant/ZonedDateTime.
+static inline bool is_temporal_typed_object(void* raw){
+    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>0x00007FFFFFFFFFFFULL) return false;
+    uint32_t m=*(uint32_t*)((char*)raw+16);
+    return m==0x504C5449||m==0x54445552||m==0x504C4454||m==0x504C594D||m==0x504C4D44||m==0x50444D54||m==0x494E5354||m==0x5A44544D;
+}
 // ToNumber on a BigInt or Symbol is a TypeError; reject before coercing an option
 // value (e.g. roundingIncrement) without changing global ts_to_number.
 static inline void reject_nonnumeric_increment(TsValue* v){
@@ -379,7 +387,7 @@ TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv) 
     }
     uint32_t m0 = *(uint32_t*)raw;
     if (m0 == 0x53545247 || m0 == 0x434F4E53 ||
-        *(uint32_t*)((char*)raw + 16) == TsPlainTime::MAGIC) {
+        is_temporal_typed_object(raw)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Temporal.PlainTime.prototype.with: argument must be a plain object"));
         return ts_value_make_undefined();
@@ -1596,7 +1604,7 @@ TsValue* ts_temporal_plainyearmonth_compare_native(void* ctx,int argc,TsValue** 
 }
 TsValue* ts_temporal_plainyearmonth_with_native(void* ctx,int argc,TsValue** argv){
     TsPlainYearMonth* pd=require_plainyearmonth(ctx,"with"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
-    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
+    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     int vals[2]={pd->iso_year,pd->iso_month}; static const char* names[2]={"year","month"}; bool any=false;
     for(int i=0;i<2;i++){ TsValue* f=ts_object_get_property(raw,names[i]); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[i]=(int)std::trunc(d);} }
     if(!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
@@ -1704,7 +1712,7 @@ TsValue* ts_temporal_plainmonthday_equals_native(void* ctx,int argc,TsValue** ar
 }
 TsValue* ts_temporal_plainmonthday_with_native(void* ctx,int argc,TsValue** argv){
     TsPlainMonthDay* pd=require_plainmonthday(ctx,"with"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
-    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
+    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     int M=pd->iso_month,D=pd->iso_day; bool any=false;
     TsValue* fm=ts_object_get_property(raw,"month"); TsValue* fd=ts_object_get_property(raw,"day");
     if(fm&&!ts_value_is_undefined(fm)){any=true; double d=ts_to_number(fm); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); return ts_value_make_undefined(); } if(d==d)M=(int)std::trunc(d);}
@@ -1893,7 +1901,7 @@ TsValue* ts_temporal_plaindatetime_compare_native(void* ctx,int argc,TsValue** a
 }
 TsValue* ts_temporal_plaindatetime_with_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* pd=require_plaindatetime(ctx,"with"); bool _ovrej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
-    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
+    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     static const char* names[9]={"year","month","day","hour","minute","second","millisecond","microsecond","nanosecond"};
     int vals[9]={pd->iso_year,pd->iso_month,pd->iso_day,pd->iso_hour,pd->iso_minute,pd->iso_second,pd->iso_ms,pd->iso_us,pd->iso_ns};
     bool any=false;
@@ -3310,7 +3318,7 @@ TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
       read_enum_option(o2,"offset","prefer",OFF,4);
       read_enum_option(o2,"disambiguation","compatible",DIS,4); }
     void* raw=(argc>=1&&argv&&argv[0])?ts_nanbox_safe_unbox(argv[0]):nullptr;
-    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be an object")); return ts_value_make_undefined(); }
+    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
     auto rd=[&](const char* k,int cur)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return cur; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return cur; return (int)std::trunc(d); };
     Y=rd("year",Y); int bagM=read_bag_month(raw); if(bagM>=1)M=bagM; D=rd("day",D);
