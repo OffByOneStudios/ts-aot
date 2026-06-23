@@ -1206,7 +1206,9 @@ static TsMap* makeSimpleConstructorGlobal(const char* name) {
     TsValue protoVal;
     protoVal.type = ValueType::OBJECT_PTR;
     protoVal.ptr_val = proto;
-    ctor->Set(protoKey, protoVal);
+    // A built-in constructor's "prototype" is {writable:false, enumerable:false,
+    // configurable:false} (ES verifyProperty).
+    ctor->SetWithAttrs(protoKey, protoVal, 0);
     return ctor;
 }
 
