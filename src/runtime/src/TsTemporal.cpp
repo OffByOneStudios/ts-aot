@@ -3886,21 +3886,35 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         owk_=round_frac(wk,num,span,inc,rmode); oy_=y;omo_=mo;ody_=0;
     } else { // month or year
         bool isYear=(smallest=="year"||smallest=="years");
-        long long q=isYear?y:mo;
-        long long ty=y, tmo=isYear?0:mo;
-        int axY,axM,axD; add_iso_date(sY,sM,sD,ty,tmo,0,0,&axY,&axM,&axD);
-        int bxY,bxM,bxD; add_iso_date(axY,axM,axD,isYear?1:0,isYear?0:1,0,0,&bxY,&bxM,&bxD);
-        long long nA=iso_days_from_civil(axY,axM,axD), nB=iso_days_from_civil(bxY,bxM,bxD);
-        long long span=nB-nA, num=endE-nA;
-        long long rq=round_frac(q,num,span,inc,rmode);
+        long long q=isYear?y:mo;   // non-negative magnitude of whole units
+        // NudgeToCalendarUnit anchors the candidates at the relativeTo `a`, stepping in the
+        // duration's direction: lo = a + sign*q units, hi = a + sign*(q+1) units, with the
+        // end date b between them. Anchoring at the swapped magnitude-start (b for negatives)
+        // mis-sizes the span (a month measured backward from a vs forward from b).
+        // For month rounding the whole years are kept fixed and only the month component
+        // is rounded, so both candidates carry sign*y years; for year rounding there is no
+        // separate month component.
+        long long baseY=isYear?0:(long long)sign*y, loS=(long long)sign*q, hiS=(long long)sign*(q+1);
+        int axY,axM,axD; add_iso_date(aY,aM,aD, isYear?loS:baseY, isYear?0:loS, 0,0,&axY,&axM,&axD);
+        int bxY,bxM,bxD; add_iso_date(aY,aM,aD, isYear?hiS:baseY, isYear?0:hiS, 0,0,&bxY,&bxM,&bxD);
+        long long nLo=iso_days_from_civil(axY,axM,axD), nHi=iso_days_from_civil(bxY,bxM,bxD);
+        long long bE=iso_days_from_civil(bY,bM,bD);
+        long long span=nHi-nLo, num=bE-nLo;            // share sign -> positive fraction
+        long long numMag=(num<0?-num:num), spanMag=(span<0?-span:span);
+        // Fold the sub-day time remainder into the fraction so e.g. 547d12h relative to a
+        // year boundary reads as exactly 0.5 year (rounds up). Scale to ns when it can't
+        // overflow int64 (q*span small); otherwise the remainder is negligible vs the span.
+        const long long DAY=86400000000000LL;
+        long long rq = (subNsMag>0 && spanMag>0 && q*spanMag<100000LL)
+            ? round_frac(q, numMag*DAY+subNsMag, spanMag*DAY, inc, rmode)
+            : round_frac(q, numMag, spanMag, inc, rmode);
         if(isYear){ oy_=rq;omo_=0; } else { oy_=y;omo_=rq; }
         owk_=0;ody_=0;
         // Spec NudgeToCalendarUnit computes the date of the UPPER candidate
         // (floor-to-increment + increment) regardless of which is chosen; if that
         // date is out of range it throws. A huge increment overflows here.
         if(inc>1){ long long hiq=(q/inc)*inc+inc; int hY,hM,hD;
-            if(isYear) add_iso_date(sY,sM,sD,hiq,0,0,0,&hY,&hM,&hD);
-            else add_iso_date(sY,sM,sD,y,hiq,0,0,&hY,&hM,&hD);
+            add_iso_date(aY,aM,aD, isYear?(long long)sign*hiq:baseY, isYear?0:(long long)sign*hiq, 0,0,&hY,&hM,&hD);
             if(!iso_date_in_limits(hY,hM,hD)){ if(rangeErr)*rangeErr=true; *oy=*omo=*owk=*ody=0; return; } }
         // Balance the rounded month count up to years when largestUnit is year: rounding
         // can reach 12 months, which is exactly one year (e.g. {1y,11m,24d} rounded up to
