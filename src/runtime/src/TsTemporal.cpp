@@ -588,12 +588,33 @@ static bool duration_same_sign(long long* f) {
     }
     return true;
 }
+// ECMAScript IsValidDuration range check: |years|,|months|,|weeks| < 2^32, and the
+// total seconds (days*86400 + time) must not exceed 2^53 in magnitude. f = the 10
+// components {y,mo,w,d,h,mi,s,ms,us,ns}.
+static bool duration_in_range(long long* f) {
+    for (int i = 0; i < 3; i++) if (f[i] >= 4294967296LL || f[i] <= -4294967296LL) return false;
+    // The total nanoseconds must satisfy abs(ns) <= 2^53*1e9 - 1, i.e. the whole-
+    // second total must satisfy abs(seconds) <= 2^53-1. Compute the integer second
+    // count (with carry from the ms/us/ns components) exactly to avoid double
+    // rounding at the boundary.
+    long long carrySec = f[7]/1000 + f[8]/1000000 + f[9]/1000000000;
+    long long remNs = (f[7]%1000)*1000000LL + (f[8]%1000000)*1000LL + (f[9]%1000000000);
+    carrySec += remNs/1000000000LL;
+    long long intSec = f[3]*86400LL + f[4]*3600LL + f[5]*60LL + f[6] + carrySec;
+    long long absSec = intSec<0?-intSec:intSec;
+    if (absSec > 9007199254740991LL) return false;
+    return true;
+}
 
 extern "C" TsValue* ts_temporal_duration_construct(int argc, TsValue** argv) {
     long long f[10]; bool ok = true;
     for (int i = 0; i < 10; i++) {
         f[i] = duration_field((i < argc && argv) ? argv[i] : nullptr, &ok);
         if (!ok) return ts_value_make_undefined();
+    }
+    if (!duration_in_range(f)) {
+        ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration: a component is out of range"));
+        return ts_value_make_undefined();
     }
     if (!duration_same_sign(f)) {
         ts_throw((TsValue*)ts_error_create_typed("RangeError",
@@ -697,6 +718,7 @@ TsValue* ts_temporal_duration_with_native(void* ctx, int argc, TsValue** argv) {
         if (f && !ts_value_is_undefined(f)) { any=true; cur[i]=duration_field(f,&ok); if(!ok) return ts_value_make_undefined(); }
     }
     if (!any) { ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
+    if (!duration_in_range(cur)) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.with: a component is out of range")); return ts_value_make_undefined(); }
     if (!duration_same_sign(cur)) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.with: mixed signs")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsDuration::Create(cur[0],cur[1],cur[2],cur[3],cur[4],cur[5],cur[6],cur[7],cur[8],cur[9]));
 }
@@ -759,6 +781,7 @@ extern "C" TsValue* ts_temporal_duration_from(int argc, TsValue** argv) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: invalid ISO duration string"));
                 return ts_value_make_undefined();
             }
+            if (!duration_in_range(f)) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: a component is out of range")); return ts_value_make_undefined(); }
             return ts_value_make_object(TsDuration::Create(f[0],f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9]));
         }
         if (*(uint32_t*)((char*)raw+16)==TsDuration::MAGIC) {
@@ -769,6 +792,7 @@ extern "C" TsValue* ts_temporal_duration_from(int argc, TsValue** argv) {
         long long f[10]={0,0,0,0,0,0,0,0,0,0}; bool any=false, ok=true;
         for (int i=0;i<10;i++){ TsValue* x=ts_object_get_property(raw,names[i]); if(x&&!ts_value_is_undefined(x)){any=true; f[i]=duration_field(x,&ok); if(!ok) return ts_value_make_undefined();} }
         if (!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.from: object has no recognized duration fields")); return ts_value_make_undefined(); }
+        if (!duration_in_range(f)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: a component is out of range")); return ts_value_make_undefined(); }
         if (!duration_same_sign(f)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: mixed signs")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsDuration::Create(f[0],f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9]));
     }
