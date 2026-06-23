@@ -2427,20 +2427,24 @@ static bool zdt_extract_tz(const char* s, int* offMin, bool* utc){
 }
 extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    bool _ovrej=false; std::string offMode="reject";
-    { // validate disambiguation/offset options (ToString-coerce; RangeError on invalid)
+    bool _ovrej=false; std::string offMode="reject"; bool _optsRead=false;
+    // disambiguation/offset/overflow are read only after the input has been parsed
+    // (an invalid string throws before any option is observed).
+    auto _readopts=[&](){
+        if(_optsRead) return; _optsRead=true;
         TsValue* o=(argc>=2&&argv)?argv[1]:nullptr;
         static const char* DISV[]={"compatible","earlier","later","reject"};
         static const char* OFFFV[]={"prefer","use","ignore","reject"};
         read_enum_option(o,"disambiguation","compatible",DISV,4);
         offMode = read_enum_option(o,"offset","reject",OFFFV,4);
         _ovrej = validate_overflow_option(o);
-    }
+    };
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item); if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: invalid argument")); return ts_value_make_undefined(); }
     uint32_t m0=*(uint32_t*)raw;
     if(m0!=0x53545247 && m0!=0x434F4E53){
+        _readopts();   // object/bag input: options observed up front (unchanged order)
         if(*(uint32_t*)((char*)raw+16)==TsZonedDateTime::MAGIC){ TsZonedDateTime* z=(TsZonedDateTime*)raw; return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms,z->sub_ns,z->offset_minutes,z->is_utc)); }
         // property bag: year/month/day + timeZone required.
         TsValue* tzf=ts_object_get_property(raw,"timeZone");
@@ -2478,6 +2482,7 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     if(!u||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid string")); return ts_value_make_undefined(); }
     int off; bool utc;
     if(!zdt_extract_tz(u,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: string needs a time zone annotation")); return ts_value_make_undefined(); }
+    _readopts();   // options read only after the string is fully parsed
     long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)H*3600000+(long long)Mi*60000+(long long)S*1000+ms;
     long long epoch_ms=localMs-(long long)off*60000LL;
     if(!instant_epoch_in_limits(epoch_ms, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: instant is outside the representable range")); return ts_value_make_undefined(); }
