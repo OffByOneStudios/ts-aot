@@ -3208,11 +3208,16 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     int sign=(be>=ae)?1:-1;
     int sY=aY,sM=aM,sD=aD, eY=bY,eM=bM,eD=bD;
     if(sign<0){ sY=bY;sM=bM;sD=bD; eY=aY;eM=aM;eD=aD; }   // magnitude direction (start<=end)
+    // The magnitude is rounded non-negative; for a NEGATIVE duration the
+    // directional modes (ceil/floor/halfCeil/halfFloor) must be flipped so the
+    // re-signed result rounds the right way (e.g. ceil toward +inf = magnitude
+    // toward zero). Symmetric modes (trunc/expand/halfExpand/...) are unchanged.
+    std::string rmode = (sign<0) ? flip_mode_neg(mode) : mode;
     long long y,mo,wk,dy; diff_iso_date(sY,sM,sD,eY,eM,eD,largest,&y,&mo,&wk,&dy);
     long long startE=iso_days_from_civil(sY,sM,sD), endE=iso_days_from_civil(eY,eM,eD);
     long long oy_=y,omo_=mo,owk_=wk,ody_=dy;
     if(smallest=="day"||smallest=="days"){
-        long long totalD=endE-startE, r=round_nonneg(totalD,inc>0?inc:1,mode);
+        long long totalD=endE-startE, r=round_nonneg(totalD,inc>0?inc:1,rmode);
         if(largest=="week"||largest=="weeks"){ owk_=r/7; ody_=r%7; oy_=0;omo_=0; }
         else { ody_=r; owk_=0;oy_=0;omo_=0; }
     } else if(smallest=="week"||smallest=="weeks"){
@@ -3220,7 +3225,7 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         int bxY,bxM,bxD; add_iso_date(axY,axM,axD,0,0,1,0,&bxY,&bxM,&bxD);
         long long nA=iso_days_from_civil(axY,axM,axD), nB=iso_days_from_civil(bxY,bxM,bxD);
         long long span=nB-nA, num=endE-nA;
-        owk_=round_frac(wk,num,span,inc,mode); oy_=y;omo_=mo;ody_=0;
+        owk_=round_frac(wk,num,span,inc,rmode); oy_=y;omo_=mo;ody_=0;
     } else { // month or year
         bool isYear=(smallest=="year"||smallest=="years");
         long long q=isYear?y:mo;
@@ -3229,7 +3234,7 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         int bxY,bxM,bxD; add_iso_date(axY,axM,axD,isYear?1:0,isYear?0:1,0,0,&bxY,&bxM,&bxD);
         long long nA=iso_days_from_civil(axY,axM,axD), nB=iso_days_from_civil(bxY,bxM,bxD);
         long long span=nB-nA, num=endE-nA;
-        long long rq=round_frac(q,num,span,inc,mode);
+        long long rq=round_frac(q,num,span,inc,rmode);
         if(isYear){ oy_=rq;omo_=0; } else { oy_=y;omo_=rq; }
         owk_=0;ody_=0;
     }
