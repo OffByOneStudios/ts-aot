@@ -1081,12 +1081,34 @@ static bool iso_yearmonth_in_limits(int y, int m) {
 // The constructor `calendar` argument is ToString'd then canonicalized: only the
 // ASCII-case-insensitive identifier "iso8601" is supported. Empty string, an ISO
 // date string, a non-ASCII-dotted form (Turkish capital I), etc. are RangeErrors.
+static bool string_calendar_is_iso(const char* s);
+static bool parse_iso_yearmonth(const char* s, int* Y, int* M);
+static bool parse_iso_monthday(const char* s, int* M, int* D);
+// Constructor calendar argument: ToTemporalCalendarIdentifier — a bare calendar
+// ID only ("iso8601"); an ISO string (even with [u-ca=iso8601]) is NOT accepted.
 static void validate_iso_calendar_arg(TsValue* v){
     if(!v || ts_value_is_undefined(v)) return;
     std::string cal;
     if(!tsvalue_to_stdstring(v,&cal)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar")); return; }
     for(char& c: cal) if(c>='A'&&c<='Z') c=(char)(c+32);
     if(cal!="iso8601"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar identifier")); }
+}
+// withCalendar calendar argument: ToTemporalCalendarSlotValue — accepts a bare
+// calendar ID OR an ISO date/datetime/yearmonth/monthday string whose calendar
+// annotation is iso8601.
+static void validate_calendar_slot_arg(TsValue* v){
+    if(!v || ts_value_is_undefined(v)) return;
+    std::string cal;
+    if(!tsvalue_to_stdstring(v,&cal)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar")); return; }
+    std::string low=cal; for(char& c: low) if(c>='A'&&c<='Z') c=(char)(c+32);
+    if(low=="iso8601") return;
+    const char* s=cal.c_str();
+    int a,b,c2,d,e,f,g,h,i2;
+    bool isoStr = parse_iso_datetime(s,&a,&b,&c2,&d,&e,&f,&g,&h,&i2)
+               || parse_iso_yearmonth(s,&a,&b)
+               || parse_iso_monthday(s,&a,&b);
+    if(isoStr && iso_annotations_valid(s) && string_calendar_is_iso(s)) return;
+    ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid calendar identifier"));
 }
 extern "C" TsValue* ts_temporal_plaindate_construct(int argc, TsValue** argv) {
     auto field = [&](int i, bool* ok) -> int {
@@ -3209,17 +3231,16 @@ TsValue* ts_temporal_zdt_withTimeZone_native(void* ctx,int argc,TsValue** argv){
 TsValue* ts_temporal_zdt_withCalendar_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"withCalendar");
     TsValue* cf=(argc>=1&&argv)?argv[0]:nullptr; void* cr=cf?ts_nanbox_safe_unbox(cf):nullptr;
-    if(cr&&(*(uint32_t*)cr==0x53545247||*(uint32_t*)cr==0x434F4E53)){ std::string s=((TsString*)ts_value_get_string(cf))->ToUtf8(); for(char&c:s)if(c>='A'&&c<='Z')c+=32; if(s!="iso8601"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.withCalendar: only iso8601 is supported")); return ts_value_make_undefined(); } }
+    if(cr&&(*(uint32_t*)cr==0x53545247||*(uint32_t*)cr==0x434F4E53)){ validate_calendar_slot_arg(cf); }
     return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms,z->sub_ns,z->offset_minutes,z->is_utc));
 }
 // Validate that a calendar argument is iso8601 (the only supported calendar),
 // throwing RangeError otherwise. A bare non-string is left to the caller.
 static void require_iso_calendar(TsValue* cf, const char* method){
+    (void)method;
     void* cr=cf?ts_nanbox_safe_unbox(cf):nullptr;
     if(cr&&(*(uint32_t*)cr==0x53545247||*(uint32_t*)cr==0x434F4E53)){
-        std::string s=((TsString*)ts_value_get_string(cf))->ToUtf8();
-        for(char&c:s) if(c>='A'&&c<='Z') c+=32;
-        if(s!="iso8601"){ ts_throw((TsValue*)ts_error_create_typed("RangeError", method)); }
+        validate_calendar_slot_arg(cf);   // "iso8601" or an ISO string with an iso calendar annotation
     }
 }
 TsValue* ts_temporal_plaindate_withCalendar_native(void* ctx,int argc,TsValue** argv){
