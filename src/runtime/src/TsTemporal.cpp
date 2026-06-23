@@ -1042,6 +1042,7 @@ static bool instant_epoch_in_limits(long long ms, int subNs) {
     if (ms > MAXMS) return false;
     if (ms == MAXMS && subNs > 0) return false;
     if (ms < -MAXMS) return false;
+    if (ms == -MAXMS && subNs < 0) return false;   // TRUNC storage just past the min
     return true;
 }
 // A PlainYearMonth is representable when any day of the month is in range.
