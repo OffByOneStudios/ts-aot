@@ -1459,7 +1459,9 @@ TsValue* ts_temporal_plaindate_from_native(void* ctx, int argc, TsValue** argv) 
 
 extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    // The overflow option must be READ only after the input has been parsed/validated
+    // (an invalid ISO string throws before options are observed). _ovopt reads it.
+    auto _ovopt=[&]()->bool{ return validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); };
     TsValue* item = (argc>=1&&argv)?argv[0]:nullptr;
     if (!item || ts_value_is_undefined(item)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.from: argument is undefined"));
@@ -1471,8 +1473,8 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         // no observable property reads.
         if((uintptr_t)raw>=4096 && (uintptr_t)raw<=0x00007FFFFFFFFFFFULL){
             uint32_t m16f=*(uint32_t*)((char*)raw+16);
-            if(m16f==0x5A44544D){ TsZonedDateTime* z=(TsZonedDateTime*)raw; int Y2,M2,D2,h2,mi2,s2,ms2,us2,ns2; zdt_local(z,&Y2,&M2,&D2,&h2,&mi2,&s2,&ms2,&us2,&ns2); return ts_value_make_object(TsPlainDate::Create(Y2,M2,D2)); }
-            if(m16f==0x50444D54){ TsPlainDateTime* dt=(TsPlainDateTime*)raw; return ts_value_make_object(TsPlainDate::Create(dt->iso_year,dt->iso_month,dt->iso_day)); }
+            if(m16f==0x5A44544D){ TsZonedDateTime* z=(TsZonedDateTime*)raw; int Y2,M2,D2,h2,mi2,s2,ms2,us2,ns2; zdt_local(z,&Y2,&M2,&D2,&h2,&mi2,&s2,&ms2,&us2,&ns2); _ovopt(); return ts_value_make_object(TsPlainDate::Create(Y2,M2,D2)); }
+            if(m16f==0x50444D54){ TsPlainDateTime* dt=(TsPlainDateTime*)raw; _ovopt(); return ts_value_make_object(TsPlainDate::Create(dt->iso_year,dt->iso_month,dt->iso_day)); }
         }
         uint32_t m0 = *(uint32_t*)raw;
         if (m0==0x53545247 || m0==0x434F4E53) {
@@ -1482,10 +1484,12 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: invalid ISO date string"));
                 return ts_value_make_undefined();
             }
+            _ovopt();   // valid string: overflow is read (observable) after parsing
             return ts_value_make_object(TsPlainDate::Create(Y,M,D));
         }
         if (*(uint32_t*)((char*)raw+16)==TsPlainDate::MAGIC) {
             TsPlainDate* o = (TsPlainDate*)raw;
+            _ovopt();   // overflow is read (and validated) even for a PlainDate argument
             return ts_value_make_object(TsPlainDate::Create(o->iso_year,o->iso_month,o->iso_day));
         }
         // property bag: year/month(or monthCode)/day all required.
@@ -1499,6 +1503,7 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
             return ts_value_make_undefined();
         }
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: invalid calendar")); return ts_value_make_undefined(); }
+        bool _ovrej = _ovopt();   // overflow read after the bag fields
         double dy=ts_to_number(fy), dd=ts_to_number(fd);
         if (dy!=dy||dd!=dd||std::isinf(dy)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
         int Y=(int)std::trunc(dy), M=bagM, D=(int)std::trunc(dd);
