@@ -2813,6 +2813,14 @@ TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
 static TsValue* instant_diff_rounded(long long ms, long long sub, TsValue* opts){
     std::string largest,smallest,mode; long long inc;
     read_validated_diff_opts(opts,1,6,"nanosecond","auto",&smallest,&largest,&mode,&inc);
+    // ValidateTemporalRoundingIncrement (inclusive=false for since/until): the
+    // increment must be < the unit's max (hour 24, minute/second 60, sub-second
+    // 1000) and divide it evenly.
+    { long long maxInc=0;
+      if(smallest=="hour"||smallest=="hours") maxInc=24;
+      else if(smallest=="minute"||smallest=="minutes"||smallest=="second"||smallest=="seconds") maxInc=60;
+      else if(smallest=="millisecond"||smallest=="milliseconds"||smallest=="microsecond"||smallest=="microseconds"||smallest=="nanosecond"||smallest=="nanoseconds") maxInc=1000;
+      if(maxInc>0){ long long i=inc>0?inc:1; if(i>=maxInc || maxInc%i!=0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: roundingIncrement out of range")); return ts_value_make_undefined(); } } }
     // largestUnit "auto" resolves to the coarser of smallestUnit and "second".
     if(largest=="auto"){
         bool oa,ob; long long sN=unit_ns(smallest,&oa), secN=unit_ns("second",&ob);
