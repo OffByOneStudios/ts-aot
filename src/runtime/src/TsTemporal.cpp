@@ -2166,6 +2166,16 @@ static bool valid_offset_field(const char* s){
     if(*p=='.'||*p==','){ p++; if(!isdigit((unsigned char)*p)) return false; while(isdigit((unsigned char)*p))p++; }
     return *p==0;
 }
+// Parse a (format-valid) offset field into total nanoseconds (sign * (h:m:s.fff)).
+static long long offset_field_ns(const char* s){
+    int sign=(s[0]=='-')?-1:1; const char* p=s+1;
+    long long hh=(p[0]-'0')*10+(p[1]-'0'); p+=2;
+    long long mm=0,ss=0,frac=0;
+    if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ mm=(p[0]-'0')*10+(p[1]-'0'); p+=2; }
+    if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ ss=(p[0]-'0')*10+(p[1]-'0'); p+=2; }
+    if(*p=='.'||*p==','){ p++; long long mult=100000000LL; while(isdigit((unsigned char)*p)){ frac+=(*p-'0')*mult; mult/=10; p++; } }
+    return sign*((hh*3600+mm*60+ss)*1000000000LL + frac);
+}
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc){
     if(!s) return false;
     // A datetime-form time-zone string ("YYYYY-MM-DDThh:mm±..." or with Z) must be a
@@ -2222,13 +2232,13 @@ static bool zdt_extract_tz(const char* s, int* offMin, bool* utc){
 }
 extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    bool _ovrej=false;
+    bool _ovrej=false; std::string offMode="reject";
     { // validate disambiguation/offset options (ToString-coerce; RangeError on invalid)
         TsValue* o=(argc>=2&&argv)?argv[1]:nullptr;
         static const char* DISV[]={"compatible","earlier","later","reject"};
         static const char* OFFFV[]={"prefer","use","ignore","reject"};
         read_enum_option(o,"disambiguation","compatible",DISV,4);
-        read_enum_option(o,"offset","reject",OFFFV,4);
+        offMode = read_enum_option(o,"offset","reject",OFFFV,4);
         _ovrej = validate_overflow_option(o);
     }
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
@@ -2245,7 +2255,10 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
         { TsValue* offf=ts_object_get_property(raw,"offset");
           if(offf && !ts_value_is_undefined(offf)){ std::string os;
-              if(!tsvalue_to_stdstring(offf,&os) || !valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid offset string")); return ts_value_make_undefined(); } } }
+              if(!tsvalue_to_stdstring(offf,&os) || !valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid offset string")); return ts_value_make_undefined(); }
+              // offset:"reject" -> the supplied offset must match the (offset-only)
+              // time zone's offset exactly.
+              if(offMode=="reject" && offset_field_ns(os.c_str()) != (long long)off*60000000000LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: offset does not match the time zone")); return ts_value_make_undefined(); } } }
         int bagM=read_bag_month(raw);
         TsValue* fy=ts_object_get_property(raw,"year"),*fd=ts_object_get_property(raw,"day");
         if(!fy||ts_value_is_undefined(fy)||bagM<1||!fd||ts_value_is_undefined(fd)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs year, month and day")); return ts_value_make_undefined(); }
