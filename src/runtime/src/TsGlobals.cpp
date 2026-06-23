@@ -3205,6 +3205,8 @@ void* ts_get_global_Temporal() {
         addMethod(zdProto, "toPlainTime",     (void*)ts_temporal_zdt_toPlainTime_native, 0);
         addMethod(zdProto, "withTimeZone",    (void*)ts_temporal_zdt_withTimeZone_native, 1);
         addMethod(zdProto, "withCalendar",    (void*)ts_temporal_zdt_withCalendar_native, 1);
+        { extern TsValue* ts_temporal_zdt_getTimeZoneTransition_native(void*,int,TsValue**);
+          addMethod(zdProto, "getTimeZoneTransition", (void*)ts_temporal_zdt_getTimeZoneTransition_native, 1); }
         addMethod(zdProto, "startOfDay",      (void*)ts_temporal_zdt_startOfDay_native, 0);
         addMethod(zdProto, "withPlainTime",   (void*)ts_temporal_zdt_withPlainTime_native, 1);
         addMethod(zdProto, "with",            (void*)ts_temporal_zdt_with_native, 1);

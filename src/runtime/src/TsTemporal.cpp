@@ -3311,6 +3311,23 @@ TsValue* ts_temporal_zdt_withCalendar_native(void* ctx,int argc,TsValue** argv){
     TsValue* cf=(argc>=1&&argv)?argv[0]:nullptr; validate_calendar_slot_arg(cf);
     return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms,z->sub_ns,z->offset_minutes,z->is_utc));
 }
+// getTimeZoneTransition(directionParam): validate the required direction, then
+// return null — ts-aot time zones are offset/UTC based and have no transitions.
+TsValue* ts_temporal_zdt_getTimeZoneTransition_native(void* ctx,int argc,TsValue** argv){
+    require_zoneddatetime(ctx,"getTimeZoneTransition");
+    TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!arg || ts_value_is_undefined(arg)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.getTimeZoneTransition: direction is required")); return ts_value_make_undefined(); }
+    std::string dir;
+    void* raw=ts_nanbox_safe_unbox(arg);
+    bool isStr = raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=0x00007FFFFFFFFFFFULL && (*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53);
+    if(isStr){ dir=((TsString*)ts_value_get_string(arg))->ToUtf8(); }
+    else if(raw){ TsValue* d=ts_object_get_property(raw,"direction");
+        if(!d||ts_value_is_undefined(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","getTimeZoneTransition: direction is required")); return ts_value_make_undefined(); }
+        if(!option_to_string(d,&dir)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","getTimeZoneTransition: invalid direction")); return ts_value_make_undefined(); } }
+    else { ts_throw((TsValue*)ts_error_create_typed("TypeError","getTimeZoneTransition: direction must be a string or object")); return ts_value_make_undefined(); }
+    if(dir!="next" && dir!="previous"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","getTimeZoneTransition: direction must be \"next\" or \"previous\"")); return ts_value_make_undefined(); }
+    return ts_value_make_null();
+}
 // Validate that a calendar argument is iso8601 (the only supported calendar),
 // throwing RangeError otherwise. A bare non-string is left to the caller.
 static void require_iso_calendar(TsValue* cf, const char* method){
