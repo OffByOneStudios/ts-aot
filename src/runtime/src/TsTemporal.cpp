@@ -1123,6 +1123,15 @@ static bool iso_annotations_valid(const char* s){
             else if(critical) return false;                    // unknown critical annotation
         } else {
             if(++tzCount>1) return false;                      // >1 time-zone annotation
+            // A bracketed offset time-zone identifier is minute precision only
+            // (±HH:MM); a trailing ":SS"/".fff" sub-minute part is invalid.
+            if(!body.empty() && (body[0]=='+'||body[0]=='-')){
+                const char* q=body.c_str()+1;
+                if(!isdigit((unsigned char)q[0])||!isdigit((unsigned char)q[1])) return false; q+=2;
+                if(*q==':')q++;
+                if(isdigit((unsigned char)q[0])&&isdigit((unsigned char)q[1])) q+=2;
+                if(*q!=0) return false;                         // sub-minute / junk
+            }
         }
         p=strchr(end+1,'[');
     }
