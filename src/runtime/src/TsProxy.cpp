@@ -66,12 +66,17 @@ TsValue* TsProxy::get(TsValue* prop, void* receiver) {
 
     TsValue* trap = getTrap("get");
     if (trap) {
-        // Call trap(target, prop, receiver)
+        // ECMAScript [[Get]]: Call(trap, handler, «target, P, Receiver»). The trap
+        // must run with `this` = the handler — call it through the this-passing entry
+        // so an is_method trap (one that captures an outer variable compiles to a
+        // this-first closure) receives target/P/Receiver in the right slots instead of
+        // having them shifted by one.
+        extern TsValue* ts_function_call_with_this(TsValue* fn, TsValue* thisArg, int argc, TsValue** argv);
         TsValue* targetVal = ts_value_box_any(target);
         TsValue* receiverVal = receiver ? ts_value_box_any(receiver) : ts_value_box_any(this);
-
-
-        return tsCall(trap, targetVal, prop, receiverVal);
+        TsValue* handlerVal = handler ? ts_value_box_any(handler) : ts_value_make_undefined();
+        TsValue* argv[3] = { targetVal, prop, receiverVal };
+        return ts_function_call_with_this(trap, handlerVal, 3, argv);
     }
 
     // No trap - forward to target

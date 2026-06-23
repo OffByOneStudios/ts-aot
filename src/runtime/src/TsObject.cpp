@@ -6355,7 +6355,23 @@ TsValue* ts_value_make_int(int64_t i) {
         // spread-into-rest call sites.
         TsClosure* closure = ts_extract_closure(boxedFunc);
         if (closure) {
-            TsValue* result = ts_function_call(boxedFunc, argc, argv);
+            TsValue* result;
+            // An is_method closure has this-first physical params (closure, this, a1..aN);
+            // ts_function_call uses Convention A (closure, a1..aN) and would let the `this`
+            // slot swallow the first real argument. ts_call_with_this_0..4 honor is_method,
+            // so route fixed-arity method closures through them. A rest param still needs
+            // the packing ts_function_call provides, so only take this path with no rest.
+            if (closure->is_method && closure->rest_param_index < 0 && argc >= 0 && argc <= 4) {
+                switch (argc) {
+                    case 0:  result = ts_call_with_this_0(boxedFunc, thisArg); break;
+                    case 1:  result = ts_call_with_this_1(boxedFunc, thisArg, argv[0]); break;
+                    case 2:  result = ts_call_with_this_2(boxedFunc, thisArg, argv[0], argv[1]); break;
+                    case 3:  result = ts_call_with_this_3(boxedFunc, thisArg, argv[0], argv[1], argv[2]); break;
+                    default: result = ts_call_with_this_4(boxedFunc, thisArg, argv[0], argv[1], argv[2], argv[3]); break;
+                }
+            } else {
+                result = ts_function_call(boxedFunc, argc, argv);
+            }
             ts_call_this_value = savedThis;
             return result;
         }
