@@ -25,6 +25,7 @@ static bool option_to_string(TsValue* v, std::string* out);
 static bool option_is_object(TsValue* v);
 static bool temporal_mode_valid(const std::string& m);
 static std::string read_enum_option(TsValue* opts, const char* key, const char* def, const char* const* valid, int nvalid);
+static int iso_days_in_month(int y, int m);
 static bool iso_annotations_valid(const char* s);
 static int date_unit_rank(const std::string& u);
 static long long unit_ns(const std::string& u, bool* ok);
@@ -434,6 +435,27 @@ static inline bool has_negative_zero_year(const char* s){
 // Parse an ISO-8601 time (optionally preceded by a date + 'T'). Fills the six
 // fields. Returns false on malformed input or a UTC 'Z' designator (a bare
 // PlainTime string must not carry a zone). Lenient on separators.
+// A bare (no-'T') string that is itself a valid calendar date — a full date
+// "YYYY-MM-DD", or one of the reduced forms that ALSO reads as a valid date
+// ("YYYY-MM"/"YYYYMM" with a real month, "MMDD"/"MM-DD" with a real month+day) —
+// is ambiguous for a PlainTime and must be rejected (spec ParseTemporalTimeString
+// requires a 'T' to disambiguate). A reduced form whose month/day is out of range
+// (e.g. "2021-13", "1232", "0230") is NOT a date, so it parses as a time.
+static bool ambiguous_date_for_time(const char* s) {
+    int n = 0; while (s[n] && s[n] != '[') n++;   // length before any annotation
+    auto alld = [&](int a,int b){ for(int i=a;i<b;i++) if(!isdigit((unsigned char)s[i])) return false; return true; };
+    auto d2 = [&](int i){ return (s[i]-'0')*10 + (s[i+1]-'0'); };
+    auto monOk = [](int M){ return M>=1 && M<=12; };
+    auto dayOk = [](int M,int D){ return M>=1 && M<=12 && D>=1 && D<=iso_days_in_month(2000,M); }; // 2000 leap -> 0229 counts
+    if (n==4  && alld(0,4))                                   return dayOk(d2(0), d2(2));          // MMDD
+    if (n==5  && alld(0,2) && s[2]=='-' && alld(3,5))         return dayOk(d2(0), d2(3));          // MM-DD
+    if (n==6  && alld(0,6))                                   return monOk(d2(4));                 // YYYYMM
+    if (n==7  && alld(0,4) && s[4]=='-' && alld(5,7))         return monOk(d2(5));                 // YYYY-MM
+    if (n>=10 && alld(0,4) && s[4]=='-' && alld(5,7) && s[7]=='-' && alld(8,10)) {                 // YYYY-MM-DD
+        return monOk(d2(5)) && d2(8)>=1 && d2(8)<=iso_days_in_month(2000,d2(5));
+    }
+    return false;
+}
 static bool parse_iso_time(const char* s, int* H, int* M, int* S,
                            int* ms, int* us, int* ns) {
     if (has_unicode_minus(s) || has_negative_zero_year(s)) return false;
@@ -442,6 +464,9 @@ static bool parse_iso_time(const char* s, int* H, int* M, int* S,
     // time-zone annotation like "[UTC]"/"[America/St_Johns]" is not mistaken
     // for the separator (which would make us parse time from mid-annotation).
     for (const char* p = s; *p && *p != '['; p++) { if (*p == 'T' || *p == 't') { t = p + 1; break; } }
+    // Without a 'T', reject a string that is itself a valid (reduced) calendar
+    // date — ambiguous for a PlainTime (no implicit midnight / time designator).
+    if (t == s && ambiguous_date_for_time(s)) return false;
     auto two = [](const char* p, int* out) -> const char* {
         if (!isdigit((unsigned char)p[0]) || !isdigit((unsigned char)p[1])) return nullptr;
         *out = (p[0]-'0')*10 + (p[1]-'0'); return p + 2;
