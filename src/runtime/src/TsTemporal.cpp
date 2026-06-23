@@ -2349,7 +2349,9 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     int off; bool utc;
     if(!zdt_extract_tz(u,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: string needs a time zone annotation")); return ts_value_make_undefined(); }
     long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)H*3600000+(long long)Mi*60000+(long long)S*1000+ms;
-    return ts_value_make_object(TsZonedDateTime::Create(localMs-(long long)off*60000LL, us*1000+ns, off, utc));
+    long long epoch_ms=localMs-(long long)off*60000LL;
+    if(!instant_epoch_in_limits(epoch_ms, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: instant is outside the representable range")); return ts_value_make_undefined(); }
+    return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, us*1000+ns, off, utc));
 }
 extern "C" TsValue* ts_temporal_zdt_from_native(void* ctx,int argc,TsValue** argv){ (void)ctx; return ts_temporal_zdt_from(argc,argv); }
 static TsString* zdt_iso_string(TsZonedDateTime* z){
