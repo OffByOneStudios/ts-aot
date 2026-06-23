@@ -3860,16 +3860,24 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         *oy=sign*oy_;*omo=sign*omo_;*owk=sign*owk_;*ody=sign*ody_; return;
     }
     if(smallest=="day"||smallest=="days"){
-        long long totalD=endE-startE, incD=(inc>0?inc:1), r;
-        // A sub-day time remainder (e.g. 6d20h -> 7d) must round the day count. Round in
-        // nanoseconds when there is one AND inc*DAY can't overflow int64; otherwise the
-        // remainder is negligible vs the increment, so round whole days (the diff callers
-        // pass subNsMag==0 and take this exact, overflow-free path unchanged).
+        long long incD=(inc>0?inc:1);
         const long long DAY=86400000000000LL;
-        if(subNsMag>0 && incD < 100000){ long long totalNs=totalD*DAY+subNsMag; r=round_nonneg(totalNs,incD*DAY,rmode)/DAY; }
-        else { r=round_nonneg(totalD,incD,rmode); }
-        if(largest=="week"||largest=="weeks"){ owk_=r/7; ody_=r%7; oy_=0;omo_=0; }
-        else { ody_=r; owk_=0;oy_=0;omo_=0; }
+        // Round a day count, folding a sub-day time remainder when present and overflow-safe
+        // (diff callers pass subNsMag==0 and take the exact whole-day path unchanged).
+        auto roundDays=[&](long long days)->long long{
+            if(subNsMag>0 && incD<100000) return round_nonneg(days*DAY+subNsMag,incD*DAY,rmode)/DAY;
+            return round_nonneg(days,incD,rmode);
+        };
+        if(date_unit_rank(largest)>=4){
+            // largestUnit month/year: keep the calendar years/months from the diff and round
+            // only the trailing day remainder (weeks folded in). Flattening to all-days here
+            // would drop the calendar part (wrong for {5y,6m,...} rounded to days).
+            oy_=y; omo_=mo; owk_=0; ody_=roundDays(dy + wk*7);
+        } else {
+            long long r=roundDays(endE-startE);
+            if(largest=="week"||largest=="weeks"){ owk_=r/7; ody_=r%7; oy_=0;omo_=0; }
+            else { ody_=r; owk_=0;oy_=0;omo_=0; }
+        }
     } else if(smallest=="week"||smallest=="weeks"){
         int axY,axM,axD; add_iso_date(sY,sM,sD,y,mo,wk,0,&axY,&axM,&axD);
         int bxY,bxM,bxD; add_iso_date(axY,axM,axD,0,0,1,0,&bxY,&bxM,&bxD);
@@ -3946,6 +3954,24 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+extraDays, &ey,&em,&ed);
         long long yr,mo,wk,dy; bool _re=false; round_date_duration(rd->iso_year,rd->iso_month,rd->iso_day, ey,em,ed, sUnit, L, inc, mode, &yr,&mo,&wk,&dy,&_re,subNsMag);
         if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
+        // A TIME smallestUnit (hour..nanosecond): round_date_duration kept the EXACT date
+        // diff (no calendar rounding); the result keeps {yr,mo,wk,dy} and rounds the signed
+        // sub-day time remainder at smallestUnit, emitting the time fields.
+        if(date_unit_rank(sUnit)==0){
+            const long long DAY=86400000000000LL;
+            long long remTime=timeNsTot%DAY;   // signed sub-day remainder
+            bool ok2; long long uNs=unit_ns(sUnit,&ok2); if(!ok2||uNs<=0) uNs=1;
+            long long rt=round_signed(remTime, uNs*(inc>0?inc:1), mode);
+            if(rt>=DAY||rt<=-DAY){ long long c=rt/DAY; dy+=c; rt-=c*DAY; }   // rounding reached a full day
+            long long a=(rt<0?-rt:rt), sg=(rt<0?-1:1);
+            long long h=a/3600000000000LL; a%=3600000000000LL;
+            long long mi=a/60000000000LL; a%=60000000000LL;
+            long long s=a/1000000000LL;  a%=1000000000LL;
+            long long ms=a/1000000LL;    a%=1000000LL;
+            long long us=a/1000LL;       a%=1000LL;
+            long long ns=a;
+            return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy, sg*h,sg*mi,sg*s,sg*ms,sg*us,sg*ns));
+        }
         return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
     }
     bool ok; long long sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
