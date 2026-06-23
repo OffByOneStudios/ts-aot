@@ -3272,6 +3272,8 @@ static TsValue* duration_add_impl(TsDuration* a, TsDuration* b, int bsign){
     int sign=(totalDays<0||ns<0)?-1:1; long long ad=totalDays<0?-totalDays:totalDays; long long an=ns<0?-ns:ns;
     long long h=an/3600000000000LL; an%=3600000000000LL; long long mi=an/60000000000LL; an%=60000000000LL;
     long long s=an/1000000000LL; an%=1000000000LL; long long ms=an/1000000LL; an%=1000000LL; long long us=an/1000LL; long long nn=an%1000LL;
+    long long fr[10]={0,0,0, sign*ad, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn};
+    if(!duration_in_range(fr)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration: result is out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsDuration::Create(0,0,0, sign*ad, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn));
 }
 extern "C" {
