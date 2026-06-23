@@ -31,6 +31,7 @@ static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
 static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns);
+static void iso_civil_from_days(long long z, int* y, int* m, int* d);
 static long long unit_ns(const std::string& u, bool* ok);
 // A `with`/partial bag must be a plain object — reject any Temporal-typed object.
 // Magics at offset +16: PlainTime/Duration/PlainDate/PlainYearMonth/PlainMonthDay/
@@ -1877,11 +1878,13 @@ TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** 
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(plaindatetime_iso_string(d));
+    int carry=0; std::string tstr=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts,&carry);
+    int Y=d->iso_year,M=d->iso_month,D=d->iso_day;
+    if(carry){ iso_civil_from_days(iso_days_from_civil(Y,M,D)+carry,&Y,&M,&D); }   // rounding crossed midnight
     char db[24];
-    if(d->iso_year<0||d->iso_year>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",d->iso_year,d->iso_month,d->iso_day);
-    else snprintf(db,sizeof(db),"%04d-%02d-%02d",d->iso_year,d->iso_month,d->iso_day);
-    std::string base=db; base+="T";
-    base+=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts);
+    if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D);
+    else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
+    std::string base=db; base+="T"; base+=tstr;
     static const char* CALV[]={"auto","always","never","critical"};
     std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
     if(cal=="always"||cal=="critical") base += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";
