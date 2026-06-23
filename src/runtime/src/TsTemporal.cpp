@@ -3494,7 +3494,14 @@ TsValue* ts_temporal_plainyearmonth_toPlainDate_native(void* ctx,int argc,TsValu
 TsValue* ts_temporal_plainmonthday_toPlainDate_native(void* ctx,int argc,TsValue** argv){
     TsPlainMonthDay* md=require_plainmonthday(ctx,"toPlainDate");
     int year=md->iso_year;
-    if(argc>=1&&argv&&argv[0]){ void* raw=ts_nanbox_safe_unbox(argv[0]); if(raw){ TsValue* fy=ts_object_get_property(raw,"year"); if(fy&&!ts_value_is_undefined(fy)){ double yy=ts_to_number(fy); if(std::isinf(yy)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } if(yy==yy) year=(int)std::trunc(yy); } } }
+    // toPlainDate requires an object argument carrying a year property.
+    TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
+    if(!item || ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.toPlainDate: argument is required")); return ts_value_make_undefined(); }
+    void* raw=ts_nanbox_safe_unbox(item);
+    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>0x00007FFFFFFFFFFFULL || *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.toPlainDate: argument must be an object")); return ts_value_make_undefined(); }
+    TsValue* fy=ts_object_get_property(raw,"year");
+    if(!fy || ts_value_is_undefined(fy)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.toPlainDate: year is required")); return ts_value_make_undefined(); }
+    { double yy=ts_to_number(fy); if(std::isinf(yy)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } if(yy==yy) year=(int)std::trunc(yy); }
     int dim=iso_days_in_month(year,md->iso_month); int day=md->iso_day; if(day>dim)day=dim;
     if(!iso_date_in_limits(year,md->iso_month,day)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.prototype.toPlainDate: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(year,md->iso_month,day));
