@@ -1812,7 +1812,7 @@ TsValue* ts_temporal_plainmonthday_from_native(void* ctx,int argc,TsValue** argv
 }
 extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    auto _ovopt=[&](){ validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); };   // overflow read after the input is parsed
+    auto _ovopt=[&]()->bool{ return validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); };   // overflow read after the input is parsed
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
@@ -1825,11 +1825,14 @@ extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
         TsValue* fd=ts_object_get_property(raw,"day"); bool hD=fd&&!ts_value_is_undefined(fd);
         double dd = hD?ts_to_number(fd):0; if(hD&&(dd!=dd||std::isinf(dd))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: day property cannot be Infinity or NaN")); return ts_value_make_undefined(); }
         int bagM=read_bag_month(raw);   // month, monthCode
-        TsValue* fy=ts_object_get_property(raw,"year");
-        if(fy&&!ts_value_is_undefined(fy)){ double dy=ts_to_number(fy); if(std::isinf(dy)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } }
+        TsValue* fy=ts_object_get_property(raw,"year"); int refY=1972;   // PMD reference year; a provided year validates the day under overflow:reject
+        if(fy&&!ts_value_is_undefined(fy)){ double dy=ts_to_number(fy); if(std::isinf(dy)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } if(dy==dy) refY=(int)std::trunc(dy); }
         if(bagM<1||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: object needs month and day")); return ts_value_make_undefined(); }
-        _ovopt();   // overflow read after the bag fields
-        int M=bagM,D=(int)std::trunc(dd); if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(1972,M); if(D<1)D=1; if(D>dim)D=dim;
+        bool _ovrej=_ovopt();   // overflow read after the bag fields
+        int M=bagM,D=(int)std::trunc(dd);
+        if(_ovrej && (M<1||M>12||D<1||D>iso_days_in_month(refY,M))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: field out of range (overflow reject)")); return ts_value_make_undefined(); }
+        // constrain the day against the provided year (1972 default leap year if none given)
+        if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(refY,M); if(D<1)D=1; if(D>dim)D=dim;
         return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972));
     }
     ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.from: invalid argument")); return ts_value_make_undefined();
