@@ -1495,27 +1495,30 @@ Analyzer::Analyzer() {
     // Register Number object with static methods
     auto numberType = std::make_shared<ObjectType>();
 
-    // Number.isFinite(value: number): boolean
+    // Number.isFinite(value): boolean — strict (no coercion); the native reads a boxed
+    // TsValue (nanbox) and returns false for non-Numbers, so the arg must be Any, NOT
+    // Double. A Double param passes a raw double the native misreads as a non-number
+    // (e.g. Number.isFinite(numberParam) wrongly returned false).
     auto isFiniteType = std::make_shared<FunctionType>();
-    isFiniteType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    isFiniteType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     isFiniteType->returnType = std::make_shared<Type>(TypeKind::Boolean);
     numberType->fields["isFinite"] = isFiniteType;
 
-    // Number.isNaN(value: number): boolean
+    // Number.isNaN(value): boolean — strict (no coercion); Any for the same reason.
     auto isNaNType = std::make_shared<FunctionType>();
-    isNaNType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    isNaNType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     isNaNType->returnType = std::make_shared<Type>(TypeKind::Boolean);
     numberType->fields["isNaN"] = isNaNType;
 
-    // Number.isInteger(value: number): boolean
+    // Number.isInteger(value): boolean — strict (no coercion); Any.
     auto isIntegerType = std::make_shared<FunctionType>();
-    isIntegerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    isIntegerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     isIntegerType->returnType = std::make_shared<Type>(TypeKind::Boolean);
     numberType->fields["isInteger"] = isIntegerType;
 
-    // Number.isSafeInteger(value: number): boolean
+    // Number.isSafeInteger(value): boolean — strict (no coercion); Any.
     auto isSafeIntegerType = std::make_shared<FunctionType>();
-    isSafeIntegerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Double));
+    isSafeIntegerType->paramTypes.push_back(std::make_shared<Type>(TypeKind::Any));
     isSafeIntegerType->returnType = std::make_shared<Type>(TypeKind::Boolean);
     numberType->fields["isSafeInteger"] = isSafeIntegerType;
 

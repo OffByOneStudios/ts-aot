@@ -272,8 +272,12 @@ private:
         } else if (val->getType()->isIntegerTy(1)) {
             val = builder.CreateUIToFP(val, builder.getDoubleTy(), "bool_to_dbl");
         } else if (val->getType()->isPointerTy()) {
-            // Boxed value - return false (strict Number.isFinite doesn't do type coercion)
-            return builder.getInt1(false);
+            // Boxed value (e.g. a number-typed parameter passed boxed): inspect the nanbox
+            // — a Number is checked for finiteness, a non-Number is false (no coercion).
+            // Was unconditionally false, which wrongly failed Number.isFinite(numberParam).
+            auto ft = llvm::FunctionType::get(builder.getInt64Ty(), { builder.getPtrTy() }, false);
+            auto fn = lowerer.module().getOrInsertFunction("ts_value_strict_isfinite", ft);
+            return builder.CreateICmpNE(builder.CreateCall(ft, fn.getCallee(), { val }, "strict_isfin"), builder.getInt64(0));
         }
 
         // A number is finite if it's not NaN and not infinite
@@ -299,8 +303,10 @@ private:
         } else if (val->getType()->isIntegerTy(1)) {
             val = builder.CreateUIToFP(val, builder.getDoubleTy(), "bool_to_dbl");
         } else if (val->getType()->isPointerTy()) {
-            // Boxed value - return false (strict Number.isNaN doesn't do type coercion)
-            return builder.getInt1(false);
+            // Boxed value: inspect the nanbox (a boxed NaN Number must return true).
+            auto ft = llvm::FunctionType::get(builder.getInt64Ty(), { builder.getPtrTy() }, false);
+            auto fn = lowerer.module().getOrInsertFunction("ts_value_strict_isnan", ft);
+            return builder.CreateICmpNE(builder.CreateCall(ft, fn.getCallee(), { val }, "strict_isnan"), builder.getInt64(0));
         }
 
         // NaN is the only value that is not equal to itself
@@ -323,8 +329,10 @@ private:
             // Booleans converted to 0/1 are integers
             return builder.getInt1(true);
         } else if (val->getType()->isPointerTy()) {
-            // Boxed value - return false
-            return builder.getInt1(false);
+            // Boxed value: inspect the nanbox (a boxed integer-valued Number is true).
+            auto ft = llvm::FunctionType::get(builder.getInt64Ty(), { builder.getPtrTy() }, false);
+            auto fn = lowerer.module().getOrInsertFunction("ts_value_strict_isinteger", ft);
+            return builder.CreateICmpNE(builder.CreateCall(ft, fn.getCallee(), { val }, "strict_isint"), builder.getInt64(0));
         }
 
         // For doubles: isInteger = isFinite && floor(value) == value
@@ -359,8 +367,10 @@ private:
             // Booleans (0/1) are always safe integers
             return builder.getInt1(true);
         } else if (val->getType()->isPointerTy()) {
-            // Boxed value - return false
-            return builder.getInt1(false);
+            // Boxed value: inspect the nanbox (a boxed safe-integer Number is true).
+            auto ft = llvm::FunctionType::get(builder.getInt64Ty(), { builder.getPtrTy() }, false);
+            auto fn = lowerer.module().getOrInsertFunction("ts_value_strict_issafeinteger", ft);
+            return builder.CreateICmpNE(builder.CreateCall(ft, fn.getCallee(), { val }, "strict_issafe"), builder.getInt64(0));
         }
 
         // isSafeInteger = isInteger && abs(value) <= MAX_SAFE_INTEGER

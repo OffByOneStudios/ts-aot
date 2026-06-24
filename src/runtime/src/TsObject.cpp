@@ -12387,6 +12387,33 @@ TsValue* ts_value_make_int(int64_t i) {
         TsValue* result = isFinite(arg);
         return ts_value_get_bool(result) ? 1.0 : 0.0;
     }
+
+    // Strict Number.isFinite/isNaN/isInteger/isSafeInteger on an ALREADY-BOXED value (a
+    // NaN-boxed TsValue, e.g. a `number`-typed parameter passed boxed): a non-Number is
+    // false (no coercion), else inspect the double. The codegen handlers call these for the
+    // pointer case instead of wrongly assuming a pointer means a non-number.
+    extern "C" int64_t ts_value_strict_isfinite(TsValue* v) {
+        uint64_t nb = nanbox_from_tsvalue_ptr(v);
+        if (!nanbox_is_number(nb)) return 0;
+        return std::isfinite(nanbox_to_number(nb)) ? 1 : 0;
+    }
+    extern "C" int64_t ts_value_strict_isnan(TsValue* v) {
+        uint64_t nb = nanbox_from_tsvalue_ptr(v);
+        if (!nanbox_is_number(nb)) return 0;
+        double d = nanbox_to_number(nb); return (d != d) ? 1 : 0;
+    }
+    extern "C" int64_t ts_value_strict_isinteger(TsValue* v) {
+        uint64_t nb = nanbox_from_tsvalue_ptr(v);
+        if (!nanbox_is_number(nb)) return 0;
+        double d = nanbox_to_number(nb);
+        return (std::isfinite(d) && std::trunc(d) == d) ? 1 : 0;
+    }
+    extern "C" int64_t ts_value_strict_issafeinteger(TsValue* v) {
+        uint64_t nb = nanbox_from_tsvalue_ptr(v);
+        if (!nanbox_is_number(nb)) return 0;
+        double d = nanbox_to_number(nb);
+        return (std::isfinite(d) && std::trunc(d) == d && std::abs(d) <= 9007199254740991.0) ? 1 : 0;
+    }
     
     // Prototype method implementations
     
