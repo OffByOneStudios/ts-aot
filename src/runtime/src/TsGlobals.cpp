@@ -2021,13 +2021,17 @@ void* ts_get_global_Symbol() {
                 setProtoStringTag((TsMap*)protoT.ptr_val, "Symbol");
         }
 
-        // Register well-known symbols. Pragmatic shim: store each as a
-        // canonical string "[Symbol.<name>]" instead of a real TsSymbol.
-        // This matches the existing convention used for Symbol.toStringTag
-        // on JSON/Math (see ts_get_global_JSON) and avoids the compiler
-        // coercing Symbol values to strings on typed Symbol return.
-        // Downstream `obj[Symbol.X] = val` then uses that string as the key,
-        // which is stored and looked up consistently.
+        // Register well-known symbols as REAL TsSymbols whose description is
+        // "Symbol.<name>" (so `Symbol.iterator.description === "Symbol.iterator"`
+        // and `typeof Symbol.iterator === "symbol"`). The property-key coercion
+        // ts_symbol_storage_key (TsObject.cpp) maps any symbol whose description
+        // begins "Symbol." back to the legacy canonical string "[Symbol.<name>]",
+        // which the iteration / toPrimitive / hasInstance protocol machinery in
+        // many files looks up by that literal string. So `obj[Symbol.X]` (user
+        // code, via ts_property_key_string) and the hardcoded internal
+        // `ts_object_get_property(o, "[Symbol.X]")` resolve to the same slot.
+        // Created once (inside `if (!cached)`) so identity holds and the GC roots
+        // them through the cached ctor map.
         static const char* kWellKnown[] = {
             "iterator",       "asyncIterator",  "hasInstance",
             "isConcatSpreadable", "match",     "matchAll",
@@ -2036,12 +2040,13 @@ void* ts_get_global_Symbol() {
             "unscopables",    nullptr
         };
         for (int i = 0; kWellKnown[i]; i++) {
-            char canonical[64];
-            snprintf(canonical, sizeof(canonical), "[Symbol.%s]", kWellKnown[i]);
+            char descbuf[64];
+            snprintf(descbuf, sizeof(descbuf), "Symbol.%s", kWellKnown[i]);
+            TsSymbol* sym = TsSymbol::Create(TsString::Create(descbuf));
             TsValue k; k.type = ValueType::STRING_PTR;
             k.ptr_val = TsString::GetInterned(kWellKnown[i]);
-            TsValue v; v.type = ValueType::STRING_PTR;
-            v.ptr_val = TsString::GetInterned(canonical);
+            TsValue v; v.type = ValueType::SYMBOL_PTR;
+            v.ptr_val = sym;
             ctor->Set(k, v);
         }
 

@@ -905,6 +905,14 @@ void LoweringRegistry::registerBuiltinsImpl() {
             .boxedArg()    // value to convert (box it first)
             .build());
 
+    // String(value) constructor: like ts_to_string but SymbolDescriptiveString
+    // for a Symbol (returns "Symbol(desc)" rather than throwing TypeError).
+    reg.registerLowering("ts_string_ctor",
+        lowering("ts_string_ctor")
+            .returnsPtr()
+            .boxedArg()    // value to convert (box it first)
+            .build());
+
     reg.registerLowering("ts_string_length",
         lowering("ts_string_length")
             .returnsI64()

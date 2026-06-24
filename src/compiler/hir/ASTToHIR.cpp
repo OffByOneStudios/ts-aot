@@ -7549,9 +7549,11 @@ void ASTToHIR::visitCallExpression(ast::CallExpression* node) {
         }
 
         if (ident->name == "String") {
-            // String(value) converts to string
+            // String(value) converts to string. Use ts_string_ctor (not
+            // ts_to_string) so a Symbol arg yields SymbolDescriptiveString
+            // ("Symbol(desc)") instead of throwing — ECMA-262 22.1.1.1.
             if (!args.empty()) {
-                lastValue_ = builder_.createCall("ts_to_string", {args[0]}, HIRType::makeString());
+                lastValue_ = builder_.createCall("ts_string_ctor", {args[0]}, HIRType::makeString());
             } else {
                 lastValue_ = builder_.createCall("ts_string_create", {builder_.createConstNull()}, HIRType::makeString());
             }

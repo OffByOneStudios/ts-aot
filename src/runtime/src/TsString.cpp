@@ -1,5 +1,6 @@
 #include "TsString.h"
 #include "TsConsString.h"
+#include "TsSymbol.h"
 #include "TsArray.h"
 #include "TsBuffer.h"
 #include "TsRegExp.h"
@@ -2196,6 +2197,30 @@ extern "C" {
         TsString* flatB = ts_ensure_flat(b);
         if (!flatA || !flatB) return flatA == flatB;
         return flatA->Equals(flatB);
+    }
+
+    // String(value) constructor semantics (ECMA-262 22.1.1.1 step 2a): for a
+    // Symbol this is SymbolDescriptiveString — "Symbol(desc)", NOT a thrown
+    // TypeError. (Throwing is only `new String(symbol)` and ToString(symbol) in
+    // concat / template-literal contexts, which keep using ts_string_from_value.)
+    // Every other value is ordinary ToString. The `String(v)` compiler lowering
+    // calls this instead of ts_to_string so well-known/user symbols stringify.
+    void* ts_string_ctor(TsValue* val) {
+        if (val) {
+            uint64_t nb = nanbox_from_tsvalue_ptr(val);
+            if (nanbox_is_ptr(nb)) {
+                void* ptr = nanbox_to_ptr(nb);
+                if (ptr && *(uint32_t*)ptr == 0x53594D42) {  // TsSymbol "SYMB"
+                    TsString* desc = ((TsSymbol*)ptr)->description;
+                    TsString* out = TsString::Concat(TsString::GetInterned("Symbol("),
+                                                     desc ? desc : TsString::GetInterned(""));
+                    return TsString::Concat(out, TsString::GetInterned(")"));
+                }
+            }
+        }
+        // Non-symbol: ts_value_get_string is the full ToString (numbers, null,
+        // array-join, object toString) and throws only on symbols — handled above.
+        return ts_value_get_string(val);
     }
 
     void* ts_string_from_value(TsValue* val) {

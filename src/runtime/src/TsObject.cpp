@@ -11035,6 +11035,11 @@ TsValue* ts_value_make_int(int64_t i) {
                     keyStr = ts_symbol_storage_key((TsSymbol*)ptr);
                 }
             }
+        } else if (key.type == ValueType::SYMBOL_PTR) {
+            // A real Symbol key (e.g. the well-known Symbol.iterator, or a user
+            // Symbol read back as SYMBOL_PTR). Canonicalize via the same storage
+            // key the get path (ts_property_key_string) uses, so set/get agree.
+            if (key.ptr_val) keyStr = ts_symbol_storage_key((TsSymbol*)key.ptr_val);
         } else if (key.type == ValueType::NUMBER_INT) {
             keyStr = TsString::Create(std::to_string(key.i_val).c_str());
         } else if (key.type == ValueType::NUMBER_DBL) {
