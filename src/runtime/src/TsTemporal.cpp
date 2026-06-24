@@ -388,7 +388,6 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
 // primitive throws TypeError. Default overflow "constrain" clamps.
 TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv) {
     TsPlainTime* pt = require_plaintime(ctx, "with");
-    bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     TsValue* arg = (argc >= 1 && argv) ? argv[0] : nullptr;
     void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
     if (!raw) {
@@ -403,13 +402,21 @@ TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv) 
             "Temporal.PlainTime.prototype.with: argument must be a plain object"));
         return ts_value_make_undefined();
     }
-    static const char* names[6] = {"hour","minute","second","millisecond","microsecond","nanosecond"};
-    const int lim[6] = {23,59,59,999,999,999};
+    // Observable order: RejectObjectWithCalendarOrTimeZone reads calendar then timeZone
+    // (TypeError if either is present), then the time fields ALPHABETICALLY (hour,
+    // microsecond, millisecond, minute, nanosecond, second), then the overflow option.
+    { TsValue* fc=ts_object_get_property(raw,"calendar");
+      if(fc&&!ts_value_is_undefined(fc)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainTime.prototype.with: a fields object must not have a calendar")); return ts_value_make_undefined(); }
+      TsValue* ftz=ts_object_get_property(raw,"timeZone");
+      if(ftz&&!ts_value_is_undefined(ftz)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainTime.prototype.with: a fields object must not have a timeZone")); return ts_value_make_undefined(); } }
+    static const char* anames[6] = {"hour","microsecond","millisecond","minute","nanosecond","second"};
+    const int aidx[6] = {0,4,3,1,5,2};        // alphabetical field -> output slot (hour,min,sec,ms,us,ns)
+    const int alim[6] = {23,999,999,59,999,59};
     int vals[6] = {pt->iso_hour,pt->iso_minute,pt->iso_second,
                    pt->iso_millisecond,pt->iso_microsecond,pt->iso_nanosecond};
-    bool any = false;
+    bool any = false; double pend[6]; bool has[6] = {false,false,false,false,false,false};
     for (int i = 0; i < 6; i++) {
-        TsValue* f = ts_object_get_property(raw, names[i]);
+        TsValue* f = ts_object_get_property(raw, anames[i]);
         if (f && !ts_value_is_undefined(f)) {
             any = true;
             double d = ts_to_number(f);
@@ -418,16 +425,22 @@ TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv) 
                     "Temporal.PlainTime.prototype.with: field is not finite"));
                 return ts_value_make_undefined();
             }
-            int v = (int)std::trunc(d);
-            if (_ovrej && (v < 0 || v > lim[i])) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); }
-            if (v < 0) v = 0; if (v > lim[i]) v = lim[i];
-            vals[i] = v;
+            pend[i]=d; has[i]=true;
         }
     }
     if (!any) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Temporal.PlainTime.prototype.with: object has no recognized time fields"));
         return ts_value_make_undefined();
+    }
+    bool _ovrej = validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);   // overflow read LAST
+    for (int i = 0; i < 6; i++) {
+        if (has[i]) {
+            int v = (int)std::trunc(pend[i]);
+            if (_ovrej && (v < 0 || v > alim[i])) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); }
+            if (v < 0) v = 0; if (v > alim[i]) v = alim[i];
+            vals[aidx[i]] = v;
+        }
     }
     return ts_value_make_object(TsPlainTime::Create(vals[0],vals[1],vals[2],vals[3],vals[4],vals[5]));
 }
@@ -1912,6 +1925,9 @@ TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** 
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(plaindatetime_iso_string(d));
+    // Observable order: calendarName is read BEFORE the time-rounding options.
+    static const char* CALV[]={"auto","always","never","critical"};
+    std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
     int carry=0; std::string tstr=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts,&carry);
     int Y=d->iso_year,M=d->iso_month,D=d->iso_day;
     if(carry){ iso_civil_from_days(iso_days_from_civil(Y,M,D)+carry,&Y,&M,&D); }   // rounding crossed midnight
@@ -1919,8 +1935,6 @@ TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** 
     if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D);
     else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
     std::string base=db; base+="T"; base+=tstr;
-    static const char* CALV[]={"auto","always","never","critical"};
-    std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
     if(cal=="always"||cal=="critical") base += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";
     return ts_value_make_string(TsString::Create(base.c_str()));
 }
