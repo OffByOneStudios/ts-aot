@@ -117,6 +117,7 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static bool iso_string_offset_min(const char* s, int* offMin);
 static bool iso_string_offset_subminute(const char* s);   // true iff the inline offset has sub-minute precision
+static bool resolve_timezone_id(const char* tu, int* off, bool* utc, char* zbuf, size_t zsz);
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
 static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns);
@@ -2186,8 +2187,12 @@ static void temporal_now_fields(int* Y,int* M,int* D,int* h,int* m,int* s,int* m
 // identifier even though ts-aot renders fields in UTC.
 static void validate_now_tz(int argc, TsValue** argv){
     if(argc>=1&&argv&&argv[0]&&!ts_value_is_undefined(argv[0])){
-        std::string tz; int o; bool u;
-        if(!tsvalue_to_stdstring(argv[0],&tz)||!parse_timezone(tz.c_str(),&o,&u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Now: invalid time zone")); }
+        void* tzr=ts_nanbox_safe_unbox(argv[0]);
+        if(tzr && (*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){   // string identifier (named/offset/datetime-form)
+            const char* tu=((TsString*)ts_value_get_string(argv[0]))->ToUtf8(); int o; bool u; char zb[40];
+            if(!tu||!resolve_timezone_id(tu,&o,&u,zb,sizeof(zb))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Now: invalid time zone")); }
+        } else if(tzr && *(uint32_t*)((char*)tzr+16)==TsZonedDateTime::MAGIC){ /* a ZonedDateTime's zone is valid */ }
+        else { ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Now: time zone must be a string or time-zone object")); }
     }
 }
 extern "C" {
