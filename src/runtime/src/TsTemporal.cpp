@@ -3502,9 +3502,17 @@ TsValue* ts_temporal_now_zoneddatetimeiso_native(void* ctx,int argc,TsValue** ar
     int off=0; bool utc=true;
     TsValue* tzv=(argc>=1&&argv)?argv[0]:nullptr;
     if(tzv && !ts_value_is_undefined(tzv)){
-        std::string tz;
-        if(tsvalue_to_stdstring(tzv,&tz) && !parse_timezone(tz.c_str(),&off,&utc)){
-            ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Now.zonedDateTimeISO: unsupported time zone")); return ts_value_make_undefined();
+        void* tzr=ts_nanbox_safe_unbox(tzv);
+        if(tzr && (*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){   // a string identifier
+            const char* tu=((TsString*)ts_value_get_string(tzv))->ToUtf8(); char zbuf[40]={0};
+            if(!resolve_timezone_id(tu,&off,&utc,zbuf,sizeof(zbuf))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Now.zonedDateTimeISO: unsupported time zone")); return ts_value_make_undefined(); }
+            if(zbuf[0]) return ts_value_make_object(TsZonedDateTime::CreateNamed(ms,sub,zbuf));
+        } else if(tzr && *(uint32_t*)((char*)tzr+16)==TsZonedDateTime::MAGIC){   // a ZonedDateTime contributes its zone
+            TsZonedDateTime* z=(TsZonedDateTime*)tzr;
+            if(z->zone_name[0]) return ts_value_make_object(TsZonedDateTime::CreateNamed(ms,sub,z->zone_name));
+            off=z->offset_minutes; utc=z->is_utc;
+        } else {   // a non-string, non-time-zone value is a TypeError
+            ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Now.zonedDateTimeISO: time zone must be a string or time-zone object")); return ts_value_make_undefined();
         }
     }
     return ts_value_make_object(TsZonedDateTime::Create(ms, sub, off, utc));
