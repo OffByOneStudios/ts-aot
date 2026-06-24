@@ -210,21 +210,10 @@ extern "C" {
 // is dropped — fine for PlainTime; PlainDateTime trunc default never carries).
 static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts, int* dayCarry=nullptr){
     if(dayCarry) *dayCarry=0;
-    std::string smallest = read_string_option(opts,"smallestUnit","");
-    // roundingMode read WITHOUT the "auto"->default mapping: "auto" is not a valid
-    // roundingMode and must be rejected (read_string_option would swallow it).
-    void* rmraw = opts?ts_nanbox_safe_unbox(opts):nullptr;
-    std::string mode = read_opt_str_noauto(rmraw,"roundingMode","trunc");
-    // Validate the time-rounding options (RangeError on an invalid value).
-    if(!smallest.empty()){
-        bool ok = smallest=="minute"||smallest=="minutes"||smallest=="second"||smallest=="seconds"
-               || smallest=="millisecond"||smallest=="milliseconds"||smallest=="microsecond"||smallest=="microseconds"
-               || smallest=="nanosecond"||smallest=="nanoseconds";
-        if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); }
-    }
-    if(!temporal_mode_valid(mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
-    int fsd=-1; // -1 = auto
     void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
+    int fsd=-1; // -1 = auto
+    // Observable order (toString order-of-operations): fractionalSecondDigits, then
+    // roundingMode, then smallestUnit.
     if(raw){ TsValue* f=ts_object_get_property(raw,"fractionalSecondDigits");
         if(f&&!ts_value_is_undefined(f)){
             // GetStringOrNumberOption: a Number is range-checked to [0,9] (floored);
@@ -244,6 +233,16 @@ static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsV
                 std::string fs;
                 if(!option_to_string(f,&fs) || fs!="auto"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
             } } }
+    // roundingMode read WITHOUT the "auto"->default mapping ("auto" is not a valid mode).
+    std::string mode = read_opt_str_noauto(raw,"roundingMode","trunc");
+    if(!temporal_mode_valid(mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
+    std::string smallest = read_string_option(opts,"smallestUnit","");
+    if(!smallest.empty()){
+        bool ok = smallest=="minute"||smallest=="minutes"||smallest=="second"||smallest=="seconds"
+               || smallest=="millisecond"||smallest=="milliseconds"||smallest=="microsecond"||smallest=="microseconds"
+               || smallest=="nanosecond"||smallest=="nanoseconds";
+        if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); }
+    }
     long long tns = ((long long)h*3600+(long long)mi*60+s)*1000000000LL + (long long)ms*1000000 + (long long)us*1000 + ns;
     int digits=-1; bool dropSeconds=false; long long unitNs=1;
     if(smallest=="minute"||smallest=="minutes"){ dropSeconds=true; digits=0; unitNs=60000000000LL; }
@@ -789,25 +788,11 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool*
         // value, including null, is a RangeError; absent keeps the default).
         std::string smallest = "";
         std::string mode = "trunc";
-        if(raw){
-            TsValue* su=ts_object_get_property(raw,"smallestUnit");
-            if(su && !ts_value_is_undefined(su)){
-                static const char* DTSU[8]={"second","seconds","millisecond","milliseconds","microsecond","microseconds","nanosecond","nanoseconds"};
-                std::string s2;   // option_to_string APPENDS — start from empty
-                if(!option_to_string(su,&s2)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: invalid smallestUnit")); }
-                bool ok=false; for(int i=0;i<8;i++) if(s2==DTSU[i]) ok=true;
-                if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: invalid smallestUnit")); }
-                smallest=s2;
-            }
-            TsValue* rm=ts_object_get_property(raw,"roundingMode");
-            if(rm && !ts_value_is_undefined(rm)){
-                std::string m2;
-                if(!option_to_string(rm,&m2) || !temporal_mode_valid(m2)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: invalid roundingMode")); }
-                mode=m2;
-            }
-        }
         int fsd = -1;
-        if (raw) { TsValue* f = ts_object_get_property(raw, "fractionalSecondDigits");
+        if(raw){
+            // Observable order (Duration.toString order-of-operations): fractionalSecondDigits,
+            // then roundingMode, then smallestUnit.
+            TsValue* f = ts_object_get_property(raw, "fractionalSecondDigits");
             if (f && !ts_value_is_undefined(f)) {
                 uint64_t fnb=nanbox_from_tsvalue_ptr(f);
                 if(nanbox_is_number(fnb)){ double dv=ts_to_number(f);
@@ -817,7 +802,23 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool*
                     fsd=(int)fv;
                 } else { std::string fs;
                     if(!option_to_string(f,&fs) || fs!="auto"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
-                } } }
+                } }
+            TsValue* rm=ts_object_get_property(raw,"roundingMode");
+            if(rm && !ts_value_is_undefined(rm)){
+                std::string m2;
+                if(!option_to_string(rm,&m2) || !temporal_mode_valid(m2)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: invalid roundingMode")); }
+                mode=m2;
+            }
+            TsValue* su=ts_object_get_property(raw,"smallestUnit");
+            if(su && !ts_value_is_undefined(su)){
+                static const char* DTSU[8]={"second","seconds","millisecond","milliseconds","microsecond","microseconds","nanosecond","nanoseconds"};
+                std::string s2;   // option_to_string APPENDS — start from empty
+                if(!option_to_string(su,&s2)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: invalid smallestUnit")); }
+                bool ok=false; for(int i=0;i<8;i++) if(s2==DTSU[i]) ok=true;
+                if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: invalid smallestUnit")); }
+                smallest=s2;
+            }
+        }
         if (smallest=="second"||smallest=="seconds") digits=0;
         else if (smallest=="millisecond"||smallest=="milliseconds") digits=3;
         else if (smallest=="microsecond"||smallest=="microseconds") digits=6;
