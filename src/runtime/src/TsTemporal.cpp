@@ -2596,12 +2596,27 @@ static bool iso_string_offset_min(const char* s, int* offMin){
     const char* br=strchr(s,'['); const char* end = br? br : s+strlen(s);
     const char* t=strchr(s,'T'); if(!t) t=strchr(s,'t'); if(!t||t>=end) return false;
     for(const char* p=t+1; p<end; p++){
-        if(*p=='Z'||*p=='z'){ *offMin=0; return true; }
+        if(*p=='Z'||*p=='z') return false;   // Z is a UTC designator, not a wall-clock offset to match against the zone
         if(*p=='+'||*p=='-'){ std::string off(p,(size_t)(end-p));
             if(!valid_offset_field(off.c_str())) return false;
             *offMin=(int)(offset_field_ns(off.c_str())/60000000000LL); return true; }
     }
     return false;
+}
+// A relativeTo zoned string (Z designator or time-zone bracket) is anchored by its local
+// date; the strict plaindate_from rejects the Z, so extract the date from the datetime part
+// here. relativeTo-specific — PlainDate.from/compare must still reject a Z, so this must NOT
+// be folded into coerce_plaindate_arg.
+static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
+static TsPlainDate* coerce_relativeto_date(TsValue* relTo){
+    void* raw = relTo?ts_nanbox_safe_unbox(relTo):nullptr;
+    if(raw){ uint32_t sm=*(uint32_t*)raw;
+        if(sm==0x53545247||sm==0x434F4E53){ void* sp=ts_value_get_string(relTo); const char* u=sp?((TsString*)sp)->ToUtf8():nullptr;
+            bool zoned=false; if(u){ if(strchr(u,'Z')||strchr(u,'z')) zoned=true; else { const char* br=strchr(u,'['); if(br && strncmp(br,"[u-ca=",6)!=0 && strncmp(br,"[!u-ca=",7)!=0) zoned=true; } }
+            if(zoned){ int Y,M,D,h,mi,s,ms,us,ns; if(u && parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns) && iso_date_valid(Y,M,D) && iso_date_in_limits(Y,M,D)) return (TsPlainDate*)TsPlainDate::Create(Y,M,D); }
+        }
+    }
+    return coerce_plaindate_arg(relTo);
 }
 // ToRelativeTemporalObject (validation half): a present relativeTo must be a valid
 // Temporal date / date-time / zoned string (or a date-bearing object). An invalid one
@@ -2678,7 +2693,7 @@ extern "C" TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsV
         // whole-day offset from the anchor (calendar + time-as-days), then the sub-day
         // remainder. Comparing the day offsets first is exact (a 1-day gap dominates any
         // sub-day remainder) and avoids overflow.
-        TsPlainDate* rd = coerce_plaindate_arg(relTo);
+        TsPlainDate* rd = coerce_relativeto_date(relTo);
         if(rd){
             long long ra=iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
             auto anchor=[&](TsDuration* d,long long* dayOff,long long* remNs){
@@ -3598,7 +3613,7 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
         void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
         TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
         validate_relativeto_arg(relTo);
-        TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_plaindate_arg(relTo) : nullptr;
+        TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_relativeto_date(relTo) : nullptr;
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         // A ZonedDateTime / zoned-string relativeTo is anchored by its LOCAL date (coerce
         // already extracted it). For a fixed-offset zone there is no DST so this is exact;
@@ -4045,7 +4060,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
     if(relTo && !ts_value_is_undefined(relTo)) validate_relativeto_arg(relTo);
     if(calInvolved){
-        TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_plaindate_arg(relTo) : nullptr;
+        TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_relativeto_date(relTo) : nullptr;
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         std::string L=lUnit;
         if(L=="auto"){ if(d->years)L="year"; else if(d->months)L="month"; else if(d->weeks)L="week"; else L="day"; if(date_unit_rank(L)<date_unit_rank(sUnit))L=sUnit; }
