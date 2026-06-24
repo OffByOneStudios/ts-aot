@@ -3571,6 +3571,25 @@ static void split_time_ns(long long t, long long* h,long long* mi,long long* s,l
     *h=sg*(a/3600000000000LL); a%=3600000000000LL; *mi=sg*(a/60000000000LL); a%=60000000000LL;
     *s=sg*(a/1000000000LL); a%=1000000000LL; *ms=sg*(a/1000000LL); a%=1000000LL; *us=sg*(a/1000LL); *ns=sg*(a%1000LL);
 }
+// Round totalNs to a multiple of inc*sNs, returning the result as a COUNT of sNs-units
+// (e.g. days). Overflow-safe: inc*sNs and the ns result exceed int64 for a huge increment
+// (smallestUnit day + roundingIncrement up to 1e9 -> DAY*1e9 = 8.64e22).
+static long long round_unit_count(long long totalNs, long long sNs, long long inc, const std::string& mode){
+    int sign = totalNs<0?-1:1; long long av = totalNs<0?-totalNs:totalNs;
+    long long units = av/sNs; long long sub = av%sNs;
+    long long remU = units%inc; long long base = units - remU;   // multiple of inc, toward zero
+    bool hasFrac = (remU!=0)||(sub!=0);
+    std::string m = (sign<0)? flip_mode_neg(mode) : mode;        // normalize to the nonneg magnitude
+    bool up;
+    if(!hasFrac) up=false;
+    else if(m=="trunc"||m=="floor") up=false;
+    else if(m=="expand"||m=="ceil") up=true;
+    else { long long twice=remU*2;                               // compare remU vs inc/2 (no overflow)
+        if(twice>inc) up=true; else if(twice<inc) up=false;
+        else { if(sub>0) up=true; else if(m=="halfExpand"||m=="halfCeil") up=true;
+               else if(m=="halfTrunc"||m=="halfFloor") up=false; else up=(((base/inc)%2)!=0); } }
+    return sign * (up? (base+inc) : base);
+}
 // Rounding/diff core with options already parsed and largest already resolved
 // (no opts re-read — callers that have already read the options pass them here).
 static TsValue* pdt_diff_rounded(TsPlainDateTime* a, TsPlainDateTime* b, const std::string& smallest, const std::string& largest, const std::string& mode, long long inc){
@@ -3588,6 +3607,19 @@ static TsValue* pdt_diff_rounded(TsPlainDateTime* a, TsPlainDateTime* b, const s
         if(smallest=="week"||smallest=="weeks") sNs=7*DAY;
         else if(smallest=="day"||smallest=="days") sNs=DAY;
         else { bool ok; sNs=unit_ns(smallest,&ok); if(!ok) sNs=1; }
+        // A huge increment makes sNs*inc (and the rounded ns result) overflow int64; the
+        // granularity is then >= 1 day, so the result has no sub-day time. Compute in units.
+        if(inc>1 && sNs > (9223372036854775807LL/inc)){
+            long long units = round_unit_count(totalNs, sNs, inc, mode);
+            long long days2 = (smallest=="week"||smallest=="weeks") ? units*7 : units;
+            if(date_unit_rank(largest)>=4){
+                int ey,em,ed; iso_civil_from_days(iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day)+days2,&ey,&em,&ed);
+                long long yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,largest,&yr,&mo,&wk,&dy);
+                return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+            }
+            if(largest=="week"||largest=="weeks"){ long long wk=days2/7, dy=days2%7; return ts_value_make_object(TsDuration::Create(0,0,wk,dy,0,0,0,0,0,0)); }
+            return ts_value_make_object(TsDuration::Create(0,0,0,days2,0,0,0,0,0,0));
+        }
         long long r=round_signed(totalNs, sNs*(inc>0?inc:1), mode);
         long long days=r/DAY, t=r%DAY;
         long long h,mi,s,ms,us,ns; split_time_ns(t,&h,&mi,&s,&ms,&us,&ns);
