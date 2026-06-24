@@ -116,6 +116,7 @@ static int iso_days_in_month(int y, int m);
 static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank, std::string* largestOut=nullptr);
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static bool iso_string_offset_min(const char* s, int* offMin);
+static bool iso_string_offset_subminute(const char* s);   // true iff the inline offset has sub-minute precision
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
 static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns);
@@ -2597,6 +2598,21 @@ static bool parse_timezone(const char* s, int* offMin, bool* isUtc){
     if(*p!=0) return false;
     *offMin=sign*(hh*60+mm); *isUtc=false; return true;
 }
+static bool pdt_time_valid(int h,int mi,int s,int ms,int us,int ns);
+// Resolve a time-zone IDENTIFIER string to a fixed offset (off/utc, zbuf empty) OR a named
+// IANA zone (zbuf set). Accepts UTC, ±HH:MM, a named zone, or a VALID datetime-form string
+// (its inline offset / Z). Returns false if unrecognized.
+static bool resolve_timezone_id(const char* tu, int* off, bool* utc, char* zbuf, size_t zsz){
+    if(!tu){ return false; } zbuf[0]=0;
+    if(parse_timezone(tu,off,utc)) return true;
+    if(icu_zone_canonical(tu,zbuf,zsz)) return true;
+    int Y,M,D,H,Mi,S,ms2,us2,ns2;
+    if(parse_iso_datetime(tu,&Y,&M,&D,&H,&Mi,&S,&ms2,&us2,&ns2) && iso_date_valid(Y,M,D) && pdt_time_valid(H,Mi,S,ms2,us2,ns2) && iso_annotations_valid(tu) && !iso_string_offset_subminute(tu)){
+        if(has_utc_designator(tu)){ *off=0; *utc=true; return true; }
+        int dtoff=0; if(iso_string_offset_min(tu,&dtoff)){ *off=dtoff; *utc=false; return true; }
+    }
+    return false;
+}
 extern "C" TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv){
     // new Temporal.ZonedDateTime(epochNanoseconds: bigint, timeZone: string)
     TsValue* a0=(argc>=1&&argv)?argv[0]:nullptr; void* raw0=a0?ts_nanbox_safe_unbox(a0):nullptr;
@@ -2672,10 +2688,7 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         void* tzr=ts_nanbox_safe_unbox(tzf); int off=0; bool utc=false; char zoneName[40]={0};
         if(tzr&&(*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){
             const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8();
-            if(!tu){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
-            else if(parse_timezone(tu,&off,&utc)){ /* fixed offset / UTC */ }
-            else if(icu_zone_canonical(tu, zoneName, sizeof(zoneName))){ /* named IANA zone */ }
-            else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
+            if(!resolve_timezone_id(tu,&off,&utc,zoneName,sizeof(zoneName))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
         }
         else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
         { TsValue* offf=ts_object_get_property(raw,"offset");
@@ -2825,6 +2838,26 @@ static bool iso_string_offset_min(const char* s, int* offMin){
         if(*p=='+'||*p=='-'){ std::string off(p,(size_t)(end-p));
             if(!valid_offset_field(off.c_str())) return false;
             *offMin=(int)(offset_field_ns(off.c_str())/60000000000LL); return true; }
+    }
+    return false;
+}
+// True iff the string's inline offset (after 'T', before '[') carries sub-minute precision —
+// valid for an instant offset but NOT for a time-zone identifier.
+static bool iso_string_offset_subminute(const char* s){
+    const char* br=strchr(s,'['); const char* end=br?br:s+strlen(s);
+    const char* t=strchr(s,'T'); if(!t)t=strchr(s,'t'); if(!t||t>=end) return false;
+    for(const char* p=t+1; p<end; p++){
+        if(*p=='Z'||*p=='z') return false;
+        if(*p=='+'||*p=='-'){
+            const char* q=p+1;                                  // ±HH
+            if(!isdigit((unsigned char)q[0])||!isdigit((unsigned char)q[1])) return false; q+=2;
+            bool colon=(*q==':'); if(colon) q++;
+            if(isdigit((unsigned char)q[0])&&isdigit((unsigned char)q[1])) q+=2; else return false;  // MM
+            // A further ':SS' (extended) or more digits (basic ±HHMMSS) is a SECONDS component.
+            if(*q==':') return true;
+            if(!colon && isdigit((unsigned char)*q)) return true;
+            return false;
+        }
     }
     return false;
 }
@@ -3756,18 +3789,10 @@ TsValue* ts_temporal_zdt_withTimeZone_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"withTimeZone");
     TsValue* tzf=(argc>=1&&argv)?argv[0]:nullptr; void* tzr=tzf?ts_nanbox_safe_unbox(tzf):nullptr;
     if(!tzr||(*(uint32_t*)tzr!=0x53545247&&*(uint32_t*)tzr!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.withTimeZone: timeZone must be a string")); return ts_value_make_undefined(); }
-    const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); int off=0; bool utc=false;
-    if(tu && parse_timezone(tu,&off,&utc)) return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms, z->sub_ns, off, utc));  // same instant
-    char zbuf[40];
-    if(tu && icu_zone_canonical(tu,zbuf,sizeof(zbuf))) return ts_value_make_object(TsZonedDateTime::CreateNamed(z->epoch_ms, z->sub_ns, zbuf));
-    // A datetime-form time-zone string contributes its offset (or Z = UTC) — but it must be a
-    // VALID ISO datetime (reject leap second, year zero, sub-minute offset, bad annotations).
-    if(tu){
-        int Y,M,D,H,Mi,S,ms2,us2,ns2; int dtoff=0;
-        if(parse_iso_datetime(tu,&Y,&M,&D,&H,&Mi,&S,&ms2,&us2,&ns2) && iso_date_valid(Y,M,D) && pdt_time_valid(H,Mi,S,ms2,us2,ns2) && iso_annotations_valid(tu)){
-            if(has_utc_designator(tu)) return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms, z->sub_ns, 0, true));
-            if(iso_string_offset_min(tu,&dtoff)) return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms, z->sub_ns, dtoff, false));
-        }
+    const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); int off=0; bool utc=false; char zbuf[40];
+    if(tu && resolve_timezone_id(tu,&off,&utc,zbuf,sizeof(zbuf))){   // same instant, new zone
+        if(zbuf[0]) return ts_value_make_object(TsZonedDateTime::CreateNamed(z->epoch_ms, z->sub_ns, zbuf));
+        return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms, z->sub_ns, off, utc));
     }
     ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.withTimeZone: unsupported time zone")); return ts_value_make_undefined();
 }
