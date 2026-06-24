@@ -3333,23 +3333,28 @@ static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::
     if(largest=="week"||largest=="weeks"){ *wk=totalDays/7; *dy=totalDays%7; return; }
     if(totalDays==0) return;
     int sign = totalDays<0?-1:1;
-    // Spec CalendarDateUntil (ISO): anchor at `a`, take the raw year/month delta, then walk
-    // the month component back toward `a` by one step until a+years+months (constrained)
-    // does not overshoot b; the day remainder is the gap to b. Anchoring at `a` (not the
-    // earlier of a/b) is what makes end-of-month cases exact in both directions
-    // (e.g. Jan 31 -> Feb 28 is P1M, and the reverse is P-1M, not P-30D / borrow artifacts).
-    long long years = by - ay, months = bm - am;
-    int cy,cm,cd; add_iso_date(ay,am,ad, years, months, 0, 0, &cy,&cm,&cd);
-    long long cmp = iso_days_from_civil(cy,cm,cd) - iso_days_from_civil(by,bm,bd);
-    while((sign>0 && cmp>0) || (sign<0 && cmp<0)){
-        months -= sign;
-        add_iso_date(ay,am,ad, years, months, 0, 0, &cy,&cm,&cd);
-        cmp = iso_days_from_civil(cy,cm,cd) - iso_days_from_civil(by,bm,bd);
-    }
-    long long dd = iso_days_from_civil(by,bm,bd) - iso_days_from_civil(cy,cm,cd);
-    long long tm = years*12 + months;       // canonical: same sign, |months| < 12
-    if(largest=="month"||largest=="months"){ *yr=0; *mo=tm; }
-    else { *yr=tm/12; *mo=tm%12; }
+    // Spec DifferenceISODate (ISO calendar), anchored at `a`. The raw month delta a+tmonths is
+    // walked back toward `a` until it no longer reaches/overshoots `b` IN THE SIGN DIRECTION —
+    // crucially, a month whose AddISODate had to CONSTRAIN the day (e.g. Jan 29 + 1mo -> Feb 29
+    // clamped to Feb 28) counts as an overshoot, so Jan 29 -> Feb 28 is 30 days, NOT one month,
+    // while Jan 29 -> Mar 28 is one month 28 days. The day remainder is then computed
+    // month-aware (steps p/q/r) so it spans the constrained-month boundary correctly.
+    long long tmonths = (by-ay)*12 + (bm-am);
+    auto overshoots=[&](long long tmo)->bool{
+        int ty,tm2,td; add_iso_date(ay,am,ad, 0, tmo, 0, 0, &ty,&tm2,&td);
+        bool constrained = (ad > iso_days_in_month(ty,tm2));   // the intended day was clamped
+        long long c = iso_days_from_civil(ty,tm2,td) - iso_days_from_civil(by,bm,bd);
+        if(sign>0) return c>0 || (c==0 && constrained);
+        return c<0 || (c==0 && constrained);
+    };
+    while(tmonths!=0 && overshoots(tmonths)) tmonths -= sign;
+    int cy,cm,cd; add_iso_date(ay,am,ad, 0, tmonths, 0, 0, &cy,&cm,&cd);
+    long long dd;
+    if(cy==by && cm==bm) dd = (long long)bd - cd;
+    else if(sign<0) dd = -(long long)cd - (iso_days_in_month(by,bm) - bd);
+    else dd = (long long)bd + (iso_days_in_month(cy,cm) - cd);
+    if(largest=="month"||largest=="months"){ *yr=0; *mo=tmonths; }
+    else { *yr=tmonths/12; *mo=tmonths%12; }
     *wk=0; *dy=dd;
 }
 static TsPlainDate* coerce_plaindate_arg(TsValue* v){
@@ -3402,10 +3407,29 @@ static void read_date_diff_opts(TsValue* opts, std::string* smallest, std::strin
     if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(dd==dd&&!std::isinf(dd))*inc=(long long)std::trunc(dd); } }
     if(*largest=="auto") *largest = (date_unit_rank(*smallest)>date_unit_rank("day")) ? *smallest : std::string("day");
 }
-static TsValue* plaindate_diff(int aY,int aM,int aD,int bY,int bM,int bD,TsValue* opts){
+// since(a,b) == negate(until(a,b)): the diff is computed forward (anchored at the receiver `a`)
+// then negated, with the rounding mode negated first (round(-x, M) == -round(x, negate(M))).
+// Required because DifferenceISODate is asymmetric at end-of-month, so swapping the operands
+// (anchoring at `b`) gives the wrong calendar result.
+static std::string negate_temporal_mode(const std::string& m){
+    if(m=="ceil") return "floor";
+    if(m=="floor") return "ceil";
+    if(m=="halfCeil") return "halfFloor";
+    if(m=="halfFloor") return "halfCeil";
+    return m;   // trunc / expand / halfExpand / halfTrunc / halfEven are self-negating
+}
+static TsValue* negate_duration_value(TsValue* dv){
+    void* raw = dv?ts_nanbox_safe_unbox(dv):nullptr;
+    if(!raw || *(uint32_t*)((char*)raw+16)!=TsDuration::MAGIC) return dv;
+    TsDuration* d=(TsDuration*)raw;
+    return ts_value_make_object(TsDuration::Create(-d->years,-d->months,-d->weeks,-d->days,
+        -d->hours,-d->minutes,-d->seconds,-d->milliseconds,-d->microseconds,-d->nanoseconds));
+}
+static TsValue* plaindate_diff(int aY,int aM,int aD,int bY,int bM,int bD,TsValue* opts,bool negate=false){
     std::string smallest,largest,mode; long long inc;
     read_validated_diff_opts(opts,7,10,"day","auto",&smallest,&largest,&mode,&inc);
     if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank("day")) ? smallest : std::string("day");
+    if(negate) mode = negate_temporal_mode(mode);
     long long yr,mo,wk,dy;
     if((smallest=="day"||smallest=="days") && mode=="trunc" && inc<=1)
         diff_iso_date(aY,aM,aD,bY,bM,bD,largest,&yr,&mo,&wk,&dy);
@@ -3413,7 +3437,8 @@ static TsValue* plaindate_diff(int aY,int aM,int aD,int bY,int bM,int bD,TsValue
         bool _re=false; round_date_duration(aY,aM,aD,bY,bM,bD,smallest,largest,inc,mode,&yr,&mo,&wk,&dy,&_re);
         if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
     }
-    return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+    TsValue* r=ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
+    return negate? negate_duration_value(r) : r;
 }
 TsValue* ts_temporal_plaindate_until_native(void* ctx,int argc,TsValue** argv){
     TsPlainDate* a=require_plaindate(ctx,"until"); TsPlainDate* b=coerce_plaindate_arg((argc>=1&&argv)?argv[0]:nullptr);
@@ -3423,7 +3448,7 @@ TsValue* ts_temporal_plaindate_until_native(void* ctx,int argc,TsValue** argv){
 TsValue* ts_temporal_plaindate_since_native(void* ctx,int argc,TsValue** argv){
     TsPlainDate* a=require_plaindate(ctx,"since"); TsPlainDate* b=coerce_plaindate_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.since: invalid argument")); return ts_value_make_undefined(); }
-    return plaindate_diff(b->iso_year,b->iso_month,b->iso_day,a->iso_year,a->iso_month,a->iso_day,(argc>=2&&argv)?argv[1]:nullptr);
+    return plaindate_diff(a->iso_year,a->iso_month,a->iso_day,b->iso_year,b->iso_month,b->iso_day,(argc>=2&&argv)?argv[1]:nullptr,true);
 }
 }
 
@@ -3567,12 +3592,14 @@ static TsValue* pdt_diff_rounded(TsPlainDateTime* a, TsPlainDateTime* b, const s
     return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
 }
 // Reads & validates the diff options once, resolves largestUnit, then rounds.
-static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts, const char* defLargest="day"){
+static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts, const char* defLargest="day", bool negate=false){
     std::string smallest,largest,mode; long long inc;
     read_validated_diff_opts(opts,1,10,"nanosecond","auto",&smallest,&largest,&mode,&inc);
     validate_diff_time_increment(smallest, inc);
     if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank(defLargest)) ? smallest : std::string(defLargest);
-    return pdt_diff_rounded(a,b,smallest,largest,mode,inc);
+    if(negate) mode = negate_temporal_mode(mode);
+    TsValue* r = pdt_diff_rounded(a,b,smallest,largest,mode,inc);
+    return negate? negate_duration_value(r) : r;
 }
 extern "C" {
 TsValue* ts_temporal_plaindatetime_add_native(void* ctx,int argc,TsValue** argv){
@@ -3597,7 +3624,7 @@ TsValue* ts_temporal_plaindatetime_until_native(void* ctx,int argc,TsValue** arg
 TsValue* ts_temporal_plaindatetime_since_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* a=require_plaindatetime(ctx,"since"); TsPlainDateTime* b=coerce_plaindatetime_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.since: invalid argument")); return ts_value_make_undefined(); }
-    return pdt_diff_opts(b,a,(argc>=2&&argv)?argv[1]:nullptr);
+    return pdt_diff_opts(a,b,(argc>=2&&argv)?argv[1]:nullptr,"day",true);
 }
 }
 
@@ -3769,18 +3796,20 @@ static TsZonedDateTime* coerce_zdt_arg(TsValue* v){
 }
 // ZDT diff via the local datetimes (valid for fixed-offset/UTC zones), with
 // smallestUnit rounding (default largestUnit hour). No-rounding -> existing zdt_diff.
-static TsValue* zdt_diff_opts(TsZonedDateTime* a, TsZonedDateTime* b, TsValue* opts){
+static TsValue* zdt_diff_opts(TsZonedDateTime* a, TsZonedDateTime* b, TsValue* opts, bool negate=false){
     std::string smallest,largest,mode; long long inc;
     read_validated_diff_opts(opts,1,10,"nanosecond","hour",&smallest,&largest,&mode,&inc);
     validate_diff_time_increment(smallest, inc);   // preserved from the former pdt_diff_opts re-read
     // largestUnit "auto" resolves to the larger of smallestUnit and "hour" (was done by the re-read).
     if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank("hour")) ? smallest : std::string("hour");
-    if((smallest=="nanosecond"||smallest=="nanoseconds")&&mode=="trunc"&&inc<=1) return zdt_diff(a,b,largest);
+    if(negate) mode = negate_temporal_mode(mode);
+    if((smallest=="nanosecond"||smallest=="nanoseconds")&&mode=="trunc"&&inc<=1){ TsValue* r=zdt_diff(a,b,largest); return negate? negate_duration_value(r) : r; }
     int aY,aM,aD,ah,ami,as_,ams,aus,ans; zdt_local(a,&aY,&aM,&aD,&ah,&ami,&as_,&ams,&aus,&ans);
     int bY,bM,bD,bh,bmi,bs,bms,bus,bns; zdt_local(b,&bY,&bM,&bD,&bh,&bmi,&bs,&bms,&bus,&bns);
     TsPlainDateTime* pa=TsPlainDateTime::Create(aY,aM,aD,ah,ami,as_,ams,aus,ans);
     TsPlainDateTime* pb=TsPlainDateTime::Create(bY,bM,bD,bh,bmi,bs,bms,bus,bns);
-    return pdt_diff_rounded(pa,pb,smallest,largest,mode,inc);   // options already read — no second pass
+    TsValue* r = pdt_diff_rounded(pa,pb,smallest,largest,mode,inc);   // options already read — no second pass
+    return negate? negate_duration_value(r) : r;
 }
 TsValue* ts_temporal_zdt_until_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* a=require_zoneddatetime(ctx,"until"); TsZonedDateTime* b=coerce_zdt_arg((argc>=1&&argv)?argv[0]:nullptr);
@@ -3790,7 +3819,7 @@ TsValue* ts_temporal_zdt_until_native(void* ctx,int argc,TsValue** argv){
 TsValue* ts_temporal_zdt_since_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* a=require_zoneddatetime(ctx,"since"); TsZonedDateTime* b=coerce_zdt_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.since: invalid argument")); return ts_value_make_undefined(); }
-    return zdt_diff_opts(b,a,(argc>=2&&argv)?argv[1]:nullptr);
+    return zdt_diff_opts(a,b,(argc>=2&&argv)?argv[1]:nullptr,true);
 }
 static TsValue* zdt_from_local(int Y,int M,int D,int h,int mi,int s,int ms,int us,int ns,int off,bool utc){
     long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)h*3600000+(long long)mi*60000+(long long)s*1000+ms;
@@ -4099,7 +4128,7 @@ static TsPlainYearMonth* coerce_pym_arg(TsValue* v){
     TsPlainYearMonth* p=as_plainyearmonth(v?ts_nanbox_safe_unbox(v):nullptr); if(p) return p;
     TsValue* c=ts_temporal_plainyearmonth_from(v?1:0,&v); return as_plainyearmonth(ts_nanbox_safe_unbox(c));
 }
-static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts){
+static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts,bool negate=false){
     std::string smallest,largest,mode; long long inc;
     read_validated_diff_opts(opts,9,10,"month","year",&smallest,&largest,&mode,&inc);
     if(largest=="auto") largest="year";
@@ -4107,13 +4136,15 @@ static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts){
     // ISO range (the min PYM's day 1, -271821-04-01, is before the minimum date -271821-04-19).
     if(!iso_date_in_limits(a->iso_year,a->iso_month,1) || !iso_date_in_limits(b->iso_year,b->iso_month,1)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: difference reference date is outside the valid ISO range")); return ts_value_make_undefined(); }
     long long yr,mo,wk,dy;
+    if(negate) mode = negate_temporal_mode(mode);
     if((smallest=="month"||smallest=="months")&&mode=="trunc"&&inc<=1)
         diff_iso_date(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,largest,&yr,&mo,&wk,&dy);
     else {
         bool _re=false; round_date_duration(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,smallest,largest,inc,mode,&yr,&mo,&wk,&dy,&_re);
         if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
     }
-    return ts_value_make_object(TsDuration::Create(yr,mo,0,0,0,0,0,0,0,0));
+    TsValue* r=ts_value_make_object(TsDuration::Create(yr,mo,0,0,0,0,0,0,0,0));
+    return negate? negate_duration_value(r) : r;
 }
 TsValue* ts_temporal_plainyearmonth_until_native(void* ctx,int argc,TsValue** argv){
     TsPlainYearMonth* a=require_plainyearmonth(ctx,"until"); TsPlainYearMonth* b=coerce_pym_arg((argc>=1&&argv)?argv[0]:nullptr);
@@ -4123,7 +4154,7 @@ TsValue* ts_temporal_plainyearmonth_until_native(void* ctx,int argc,TsValue** ar
 TsValue* ts_temporal_plainyearmonth_since_native(void* ctx,int argc,TsValue** argv){
     TsPlainYearMonth* a=require_plainyearmonth(ctx,"since"); TsPlainYearMonth* b=coerce_pym_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.since: invalid argument")); return ts_value_make_undefined(); }
-    return pym_diff(b,a,(argc>=2&&argv)?argv[1]:nullptr);
+    return pym_diff(a,b,(argc>=2&&argv)?argv[1]:nullptr,true);
 }
 static TsValue* pym_add_impl(TsPlainYearMonth* a,TsDuration* d,int neg){
     // Lower (time) units balance into whole days (largestUnit "day", truncating).
