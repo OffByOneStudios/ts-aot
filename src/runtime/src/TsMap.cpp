@@ -806,7 +806,7 @@ TsValue* ts_map_set_fast(void* map, TsValue* key, TsValue* value) {
     TsValue keyTV = nanbox_to_tagged(key);
     TsValue valTV = nanbox_to_tagged(value);
     ((TsMap*)map)->Set(keyTV, valTV);
-    return (TsValue*)(uintptr_t)NANBOX_UNDEFINED;
+    return ts_value_make_object(map);   // Map/WeakMap.prototype.set returns the receiver
 }
 
 // Fast path for Map.has()
