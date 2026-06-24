@@ -2464,6 +2464,12 @@ static int zdt_eff_offset(TsZonedDateTime* z){
     if(z->zone_name[0]) return icu_zone_offset_at(z->zone_name, z->epoch_ms);
     return z->offset_minutes;
 }
+// Derive a ZonedDateTime in the SAME zone as `z` at a new epoch (named zones preserve the
+// IANA id and recompute the DST-aware offset; offset zones keep the fixed offset).
+static TsZonedDateTime* zdt_same_zone(TsZonedDateTime* z, long long ms, int subNs){
+    if(z->zone_name[0]) return TsZonedDateTime::CreateNamed(ms, subNs, z->zone_name);
+    return TsZonedDateTime::Create(ms, subNs, z->offset_minutes, z->is_utc);
+}
 // Local wall-clock breakdown (epoch + fixed offset).
 static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns){
     // Wall-clock fields are FLOOR-based: the sub-second components must land in
@@ -2659,7 +2665,7 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     uint32_t m0=*(uint32_t*)raw;
     if(m0!=0x53545247 && m0!=0x434F4E53){
         _readopts();   // object/bag input: options observed up front (unchanged order)
-        if(*(uint32_t*)((char*)raw+16)==TsZonedDateTime::MAGIC){ TsZonedDateTime* z=(TsZonedDateTime*)raw; return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms,z->sub_ns,z->offset_minutes,z->is_utc)); }
+        if(*(uint32_t*)((char*)raw+16)==TsZonedDateTime::MAGIC){ TsZonedDateTime* z=(TsZonedDateTime*)raw; return ts_value_make_object(zdt_same_zone(z,z->epoch_ms,z->sub_ns)); }
         // property bag: year/month/day + timeZone required.
         TsValue* tzf=ts_object_get_property(raw,"timeZone");
         if(!tzf||ts_value_is_undefined(tzf)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs a timeZone")); return ts_value_make_undefined(); }
@@ -3672,7 +3678,7 @@ static TsValue* zdt_add(TsZonedDateTime* z, TsDuration* d, int sign){
     int nss=(int)(rem/1000000000LL); rem%=1000000000LL; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
     long long localMs = iso_days_from_civil(nY,nM,nD)*86400000LL + (long long)nh*3600000 + (long long)nmi*60000 + (long long)nss*1000 + nms;
     long long epoch_ms = localMs - (long long)z->offset_minutes*60000LL;
-    return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, nus*1000+nns, z->offset_minutes, z->is_utc));
+    return ts_value_make_object(zdt_same_zone(z, epoch_ms, nus*1000+nns));
 }
 static TsValue* zdt_diff(TsZonedDateTime* a, TsZonedDateTime* b, const std::string& lu){
     const long long DAY=86400000000000LL;
@@ -3750,14 +3756,25 @@ TsValue* ts_temporal_zdt_withTimeZone_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"withTimeZone");
     TsValue* tzf=(argc>=1&&argv)?argv[0]:nullptr; void* tzr=tzf?ts_nanbox_safe_unbox(tzf):nullptr;
     if(!tzr||(*(uint32_t*)tzr!=0x53545247&&*(uint32_t*)tzr!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.withTimeZone: timeZone must be a string")); return ts_value_make_undefined(); }
-    const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); int off; bool utc;
-    if(!tu||!parse_timezone(tu,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.withTimeZone: unsupported time zone")); return ts_value_make_undefined(); }
-    return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms, z->sub_ns, off, utc));  // same instant
+    const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); int off=0; bool utc=false;
+    if(tu && parse_timezone(tu,&off,&utc)) return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms, z->sub_ns, off, utc));  // same instant
+    char zbuf[40];
+    if(tu && icu_zone_canonical(tu,zbuf,sizeof(zbuf))) return ts_value_make_object(TsZonedDateTime::CreateNamed(z->epoch_ms, z->sub_ns, zbuf));
+    // A datetime-form time-zone string contributes its offset (or Z = UTC) — but it must be a
+    // VALID ISO datetime (reject leap second, year zero, sub-minute offset, bad annotations).
+    if(tu){
+        int Y,M,D,H,Mi,S,ms2,us2,ns2; int dtoff=0;
+        if(parse_iso_datetime(tu,&Y,&M,&D,&H,&Mi,&S,&ms2,&us2,&ns2) && iso_date_valid(Y,M,D) && pdt_time_valid(H,Mi,S,ms2,us2,ns2) && iso_annotations_valid(tu)){
+            if(has_utc_designator(tu)) return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms, z->sub_ns, 0, true));
+            if(iso_string_offset_min(tu,&dtoff)) return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms, z->sub_ns, dtoff, false));
+        }
+    }
+    ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.withTimeZone: unsupported time zone")); return ts_value_make_undefined();
 }
 TsValue* ts_temporal_zdt_withCalendar_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"withCalendar");
     TsValue* cf=(argc>=1&&argv)?argv[0]:nullptr; validate_calendar_slot_arg(cf);
-    return ts_value_make_object(TsZonedDateTime::Create(z->epoch_ms,z->sub_ns,z->offset_minutes,z->is_utc));
+    return ts_value_make_object(zdt_same_zone(z,z->epoch_ms,z->sub_ns));
 }
 // getTimeZoneTransition(directionParam): validate the required direction, then
 // return null — ts-aot time zones are offset/UTC based and have no transitions.
@@ -4527,7 +4544,7 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
     long long localMs=iso_days_from_civil(nY,nM,nD)*86400000LL+(long long)nh*3600000+(long long)nmi*60000+(long long)nss*1000+nms;
     long long epoch_ms=localMs-(long long)z->offset_minutes*60000LL;
     if(!instant_epoch_in_limits(epoch_ms, nus*1000+nns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.round: result is outside the representable range")); return ts_value_make_undefined(); }
-    return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, nus*1000+nns, z->offset_minutes, z->is_utc));
+    return ts_value_make_object(zdt_same_zone(z, epoch_ms, nus*1000+nns));
 }
 }
 
