@@ -2680,29 +2680,32 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item); if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: invalid argument")); return ts_value_make_undefined(); }
     uint32_t m0=*(uint32_t*)raw;
     if(m0!=0x53545247 && m0!=0x434F4E53){
-        _readopts();   // object/bag input: options observed up front (unchanged order)
-        if(*(uint32_t*)((char*)raw+16)==TsZonedDateTime::MAGIC){ TsZonedDateTime* z=(TsZonedDateTime*)raw; return ts_value_make_object(zdt_same_zone(z,z->epoch_ms,z->sub_ns)); }
-        // property bag: year/month/day + timeZone required.
-        TsValue* tzf=ts_object_get_property(raw,"timeZone");
-        if(!tzf||ts_value_is_undefined(tzf)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs a timeZone")); return ts_value_make_undefined(); }
-        void* tzr=ts_nanbox_safe_unbox(tzf); int off=0; bool utc=false; char zoneName[40]={0};
-        if(tzr&&(*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){
-            const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8();
-            if(!resolve_timezone_id(tu,&off,&utc,zoneName,sizeof(zoneName))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
-        }
-        else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
-        { TsValue* offf=ts_object_get_property(raw,"offset");
-          if(offf && !ts_value_is_undefined(offf)){ std::string os;
-              if(!tsvalue_to_stdstring(offf,&os) || !valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid offset string")); return ts_value_make_undefined(); }
-              // offset:"reject" -> the supplied offset must match the (offset-only)
-              // time zone's offset exactly.
-              if(!zoneName[0] && offMode=="reject" && offset_field_ns(os.c_str()) != (long long)off*60000000000LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: offset does not match the time zone")); return ts_value_make_undefined(); } } }
-        int bagM=read_bag_month(raw);
-        TsValue* fy=ts_object_get_property(raw,"year"),*fd=ts_object_get_property(raw,"day");
-        if(!fy||ts_value_is_undefined(fy)||bagM<1||!fd||ts_value_is_undefined(fd)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs year, month and day")); return ts_value_make_undefined(); }
+        if(*(uint32_t*)((char*)raw+16)==TsZonedDateTime::MAGIC){ _readopts(); TsZonedDateTime* z=(TsZonedDateTime*)raw; return ts_value_make_object(zdt_same_zone(z,z->epoch_ms,z->sub_ns)); }
+        // PrepareTemporalFields reads recognized fields ALPHABETICALLY: calendar, day, hour,
+        // microsecond, millisecond, minute, month, monthCode, nanosecond, offset, second,
+        // timeZone, year. (disambiguation/offset/overflow options were read above.)
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid calendar")); return ts_value_make_undefined(); }
-        auto rd=[&](const char* k,int def)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return def; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return 0; return (int)std::trunc(d); };
-        int Y=rd("year",0),M=bagM,D=rd("day",1),H=rd("hour",0),Mi=rd("minute",0),S=rd("second",0),ms=rd("millisecond",0),us=rd("microsecond",0),ns=rd("nanosecond",0);
+        auto rd=[&](const char* k,bool* has)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f)){ if(has)*has=false; return 0; } if(has)*has=true; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return 0; return (int)std::trunc(d); };
+        bool hD=false,hY=false;
+        int D=rd("day",&hD), H=rd("hour",nullptr), us=rd("microsecond",nullptr), ms=rd("millisecond",nullptr), Mi=rd("minute",nullptr);
+        int bagM=read_bag_month(raw);   // month, monthCode
+        int ns=rd("nanosecond",nullptr);
+        std::string offStr; bool hasOffset=false;
+        { TsValue* offf=ts_object_get_property(raw,"offset");
+          if(offf && !ts_value_is_undefined(offf)){ if(!option_to_string(offf,&offStr) || !valid_offset_field(offStr.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid offset string")); return ts_value_make_undefined(); } hasOffset=true; } }
+        int S=rd("second",nullptr);
+        int off=0; bool utc=false; char zoneName[40]={0};
+        { TsValue* tzf=ts_object_get_property(raw,"timeZone");
+          if(!tzf||ts_value_is_undefined(tzf)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs a timeZone")); return ts_value_make_undefined(); }
+          void* tzr=ts_nanbox_safe_unbox(tzf);
+          const char* tu = (tzr&&(*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)) ? ((TsString*)ts_value_get_string(tzf))->ToUtf8() : nullptr;
+          if(!tu||!resolve_timezone_id(tu,&off,&utc,zoneName,sizeof(zoneName))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); } }
+        int Y=rd("year",&hY);
+        _readopts();   // disambiguation/offset/overflow read AFTER the bag fields (spec order)
+        if(!hY||bagM<1||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs year, month and day")); return ts_value_make_undefined(); }
+        int M=bagM;
+        // offset:"reject" -> a supplied offset must match the (offset-only) time zone exactly.
+        if(hasOffset && !zoneName[0] && offMode=="reject" && offset_field_ns(offStr.c_str()) != (long long)off*60000000000LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: offset does not match the time zone")); return ts_value_make_undefined(); }
         // overflow:"reject" -> any out-of-range field is a RangeError (no clamping).
         if(_ovrej){
             const int tl[6]={23,59,59,999,999,999}; int tv[6]={H,Mi,S,ms,us,ns};
@@ -3858,7 +3861,7 @@ TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     auto rd=[&](const char* k,int cur)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return cur; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return cur; return (int)std::trunc(d); };
     Y=rd("year",Y); int bagM=read_bag_month(raw); if(bagM>=1)M=bagM; D=rd("day",D);
     h=rd("hour",h); mi=rd("minute",mi); s=rd("second",s); ms=rd("millisecond",ms); us=rd("microsecond",us); ns=rd("nanosecond",ns);
-    { TsValue* offf=ts_object_get_property(raw,"offset"); if(offf&&!ts_value_is_undefined(offf)){ std::string os; if(!tsvalue_to_stdstring(offf,&os)||!valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: invalid offset string")); return ts_value_make_undefined(); } } }
+    { TsValue* offf=ts_object_get_property(raw,"offset"); if(offf&&!ts_value_is_undefined(offf)){ std::string os; if(!option_to_string(offf,&os)||!valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: invalid offset string")); return ts_value_make_undefined(); } } }
     if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
     const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&h,&mi,&s,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
     return zdt_from_local(Y,M,D,h,mi,s,ms,us,ns,z->offset_minutes,z->is_utc);
