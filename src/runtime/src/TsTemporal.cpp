@@ -10,6 +10,7 @@
 #include "GC.h"
 #include <new>
 #include <cmath>
+#include <intrin.h>   // _umul128 / _udiv128 / _BitScanReverse64 for correctly-rounded 128-bit total()
 #include <cstring>
 #include <cctype>
 #include <cstdlib>
@@ -3675,20 +3676,38 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
     else if(unit=="nanosecond"||unit=="nanoseconds") unitNs=1.0;
     else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: invalid unit")); return ts_value_make_undefined(); }
     if(unitNs >= 1000000000.0){
-        // Exact for unit >= second: compute whole units + fractional remainder from the
-        // safe (seconds, sub-second-ns) split, avoiding the intermediate double rounding
-        // in totalNs that loses ULPs near 2^53.
+        // Exact (correctly-rounded nearest double) for unit >= second: form the 128-bit
+        // total nanoseconds from the overflow-safe (seconds, sub-second-ns) split, divide
+        // by unitNs, then round the quotient+remainder into the result's mantissa. Avoids
+        // the intermediate double rounding in totalNs that loses ULPs near 2^53.
         long long carrySec = d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
         long long subNs = (d->milliseconds%1000)*1000000LL + (d->microseconds%1000000)*1000LL + (d->nanoseconds%1000000000);
         carrySec += subNs/1000000000LL; subNs %= 1000000000LL;
         long long totalSec = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds + carrySec;
-        long long sgn = (totalSec<0||(totalSec==0&&subNs<0)) ? -1 : 1;
-        long long aSec = totalSec<0?-totalSec:totalSec, aSub = subNs<0?-subNs:subNs;
-        long long unitSec = (long long)(unitNs/1000000000.0);   // 86400/3600/60/1
-        long long whole = aSec/unitSec, remSec = aSec%unitSec;
-        long long remNsTotal = remSec*1000000000LL + aSub;       // < unitSec*1e9 <= 8.64e13
-        double res = ((double)whole + (double)remNsTotal/((double)unitSec*1000000000.0)) * (double)sgn;
-        return ts_value_make_double(res);
+        int sgn = (totalSec<0||(totalSec==0&&subNs<0)) ? -1 : 1;
+        unsigned long long aSec=(unsigned long long)(totalSec<0?-totalSec:totalSec);
+        unsigned long long aSub=(unsigned long long)(subNs<0?-subNs:subNs);
+        unsigned long long uNs=(unsigned long long)(long long)unitNs;
+        unsigned long long hi, lo = _umul128(aSec, 1000000000ULL, &hi);   // totalNs128 = aSec*1e9 + aSub
+        { unsigned long long lo2=lo+aSub; if(lo2<lo) hi++; lo=lo2; }
+        double res;
+        if(hi==0 && lo==0) res=0.0;
+        else {
+            unsigned long long r; unsigned long long q=_udiv128(hi,lo,uNs,&r);   // hi<uNs guaranteed (totalNs<2^84, uNs>=1e9)
+            if(q==0) res=(double)r/(double)uNs;
+            else {
+                unsigned long e; _BitScanReverse64(&e,q);
+                unsigned sh=52-(unsigned)e;
+                unsigned long long fhi, flo=_umul128(r,(1ULL<<sh),&fhi);   // r<uNs -> quotient fits, fhi<uNs
+                unsigned long long fr; unsigned long long fq=_udiv128(fhi,flo,uNs,&fr);
+                unsigned long long M=(q<<sh)+fq;
+                unsigned long long twoFr=fr*2;
+                if(twoFr>uNs || (twoFr==uNs && (M&1ULL))) M++;
+                if(M==(1ULL<<53)){ M=(1ULL<<52); e++; }
+                res=ldexp((double)M,(int)e-52);
+            }
+        }
+        return ts_value_make_double(sgn*res);
     }
     return ts_value_make_double(totalNs/unitNs);
 }
