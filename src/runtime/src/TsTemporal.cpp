@@ -118,6 +118,8 @@ static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static bool iso_string_offset_min(const char* s, int* offMin);
 static bool iso_string_offset_subminute(const char* s);   // true iff the inline offset has sub-minute precision
 static bool resolve_timezone_id(const char* tu, int* off, bool* utc, char* zbuf, size_t zsz);
+static void zdt_offset_string(int offMin, char* buf, size_t n);
+static int icu_zone_offset_at(const char* name, long long epoch_ms);
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
 static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns);
@@ -2352,13 +2354,29 @@ TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
     int us=(int)(sns/1000), ns=(int)(sns%1000);
     // Observable order: fractionalSecondDigits, roundingMode, smallestUnit (via
     // format_time_opts), THEN timeZone.
-    int carry=0; std::string ts=format_time_opts(h,mi,s,msr,us,ns,opts,&carry);   // rounding may cross midnight
+    int carry=0; long long rtns=0; std::string ts=format_time_opts(h,mi,s,msr,us,ns,opts,&carry,-2,&rtns);   // rounding may cross midnight
     if(raw){ TsValue* tz=ts_object_get_property(raw,"timeZone"); if(tz&&!ts_value_is_undefined(tz)){
-        // The timeZone must be a valid identifier even though ts-aot renders the default UTC
-        // string (zone-rendered output unsupported).
-        std::string tzs; int o; bool u;
-        if(!tsvalue_to_stdstring(tz,&tzs)||!parse_timezone(tzs.c_str(),&o,&u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.toString: invalid time zone")); return ts_value_make_undefined(); }
-        return ts_value_make_string(instant_iso_string(it)); } }
+        // Render the instant in the resolved zone (date + local time + offset, no [zone] bracket).
+        void* tzr=ts_nanbox_safe_unbox(tz); int off=0; bool zutc=false; char zbuf[40]={0};
+        if(tzr && (*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){
+            const char* tu=((TsString*)ts_value_get_string(tz))->ToUtf8();
+            if(!tu||!resolve_timezone_id(tu,&off,&zutc,zbuf,sizeof(zbuf))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.toString: invalid time zone")); return ts_value_make_undefined(); }
+        } else if(tzr && *(uint32_t*)((char*)tzr+16)==TsZonedDateTime::MAGIC){
+            TsZonedDateTime* z=(TsZonedDateTime*)tzr; if(z->zone_name[0]) strncpy(zbuf,z->zone_name,sizeof(zbuf)-1); else off=z->offset_minutes;
+        } else { ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.toString: time zone must be a string or time-zone object")); return ts_value_make_undefined(); }
+        int effOff = zbuf[0] ? icu_zone_offset_at(zbuf, it->epoch_ms) : off;   // DST-aware for a named zone
+        // The offset is whole minutes, so the rounded SS.fff is offset-invariant — shift only the
+        // date and HH:MM from the (already rounded) UTC time-of-day.
+        const long long DAYNS=86400000000000LL;
+        long long localNs = rtns + (long long)effOff*60000000000LL;
+        long long lcarry = localNs/DAYNS; long long ltod = localNs%DAYNS; if(ltod<0){ ltod+=DAYNS; lcarry--; }
+        int lY,lM,lD; iso_civil_from_days(days+carry+lcarry,&lY,&lM,&lD);
+        int lH=(int)(ltod/3600000000000LL); int lMi=(int)((ltod%3600000000000LL)/60000000000LL);
+        const char* suffix = (ts.size()>5)? ts.c_str()+5 : "";   // ":SS.fff" or "" (minute smallestUnit)
+        char db2[24]; if(lY<0||lY>9999) snprintf(db2,sizeof(db2),"%+07d-%02d-%02d",lY,lM,lD); else snprintf(db2,sizeof(db2),"%04d-%02d-%02d",lY,lM,lD);
+        char ob[8]; zdt_offset_string(effOff,ob,sizeof(ob)); char tb[8]; snprintf(tb,sizeof(tb),"%02d:%02d",lH,lMi);
+        std::string out=db2; out+="T"; out+=tb; out+=suffix; out+=ob;
+        return ts_value_make_string(TsString::Create(out.c_str())); } }
     int Y,M,D; iso_civil_from_days(days+carry,&Y,&M,&D);
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
     std::string out=db; out+="T"; out+=ts; out+="Z";
