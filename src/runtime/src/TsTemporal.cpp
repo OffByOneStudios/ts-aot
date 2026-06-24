@@ -622,12 +622,14 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
     }
     // Property bag: read recognized fields (default overflow "constrain" clamps).
     if (raw) {
-        static const char* names[6] = {"hour","minute","second","millisecond","microsecond","nanosecond"};
+        // Fields read ALPHABETICALLY (order-of-operations), stored at the output slot.
+        static const char* anames[6] = {"hour","microsecond","millisecond","minute","nanosecond","second"};
+        const int aidx[6] = {0,4,3,1,5,2};   // alphabetical -> output slot (hour,min,sec,ms,us,ns)
         int vals[6] = {0,0,0,0,0,0};
         const int lim[6] = {23,59,59,999,999,999};
         bool any = false; int rawv[6] = {0,0,0,0,0,0};
         for (int i = 0; i < 6; i++) {
-            TsValue* f = ts_object_get_property(raw, names[i]);
+            TsValue* f = ts_object_get_property(raw, anames[i]);
             if (f && !ts_value_is_undefined(f)) {
                 any = true;
                 double d = ts_to_number(f);
@@ -636,7 +638,7 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
                         "Temporal.PlainTime.from: field is not finite"));
                     return ts_value_make_undefined();
                 }
-                rawv[i] = (int)std::trunc(d);
+                rawv[aidx[i]] = (int)std::trunc(d);
             }
         }
         if (!any) {
@@ -3013,13 +3015,12 @@ static void read_validated_diff_opts(TsValue* opts, int minRank, int maxRank,
     (void)defLargest;  // largestUnit defaults to the "auto" sentinel; the caller resolves it
     require_options_object(opts);  // TypeError for a primitive options arg (safe, no deref)
     void* raw0 = opts?ts_nanbox_safe_unbox(opts):nullptr;
-    *smallest = read_opt_str_noauto(raw0, "smallestUnit", defSmallest);
+    // Observable order (diff order-of-operations): largestUnit, roundingIncrement,
+    // roundingMode, smallestUnit.
     *largest  = read_opt_str_noauto(raw0, "largestUnit", "auto");
-    *mode     = read_opt_str_noauto(raw0, "roundingMode", "trunc");
     *inc = 1;
-    void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
-    if(raw){
-        TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
+    if(raw0){
+        TsValue* ri=ts_object_get_property(raw0,"roundingIncrement");
         if(ri&&!ts_value_is_undefined(ri)){
             double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri));
             if(!(dd==dd)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
@@ -3028,6 +3029,8 @@ static void read_validated_diff_opts(TsValue* opts, int minRank, int maxRank,
             *inc=(long long)ii;
         }
     }
+    *mode     = read_opt_str_noauto(raw0, "roundingMode", "trunc");
+    *smallest = read_opt_str_noauto(raw0, "smallestUnit", defSmallest);
     if(!temporal_mode_valid(*mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); return; }
     if(!unit_in_range(*smallest,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); return; }
     if(*largest!="auto" && !unit_in_range(*largest,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); return; }
