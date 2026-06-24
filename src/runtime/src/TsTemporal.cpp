@@ -1552,7 +1552,7 @@ TsValue* ts_temporal_plaindate_with_native(void* ctx, int argc, TsValue** argv) 
     TsValue* arg = (argc>=1&&argv)?argv[0]:nullptr;
     void* raw = arg?ts_nanbox_safe_unbox(arg):nullptr;
     if (!raw || *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53 ||
-        *(uint32_t*)((char*)raw+16)==TsPlainDate::MAGIC) {
+        is_temporal_typed_object(raw)) {   // reject ANY Temporal-typed object, not just PlainDate
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Temporal.PlainDate.prototype.with: argument must be a plain object"));
         return ts_value_make_undefined();
@@ -2590,7 +2590,7 @@ static bool valid_offset_field(const char* s){
     if(*p==':')p++;
     if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false; p+=2;   // seconds
     if(*p==0) return true;
-    if(*p=='.'||*p==','){ p++; if(!isdigit((unsigned char)*p)) return false; while(isdigit((unsigned char)*p))p++; }
+    if(*p=='.'||*p==','){ p++; if(!isdigit((unsigned char)*p)) return false; int fd=0; while(isdigit((unsigned char)*p)){p++;fd++;} if(fd>9) return false; }   // max nanosecond precision
     return *p==0;
 }
 // Parse a (format-valid) offset field into total nanoseconds (sign * (h:m:s.fff)).
