@@ -3864,6 +3864,21 @@ static TsValue* zdt_diff_opts(TsZonedDateTime* a, TsZonedDateTime* b, TsValue* o
     int bY,bM,bD,bh,bmi,bs,bms,bus,bns; zdt_local(b,&bY,&bM,&bD,&bh,&bmi,&bs,&bms,&bus,&bns);
     TsPlainDateTime* pa=TsPlainDateTime::Create(aY,aM,aD,ah,ami,as_,ams,aus,ans);
     TsPlainDateTime* pb=TsPlainDateTime::Create(bY,bM,bD,bh,bmi,bs,bms,bus,bns);
+    // For a day/week smallestUnit, the rounding interval's far end (anchor + the diff rounded
+    // AWAY from zero to the increment) must be representable, even when the value rounds the
+    // other way — a huge roundingIncrement can push that bound past the ISO limit (+1e8+1 days).
+    if(smallest=="day"||smallest=="days"||smallest=="week"||smallest=="weeks"){
+        const long long DAY2=86400000000000LL;
+        long long sNs2=(smallest=="week"||smallest=="weeks")?7*DAY2:DAY2;
+        long long dateDays2=iso_days_from_civil(bY,bM,bD)-iso_days_from_civil(aY,aM,aD);
+        long long timeNs2=((((long long)bh*60+bmi)*60+bs)*1000000000LL+(long long)bms*1000000LL+(long long)bus*1000LL+bns)
+                        -((((long long)ah*60+ami)*60+as_)*1000000000LL+(long long)ams*1000000LL+(long long)aus*1000LL+ans);
+        long long ceilUnits=round_unit_count(dateDays2*DAY2+timeNs2, sNs2, inc>0?inc:1, "expand");
+        long long ceilDays=(smallest=="week"||smallest=="weeks")?ceilUnits*7:ceilUnits;
+        int ey,em,ed; add_iso_date(aY,aM,aD, 0,0,0, ceilDays, &ey,&em,&ed);
+        long long endEpochMs=iso_days_from_civil(ey,em,ed)*86400000LL - (long long)a->offset_minutes*60000LL;
+        if(!iso_date_in_limits(ey,em,ed) || !instant_epoch_in_limits(endEpochMs,0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime difference: rounding endpoint is outside the representable range")); return ts_value_make_undefined(); }
+    }
     TsValue* r = pdt_diff_rounded(pa,pb,smallest,largest,mode,inc);   // options already read — no second pass
     return negate? negate_duration_value(r) : r;
 }
