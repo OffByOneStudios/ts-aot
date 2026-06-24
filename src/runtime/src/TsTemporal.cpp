@@ -38,13 +38,29 @@ static bool icu_zone_valid(const char* name){
     delete tz;
     return ok;
 }
-// Canonical ICU id (for toString rendering). Returns false if invalid.
+// Canonical ICU id (for toString rendering). Temporal matches zone ids case-INSENSITIVELY
+// and normalizes to the primary casing. Returns false if invalid.
 static bool icu_zone_canonical(const char* name, char* buf, size_t bufsz){
     icu::TimeZone* tz=icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(name));
     icu::UnicodeString id; tz->getID(id);
     bool ok = id != UNICODE_STRING_SIMPLE("Etc/Unknown");
-    if(ok){ std::string s; id.toUTF8String(s); strncpy(buf,s.c_str(),bufsz-1); buf[bufsz-1]=0; }
     delete tz;
+    if(!ok){
+        // Case-insensitive scan of the IANA id set -> canonical casing.
+        UErrorCode st=U_ZERO_ERROR;
+        icu::StringEnumeration* en=icu::TimeZone::createEnumeration(st);
+        if(en){
+            std::string want(name); for(char&c:want) c=(char)tolower((unsigned char)c);
+            const icu::UnicodeString* u;
+            while((u=en->snext(st))!=nullptr){
+                std::string cand; u->toUTF8String(cand);
+                std::string lc=cand; for(char&c:lc) c=(char)tolower((unsigned char)c);
+                if(lc==want){ id=*u; ok=true; break; }
+            }
+            delete en;
+        }
+    }
+    if(ok){ std::string s; id.toUTF8String(s); strncpy(buf,s.c_str(),bufsz-1); buf[bufsz-1]=0; }
     return ok;
 }
 // Offset (minutes) of a named zone at the given epoch (UTC ms) — DST-aware.
@@ -99,6 +115,7 @@ static std::string read_enum_option(TsValue* opts, const char* key, const char* 
 static int iso_days_in_month(int y, int m);
 static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank, std::string* largestOut=nullptr);
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
+static bool iso_string_offset_min(const char* s, int* offMin);
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
 static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns);
@@ -2599,6 +2616,17 @@ extern "C" TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv
     validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);
     return ts_value_make_object(TsZonedDateTime::Create(ms,sub,off,utc));
 }
+// Extract the raw time-zone annotation string (first non-u-ca bracket content, sans '!').
+static bool zdt_tz_annotation(const char* s, char* out, size_t sz){
+    const char* lb=strchr(s,'[');
+    while(lb){ const char* rb=strchr(lb,']'); if(!rb) return false;
+        std::string ann(lb+1,(size_t)(rb-lb-1));
+        if(!ann.empty()&&ann[0]=='!') ann=ann.substr(1);
+        if(ann.compare(0,5,"u-ca=")!=0){ strncpy(out,ann.c_str(),sz-1); out[sz-1]=0; return true; }
+        lb=strchr(rb+1,'[');
+    }
+    return false;
+}
 // Extract the time-zone annotation (the first bracket group that is not u-ca).
 static bool zdt_extract_tz(const char* s, int* offMin, bool* utc){
     const char* lb=strchr(s,'[');
@@ -2612,7 +2640,7 @@ static bool zdt_extract_tz(const char* s, int* offMin, bool* utc){
 }
 extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     require_options_object((argc>=2&&argv)?argv[1]:nullptr);
-    bool _ovrej=false; std::string offMode="reject"; bool _optsRead=false;
+    bool _ovrej=false; std::string offMode="reject"; bool _optsRead=false; int _disamb=0;
     // disambiguation/offset/overflow are read only after the input has been parsed
     // (an invalid string throws before any option is observed).
     auto _readopts=[&](){
@@ -2620,7 +2648,8 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         TsValue* o=(argc>=2&&argv)?argv[1]:nullptr;
         static const char* DISV[]={"compatible","earlier","later","reject"};
         static const char* OFFFV[]={"prefer","use","ignore","reject"};
-        read_enum_option(o,"disambiguation","compatible",DISV,4);
+        std::string ds=read_enum_option(o,"disambiguation","compatible",DISV,4);
+        _disamb = ds=="earlier"?1 : ds=="later"?2 : ds=="reject"?3 : 0;
         offMode = read_enum_option(o,"offset","reject",OFFFV,4);
         _ovrej = validate_overflow_option(o);
     };
@@ -2634,15 +2663,21 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         // property bag: year/month/day + timeZone required.
         TsValue* tzf=ts_object_get_property(raw,"timeZone");
         if(!tzf||ts_value_is_undefined(tzf)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs a timeZone")); return ts_value_make_undefined(); }
-        void* tzr=ts_nanbox_safe_unbox(tzf); int off; bool utc;
-        if(tzr&&(*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){ const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); if(!tu||!parse_timezone(tu,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); } }
+        void* tzr=ts_nanbox_safe_unbox(tzf); int off=0; bool utc=false; char zoneName[40]={0};
+        if(tzr&&(*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){
+            const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8();
+            if(!tu){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
+            else if(parse_timezone(tu,&off,&utc)){ /* fixed offset / UTC */ }
+            else if(icu_zone_canonical(tu, zoneName, sizeof(zoneName))){ /* named IANA zone */ }
+            else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
+        }
         else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); }
         { TsValue* offf=ts_object_get_property(raw,"offset");
           if(offf && !ts_value_is_undefined(offf)){ std::string os;
               if(!tsvalue_to_stdstring(offf,&os) || !valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid offset string")); return ts_value_make_undefined(); }
               // offset:"reject" -> the supplied offset must match the (offset-only)
               // time zone's offset exactly.
-              if(offMode=="reject" && offset_field_ns(os.c_str()) != (long long)off*60000000000LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: offset does not match the time zone")); return ts_value_make_undefined(); } } }
+              if(!zoneName[0] && offMode=="reject" && offset_field_ns(os.c_str()) != (long long)off*60000000000LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: offset does not match the time zone")); return ts_value_make_undefined(); } } }
         int bagM=read_bag_month(raw);
         TsValue* fy=ts_object_get_property(raw,"year"),*fd=ts_object_get_property(raw,"day");
         if(!fy||ts_value_is_undefined(fy)||bagM<1||!fd||ts_value_is_undefined(fd)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs year, month and day")); return ts_value_make_undefined(); }
@@ -2659,16 +2694,34 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
         const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&H,&Mi,&S,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
         long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)H*3600000+(long long)Mi*60000+(long long)S*1000+ms;
+        if(zoneName[0]){
+            long long epochMs;
+            if(!icu_zone_local_to_epoch(zoneName,Y,M,D,H,Mi,S,ms,_disamb,&epochMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: ambiguous local time rejected")); return ts_value_make_undefined(); }
+            return ts_value_make_object(TsZonedDateTime::CreateNamed(epochMs, us*1000+ns, zoneName));
+        }
         return ts_value_make_object(TsZonedDateTime::Create(localMs-(long long)off*60000LL, us*1000+ns, off, utc));
     }
     // string: "YYYY-MM-DDTHH:MM:SS[.frac]±HH:MM[tz]"
     const char* u=((TsString*)ts_value_get_string(item))->ToUtf8();
     int Y,M,D,H,Mi,S,ms,us,ns;
     if(!u||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_annotations_valid(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid string")); return ts_value_make_undefined(); }
-    int off; bool utc;
-    if(!zdt_extract_tz(u,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: string needs a time zone annotation")); return ts_value_make_undefined(); }
+    char tzann[48]; if(!zdt_tz_annotation(u,tzann,sizeof(tzann))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: string needs a time zone annotation")); return ts_value_make_undefined(); }
+    int off=0; bool utc=false; char zoneName[40]={0};
+    if(!parse_timezone(tzann,&off,&utc)){
+        if(!icu_zone_canonical(tzann,zoneName,sizeof(zoneName))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid time zone annotation")); return ts_value_make_undefined(); }
+    }
     _readopts();   // options read only after the string is fully parsed
     long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)H*3600000+(long long)Mi*60000+(long long)S*1000+ms;
+    if(zoneName[0]){
+        // Named zone: an explicit inline offset (Z or ±HH:MM) in the string fixes the epoch;
+        // otherwise apply disambiguation.
+        int inlineOff=0; long long epochMs;
+        if(has_utc_designator(u)) epochMs = localMs;                       // ...Z[zone] -> UTC
+        else if(iso_string_offset_min(u,&inlineOff)) epochMs = localMs-(long long)inlineOff*60000LL;
+        else if(!icu_zone_local_to_epoch(zoneName,Y,M,D,H,Mi,S,ms,_disamb,&epochMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: ambiguous local time rejected")); return ts_value_make_undefined(); }
+        if(!instant_epoch_in_limits(epochMs, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: instant is outside the representable range")); return ts_value_make_undefined(); }
+        return ts_value_make_object(TsZonedDateTime::CreateNamed(epochMs, us*1000+ns, zoneName));
+    }
     long long epoch_ms=localMs-(long long)off*60000LL;
     if(!instant_epoch_in_limits(epoch_ms, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: instant is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, us*1000+ns, off, utc));
