@@ -881,13 +881,12 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool*
     out += "P";
     auto u = [](long long v) -> long long { return v < 0 ? -v : v; };
     char b[32];
-    if (d->years)  { snprintf(b,sizeof(b),"%lldY",u(d->years));  out += b; }
-    if (d->months) { snprintf(b,sizeof(b),"%lldM",u(d->months)); out += b; }
-    if (d->weeks)  { snprintf(b,sizeof(b),"%lldW",u(d->weeks));  out += b; }
-    if (d->days)   { snprintf(b,sizeof(b),"%lldD",u(d->days));   out += b; }
+    // The date part is emitted AFTER rounding: a sub-second round-up can carry whole seconds up
+    // through minutes/hours into days (Duration.toString balances the carry only up to days).
     long long sec = u(d->seconds);
     long long frac = u(d->milliseconds)*1000000LL + u(d->microseconds)*1000LL + u(d->nanoseconds);
     sec += frac/1000000000LL; frac %= 1000000000LL;   // carry whole seconds out of the sub-second total
+    long long mm=u(d->minutes), hh=u(d->hours), dd=u(d->days);
     // toString options: round the sub-second to fractionalSecondDigits / smallestUnit
     // (roundingMode applied; a carry adds whole seconds). -1 = "auto" (trim zeros).
     int digits = -1;
@@ -937,19 +936,30 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool*
             long long q=1; for(int i=0;i<9-digits;i++) q*=10;
             long long rounded = round_nonneg(frac, q, mode);
             sec += rounded/1000000000LL; frac = rounded%1000000000LL;
+            // Propagate the whole-second round-up carry, but ONLY into a higher unit that is
+            // present (non-zero) in the original duration — a bare 59.9s rounds to "PT60S"
+            // (no minutes to carry into), while 1H59M59.9s balances up to "PT2H0S".
+            if(rounded>=1000000000LL && sec==60 && u(d->minutes)!=0){
+                sec=0; mm++;
+                if(mm==60 && u(d->hours)!=0){ mm=0; hh++;
+                    if(hh==24 && u(d->days)!=0){ hh=0; dd++; } } }
             // Rounding can carry whole seconds; the rounded duration must still be valid.
             // Flag it (the caller throws — this frame holds std::string locals, so a
             // longjmp here would corrupt the unwinder; see [[longjmp-stdstring-frame-crash]]).
-            long long f2[10]={u(d->years),u(d->months),u(d->weeks),u(d->days),u(d->hours),u(d->minutes),sec,0,0,frac};
+            long long f2[10]={u(d->years),u(d->months),u(d->weeks),dd,hh,mm,sec,0,0,frac};
             if(!duration_in_range(f2)){ if(rangeErr) *rangeErr=true; }
         }
     }
-    bool anyTime = d->hours||d->minutes||sec||frac||(digits>0);
+    if (d->years)  { snprintf(b,sizeof(b),"%lldY",u(d->years));  out += b; }
+    if (d->months) { snprintf(b,sizeof(b),"%lldM",u(d->months)); out += b; }
+    if (d->weeks)  { snprintf(b,sizeof(b),"%lldW",u(d->weeks));  out += b; }
+    if (dd)        { snprintf(b,sizeof(b),"%lldD",dd);           out += b; }
+    bool anyTime = hh||mm||sec||frac||(digits>=0);
     if (anyTime) {
         out += "T";
-        if (d->hours)   { snprintf(b,sizeof(b),"%lldH",u(d->hours));   out += b; }
-        if (d->minutes) { snprintf(b,sizeof(b),"%lldM",u(d->minutes)); out += b; }
-        if (sec || frac || digits>0) {
+        if (hh) { snprintf(b,sizeof(b),"%lldH",hh); out += b; }
+        if (mm) { snprintf(b,sizeof(b),"%lldM",mm); out += b; }
+        if (sec || frac || digits>=0) {
             snprintf(b,sizeof(b),"%lld",sec); out += b;
             if (digits>0) {
                 char fb[16]; snprintf(fb,sizeof(fb),"%09lld",frac);
