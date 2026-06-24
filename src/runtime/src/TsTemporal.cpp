@@ -1617,8 +1617,11 @@ extern "C" TsValue* ts_temporal_plainyearmonth_construct(int argc, TsValue** arg
 }
 static bool parse_iso_yearmonth(const char* s, int* Y, int* M) {
     if (has_unicode_minus(s)) return false;
-    int sign=1; const char* p=s; if(*p=='+'||*p=='-'){if(*p=='-')sign=-1;p++;}
-    int y=0,nd=0; while(isdigit((unsigned char)*p)){y=y*10+(*p-'0');p++;nd++;} if(nd<4) return false;
+    // Year is FIXED width: exactly 4 digits unsigned, or 6 digits when a ± sign is present
+    // (extended years require the sign). A greedy read swallowed the month of a basic-format
+    // string like "197611".
+    int sign=1; const char* p=s; bool sg=false; if(*p=='+'||*p=='-'){if(*p=='-')sign=-1;p++;sg=true;}
+    int yw=sg?6:4; int y=0; for(int i=0;i<yw;i++){ if(!isdigit((unsigned char)p[i])) return false; y=y*10+(p[i]-'0'); } p+=yw;
     if(sign<0 && y==0) return false;  // reject minus-zero extended year
     if(*p=='-')p++; if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return false;
     int mo=(p[0]-'0')*10+(p[1]-'0'); p+=2; *Y=sign*y; *M=mo;
