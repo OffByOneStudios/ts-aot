@@ -3903,7 +3903,12 @@ TsValue* ts_temporal_plainyearmonth_since_native(void* ctx,int argc,TsValue** ar
     return pym_diff(b,a,(argc>=2&&argv)?argv[1]:nullptr);
 }
 static TsValue* pym_add_impl(TsPlainYearMonth* a,TsDuration* d,int neg){
-    long long y=d->years*neg, mo=d->months*neg, wk=d->weeks*neg, dd=d->days*neg;
+    // Lower (time) units balance into whole days (largestUnit "day", truncating).
+    long long timeNs = (long long)d->hours*3600000000000LL + (long long)d->minutes*60000000000LL
+        + (long long)d->seconds*1000000000LL + (long long)d->milliseconds*1000000LL
+        + (long long)d->microseconds*1000LL + d->nanoseconds;
+    long long timeDays = timeNs/86400000000000LL;
+    long long y=d->years*neg, mo=d->months*neg, wk=d->weeks*neg, dd=(d->days+timeDays)*neg;
     int sign=(y<0||mo<0||wk<0||dd<0)?-1:1;
     int refDay=(sign<0)?iso_days_in_month(a->iso_year,a->iso_month):1;
     // The intermediate date at the reference day must itself be representable: at
