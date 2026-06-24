@@ -15,8 +15,78 @@
 #include <cctype>
 #include <cstdlib>
 #include <string>
+#include <unicode/timezone.h>
+#include <unicode/basictz.h>
+#include <unicode/calendar.h>
+#include <unicode/unistr.h>
+#include <unicode/ucal.h>
 
 extern "C" double ts_to_number(TsValue* v);  // Primitives.cpp (throws on Symbol)
+
+static long long iso_days_from_civil(int y, int m, int d);   // defined later
+
+// ===================== ICU-backed IANA time-zone helpers (Group F) =====================
+// A zone id is "named" (IANA, e.g. America/New_York) when it is neither "UTC" nor a
+// ±HH:MM offset. ICU's bundled tz database (icudt*.dat) resolves these DST-aware.
+
+// True iff ICU recognizes `name` as a real zone (not the Etc/Unknown fallback).
+static bool icu_zone_valid(const char* name){
+    if(!name||!*name) return false;
+    icu::TimeZone* tz=icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(name));
+    icu::UnicodeString id; tz->getID(id);
+    bool ok = id != UNICODE_STRING_SIMPLE("Etc/Unknown");
+    delete tz;
+    return ok;
+}
+// Canonical ICU id (for toString rendering). Returns false if invalid.
+static bool icu_zone_canonical(const char* name, char* buf, size_t bufsz){
+    icu::TimeZone* tz=icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(name));
+    icu::UnicodeString id; tz->getID(id);
+    bool ok = id != UNICODE_STRING_SIMPLE("Etc/Unknown");
+    if(ok){ std::string s; id.toUTF8String(s); strncpy(buf,s.c_str(),bufsz-1); buf[bufsz-1]=0; }
+    delete tz;
+    return ok;
+}
+// Offset (minutes) of a named zone at the given epoch (UTC ms) — DST-aware.
+static int icu_zone_offset_at(const char* name, long long epoch_ms){
+    UErrorCode st=U_ZERO_ERROR;
+    icu::TimeZone* tz=icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(name));
+    int32_t raw=0,dst=0; tz->getOffset((UDate)epoch_ms, (UBool)false, raw, dst, st);
+    delete tz;
+    return (int)((raw+dst)/60000);
+}
+// Local wall-clock in a named zone -> epoch (UTC ms), applying Temporal disambiguation
+// (0=compatible, 1=earlier, 2=later, 3=reject). Returns false only for reject+ambiguous.
+static bool icu_zone_local_to_epoch(const char* name, int Y,int Mo,int D,int h,int mi,int s,int ms,
+                                    int disamb, long long* outMs){
+    long long localMs = iso_days_from_civil(Y,Mo,D)*86400000LL
+        + (long long)h*3600000LL + (long long)mi*60000LL + (long long)s*1000LL + ms;
+    UErrorCode st=U_ZERO_ERROR;
+    icu::TimeZone* tz=icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(name));
+    icu::BasicTimeZone* btz=dynamic_cast<icu::BasicTimeZone*>(tz);
+    int32_t fRaw=0,fDst=0,lRaw=0,lDst=0;
+    if(btz){
+        // FORMER picks the pre-transition interpretation; LATTER the post-transition one.
+        btz->getOffsetFromLocal((UDate)localMs, UCAL_TZ_LOCAL_FORMER, UCAL_TZ_LOCAL_FORMER, fRaw, fDst, st);
+        btz->getOffsetFromLocal((UDate)localMs, UCAL_TZ_LOCAL_LATTER, UCAL_TZ_LOCAL_LATTER, lRaw, lDst, st);
+    } else { tz->getOffset((UDate)localMs, (UBool)true, fRaw, fDst, st); lRaw=fRaw; lDst=fDst; }
+    delete tz;
+    long long fOff=fRaw+fDst, lOff=lRaw+lDst;
+    bool ambiguous = (fOff != lOff);   // a gap (skipped) or overlap (repeated) local time
+    long long off;
+    if(!ambiguous) off=fOff;
+    else if(disamb==1) off=(fOff>lOff)?fOff:lOff;       // earlier instant = larger offset
+    else if(disamb==2) off=(fOff<lOff)?fOff:lOff;       // later instant = smaller offset
+    else if(disamb==3) return false;                     // reject
+    else { // compatible: gap -> later (post), overlap -> earlier (first occurrence)
+        // gap: FORMER offset > LATTER offset (clocks sprang forward); use LATTER.
+        // overlap: FORMER offset < LATTER offset (fell back); use FORMER.
+        off = (fOff>lOff)? lOff : fOff;
+    }
+    *outMs = localMs - off;
+    return true;
+}
+
 
 // Forward declarations for arithmetic/rounding helpers defined later in the file
 // (so earlier method natives can call them).
@@ -2362,6 +2432,21 @@ TsZonedDateTime* TsZonedDateTime::Create(long long ms, int subNs, int offMin, bo
     void* mem=ts_alloc(sizeof(TsZonedDateTime)); TsZonedDateTime* o=new(mem) TsZonedDateTime();
     o->magic=MAGIC; o->epoch_ms=ms; o->sub_ns=subNs; o->offset_minutes=offMin; o->is_utc=utc; return o;
 }
+// A named IANA zone (e.g. America/New_York): the offset is DST-aware and recomputed from
+// the epoch via ICU, so offset_minutes is only a cached snapshot here.
+TsZonedDateTime* TsZonedDateTime::CreateNamed(long long ms, int subNs, const char* zone){
+    void* mem=ts_alloc(sizeof(TsZonedDateTime)); TsZonedDateTime* o=new(mem) TsZonedDateTime();
+    o->magic=MAGIC; o->epoch_ms=ms; o->sub_ns=subNs; o->is_utc=false;
+    strncpy(o->zone_name, zone?zone:"", sizeof(o->zone_name)-1); o->zone_name[sizeof(o->zone_name)-1]=0;
+    o->offset_minutes = zone&&zone[0] ? icu_zone_offset_at(zone, ms) : 0;
+    return o;
+}
+// Effective UTC offset (minutes) for this ZDT at its current epoch: ICU DST-aware lookup
+// for a named zone, otherwise the stored fixed offset.
+static int zdt_eff_offset(TsZonedDateTime* z){
+    if(z->zone_name[0]) return icu_zone_offset_at(z->zone_name, z->epoch_ms);
+    return z->offset_minutes;
+}
 // Local wall-clock breakdown (epoch + fixed offset).
 static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns){
     // Wall-clock fields are FLOOR-based: the sub-second components must land in
@@ -2370,7 +2455,7 @@ static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int
     // into [0,999999], then decompose with floored arithmetic.
     long long ems = z->epoch_ms; long long sns = z->sub_ns;
     if(sns < 0){ ems -= 1; sns += 1000000; }
-    long long local = ems + (long long)z->offset_minutes*60000LL;
+    long long local = ems + (long long)zdt_eff_offset(z)*60000LL;
     long long days = local/86400000LL; long long rem = local%86400000LL;
     if(rem<0){ rem+=86400000LL; days-=1; }
     iso_civil_from_days(days,Y,M,D);
@@ -2408,9 +2493,9 @@ TsValue TsZonedDateTime::GetPropertyVirtual(const char* key){
     if(strcmp(key,"monthCode")==0){ char b[8]; snprintf(b,sizeof(b),"M%02d",M); return mkStr(b); }
     if(strcmp(key,"epochMilliseconds")==0) return mkInt(epoch_ms);
     if(strcmp(key,"epochSeconds")==0) return mkInt(epoch_ms/1000);
-    if(strcmp(key,"offsetNanoseconds")==0) return mkInt((long long)offset_minutes*60000000000LL);
-    if(strcmp(key,"timeZoneId")==0){ if(is_utc) return mkStr("UTC"); char tb[8]; zdt_offset_string(offset_minutes,tb,sizeof(tb)); return mkStr(tb); }
-    if(strcmp(key,"offset")==0){ char b[8]; zdt_offset_string(offset_minutes,b,sizeof(b)); return mkStr(b); }
+    if(strcmp(key,"offsetNanoseconds")==0) return mkInt((long long)zdt_eff_offset(this)*60000000000LL);
+    if(strcmp(key,"timeZoneId")==0){ if(zone_name[0]) return mkStr(zone_name); if(is_utc) return mkStr("UTC"); char tb[8]; zdt_offset_string(zdt_eff_offset(this),tb,sizeof(tb)); return mkStr(tb); }
+    if(strcmp(key,"offset")==0){ char b[8]; zdt_offset_string(zdt_eff_offset(this),b,sizeof(b)); return mkStr(b); }
     if(strcmp(key,"weekOfYear")==0||strcmp(key,"yearOfWeek")==0){
         int isoDow=iso_day_of_week(Y,M,D); int ordinal=iso_day_of_year(Y,M,D);
         int week=(ordinal-isoDow+10)/7; int yow=Y;
@@ -2502,7 +2587,15 @@ extern "C" TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv
     // The constructor timeZone is a bare identifier (offset / "UTC" / name); a
     // bracketed datetime-form string is only valid in the parse-from-string paths.
     if(tz && strchr(tz,'[')){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: time zone must be a bare identifier")); return ts_value_make_undefined(); }
-    if(!parse_timezone(tz,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: unsupported time zone (only UTC and numeric offsets)")); return ts_value_make_undefined(); }
+    if(!parse_timezone(tz,&off,&utc)){
+        // Named IANA zone resolved via ICU (DST-aware, bundled tz database).
+        char zbuf[40];
+        if(tz && icu_zone_canonical(tz, zbuf, sizeof(zbuf))){
+            validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);
+            return ts_value_make_object(TsZonedDateTime::CreateNamed(ms,sub,zbuf));
+        }
+        ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: unsupported time zone")); return ts_value_make_undefined();
+    }
     validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);
     return ts_value_make_object(TsZonedDateTime::Create(ms,sub,off,utc));
 }
@@ -2588,8 +2681,8 @@ static TsString* zdt_iso_string(TsZonedDateTime* z){
     else n=snprintf(buf,sizeof(buf),"%04d-%02d-%02dT%02d:%02d:%02d",Y,M,D,h,mi,s);
     long frac=(long)ms*1000000L+(long)us*1000L+ns;
     if(frac>0){ char fb[16]; snprintf(fb,sizeof(fb),"%09ld",frac); int len=9; while(len>1&&fb[len-1]=='0')len--; buf[n++]='.'; for(int i=0;i<len;i++)buf[n++]=fb[i]; }
-    char ob[8]; zdt_offset_string(z->offset_minutes,ob,sizeof(ob)); for(int i=0;ob[i];i++)buf[n++]=ob[i];
-    buf[n++]='['; const char* id=z->is_utc?"UTC":ob; for(int i=0;id[i];i++)buf[n++]=id[i]; buf[n++]=']'; buf[n]='\0';
+    char ob[8]; zdt_offset_string(zdt_eff_offset(z),ob,sizeof(ob)); for(int i=0;ob[i];i++)buf[n++]=ob[i];
+    buf[n++]='['; const char* id=z->zone_name[0]?z->zone_name:(z->is_utc?"UTC":ob); for(int i=0;id[i];i++)buf[n++]=id[i]; buf[n++]=']'; buf[n]='\0';
     return TsString::Create(buf);
 }
 extern "C" {
@@ -2606,13 +2699,13 @@ TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){
     if(carry){ iso_civil_from_days(iso_days_from_civil(Y,M,D)+carry,&Y,&M,&D); }
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
     std::string out=db; out+="T"; out+=tstr;
-    char ob[8]; zdt_offset_string(z->offset_minutes,ob,sizeof(ob));
+    char ob[8]; zdt_offset_string(zdt_eff_offset(z),ob,sizeof(ob));
     static const char* OFFV[]={"auto","never"};
     std::string offMode=read_enum_option(opts,"offset","auto",OFFV,2);
     if(offMode!="never") out+=ob;
     static const char* TZNV[]={"auto","never","critical"};
     std::string tzn=read_enum_option(opts,"timeZoneName","auto",TZNV,3);
-    if(tzn!="never"){ out+="["; out+= z->is_utc?"UTC":ob; out+="]"; }
+    if(tzn!="never"){ out+="["; if(tzn=="critical")out+="!"; out+= z->zone_name[0]?z->zone_name:(z->is_utc?"UTC":ob); out+="]"; }
     static const char* CALV[]={"auto","always","never","critical"};
     std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
     if(cal=="always"||cal=="critical") out += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";

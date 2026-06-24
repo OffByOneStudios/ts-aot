@@ -100,9 +100,11 @@ public:
     static constexpr uint32_t MAGIC = 0x5A44544D; // 'ZDTM'
     long long epoch_ms = 0;
     int sub_ns = 0;
-    int offset_minutes = 0;  // fixed offset from UTC
+    int offset_minutes = 0;  // fixed offset from UTC (used when zone_name is empty)
     bool is_utc = true;      // "UTC" named zone vs a numeric offset zone
+    char zone_name[40] = {0};// named IANA zone ("America/New_York"); empty => fixed offset
     static TsZonedDateTime* Create(long long ms, int subNs, int offMin, bool utc);
+    static TsZonedDateTime* CreateNamed(long long ms, int subNs, const char* zone);
     TsValue GetPropertyVirtual(const char* key) override;
 };
 
