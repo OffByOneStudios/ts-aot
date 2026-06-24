@@ -2734,8 +2734,8 @@ extern "C" TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsV
     if(!a||!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.compare: invalid argument")); return ts_value_make_undefined(); }
     TsValue* opts=(argc>=3&&argv)?argv[2]:nullptr;
     require_options_object(opts);
-    bool hasRel=false; TsValue* relTo=nullptr;
-    if(opts && !ts_value_is_undefined(opts)){ void* r=ts_nanbox_safe_unbox(opts); if(r){ TsValue* rt=ts_object_get_property(r,"relativeTo"); if(rt&&!ts_value_is_undefined(rt)){ hasRel=true; relTo=rt; validate_relativeto_arg(rt); } } }
+    bool hasRel=false; TsPlainDate* relAnchor=nullptr;
+    if(opts && !ts_value_is_undefined(opts)){ void* r=ts_nanbox_safe_unbox(opts); if(r){ TsValue* rt=ts_object_get_property(r,"relativeTo"); if(rt&&!ts_value_is_undefined(rt)){ hasRel=true; relAnchor=coerce_relativeto_unified(rt); } } }
     bool cal = a->years||a->months||a->weeks||b->years||b->months||b->weeks;
     if(cal && !hasRel){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.compare: a calendar unit requires relativeTo")); return ts_value_make_undefined(); }
     if(cal && hasRel){
@@ -2743,7 +2743,7 @@ extern "C" TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsV
         // whole-day offset from the anchor (calendar + time-as-days), then the sub-day
         // remainder. Comparing the day offsets first is exact (a 1-day gap dominates any
         // sub-day remainder) and avoids overflow.
-        TsPlainDate* rd = coerce_relativeto_date(relTo);
+        TsPlainDate* rd = relAnchor;   // read+coerced above in one observable pass
         if(rd){
             long long ra=iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
             auto anchor=[&](TsDuration* d,long long* dayOff,long long* remNs){
