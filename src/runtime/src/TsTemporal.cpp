@@ -2673,6 +2673,55 @@ static void validate_relativeto_arg(TsValue* rt){
         const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); int off; bool utc;
         if(!tu||!parse_timezone(tu,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid time zone")); return; } }
 }
+// ToRelativeTemporalObject, single observable pass for a PROPERTY BAG: read every
+// recognized field ONCE in ALPHABETICAL order (calendar, day, hour, microsecond,
+// millisecond, minute, month, monthCode, nanosecond, offset, second, timeZone, year) —
+// the order Duration round/total/compare order-of-operations require — coercing+validating
+// each (ts_to_number fires valueOf, tsvalue_to_stdstring fires toString), then build the
+// anchor PlainDate. Replaces the validate_relativeto_arg + coerce_relativeto_date
+// double-read for the bag case. Returns nullptr for undefined; throws on invalid.
+static bool option_to_string(TsValue* v, std::string* out);   // ToString (observable) — defined below
+static TsPlainDate* coerce_relativeto_unified(TsValue* relTo){
+    if(!relTo || ts_value_is_undefined(relTo)) return nullptr;
+    void* rr = ts_nanbox_safe_unbox(relTo);
+    if(!rr){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo must be a string or object")); return nullptr; }
+    uint32_t m0=*(uint32_t*)rr;
+    // String and Temporal-typed-object cases already read once — keep them.
+    if(m0==0x53545247||m0==0x434F4E53){ validate_relativeto_arg(relTo); return coerce_relativeto_date(relTo); }
+    if(is_temporal_typed_object(rr)) return coerce_plaindate_arg(relTo);
+    // --- property bag: alphabetical single pass ---
+    auto infGuard=[&](const char* k){ TsValue* f=ts_object_get_property(rr,k); if(f&&!ts_value_is_undefined(f)){ double d=ts_to_number(f); if(std::isinf(d)) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo field cannot be Infinity")); } };
+    if(!bag_calendar_ok(rr)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo invalid calendar")); return nullptr; }   // get calendar
+    TsValue* fday=ts_object_get_property(rr,"day"); bool hD=fday&&!ts_value_is_undefined(fday);
+    double day=0; if(hD){ day=ts_to_number(fday); if(std::isinf(day)) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo field cannot be Infinity")); }
+    infGuard("hour"); infGuard("microsecond"); infGuard("millisecond"); infGuard("minute");
+    TsValue* fmon=ts_object_get_property(rr,"month"); int fromMonth=-1; bool hM=fmon&&!ts_value_is_undefined(fmon);
+    if(hM){ double d=ts_to_number(fmon); if(std::isinf(d)) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo field cannot be Infinity")); if(d==d) fromMonth=(int)std::trunc(d); }
+    TsValue* fmc=ts_object_get_property(rr,"monthCode"); int fromCode=-1; bool hMC=fmc&&!ts_value_is_undefined(fmc);
+    if(hMC){ std::string s; bool ok=option_to_string(fmc,&s);   // ToString — fires monthCode.toString
+        bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L');
+        int m=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4;
+        if(!fmt||hasL||m<1||m>12) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode"));
+        fromCode=m; }
+    if(fromMonth>=1&&fromCode>=1&&fromMonth!=fromCode) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month and monthCode conflict"));
+    int bagM = fromCode>=1?fromCode:fromMonth;
+    infGuard("nanosecond");
+    TsValue* foff=ts_object_get_property(rr,"offset");
+    if(foff&&!ts_value_is_undefined(foff)){ std::string os; if(!option_to_string(foff,&os)||!valid_offset_field(os.c_str())) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid offset")); }
+    infGuard("second");
+    TsValue* ftz=ts_object_get_property(rr,"timeZone");
+    if(ftz&&!ts_value_is_undefined(ftz)){ void* tr=ts_nanbox_safe_unbox(ftz);
+        if(!tr||(*(uint32_t*)tr!=0x53545247&&*(uint32_t*)tr!=0x434F4E53)) ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo timeZone must be a string"));
+        const char* tu=((TsString*)ts_value_get_string(ftz))->ToUtf8(); int off; bool utc;
+        if(!tu||!parse_timezone(tu,&off,&utc)) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid time zone")); }
+    TsValue* fyr=ts_object_get_property(rr,"year"); bool hY=fyr&&!ts_value_is_undefined(fyr);
+    double year=0; if(hY){ year=ts_to_number(fyr); if(std::isinf(year)) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo field cannot be Infinity")); }
+    if(!hY || bagM<1 || !hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo object needs year, month and day")); return nullptr; }
+    int Y=(int)std::trunc(year), M=bagM, D=(int)std::trunc(day);
+    if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
+    if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo date out of range")); return nullptr; }
+    return (TsPlainDate*)TsPlainDate::Create(Y,M,D);
+}
 // Temporal.Duration.compare(one, two[, options]). Returns -1/0/1. A calendar unit
 // (years/months/weeks) in either operand requires options.relativeTo (RangeError
 // otherwise); the calendar-anchored comparison is not yet implemented, so this
@@ -3602,7 +3651,18 @@ TsValue* ts_temporal_duration_subtract_native(void* ctx,int argc,TsValue** argv)
 // Duration.total({unit}) for time/day units -> a Number (no relativeTo support).
 TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
     TsDuration* d=require_duration(ctx,"total");
-    std::string unit; TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr;
+    TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr;
+    // ToRelativeTemporalObject is observed BEFORE options.unit (order-of-operations): when
+    // the argument is an options object, read+fully-coerce options.relativeTo first.
+    TsPlainDate* relAnchor=nullptr;
+    { // Only an options OBJECT (not a string-unit shorthand, not a primitive) carries
+      // relativeTo. Mirror require_options_object's object test on the TsValue itself —
+      // ts_object_get_property on a primitive's bogus unbox crashes.
+      uint64_t nb=(uint64_t)(uintptr_t)arg;
+      bool isObj = arg && ((nb & 0xFFFF000000000000ULL)==0) && (nb >= 0x10000);
+      if(isObj){ uint32_t m0=*(uint32_t*)(void*)nb; if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749) isObj=false; }
+      if(isObj){ void* raw0=ts_nanbox_safe_unbox(arg); if(raw0){ TsValue* relTo=ts_object_get_property(raw0,"relativeTo"); relAnchor=coerce_relativeto_unified(relTo); } } }
+    std::string unit;
     if(!tsvalue_to_stdstring(arg,&unit)) unit = read_string_option(arg,"unit","");
     double extraNs = 0.0;   // time-part nanoseconds contributed by a calendar-anchored span
     bool calUnit=(unit=="year"||unit=="years"||unit=="month"||unit=="months");   // year/month totals need anchoring; week=7d is fixed
@@ -3611,10 +3671,7 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
         // Anchor to a PlainDate and expand the
         // calendar part to a concrete day count; year/month TOTALS need the
         // fractional-calendar algorithm and are still deferred.
-        void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
-        TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
-        validate_relativeto_arg(relTo);
-        TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_relativeto_date(relTo) : nullptr;
+        TsPlainDate* rd = relAnchor;   // read+coerced above, in observable order, before unit
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         // A ZonedDateTime / zoned-string relativeTo is anchored by its LOCAL date (coerce
         // already extracted it). For a fixed-offset zone there is no DST so this is exact;
