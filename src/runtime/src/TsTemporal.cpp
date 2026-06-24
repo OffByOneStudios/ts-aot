@@ -296,31 +296,33 @@ extern "C" {
 // Format HH:MM[:SS[.frac]] honoring smallestUnit / fractionalSecondDigits /
 // roundingMode (default trunc). Returns the time-of-day clamped mod 24h (carry
 // is dropped — fine for PlainTime; PlainDateTime trunc default never carries).
-static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts, int* dayCarry=nullptr){
-    if(dayCarry) *dayCarry=0;
-    void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
-    int fsd=-1; // -1 = auto
-    // Observable order (toString order-of-operations): fractionalSecondDigits, then
-    // roundingMode, then smallestUnit.
+// Read+validate fractionalSecondDigits (-1 = auto). Extracted so ZonedDateTime.toString can
+// observe it between calendarName and offset (its spec option order interleaves the time-format
+// reads with the offset read). GetStringOrNumberOption: a Number is range-checked to [0,9]
+// (floored); a NON-Number is valid ONLY if it is the string "auto".
+static int read_fractional_second_digits(void* raw){
+    int fsd=-1;
     if(raw){ TsValue* f=ts_object_get_property(raw,"fractionalSecondDigits");
         if(f&&!ts_value_is_undefined(f)){
-            // GetStringOrNumberOption: a Number is range-checked to [0,9] (floored);
-            // a NON-Number is valid ONLY if it is the string "auto" — anything else
-            // (null/true/false/object/non-"auto" string) is a RangeError. (Previously
-            // we ToNumber'd non-Numbers, so null->0 etc. slipped through.)
             uint64_t fnb=nanbox_from_tsvalue_ptr(f);
             if(nanbox_is_number(fnb)){
                 double dv=ts_to_number(f);
                 if(!(dv==dv) || std::isinf(dv)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
-                long long fv=(long long)std::floor(dv);   // floor first, then range-check (9.7 -> 9 is valid)
+                long long fv=(long long)std::floor(dv);
                 if(fv<0 || fv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
                 fsd=(int)fv;
             } else {
-                // Non-Number: ToString (invokes a toString/valueOf observer) and
-                // require "auto"; anything else is a RangeError.
                 std::string fs;
                 if(!option_to_string(f,&fs) || fs!="auto"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
             } } }
+    return fsd;
+}
+static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts, int* dayCarry=nullptr, int fsdPre=-2){
+    if(dayCarry) *dayCarry=0;
+    void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
+    // Observable order: fractionalSecondDigits, then roundingMode, then smallestUnit. A caller
+    // that already read fractionalSecondDigits (ZonedDateTime.toString) passes fsdPre to skip it.
+    int fsd = (fsdPre!=-2) ? fsdPre : read_fractional_second_digits(raw);
     // roundingMode read WITHOUT the "auto"->default mapping ("auto" is not a valid mode).
     std::string mode = read_opt_str_noauto(raw,"roundingMode","trunc");
     if(!temporal_mode_valid(mode)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
@@ -2770,19 +2772,23 @@ TsValue* ts_temporal_zdt_toString_native(void* ctx,int argc,TsValue** argv){
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(zdt_iso_string(z));
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
-    int carry=0; std::string tstr=format_time_opts(h,mi,s,ms,us,ns,opts,&carry);   // rounding may cross midnight
+    void* oraw = ts_nanbox_safe_unbox(opts);
+    // Spec option order: calendarName, fractionalSecondDigits, offset, roundingMode,
+    // smallestUnit, timeZoneName.
+    static const char* CALV[]={"auto","always","never","critical"};
+    std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
+    int fsd=read_fractional_second_digits(oraw);
+    static const char* OFFV[]={"auto","never"};
+    std::string offMode=read_enum_option(opts,"offset","auto",OFFV,2);
+    int carry=0; std::string tstr=format_time_opts(h,mi,s,ms,us,ns,opts,&carry,fsd);   // roundingMode, smallestUnit
     if(carry){ iso_civil_from_days(iso_days_from_civil(Y,M,D)+carry,&Y,&M,&D); }
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
     std::string out=db; out+="T"; out+=tstr;
     char ob[8]; zdt_offset_string(zdt_eff_offset(z),ob,sizeof(ob));
-    static const char* OFFV[]={"auto","never"};
-    std::string offMode=read_enum_option(opts,"offset","auto",OFFV,2);
     if(offMode!="never") out+=ob;
     static const char* TZNV[]={"auto","never","critical"};
     std::string tzn=read_enum_option(opts,"timeZoneName","auto",TZNV,3);
     if(tzn!="never"){ out+="["; if(tzn=="critical")out+="!"; out+= z->zone_name[0]?z->zone_name:(z->is_utc?"UTC":ob); out+="]"; }
-    static const char* CALV[]={"auto","always","never","critical"};
-    std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
     if(cal=="always"||cal=="critical") out += (cal=="critical")?"[!u-ca=iso8601]":"[u-ca=iso8601]";
     return ts_value_make_string(TsString::Create(out.c_str()));
 }
