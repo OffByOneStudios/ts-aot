@@ -3886,6 +3886,9 @@ static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts){
     std::string smallest,largest,mode; long long inc;
     read_validated_diff_opts(opts,9,10,"month","year",&smallest,&largest,&mode,&inc);
     if(largest=="auto") largest="year";
+    // The difference anchors each PlainYearMonth at day 1; that reference date must be in the
+    // ISO range (the min PYM's day 1, -271821-04-01, is before the minimum date -271821-04-19).
+    if(!iso_date_in_limits(a->iso_year,a->iso_month,1) || !iso_date_in_limits(b->iso_year,b->iso_month,1)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: difference reference date is outside the valid ISO range")); return ts_value_make_undefined(); }
     long long yr,mo,wk,dy;
     if((smallest=="month"||smallest=="months")&&mode=="trunc"&&inc<=1)
         diff_iso_date(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,largest,&yr,&mo,&wk,&dy);
