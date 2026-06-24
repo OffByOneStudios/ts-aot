@@ -3590,6 +3590,90 @@ void* ts_get_global_ArrayBuffer() {
     return cached;
 }
 
+// ---- DataView.prototype get/set methods (ECMA-262 25.3.4) ----
+// Real function objects on DataView.prototype (registered via addMethod, so each has the
+// correct .name / .length / [[Construct]]=false). GetViewValue / SetViewValue semantics:
+// require a DataView receiver (TypeError), ToIndex the byte offset (RangeError), ToNumber the
+// value, ToBoolean littleEndian (DataView default is big-endian), reject a detached buffer
+// (TypeError) and an out-of-bounds access (RangeError), then read/write `size` bytes.
+static TsDataView* dv_require(void* ctx){
+    if(!ctx) ctx = ts_get_call_this();
+    void* raw = ctx ? ts_nanbox_safe_unbox(ctx) : nullptr;
+    // TsDataView is a TsObject subclass: its tag lives at offset +16, not offset 0.
+    if(!raw || *(uint32_t*)((char*)raw+16) != TsDataView::MAGIC){
+        ts_throw((TsValue*)ts_error_create_typed("TypeError","DataView method called on a non-DataView"));
+        return nullptr;
+    }
+    return (TsDataView*)raw;
+}
+static int64_t dv_to_index(TsValue* v){
+    double d = v ? ts_to_number(v) : 0.0;            // ToNumber (throws TypeError on a Symbol)
+    if(d != d) return 0;                              // ToIntegerOrInfinity(NaN) == 0
+    d = std::trunc(d);
+    if(d < 0 || d > 9007199254740991.0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","DataView offset is out of range")); return 0; }
+    return (int64_t)d;
+}
+static uint64_t dv_read_bytes(const uint8_t* p, int size, bool le){
+    uint64_t v=0;
+    if(le){ for(int i=0;i<size;i++) v |= (uint64_t)p[i] << (8*i); }
+    else  { for(int i=0;i<size;i++) v = (v<<8) | (uint64_t)p[i]; }
+    return v;
+}
+static void dv_write_bytes(uint8_t* p, int size, bool le, uint64_t v){
+    if(le){ for(int i=0;i<size;i++){ p[i]=(uint8_t)(v&0xFF); v>>=8; } }
+    else  { for(int i=size-1;i>=0;i--){ p[i]=(uint8_t)(v&0xFF); v>>=8; } }
+}
+// kind: 0 = signed int, 1 = unsigned int, 2 = float
+static TsValue* dv_get_impl(void* ctx, int argc, TsValue** argv, int size, int kind){
+    TsDataView* dv = dv_require(ctx); if(!dv) return ts_value_make_undefined();
+    int64_t off = dv_to_index((argc>=1&&argv)?argv[0]:nullptr);
+    bool le = (size>1 && argc>=2 && argv && argv[1]) ? ts_value_to_bool(argv[1]) : false;
+    TsBuffer* buf = dv->GetBuffer();
+    if(!buf || buf->IsDetached()){ ts_throw((TsValue*)ts_error_create_typed("TypeError","DataView: the underlying ArrayBuffer is detached")); return ts_value_make_undefined(); }
+    size_t blen = dv->GetByteLength();
+    if((uint64_t)off + (uint64_t)size > (uint64_t)blen){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Offset is outside the bounds of the DataView")); return ts_value_make_undefined(); }
+    uint64_t raw = dv_read_bytes(buf->GetData() + dv->GetByteOffset() + off, size, le);
+    if(kind==2){ if(size==4){ float f; std::memcpy(&f,&raw,4); return ts_value_make_double((double)f); } double d; std::memcpy(&d,&raw,8); return ts_value_make_double(d); }
+    if(kind==0){ int64_t sv = (size==1)?(int8_t)raw : (size==2)?(int16_t)raw : (int32_t)raw; return ts_value_make_double((double)sv); }
+    uint64_t uv = (size==1)?(uint8_t)raw : (size==2)?(uint16_t)raw : (uint32_t)raw; return ts_value_make_double((double)uv);
+}
+static TsValue* dv_set_impl(void* ctx, int argc, TsValue** argv, int size, int kind){
+    TsDataView* dv = dv_require(ctx); if(!dv) return ts_value_make_undefined();
+    int64_t off = dv_to_index((argc>=1&&argv)?argv[0]:nullptr);
+    double val = (argc>=2&&argv&&argv[1]) ? ts_to_number(argv[1]) : std::nan("");   // ToNumber(undefined) == NaN
+    bool le = (size>1 && argc>=3 && argv && argv[2]) ? ts_value_to_bool(argv[2]) : false;
+    TsBuffer* buf = dv->GetBuffer();
+    if(!buf || buf->IsDetached()){ ts_throw((TsValue*)ts_error_create_typed("TypeError","DataView: the underlying ArrayBuffer is detached")); return ts_value_make_undefined(); }
+    size_t blen = dv->GetByteLength();
+    if((uint64_t)off + (uint64_t)size > (uint64_t)blen){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Offset is outside the bounds of the DataView")); return ts_value_make_undefined(); }
+    uint8_t* p = buf->GetData() + dv->GetByteOffset() + off;
+    if(kind==2){
+        if(size==4){ float f=(float)val; uint64_t r=0; std::memcpy(&r,&f,4); dv_write_bytes(p,4,le,r); }
+        else { uint64_t r; std::memcpy(&r,&val,8); dv_write_bytes(p,8,le,r); }
+    } else {
+        double iv = std::isfinite(val) ? std::trunc(val) : 0.0;          // ToInt/ToUint: integer part...
+        double m = std::pow(2.0, size*8); double r = std::fmod(iv, m); if(r<0) r += m;   // ...mod 2^(size*8)
+        dv_write_bytes(p, size, le, (uint64_t)r);
+    }
+    return ts_value_make_undefined();
+}
+static TsValue* dv_getInt8   (void*c,int a,TsValue**v){return dv_get_impl(c,a,v,1,0);}
+static TsValue* dv_getUint8  (void*c,int a,TsValue**v){return dv_get_impl(c,a,v,1,1);}
+static TsValue* dv_getInt16  (void*c,int a,TsValue**v){return dv_get_impl(c,a,v,2,0);}
+static TsValue* dv_getUint16 (void*c,int a,TsValue**v){return dv_get_impl(c,a,v,2,1);}
+static TsValue* dv_getInt32  (void*c,int a,TsValue**v){return dv_get_impl(c,a,v,4,0);}
+static TsValue* dv_getUint32 (void*c,int a,TsValue**v){return dv_get_impl(c,a,v,4,1);}
+static TsValue* dv_getFloat32(void*c,int a,TsValue**v){return dv_get_impl(c,a,v,4,2);}
+static TsValue* dv_getFloat64(void*c,int a,TsValue**v){return dv_get_impl(c,a,v,8,2);}
+static TsValue* dv_setInt8   (void*c,int a,TsValue**v){return dv_set_impl(c,a,v,1,0);}
+static TsValue* dv_setUint8  (void*c,int a,TsValue**v){return dv_set_impl(c,a,v,1,1);}
+static TsValue* dv_setInt16  (void*c,int a,TsValue**v){return dv_set_impl(c,a,v,2,0);}
+static TsValue* dv_setUint16 (void*c,int a,TsValue**v){return dv_set_impl(c,a,v,2,1);}
+static TsValue* dv_setInt32  (void*c,int a,TsValue**v){return dv_set_impl(c,a,v,4,0);}
+static TsValue* dv_setUint32 (void*c,int a,TsValue**v){return dv_set_impl(c,a,v,4,1);}
+static TsValue* dv_setFloat32(void*c,int a,TsValue**v){return dv_set_impl(c,a,v,4,2);}
+static TsValue* dv_setFloat64(void*c,int a,TsValue**v){return dv_set_impl(c,a,v,8,2);}
+
 void* ts_get_global_DataView() {
     TenureScope _tenure;
     static void* cached = nullptr;
@@ -3662,6 +3746,23 @@ void* ts_get_global_DataView() {
                 return ts_value_make_int((int64_t)((TsDataView*)raw)->GetByteOffset());
             });
             (void)requireDataView;
+            // get* have length 1 (byteOffset[, littleEndian]); set* have length 2 (byteOffset, value[, littleEndian]).
+            addMethod(dvProto, "getInt8",   (void*)dv_getInt8,   1);
+            addMethod(dvProto, "getUint8",  (void*)dv_getUint8,  1);
+            addMethod(dvProto, "getInt16",  (void*)dv_getInt16,  1);
+            addMethod(dvProto, "getUint16", (void*)dv_getUint16, 1);
+            addMethod(dvProto, "getInt32",  (void*)dv_getInt32,  1);
+            addMethod(dvProto, "getUint32", (void*)dv_getUint32, 1);
+            addMethod(dvProto, "getFloat32",(void*)dv_getFloat32,1);
+            addMethod(dvProto, "getFloat64",(void*)dv_getFloat64,1);
+            addMethod(dvProto, "setInt8",   (void*)dv_setInt8,   2);
+            addMethod(dvProto, "setUint8",  (void*)dv_setUint8,  2);
+            addMethod(dvProto, "setInt16",  (void*)dv_setInt16,  2);
+            addMethod(dvProto, "setUint16", (void*)dv_setUint16, 2);
+            addMethod(dvProto, "setInt32",  (void*)dv_setInt32,  2);
+            addMethod(dvProto, "setUint32", (void*)dv_setUint32, 2);
+            addMethod(dvProto, "setFloat32",(void*)dv_setFloat32,2);
+            addMethod(dvProto, "setFloat64",(void*)dv_setFloat64,2);
             setProtoStringTag(dvProto, "DataView");
         }
         cached = wrapAsCallable(ctor, "DataView", 1);
