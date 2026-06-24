@@ -317,7 +317,7 @@ static int read_fractional_second_digits(void* raw){
             } } }
     return fsd;
 }
-static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts, int* dayCarry=nullptr, int fsdPre=-2){
+static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts, int* dayCarry=nullptr, int fsdPre=-2, long long* outTns=nullptr){
     if(dayCarry) *dayCarry=0;
     void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
     // Observable order: fractionalSecondDigits, then roundingMode, then smallestUnit. A caller
@@ -353,6 +353,7 @@ static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsV
         long long carry=rounded/86400000000000LL; tns=rounded % 86400000000000LL; if(tns<0){ tns+=86400000000000LL; carry--; }
         if(dayCarry) *dayCarry=(int)carry;   // rounding crossed midnight -> the caller advances the date
     }
+    if(outTns) *outTns = tns;   // final rounded time-of-day ns (for a caller's range check)
     int H=(int)(tns/3600000000000LL); tns%=3600000000000LL;
     int M=(int)(tns/60000000000LL); tns%=60000000000LL;
     int S=(int)(tns/1000000000LL); long long frac=tns%1000000000LL;
@@ -1843,7 +1844,7 @@ extern "C" TsValue* ts_temporal_plainmonthday_construct(int argc, TsValue** argv
     validate_iso_calendar_arg((argc>=3&&argv)?argv[2]:nullptr);   // calendar validated after day, before the reference year
     int refY=fld(3,&ory); if(!ory) refY=1972;
     if(!om||!od){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay: month and day are required")); return ts_value_make_undefined(); }
-    if(m<1||m>12||d<1||d>iso_days_in_month(refY,m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay: out of range")); return ts_value_make_undefined(); }
+    if(m<1||m>12||d<1||d>iso_days_in_month(refY,m) || !iso_date_in_limits(refY,m,d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay: out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainMonthDay::Create(m,d,refY));
 }
 static bool parse_iso_monthday(const char* s, int* M, int* D) {
@@ -2064,9 +2065,12 @@ TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** 
     // Observable order: calendarName is read BEFORE the time-rounding options.
     static const char* CALV[]={"auto","always","never","critical"};
     std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
-    int carry=0; std::string tstr=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts,&carry);
+    int carry=0; long long rtns=0; std::string tstr=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts,&carry,-2,&rtns);
     int Y=d->iso_year,M=d->iso_month,D=d->iso_day;
     if(carry){ iso_civil_from_days(iso_days_from_civil(Y,M,D)+carry,&Y,&M,&D); }   // rounding crossed midnight
+    // Rounding the time can push the datetime past the representable range (e.g. rounding
+    // -271821-04-19T00:00:00.001 down to the second drops below the minimum instant).
+    if(!iso_datetime_in_limits(Y,M,D,rtns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.toString: rounded datetime is outside the representable range")); return ts_value_make_undefined(); }
     char db[24];
     if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D);
     else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
