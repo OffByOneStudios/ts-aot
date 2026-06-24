@@ -2375,7 +2375,7 @@ TsValue* ts_temporal_instant_compare_native(void* ctx,int argc,TsValue** argv){
 }
 TsValue* ts_temporal_instant_fromEpochMs_native(void* ctx,int argc,TsValue** argv){
     (void)ctx; if(argc>=1&&argv&&argv[0]) reject_nonnumeric_increment(argv[0]);  // ToNumber(BigInt) -> TypeError
-    double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):0; if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochMilliseconds: not finite")); return ts_value_make_undefined(); }
+    double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):std::nan(""); if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochMilliseconds: not finite")); return ts_value_make_undefined(); }
     if(d!=std::trunc(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochMilliseconds: must be an integer")); return ts_value_make_undefined(); }  // NumberToBigInt
     long long ems=(long long)d;
     if(!instant_epoch_in_limits(ems,0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochMilliseconds: epoch is out of range")); return ts_value_make_undefined(); }
@@ -3979,14 +3979,19 @@ TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     s=rd("second",s);
     Y=rd("year",Y);
     // options observed after the fields: disambiguation, offset, overflow.
-    int disamb=0;
+    int disamb=0; bool _wrej=false;
     { TsValue* o2=(argc>=2&&argv)?argv[1]:nullptr;
       static const char* DIS[4]={"compatible","earlier","later","reject"};
       static const char* OFF[4]={"prefer","use","ignore","reject"};
       std::string ds=read_enum_option(o2,"disambiguation","compatible",DIS,4);
       disamb = ds=="earlier"?1 : ds=="later"?2 : ds=="reject"?3 : 0;
       read_enum_option(o2,"offset","prefer",OFF,4);
-      validate_overflow_option(o2); }
+      _wrej = validate_overflow_option(o2); }
+    // overflow:"reject" -> any out-of-range field is a RangeError (no clamping).
+    if(_wrej){ const int tl[6]={23,59,59,999,999,999}; int tv[6]={h,mi,s,ms,us,ns};
+        bool bad = M<1||M>12 || D<1||D>iso_days_in_month(Y,M);
+        for(int i=0;i<6&&!bad;i++) if(tv[i]<0||tv[i]>tl[i]) bad=true;
+        if(bad){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); } }
     if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
     const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&h,&mi,&s,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
     if(z->zone_name[0]){   // preserve the named zone, recomputing the DST-aware epoch
@@ -4683,6 +4688,9 @@ TsValue* ts_temporal_plaindatetime_round_native(void* ctx,int argc,TsValue** arg
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
     if(inc<1)inc=1;
     validate_diff_time_increment(unit, inc);
+    // For instant-based .round(), smallestUnit "day" has maximum increment 1 (inclusive): you
+    // round to a whole day, not an N-day multiple. (Diff methods allow large day increments.)
+    if((unit=="day"||unit=="days") && inc!=1){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: roundingIncrement must be 1 when smallestUnit is day")); return ts_value_make_undefined(); }
     long long q=un*inc; long long nsOfDay=pdt_time_ns(dt);
     long long rounded=round_nonneg(nsOfDay,q,mode);
     const long long DAY=86400000000000LL; long long carry=rounded/DAY; long long rem=rounded%DAY;
@@ -4703,6 +4711,9 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
     if(inc<1)inc=1;
     validate_diff_time_increment(unit, inc);
+    // For instant-based .round(), smallestUnit "day" has maximum increment 1 (inclusive): you
+    // round to a whole day, not an N-day multiple. (Diff methods allow large day increments.)
+    if((unit=="day"||unit=="days") && inc!=1){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: roundingIncrement must be 1 when smallestUnit is day")); return ts_value_make_undefined(); }
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
     if(unit=="day"||unit=="days"){
         // The day-rounding interval is [startOfDay, startOfNextDay]; the upper bound must be
