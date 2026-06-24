@@ -4131,28 +4131,39 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     TsDuration* d=require_duration(ctx,"round");
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
-    std::string sUnit,mode="halfExpand"; long long inc=1;
-    std::string luVal;   // largestUnit is read ONCE inside parse_round_options (avoid a double toString)
-    bool haveS = parse_round_options(rt,&sUnit,&inc,&mode,1,10,&luVal);
-    bool luPresent=!luVal.empty(); std::string lUnit = luPresent ? luVal : "auto";
+    // Options are observed in spec order: largestUnit, relativeTo (full coerce),
+    // roundingIncrement, roundingMode, smallestUnit (Duration.round order-of-operations).
+    std::string sUnit,mode="halfExpand",luVal; long long inc=1; bool haveS=false;
+    TsPlainDate* relAnchor=nullptr;
     void* raw=ts_nanbox_safe_unbox(rt);
+    if(rt && !ts_value_is_undefined(rt) && tsvalue_to_stdstring(rt,&sUnit)){
+        // roundTo string shorthand: it IS the smallestUnit.
+        if(!unit_in_range(sUnit,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
+        haveS=true;
+    } else if(raw){
+        TsValue* lu=ts_object_get_property(raw,"largestUnit");
+        if(lu&&!ts_value_is_undefined(lu)){ std::string s; if(option_to_string(lu,&s)){ if(s!="auto"&&!unit_in_range(s,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid largestUnit")); return ts_value_make_undefined(); } luVal=s; } }
+        TsValue* relTo=ts_object_get_property(raw,"relativeTo");
+        relAnchor=coerce_relativeto_unified(relTo);
+        TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
+        if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(!(dd==dd)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); } double ii=std::trunc(dd); if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); } inc=(long long)ii; }
+        TsValue* rm=ts_object_get_property(raw,"roundingMode");
+        if(rm&&!ts_value_is_undefined(rm)){ std::string m; if(option_to_string(rm,&m)){ if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingMode")); return ts_value_make_undefined(); } mode=m; } }
+        TsValue* su=ts_object_get_property(raw,"smallestUnit");
+        if(su&&!ts_value_is_undefined(su)){ std::string s; if(option_to_string(su,&s)){ if(!unit_in_range(s,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); } if(!luVal.empty()&&luVal!="auto"&&unit_rank(luVal)<unit_rank(s)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","largestUnit must not be smaller than smallestUnit")); return ts_value_make_undefined(); } sUnit=s; haveS=true; } }
+    }
+    bool luPresent=!luVal.empty(); std::string lUnit = luPresent ? luVal : "auto";
     if(!haveS){
         // smallestUnit may be omitted iff largestUnit is GIVEN (incl. an explicit "auto");
         // defaults to nanosecond.
         if(!luPresent){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: smallestUnit or largestUnit is required")); return ts_value_make_undefined(); }
         sUnit="nanosecond";
-        if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); }
-                 TsValue* rm=ts_object_get_property(raw,"roundingMode"); std::string m; if(rm&&!ts_value_is_undefined(rm)&&tsvalue_to_stdstring(rm,&m))mode=m; }
     }
     validate_diff_time_increment(sUnit, inc);   // a time-unit increment must divide its max (e.g. hours:11 / minutes:29 throw); no-op for calendar units
     auto isCal=[](const std::string&u){ return u=="year"||u=="years"||u=="month"||u=="months"||u=="week"||u=="weeks"; };
     bool calInvolved = d->years||d->months||d->weeks||isCal(sUnit)||isCal(lUnit);
-    // A present relativeTo is always validated (ToRelativeTemporalObject), even when the
-    // rounding needs no anchoring (e.g. largestUnit:"days" with a time-only duration).
-    TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
-    if(relTo && !ts_value_is_undefined(relTo)) validate_relativeto_arg(relTo);
     if(calInvolved){
-        TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_relativeto_date(relTo) : nullptr;
+        TsPlainDate* rd = relAnchor;   // read+coerced above in observable order
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         std::string L=lUnit;
         if(L=="auto"){ if(d->years)L="year"; else if(d->months)L="month"; else if(d->weeks)L="week"; else L="day"; if(date_unit_rank(L)<date_unit_rank(sUnit))L=sUnit; }
