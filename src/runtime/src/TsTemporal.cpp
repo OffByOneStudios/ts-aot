@@ -3849,21 +3849,37 @@ TsValue* ts_temporal_zdt_withPlainTime_native(void* ctx,int argc,TsValue** argv)
 }
 TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"with");
-    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
-    { static const char* OFF[4]={"prefer","use","ignore","reject"};
-      static const char* DIS[4]={"compatible","earlier","later","reject"};
-      TsValue* o2=(argc>=2&&argv)?argv[1]:nullptr;
-      read_enum_option(o2,"offset","prefer",OFF,4);
-      read_enum_option(o2,"disambiguation","compatible",DIS,4); }
     void* raw=(argc>=1&&argv&&argv[0])?ts_nanbox_safe_unbox(argv[0]):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
+    // RejectObjectWithCalendarOrTimeZone (observed first): calendar, then timeZone.
+    { TsValue* cf=ts_object_get_property(raw,"calendar"); if(cf&&!ts_value_is_undefined(cf)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: cannot set calendar")); return ts_value_make_undefined(); } }
+    { TsValue* tf=ts_object_get_property(raw,"timeZone"); if(tf&&!ts_value_is_undefined(tf)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: cannot set timeZone")); return ts_value_make_undefined(); } }
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
     auto rd=[&](const char* k,int cur)->int{ TsValue* f=ts_object_get_property(raw,k); if(!f||ts_value_is_undefined(f))return cur; double d=ts_to_number(f); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: property must be a finite number")); } if(d!=d)return cur; return (int)std::trunc(d); };
-    Y=rd("year",Y); int bagM=read_bag_month(raw); if(bagM>=1)M=bagM; D=rd("day",D);
-    h=rd("hour",h); mi=rd("minute",mi); s=rd("second",s); ms=rd("millisecond",ms); us=rd("microsecond",us); ns=rd("nanosecond",ns);
+    // PrepareTemporalFields alphabetical: day, hour, microsecond, millisecond, minute,
+    // month, monthCode, nanosecond, offset, second, year.
+    D=rd("day",D); h=rd("hour",h); us=rd("microsecond",us); ms=rd("millisecond",ms); mi=rd("minute",mi);
+    int bagM=read_bag_month(raw); if(bagM>=1)M=bagM;
+    ns=rd("nanosecond",ns);
     { TsValue* offf=ts_object_get_property(raw,"offset"); if(offf&&!ts_value_is_undefined(offf)){ std::string os; if(!option_to_string(offf,&os)||!valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: invalid offset string")); return ts_value_make_undefined(); } } }
+    s=rd("second",s);
+    Y=rd("year",Y);
+    // options observed after the fields: disambiguation, offset, overflow.
+    int disamb=0;
+    { TsValue* o2=(argc>=2&&argv)?argv[1]:nullptr;
+      static const char* DIS[4]={"compatible","earlier","later","reject"};
+      static const char* OFF[4]={"prefer","use","ignore","reject"};
+      std::string ds=read_enum_option(o2,"disambiguation","compatible",DIS,4);
+      disamb = ds=="earlier"?1 : ds=="later"?2 : ds=="reject"?3 : 0;
+      read_enum_option(o2,"offset","prefer",OFF,4);
+      validate_overflow_option(o2); }
     if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
     const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&h,&mi,&s,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
+    if(z->zone_name[0]){   // preserve the named zone, recomputing the DST-aware epoch
+        long long epochMs;
+        if(!icu_zone_local_to_epoch(z->zone_name,Y,M,D,h,mi,s,ms,disamb,&epochMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: ambiguous local time rejected")); return ts_value_make_undefined(); }
+        return ts_value_make_object(TsZonedDateTime::CreateNamed(epochMs, us*1000+ns, z->zone_name));
+    }
     return zdt_from_local(Y,M,D,h,mi,s,ms,us,ns,z->offset_minutes,z->is_utc);
 }
 }
