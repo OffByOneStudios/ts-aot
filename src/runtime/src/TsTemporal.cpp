@@ -2522,7 +2522,20 @@ TsValue TsZonedDateTime::GetPropertyVirtual(const char* key){
     if(strcmp(key,"daysInYear")==0) return mkInt(iso_is_leap(Y)?366:365);
     if(strcmp(key,"monthsInYear")==0) return mkInt(12);
     if(strcmp(key,"inLeapYear")==0) return mkBool(iso_is_leap(Y));
-    if(strcmp(key,"hoursInDay")==0) return mkInt(24);
+    if(strcmp(key,"hoursInDay")==0){
+        // GetStartOfDay for this day and the next; both instants must be representable. The
+        // day length is their epoch gap (24h for a fixed offset; DST-adjusted for a named zone).
+        auto sod=[&](int yy,int mm,int dd, long long* out)->bool{
+            long long ep;
+            if(zone_name[0]){ if(!icu_zone_local_to_epoch(zone_name,yy,mm,dd,0,0,0,0,0,&ep)) return false; }
+            else ep = iso_days_from_civil(yy,mm,dd)*86400000LL - (long long)offset_minutes*60000LL;
+            if(!instant_epoch_in_limits(ep,0)) return false;
+            *out=ep; return true;
+        };
+        long long s0,s1; int ny,nm,nd; iso_civil_from_days(iso_days_from_civil(Y,M,D)+1,&ny,&nm,&nd);
+        if(!sod(Y,M,D,&s0) || !sod(ny,nm,nd,&s1)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.hoursInDay: day boundary is outside the representable range")); return undef; }
+        return mkInt((s1-s0)/3600000LL);
+    }
     if(strcmp(key,"monthCode")==0){ char b[8]; snprintf(b,sizeof(b),"M%02d",M); return mkStr(b); }
     if(strcmp(key,"epochMilliseconds")==0) return mkInt(epoch_ms);
     if(strcmp(key,"epochSeconds")==0) return mkInt(epoch_ms/1000);
@@ -4636,6 +4649,15 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
     if(inc<1)inc=1;
     validate_diff_time_increment(unit, inc);
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
+    if(unit=="day"||unit=="days"){
+        // The day-rounding interval is [startOfDay, startOfNextDay]; the upper bound must be
+        // representable regardless of which way the value rounds.
+        int ny,nm,nd; iso_civil_from_days(iso_days_from_civil(Y,M,D)+1,&ny,&nm,&nd);
+        long long nextEp;
+        if(z->zone_name[0]){ if(!icu_zone_local_to_epoch(z->zone_name,ny,nm,nd,0,0,0,0,0,&nextEp)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.round: day boundary is outside the representable range")); return ts_value_make_undefined(); } }
+        else nextEp = iso_days_from_civil(ny,nm,nd)*86400000LL - (long long)z->offset_minutes*60000LL;
+        if(!instant_epoch_in_limits(nextEp,0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.round: upper bound for rounding is out of range")); return ts_value_make_undefined(); }
+    }
     long long nsOfDay = ((((long long)h*60+mi)*60+s)*1000000000LL)+(long long)ms*1000000LL+(long long)us*1000LL+ns;
     long long q=un*inc; long long rounded=round_nonneg(nsOfDay,q,mode);
     const long long DAY=86400000000000LL; long long carry=rounded/DAY; long long rem=rounded%DAY;
