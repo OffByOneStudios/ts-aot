@@ -2802,6 +2802,12 @@ extern "C" TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsV
     require_options_object(opts);
     bool hasRel=false; TsPlainDate* relAnchor=nullptr;
     if(opts && !ts_value_is_undefined(opts)){ void* r=ts_nanbox_safe_unbox(opts); if(r){ TsValue* rt=ts_object_get_property(r,"relativeTo"); if(rt&&!ts_value_is_undefined(rt)){ hasRel=true; relAnchor=coerce_relativeto_unified(rt); } } }
+    // Two field-identical Duration instances compare equal (0) — relativeTo is not required
+    // even when calendar units are present.
+    if(a->years==b->years&&a->months==b->months&&a->weeks==b->weeks&&a->days==b->days&&
+       a->hours==b->hours&&a->minutes==b->minutes&&a->seconds==b->seconds&&
+       a->milliseconds==b->milliseconds&&a->microseconds==b->microseconds&&a->nanoseconds==b->nanoseconds)
+        return ts_value_make_int(0);
     bool cal = a->years||a->months||a->weeks||b->years||b->months||b->weeks;
     if(cal && !hasRel){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.compare: a calendar unit requires relativeTo")); return ts_value_make_undefined(); }
     if(cal && hasRel){
