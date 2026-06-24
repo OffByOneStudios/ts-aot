@@ -4032,6 +4032,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); }
                  TsValue* rm=ts_object_get_property(raw,"roundingMode"); std::string m; if(rm&&!ts_value_is_undefined(rm)&&tsvalue_to_stdstring(rm,&m))mode=m; }
     }
+    validate_diff_time_increment(sUnit, inc);   // a time-unit increment must divide its max (e.g. hours:11 / minutes:29 throw); no-op for calendar units
     auto isCal=[](const std::string&u){ return u=="year"||u=="years"||u=="month"||u=="months"||u=="week"||u=="weeks"; };
     bool calInvolved = d->years||d->months||d->weeks||isCal(sUnit)||isCal(lUnit);
     // A present relativeTo is always validated (ToRelativeTemporalObject), even when the
