@@ -1304,7 +1304,7 @@ static int read_bag_month(void* raw){
         // ECMA: monthCode is "M" + two digits + optional "L" (leap). The ISO
         // calendar has no leap months, so a trailing "L" — and any malformed or
         // out-of-range code — is a RangeError (not a silent -> needs-month/day).
-        std::string s; bool strok=tsvalue_to_stdstring(mc,&s);
+        std::string s; bool strok=option_to_string(mc,&s);   // ToString — fires a monthCode.toString observer
         bool fmt = strok && (s.size()==3||s.size()==4) && s[0]=='M'
                    && s[1]>='0'&&s[1]<='9' && s[2]>='0'&&s[2]<='9'
                    && (s.size()==3 || s[3]=='L');
@@ -1684,12 +1684,14 @@ extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
         uint32_t m0=*(uint32_t*)raw;
         if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_yearmonth_in_limits(Y,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } _ovopt(); return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ TsPlainYearMonth* o=(TsPlainYearMonth*)raw; _ovopt(); return ts_value_make_object(TsPlainYearMonth::Create(o->iso_year,o->iso_month,o->iso_day)); }
-        TsValue* fy=ts_object_get_property(raw,"year");
-        bool hY=fy&&!ts_value_is_undefined(fy); int bagM=read_bag_month(raw);
-        if(!hY||bagM<1){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.from: object needs year and month")); return ts_value_make_undefined(); }
+        // Observable order: calendar, month, monthCode, year.
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid calendar")); return ts_value_make_undefined(); }
+        int bagM=read_bag_month(raw);   // month then monthCode
+        TsValue* fy=ts_object_get_property(raw,"year");
+        bool hY=fy&&!ts_value_is_undefined(fy);
+        double dy = hY?ts_to_number(fy):0; if(hY&&(dy!=dy||std::isinf(dy))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
+        if(!hY||bagM<1){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.from: object needs year and month")); return ts_value_make_undefined(); }
         bool _ovrej = _ovopt();   // overflow read after the bag fields
-        double dy=ts_to_number(fy); if(dy!=dy){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
         int Y=(int)std::trunc(dy),M=bagM;
         if(_ovrej){ if(M<1||M>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: month out of range (overflow reject)")); return ts_value_make_undefined(); } }
         else { if(M<1)M=1; if(M>12)M=12; }
