@@ -1631,7 +1631,9 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         double dd = hasD ? ts_to_number(fd) : 0;   // day valueOf
         if(hasD && (dd!=dd||std::isinf(dd))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite")); return ts_value_make_undefined(); }
         TsValue* fmon=ts_object_get_property(raw,"month"); int fromMonth=-1; bool hM=fmon&&!ts_value_is_undefined(fmon);
-        if(hM){ double dm=ts_to_number(fmon); if(std::isinf(dm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); return ts_value_make_undefined(); } if(dm==dm) fromMonth=(int)std::trunc(dm); }
+        if(hM){ double dm=ts_to_number(fmon); if(std::isinf(dm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); return ts_value_make_undefined(); } fromMonth=(dm==dm)?(int)std::trunc(dm):0;
+            // ToPositiveIntegerWithTruncation: a present month must be a positive integer.
+            if(fromMonth<1){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: month must be a positive integer")); return ts_value_make_undefined(); } }
         TsValue* fmc=ts_object_get_property(raw,"monthCode"); int fromCode=-1; bool hMC=fmc&&!ts_value_is_undefined(fmc);
         if(hMC){ std::string s; bool ok=option_to_string(fmc,&s);   // ToString — fires monthCode.toString
             bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L');
@@ -1650,6 +1652,9 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
         }
         bool _ovrej = _ovopt();   // overflow read after the bag fields
         int Y=(int)std::trunc(dy), M=bagM, D=(int)std::trunc(dd);
+        // ToPositiveIntegerWithTruncation: a present day must be a positive integer (constrain
+        // only clamps the UPPER bound; day < 1 is a RangeError regardless of overflow mode).
+        if (D<1){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: day must be a positive integer")); return ts_value_make_undefined(); }
         if (_ovrej && (M<1||M>12||D<1||D>iso_days_in_month(Y,M))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.from: field out of range (overflow reject)")); return ts_value_make_undefined(); }
         // from default overflow constrain
         if (M<1) M=1; if (M>12) M=12;
