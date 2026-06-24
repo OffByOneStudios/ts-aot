@@ -927,7 +927,7 @@ static bool parse_iso_duration(const char* s, long long* f) {
     while (*p) {
         if (*p=='T'||*p=='t') { inTime=true; p++; if(!isdigit((unsigned char)*p)) return false; continue; }  // T must be followed by a time component
         if (!isdigit((unsigned char)*p)) return false;
-        long long val=0; while(isdigit((unsigned char)*p)){ val=val*10+(*p-'0'); p++; }
+        long long val=0; while(isdigit((unsigned char)*p)){ if(val>=922337203685477580LL) return false; val=val*10+(*p-'0'); p++; }   // reject a component too large for int64 (treated as out of range)
         long long fracNs=0; bool hasFrac=false;
         if (*p=='.'||*p==',') { hasFrac=true; p++; if(!isdigit((unsigned char)*p)) return false; char fb[10]="000000000"; int i=0; while(i<9&&isdigit((unsigned char)*p)){fb[i++]=*p++;} if(isdigit((unsigned char)*p)) return false; fracNs=atol(fb); }  // at most 9 fractional digits; a fraction needs >=1 digit
         char unit=*p; if(!unit) return false; p++;
