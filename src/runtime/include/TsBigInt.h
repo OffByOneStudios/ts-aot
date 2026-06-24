@@ -18,6 +18,7 @@ public:
 
 extern "C" {
     void* ts_bigint_create_int(int64_t val);
+    int64_t ts_bigint_to_i64(void* bi);   // truncate to 64-bit two's-complement (typed-array storage)
     void* ts_bigint_create_str(void* tsStr, int32_t radix);
     void* ts_bigint_to_string(void* bi, int32_t radix);
     void* ts_bigint_from_value(TsValue* val);

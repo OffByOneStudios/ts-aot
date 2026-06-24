@@ -77,6 +77,13 @@ void* ts_bigint_create_int(int64_t val) {
     return TsBigInt::Create(val);
 }
 
+// Truncate a BigInt to a 64-bit two's-complement integer (BigInt64/BigUint64 array
+// element storage; the raw int64 bit-pattern round-trips for both signedness).
+int64_t ts_bigint_to_i64(void* bi) {
+    if (!bi) return 0;
+    return mp_get_i64(&((TsBigInt*)bi)->value);
+}
+
 // Per ECMA-262 7.1.14 StringToBigInt / 6.1.6.2.3 StringIntegerLiteral:
 // skip leading/trailing whitespace, detect 0x/0X/0o/0O/0b/0B radix
 // prefixes (in those cases the radix is forced and signs are not

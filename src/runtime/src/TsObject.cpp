@@ -2370,6 +2370,18 @@ TsValue* ts_value_make_int(int64_t i) {
         }
         return ts_value_make_object(result);
     }
+    // BigInt64/BigUint64 element access without the lossy double round-trip: read/write the
+    // raw 64-bit slot and box/unbox as a TsBigInt. A non-BigInt array uses the double path.
+    static TsValue* ts_ta_get_boxed(TsTypedArray* ta, size_t index) {
+        TypedArrayType t = ta->GetType();
+        if (t == TypedArrayType::BigInt64 || t == TypedArrayType::BigUint64) {
+            uint8_t* data = ta->GetData();
+            if (!data || index >= ta->GetLength()) return ts_value_make_undefined();
+            int64_t raw = ((int64_t*)data)[index];
+            return ts_value_make_bigint(ts_bigint_create_int(raw));
+        }
+        return ts_value_make_double(ta->Get(index));
+    }
     static TsValue* ts_typed_array_set_native(void* ctx, int argc, TsValue** argv) {
         TsTypedArray* ta = (TsTypedArray*)ctx;
         if (!ta) return ts_value_make_undefined();
@@ -2482,7 +2494,7 @@ TsValue* ts_value_make_int(int64_t i) {
         if (argc >= 1 && argv && argv[0]) idx = (int64_t)ts_to_number(argv[0]);
         if (idx < 0) idx = len + idx;
         if (idx < 0 || idx >= len) return ts_value_make_undefined();
-        return ts_value_make_double(ta->Get((size_t)idx));
+        return ts_ta_get_boxed(ta, (size_t)idx);
     }
 
     // TypedArray.prototype.includes(searchElement, fromIndex?)
@@ -4627,7 +4639,7 @@ TsValue* ts_value_make_int(int64_t i) {
             char* endptr;
             long index = strtol(keyStr, &endptr, 10);
             if (*endptr == '\0' && index >= 0) {
-                return ts_value_make_double(ta->Get((size_t)index));
+                return ts_ta_get_boxed(ta, (size_t)index);
             }
             // Fallback: walk to %TypedArray%.prototype for methods registered
             // there (entries/keys/values/at/etc). Without this, dynamic
@@ -10063,7 +10075,7 @@ TsValue* ts_value_make_int(int64_t i) {
             TsTypedArray* ta = (TsTypedArray*)rawObj;
             if (keyIsInt) {
                 if (keyIdx >= 0 && (size_t)keyIdx < ta->GetLength()) {
-                    return ts_value_make_double(ta->Get((size_t)keyIdx));
+                    return ts_ta_get_boxed(ta, (size_t)keyIdx);
                 }
                 return ts_value_make_undefined();
             }
@@ -10353,7 +10365,7 @@ TsValue* ts_value_make_int(int64_t i) {
                     // indexOf/includes/find/findIndex etc. could be added later
                 }
             } else if (keyIsInt) {
-                return ts_value_make_double(ta->Get((size_t)keyIdx));
+                return ts_ta_get_boxed(ta, (size_t)keyIdx);
             }
             return ts_value_make_undefined();
         }
@@ -10978,10 +10990,19 @@ TsValue* ts_value_make_int(int64_t i) {
             if (magic16 == 0x54415252) { // TsTypedArray::MAGIC
                 TsTypedArray* ta = (TsTypedArray*)rawObj;
                 if (idx >= 0 && (size_t)idx < ta->GetLength()) {
-                    double dval = 0;
-                    if (value.type == ValueType::NUMBER_DBL) dval = value.d_val;
-                    else if (value.type == ValueType::NUMBER_INT) dval = (double)value.i_val;
-                    ta->Set((size_t)idx, dval);
+                    TypedArrayType tt = ta->GetType();
+                    if (tt == TypedArrayType::BigInt64 || tt == TypedArrayType::BigUint64) {
+                        // BigInt store: write the raw 64-bit two's-complement, no double.
+                        int64_t v = (value.type == ValueType::BIGINT_PTR && value.ptr_val)
+                                        ? ts_bigint_to_i64(value.ptr_val) : 0;
+                        uint8_t* data = ta->GetData();
+                        if (data) ((int64_t*)data)[(size_t)idx] = v;
+                    } else {
+                        double dval = 0;
+                        if (value.type == ValueType::NUMBER_DBL) dval = value.d_val;
+                        else if (value.type == ValueType::NUMBER_INT) dval = (double)value.i_val;
+                        ta->Set((size_t)idx, dval);
+                    }
                 }
                 return value;
             }
