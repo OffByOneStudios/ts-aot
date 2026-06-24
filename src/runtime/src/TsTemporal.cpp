@@ -3674,6 +3674,22 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
     else if(unit=="microsecond"||unit=="microseconds") unitNs=1000.0;
     else if(unit=="nanosecond"||unit=="nanoseconds") unitNs=1.0;
     else { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: invalid unit")); return ts_value_make_undefined(); }
+    if(unitNs >= 1000000000.0){
+        // Exact for unit >= second: compute whole units + fractional remainder from the
+        // safe (seconds, sub-second-ns) split, avoiding the intermediate double rounding
+        // in totalNs that loses ULPs near 2^53.
+        long long carrySec = d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
+        long long subNs = (d->milliseconds%1000)*1000000LL + (d->microseconds%1000000)*1000LL + (d->nanoseconds%1000000000);
+        carrySec += subNs/1000000000LL; subNs %= 1000000000LL;
+        long long totalSec = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds + carrySec;
+        long long sgn = (totalSec<0||(totalSec==0&&subNs<0)) ? -1 : 1;
+        long long aSec = totalSec<0?-totalSec:totalSec, aSub = subNs<0?-subNs:subNs;
+        long long unitSec = (long long)(unitNs/1000000000.0);   // 86400/3600/60/1
+        long long whole = aSec/unitSec, remSec = aSec%unitSec;
+        long long remNsTotal = remSec*1000000000LL + aSub;       // < unitSec*1e9 <= 8.64e13
+        double res = ((double)whole + (double)remNsTotal/((double)unitSec*1000000000.0)) * (double)sgn;
+        return ts_value_make_double(res);
+    }
     return ts_value_make_double(totalNs/unitNs);
 }
 }
