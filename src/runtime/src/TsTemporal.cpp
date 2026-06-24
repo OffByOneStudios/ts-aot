@@ -2108,6 +2108,8 @@ TsValue* ts_temporal_plaindatetime_with_native(void* ctx,int argc,TsValue** argv
     if(_ovrej){ const int tl[6]={23,59,59,999,999,999}; bool bad=vals[1]<1||vals[1]>12||vals[2]<1||vals[2]>iso_days_in_month(vals[0],vals[1]); for(int i=0;i<6&&!bad;i++) if(vals[3+i]<0||vals[3+i]>tl[i]) bad=true; if(bad){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); } }
     if(vals[1]<1)vals[1]=1; if(vals[1]>12)vals[1]=12; int dim=iso_days_in_month(vals[0],vals[1]); if(vals[2]<1)vals[2]=1; if(vals[2]>dim)vals[2]=dim;
     int* T=vals+3; const int lim[6]={23,59,59,999,999,999}; for(int i=0;i<6;i++){ if(T[i]<0)T[i]=0; if(T[i]>lim[i])T[i]=lim[i]; }
+    long long _tns=(long long)vals[3]*3600000000000LL+(long long)vals[4]*60000000000LL+(long long)vals[5]*1000000000LL+(long long)vals[6]*1000000LL+(long long)vals[7]*1000LL+vals[8];
+    if(!iso_datetime_in_limits(vals[0],vals[1],vals[2],_tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.with: result is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDateTime::Create(vals[0],vals[1],vals[2],vals[3],vals[4],vals[5],vals[6],vals[7],vals[8]));
 }
 TsValue* ts_temporal_plaindatetime_toPlainDate_native(void* ctx,int argc,TsValue** argv){ TsPlainDateTime* d=require_plaindatetime(ctx,"toPlainDate"); return ts_value_make_object(TsPlainDate::Create(d->iso_year,d->iso_month,d->iso_day)); }
@@ -2626,7 +2628,7 @@ extern "C" TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv
     bool isBig = raw0 && (*(uint32_t*)raw0==0x42494749 || *(uint32_t*)((char*)raw0+16)==0x42494749);
     if(!isBig){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime: epochNanoseconds must be a BigInt")); return ts_value_make_undefined(); }
     void* str=ts_bigint_to_string(raw0,10); const char* u=str?((TsString*)str)->ToUtf8():nullptr;
-    long long ms; int sub; if(!u||!ns_string_to_ms_sub(u,&ms,&sub)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: epochNanoseconds out of range")); return ts_value_make_undefined(); }
+    long long ms; int sub; if(!u||!ns_string_to_ms_sub(u,&ms,&sub)||!instant_epoch_in_limits(ms,sub)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: epochNanoseconds out of range")); return ts_value_make_undefined(); }
     TsValue* a1=(argc>=2&&argv)?argv[1]:nullptr; void* raw1=a1?ts_nanbox_safe_unbox(a1):nullptr;
     if(!raw1 || (*(uint32_t*)raw1!=0x53545247 && *(uint32_t*)raw1!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime: timeZone must be a string")); return ts_value_make_undefined(); }
     const char* tz=((TsString*)ts_value_get_string(a1))->ToUtf8(); int off; bool utc;
@@ -3755,7 +3757,11 @@ static TsValue* zdt_add(TsZonedDateTime* z, TsDuration* d, int sign, bool reject
     int nh=(int)(rem/3600000000000LL); rem%=3600000000000LL; int nmi=(int)(rem/60000000000LL); rem%=60000000000LL;
     int nss=(int)(rem/1000000000LL); rem%=1000000000LL; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
     long long localMs = iso_days_from_civil(nY,nM,nD)*86400000LL + (long long)nh*3600000 + (long long)nmi*60000 + (long long)nss*1000 + nms;
+    // The intermediate wall-clock datetime AND the resulting instant must be representable.
+    long long _itns=(long long)nh*3600000000000LL+(long long)nmi*60000000000LL+(long long)nss*1000000000LL+(long long)nms*1000000LL+(long long)nus*1000LL+nns;
+    if(!iso_datetime_in_limits(nY,nM,nD,_itns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime arithmetic: intermediate datetime out of range")); return ts_value_make_undefined(); }
     long long epoch_ms = localMs - (long long)z->offset_minutes*60000LL;
+    if(!instant_epoch_in_limits(epoch_ms, nus*1000+nns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(zdt_same_zone(z, epoch_ms, nus*1000+nns));
 }
 static TsValue* zdt_diff(TsZonedDateTime* a, TsZonedDateTime* b, const std::string& lu){
@@ -4261,6 +4267,8 @@ TsValue* ts_temporal_plaindatetime_withPlainTime_native(void* ctx,int argc,TsVal
         if(!pt){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.withPlainTime: invalid time")); return ts_value_make_undefined(); }
         h=pt->iso_hour;mi=pt->iso_minute;s=pt->iso_second;ms=pt->iso_millisecond;us=pt->iso_microsecond;ns=pt->iso_nanosecond;
     }
+    long long _tns=(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+    if(!iso_datetime_in_limits(d->iso_year,d->iso_month,d->iso_day,_tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.withPlainTime: result is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDateTime::Create(d->iso_year,d->iso_month,d->iso_day,h,mi,s,ms,us,ns));
 }
 // Temporal.ZonedDateTime.prototype.startOfDay() — midnight in the local day.
@@ -4268,7 +4276,12 @@ TsValue* ts_temporal_zdt_startOfDay_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"startOfDay");
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
     long long localMs=iso_days_from_civil(Y,M,D)*86400000LL;
-    return ts_value_make_object(TsZonedDateTime::Create(localMs-(long long)z->offset_minutes*60000LL, 0, z->offset_minutes, z->is_utc));
+    long long epochMs;
+    if(z->zone_name[0]){
+        if(!icu_zone_local_to_epoch(z->zone_name,Y,M,D,0,0,0,0,0,&epochMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.startOfDay: ambiguous local time rejected")); return ts_value_make_undefined(); }
+    } else epochMs = localMs-(long long)z->offset_minutes*60000LL;
+    if(!instant_epoch_in_limits(epochMs,0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.startOfDay: start of day is outside the representable range")); return ts_value_make_undefined(); }
+    return ts_value_make_object(zdt_same_zone(z, epochMs, 0));
 }
 // Temporal.PlainDate.prototype.toZonedDateTime(item) — item is a time-zone string
 // or { timeZone, plainTime? }. The wall time defaults to midnight.
