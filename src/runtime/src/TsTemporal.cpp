@@ -1668,12 +1668,16 @@ TsValue* ts_temporal_plainyearmonth_compare_native(void* ctx,int argc,TsValue** 
     for(int i=0;i<3;i++){ if(af[i]<bf[i])return ts_value_make_int(-1); if(af[i]>bf[i])return ts_value_make_int(1);} return ts_value_make_int(0);
 }
 TsValue* ts_temporal_plainyearmonth_with_native(void* ctx,int argc,TsValue** argv){
-    TsPlainYearMonth* pd=require_plainyearmonth(ctx,"with"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
+    TsPlainYearMonth* pd=require_plainyearmonth(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
-    int vals[2]={pd->iso_year,pd->iso_month}; static const char* names[2]={"year","month"}; bool any=false;
+    // Observable order: calendar, timeZone (reject if present), month, monthCode, year, overflow.
+    { TsValue* fc=ts_object_get_property(raw,"calendar"); if(fc&&!ts_value_is_undefined(fc)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: a fields object must not specify a calendar")); return ts_value_make_undefined(); }
+      TsValue* ftz=ts_object_get_property(raw,"timeZone"); if(ftz&&!ts_value_is_undefined(ftz)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: a fields object must not specify a timeZone")); return ts_value_make_undefined(); } }
+    int vals[2]={pd->iso_year,pd->iso_month}; bool any=false;
+    { int bagM=read_bag_month(raw); if(bagM>=1){ any=true; vals[1]=bagM; } }   // month, monthCode (+conflict)
     { TsValue* f=ts_object_get_property(raw,"year"); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[0]=(int)std::trunc(d);} }
-    { int bagM=read_bag_month(raw); if(bagM>=1){ any=true; vals[1]=bagM; } }   // month/monthCode + conflict
     if(!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
+    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);   // overflow read LAST
     if(vals[1]<1)vals[1]=1; if(vals[1]>12)vals[1]=12;
     return ts_value_make_object(TsPlainYearMonth::Create(vals[0],vals[1],pd->iso_day));
 }
@@ -1781,13 +1785,23 @@ TsValue* ts_temporal_plainmonthday_equals_native(void* ctx,int argc,TsValue** ar
     return ts_value_make_bool(a->iso_month==b->iso_month&&a->iso_day==b->iso_day&&a->iso_year==b->iso_year);
 }
 TsValue* ts_temporal_plainmonthday_with_native(void* ctx,int argc,TsValue** argv){
-    TsPlainMonthDay* pd=require_plainmonthday(ctx,"with"); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
+    TsPlainMonthDay* pd=require_plainmonthday(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
+    // Observable order: calendar, timeZone (reject), day, month, monthCode, year, overflow.
+    { TsValue* fc=ts_object_get_property(raw,"calendar"); if(fc&&!ts_value_is_undefined(fc)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: a fields object must not specify a calendar")); return ts_value_make_undefined(); }
+      TsValue* ftz=ts_object_get_property(raw,"timeZone"); if(ftz&&!ts_value_is_undefined(ftz)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: a fields object must not specify a timeZone")); return ts_value_make_undefined(); } }
     int M=pd->iso_month,D=pd->iso_day; bool any=false;
-    TsValue* fm=ts_object_get_property(raw,"month"); TsValue* fd=ts_object_get_property(raw,"day");
-    if(fm&&!ts_value_is_undefined(fm)){any=true; double d=ts_to_number(fm); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); return ts_value_make_undefined(); } if(d==d)M=(int)std::trunc(d);}
+    TsValue* fd=ts_object_get_property(raw,"day");
     if(fd&&!ts_value_is_undefined(fd)){any=true; double d=ts_to_number(fd); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: day property cannot be Infinity")); return ts_value_make_undefined(); } if(d==d)D=(int)std::trunc(d);}
+    TsValue* fm=ts_object_get_property(raw,"month"); int fromMonth=-1; bool hM=fm&&!ts_value_is_undefined(fm);
+    if(hM){any=true; double d=ts_to_number(fm); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month property cannot be Infinity")); return ts_value_make_undefined(); } if(d==d)fromMonth=(int)std::trunc(d);}
+    TsValue* fmc=ts_object_get_property(raw,"monthCode"); int fromCode=-1; bool hMC=fmc&&!ts_value_is_undefined(fmc);
+    if(hMC){any=true; std::string s; bool ok=option_to_string(fmc,&s); bool fmt=ok&&(s.size()==3||s.size()==4)&&s[0]=='M'&&s[1]>='0'&&s[1]<='9'&&s[2]>='0'&&s[2]<='9'&&(s.size()==3||s[3]=='L'); int mm=fmt?(s[1]-'0')*10+(s[2]-'0'):0; bool hasL=fmt&&s.size()==4; if(!fmt||hasL||mm<1||mm>12){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: invalid monthCode")); return ts_value_make_undefined(); } fromCode=mm; }
+    if(fromMonth>=1&&fromCode>=1&&fromMonth!=fromCode){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: month and monthCode conflict")); return ts_value_make_undefined(); }
+    if(fromCode>=1)M=fromCode; else if(fromMonth>=1)M=fromMonth;
+    { TsValue* fy=ts_object_get_property(raw,"year"); if(fy&&!ts_value_is_undefined(fy)){ any=true; double d=ts_to_number(fy); if(std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } } }
     if(!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
+    validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);   // overflow read LAST
     if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(pd->iso_year,M); if(D<1)D=1; if(D>dim)D=dim;
     return ts_value_make_object(TsPlainMonthDay::Create(M,D,pd->iso_year));
 }
@@ -1974,15 +1988,22 @@ TsValue* ts_temporal_plaindatetime_compare_native(void* ctx,int argc,TsValue** a
     for(int i=0;i<9;i++){ if(af[i]<bf[i])return ts_value_make_int(-1); if(af[i]>bf[i])return ts_value_make_int(1);} return ts_value_make_int(0);
 }
 TsValue* ts_temporal_plaindatetime_with_native(void* ctx,int argc,TsValue** argv){
-    TsPlainDateTime* pd=require_plaindatetime(ctx,"with"); bool _ovrej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
+    TsPlainDateTime* pd=require_plaindatetime(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
     if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
-    static const char* names[9]={"year","month","day","hour","minute","second","millisecond","microsecond","nanosecond"};
+    // Observable order: calendar, timeZone (reject), then alphabetical date+time fields
+    // (day, hour, microsecond, millisecond, minute, month, monthCode, nanosecond, second,
+    // year), then the overflow option.
+    { TsValue* fc=ts_object_get_property(raw,"calendar"); if(fc&&!ts_value_is_undefined(fc)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: a fields object must not specify a calendar")); return ts_value_make_undefined(); }
+      TsValue* ftz=ts_object_get_property(raw,"timeZone"); if(ftz&&!ts_value_is_undefined(ftz)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: a fields object must not specify a timeZone")); return ts_value_make_undefined(); } }
     int vals[9]={pd->iso_year,pd->iso_month,pd->iso_day,pd->iso_hour,pd->iso_minute,pd->iso_second,pd->iso_ms,pd->iso_us,pd->iso_ns};
     bool any=false;
-    for(int i=0;i<9;i++){ if(i==1) continue;   // month handled via read_bag_month (month/monthCode + conflict)
-        TsValue* f=ts_object_get_property(raw,names[i]); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[i]=(int)std::trunc(d);} }
-    { int bagM=read_bag_month(raw); if(bagM>=1){ any=true; vals[1]=bagM; } }
+    { static const char* before[5]={"day","hour","microsecond","millisecond","minute"}; const int bidx[5]={2,3,7,6,4};
+      for(int i=0;i<5;i++){ TsValue* f=ts_object_get_property(raw,before[i]); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[bidx[i]]=(int)std::trunc(d);} } }
+    { int bagM=read_bag_month(raw); if(bagM>=1){ any=true; vals[1]=bagM; } }   // month, monthCode (+conflict)
+    { static const char* after[3]={"nanosecond","second","year"}; const int aidx2[3]={8,5,0};
+      for(int i=0;i<3;i++){ TsValue* f=ts_object_get_property(raw,after[i]); if(f&&!ts_value_is_undefined(f)){any=true; double d=ts_to_number(f); if(d!=d||std::isinf(d)){ts_throw((TsValue*)ts_error_create_typed("RangeError","field not finite"));return ts_value_make_undefined();} vals[aidx2[i]]=(int)std::trunc(d);} } }
     if(!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
+    bool _ovrej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);   // overflow read LAST
     if(_ovrej){ const int tl[6]={23,59,59,999,999,999}; bool bad=vals[1]<1||vals[1]>12||vals[2]<1||vals[2]>iso_days_in_month(vals[0],vals[1]); for(int i=0;i<6&&!bad;i++) if(vals[3+i]<0||vals[3+i]>tl[i]) bad=true; if(bad){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); } }
     if(vals[1]<1)vals[1]=1; if(vals[1]>12)vals[1]=12; int dim=iso_days_in_month(vals[0],vals[1]); if(vals[2]<1)vals[2]=1; if(vals[2]>dim)vals[2]=dim;
     int* T=vals+3; const int lim[6]={23,59,59,999,999,999}; for(int i=0;i<6;i++){ if(T[i]<0)T[i]=0; if(T[i]>lim[i])T[i]=lim[i]; }
