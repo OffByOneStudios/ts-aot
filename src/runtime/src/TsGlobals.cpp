@@ -697,10 +697,27 @@ void* ts_get_global_String() {
         // `new String(x)` stores [[StringData]] on the wrapper TsMap so
         // String.prototype.toString/valueOf can return the original.
         auto stringFn = [](void* ctx, int argc, TsValue** argv) -> TsValue* {
+            void* thisVal = ts_get_call_this();
+            // Detect `new String(...)` (this is a fresh wrapper whose prototype is String.prototype).
+            bool isNew = false;
+            if (thisVal) { void* traw = ts_value_get_object((TsValue*)thisVal);
+                if (traw && *(uint32_t*)((char*)traw + 16) == 0x4D415053 &&
+                    ((TsMap*)traw)->GetPrototype() == g_string_wrapper_proto) isNew = true; }
+            // String(symbol) returns SymbolDescriptiveString; only `new String(symbol)` is a
+            // TypeError. (ts_string_from_value/ToString would otherwise throw for both.)
+            if (argc >= 1 && argv && argv[0]) {
+                uint64_t a0nb = nanbox_from_tsvalue_ptr(argv[0]);
+                void* sraw = nanbox_is_ptr(a0nb) ? nanbox_to_ptr(a0nb) : nullptr;
+                if (sraw && *(uint32_t*)sraw == 0x53594D42) {
+                    if (isNew) { ts_throw((TsValue*)ts_error_create_typed("TypeError","Cannot convert a Symbol value to a string")); return ts_value_make_undefined(); }
+                    TsSymbol* sym = (TsSymbol*)sraw;
+                    std::string ds = "Symbol("; if (sym->description) ds += sym->description->ToUtf8(); ds += ")";
+                    return ts_value_make_string(TsString::Create(ds.c_str()));
+                }
+            }
             void* result = (argc >= 1 && argv && argv[0])
                 ? ts_string_from_value(argv[0])
                 : (void*)TsString::Create("");
-            void* thisVal = ts_get_call_this();
             if (thisVal) {
                 void* raw = ts_value_get_object((TsValue*)thisVal);
                 if (raw) {
