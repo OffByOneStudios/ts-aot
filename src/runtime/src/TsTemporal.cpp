@@ -26,7 +26,7 @@ static bool option_is_object(TsValue* v);
 static bool temporal_mode_valid(const std::string& m);
 static std::string read_enum_option(TsValue* opts, const char* key, const char* def, const char* const* valid, int nvalid);
 static int iso_days_in_month(int y, int m);
-static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank);
+static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank, std::string* largestOut=nullptr);
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
@@ -3833,7 +3833,7 @@ TsValue* ts_temporal_plaindate_toZonedDateTime_native(void* ctx,int argc,TsValue
 }
 
 // ======================= round helpers + more =======================
-static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank){
+static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank, std::string* largestOut){
     *inc=1; *mode="halfExpand";
     // String shorthand: roundTo IS the smallestUnit. Validate it.
     if(roundTo && !ts_value_is_undefined(roundTo) && tsvalue_to_stdstring(roundTo, unit)){
@@ -3863,7 +3863,7 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
     std::string luStr;
     TsValue* lu=ts_object_get_property(raw,"largestUnit");
     if(lu&&!ts_value_is_undefined(lu)){
-        if(option_to_string(lu,&luStr) && luStr!="auto" && !unit_in_range(luStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); }
+        if(option_to_string(lu,&luStr)){ if(luStr!="auto" && !unit_in_range(luStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); } if(largestOut) *largestOut=luStr; }
     }
     // smallestUnit (required for the object form).
     TsValue* su=ts_object_get_property(raw,"smallestUnit");
@@ -4006,13 +4006,14 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
     std::string sUnit,mode="halfExpand"; long long inc=1;
-    bool haveS = parse_round_options(rt,&sUnit,&inc,&mode,1,10);
-    std::string lUnit="auto";
+    std::string luVal;   // largestUnit is read ONCE inside parse_round_options (avoid a double toString)
+    bool haveS = parse_round_options(rt,&sUnit,&inc,&mode,1,10,&luVal);
+    bool luPresent=!luVal.empty(); std::string lUnit = luPresent ? luVal : "auto";
     void* raw=ts_nanbox_safe_unbox(rt);
-    if(raw){ TsValue* lu=ts_object_get_property(raw,"largestUnit"); std::string s; if(lu&&!ts_value_is_undefined(lu)&&tsvalue_to_stdstring(lu,&s)) lUnit=s; }
     if(!haveS){
-        // smallestUnit may be omitted iff largestUnit is given; defaults to nanosecond.
-        if(lUnit=="auto"){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: smallestUnit or largestUnit is required")); return ts_value_make_undefined(); }
+        // smallestUnit may be omitted iff largestUnit is GIVEN (incl. an explicit "auto");
+        // defaults to nanosecond.
+        if(!luPresent){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: smallestUnit or largestUnit is required")); return ts_value_make_undefined(); }
         sUnit="nanosecond";
         if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(dd==dd&&!std::isinf(dd))inc=(long long)std::trunc(dd); }
                  TsValue* rm=ts_object_get_property(raw,"roundingMode"); std::string m; if(rm&&!ts_value_is_undefined(rm)&&tsvalue_to_stdstring(rm,&m))mode=m; }
