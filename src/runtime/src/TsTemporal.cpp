@@ -4091,10 +4091,6 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
     }
     bool ok; long long sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
-    long long tot = d->days*86400000000000LL + d->hours*3600000000000LL + d->minutes*60000000000LL
-        + d->seconds*1000000000LL + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
-    long long q=sNs*(inc>0?inc:1);
-    long long rounded = round_signed(tot,q,mode);
     std::string L=lUnit;
     if(L=="auto"){
         if(d->days) L="day"; else if(d->hours) L="hour"; else if(d->minutes) L="minute";
@@ -4103,6 +4099,53 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         if(unit_ns(L,&ok) < sNs) L=sUnit;
     }
     long long Lns=unit_ns(L,&ok); if(!ok) Lns=86400000000000LL;
+    // Overflow-safe whole-second total. The nanosecond `tot` below overflows int64 for a
+    // duration beyond ~9e9 seconds; those (already broken) take a second-level branch, while
+    // every smaller duration keeps the exact existing path unchanged (no regression).
+    long long carrySec0 = d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
+    long long subRem0 = (d->milliseconds%1000)*1000000LL + (d->microseconds%1000000)*1000LL + (d->nanoseconds%1000000000);
+    carrySec0 += subRem0/1000000000LL; subRem0 %= 1000000000LL;
+    long long totalSec0 = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds + carrySec0;
+    if(totalSec0 > 9000000000LL || totalSec0 < -9000000000LL){
+        int sgn = (totalSec0<0||(totalSec0==0&&subRem0<0)) ? -1 : 1;
+        long long aSec = totalSec0<0?-totalSec0:totalSec0;
+        long long aSub = subRem0<0?-subRem0:subRem0;
+        std::string rmode = (sgn<0) ? flip_mode_neg(mode) : mode;
+        auto fracUp=[&](long long num,long long den,long long qv)->bool{
+            if(num<=0) return false;
+            if(rmode=="trunc"||rmode=="floor") return false;
+            if(rmode=="ceil"||rmode=="expand") return true;
+            long long two=num*2;
+            if(rmode=="halfExpand"||rmode=="halfCeil") return two>=den;
+            if(rmode=="halfTrunc"||rmode=="halfFloor") return two>den;
+            if(rmode=="halfEven"){ if(two>den)return true; if(two<den)return false; return (qv&1)!=0; }
+            return two>=den;
+        };
+        long long roundedSecMag, roundedSubMag;
+        if(sNs>=1000000000LL){
+            long long qSec=(sNs/1000000000LL)*(inc>0?inc:1);
+            long long quot=aSec/qSec, rem=aSec%qSec;
+            long long fracNum=rem*1000000000LL+aSub, fracDen=qSec*1000000000LL;
+            if(fracUp(fracNum,fracDen,quot)) quot+=1;
+            roundedSecMag=quot*qSec; roundedSubMag=0;
+        } else {
+            long long qns=sNs*(inc>0?inc:1);
+            long long rsub=round_nonneg(aSub,qns,rmode);
+            roundedSecMag=aSec+rsub/1000000000LL; roundedSubMag=rsub%1000000000LL;
+        }
+        if(roundedSecMag>9007199254740991LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: result is out of range")); return ts_value_make_undefined(); }
+        long long out2[7]={0,0,0,0,0,0,0};
+        long long secMag=roundedSecMag; static const long long usec[4]={86400,3600,60,1};
+        for(int i=0;i<4;i++){ long long uNs=usec[i]*1000000000LL; if(uNs>=sNs && uNs<=Lns){ out2[i]=secMag/usec[i]; secMag%=usec[i]; } }
+        long long subMag=roundedSubMag; static const long long usub[3]={1000000,1000,1};
+        for(int i=0;i<3;i++){ if(usub[i]>=sNs && usub[i]<=Lns){ out2[4+i]=subMag/usub[i]; subMag%=usub[i]; } }
+        for(int i=0;i<7;i++) out2[i]*=sgn;
+        return ts_value_make_object(TsDuration::Create(0,0,0,out2[0],out2[1],out2[2],out2[3],out2[4],out2[5],out2[6]));
+    }
+    long long tot = d->days*86400000000000LL + d->hours*3600000000000LL + d->minutes*60000000000LL
+        + d->seconds*1000000000LL + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
+    long long q=sNs*(inc>0?inc:1);
+    long long rounded = round_signed(tot,q,mode);
     long long rem = rounded<0?-rounded:rounded; long long rs = rounded<0?-1:1;
     long long out[7]={0,0,0,0,0,0,0}; long long uns[7]={86400000000000LL,3600000000000LL,60000000000LL,1000000000LL,1000000LL,1000LL,1LL};
     for(int i=0;i<7;i++){ if(uns[i]>=sNs && uns[i]<=Lns){ out[i]=(rem/uns[i])*rs; rem%=uns[i]; } }
