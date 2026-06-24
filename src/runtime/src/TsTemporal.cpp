@@ -2231,21 +2231,22 @@ TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
     require_options_object((argc>=1&&argv)?argv[0]:nullptr);
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(instant_iso_string(it));
-    // timeZone-rendered output is unsupported here -> fall back to default UTC string.
     void* raw=ts_nanbox_safe_unbox(opts);
-    if(raw){ TsValue* tz=ts_object_get_property(raw,"timeZone"); if(tz&&!ts_value_is_undefined(tz)){
-        // The timeZone must still be a valid identifier (ToTemporalTimeZoneIdentifier)
-        // even though ts-aot renders the default UTC string for it.
-        std::string tzs; int o; bool u;
-        if(!tsvalue_to_stdstring(tz,&tzs)||!parse_timezone(tzs.c_str(),&o,&u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.toString: invalid time zone")); return ts_value_make_undefined(); }
-        return ts_value_make_string(instant_iso_string(it)); } }
     long long ms=it->epoch_ms; long long sns=it->sub_ns;
     if(sns<0){ ms-=1; sns+=1000000; }   // FLOOR sub-second for negative epoch
     long long days=ms/86400000LL; long long rem=ms%86400000LL;
     if(rem<0){ rem+=86400000LL; days-=1; }
     int h=(int)(rem/3600000); rem%=3600000; int mi=(int)(rem/60000); rem%=60000; int s=(int)(rem/1000); int msr=(int)(rem%1000);
     int us=(int)(sns/1000), ns=(int)(sns%1000);
+    // Observable order: fractionalSecondDigits, roundingMode, smallestUnit (via
+    // format_time_opts), THEN timeZone.
     int carry=0; std::string ts=format_time_opts(h,mi,s,msr,us,ns,opts,&carry);   // rounding may cross midnight
+    if(raw){ TsValue* tz=ts_object_get_property(raw,"timeZone"); if(tz&&!ts_value_is_undefined(tz)){
+        // The timeZone must be a valid identifier even though ts-aot renders the default UTC
+        // string (zone-rendered output unsupported).
+        std::string tzs; int o; bool u;
+        if(!tsvalue_to_stdstring(tz,&tzs)||!parse_timezone(tzs.c_str(),&o,&u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.toString: invalid time zone")); return ts_value_make_undefined(); }
+        return ts_value_make_string(instant_iso_string(it)); } }
     int Y,M,D; iso_civil_from_days(days+carry,&Y,&M,&D);
     char db[24]; if(Y<0||Y>9999) snprintf(db,sizeof(db),"%+07d-%02d-%02d",Y,M,D); else snprintf(db,sizeof(db),"%04d-%02d-%02d",Y,M,D);
     std::string out=db; out+="T"; out+=ts; out+="Z";
