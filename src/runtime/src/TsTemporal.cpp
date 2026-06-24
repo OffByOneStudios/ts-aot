@@ -182,7 +182,7 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
     long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr=nullptr,long long subNsMag=0);
 static void add_iso_date(int y,int m,int d, long long years,long long months,long long weeks,long long days,
-                         int* Y,int* M,int* D);
+                         int* Y,int* M,int* D, bool reject=false);
 // Validate the shared rounding/diff option bag (roundingMode/smallestUnit/
 // largestUnit/roundingIncrement), throwing TypeError/RangeError per spec.
 // No-op when opts is undefined. Defined after read_string_option.
@@ -3090,13 +3090,17 @@ TsValue* ts_temporal_plaintime_since_native(void* ctx,int argc,TsValue** argv){
 
 // ======================= Arithmetic: PlainDate =======================
 static void add_iso_date(int y,int m,int d, long long years,long long months,long long weeks,long long days,
-                         int* Y,int* M,int* D){
+                         int* Y,int* M,int* D, bool reject){
     long long ym = (long long)(m-1) + months;           // 0-based month index
     long long yy = (long long)y + years + (ym>=0 ? ym/12 : (ym-11)/12);
     int mm = (int)(ym - (yy-(long long)y-years)*12) + 1; // 1-based month after balance
     if(mm<1){mm+=12;yy--;} if(mm>12){mm-=12;yy++;}
     int yi=(int)yy;
-    int dim=iso_days_in_month(yi,mm); int dd=d; if(dd>dim) dd=dim; if(dd<1) dd=1;
+    int dim=iso_days_in_month(yi,mm); int dd=d;
+    // overflow:"reject" -> a year/month shift that lands the day past month-end (e.g.
+    // Jan 31 + 1 month -> Feb 31) is a RangeError instead of clamping.
+    if(reject && (dd>dim || dd<1)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: date arithmetic day out of range (overflow reject)")); }
+    if(dd>dim) dd=dim; if(dd<1) dd=1;
     long long civil = iso_days_from_civil(yi,mm,dd) + days + weeks*7;
     iso_civil_from_days(civil, Y, M, D);
 }
@@ -3702,13 +3706,13 @@ TsValue* ts_temporal_instant_round_native(void* ctx,int argc,TsValue** argv){
 // ==================== Arithmetic: ZonedDateTime ====================
 // Fixed-offset only: do the arithmetic on the local wall-clock, then re-derive
 // the epoch (no DST transitions to worry about).
-static TsValue* zdt_add(TsZonedDateTime* z, TsDuration* d, int sign){
+static TsValue* zdt_add(TsZonedDateTime* z, TsDuration* d, int sign, bool reject=false){
     const long long DAY=86400000000000LL;
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
     long long timeNs = ((((long long)h*60+mi)*60+s)*1000000000LL) + (long long)ms*1000000LL + (long long)us*1000LL + ns;
     timeNs += sign*dur_time_ns(d);
     long long carry = timeNs/DAY; long long rem=timeNs%DAY; if(rem<0){rem+=DAY;carry--;}
-    int nY,nM,nD; add_iso_date(Y,M,D, sign*d->years, sign*d->months, sign*d->weeks, sign*d->days+carry, &nY,&nM,&nD);
+    int nY,nM,nD; add_iso_date(Y,M,D, sign*d->years, sign*d->months, sign*d->weeks, sign*d->days+carry, &nY,&nM,&nD, reject);
     if(!iso_date_valid(nY,nM,nD)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
     int nh=(int)(rem/3600000000000LL); rem%=3600000000000LL; int nmi=(int)(rem/60000000000LL); rem%=60000000000LL;
     int nss=(int)(rem/1000000000LL); rem%=1000000000LL; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
@@ -3744,14 +3748,14 @@ static TsValue* zdt_diff(TsZonedDateTime* a, TsZonedDateTime* b, const std::stri
 }
 extern "C" {
 TsValue* ts_temporal_zdt_add_native(void* ctx,int argc,TsValue** argv){
-    TsZonedDateTime* z=require_zoneddatetime(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr); bool rej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.add: invalid duration")); return ts_value_make_undefined(); }
-    return zdt_add(z,d,1);
+    return zdt_add(z,d,1,rej);
 }
 TsValue* ts_temporal_zdt_subtract_native(void* ctx,int argc,TsValue** argv){
-    TsZonedDateTime* z=require_zoneddatetime(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr); validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
+    TsZonedDateTime* z=require_zoneddatetime(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr); bool rej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
-    return zdt_add(z,d,-1);
+    return zdt_add(z,d,-1,rej);
 }
 static TsZonedDateTime* coerce_zdt_arg(TsValue* v){
     TsZonedDateTime* z=as_zoneddatetime(v?ts_nanbox_safe_unbox(v):nullptr); if(z) return z;
