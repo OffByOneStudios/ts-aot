@@ -765,7 +765,7 @@ static TsDuration* require_duration(void* ctx, const char* method) {
 
 // ISO-8601 duration string. Sign prefix; PnYnMnWnD then T nH nM nS (seconds
 // carries a decimal fraction from ms/us/ns). All-zero -> "PT0S".
-static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr) {
+static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool* rangeErr=nullptr) {
     int sign = d->Sign();
     std::string out;
     if (sign < 0) out += "-";
@@ -826,6 +826,11 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr) {
             long long q=1; for(int i=0;i<9-digits;i++) q*=10;
             long long rounded = round_nonneg(frac, q, mode);
             sec += rounded/1000000000LL; frac = rounded%1000000000LL;
+            // Rounding can carry whole seconds; the rounded duration must still be valid.
+            // Flag it (the caller throws — this frame holds std::string locals, so a
+            // longjmp here would corrupt the unwinder; see [[longjmp-stdstring-frame-crash]]).
+            long long f2[10]={u(d->years),u(d->months),u(d->weeks),u(d->days),u(d->hours),u(d->minutes),sec,0,0,frac};
+            if(!duration_in_range(f2)){ if(rangeErr) *rangeErr=true; }
         }
     }
     bool anyTime = d->hours||d->minutes||sec||frac||(digits>0);
@@ -856,7 +861,10 @@ TsValue* ts_temporal_duration_toString_native(void* ctx, int argc, TsValue** arg
     TsDuration* d = require_duration(ctx, "toString");
     TsValue* opts = (argc>=1&&argv)?argv[0]:nullptr;
     require_options_object(opts);
-    return ts_value_make_string(duration_iso_string(d, opts));
+    bool _re=false;
+    TsString* s = duration_iso_string(d, opts, &_re);
+    if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.toString: rounded duration is outside the valid range")); return ts_value_make_undefined(); }
+    return ts_value_make_string(s);
 }
 
 TsValue* ts_temporal_duration_valueOf_native(void* ctx, int argc, TsValue** argv) {
