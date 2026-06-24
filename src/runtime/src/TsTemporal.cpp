@@ -2630,6 +2630,12 @@ static void validate_relativeto_arg(TsValue* rt){
     }
     // A Temporal-typed object carries its slot — accept it.
     if(is_temporal_typed_object(rr)) return;
+    // A property bag needs the date fields (ToRelativeTemporalObject -> CalendarFields
+    // requires year, month-or-monthCode, and day); a missing one is a TypeError, even when
+    // the operation has no calendar units to anchor.
+    { TsValue* fy=ts_object_get_property(rr,"year"); TsValue* fd=ts_object_get_property(rr,"day");
+      bool hY=fy&&!ts_value_is_undefined(fy), hD=fd&&!ts_value_is_undefined(fd);
+      if(!hY || read_bag_month(rr)<1 || !hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo object needs year, month and day")); return; } }
     // Property bag: ToRelativeTemporalObject reads & validates every recognized field.
     // A non-finite (Infinity) numeric field is a RangeError (ToIntegerWithTruncation).
     static const char* NF[]={"year","month","day","hour","minute","second","millisecond","microsecond","nanosecond"};
@@ -4028,9 +4034,11 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     }
     auto isCal=[](const std::string&u){ return u=="year"||u=="years"||u=="month"||u=="months"||u=="week"||u=="weeks"; };
     bool calInvolved = d->years||d->months||d->weeks||isCal(sUnit)||isCal(lUnit);
+    // A present relativeTo is always validated (ToRelativeTemporalObject), even when the
+    // rounding needs no anchoring (e.g. largestUnit:"days" with a time-only duration).
+    TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
+    if(relTo && !ts_value_is_undefined(relTo)) validate_relativeto_arg(relTo);
     if(calInvolved){
-        TsValue* relTo = raw ? ts_object_get_property(raw,"relativeTo") : nullptr;
-        validate_relativeto_arg(relTo);
         TsPlainDate* rd = (relTo && !ts_value_is_undefined(relTo)) ? coerce_plaindate_arg(relTo) : nullptr;
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         std::string L=lUnit;
