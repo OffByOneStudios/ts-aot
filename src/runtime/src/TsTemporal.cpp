@@ -896,12 +896,14 @@ TsValue* ts_temporal_duration_with_native(void* ctx, int argc, TsValue** argv) {
             "Temporal.Duration.prototype.with: argument must be a plain object"));
         return ts_value_make_undefined();
     }
-    static const char* names[10] = {"years","months","weeks","days","hours","minutes","seconds","milliseconds","microseconds","nanoseconds"};
+    // Spec reads the fields in ALPHABETICAL order (observable), storing at the canonical index.
+    static const char* anames[10] = {"days","hours","microseconds","milliseconds","minutes","months","nanoseconds","seconds","weeks","years"};
+    static const int aidx[10] = {3,4,8,7,5,1,9,6,2,0};
     long long cur[10] = {d->years,d->months,d->weeks,d->days,d->hours,d->minutes,d->seconds,d->milliseconds,d->microseconds,d->nanoseconds};
     bool any=false, ok=true;
     for (int i=0;i<10;i++){
-        TsValue* f = ts_object_get_property(raw, names[i]);
-        if (f && !ts_value_is_undefined(f)) { any=true; cur[i]=duration_field(f,&ok); if(!ok) return ts_value_make_undefined(); }
+        TsValue* f = ts_object_get_property(raw, anames[i]);
+        if (f && !ts_value_is_undefined(f)) { any=true; cur[aidx[i]]=duration_field(f,&ok); if(!ok) return ts_value_make_undefined(); }
     }
     if (!any) { ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.with: no recognized fields")); return ts_value_make_undefined(); }
     if (!duration_in_range(cur)) { ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.with: a component is out of range")); return ts_value_make_undefined(); }
@@ -980,9 +982,12 @@ extern "C" TsValue* ts_temporal_duration_from(int argc, TsValue** argv) {
             TsDuration* o = (TsDuration*)raw;
             return ts_value_make_object(TsDuration::Create(o->years,o->months,o->weeks,o->days,o->hours,o->minutes,o->seconds,o->milliseconds,o->microseconds,o->nanoseconds));
         }
-        static const char* names[10] = {"years","months","weeks","days","hours","minutes","seconds","milliseconds","microseconds","nanoseconds"};
+        // Spec reads the fields in ALPHABETICAL order (observable), storing each at its
+        // canonical index (years..nanoseconds).
+        static const char* anames[10] = {"days","hours","microseconds","milliseconds","minutes","months","nanoseconds","seconds","weeks","years"};
+        static const int aidx[10] = {3,4,8,7,5,1,9,6,2,0};
         long long f[10]={0,0,0,0,0,0,0,0,0,0}; bool any=false, ok=true;
-        for (int i=0;i<10;i++){ TsValue* x=ts_object_get_property(raw,names[i]); if(x&&!ts_value_is_undefined(x)){any=true; f[i]=duration_field(x,&ok); if(!ok) return ts_value_make_undefined();} }
+        for (int i=0;i<10;i++){ TsValue* x=ts_object_get_property(raw,anames[i]); if(x&&!ts_value_is_undefined(x)){any=true; f[aidx[i]]=duration_field(x,&ok); if(!ok) return ts_value_make_undefined();} }
         if (!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.from: object has no recognized duration fields")); return ts_value_make_undefined(); }
         if (!duration_in_range(f)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: a component is out of range")); return ts_value_make_undefined(); }
         if (!duration_same_sign(f)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: mixed signs")); return ts_value_make_undefined(); }
