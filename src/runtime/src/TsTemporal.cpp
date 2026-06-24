@@ -4245,15 +4245,10 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
         return true;
     }
     void* raw = roundTo?ts_nanbox_safe_unbox(roundTo):nullptr; if(!raw) return false;
-    // roundingMode: validate only when a string; invalid string -> RangeError.
-    TsValue* rm=ts_object_get_property(raw,"roundingMode");
-    if(rm&&!ts_value_is_undefined(rm)){
-        std::string m;
-        if(option_to_string(rm,&m)){
-            if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
-            *mode=m;
-        }
-    }
+    // Observable order: roundingIncrement, roundingMode, smallestUnit. The round methods that
+    // use this (PlainTime/PlainDateTime/Instant/ZonedDateTime) have NO largestUnit option, so
+    // it is not read (Duration.round/diff methods read largestUnit on their own path).
+    std::string luStr;
     // roundingIncrement: ToNumber; finite, then truncate(value) in [1, 1e9].
     TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
     if(ri&&!ts_value_is_undefined(ri)){
@@ -4263,11 +4258,14 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
         if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); }
         *inc=(long long)ii;
     }
-    // largestUnit (optional): validate only when a string.
-    std::string luStr;
-    TsValue* lu=ts_object_get_property(raw,"largestUnit");
-    if(lu&&!ts_value_is_undefined(lu)){
-        if(option_to_string(lu,&luStr)){ if(luStr!="auto" && !unit_in_range(luStr,minRank,maxRank)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid largestUnit")); } if(largestOut) *largestOut=luStr; }
+    // roundingMode: validate only when a string; invalid string -> RangeError.
+    TsValue* rm=ts_object_get_property(raw,"roundingMode");
+    if(rm&&!ts_value_is_undefined(rm)){
+        std::string m;
+        if(option_to_string(rm,&m)){
+            if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingMode")); }
+            *mode=m;
+        }
     }
     // smallestUnit (required for the object form).
     TsValue* su=ts_object_get_property(raw,"smallestUnit");
