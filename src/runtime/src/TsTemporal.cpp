@@ -3991,9 +3991,13 @@ TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     { TsValue* offf=ts_object_get_property(raw,"offset"); if(offf&&!ts_value_is_undefined(offf)){ std::string os; if(!option_to_string(offf,&os)||!valid_offset_field(os.c_str())){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: invalid offset string")); return ts_value_make_undefined(); } } }
     s=rd("second",s);
     Y=rd("year",Y);
+    // A provided day/month must be a positive integer (ToPositiveIntegerWithTruncation); this
+    // RangeError precedes the options validation (e.g. with({day:-1}, badOptions)).
+    if(D<1){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: day must be a positive integer")); return ts_value_make_undefined(); }
     // options observed after the fields: disambiguation, offset, overflow.
     int disamb=0; bool _wrej=false;
     { TsValue* o2=(argc>=2&&argv)?argv[1]:nullptr;
+      require_options_object(o2);   // TypeError for a primitive options argument (no deref crash)
       static const char* DIS[4]={"compatible","earlier","later","reject"};
       static const char* OFF[4]={"prefer","use","ignore","reject"};
       std::string ds=read_enum_option(o2,"disambiguation","compatible",DIS,4);
