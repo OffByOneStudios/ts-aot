@@ -15,15 +15,43 @@
 #include <cctype>
 #include <cstdlib>
 #include <string>
+#include <cstdint>
 #include <unicode/timezone.h>
 #include <unicode/basictz.h>
 #include <unicode/calendar.h>
 #include <unicode/unistr.h>
 #include <unicode/ucal.h>
 
+// ======================= Named integer constants (cleanup) =======================
+// Object type tags: a uint32_t stored at object offset 0 for primitives and at offset +16 for
+// the boxed Temporal types. Each value is the big-endian ASCII of its tag mnemonic.
+#define TAG_STRING            0x53545247  // 'STRG'  TsString
+#define TAG_CONS_STRING       0x434F4E53  // 'CONS'  TsConsString
+#define TAG_BIGINT            0x42494749  // 'BIGI'  TsBigInt
+#define TAG_SYMBOL            0x53594D42  // 'SYMB'  TsSymbol
+#define MAGIC_PLAINTIME       0x504C5449  // 'PLTI'  TsPlainTime
+#define MAGIC_DURATION        0x54445552  // 'TDUR'  TsDuration
+#define MAGIC_PLAINDATE       0x504C4454  // 'PLDT'  TsPlainDate
+#define MAGIC_PLAINYEARMONTH  0x504C594D  // 'PLYM'  TsPlainYearMonth
+#define MAGIC_PLAINMONTHDAY   0x504C4D44  // 'PLMD'  TsPlainMonthDay
+#define MAGIC_PLAINDATETIME   0x50444D54  // 'PDMT'  TsPlainDateTime
+#define MAGIC_INSTANT         0x494E5354  // 'INST'  TsInstant
+#define MAGIC_ZONEDDATETIME   0x5A44544D  // 'ZDTM'  TsZonedDateTime
+
+// Time-unit conversion factors.
+#define NS_PER_DAY        86400000000000LL
+#define NS_PER_HOUR        3600000000000LL
+#define NS_PER_MINUTE        60000000000LL
+#define NS_PER_SECOND         1000000000LL
+#define MS_PER_DAY              86400000LL
+
+// Representable-range limits.
+#define MAX_EPOCH_MS      8640000000000000LL    // |epoch| <= 8.64e21 ns
+#define PTR_USER_MAX      0x00007FFFFFFFFFFFULL  // top of the user-space address range
+
 extern "C" double ts_to_number(TsValue* v);  // Primitives.cpp (throws on Symbol)
 
-static long long iso_days_from_civil(int y, int m, int d);   // defined later
+static int64_t iso_days_from_civil(int y, int m, int d);   // defined later
 
 // ===================== ICU-backed IANA time-zone helpers (Group F) =====================
 // A zone id is "named" (IANA, e.g. America/New_York) when it is neither "UTC" nor a
@@ -64,7 +92,7 @@ static bool icu_zone_canonical(const char* name, char* buf, size_t bufsz){
     return ok;
 }
 // Offset (minutes) of a named zone at the given epoch (UTC ms) — DST-aware.
-static int icu_zone_offset_at(const char* name, long long epoch_ms){
+static int icu_zone_offset_at(const char* name, int64_t epoch_ms){
     UErrorCode st=U_ZERO_ERROR;
     icu::TimeZone* tz=icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(name));
     int32_t raw=0,dst=0; tz->getOffset((UDate)epoch_ms, (UBool)false, raw, dst, st);
@@ -74,9 +102,9 @@ static int icu_zone_offset_at(const char* name, long long epoch_ms){
 // Local wall-clock in a named zone -> epoch (UTC ms), applying Temporal disambiguation
 // (0=compatible, 1=earlier, 2=later, 3=reject). Returns false only for reject+ambiguous.
 static bool icu_zone_local_to_epoch(const char* name, int Y,int Mo,int D,int h,int mi,int s,int ms,
-                                    int disamb, long long* outMs){
-    long long localMs = iso_days_from_civil(Y,Mo,D)*86400000LL
-        + (long long)h*3600000LL + (long long)mi*60000LL + (long long)s*1000LL + ms;
+                                    int disamb, int64_t* outMs){
+    int64_t localMs = iso_days_from_civil(Y,Mo,D)*MS_PER_DAY
+        + (int64_t)h*3600000LL + (int64_t)mi*60000LL + (int64_t)s*1000LL + ms;
     UErrorCode st=U_ZERO_ERROR;
     icu::TimeZone* tz=icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(name));
     icu::BasicTimeZone* btz=dynamic_cast<icu::BasicTimeZone*>(tz);
@@ -87,9 +115,9 @@ static bool icu_zone_local_to_epoch(const char* name, int Y,int Mo,int D,int h,i
         btz->getOffsetFromLocal((UDate)localMs, UCAL_TZ_LOCAL_LATTER, UCAL_TZ_LOCAL_LATTER, lRaw, lDst, st);
     } else { tz->getOffset((UDate)localMs, (UBool)true, fRaw, fDst, st); lRaw=fRaw; lDst=fDst; }
     delete tz;
-    long long fOff=fRaw+fDst, lOff=lRaw+lDst;
+    int64_t fOff=fRaw+fDst, lOff=lRaw+lDst;
     bool ambiguous = (fOff != lOff);   // a gap (skipped) or overlap (repeated) local time
-    long long off;
+    int64_t off;
     if(!ambiguous) off=fOff;
     else if(disamb==1) off=(fOff>lOff)?fOff:lOff;       // earlier instant = larger offset
     else if(disamb==2) off=(fOff<lOff)?fOff:lOff;       // later instant = smaller offset
@@ -106,32 +134,32 @@ static bool icu_zone_local_to_epoch(const char* name, int Y,int Mo,int D,int h,i
 
 // Forward declarations for arithmetic/rounding helpers defined later in the file
 // (so earlier method natives can call them).
-static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest);
+static TsValue* time_diff_with_opts(int64_t diff, TsValue* opts, const char* defLargest);
 static std::string read_string_option(TsValue* opts, const char* key, const char* def);
 static bool option_to_string(TsValue* v, std::string* out);
 static bool option_is_object(TsValue* v);
 static bool temporal_mode_valid(const std::string& m);
 static std::string read_enum_option(TsValue* opts, const char* key, const char* def, const char* const* valid, int nvalid);
 static int iso_days_in_month(int y, int m);
-static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank, std::string* largestOut=nullptr);
+static bool parse_round_options(TsValue* roundTo, std::string* unit, int64_t* inc, std::string* mode, int minRank, int maxRank, std::string* largestOut=nullptr);
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc);
 static bool iso_string_offset_min(const char* s, int* offMin);
 static bool iso_string_offset_subminute(const char* s);   // true iff the inline offset has sub-minute precision
 static bool resolve_timezone_id(const char* tu, int* off, bool* utc, char* zbuf, size_t zsz);
 static void zdt_offset_string(int offMin, char* buf, size_t n);
-static int icu_zone_offset_at(const char* name, long long epoch_ms);
+static int icu_zone_offset_at(const char* name, int64_t epoch_ms);
 static bool parse_iso_datetime(const char* s,int* Y,int* M,int* D,int* H,int* Mi,int* S,int* ms,int* us,int* ns);
 static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
 static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int* s,int* ms,int* us,int* ns);
-static void iso_civil_from_days(long long z, int* y, int* m, int* d);
-static long long unit_ns(const std::string& u, bool* ok);
+static void iso_civil_from_days(int64_t z, int* y, int* m, int* d);
+static int64_t unit_ns(const std::string& u, bool* ok);
 // A `with`/partial bag must be a plain object — reject any Temporal-typed object.
 // Magics at offset +16: PlainTime/Duration/PlainDate/PlainYearMonth/PlainMonthDay/
 // PlainDateTime/Instant/ZonedDateTime.
 static inline bool is_temporal_typed_object(void* raw){
-    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>0x00007FFFFFFFFFFFULL) return false;
+    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>PTR_USER_MAX) return false;
     uint32_t m=*(uint32_t*)((char*)raw+16);
-    return m==0x504C5449||m==0x54445552||m==0x504C4454||m==0x504C594D||m==0x504C4D44||m==0x50444D54||m==0x494E5354||m==0x5A44544D;
+    return m==MAGIC_PLAINTIME||m==MAGIC_DURATION||m==MAGIC_PLAINDATE||m==MAGIC_PLAINYEARMONTH||m==MAGIC_PLAINMONTHDAY||m==MAGIC_PLAINDATETIME||m==MAGIC_INSTANT||m==MAGIC_ZONEDDATETIME;
 }
 // ToNumber on a BigInt or Symbol is a TypeError; reject before coercing an option
 // value (e.g. roundingIncrement) without changing global ts_to_number.
@@ -141,26 +169,26 @@ static inline void reject_nonnumeric_increment(TsValue* v){
     if(!nanbox_is_ptr(nb)) return;
     void* r=nanbox_to_ptr(nb); if(!r) return;
     uint32_t m0=*(uint32_t*)r, m16=*(uint32_t*)((char*)r+16);
-    if(m0==0x42494749||m16==0x42494749) ts_throw((TsValue*)ts_error_create_typed("TypeError","Cannot convert a BigInt value to a number"));
-    if(m0==0x53594D42||m16==0x53594D42) ts_throw((TsValue*)ts_error_create_typed("TypeError","Cannot convert a Symbol value to a number"));
+    if(m0==TAG_BIGINT||m16==TAG_BIGINT) ts_throw((TsValue*)ts_error_create_typed("TypeError","Cannot convert a BigInt value to a number"));
+    if(m0==TAG_SYMBOL||m16==TAG_SYMBOL) ts_throw((TsValue*)ts_error_create_typed("TypeError","Cannot convert a Symbol value to a number"));
 }
 // ValidateTemporalRoundingIncrement (inclusive=false) for the TIME units of a
 // difference: the increment must be < the unit's max (hour 24, minute/second 60,
 // sub-second 1000) and divide it evenly. Calendar units (day+) are unconstrained.
-static void validate_diff_time_increment(const std::string& smallest, long long inc){
-    long long maxInc=0;
+static void validate_diff_time_increment(const std::string& smallest, int64_t inc){
+    int64_t maxInc=0;
     if(smallest=="hour"||smallest=="hours") maxInc=24;
     else if(smallest=="minute"||smallest=="minutes"||smallest=="second"||smallest=="seconds") maxInc=60;
     else if(smallest=="millisecond"||smallest=="milliseconds"||smallest=="microsecond"||smallest=="microseconds"||smallest=="nanosecond"||smallest=="nanoseconds") maxInc=1000;
-    if(maxInc>0){ long long i=inc>0?inc:1; if(i>=maxInc || maxInc%i!=0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: roundingIncrement out of range")); } }
+    if(maxInc>0){ int64_t i=inc>0?inc:1; if(i>=maxInc || maxInc%i!=0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: roundingIncrement out of range")); } }
 }
-static long long round_nonneg(long long v, long long q, const std::string& mode);
-static long long round_signed(long long v, long long q, const std::string& mode);
+static int64_t round_nonneg(int64_t v, int64_t q, const std::string& mode);
+static int64_t round_signed(int64_t v, int64_t q, const std::string& mode);
 static std::string read_opt_str_noauto(void* raw, const char* key, const char* def);
 static bool iso_annotations_valid(const char* s);
 static int date_unit_rank(const std::string& u);
-static long long unit_ns(const std::string& u, bool* ok);
-static long long round_nonneg(long long v, long long q, const std::string& mode);
+static int64_t unit_ns(const std::string& u, bool* ok);
+static int64_t round_nonneg(int64_t v, int64_t q, const std::string& mode);
 // ceil/floor/halfCeil/halfFloor are not symmetric about zero. round_nonneg rounds a
 // non-negative magnitude; when the true value is negative and we re-apply the sign,
 // the directional modes must be swapped so e.g. ceil(-x) rounds toward +inf, not -inf.
@@ -173,7 +201,7 @@ static inline std::string flip_mode_neg(const std::string& mode){
     return mode;
 }
 // Round a true signed value v (any sign) under roundingMode `mode`, quantum q>0.
-static inline long long round_signed(long long v, long long q, const std::string& mode){
+static inline int64_t round_signed(int64_t v, int64_t q, const std::string& mode){
     if(v<0) return -round_nonneg(-v, q, flip_mode_neg(mode));
     return round_nonneg(v, q, mode);
 }
@@ -182,9 +210,9 @@ static inline long long round_signed(long long v, long long q, const std::string
 // local (rmode), and a longjmp (ts_throw) unwinding through this frame corrupts the MSVC
 // unwinder (crash in basic_string::_Tidy_deallocate). See [[longjmp-stdstring-frame-crash]].
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
-    const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
-    long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr=nullptr,long long subNsMag=0);
-static void add_iso_date(int y,int m,int d, long long years,long long months,long long weeks,long long days,
+    const std::string& smallest,const std::string& largest,int64_t inc,const std::string& mode,
+    int64_t* oy,int64_t* omo,int64_t* owk,int64_t* ody,bool* rangeErr=nullptr,int64_t subNsMag=0);
+static void add_iso_date(int y,int m,int d, int64_t years,int64_t months,int64_t weeks,int64_t days,
                          int* Y,int* M,int* D, bool reject=false);
 // Validate the shared rounding/diff option bag (roundingMode/smallestUnit/
 // largestUnit/roundingIncrement), throwing TypeError/RangeError per spec.
@@ -257,7 +285,7 @@ extern "C" {
 static TsPlainTime* as_plaintime(void* raw) {
     if (!raw) return nullptr;
     uint32_t m0 = *(uint32_t*)raw;
-    if (m0 == 0x53545247 || m0 == 0x434F4E53) return nullptr;  // TsString / TsConsString
+    if (m0 == TAG_STRING || m0 == TAG_CONS_STRING) return nullptr;  // TsString / TsConsString
     return (*(uint32_t*)((char*)raw + 16) == TsPlainTime::MAGIC) ? (TsPlainTime*)raw : nullptr;
 }
 
@@ -311,7 +339,7 @@ static int read_fractional_second_digits(void* raw){
             if(nanbox_is_number(fnb)){
                 double dv=ts_to_number(f);
                 if(!(dv==dv) || std::isinf(dv)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
-                long long fv=(long long)std::floor(dv);
+                int64_t fv=(int64_t)std::floor(dv);
                 if(fv<0 || fv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
                 fsd=(int)fv;
             } else {
@@ -320,7 +348,7 @@ static int read_fractional_second_digits(void* raw){
             } } }
     return fsd;
 }
-static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts, int* dayCarry=nullptr, int fsdPre=-2, long long* outTns=nullptr){
+static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsValue* opts, int* dayCarry=nullptr, int fsdPre=-2, int64_t* outTns=nullptr){
     if(dayCarry) *dayCarry=0;
     void* raw = opts?ts_nanbox_safe_unbox(opts):nullptr;
     // Observable order: fractionalSecondDigits, then roundingMode, then smallestUnit. A caller
@@ -336,16 +364,16 @@ static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsV
                || smallest=="nanosecond"||smallest=="nanoseconds";
         if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid smallestUnit")); }
     }
-    long long tns = ((long long)h*3600+(long long)mi*60+s)*1000000000LL + (long long)ms*1000000 + (long long)us*1000 + ns;
-    int digits=-1; bool dropSeconds=false; long long unitNs=1;
-    if(smallest=="minute"||smallest=="minutes"){ dropSeconds=true; digits=0; unitNs=60000000000LL; }
-    else if(smallest=="second"||smallest=="seconds"){ digits=0; unitNs=1000000000LL; }
+    int64_t tns = ((int64_t)h*3600+(int64_t)mi*60+s)*NS_PER_SECOND + (int64_t)ms*1000000 + (int64_t)us*1000 + ns;
+    int digits=-1; bool dropSeconds=false; int64_t unitNs=1;
+    if(smallest=="minute"||smallest=="minutes"){ dropSeconds=true; digits=0; unitNs=NS_PER_MINUTE; }
+    else if(smallest=="second"||smallest=="seconds"){ digits=0; unitNs=NS_PER_SECOND; }
     else if(smallest=="millisecond"||smallest=="milliseconds"){ digits=3; unitNs=1000000LL; }
     else if(smallest=="microsecond"||smallest=="microseconds"){ digits=6; unitNs=1000LL; }
     else if(smallest=="nanosecond"||smallest=="nanoseconds"){ digits=9; unitNs=1LL; }
     else if(fsd>=0){ digits=fsd; unitNs=1; for(int i=0;i<9-fsd;i++)unitNs*=10; }
     if(unitNs>1){
-        long long q=unitNs,v=tns,quo=v/q,r=v%q,rounded;
+        int64_t q=unitNs,v=tns,quo=v/q,r=v%q,rounded;
         if(r==0) rounded=v;
         else if(mode=="trunc"||mode=="floor") rounded=quo*q;
         else if(mode=="ceil"||mode=="expand") rounded=(quo+1)*q;
@@ -353,13 +381,13 @@ static std::string format_time_opts(int h,int mi,int s,int ms,int us,int ns, TsV
         else if(mode=="halfTrunc"||mode=="halfFloor") rounded=(r*2>q)?(quo+1)*q:quo*q;
         else if(mode=="halfEven"){ if(r*2>q)rounded=(quo+1)*q; else if(r*2<q)rounded=quo*q; else rounded=(quo%2==0)?quo*q:(quo+1)*q; }
         else rounded=quo*q;
-        long long carry=rounded/86400000000000LL; tns=rounded % 86400000000000LL; if(tns<0){ tns+=86400000000000LL; carry--; }
+        int64_t carry=rounded/NS_PER_DAY; tns=rounded % NS_PER_DAY; if(tns<0){ tns+=NS_PER_DAY; carry--; }
         if(dayCarry) *dayCarry=(int)carry;   // rounding crossed midnight -> the caller advances the date
     }
     if(outTns) *outTns = tns;   // final rounded time-of-day ns (for a caller's range check)
-    int H=(int)(tns/3600000000000LL); tns%=3600000000000LL;
-    int M=(int)(tns/60000000000LL); tns%=60000000000LL;
-    int S=(int)(tns/1000000000LL); long long frac=tns%1000000000LL;
+    int H=(int)(tns/NS_PER_HOUR); tns%=NS_PER_HOUR;
+    int M=(int)(tns/NS_PER_MINUTE); tns%=NS_PER_MINUTE;
+    int S=(int)(tns/NS_PER_SECOND); int64_t frac=tns%NS_PER_SECOND;
     char hb[24];
     if(dropSeconds){ snprintf(hb,sizeof(hb),"%02d:%02d",H,M); return hb; }
     snprintf(hb,sizeof(hb),"%02d:%02d:%02d",H,M,S); std::string out=hb;
@@ -391,7 +419,7 @@ static bool tsvalue_to_stdstring(TsValue* v, std::string* out) {
     void* raw = v ? ts_nanbox_safe_unbox(v) : nullptr;
     if (!raw) return false;
     uint32_t m0 = *(uint32_t*)raw;
-    if (m0 != 0x53545247 && m0 != 0x434F4E53) return false;
+    if (m0 != TAG_STRING && m0 != TAG_CONS_STRING) return false;
     void* sp = ts_value_get_string(v);
     if (!sp) return false;
     // Length-aware extraction so an embedded NUL (e.g. an option value
@@ -438,10 +466,10 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
         TsValue* rm = ts_object_get_property(raw, "roundingMode");
         std::string m; if (rm && option_to_string(rm, &m)) { if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainTime.prototype.round: invalid roundingMode")); return ts_value_make_undefined(); } mode = m; }
     }
-    long long unitNs;
-    if (unit == "hour" || unit == "hours") unitNs = 3600000000000LL;
-    else if (unit == "minute" || unit == "minutes") unitNs = 60000000000LL;
-    else if (unit == "second" || unit == "seconds") unitNs = 1000000000LL;
+    int64_t unitNs;
+    if (unit == "hour" || unit == "hours") unitNs = NS_PER_HOUR;
+    else if (unit == "minute" || unit == "minutes") unitNs = NS_PER_MINUTE;
+    else if (unit == "second" || unit == "seconds") unitNs = NS_PER_SECOND;
     else if (unit == "millisecond" || unit == "milliseconds") unitNs = 1000000LL;
     else if (unit == "microsecond" || unit == "microseconds") unitNs = 1000LL;
     else if (unit == "nanosecond" || unit == "nanoseconds") unitNs = 1LL;
@@ -452,11 +480,11 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
     }
     if (increment < 1) increment = 1;
     validate_diff_time_increment(unit, increment);
-    long long quantum = unitNs * (long long)increment;
-    long long nsOfDay = ((((long long)pt->iso_hour * 60 + pt->iso_minute) * 60 + pt->iso_second) * 1000000000LL)
-        + (long long)pt->iso_millisecond * 1000000LL + (long long)pt->iso_microsecond * 1000LL + pt->iso_nanosecond;
-    long long q = nsOfDay / quantum, r = nsOfDay % quantum;
-    long long rounded;
+    int64_t quantum = unitNs * (int64_t)increment;
+    int64_t nsOfDay = ((((int64_t)pt->iso_hour * 60 + pt->iso_minute) * 60 + pt->iso_second) * NS_PER_SECOND)
+        + (int64_t)pt->iso_millisecond * 1000000LL + (int64_t)pt->iso_microsecond * 1000LL + pt->iso_nanosecond;
+    int64_t q = nsOfDay / quantum, r = nsOfDay % quantum;
+    int64_t rounded;
     if (mode == "ceil" || mode == "expand") rounded = (r > 0) ? (q + 1) * quantum : nsOfDay;
     else if (mode == "floor" || mode == "trunc") rounded = q * quantum;
     else if (mode == "halfEven") {
@@ -467,10 +495,10 @@ TsValue* ts_temporal_plaintime_round_native(void* ctx, int argc, TsValue** argv)
         rounded = (r * 2 > quantum) ? (q + 1) * quantum : q * quantum;
     else  // halfExpand (default), halfCeil
         rounded = (r * 2 >= quantum) ? (q + 1) * quantum : q * quantum;
-    rounded %= 86400000000000LL;  // wrap within a 24h day
-    int h  = (int)(rounded / 3600000000000LL); rounded %= 3600000000000LL;
-    int m  = (int)(rounded / 60000000000LL);   rounded %= 60000000000LL;
-    int s  = (int)(rounded / 1000000000LL);    rounded %= 1000000000LL;
+    rounded %= NS_PER_DAY;  // wrap within a 24h day
+    int h  = (int)(rounded / NS_PER_HOUR); rounded %= NS_PER_HOUR;
+    int m  = (int)(rounded / NS_PER_MINUTE);   rounded %= NS_PER_MINUTE;
+    int s  = (int)(rounded / NS_PER_SECOND);    rounded %= NS_PER_SECOND;
     int ms = (int)(rounded / 1000000LL);       rounded %= 1000000LL;
     int us = (int)(rounded / 1000LL);          int ns = (int)(rounded % 1000LL);
     return ts_value_make_object(TsPlainTime::Create(h, m, s, ms, us, ns));
@@ -490,7 +518,7 @@ TsValue* ts_temporal_plaintime_with_native(void* ctx, int argc, TsValue** argv) 
         return ts_value_make_undefined();
     }
     uint32_t m0 = *(uint32_t*)raw;
-    if (m0 == 0x53545247 || m0 == 0x434F4E53 ||
+    if (m0 == TAG_STRING || m0 == TAG_CONS_STRING ||
         is_temporal_typed_object(raw)) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Temporal.PlainTime.prototype.with: argument must be a plain object"));
@@ -701,7 +729,7 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
     }
     // ISO time string. Gate on the real string magic — ts_value_get_string
     // coerces non-strings (an object would otherwise parse "[object Object]").
-    if (raw && (*(uint32_t*)raw == 0x53545247 /*STRG*/ || *(uint32_t*)raw == 0x434F4E53 /*CONS*/)) {
+    if (raw && (*(uint32_t*)raw == TAG_STRING /*STRG*/ || *(uint32_t*)raw == TAG_CONS_STRING /*CONS*/)) {
         void* strPtr = ts_value_get_string(item);
         const char* utf = strPtr ? ((TsString*)strPtr)->ToUtf8() : nullptr;
         int H, M, S, ms, us, ns;
@@ -757,8 +785,8 @@ extern "C" TsValue* ts_temporal_plaintime_from(int argc, TsValue** argv) {
 }
 
 // ============================ Temporal.Duration ============================
-TsDuration* TsDuration::Create(long long y, long long mo, long long w, long long d, long long h,
-                               long long mi, long long s, long long ms, long long us, long long ns) {
+TsDuration* TsDuration::Create(int64_t y, int64_t mo, int64_t w, int64_t d, int64_t h,
+                               int64_t mi, int64_t s, int64_t ms, int64_t us, int64_t ns) {
     void* mem = ts_alloc(sizeof(TsDuration));
     TsDuration* du = new (mem) TsDuration();
     du->magic = MAGIC;
@@ -768,13 +796,13 @@ TsDuration* TsDuration::Create(long long y, long long mo, long long w, long long
 }
 
 int TsDuration::Sign() const {
-    long long f[10] = {years,months,weeks,days,hours,minutes,seconds,milliseconds,microseconds,nanoseconds};
+    int64_t f[10] = {years,months,weeks,days,hours,minutes,seconds,milliseconds,microseconds,nanoseconds};
     for (int i = 0; i < 10; i++) { if (f[i] > 0) return 1; if (f[i] < 0) return -1; }
     return 0;
 }
 
 TsValue TsDuration::GetPropertyVirtual(const char* key) {
-    auto mk = [](long long v) { TsValue r; r.type = ValueType::NUMBER_INT; r.i_val = v; return r; };
+    auto mk = [](int64_t v) { TsValue r; r.type = ValueType::NUMBER_INT; r.i_val = v; return r; };
     if (strcmp(key,"years")==0) return mk(years);
     if (strcmp(key,"months")==0) return mk(months);
     if (strcmp(key,"weeks")==0) return mk(weeks);
@@ -793,12 +821,12 @@ TsValue TsDuration::GetPropertyVirtual(const char* key) {
 static TsDuration* as_duration(void* raw) {
     if (!raw) return nullptr;
     uint32_t m0 = *(uint32_t*)raw;
-    if (m0 == 0x53545247 || m0 == 0x434F4E53) return nullptr;
+    if (m0 == TAG_STRING || m0 == TAG_CONS_STRING) return nullptr;
     return (*(uint32_t*)((char*)raw + 16) == TsDuration::MAGIC) ? (TsDuration*)raw : nullptr;
 }
 
 // ToIntegerIfIntegral: finite + integral, else RangeError.
-static long long duration_field(TsValue* v, bool* ok) {
+static int64_t duration_field(TsValue* v, bool* ok) {
     if (!v || ts_value_is_undefined(v)) return 0;
     reject_nonnumeric_increment(v);   // ToNumber(BigInt) is a TypeError
     double d = ts_to_number(v);  // throws on Symbol
@@ -807,11 +835,11 @@ static long long duration_field(TsValue* v, bool* ok) {
             "Temporal.Duration: components must be integers"));
         *ok = false; return 0;
     }
-    return (long long)d;
+    return (int64_t)d;
 }
 
 // All non-zero components must share one sign.
-static bool duration_same_sign(long long* f) {
+static bool duration_same_sign(int64_t* f) {
     int sign = 0;
     for (int i = 0; i < 10; i++) {
         if (f[i] == 0) continue;
@@ -823,23 +851,23 @@ static bool duration_same_sign(long long* f) {
 // ECMAScript IsValidDuration range check: |years|,|months|,|weeks| < 2^32, and the
 // total seconds (days*86400 + time) must not exceed 2^53 in magnitude. f = the 10
 // components {y,mo,w,d,h,mi,s,ms,us,ns}.
-static bool duration_in_range(long long* f) {
+static bool duration_in_range(int64_t* f) {
     for (int i = 0; i < 3; i++) if (f[i] >= 4294967296LL || f[i] <= -4294967296LL) return false;
     // The total nanoseconds must satisfy abs(ns) <= 2^53*1e9 - 1, i.e. the whole-
     // second total must satisfy abs(seconds) <= 2^53-1. Compute the integer second
     // count (with carry from the ms/us/ns components) exactly to avoid double
     // rounding at the boundary.
-    long long carrySec = f[7]/1000 + f[8]/1000000 + f[9]/1000000000;
-    long long remNs = (f[7]%1000)*1000000LL + (f[8]%1000000)*1000LL + (f[9]%1000000000);
-    carrySec += remNs/1000000000LL;
-    long long intSec = f[3]*86400LL + f[4]*3600LL + f[5]*60LL + f[6] + carrySec;
-    long long absSec = intSec<0?-intSec:intSec;
+    int64_t carrySec = f[7]/1000 + f[8]/1000000 + f[9]/1000000000;
+    int64_t remNs = (f[7]%1000)*1000000LL + (f[8]%1000000)*1000LL + (f[9]%1000000000);
+    carrySec += remNs/NS_PER_SECOND;
+    int64_t intSec = f[3]*86400LL + f[4]*3600LL + f[5]*60LL + f[6] + carrySec;
+    int64_t absSec = intSec<0?-intSec:intSec;
     if (absSec > 9007199254740991LL) return false;
     return true;
 }
 
 extern "C" TsValue* ts_temporal_duration_construct(int argc, TsValue** argv) {
-    long long f[10]; bool ok = true;
+    int64_t f[10]; bool ok = true;
     for (int i = 0; i < 10; i++) {
         f[i] = duration_field((i < argc && argv) ? argv[i] : nullptr, &ok);
         if (!ok) return ts_value_make_undefined();
@@ -879,14 +907,14 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool*
     std::string out;
     if (sign < 0) out += "-";
     out += "P";
-    auto u = [](long long v) -> long long { return v < 0 ? -v : v; };
+    auto u = [](int64_t v) -> int64_t { return v < 0 ? -v : v; };
     char b[32];
     // The date part is emitted AFTER rounding: a sub-second round-up can carry whole seconds up
     // through minutes/hours into days (Duration.toString balances the carry only up to days).
-    long long sec = u(d->seconds);
-    long long frac = u(d->milliseconds)*1000000LL + u(d->microseconds)*1000LL + u(d->nanoseconds);
-    sec += frac/1000000000LL; frac %= 1000000000LL;   // carry whole seconds out of the sub-second total
-    long long mm=u(d->minutes), hh=u(d->hours), dd=u(d->days);
+    int64_t sec = u(d->seconds);
+    int64_t frac = u(d->milliseconds)*1000000LL + u(d->microseconds)*1000LL + u(d->nanoseconds);
+    sec += frac/NS_PER_SECOND; frac %= NS_PER_SECOND;   // carry whole seconds out of the sub-second total
+    int64_t mm=u(d->minutes), hh=u(d->hours), dd=u(d->days);
     // toString options: round the sub-second to fractionalSecondDigits / smallestUnit
     // (roundingMode applied; a carry adds whole seconds). -1 = "auto" (trim zeros).
     int digits = -1;
@@ -905,7 +933,7 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool*
                 uint64_t fnb=nanbox_from_tsvalue_ptr(f);
                 if(nanbox_is_number(fnb)){ double dv=ts_to_number(f);
                     if(!(dv==dv)||std::isinf(dv)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
-                    long long fv=(long long)std::floor(dv);   // floor first, then range-check (9.7 -> 9 is valid)
+                    int64_t fv=(int64_t)std::floor(dv);   // floor first, then range-check (9.7 -> 9 is valid)
                     if(fv<0||fv>9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fractionalSecondDigits must be \"auto\" or an integer 0-9")); }
                     fsd=(int)fv;
                 } else { std::string fs;
@@ -933,20 +961,20 @@ static TsString* duration_iso_string(TsDuration* d, TsValue* opts=nullptr, bool*
         else if (smallest=="nanosecond"||smallest=="nanoseconds") digits=9;
         else if (fsd>=0) digits=fsd;
         if (digits>=0 && digits<9) {
-            long long q=1; for(int i=0;i<9-digits;i++) q*=10;
-            long long rounded = round_nonneg(frac, q, mode);
-            sec += rounded/1000000000LL; frac = rounded%1000000000LL;
+            int64_t q=1; for(int i=0;i<9-digits;i++) q*=10;
+            int64_t rounded = round_nonneg(frac, q, mode);
+            sec += rounded/NS_PER_SECOND; frac = rounded%NS_PER_SECOND;
             // Propagate the whole-second round-up carry, but ONLY into a higher unit that is
             // present (non-zero) in the original duration — a bare 59.9s rounds to "PT60S"
             // (no minutes to carry into), while 1H59M59.9s balances up to "PT2H0S".
-            if(rounded>=1000000000LL && sec==60 && u(d->minutes)!=0){
+            if(rounded>=NS_PER_SECOND && sec==60 && u(d->minutes)!=0){
                 sec=0; mm++;
                 if(mm==60 && u(d->hours)!=0){ mm=0; hh++;
                     if(hh==24 && u(d->days)!=0){ hh=0; dd++; } } }
             // Rounding can carry whole seconds; the rounded duration must still be valid.
             // Flag it (the caller throws — this frame holds std::string locals, so a
             // longjmp here would corrupt the unwinder; see [[longjmp-stdstring-frame-crash]]).
-            long long f2[10]={u(d->years),u(d->months),u(d->weeks),dd,hh,mm,sec,0,0,frac};
+            int64_t f2[10]={u(d->years),u(d->months),u(d->weeks),dd,hh,mm,sec,0,0,frac};
             if(!duration_in_range(f2)){ if(rangeErr) *rangeErr=true; }
         }
     }
@@ -1003,7 +1031,7 @@ TsValue* ts_temporal_duration_negated_native(void* ctx, int argc, TsValue** argv
 
 TsValue* ts_temporal_duration_abs_native(void* ctx, int argc, TsValue** argv) {
     TsDuration* d = require_duration(ctx, "abs");
-    auto a = [](long long v){ return v<0?-v:v; };
+    auto a = [](int64_t v){ return v<0?-v:v; };
     return ts_value_make_object(TsDuration::Create(a(d->years),a(d->months),a(d->weeks),a(d->days),
         a(d->hours),a(d->minutes),a(d->seconds),a(d->milliseconds),a(d->microseconds),a(d->nanoseconds)));
 }
@@ -1012,7 +1040,7 @@ TsValue* ts_temporal_duration_with_native(void* ctx, int argc, TsValue** argv) {
     TsDuration* d = require_duration(ctx, "with");
     TsValue* arg = (argc>=1&&argv)?argv[0]:nullptr;
     void* raw = arg ? ts_nanbox_safe_unbox(arg) : nullptr;
-    if (!raw || *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53) {
+    if (!raw || *(uint32_t*)raw==TAG_STRING || *(uint32_t*)raw==TAG_CONS_STRING) {
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Temporal.Duration.prototype.with: argument must be a plain object"));
         return ts_value_make_undefined();
@@ -1020,7 +1048,7 @@ TsValue* ts_temporal_duration_with_native(void* ctx, int argc, TsValue** argv) {
     // Spec reads the fields in ALPHABETICAL order (observable), storing at the canonical index.
     static const char* anames[10] = {"days","hours","microseconds","milliseconds","minutes","months","nanoseconds","seconds","weeks","years"};
     static const int aidx[10] = {3,4,8,7,5,1,9,6,2,0};
-    long long cur[10] = {d->years,d->months,d->weeks,d->days,d->hours,d->minutes,d->seconds,d->milliseconds,d->microseconds,d->nanoseconds};
+    int64_t cur[10] = {d->years,d->months,d->weeks,d->days,d->hours,d->minutes,d->seconds,d->milliseconds,d->microseconds,d->nanoseconds};
     bool any=false, ok=true;
     for (int i=0;i<10;i++){
         TsValue* f = ts_object_get_property(raw, anames[i]);
@@ -1039,7 +1067,7 @@ TsValue* ts_temporal_duration_from_native(void* ctx, int argc, TsValue** argv) {
 } // extern "C"
 
 // Parse an ISO-8601 duration. Returns false on malformed input.
-static bool parse_iso_duration(const char* s, long long* f) {
+static bool parse_iso_duration(const char* s, int64_t* f) {
     for (int i=0;i<10;i++) f[i]=0;
     const char* p = s;
     int sign = 1;
@@ -1050,8 +1078,8 @@ static bool parse_iso_duration(const char* s, long long* f) {
     while (*p) {
         if (*p=='T'||*p=='t') { inTime=true; p++; if(!isdigit((unsigned char)*p)) return false; continue; }  // T must be followed by a time component
         if (!isdigit((unsigned char)*p)) return false;
-        long long val=0; while(isdigit((unsigned char)*p)){ if(val>=922337203685477580LL) return false; val=val*10+(*p-'0'); p++; }   // reject a component too large for int64 (treated as out of range)
-        long long fracNs=0; bool hasFrac=false;
+        int64_t val=0; while(isdigit((unsigned char)*p)){ if(val>=922337203685477580LL) return false; val=val*10+(*p-'0'); p++; }   // reject a component too large for int64 (treated as out of range)
+        int64_t fracNs=0; bool hasFrac=false;
         if (*p=='.'||*p==',') { hasFrac=true; p++; if(!isdigit((unsigned char)*p)) return false; char fb[10]="000000000"; int i=0; while(i<9&&isdigit((unsigned char)*p)){fb[i++]=*p++;} if(isdigit((unsigned char)*p)) return false; fracNs=atol(fb); }  // at most 9 fractional digits; a fraction needs >=1 digit
         char unit=*p; if(!unit) return false; p++;
         anyField=true;
@@ -1062,10 +1090,10 @@ static bool parse_iso_duration(const char* s, long long* f) {
         } else {
             switch(unit){
                 case 'H':case 'h': f[4]=sign*val;
-                    if(hasFrac){ long long t=fracNs*3600LL; f[5]=sign*(t/60000000000LL); t%=60000000000LL; f[6]=sign*(t/1000000000LL); t%=1000000000LL; f[7]=sign*(t/1000000LL); t%=1000000LL; f[8]=sign*(t/1000LL); f[9]=sign*(t%1000LL); }
+                    if(hasFrac){ int64_t t=fracNs*3600LL; f[5]=sign*(t/NS_PER_MINUTE); t%=NS_PER_MINUTE; f[6]=sign*(t/NS_PER_SECOND); t%=NS_PER_SECOND; f[7]=sign*(t/1000000LL); t%=1000000LL; f[8]=sign*(t/1000LL); f[9]=sign*(t%1000LL); }
                     break;
                 case 'M':case 'm': f[5]=sign*val;
-                    if(hasFrac){ long long t=fracNs*60LL; f[6]=sign*(t/1000000000LL); t%=1000000000LL; f[7]=sign*(t/1000000LL); t%=1000000LL; f[8]=sign*(t/1000LL); f[9]=sign*(t%1000LL); }
+                    if(hasFrac){ int64_t t=fracNs*60LL; f[6]=sign*(t/NS_PER_SECOND); t%=NS_PER_SECOND; f[7]=sign*(t/1000000LL); t%=1000000LL; f[8]=sign*(t/1000LL); f[9]=sign*(t%1000LL); }
                     break;
                 case 'S':case 's':
                     f[6]=sign*val;
@@ -1089,9 +1117,9 @@ extern "C" TsValue* ts_temporal_duration_from(int argc, TsValue** argv) {
     void* raw = ts_nanbox_safe_unbox(item);
     if (raw) {
         uint32_t m0 = *(uint32_t*)raw;
-        if (m0==0x53545247 || m0==0x434F4E53) {
+        if (m0==TAG_STRING || m0==TAG_CONS_STRING) {
             const char* utf = ((TsString*)ts_value_get_string(item))->ToUtf8();
-            long long f[10];
+            int64_t f[10];
             if (!utf || !parse_iso_duration(utf, f)) {
                 ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: invalid ISO duration string"));
                 return ts_value_make_undefined();
@@ -1107,7 +1135,7 @@ extern "C" TsValue* ts_temporal_duration_from(int argc, TsValue** argv) {
         // canonical index (years..nanoseconds).
         static const char* anames[10] = {"days","hours","microseconds","milliseconds","minutes","months","nanoseconds","seconds","weeks","years"};
         static const int aidx[10] = {3,4,8,7,5,1,9,6,2,0};
-        long long f[10]={0,0,0,0,0,0,0,0,0,0}; bool any=false, ok=true;
+        int64_t f[10]={0,0,0,0,0,0,0,0,0,0}; bool any=false, ok=true;
         for (int i=0;i<10;i++){ TsValue* x=ts_object_get_property(raw,anames[i]); if(x&&!ts_value_is_undefined(x)){any=true; f[aidx[i]]=duration_field(x,&ok); if(!ok) return ts_value_make_undefined();} }
         if (!any){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.from: object has no recognized duration fields")); return ts_value_make_undefined(); }
         if (!duration_in_range(f)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.from: a component is out of range")); return ts_value_make_undefined(); }
@@ -1126,16 +1154,16 @@ static int iso_days_in_month(int y, int m) {
     return (m >= 1 && m <= 12) ? dm[m-1] : 30;
 }
 // Days since 1970-01-01 (proleptic Gregorian; Howard Hinnant's algorithm).
-static long long iso_days_from_civil(int y, int m, int d) {
+static int64_t iso_days_from_civil(int y, int m, int d) {
     y -= m <= 2;
-    long long era = (y >= 0 ? y : y - 399) / 400;
+    int64_t era = (y >= 0 ? y : y - 399) / 400;
     int yoe = (int)(y - era * 400);
     int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
     int doe = yoe * 365 + yoe/4 - yoe/100 + doy;
     return era * 146097 + doe - 719468;
 }
 static int iso_day_of_week(int y, int m, int d) {  // ISO: Monday=1 .. Sunday=7
-    long long days = iso_days_from_civil(y, m, d);  // 1970-01-01 = Thursday
+    int64_t days = iso_days_from_civil(y, m, d);  // 1970-01-01 = Thursday
     int w = (int)(((days + 3) % 7 + 7) % 7);  // 0=Mon .. 6=Sun
     return w + 1;
 }
@@ -1156,7 +1184,7 @@ TsPlainDate* TsPlainDate::Create(int y, int m, int d) {
 }
 
 TsValue TsPlainDate::GetPropertyVirtual(const char* key) {
-    auto mkInt = [](long long v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
+    auto mkInt = [](int64_t v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
     auto mkBool = [](bool v){ TsValue r; r.type=ValueType::BOOLEAN; r.i_val=v?1:0; return r; };
     auto mkStr = [](const char* s){ TsValue r; r.type=ValueType::STRING_PTR; r.ptr_val=TsString::Create(s); return r; };
     TsValue undef; undef.type=ValueType::UNDEFINED; undef.i_val=0;
@@ -1188,7 +1216,7 @@ TsValue TsPlainDate::GetPropertyVirtual(const char* key) {
 static TsPlainDate* as_plaindate(void* raw) {
     if (!raw) return nullptr;
     uint32_t m0 = *(uint32_t*)raw;
-    if (m0 == 0x53545247 || m0 == 0x434F4E53) return nullptr;
+    if (m0 == TAG_STRING || m0 == TAG_CONS_STRING) return nullptr;
     return (*(uint32_t*)((char*)raw + 16) == TsPlainDate::MAGIC) ? (TsPlainDate*)raw : nullptr;
 }
 
@@ -1220,15 +1248,15 @@ static bool iso_date_valid(int y, int m, int d) {
 // bound is exclusive of midnight on the first day (the first representable
 // instant is -271821-04-19T00:00:00.000000001).
 static bool iso_date_in_limits(int y, int m, int d) {
-    static const long long DMIN = iso_days_from_civil(-271821, 4, 19);
-    static const long long DMAX = iso_days_from_civil(275760, 9, 13);
-    long long days = iso_days_from_civil(y, m, d);
+    static const int64_t DMIN = iso_days_from_civil(-271821, 4, 19);
+    static const int64_t DMAX = iso_days_from_civil(275760, 9, 13);
+    int64_t days = iso_days_from_civil(y, m, d);
     return days >= DMIN && days <= DMAX;
 }
-static bool iso_datetime_in_limits(int y, int m, int d, long long timeNs) {
-    static const long long DMIN = iso_days_from_civil(-271821, 4, 19);
-    static const long long DMAX = iso_days_from_civil(275760, 9, 13);
-    long long days = iso_days_from_civil(y, m, d);
+static bool iso_datetime_in_limits(int y, int m, int d, int64_t timeNs) {
+    static const int64_t DMIN = iso_days_from_civil(-271821, 4, 19);
+    static const int64_t DMAX = iso_days_from_civil(275760, 9, 13);
+    int64_t days = iso_days_from_civil(y, m, d);
     if (days > DMAX) return false;
     if (days < DMIN) return false;
     if (days == DMIN) return timeNs > 0;
@@ -1236,8 +1264,8 @@ static bool iso_datetime_in_limits(int y, int m, int d, long long timeNs) {
 }
 // An Instant is representable when |epochNanoseconds| <= 8.64e21, i.e.
 // |epoch_ms| <= 8.64e18 (with sub-ms ns 0 at the positive boundary).
-static bool instant_epoch_in_limits(long long ms, int subNs) {
-    const long long MAXMS = 8640000000000000LL; // 8.64e21 ns / 1e6 ns-per-ms = 8.64e15 ms
+static bool instant_epoch_in_limits(int64_t ms, int subNs) {
+    const int64_t MAXMS = MAX_EPOCH_MS; // 8.64e21 ns / 1e6 ns-per-ms = 8.64e15 ms
     if (ms > MAXMS) return false;
     if (ms == MAXMS && subNs > 0) return false;
     if (ms < -MAXMS) return false;
@@ -1246,11 +1274,11 @@ static bool instant_epoch_in_limits(long long ms, int subNs) {
 }
 // A PlainYearMonth is representable when any day of the month is in range.
 static bool iso_yearmonth_in_limits(int y, int m) {
-    static const long long DMIN = iso_days_from_civil(-271821, 4, 19);
-    static const long long DMAX = iso_days_from_civil(275760, 9, 13);
+    static const int64_t DMIN = iso_days_from_civil(-271821, 4, 19);
+    static const int64_t DMAX = iso_days_from_civil(275760, 9, 13);
     if (m < 1 || m > 12) return false;
-    long long first = iso_days_from_civil(y, m, 1);
-    long long last = iso_days_from_civil(y, m, iso_days_in_month(y, m));
+    int64_t first = iso_days_from_civil(y, m, 1);
+    int64_t last = iso_days_from_civil(y, m, iso_days_in_month(y, m));
     return last >= DMIN && first <= DMAX;
 }
 
@@ -1266,8 +1294,8 @@ static bool parse_iso_monthday(const char* s, int* M, int* D);
 // non-string (null/number/bigint/symbol/object) is a TypeError.
 static bool calendar_arg_is_string(TsValue* v){
     void* raw=v?ts_nanbox_safe_unbox(v):nullptr;
-    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>0x00007FFFFFFFFFFFULL) return false;
-    return *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53;
+    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>PTR_USER_MAX) return false;
+    return *(uint32_t*)raw==TAG_STRING || *(uint32_t*)raw==TAG_CONS_STRING;
 }
 static void validate_iso_calendar_arg(TsValue* v){
     if(!v || ts_value_is_undefined(v)) return;
@@ -1303,8 +1331,8 @@ static void validate_calendar_slot_arg(TsValue* v){
     // A date-bearing Temporal object (PlainDate/PlainDateTime/PlainYearMonth/
     // PlainMonthDay/ZonedDateTime) supplies its own (iso) calendar — accept it.
     void* raw=ts_nanbox_safe_unbox(v);
-    if(raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=0x00007FFFFFFFFFFFULL){ uint32_t m16=*(uint32_t*)((char*)raw+16);
-        if(m16==0x504C4454||m16==0x504C594D||m16==0x504C4D44||m16==0x50444D54||m16==0x5A44544D) return; }
+    if(raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=PTR_USER_MAX){ uint32_t m16=*(uint32_t*)((char*)raw+16);
+        if(m16==MAGIC_PLAINDATE||m16==MAGIC_PLAINYEARMONTH||m16==MAGIC_PLAINMONTHDAY||m16==MAGIC_PLAINDATETIME||m16==MAGIC_ZONEDDATETIME) return; }
     if(!calendar_arg_is_string(v)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: calendar must be a string")); return; }
     validate_calendar_string_value(v);
 }
@@ -1495,7 +1523,7 @@ static bool bag_calendar_ok(void* raw){
         if(m16==TsPlainDate::MAGIC||m16==TsPlainDateTime::MAGIC||m16==TsPlainYearMonth::MAGIC||
            m16==TsPlainMonthDay::MAGIC||m16==TsZonedDateTime::MAGIC) return true;
         uint32_t m0=*(uint32_t*)cr;
-        if(m0==0x53545247||m0==0x434F4E53){  // string calendar value -> validate
+        if(m0==TAG_STRING||m0==TAG_CONS_STRING){  // string calendar value -> validate
             std::string s; tsvalue_to_stdstring(cf,&s);
             for(char& c:s) if(c>='A'&&c<='Z') c+=32;
             if(s=="iso8601") return true;
@@ -1563,7 +1591,7 @@ TsValue* ts_temporal_plaindate_with_native(void* ctx, int argc, TsValue** argv) 
     TsPlainDate* pd = require_plaindate(ctx, "with");
     TsValue* arg = (argc>=1&&argv)?argv[0]:nullptr;
     void* raw = arg?ts_nanbox_safe_unbox(arg):nullptr;
-    if (!raw || *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53 ||
+    if (!raw || *(uint32_t*)raw==TAG_STRING || *(uint32_t*)raw==TAG_CONS_STRING ||
         is_temporal_typed_object(raw)) {   // reject ANY Temporal-typed object, not just PlainDate
         ts_throw((TsValue*)ts_error_create_typed("TypeError",
             "Temporal.PlainDate.prototype.with: argument must be a plain object"));
@@ -1616,13 +1644,13 @@ extern "C" TsValue* ts_temporal_plaindate_from(int argc, TsValue** argv) {
     if (raw) {
         // A ZonedDateTime / PlainDateTime supplies its date from its internal slot —
         // no observable property reads.
-        if((uintptr_t)raw>=4096 && (uintptr_t)raw<=0x00007FFFFFFFFFFFULL){
+        if((uintptr_t)raw>=4096 && (uintptr_t)raw<=PTR_USER_MAX){
             uint32_t m16f=*(uint32_t*)((char*)raw+16);
-            if(m16f==0x5A44544D){ TsZonedDateTime* z=(TsZonedDateTime*)raw; int Y2,M2,D2,h2,mi2,s2,ms2,us2,ns2; zdt_local(z,&Y2,&M2,&D2,&h2,&mi2,&s2,&ms2,&us2,&ns2); _ovopt(); return ts_value_make_object(TsPlainDate::Create(Y2,M2,D2)); }
-            if(m16f==0x50444D54){ TsPlainDateTime* dt=(TsPlainDateTime*)raw; _ovopt(); return ts_value_make_object(TsPlainDate::Create(dt->iso_year,dt->iso_month,dt->iso_day)); }
+            if(m16f==MAGIC_ZONEDDATETIME){ TsZonedDateTime* z=(TsZonedDateTime*)raw; int Y2,M2,D2,h2,mi2,s2,ms2,us2,ns2; zdt_local(z,&Y2,&M2,&D2,&h2,&mi2,&s2,&ms2,&us2,&ns2); _ovopt(); return ts_value_make_object(TsPlainDate::Create(Y2,M2,D2)); }
+            if(m16f==MAGIC_PLAINDATETIME){ TsPlainDateTime* dt=(TsPlainDateTime*)raw; _ovopt(); return ts_value_make_object(TsPlainDate::Create(dt->iso_year,dt->iso_month,dt->iso_day)); }
         }
         uint32_t m0 = *(uint32_t*)raw;
-        if (m0==0x53545247 || m0==0x434F4E53) {
+        if (m0==TAG_STRING || m0==TAG_CONS_STRING) {
             const char* utf = ((TsString*)ts_value_get_string(item))->ToUtf8();
             int Y,M,D; int Yd,Md,Dd,hd,mid,sd,msd,usd,nsd;
             if (!utf || has_utc_designator(utf) || !parse_iso_date(utf,&Y,&M,&D) || !date_string_suffix_ok(utf) || !parse_iso_datetime(utf,&Yd,&Md,&Dd,&hd,&mid,&sd,&msd,&usd,&nsd) || !iso_date_valid(Y,M,D) || !iso_date_in_limits(Y,M,D) || !iso_annotations_valid(utf) || !string_calendar_is_iso(utf)) {
@@ -1688,7 +1716,7 @@ TsPlainYearMonth* TsPlainYearMonth::Create(int y, int m, int refDay) {
     return o;
 }
 TsValue TsPlainYearMonth::GetPropertyVirtual(const char* key) {
-    auto mkInt=[](long long v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
+    auto mkInt=[](int64_t v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
     auto mkBool=[](bool v){ TsValue r; r.type=ValueType::BOOLEAN; r.i_val=v?1:0; return r; };
     auto mkStr=[](const char* s){ TsValue r; r.type=ValueType::STRING_PTR; r.ptr_val=TsString::Create(s); return r; };
     TsValue undef; undef.type=ValueType::UNDEFINED; undef.i_val=0;
@@ -1705,7 +1733,7 @@ TsValue TsPlainYearMonth::GetPropertyVirtual(const char* key) {
 static TsPlainYearMonth* as_plainyearmonth(void* raw) {
     if (!raw) return nullptr;
     uint32_t m0=*(uint32_t*)raw;
-    if (m0==0x53545247||m0==0x434F4E53) return nullptr;
+    if (m0==TAG_STRING||m0==TAG_CONS_STRING) return nullptr;
     return (*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC)?(TsPlainYearMonth*)raw:nullptr;
 }
 extern "C" { void* ts_temporal_get_plainyearmonth_ctor(); TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv); }
@@ -1781,7 +1809,7 @@ TsValue* ts_temporal_plainyearmonth_compare_native(void* ctx,int argc,TsValue** 
 }
 TsValue* ts_temporal_plainyearmonth_with_native(void* ctx,int argc,TsValue** argv){
     TsPlainYearMonth* pd=require_plainyearmonth(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
-    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
+    if(!raw||*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     // Observable order: calendar, timeZone (reject if present), month, monthCode, year, overflow.
     { TsValue* fc=ts_object_get_property(raw,"calendar"); if(fc&&!ts_value_is_undefined(fc)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: a fields object must not specify a calendar")); return ts_value_make_undefined(); }
       TsValue* ftz=ts_object_get_property(raw,"timeZone"); if(ftz&&!ts_value_is_undefined(ftz)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.with: a fields object must not specify a timeZone")); return ts_value_make_undefined(); } }
@@ -1803,7 +1831,7 @@ extern "C" TsValue* ts_temporal_plainyearmonth_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_yearmonth_in_limits(Y,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } _ovopt(); return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
+        if(m0==TAG_STRING||m0==TAG_CONS_STRING){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M; if(!u||has_utc_designator(u)||!parse_iso_yearmonth(u,&Y,&M)||M<1||M>12||!iso_date_valid(Y,M,1)||!iso_yearmonth_in_limits(Y,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid string")); return ts_value_make_undefined(); } _ovopt(); return ts_value_make_object(TsPlainYearMonth::Create(Y,M,1)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainYearMonth::MAGIC){ TsPlainYearMonth* o=(TsPlainYearMonth*)raw; _ovopt(); return ts_value_make_object(TsPlainYearMonth::Create(o->iso_year,o->iso_month,o->iso_day)); }
         // Observable order: calendar, month, monthCode, year.
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth.from: invalid calendar")); return ts_value_make_undefined(); }
@@ -1830,7 +1858,7 @@ TsPlainMonthDay* TsPlainMonthDay::Create(int m, int d, int refYear) {
     return o;
 }
 TsValue TsPlainMonthDay::GetPropertyVirtual(const char* key) {
-    auto mkInt=[](long long v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
+    auto mkInt=[](int64_t v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
     auto mkStr=[](const char* s){ TsValue r; r.type=ValueType::STRING_PTR; r.ptr_val=TsString::Create(s); return r; };
     TsValue undef; undef.type=ValueType::UNDEFINED; undef.i_val=0;
     if (strcmp(key,"day")==0) return mkInt(iso_day);
@@ -1841,7 +1869,7 @@ TsValue TsPlainMonthDay::GetPropertyVirtual(const char* key) {
 static TsPlainMonthDay* as_plainmonthday(void* raw) {
     if (!raw) return nullptr;
     uint32_t m0=*(uint32_t*)raw;
-    if (m0==0x53545247||m0==0x434F4E53) return nullptr;
+    if (m0==TAG_STRING||m0==TAG_CONS_STRING) return nullptr;
     return (*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC)?(TsPlainMonthDay*)raw:nullptr;
 }
 extern "C" { void* ts_temporal_get_plainmonthday_ctor(); TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv); }
@@ -1898,7 +1926,7 @@ TsValue* ts_temporal_plainmonthday_equals_native(void* ctx,int argc,TsValue** ar
 }
 TsValue* ts_temporal_plainmonthday_with_native(void* ctx,int argc,TsValue** argv){
     TsPlainMonthDay* pd=require_plainmonthday(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
-    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
+    if(!raw||*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     // Observable order: calendar, timeZone (reject), day, month, monthCode, year, overflow.
     { TsValue* fc=ts_object_get_property(raw,"calendar"); if(fc&&!ts_value_is_undefined(fc)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: a fields object must not specify a calendar")); return ts_value_make_undefined(); }
       TsValue* ftz=ts_object_get_property(raw,"timeZone"); if(ftz&&!ts_value_is_undefined(ftz)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.with: a fields object must not specify a timeZone")); return ts_value_make_undefined(); } }
@@ -1927,7 +1955,7 @@ extern "C" TsValue* ts_temporal_plainmonthday_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||has_utc_designator(u)||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } _ovopt(); return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
+        if(m0==TAG_STRING||m0==TAG_CONS_STRING){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int M,D; if(!u||has_utc_designator(u)||!parse_iso_monthday(u,&M,&D)||M<1||M>12||D<1||D>iso_days_in_month(1972,M)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid string")); return ts_value_make_undefined(); } _ovopt(); return ts_value_make_object(TsPlainMonthDay::Create(M,D,1972)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainMonthDay::MAGIC){ TsPlainMonthDay* o=(TsPlainMonthDay*)raw; _ovopt(); return ts_value_make_object(TsPlainMonthDay::Create(o->iso_month,o->iso_day,o->iso_year)); }
         // Observable order: calendar, day, month, monthCode, year.
         if(!bag_calendar_ok(raw)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainMonthDay.from: invalid calendar")); return ts_value_make_undefined(); }
@@ -1955,7 +1983,7 @@ TsPlainDateTime* TsPlainDateTime::Create(int y,int mo,int d,int h,int mi,int s,i
     return o;
 }
 TsValue TsPlainDateTime::GetPropertyVirtual(const char* key){
-    auto mkInt=[](long long v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
+    auto mkInt=[](int64_t v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
     auto mkBool=[](bool v){ TsValue r; r.type=ValueType::BOOLEAN; r.i_val=v?1:0; return r; };
     auto mkStr=[](const char* s){ TsValue r; r.type=ValueType::STRING_PTR; r.ptr_val=TsString::Create(s); return r; };
     TsValue undef; undef.type=ValueType::UNDEFINED; undef.i_val=0;
@@ -1987,7 +2015,7 @@ TsValue TsPlainDateTime::GetPropertyVirtual(const char* key){
 }
 static TsPlainDateTime* as_plaindatetime(void* raw){
     if(!raw) return nullptr; uint32_t m0=*(uint32_t*)raw;
-    if(m0==0x53545247||m0==0x434F4E53) return nullptr;
+    if(m0==TAG_STRING||m0==TAG_CONS_STRING) return nullptr;
     return (*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC)?(TsPlainDateTime*)raw:nullptr;
 }
 extern "C" { void* ts_temporal_get_plaindatetime_ctor(); TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv); }
@@ -2010,7 +2038,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_construct(int argc, TsValue** argv
     int h=fld(3,0,false,&ok), mi=fld(4,0,false,&ok), s=fld(5,0,false,&ok);
     int ms=fld(6,0,false,&ok), us=fld(7,0,false,&ok), ns=fld(8,0,false,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: year, month and day are required")); return ts_value_make_undefined(); }
-    if(!iso_date_valid(y,mo,d)||!pdt_time_valid(h,mi,s,ms,us,ns)||!iso_datetime_in_limits(y,mo,d,(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: out of range")); return ts_value_make_undefined(); }
+    if(!iso_date_valid(y,mo,d)||!pdt_time_valid(h,mi,s,ms,us,ns)||!iso_datetime_in_limits(y,mo,d,(int64_t)h*NS_PER_HOUR+(int64_t)mi*NS_PER_MINUTE+(int64_t)s*NS_PER_SECOND+(int64_t)ms*1000000LL+(int64_t)us*1000LL+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: out of range")); return ts_value_make_undefined(); }
     validate_iso_calendar_arg((argc>=10&&argv)?argv[9]:nullptr);
     return ts_value_make_object(TsPlainDateTime::Create(y,mo,d,h,mi,s,ms,us,ns));
 }
@@ -2078,7 +2106,7 @@ TsValue* ts_temporal_plaindatetime_toString_native(void* ctx,int argc,TsValue** 
     // Observable order: calendarName is read BEFORE the time-rounding options.
     static const char* CALV[]={"auto","always","never","critical"};
     std::string cal=read_enum_option(opts,"calendarName","auto",CALV,4);
-    int carry=0; long long rtns=0; std::string tstr=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts,&carry,-2,&rtns);
+    int carry=0; int64_t rtns=0; std::string tstr=format_time_opts(d->iso_hour,d->iso_minute,d->iso_second,d->iso_ms,d->iso_us,d->iso_ns,opts,&carry,-2,&rtns);
     int Y=d->iso_year,M=d->iso_month,D=d->iso_day;
     if(carry){ iso_civil_from_days(iso_days_from_civil(Y,M,D)+carry,&Y,&M,&D); }   // rounding crossed midnight
     // Rounding the time can push the datetime past the representable range (e.g. rounding
@@ -2107,7 +2135,7 @@ TsValue* ts_temporal_plaindatetime_compare_native(void* ctx,int argc,TsValue** a
 }
 TsValue* ts_temporal_plaindatetime_with_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* pd=require_plaindatetime(ctx,"with"); TsValue* arg=(argc>=1&&argv)?argv[0]:nullptr; void* raw=arg?ts_nanbox_safe_unbox(arg):nullptr;
-    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
+    if(!raw||*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     // Observable order: calendar, timeZone (reject), then alphabetical date+time fields
     // (day, hour, microsecond, millisecond, minute, month, monthCode, nanosecond, second,
     // year), then the overflow option.
@@ -2125,7 +2153,7 @@ TsValue* ts_temporal_plaindatetime_with_native(void* ctx,int argc,TsValue** argv
     if(_ovrej){ const int tl[6]={23,59,59,999,999,999}; bool bad=vals[1]<1||vals[1]>12||vals[2]<1||vals[2]>iso_days_in_month(vals[0],vals[1]); for(int i=0;i<6&&!bad;i++) if(vals[3+i]<0||vals[3+i]>tl[i]) bad=true; if(bad){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.with: field out of range (overflow reject)")); return ts_value_make_undefined(); } }
     if(vals[1]<1)vals[1]=1; if(vals[1]>12)vals[1]=12; int dim=iso_days_in_month(vals[0],vals[1]); if(vals[2]<1)vals[2]=1; if(vals[2]>dim)vals[2]=dim;
     int* T=vals+3; const int lim[6]={23,59,59,999,999,999}; for(int i=0;i<6;i++){ if(T[i]<0)T[i]=0; if(T[i]>lim[i])T[i]=lim[i]; }
-    long long _tns=(long long)vals[3]*3600000000000LL+(long long)vals[4]*60000000000LL+(long long)vals[5]*1000000000LL+(long long)vals[6]*1000000LL+(long long)vals[7]*1000LL+vals[8];
+    int64_t _tns=(int64_t)vals[3]*NS_PER_HOUR+(int64_t)vals[4]*NS_PER_MINUTE+(int64_t)vals[5]*NS_PER_SECOND+(int64_t)vals[6]*1000000LL+(int64_t)vals[7]*1000LL+vals[8];
     if(!iso_datetime_in_limits(vals[0],vals[1],vals[2],_tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.with: result is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDateTime::Create(vals[0],vals[1],vals[2],vals[3],vals[4],vals[5],vals[6],vals[7],vals[8]));
 }
@@ -2141,8 +2169,8 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
     void* raw=ts_nanbox_safe_unbox(item);
     if(raw){
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M,D,H,Mi,S,ms,us,ns;
-            if(!u||has_utc_designator(u)||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!date_string_suffix_ok(u)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_datetime_in_limits(Y,M,D,(long long)H*3600000000000LL+(long long)Mi*60000000000LL+(long long)S*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
+        if(m0==TAG_STRING||m0==TAG_CONS_STRING){ const char* u=((TsString*)ts_value_get_string(item))->ToUtf8(); int Y,M,D,H,Mi,S,ms,us,ns;
+            if(!u||has_utc_designator(u)||!parse_iso_datetime(u,&Y,&M,&D,&H,&Mi,&S,&ms,&us,&ns)||!date_string_suffix_ok(u)||!iso_date_valid(Y,M,D)||!pdt_time_valid(H,Mi,S,ms,us,ns)||!iso_datetime_in_limits(Y,M,D,(int64_t)H*NS_PER_HOUR+(int64_t)Mi*NS_PER_MINUTE+(int64_t)S*NS_PER_SECOND+(int64_t)ms*1000000LL+(int64_t)us*1000LL+ns)||!iso_annotations_valid(u)||!string_calendar_is_iso(u)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.from: invalid string")); return ts_value_make_undefined(); }
             _ovopt(); return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,H,Mi,S,ms,us,ns)); }
         if(*(uint32_t*)((char*)raw+16)==TsPlainDateTime::MAGIC){ TsPlainDateTime* o=(TsPlainDateTime*)raw; _ovopt(); return ts_value_make_object(TsPlainDateTime::Create(o->iso_year,o->iso_month,o->iso_day,o->iso_hour,o->iso_minute,o->iso_second,o->iso_ms,o->iso_us,o->iso_ns)); }
         // Observable order (PrepareTemporalFields, alphabetical): calendar, day, hour,
@@ -2170,7 +2198,7 @@ extern "C" TsValue* ts_temporal_plaindatetime_from(int argc, TsValue** argv){
         }
         if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
         const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&H,&Mi,&S,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
-        long long tNs=(long long)H*3600000000000LL+(long long)Mi*60000000000LL+(long long)S*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+        int64_t tNs=(int64_t)H*NS_PER_HOUR+(int64_t)Mi*NS_PER_MINUTE+(int64_t)S*NS_PER_SECOND+(int64_t)ms*1000000LL+(int64_t)us*1000LL+ns;
         if(!iso_date_valid(Y,M,D) || !iso_datetime_in_limits(Y,M,D,tNs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","out of range")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,H,Mi,S,ms,us,ns));
     }
@@ -2184,7 +2212,7 @@ static void temporal_now_fields(int* Y,int* M,int* D,int* h,int* m,int* s,int* m
     using namespace std::chrono;
     auto now = system_clock::now();
     std::time_t tt = system_clock::to_time_t(now);
-    long long sub = duration_cast<nanoseconds>(now.time_since_epoch()).count() % 1000000000LL;
+    int64_t sub = duration_cast<nanoseconds>(now.time_since_epoch()).count() % NS_PER_SECOND;
     std::tm tmv{};
 #ifdef _WIN32
     gmtime_s(&tmv, &tt);
@@ -2200,7 +2228,7 @@ static void temporal_now_fields(int* Y,int* M,int* D,int* h,int* m,int* s,int* m
 static void validate_now_tz(int argc, TsValue** argv){
     if(argc>=1&&argv&&argv[0]&&!ts_value_is_undefined(argv[0])){
         void* tzr=ts_nanbox_safe_unbox(argv[0]);
-        if(tzr && (*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){   // string identifier (named/offset/datetime-form)
+        if(tzr && (*(uint32_t*)tzr==TAG_STRING||*(uint32_t*)tzr==TAG_CONS_STRING)){   // string identifier (named/offset/datetime-form)
             const char* tu=((TsString*)ts_value_get_string(argv[0]))->ToUtf8(); int o; bool u; char zb[40];
             if(!tu||!resolve_timezone_id(tu,&o,&u,zb,sizeof(zb))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Now: invalid time zone")); }
         } else if(tzr && *(uint32_t*)((char*)tzr+16)==TsZonedDateTime::MAGIC){ /* a ZonedDateTime's zone is valid */ }
@@ -2235,9 +2263,9 @@ extern "C" {
     void* ts_bigint_to_string(void* bi, int32_t radix);
     TsValue* ts_value_make_bigint(void* b);
 }
-static void iso_civil_from_days(long long z, int* y, int* m, int* d){
+static void iso_civil_from_days(int64_t z, int* y, int* m, int* d){
     z += 719468;
-    long long era = (z >= 0 ? z : z - 146096) / 146097;
+    int64_t era = (z >= 0 ? z : z - 146096) / 146097;
     unsigned doe = (unsigned)(z - era * 146097);
     unsigned yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
     int yy = (int)yoe + (int)(era * 400);
@@ -2247,7 +2275,7 @@ static void iso_civil_from_days(long long z, int* y, int* m, int* d){
     unsigned mm = mp < 10 ? mp+3 : mp-9;
     *y = yy + (mm <= 2); *m = (int)mm; *d = (int)dd;
 }
-TsInstant* TsInstant::Create(long long ms, int subNs){
+TsInstant* TsInstant::Create(int64_t ms, int subNs){
     void* mem=ts_alloc(sizeof(TsInstant)); TsInstant* o=new(mem) TsInstant();
     o->magic=MAGIC; o->epoch_ms=ms; o->sub_ns=subNs; return o;
 }
@@ -2257,7 +2285,7 @@ TsInstant* TsInstant::Create(long long ms, int subNs){
 // [0,999999], e.g. from wall-clock re-encoding via zdt_from_local). Normalizes
 // to FLOOR first, then formats with a string-level borrow so a mixed-sign value
 // can't overflow int64 (epoch_ms*1e6 would).
-static void format_epoch_ns_pair(long long ems, long long sns, char* buf, size_t n){
+static void format_epoch_ns_pair(int64_t ems, int64_t sns, char* buf, size_t n){
     if(sns < 0){ ems -= 1; sns += 1000000; }   // TRUNC -> FLOOR (sns in [0,999999])
     if(ems < 0){
         if(sns == 0) snprintf(buf, n, "-%lld000000", -ems);
@@ -2273,12 +2301,12 @@ TsValue TsInstant::GetPropertyVirtual(const char* key){
     if(strcmp(key,"epochMilliseconds")==0){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=epoch_ms; return r; }
     if(strcmp(key,"epochSeconds")==0){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=epoch_ms/1000; return r; }
     if(strcmp(key,"epochNanoseconds")==0){ char b[40]; instant_ns_string(this,b,sizeof(b)); TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_str((void*)TsString::Create(b),10); return r; }
-    if(strcmp(key,"epochMicroseconds")==0){ long long em=epoch_ms,sn=sub_ns; if(sn<0){em-=1;sn+=1000000;} TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(em*1000LL + sn/1000); return r; }
+    if(strcmp(key,"epochMicroseconds")==0){ int64_t em=epoch_ms,sn=sub_ns; if(sn<0){em-=1;sn+=1000000;} TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(em*1000LL + sn/1000); return r; }
     TsValue u; u.type=ValueType::UNDEFINED; u.i_val=0; return u;
 }
 static TsInstant* as_instant(void* raw){
     if(!raw) return nullptr; uint32_t m0=*(uint32_t*)raw;
-    if(m0==0x53545247||m0==0x434F4E53) return nullptr;
+    if(m0==TAG_STRING||m0==TAG_CONS_STRING) return nullptr;
     return (*(uint32_t*)((char*)raw+16)==TsInstant::MAGIC)?(TsInstant*)raw:nullptr;
 }
 extern "C" { void* ts_temporal_get_instant_ctor(); TsValue* ts_temporal_instant_from(int argc, TsValue** argv); }
@@ -2289,36 +2317,36 @@ static TsInstant* require_instant(void* ctx, const char* method){
 }
 // Decompose a decimal nanoseconds string into truncated ms + sub-ns. Returns
 // false if out of the valid Instant range (|ns| <= 8.64e21).
-static bool ns_string_to_ms_sub(const char* s, long long* ms, int* sub){
+static bool ns_string_to_ms_sub(const char* s, int64_t* ms, int* sub){
     bool neg=false; const char* p=s; if(*p=='+'||*p=='-'){neg=(*p=='-');p++;}
     int len=0; const char* q=p; while(*q>='0'&&*q<='9'){len++;q++;}
     if(len==0||*q) return false;
     // last 6 digits -> sub_ns, the rest -> ms
     int subDigits = len>=6?6:len;
-    long long subv=0; for(int i=len-subDigits;i<len;i++) subv=subv*10+(p[i]-'0');
+    int64_t subv=0; for(int i=len-subDigits;i<len;i++) subv=subv*10+(p[i]-'0');
     // pad if fewer than 6 (small magnitudes): subv is the low digits, ms=0
     for(int i=subDigits;i<6;i++) subv*=10;  // shouldn't happen for len>=6
-    long long msv=0; for(int i=0;i<len-6;i++){ msv=msv*10+(p[i]-'0'); if(msv> 9000000000000000LL) return false; }
+    int64_t msv=0; for(int i=0;i<len-6;i++){ msv=msv*10+(p[i]-'0'); if(msv> 9000000000000000LL) return false; }
     if(len<=6){ msv=0; }
     *ms = neg ? -msv : msv;
     *sub = (int)(neg ? -subv : subv);
-    if(msv > 8640000000000000LL) return false;  // ~ +/-100M days in ms
+    if(msv > MAX_EPOCH_MS) return false;  // ~ +/-100M days in ms
     return true;
 }
 extern "C" TsValue* ts_temporal_instant_construct(int argc, TsValue** argv){
     // new Temporal.Instant(epochNanoseconds: bigint)
     TsValue* a0=(argc>=1&&argv)?argv[0]:nullptr;
     void* raw=a0?ts_nanbox_safe_unbox(a0):nullptr;
-    if(!raw || *(uint32_t*)((char*)raw+16)!=0x42494749 /*BigInt at off16*/){
+    if(!raw || *(uint32_t*)((char*)raw+16)!=TAG_BIGINT /*BigInt at off16*/){
         // also accept bare-bigint magic at offset 0
-        if(!raw || *(uint32_t*)raw!=0x42494749){
+        if(!raw || *(uint32_t*)raw!=TAG_BIGINT){
             ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant: epochNanoseconds must be a BigInt"));
             return ts_value_make_undefined();
         }
     }
     void* str = ts_bigint_to_string(raw, 10);
     const char* u = str ? ((TsString*)str)->ToUtf8() : nullptr;
-    long long ms; int sub;
+    int64_t ms; int sub;
     if(!u || !ns_string_to_ms_sub(u,&ms,&sub) || !instant_epoch_in_limits(ms,sub)){
         ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant: epochNanoseconds out of range"));
         return ts_value_make_undefined();
@@ -2327,10 +2355,10 @@ extern "C" TsValue* ts_temporal_instant_construct(int argc, TsValue** argv){
 }
 static TsString* instant_iso_string(TsInstant* it){
     // FLOOR sub-second: borrow 1ms so sub_ns lands in [0,999999] for negative epoch.
-    long long ms=it->epoch_ms; long long sns=it->sub_ns;
+    int64_t ms=it->epoch_ms; int64_t sns=it->sub_ns;
     if(sns<0){ ms-=1; sns+=1000000; }
-    long long days = ms / 86400000LL; long long rem = ms % 86400000LL;
-    if(rem < 0){ rem += 86400000LL; days -= 1; }
+    int64_t days = ms / MS_PER_DAY; int64_t rem = ms % MS_PER_DAY;
+    if(rem < 0){ rem += MS_PER_DAY; days -= 1; }
     int Y,M,D; iso_civil_from_days(days,&Y,&M,&D);
     int h=(int)(rem/3600000); rem%=3600000; int mi=(int)(rem/60000); rem%=60000; int s=(int)(rem/1000); int msr=(int)(rem%1000);
     long frac=(long)msr*1000000L + (long)sns; // ns within second (floored)
@@ -2347,7 +2375,7 @@ TsValue* ts_temporal_instant_epochNs_native(void* ctx,int argc,TsValue** argv){
     void* bi=ts_bigint_create_str((void*)TsString::Create(b),10); return ts_value_make_bigint(bi);
 }
 TsValue* ts_temporal_instant_epochMicros_native(void* ctx,int argc,TsValue** argv){
-    TsInstant* it=require_instant(ctx,"epochMicroseconds"); long long micros=it->epoch_ms*1000LL + it->sub_ns/1000;
+    TsInstant* it=require_instant(ctx,"epochMicroseconds"); int64_t micros=it->epoch_ms*1000LL + it->sub_ns/1000;
     return ts_value_make_bigint(ts_bigint_create_int(micros));
 }
 TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
@@ -2356,19 +2384,19 @@ TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
     TsValue* opts=(argc>=1&&argv)?argv[0]:nullptr;
     if(!opts||ts_value_is_undefined(opts)) return ts_value_make_string(instant_iso_string(it));
     void* raw=ts_nanbox_safe_unbox(opts);
-    long long ms=it->epoch_ms; long long sns=it->sub_ns;
+    int64_t ms=it->epoch_ms; int64_t sns=it->sub_ns;
     if(sns<0){ ms-=1; sns+=1000000; }   // FLOOR sub-second for negative epoch
-    long long days=ms/86400000LL; long long rem=ms%86400000LL;
-    if(rem<0){ rem+=86400000LL; days-=1; }
+    int64_t days=ms/MS_PER_DAY; int64_t rem=ms%MS_PER_DAY;
+    if(rem<0){ rem+=MS_PER_DAY; days-=1; }
     int h=(int)(rem/3600000); rem%=3600000; int mi=(int)(rem/60000); rem%=60000; int s=(int)(rem/1000); int msr=(int)(rem%1000);
     int us=(int)(sns/1000), ns=(int)(sns%1000);
     // Observable order: fractionalSecondDigits, roundingMode, smallestUnit (via
     // format_time_opts), THEN timeZone.
-    int carry=0; long long rtns=0; std::string ts=format_time_opts(h,mi,s,msr,us,ns,opts,&carry,-2,&rtns);   // rounding may cross midnight
+    int carry=0; int64_t rtns=0; std::string ts=format_time_opts(h,mi,s,msr,us,ns,opts,&carry,-2,&rtns);   // rounding may cross midnight
     if(raw){ TsValue* tz=ts_object_get_property(raw,"timeZone"); if(tz&&!ts_value_is_undefined(tz)){
         // Render the instant in the resolved zone (date + local time + offset, no [zone] bracket).
         void* tzr=ts_nanbox_safe_unbox(tz); int off=0; bool zutc=false; char zbuf[40]={0};
-        if(tzr && (*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){
+        if(tzr && (*(uint32_t*)tzr==TAG_STRING||*(uint32_t*)tzr==TAG_CONS_STRING)){
             const char* tu=((TsString*)ts_value_get_string(tz))->ToUtf8();
             if(!tu||!resolve_timezone_id(tu,&off,&zutc,zbuf,sizeof(zbuf))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.toString: invalid time zone")); return ts_value_make_undefined(); }
         } else if(tzr && *(uint32_t*)((char*)tzr+16)==TsZonedDateTime::MAGIC){
@@ -2377,11 +2405,11 @@ TsValue* ts_temporal_instant_toString_native(void* ctx,int argc,TsValue** argv){
         int effOff = zbuf[0] ? icu_zone_offset_at(zbuf, it->epoch_ms) : off;   // DST-aware for a named zone
         // The offset is whole minutes, so the rounded SS.fff is offset-invariant — shift only the
         // date and HH:MM from the (already rounded) UTC time-of-day.
-        const long long DAYNS=86400000000000LL;
-        long long localNs = rtns + (long long)effOff*60000000000LL;
-        long long lcarry = localNs/DAYNS; long long ltod = localNs%DAYNS; if(ltod<0){ ltod+=DAYNS; lcarry--; }
+        const int64_t DAYNS=NS_PER_DAY;
+        int64_t localNs = rtns + (int64_t)effOff*NS_PER_MINUTE;
+        int64_t lcarry = localNs/DAYNS; int64_t ltod = localNs%DAYNS; if(ltod<0){ ltod+=DAYNS; lcarry--; }
         int lY,lM,lD; iso_civil_from_days(days+carry+lcarry,&lY,&lM,&lD);
-        int lH=(int)(ltod/3600000000000LL); int lMi=(int)((ltod%3600000000000LL)/60000000000LL);
+        int lH=(int)(ltod/NS_PER_HOUR); int lMi=(int)((ltod%NS_PER_HOUR)/NS_PER_MINUTE);
         const char* suffix = (ts.size()>5)? ts.c_str()+5 : "";   // ":SS.fff" or "" (minute smallestUnit)
         char db2[24]; if(lY<0||lY>9999) snprintf(db2,sizeof(db2),"%+07d-%02d-%02d",lY,lM,lD); else snprintf(db2,sizeof(db2),"%04d-%02d-%02d",lY,lM,lD);
         char ob[8]; zdt_offset_string(effOff,ob,sizeof(ob)); char tb[8]; snprintf(tb,sizeof(tb),"%02d:%02d",lH,lMi);
@@ -2410,7 +2438,7 @@ TsValue* ts_temporal_instant_fromEpochMs_native(void* ctx,int argc,TsValue** arg
     (void)ctx; if(argc>=1&&argv&&argv[0]) reject_nonnumeric_increment(argv[0]);  // ToNumber(BigInt) -> TypeError
     double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):std::nan(""); if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochMilliseconds: not finite")); return ts_value_make_undefined(); }
     if(d!=std::trunc(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochMilliseconds: must be an integer")); return ts_value_make_undefined(); }  // NumberToBigInt
-    long long ems=(long long)d;
+    int64_t ems=(int64_t)d;
     if(!instant_epoch_in_limits(ems,0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochMilliseconds: epoch is out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsInstant::Create(ems,0));
 }
@@ -2419,7 +2447,7 @@ TsValue* ts_temporal_instant_fromEpochSec_native(void* ctx,int argc,TsValue** ar
     double d=(argc>=1&&argv&&argv[0])?ts_to_number(argv[0]):0; if(d!=d||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","fromEpochSeconds: not finite")); return ts_value_make_undefined(); }
     if(d!=std::trunc(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochSeconds: must be an integer")); return ts_value_make_undefined(); }
     if(d>8640000000000.0 || d<-8640000000000.0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochSeconds: epoch is out of range")); return ts_value_make_undefined(); }
-    return ts_value_make_object(TsInstant::Create((long long)d*1000LL,0));
+    return ts_value_make_object(TsInstant::Create((int64_t)d*1000LL,0));
 }
 TsValue* ts_temporal_instant_from_native(void* ctx,int argc,TsValue** argv){ (void)ctx; return ts_temporal_instant_from(argc,argv); }
 }
@@ -2428,7 +2456,7 @@ TsValue* ts_temporal_instant_from_native(void* ctx,int argc,TsValue** argv){ (vo
 // Parse the UTC offset of an ISO datetime string into whole milliseconds, and the
 // SUB-millisecond part (seconds' fractional nanoseconds) into *offSubNs. The offset
 // VALUE may carry sub-minute precision (±HH:MM:SS.fffffffff).
-static long long parse_instant_offset_ms(const char* s, bool* found, long long* offSubNs){
+static int64_t parse_instant_offset_ms(const char* s, bool* found, int64_t* offSubNs){
     *found=false; *offSubNs=0;
     const char* p=s; while(*p && *p!='T' && *p!='t' && *p!=' ') p++;
     if(!*p) return 0;
@@ -2438,11 +2466,11 @@ static long long parse_instant_offset_ms(const char* s, bool* found, long long* 
     if(*p=='+'||*p=='-'){
         int sign=(*p=='-')?-1:1; p++;
         if(!isdigit((unsigned char)p[0])||!isdigit((unsigned char)p[1])) return 0;
-        long long oh=(p[0]-'0')*10+(p[1]-'0'); p+=2;
-        long long om=0,os=0,frac=0;
+        int64_t oh=(p[0]-'0')*10+(p[1]-'0'); p+=2;
+        int64_t om=0,os=0,frac=0;
         if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ om=(p[0]-'0')*10+(p[1]-'0'); p+=2; }
         if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ os=(p[0]-'0')*10+(p[1]-'0'); p+=2; }
-        if(*p=='.'||*p==','){ p++; long long mult=100000000LL; while(isdigit((unsigned char)*p)){ frac+=(*p-'0')*mult; mult/=10; p++; } }
+        if(*p=='.'||*p==','){ p++; int64_t mult=100000000LL; while(isdigit((unsigned char)*p)){ frac+=(*p-'0')*mult; mult/=10; p++; } }
         *found=true; *offSubNs = sign*frac;
         return sign*(oh*3600000LL + om*60000LL + os*1000LL);
     }
@@ -2450,8 +2478,8 @@ static long long parse_instant_offset_ms(const char* s, bool* found, long long* 
 }
 // |epochNanoseconds| <= 8.64e21 ns  <=>  epoch_ms within +/-8.64e15 (sub-ns ignored
 // at the loose boundary). Returns false if clearly out of the representable range.
-static bool instant_ms_in_range(long long epoch_ms){
-    return epoch_ms <= 8640000000000000LL && epoch_ms >= -8640000000000000LL;
+static bool instant_ms_in_range(int64_t epoch_ms){
+    return epoch_ms <= MAX_EPOCH_MS && epoch_ms >= -MAX_EPOCH_MS;
 }
 extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
@@ -2460,17 +2488,17 @@ extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
     if(raw){
         if(*(uint32_t*)((char*)raw+16)==TsInstant::MAGIC){ TsInstant* o=(TsInstant*)raw; return ts_value_make_object(TsInstant::Create(o->epoch_ms,o->sub_ns)); }
         uint32_t m0=*(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){
+        if(m0==TAG_STRING||m0==TAG_CONS_STRING){
             const char* u=((TsString*)ts_value_get_string(item))->ToUtf8();
             // Parse "YYYY-MM-DDTHH:MM:SS[.frac](Z|+/-HH:MM)" -> epoch.
             int Y,M,D,h,mi,s,ms,us,ns;
-            bool hasOff=false; long long offSubNs=0; long long offMs=parse_instant_offset_ms(u,&hasOff,&offSubNs);
+            bool hasOff=false; int64_t offSubNs=0; int64_t offMs=parse_instant_offset_ms(u,&hasOff,&offSubNs);
             if(!u || !parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)||!iso_annotations_valid(u)||!hasOff){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
-            long long days=iso_days_from_civil(Y,M,D);
-            long long epoch_ms = days*86400000LL + (long long)h*3600000LL + (long long)mi*60000LL + (long long)s*1000LL + ms - offMs;
-            long long subNs = (long long)us*1000 + ns - offSubNs;
+            int64_t days=iso_days_from_civil(Y,M,D);
+            int64_t epoch_ms = days*MS_PER_DAY + (int64_t)h*3600000LL + (int64_t)mi*60000LL + (int64_t)s*1000LL + ms - offMs;
+            int64_t subNs = (int64_t)us*1000 + ns - offSubNs;
             while(subNs<0){ subNs+=1000000; epoch_ms-=1; } while(subNs>=1000000){ subNs-=1000000; epoch_ms+=1; }
-            if(!instant_ms_in_range(epoch_ms) || (epoch_ms==8640000000000000LL && subNs>0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
+            if(!instant_ms_in_range(epoch_ms) || (epoch_ms==MAX_EPOCH_MS && subNs>0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
             return ts_value_make_object(TsInstant::Create(epoch_ms, (int)subNs));
         }
     }
@@ -2480,25 +2508,25 @@ extern "C" TsValue* ts_temporal_instant_from(int argc, TsValue** argv){
         std::string str;
         if(!option_to_string(item,&str)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.from: invalid argument")); return ts_value_make_undefined(); }
         const char* u=str.c_str(); int Y,M,D,h,mi,s,ms,us,ns;
-        bool hasOff=false; long long offSubNs=0; long long offMs=parse_instant_offset_ms(u,&hasOff,&offSubNs);
+        bool hasOff=false; int64_t offSubNs=0; int64_t offMs=parse_instant_offset_ms(u,&hasOff,&offSubNs);
         if(!parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns)||!iso_annotations_valid(u)||!hasOff){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: invalid string")); return ts_value_make_undefined(); }
-        long long days=iso_days_from_civil(Y,M,D);
-        long long epoch_ms=days*86400000LL+(long long)h*3600000LL+(long long)mi*60000LL+(long long)s*1000LL+ms - offMs;
-        long long subNs=(long long)us*1000+ns - offSubNs;
+        int64_t days=iso_days_from_civil(Y,M,D);
+        int64_t epoch_ms=days*MS_PER_DAY+(int64_t)h*3600000LL+(int64_t)mi*60000LL+(int64_t)s*1000LL+ms - offMs;
+        int64_t subNs=(int64_t)us*1000+ns - offSubNs;
         while(subNs<0){ subNs+=1000000; epoch_ms-=1; } while(subNs>=1000000){ subNs-=1000000; epoch_ms+=1; }
-        if(!instant_ms_in_range(epoch_ms) || (epoch_ms==8640000000000000LL && subNs>0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
+        if(!instant_ms_in_range(epoch_ms) || (epoch_ms==MAX_EPOCH_MS && subNs>0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.from: instant out of range")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsInstant::Create(epoch_ms, (int)subNs));
     }
 }
 
 // ====================== Temporal.ZonedDateTime ======================
-TsZonedDateTime* TsZonedDateTime::Create(long long ms, int subNs, int offMin, bool utc){
+TsZonedDateTime* TsZonedDateTime::Create(int64_t ms, int subNs, int offMin, bool utc){
     void* mem=ts_alloc(sizeof(TsZonedDateTime)); TsZonedDateTime* o=new(mem) TsZonedDateTime();
     o->magic=MAGIC; o->epoch_ms=ms; o->sub_ns=subNs; o->offset_minutes=offMin; o->is_utc=utc; return o;
 }
 // A named IANA zone (e.g. America/New_York): the offset is DST-aware and recomputed from
 // the epoch via ICU, so offset_minutes is only a cached snapshot here.
-TsZonedDateTime* TsZonedDateTime::CreateNamed(long long ms, int subNs, const char* zone){
+TsZonedDateTime* TsZonedDateTime::CreateNamed(int64_t ms, int subNs, const char* zone){
     void* mem=ts_alloc(sizeof(TsZonedDateTime)); TsZonedDateTime* o=new(mem) TsZonedDateTime();
     o->magic=MAGIC; o->epoch_ms=ms; o->sub_ns=subNs; o->is_utc=false;
     strncpy(o->zone_name, zone?zone:"", sizeof(o->zone_name)-1); o->zone_name[sizeof(o->zone_name)-1]=0;
@@ -2513,7 +2541,7 @@ static int zdt_eff_offset(TsZonedDateTime* z){
 }
 // Derive a ZonedDateTime in the SAME zone as `z` at a new epoch (named zones preserve the
 // IANA id and recompute the DST-aware offset; offset zones keep the fixed offset).
-static TsZonedDateTime* zdt_same_zone(TsZonedDateTime* z, long long ms, int subNs){
+static TsZonedDateTime* zdt_same_zone(TsZonedDateTime* z, int64_t ms, int subNs){
     if(z->zone_name[0]) return TsZonedDateTime::CreateNamed(ms, subNs, z->zone_name);
     return TsZonedDateTime::Create(ms, subNs, z->offset_minutes, z->is_utc);
 }
@@ -2523,11 +2551,11 @@ static void zdt_local(TsZonedDateTime* z,int* Y,int* M,int* D,int* h,int* mi,int
     // [0,999999] even for a negative epoch. Storage may be TRUNC-toward-zero
     // (epoch_ms and sub_ns both negative), so first borrow 1ms to bring sub_ns
     // into [0,999999], then decompose with floored arithmetic.
-    long long ems = z->epoch_ms; long long sns = z->sub_ns;
+    int64_t ems = z->epoch_ms; int64_t sns = z->sub_ns;
     if(sns < 0){ ems -= 1; sns += 1000000; }
-    long long local = ems + (long long)zdt_eff_offset(z)*60000LL;
-    long long days = local/86400000LL; long long rem = local%86400000LL;
-    if(rem<0){ rem+=86400000LL; days-=1; }
+    int64_t local = ems + (int64_t)zdt_eff_offset(z)*60000LL;
+    int64_t days = local/MS_PER_DAY; int64_t rem = local%MS_PER_DAY;
+    if(rem<0){ rem+=MS_PER_DAY; days-=1; }
     iso_civil_from_days(days,Y,M,D);
     *h=(int)(rem/3600000); rem%=3600000; *mi=(int)(rem/60000); rem%=60000; *s=(int)(rem/1000); *ms=(int)(rem%1000);
     *us=(int)(sns/1000); *ns=(int)(sns%1000);
@@ -2537,7 +2565,7 @@ static void zdt_offset_string(int offMin, char* buf, size_t n){
     snprintf(buf,n,"%c%02d:%02d",sign,a/60,a%60);
 }
 TsValue TsZonedDateTime::GetPropertyVirtual(const char* key){
-    auto mkInt=[](long long v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
+    auto mkInt=[](int64_t v){ TsValue r; r.type=ValueType::NUMBER_INT; r.i_val=v; return r; };
     auto mkBool=[](bool v){ TsValue r; r.type=ValueType::BOOLEAN; r.i_val=v?1:0; return r; };
     auto mkStr=[](const char* s){ TsValue r; r.type=ValueType::STRING_PTR; r.ptr_val=TsString::Create(s); return r; };
     TsValue undef; undef.type=ValueType::UNDEFINED; undef.i_val=0;
@@ -2562,21 +2590,21 @@ TsValue TsZonedDateTime::GetPropertyVirtual(const char* key){
     if(strcmp(key,"hoursInDay")==0){
         // GetStartOfDay for this day and the next; both instants must be representable. The
         // day length is their epoch gap (24h for a fixed offset; DST-adjusted for a named zone).
-        auto sod=[&](int yy,int mm,int dd, long long* out)->bool{
-            long long ep;
+        auto sod=[&](int yy,int mm,int dd, int64_t* out)->bool{
+            int64_t ep;
             if(zone_name[0]){ if(!icu_zone_local_to_epoch(zone_name,yy,mm,dd,0,0,0,0,0,&ep)) return false; }
-            else ep = iso_days_from_civil(yy,mm,dd)*86400000LL - (long long)offset_minutes*60000LL;
+            else ep = iso_days_from_civil(yy,mm,dd)*MS_PER_DAY - (int64_t)offset_minutes*60000LL;
             if(!instant_epoch_in_limits(ep,0)) return false;
             *out=ep; return true;
         };
-        long long s0,s1; int ny,nm,nd; iso_civil_from_days(iso_days_from_civil(Y,M,D)+1,&ny,&nm,&nd);
+        int64_t s0,s1; int ny,nm,nd; iso_civil_from_days(iso_days_from_civil(Y,M,D)+1,&ny,&nm,&nd);
         if(!sod(Y,M,D,&s0) || !sod(ny,nm,nd,&s1)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.hoursInDay: day boundary is outside the representable range")); return undef; }
         return mkInt((s1-s0)/3600000LL);
     }
     if(strcmp(key,"monthCode")==0){ char b[8]; snprintf(b,sizeof(b),"M%02d",M); return mkStr(b); }
     if(strcmp(key,"epochMilliseconds")==0) return mkInt(epoch_ms);
     if(strcmp(key,"epochSeconds")==0) return mkInt(epoch_ms/1000);
-    if(strcmp(key,"offsetNanoseconds")==0) return mkInt((long long)zdt_eff_offset(this)*60000000000LL);
+    if(strcmp(key,"offsetNanoseconds")==0) return mkInt((int64_t)zdt_eff_offset(this)*NS_PER_MINUTE);
     if(strcmp(key,"timeZoneId")==0){ if(zone_name[0]) return mkStr(zone_name); if(is_utc) return mkStr("UTC"); char tb[8]; zdt_offset_string(zdt_eff_offset(this),tb,sizeof(tb)); return mkStr(tb); }
     if(strcmp(key,"offset")==0){ char b[8]; zdt_offset_string(zdt_eff_offset(this),b,sizeof(b)); return mkStr(b); }
     if(strcmp(key,"weekOfYear")==0||strcmp(key,"yearOfWeek")==0){
@@ -2586,12 +2614,12 @@ TsValue TsZonedDateTime::GetPropertyVirtual(const char* key){
         return (key[0]=='w')?mkInt(week):mkInt(yow);
     }
     if(strcmp(key,"epochNanoseconds")==0){ char b[40]; format_epoch_ns_pair(epoch_ms,sub_ns,b,sizeof(b)); TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_str((void*)TsString::Create(b),10); return r; }
-    if(strcmp(key,"epochMicroseconds")==0){ long long em=epoch_ms,sn=sub_ns; if(sn<0){em-=1;sn+=1000000;} TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(em*1000LL+sn/1000); return r; }
+    if(strcmp(key,"epochMicroseconds")==0){ int64_t em=epoch_ms,sn=sub_ns; if(sn<0){em-=1;sn+=1000000;} TsValue r; r.type=ValueType::BIGINT_PTR; r.ptr_val=ts_bigint_create_int(em*1000LL+sn/1000); return r; }
     return undef;
 }
 static TsZonedDateTime* as_zoneddatetime(void* raw){
     if(!raw) return nullptr; uint32_t m0=*(uint32_t*)raw;
-    if(m0==0x53545247||m0==0x434F4E53) return nullptr;
+    if(m0==TAG_STRING||m0==TAG_CONS_STRING) return nullptr;
     return (*(uint32_t*)((char*)raw+16)==TsZonedDateTime::MAGIC)?(TsZonedDateTime*)raw:nullptr;
 }
 extern "C" { void* ts_temporal_get_zoneddatetime_ctor(); }
@@ -2622,14 +2650,14 @@ static bool valid_offset_field(const char* s){
     return *p==0;
 }
 // Parse a (format-valid) offset field into total nanoseconds (sign * (h:m:s.fff)).
-static long long offset_field_ns(const char* s){
+static int64_t offset_field_ns(const char* s){
     int sign=(s[0]=='-')?-1:1; const char* p=s+1;
-    long long hh=(p[0]-'0')*10+(p[1]-'0'); p+=2;
-    long long mm=0,ss=0,frac=0;
+    int64_t hh=(p[0]-'0')*10+(p[1]-'0'); p+=2;
+    int64_t mm=0,ss=0,frac=0;
     if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ mm=(p[0]-'0')*10+(p[1]-'0'); p+=2; }
     if(*p==':')p++; if(isdigit((unsigned char)p[0])&&isdigit((unsigned char)p[1])){ ss=(p[0]-'0')*10+(p[1]-'0'); p+=2; }
-    if(*p=='.'||*p==','){ p++; long long mult=100000000LL; while(isdigit((unsigned char)*p)){ frac+=(*p-'0')*mult; mult/=10; p++; } }
-    return sign*((hh*3600+mm*60+ss)*1000000000LL + frac);
+    if(*p=='.'||*p==','){ p++; int64_t mult=100000000LL; while(isdigit((unsigned char)*p)){ frac+=(*p-'0')*mult; mult/=10; p++; } }
+    return sign*((hh*3600+mm*60+ss)*NS_PER_SECOND + frac);
 }
 static bool parse_timezone(const char* s, int* offMin, bool* isUtc){
     if(!s) return false;
@@ -2675,12 +2703,12 @@ static bool resolve_timezone_id(const char* tu, int* off, bool* utc, char* zbuf,
 extern "C" TsValue* ts_temporal_zoneddatetime_construct(int argc, TsValue** argv){
     // new Temporal.ZonedDateTime(epochNanoseconds: bigint, timeZone: string)
     TsValue* a0=(argc>=1&&argv)?argv[0]:nullptr; void* raw0=a0?ts_nanbox_safe_unbox(a0):nullptr;
-    bool isBig = raw0 && (*(uint32_t*)raw0==0x42494749 || *(uint32_t*)((char*)raw0+16)==0x42494749);
+    bool isBig = raw0 && (*(uint32_t*)raw0==TAG_BIGINT || *(uint32_t*)((char*)raw0+16)==TAG_BIGINT);
     if(!isBig){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime: epochNanoseconds must be a BigInt")); return ts_value_make_undefined(); }
     void* str=ts_bigint_to_string(raw0,10); const char* u=str?((TsString*)str)->ToUtf8():nullptr;
-    long long ms; int sub; if(!u||!ns_string_to_ms_sub(u,&ms,&sub)||!instant_epoch_in_limits(ms,sub)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: epochNanoseconds out of range")); return ts_value_make_undefined(); }
+    int64_t ms; int sub; if(!u||!ns_string_to_ms_sub(u,&ms,&sub)||!instant_epoch_in_limits(ms,sub)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: epochNanoseconds out of range")); return ts_value_make_undefined(); }
     TsValue* a1=(argc>=2&&argv)?argv[1]:nullptr; void* raw1=a1?ts_nanbox_safe_unbox(a1):nullptr;
-    if(!raw1 || (*(uint32_t*)raw1!=0x53545247 && *(uint32_t*)raw1!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime: timeZone must be a string")); return ts_value_make_undefined(); }
+    if(!raw1 || (*(uint32_t*)raw1!=TAG_STRING && *(uint32_t*)raw1!=TAG_CONS_STRING)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime: timeZone must be a string")); return ts_value_make_undefined(); }
     const char* tz=((TsString*)ts_value_get_string(a1))->ToUtf8(); int off; bool utc;
     // The constructor timeZone is a bare identifier (offset / "UTC" / name); a
     // bracketed datetime-form string is only valid in the parse-from-string paths.
@@ -2738,7 +2766,7 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
     if(!item||ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: argument is undefined")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item); if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: invalid argument")); return ts_value_make_undefined(); }
     uint32_t m0=*(uint32_t*)raw;
-    if(m0!=0x53545247 && m0!=0x434F4E53){
+    if(m0!=TAG_STRING && m0!=TAG_CONS_STRING){
         if(*(uint32_t*)((char*)raw+16)==TsZonedDateTime::MAGIC){ _readopts(); TsZonedDateTime* z=(TsZonedDateTime*)raw; return ts_value_make_object(zdt_same_zone(z,z->epoch_ms,z->sub_ns)); }
         // PrepareTemporalFields reads recognized fields ALPHABETICALLY: calendar, day, hour,
         // microsecond, millisecond, minute, month, monthCode, nanosecond, offset, second,
@@ -2757,14 +2785,14 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         { TsValue* tzf=ts_object_get_property(raw,"timeZone");
           if(!tzf||ts_value_is_undefined(tzf)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs a timeZone")); return ts_value_make_undefined(); }
           void* tzr=ts_nanbox_safe_unbox(tzf);
-          const char* tu = (tzr&&(*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)) ? ((TsString*)ts_value_get_string(tzf))->ToUtf8() : nullptr;
+          const char* tu = (tzr&&(*(uint32_t*)tzr==TAG_STRING||*(uint32_t*)tzr==TAG_CONS_STRING)) ? ((TsString*)ts_value_get_string(tzf))->ToUtf8() : nullptr;
           if(!tu||!resolve_timezone_id(tu,&off,&utc,zoneName,sizeof(zoneName))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: unsupported time zone")); return ts_value_make_undefined(); } }
         int Y=rd("year",&hY);
         _readopts();   // disambiguation/offset/overflow read AFTER the bag fields (spec order)
         if(!hY||bagM<1||!hD){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.from: object needs year, month and day")); return ts_value_make_undefined(); }
         int M=bagM;
         // offset:"reject" -> a supplied offset must match the (offset-only) time zone exactly.
-        if(hasOffset && !zoneName[0] && offMode=="reject" && offset_field_ns(offStr.c_str()) != (long long)off*60000000000LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: offset does not match the time zone")); return ts_value_make_undefined(); }
+        if(hasOffset && !zoneName[0] && offMode=="reject" && offset_field_ns(offStr.c_str()) != (int64_t)off*NS_PER_MINUTE){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: offset does not match the time zone")); return ts_value_make_undefined(); }
         // overflow:"reject" -> any out-of-range field is a RangeError (no clamping).
         if(_ovrej){
             const int tl[6]={23,59,59,999,999,999}; int tv[6]={H,Mi,S,ms,us,ns};
@@ -2774,13 +2802,13 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         }
         if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
         const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&H,&Mi,&S,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
-        long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)H*3600000+(long long)Mi*60000+(long long)S*1000+ms;
+        int64_t localMs=iso_days_from_civil(Y,M,D)*MS_PER_DAY+(int64_t)H*3600000+(int64_t)Mi*60000+(int64_t)S*1000+ms;
         if(zoneName[0]){
-            long long epochMs;
+            int64_t epochMs;
             if(!icu_zone_local_to_epoch(zoneName,Y,M,D,H,Mi,S,ms,_disamb,&epochMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: ambiguous local time rejected")); return ts_value_make_undefined(); }
             return ts_value_make_object(TsZonedDateTime::CreateNamed(epochMs, us*1000+ns, zoneName));
         }
-        return ts_value_make_object(TsZonedDateTime::Create(localMs-(long long)off*60000LL, us*1000+ns, off, utc));
+        return ts_value_make_object(TsZonedDateTime::Create(localMs-(int64_t)off*60000LL, us*1000+ns, off, utc));
     }
     // string: "YYYY-MM-DDTHH:MM:SS[.frac]±HH:MM[tz]"
     const char* u=((TsString*)ts_value_get_string(item))->ToUtf8();
@@ -2792,18 +2820,18 @@ extern "C" TsValue* ts_temporal_zdt_from(int argc, TsValue** argv){
         if(!icu_zone_canonical(tzann,zoneName,sizeof(zoneName))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: invalid time zone annotation")); return ts_value_make_undefined(); }
     }
     _readopts();   // options read only after the string is fully parsed
-    long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)H*3600000+(long long)Mi*60000+(long long)S*1000+ms;
+    int64_t localMs=iso_days_from_civil(Y,M,D)*MS_PER_DAY+(int64_t)H*3600000+(int64_t)Mi*60000+(int64_t)S*1000+ms;
     if(zoneName[0]){
         // Named zone: an explicit inline offset (Z or ±HH:MM) in the string fixes the epoch;
         // otherwise apply disambiguation.
-        int inlineOff=0; long long epochMs;
+        int inlineOff=0; int64_t epochMs;
         if(has_utc_designator(u)) epochMs = localMs;                       // ...Z[zone] -> UTC
-        else if(iso_string_offset_min(u,&inlineOff)) epochMs = localMs-(long long)inlineOff*60000LL;
+        else if(iso_string_offset_min(u,&inlineOff)) epochMs = localMs-(int64_t)inlineOff*60000LL;
         else if(!icu_zone_local_to_epoch(zoneName,Y,M,D,H,Mi,S,ms,_disamb,&epochMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: ambiguous local time rejected")); return ts_value_make_undefined(); }
         if(!instant_epoch_in_limits(epochMs, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: instant is outside the representable range")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsZonedDateTime::CreateNamed(epochMs, us*1000+ns, zoneName));
     }
-    long long epoch_ms=localMs-(long long)off*60000LL;
+    int64_t epoch_ms=localMs-(int64_t)off*60000LL;
     if(!instant_epoch_in_limits(epoch_ms, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.from: instant is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, us*1000+ns, off, utc));
 }
@@ -2855,16 +2883,16 @@ TsValue* ts_temporal_zdt_equals_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* b=coerce_zdt_arg(o); if(!b) return ts_value_make_bool(false);
     // Normalize both to FLOOR so a TRUNC-stored and a FLOOR-stored (re-encoded)
     // instant that denote the same epoch compare equal.
-    long long aem=a->epoch_ms,asn=a->sub_ns; if(asn<0){aem-=1;asn+=1000000;}
-    long long bem=b->epoch_ms,bsn=b->sub_ns; if(bsn<0){bem-=1;bsn+=1000000;}
+    int64_t aem=a->epoch_ms,asn=a->sub_ns; if(asn<0){aem-=1;asn+=1000000;}
+    int64_t bem=b->epoch_ms,bsn=b->sub_ns; if(bsn<0){bem-=1;bsn+=1000000;}
     return ts_value_make_bool(aem==bem&&asn==bsn&&a->offset_minutes==b->offset_minutes&&a->is_utc==b->is_utc);
 }
 TsValue* ts_temporal_zdt_compare_native(void* ctx,int argc,TsValue** argv){
     (void)ctx; TsZonedDateTime* a=coerce_zdt_arg((argc>=1&&argv)?argv[0]:nullptr);
     TsZonedDateTime* b=coerce_zdt_arg((argc>=2&&argv)?argv[1]:nullptr);
     if(!a||!b) return ts_value_make_int(0);
-    long long aem=a->epoch_ms,asn=a->sub_ns; if(asn<0){aem-=1;asn+=1000000;}
-    long long bem=b->epoch_ms,bsn=b->sub_ns; if(bsn<0){bem-=1;bsn+=1000000;}
+    int64_t aem=a->epoch_ms,asn=a->sub_ns; if(asn<0){aem-=1;asn+=1000000;}
+    int64_t bem=b->epoch_ms,bsn=b->sub_ns; if(bsn<0){bem-=1;bsn+=1000000;}
     if(aem!=bem) return ts_value_make_int(aem<bem?-1:1);
     if(asn!=bsn) return ts_value_make_int(asn<bsn?-1:1);
     return ts_value_make_int(0);
@@ -2876,14 +2904,14 @@ TsValue* ts_temporal_zdt_toPlainTime_native(void* ctx,int argc,TsValue** argv){ 
 }
 
 // ======================= Arithmetic: PlainTime =======================
-static long long pt_to_ns(TsPlainTime* p){
-    return ((((long long)p->iso_hour*60 + p->iso_minute)*60 + p->iso_second)*1000000000LL)
-        + (long long)p->iso_millisecond*1000000LL + (long long)p->iso_microsecond*1000LL + p->iso_nanosecond;
+static int64_t pt_to_ns(TsPlainTime* p){
+    return ((((int64_t)p->iso_hour*60 + p->iso_minute)*60 + p->iso_second)*NS_PER_SECOND)
+        + (int64_t)p->iso_millisecond*1000000LL + (int64_t)p->iso_microsecond*1000LL + p->iso_nanosecond;
 }
-static TsValue* pt_from_ns(long long ns){
-    int h=(int)(ns/3600000000000LL); ns%=3600000000000LL;
-    int mi=(int)(ns/60000000000LL); ns%=60000000000LL;
-    int s=(int)(ns/1000000000LL); ns%=1000000000LL;
+static TsValue* pt_from_ns(int64_t ns){
+    int h=(int)(ns/NS_PER_HOUR); ns%=NS_PER_HOUR;
+    int mi=(int)(ns/NS_PER_MINUTE); ns%=NS_PER_MINUTE;
+    int s=(int)(ns/NS_PER_SECOND); ns%=NS_PER_SECOND;
     int ms=(int)(ns/1000000LL); ns%=1000000LL;
     int us=(int)(ns/1000LL); int nn=(int)(ns%1000LL);
     return ts_value_make_object(TsPlainTime::Create(h,mi,s,ms,us,nn));
@@ -2903,7 +2931,7 @@ static bool iso_string_offset_min(const char* s, int* offMin){
         if(*p=='Z'||*p=='z') return false;   // Z is a UTC designator, not a wall-clock offset to match against the zone
         if(*p=='+'||*p=='-'){ std::string off(p,(size_t)(end-p));
             if(!valid_offset_field(off.c_str())) return false;
-            *offMin=(int)(offset_field_ns(off.c_str())/60000000000LL); return true; }
+            *offMin=(int)(offset_field_ns(off.c_str())/NS_PER_MINUTE); return true; }
     }
     return false;
 }
@@ -2935,7 +2963,7 @@ static struct TsPlainDate* coerce_plaindate_arg(TsValue* v);
 static TsPlainDate* coerce_relativeto_date(TsValue* relTo){
     void* raw = relTo?ts_nanbox_safe_unbox(relTo):nullptr;
     if(raw){ uint32_t sm=*(uint32_t*)raw;
-        if(sm==0x53545247||sm==0x434F4E53){ void* sp=ts_value_get_string(relTo); const char* u=sp?((TsString*)sp)->ToUtf8():nullptr;
+        if(sm==TAG_STRING||sm==TAG_CONS_STRING){ void* sp=ts_value_get_string(relTo); const char* u=sp?((TsString*)sp)->ToUtf8():nullptr;
             bool zoned=false; if(u){ if(strchr(u,'Z')||strchr(u,'z')) zoned=true; else { const char* br=strchr(u,'['); if(br && strncmp(br,"[u-ca=",6)!=0 && strncmp(br,"[!u-ca=",7)!=0) zoned=true; } }
             if(zoned){ int Y,M,D,h,mi,s,ms,us,ns; if(u && parse_iso_datetime(u,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns) && iso_date_valid(Y,M,D) && iso_date_in_limits(Y,M,D)) return (TsPlainDate*)TsPlainDate::Create(Y,M,D); }
         }
@@ -2951,7 +2979,7 @@ static void validate_relativeto_arg(TsValue* rt){
     void* rr=ts_nanbox_safe_unbox(rt);
     if(!rr){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo must be a string or object")); return; }
     uint32_t m0=*(uint32_t*)rr;
-    if(m0==0x53545247||m0==0x434F4E53){
+    if(m0==TAG_STRING||m0==TAG_CONS_STRING){
         void* sp=ts_value_get_string(rt); const char* ru=sp?((TsString*)sp)->ToUtf8():nullptr;
         // A ZonedDateTime relativeTo needs a UTC designator or a *time-zone* bracket — a
         // calendar-only annotation ([u-ca=...]) is NOT a time zone and stays a PlainDate.
@@ -2992,7 +3020,7 @@ static void validate_relativeto_arg(TsValue* rt){
     // A timeZone field, if present, must be a parseable time-zone string.
     TsValue* tzf=ts_object_get_property(rr,"timeZone");
     if(tzf&&!ts_value_is_undefined(tzf)){ void* tr=ts_nanbox_safe_unbox(tzf);
-        if(!tr||(*(uint32_t*)tr!=0x53545247&&*(uint32_t*)tr!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo timeZone must be a string")); return; }
+        if(!tr||(*(uint32_t*)tr!=TAG_STRING&&*(uint32_t*)tr!=TAG_CONS_STRING)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo timeZone must be a string")); return; }
         const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); int off; bool utc;
         if(!tu||!parse_timezone(tu,&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid time zone")); return; } }
 }
@@ -3010,7 +3038,7 @@ static TsPlainDate* coerce_relativeto_unified(TsValue* relTo){
     if(!rr){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo must be a string or object")); return nullptr; }
     uint32_t m0=*(uint32_t*)rr;
     // String and Temporal-typed-object cases already read once — keep them.
-    if(m0==0x53545247||m0==0x434F4E53){ validate_relativeto_arg(relTo); return coerce_relativeto_date(relTo); }
+    if(m0==TAG_STRING||m0==TAG_CONS_STRING){ validate_relativeto_arg(relTo); return coerce_relativeto_date(relTo); }
     if(is_temporal_typed_object(rr)) return coerce_plaindate_arg(relTo);
     // --- property bag: alphabetical single pass ---
     auto infGuard=[&](const char* k){ TsValue* f=ts_object_get_property(rr,k); if(f&&!ts_value_is_undefined(f)){ double d=ts_to_number(f); if(std::isinf(d)) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo field cannot be Infinity")); } };
@@ -3034,7 +3062,7 @@ static TsPlainDate* coerce_relativeto_unified(TsValue* relTo){
     infGuard("second");
     TsValue* ftz=ts_object_get_property(rr,"timeZone");
     if(ftz&&!ts_value_is_undefined(ftz)){ void* tr=ts_nanbox_safe_unbox(ftz);
-        if(!tr||(*(uint32_t*)tr!=0x53545247&&*(uint32_t*)tr!=0x434F4E53)) ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo timeZone must be a string"));
+        if(!tr||(*(uint32_t*)tr!=TAG_STRING&&*(uint32_t*)tr!=TAG_CONS_STRING)) ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal: relativeTo timeZone must be a string"));
         const char* tu=((TsString*)ts_value_get_string(ftz))->ToUtf8(); int off; bool utc;
         if(!tu||!parse_timezone(tu,&off,&utc)) ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: relativeTo has an invalid time zone")); }
     TsValue* fyr=ts_object_get_property(rr,"year"); bool hY=fyr&&!ts_value_is_undefined(fyr);
@@ -3074,52 +3102,52 @@ extern "C" TsValue* ts_temporal_duration_compare_native(void* ctx, int argc, TsV
         // sub-day remainder) and avoids overflow.
         TsPlainDate* rd = relAnchor;   // read+coerced above in one observable pass
         if(rd){
-            long long ra=iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
-            auto anchor=[&](TsDuration* d,long long* dayOff,long long* remNs){
-                long long timeNs=(long long)d->hours*3600000000000LL+(long long)d->minutes*60000000000LL+(long long)d->seconds*1000000000LL+(long long)d->milliseconds*1000000LL+(long long)d->microseconds*1000LL+d->nanoseconds;
-                long long extraD=timeNs/86400000000000LL; *remNs=timeNs%86400000000000LL;
+            int64_t ra=iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
+            auto anchor=[&](TsDuration* d,int64_t* dayOff,int64_t* remNs){
+                int64_t timeNs=(int64_t)d->hours*NS_PER_HOUR+(int64_t)d->minutes*NS_PER_MINUTE+(int64_t)d->seconds*NS_PER_SECOND+(int64_t)d->milliseconds*1000000LL+(int64_t)d->microseconds*1000LL+d->nanoseconds;
+                int64_t extraD=timeNs/NS_PER_DAY; *remNs=timeNs%NS_PER_DAY;
                 int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+extraD, &ey,&em,&ed);
                 *dayOff=iso_days_from_civil(ey,em,ed)-ra;
             };
-            long long da,na,db,nb; anchor(a,&da,&na); anchor(b,&db,&nb);
+            int64_t da,na,db,nb; anchor(a,&da,&na); anchor(b,&db,&nb);
             int r = (da<db)?-1:(da>db)?1:((na<nb)?-1:(na>nb)?1:0);
             return ts_value_make_int(r);
         }
     }
-    auto norm=[](TsDuration* d, long long* sec, long long* ns){
-        long long s = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds;
-        long long n = 0;
+    auto norm=[](TsDuration* d, int64_t* sec, int64_t* ns){
+        int64_t s = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds;
+        int64_t n = 0;
         s += d->milliseconds/1000;      n += (d->milliseconds%1000)*1000000LL;
         s += d->microseconds/1000000;   n += (d->microseconds%1000000)*1000LL;
         s += d->nanoseconds/1000000000; n += d->nanoseconds%1000000000;
         s += n/1000000000; n %= 1000000000;
         *sec=s; *ns=n;
     };
-    long long sa,na,sb,nb; norm(a,&sa,&na); norm(b,&sb,&nb);
+    int64_t sa,na,sb,nb; norm(a,&sa,&na); norm(b,&sb,&nb);
     int r = (sa<sb)?-1:(sa>sb)?1:((na<nb)?-1:(na>nb)?1:0);
     return ts_value_make_int(r);
 }
 // Add a duration's time components to a time (mod 24h). Each component reduced
 // mod its day-cycle so the sum stays within int64.
-static long long add_time_ns(long long base, TsDuration* d, int sign){
-    const long long DAY=86400000000000LL;
-    long long ns = base;
-    ns += sign * (d->hours % 24) * 3600000000000LL;
-    ns += sign * (d->minutes % 1440) * 60000000000LL;
-    ns += sign * (d->seconds % 86400) * 1000000000LL;
-    ns += sign * (d->milliseconds % 86400000LL) * 1000000LL;
+static int64_t add_time_ns(int64_t base, TsDuration* d, int sign){
+    const int64_t DAY=NS_PER_DAY;
+    int64_t ns = base;
+    ns += sign * (d->hours % 24) * NS_PER_HOUR;
+    ns += sign * (d->minutes % 1440) * NS_PER_MINUTE;
+    ns += sign * (d->seconds % 86400) * NS_PER_SECOND;
+    ns += sign * (d->milliseconds % MS_PER_DAY) * 1000000LL;
     ns += sign * (d->microseconds % 86400000000LL) * 1000LL;
     ns += sign * (d->nanoseconds % DAY);
     ns = ((ns % DAY) + DAY) % DAY;
     return ns;
 }
-static TsValue* duration_from_time_ns(long long diff){
-    int sign = diff<0?-1:1; long long ad = diff<0?-diff:diff;
-    long long h=ad/3600000000000LL; ad%=3600000000000LL;
-    long long mi=ad/60000000000LL; ad%=60000000000LL;
-    long long s=ad/1000000000LL; ad%=1000000000LL;
-    long long ms=ad/1000000LL; ad%=1000000LL;
-    long long us=ad/1000LL; long long nn=ad%1000LL;
+static TsValue* duration_from_time_ns(int64_t diff){
+    int sign = diff<0?-1:1; int64_t ad = diff<0?-diff:diff;
+    int64_t h=ad/NS_PER_HOUR; ad%=NS_PER_HOUR;
+    int64_t mi=ad/NS_PER_MINUTE; ad%=NS_PER_MINUTE;
+    int64_t s=ad/NS_PER_SECOND; ad%=NS_PER_SECOND;
+    int64_t ms=ad/1000000LL; ad%=1000000LL;
+    int64_t us=ad/1000LL; int64_t nn=ad%1000LL;
     return ts_value_make_object(TsDuration::Create(0,0,0,0, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn));
 }
 static TsPlainTime* coerce_plaintime_arg(TsValue* v){
@@ -3152,11 +3180,11 @@ TsValue* ts_temporal_plaintime_since_native(void* ctx,int argc,TsValue** argv){
 }
 
 // ======================= Arithmetic: PlainDate =======================
-static void add_iso_date(int y,int m,int d, long long years,long long months,long long weeks,long long days,
+static void add_iso_date(int y,int m,int d, int64_t years,int64_t months,int64_t weeks,int64_t days,
                          int* Y,int* M,int* D, bool reject){
-    long long ym = (long long)(m-1) + months;           // 0-based month index
-    long long yy = (long long)y + years + (ym>=0 ? ym/12 : (ym-11)/12);
-    int mm = (int)(ym - (yy-(long long)y-years)*12) + 1; // 1-based month after balance
+    int64_t ym = (int64_t)(m-1) + months;           // 0-based month index
+    int64_t yy = (int64_t)y + years + (ym>=0 ? ym/12 : (ym-11)/12);
+    int mm = (int)(ym - (yy-(int64_t)y-years)*12) + 1; // 1-based month after balance
     if(mm<1){mm+=12;yy--;} if(mm>12){mm-=12;yy++;}
     int yi=(int)yy;
     int dim=iso_days_in_month(yi,mm); int dd=d;
@@ -3164,7 +3192,7 @@ static void add_iso_date(int y,int m,int d, long long years,long long months,lon
     // Jan 31 + 1 month -> Feb 31) is a RangeError instead of clamping.
     if(reject && (dd>dim || dd<1)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: date arithmetic day out of range (overflow reject)")); }
     if(dd>dim) dd=dim; if(dd<1) dd=1;
-    long long civil = iso_days_from_civil(yi,mm,dd) + days + weeks*7;
+    int64_t civil = iso_days_from_civil(yi,mm,dd) + days + weeks*7;
     iso_civil_from_days(civil, Y, M, D);
 }
 static std::string read_string_option(TsValue* opts, const char* key, const char* def){
@@ -3175,7 +3203,7 @@ static std::string read_string_option(TsValue* opts, const char* key, const char
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
     uint32_t m0=*(uint32_t*)raw;
     // string (STRG/CONS), symbol (SYMB), bigint (BIGI) are primitive wrappers, not objects.
-    if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
+    if(m0==TAG_STRING||m0==TAG_CONS_STRING||m0==TAG_SYMBOL||m0==TAG_BIGINT){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return def; }
     TsValue* v = ts_object_get_property(raw, key);
     std::string s;
     // option_to_string performs the spec ToString (observable for object values,
@@ -3211,8 +3239,8 @@ static bool option_to_string(TsValue* v, std::string* out){
     void* raw = ts_nanbox_safe_unbox(v);
     if(raw){
         uint32_t m0 = *(uint32_t*)raw;
-        if(m0==0x53545247||m0==0x434F4E53){ void* sp=ts_value_get_string(v); if(sp) ((TsString*)sp)->AppendUtf8(*out); return true; }
-        if(m0!=0x53594D42 && m0!=0x42494749){  // a non-symbol, non-bigint heap object
+        if(m0==TAG_STRING||m0==TAG_CONS_STRING){ void* sp=ts_value_get_string(v); if(sp) ((TsString*)sp)->AppendUtf8(*out); return true; }
+        if(m0!=TAG_SYMBOL && m0!=TAG_BIGINT){  // a non-symbol, non-bigint heap object
             const char* keys[2]={"toString","valueOf"};
             for(int k=0;k<2;k++){
                 TsValue* fn = ts_object_get_property(raw, keys[k]);
@@ -3220,7 +3248,7 @@ static bool option_to_string(TsValue* v, std::string* out){
                     TsValue* res = ts_function_call_with_this(fn, v, 0, nullptr);
                     if(res && !ts_value_is_undefined(res)){
                         void* rraw = ts_nanbox_safe_unbox(res);
-                        bool resObj = rraw && (*(uint32_t*)rraw!=0x53545247 && *(uint32_t*)rraw!=0x434F4E53 && *(uint32_t*)rraw!=0x53594D42);
+                        bool resObj = rraw && (*(uint32_t*)rraw!=TAG_STRING && *(uint32_t*)rraw!=TAG_CONS_STRING && *(uint32_t*)rraw!=TAG_SYMBOL);
                         if(!resObj){ void* s=ts_string_from_value(res); if(s){ ((TsString*)s)->AppendUtf8(*out); return true; } }
                     }
                 }
@@ -3243,7 +3271,7 @@ static bool option_is_object(TsValue* v){
     if(!nanbox_is_ptr(nb)) return false;
     void* p = nanbox_to_ptr(nb); if(!p) return false;
     uint32_t m = *(uint32_t*)p;
-    return !(m==0x53545247||m==0x434F4E53||m==0x53594D42||m==0x42494749);
+    return !(m==TAG_STRING||m==TAG_CONS_STRING||m==TAG_SYMBOL||m==TAG_BIGINT);
 }
 // Coarseness rank: nanosecond=1 .. year=10 (0 = not a temporal unit).
 static int unit_rank(const std::string& u){
@@ -3272,7 +3300,7 @@ static void validate_round_diff_opts(TsValue* opts, int minRank, int maxRank){
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
     uint32_t m0=*(uint32_t*)raw;
     // string (STRG/CONS), symbol (SYMB), bigint (BIGI) are primitive wrappers, not objects.
-    if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
+    if(m0==TAG_STRING||m0==TAG_CONS_STRING||m0==TAG_SYMBOL||m0==TAG_BIGINT){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return; }
     // roundingMode: validate only when it is a string (avoid false TypeError on
     // ToString-coercible values); an invalid string value is a RangeError.
     // For object values, defer the (observable) ToString to the single compute
@@ -3327,7 +3355,7 @@ static std::string read_opt_str_noauto(void* raw, const char* key, const char* d
 }
 static void read_validated_diff_opts(TsValue* opts, int minRank, int maxRank,
         const char* defSmallest, const char* defLargest,
-        std::string* smallest, std::string* largest, std::string* mode, long long* inc){
+        std::string* smallest, std::string* largest, std::string* mode, int64_t* inc){
     (void)defLargest;  // largestUnit defaults to the "auto" sentinel; the caller resolves it
     require_options_object(opts);  // TypeError for a primitive options arg (safe, no deref)
     void* raw0 = opts?ts_nanbox_safe_unbox(opts):nullptr;
@@ -3342,7 +3370,7 @@ static void read_validated_diff_opts(TsValue* opts, int minRank, int maxRank,
             if(!(dd==dd)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
             double ii=std::trunc(dd);
             if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); return; }
-            *inc=(long long)ii;
+            *inc=(int64_t)ii;
         }
     }
     *mode     = read_opt_str_noauto(raw0, "roundingMode", "trunc");
@@ -3362,7 +3390,7 @@ static void require_options_object(TsValue* opts){
     bool isObj = ((nb & 0xFFFF000000000000ULL)==0) && (nb >= 0x10000);
     if(isObj){
         uint32_t m0=*(uint32_t*)(void*)nb;
-        if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749) isObj=false;
+        if(m0==TAG_STRING||m0==TAG_CONS_STRING||m0==TAG_SYMBOL||m0==TAG_BIGINT) isObj=false;
     }
     if(!isObj){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); }
 }
@@ -3376,16 +3404,16 @@ static bool validate_overflow_option(TsValue* opts){
     void* raw = ts_nanbox_safe_unbox(opts);
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return false; }
     uint32_t m0=*(uint32_t*)raw;
-    if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return false; }
+    if(m0==TAG_STRING||m0==TAG_CONS_STRING||m0==TAG_SYMBOL||m0==TAG_BIGINT){ ts_throw((TsValue*)ts_error_create_typed("TypeError","options must be an object or undefined")); return false; }
     static const char* OV[2]={"constrain","reject"};
     std::string s = read_enum_option(opts,"overflow","constrain",OV,2);
     return s=="reject";
 }
 // Calendar difference from (ay/am/ad) to (by/bm/bd) per largestUnit.
 static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::string& largest,
-                          long long* yr,long long* mo,long long* wk,long long* dy){
+                          int64_t* yr,int64_t* mo,int64_t* wk,int64_t* dy){
     *yr=*mo=*wk=*dy=0;
-    long long totalDays = iso_days_from_civil(by,bm,bd) - iso_days_from_civil(ay,am,ad);
+    int64_t totalDays = iso_days_from_civil(by,bm,bd) - iso_days_from_civil(ay,am,ad);
     if(largest=="day"||largest=="days"){ *dy=totalDays; return; }
     if(largest=="week"||largest=="weeks"){ *wk=totalDays/7; *dy=totalDays%7; return; }
     if(totalDays==0) return;
@@ -3396,20 +3424,20 @@ static void diff_iso_date(int ay,int am,int ad,int by,int bm,int bd, const std::
     // clamped to Feb 28) counts as an overshoot, so Jan 29 -> Feb 28 is 30 days, NOT one month,
     // while Jan 29 -> Mar 28 is one month 28 days. The day remainder is then computed
     // month-aware (steps p/q/r) so it spans the constrained-month boundary correctly.
-    long long tmonths = (by-ay)*12 + (bm-am);
-    auto overshoots=[&](long long tmo)->bool{
+    int64_t tmonths = (by-ay)*12 + (bm-am);
+    auto overshoots=[&](int64_t tmo)->bool{
         int ty,tm2,td; add_iso_date(ay,am,ad, 0, tmo, 0, 0, &ty,&tm2,&td);
         bool constrained = (ad > iso_days_in_month(ty,tm2));   // the intended day was clamped
-        long long c = iso_days_from_civil(ty,tm2,td) - iso_days_from_civil(by,bm,bd);
+        int64_t c = iso_days_from_civil(ty,tm2,td) - iso_days_from_civil(by,bm,bd);
         if(sign>0) return c>0 || (c==0 && constrained);
         return c<0 || (c==0 && constrained);
     };
     while(tmonths!=0 && overshoots(tmonths)) tmonths -= sign;
     int cy,cm,cd; add_iso_date(ay,am,ad, 0, tmonths, 0, 0, &cy,&cm,&cd);
-    long long dd;
-    if(cy==by && cm==bm) dd = (long long)bd - cd;
-    else if(sign<0) dd = -(long long)cd - (iso_days_in_month(by,bm) - bd);
-    else dd = (long long)bd + (iso_days_in_month(cy,cm) - cd);
+    int64_t dd;
+    if(cy==by && cm==bm) dd = (int64_t)bd - cd;
+    else if(sign<0) dd = -(int64_t)cd - (iso_days_in_month(by,bm) - bd);
+    else dd = (int64_t)bd + (iso_days_in_month(cy,cm) - cd);
     if(largest=="month"||largest=="months"){ *yr=0; *mo=tmonths; }
     else { *yr=tmonths/12; *mo=tmonths%12; }
     *wk=0; *dy=dd;
@@ -3420,10 +3448,10 @@ static TsPlainDate* coerce_plaindate_arg(TsValue* v){
     if(p) return p;
     // A ZonedDateTime / PlainDateTime supplies its date from its internal slot —
     // no observable property reads (year/month/day/calendar getters must NOT fire).
-    if(raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=0x00007FFFFFFFFFFFULL){
+    if(raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=PTR_USER_MAX){
         uint32_t m16=*(uint32_t*)((char*)raw+16);
-        if(m16==0x5A44544D){ TsZonedDateTime* z=(TsZonedDateTime*)raw; int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns); return (TsPlainDate*)TsPlainDate::Create(Y,M,D); }
-        if(m16==0x50444D54){ TsPlainDateTime* dt=(TsPlainDateTime*)raw; return (TsPlainDate*)TsPlainDate::Create(dt->iso_year,dt->iso_month,dt->iso_day); }
+        if(m16==MAGIC_ZONEDDATETIME){ TsZonedDateTime* z=(TsZonedDateTime*)raw; int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns); return (TsPlainDate*)TsPlainDate::Create(Y,M,D); }
+        if(m16==MAGIC_PLAINDATETIME){ TsPlainDateTime* dt=(TsPlainDateTime*)raw; return (TsPlainDate*)TsPlainDate::Create(dt->iso_year,dt->iso_month,dt->iso_day); }
     }
     TsValue* c = ts_temporal_plaindate_from(v?1:0,&v);
     return as_plaindate(ts_nanbox_safe_unbox(c));
@@ -3434,11 +3462,11 @@ TsValue* ts_temporal_plaindate_add_native(void* ctx,int argc,TsValue** argv){
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.add: invalid duration")); return ts_value_make_undefined(); }
     // overflow:reject — the day must fit the target year/month (after adding years/
     // months, before the day/week shift), else RangeError instead of clamping.
-    if(_ovrej){ long long ty=pd->iso_year+d->years, tm=pd->iso_month+d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
+    if(_ovrej){ int64_t ty=pd->iso_year+d->years, tm=pd->iso_month+d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
         if(pd->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
     // Time units balance to whole days (truncating) for a date-only result.
-    long long _tns=(long long)d->hours*3600000000000LL+(long long)d->minutes*60000000000LL+(long long)d->seconds*1000000000LL+(long long)d->milliseconds*1000000LL+(long long)d->microseconds*1000LL+d->nanoseconds;
-    long long _xd=_tns/86400000000000LL;
+    int64_t _tns=(int64_t)d->hours*NS_PER_HOUR+(int64_t)d->minutes*NS_PER_MINUTE+(int64_t)d->seconds*NS_PER_SECOND+(int64_t)d->milliseconds*1000000LL+(int64_t)d->microseconds*1000LL+d->nanoseconds;
+    int64_t _xd=_tns/NS_PER_DAY;
     int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, d->years,d->months,d->weeks,d->days+_xd,&Y,&M,&D);
     if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.add: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
@@ -3446,22 +3474,22 @@ TsValue* ts_temporal_plaindate_add_native(void* ctx,int argc,TsValue** argv){
 TsValue* ts_temporal_plaindate_subtract_native(void* ctx,int argc,TsValue** argv){
     TsPlainDate* pd=require_plaindate(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr); bool _ovrej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
-    if(_ovrej){ long long ty=pd->iso_year-d->years, tm=pd->iso_month-d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
+    if(_ovrej){ int64_t ty=pd->iso_year-d->years, tm=pd->iso_month-d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
         if(pd->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
-    long long _tns=(long long)d->hours*3600000000000LL+(long long)d->minutes*60000000000LL+(long long)d->seconds*1000000000LL+(long long)d->milliseconds*1000000LL+(long long)d->microseconds*1000LL+d->nanoseconds;
-    long long _xd=_tns/86400000000000LL;
+    int64_t _tns=(int64_t)d->hours*NS_PER_HOUR+(int64_t)d->minutes*NS_PER_MINUTE+(int64_t)d->seconds*NS_PER_SECOND+(int64_t)d->milliseconds*1000000LL+(int64_t)d->microseconds*1000LL+d->nanoseconds;
+    int64_t _xd=_tns/NS_PER_DAY;
     int Y,M,D; add_iso_date(pd->iso_year,pd->iso_month,pd->iso_day, -d->years,-d->months,-d->weeks,-d->days-_xd,&Y,&M,&D);
     if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDate::Create(Y,M,D));
 }
 // Shared option reader for PlainDate until/since (largest/smallest/inc/mode).
-static void read_date_diff_opts(TsValue* opts, std::string* smallest, std::string* largest, long long* inc, std::string* mode){
+static void read_date_diff_opts(TsValue* opts, std::string* smallest, std::string* largest, int64_t* inc, std::string* mode){
     *smallest=read_string_option(opts,"smallestUnit","day");
     *largest=read_string_option(opts,"largestUnit","auto");
     *mode=read_string_option(opts,"roundingMode","trunc");
     *inc=1;
     void* raw=opts?ts_nanbox_safe_unbox(opts):nullptr;
-    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(dd==dd&&!std::isinf(dd))*inc=(long long)std::trunc(dd); } }
+    if(raw){ TsValue* ri=ts_object_get_property(raw,"roundingIncrement"); if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(dd==dd&&!std::isinf(dd))*inc=(int64_t)std::trunc(dd); } }
     if(*largest=="auto") *largest = (date_unit_rank(*smallest)>date_unit_rank("day")) ? *smallest : std::string("day");
 }
 // since(a,b) == negate(until(a,b)): the diff is computed forward (anchored at the receiver `a`)
@@ -3483,11 +3511,11 @@ static TsValue* negate_duration_value(TsValue* dv){
         -d->hours,-d->minutes,-d->seconds,-d->milliseconds,-d->microseconds,-d->nanoseconds));
 }
 static TsValue* plaindate_diff(int aY,int aM,int aD,int bY,int bM,int bD,TsValue* opts,bool negate=false){
-    std::string smallest,largest,mode; long long inc;
+    std::string smallest,largest,mode; int64_t inc;
     read_validated_diff_opts(opts,7,10,"day","auto",&smallest,&largest,&mode,&inc);
     if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank("day")) ? smallest : std::string("day");
     if(negate) mode = negate_temporal_mode(mode);
-    long long yr,mo,wk,dy;
+    int64_t yr,mo,wk,dy;
     if((smallest=="day"||smallest=="days") && mode=="trunc" && inc<=1)
         diff_iso_date(aY,aM,aD,bY,bM,bD,largest,&yr,&mo,&wk,&dy);
     else {
@@ -3510,12 +3538,12 @@ TsValue* ts_temporal_plaindate_since_native(void* ctx,int argc,TsValue** argv){
 }
 
 // ===================== Arithmetic: PlainDateTime =====================
-static long long pdt_time_ns(TsPlainDateTime* d){
-    return ((((long long)d->iso_hour*60+d->iso_minute)*60+d->iso_second)*1000000000LL)
-        + (long long)d->iso_ms*1000000LL + (long long)d->iso_us*1000LL + d->iso_ns;
+static int64_t pdt_time_ns(TsPlainDateTime* d){
+    return ((((int64_t)d->iso_hour*60+d->iso_minute)*60+d->iso_second)*NS_PER_SECOND)
+        + (int64_t)d->iso_ms*1000000LL + (int64_t)d->iso_us*1000LL + d->iso_ns;
 }
-static long long dur_time_ns(TsDuration* d){
-    return d->hours*3600000000000LL + d->minutes*60000000000LL + d->seconds*1000000000LL
+static int64_t dur_time_ns(TsDuration* d){
+    return d->hours*NS_PER_HOUR + d->minutes*NS_PER_MINUTE + d->seconds*NS_PER_SECOND
         + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
 }
 extern "C" {
@@ -3523,20 +3551,20 @@ extern "C" {
 TsValue* ts_temporal_now_instant_native(void* ctx,int argc,TsValue** argv){
     (void)ctx;(void)argc;(void)argv;
     using namespace std::chrono;
-    long long totalNs = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
+    int64_t totalNs = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
     return ts_value_make_object(TsInstant::Create(totalNs/1000000LL, (int)(totalNs%1000000LL)));
 }
 // Temporal.Now.zonedDateTimeISO(timeZone?) — current zoned datetime (fixed offset/UTC).
 TsValue* ts_temporal_now_zoneddatetimeiso_native(void* ctx,int argc,TsValue** argv){
     (void)ctx;
     using namespace std::chrono;
-    long long totalNs = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
-    long long ms = totalNs/1000000LL; int sub=(int)(totalNs%1000000LL);
+    int64_t totalNs = duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
+    int64_t ms = totalNs/1000000LL; int sub=(int)(totalNs%1000000LL);
     int off=0; bool utc=true;
     TsValue* tzv=(argc>=1&&argv)?argv[0]:nullptr;
     if(tzv && !ts_value_is_undefined(tzv)){
         void* tzr=ts_nanbox_safe_unbox(tzv);
-        if(tzr && (*(uint32_t*)tzr==0x53545247||*(uint32_t*)tzr==0x434F4E53)){   // a string identifier
+        if(tzr && (*(uint32_t*)tzr==TAG_STRING||*(uint32_t*)tzr==TAG_CONS_STRING)){   // a string identifier
             const char* tu=((TsString*)ts_value_get_string(tzv))->ToUtf8(); char zbuf[40]={0};
             if(!resolve_timezone_id(tu,&off,&utc,zbuf,sizeof(zbuf))){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Now.zonedDateTimeISO: unsupported time zone")); return ts_value_make_undefined(); }
             if(zbuf[0]) return ts_value_make_object(TsZonedDateTime::CreateNamed(ms,sub,zbuf));
@@ -3553,11 +3581,11 @@ TsValue* ts_temporal_now_zoneddatetimeiso_native(void* ctx,int argc,TsValue** ar
 // Temporal.Instant.fromEpochNanoseconds(epochNanoseconds: bigint).
 TsValue* ts_temporal_instant_fromEpochNs_native(void* ctx,int argc,TsValue** argv){
     (void)ctx; TsValue* a0=(argc>=1&&argv)?argv[0]:nullptr; void* raw=a0?ts_nanbox_safe_unbox(a0):nullptr;
-    if(!raw || (*(uint32_t*)raw!=0x42494749 && *(uint32_t*)((char*)raw+16)!=0x42494749)){
+    if(!raw || (*(uint32_t*)raw!=TAG_BIGINT && *(uint32_t*)((char*)raw+16)!=TAG_BIGINT)){
         ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.fromEpochNanoseconds: argument must be a BigInt")); return ts_value_make_undefined();
     }
     void* str=ts_bigint_to_string(raw,10); const char* u=str?((TsString*)str)->ToUtf8():nullptr;
-    long long ms; int sub;
+    int64_t ms; int sub;
     if(!u || !ns_string_to_ms_sub(u,&ms,&sub) || !instant_epoch_in_limits(ms,sub)){
         ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.fromEpochNanoseconds: out of range")); return ts_value_make_undefined();
     }
@@ -3574,62 +3602,62 @@ static TsPlainDateTime* coerce_plaindatetime_arg(TsValue* v){
     return as_plaindatetime(ts_nanbox_safe_unbox(c));
 }
 static TsValue* pdt_add(TsPlainDateTime* dt, TsDuration* d, int sign){
-    const long long DAY=86400000000000LL;
-    long long t = pdt_time_ns(dt) + sign*dur_time_ns(d);
-    long long carry = t/DAY; long long rem=t%DAY; if(rem<0){rem+=DAY;carry--;}
+    const int64_t DAY=NS_PER_DAY;
+    int64_t t = pdt_time_ns(dt) + sign*dur_time_ns(d);
+    int64_t carry = t/DAY; int64_t rem=t%DAY; if(rem<0){rem+=DAY;carry--;}
     int Y,M,D; add_iso_date(dt->iso_year,dt->iso_month,dt->iso_day, sign*d->years, sign*d->months, sign*d->weeks, sign*d->days+carry, &Y,&M,&D);
     if(!iso_date_valid(Y,M,D)||!iso_date_in_limits(Y,M,D)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
-    int h=(int)(rem/3600000000000LL); rem%=3600000000000LL; int mi=(int)(rem/60000000000LL); rem%=60000000000LL;
-    int s=(int)(rem/1000000000LL); rem%=1000000000LL; int ms=(int)(rem/1000000LL); rem%=1000000LL; int us=(int)(rem/1000LL); int ns=(int)(rem%1000LL);
-    { long long tns=(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+    int h=(int)(rem/NS_PER_HOUR); rem%=NS_PER_HOUR; int mi=(int)(rem/NS_PER_MINUTE); rem%=NS_PER_MINUTE;
+    int s=(int)(rem/NS_PER_SECOND); rem%=NS_PER_SECOND; int ms=(int)(rem/1000000LL); rem%=1000000LL; int us=(int)(rem/1000LL); int ns=(int)(rem%1000LL);
+    { int64_t tns=(int64_t)h*NS_PER_HOUR+(int64_t)mi*NS_PER_MINUTE+(int64_t)s*NS_PER_SECOND+(int64_t)ms*1000000LL+(int64_t)us*1000LL+ns;
       if(!iso_datetime_in_limits(Y,M,D,tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: result is outside the representable range")); return ts_value_make_undefined(); } }
     return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,mi,s,ms,us,ns));
 }
 static TsValue* pdt_diff(TsPlainDateTime* a, TsPlainDateTime* b, const std::string& lu){
-    const long long DAY=86400000000000LL;
-    long long dateDays = iso_days_from_civil(b->iso_year,b->iso_month,b->iso_day) - iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
-    long long timeNs = pdt_time_ns(b) - pdt_time_ns(a);
-    long long days = dateDays, t = timeNs;
+    const int64_t DAY=NS_PER_DAY;
+    int64_t dateDays = iso_days_from_civil(b->iso_year,b->iso_month,b->iso_day) - iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
+    int64_t timeNs = pdt_time_ns(b) - pdt_time_ns(a);
+    int64_t days = dateDays, t = timeNs;
     if(days>0 && t<0){ days--; t+=DAY; } else if(days<0 && t>0){ days++; t-=DAY; }
-    int tsign = t<0?-1:1; long long at=t<0?-t:t;
-    long long h=at/3600000000000LL; at%=3600000000000LL; long long mi=at/60000000000LL; at%=60000000000LL;
-    long long s=at/1000000000LL; at%=1000000000LL; long long ms=at/1000000LL; at%=1000000LL; long long us=at/1000LL; long long ns=at%1000LL;
+    int tsign = t<0?-1:1; int64_t at=t<0?-t:t;
+    int64_t h=at/NS_PER_HOUR; at%=NS_PER_HOUR; int64_t mi=at/NS_PER_MINUTE; at%=NS_PER_MINUTE;
+    int64_t s=at/NS_PER_SECOND; at%=NS_PER_SECOND; int64_t ms=at/1000000LL; at%=1000000LL; int64_t us=at/1000LL; int64_t ns=at%1000LL;
     if(lu=="day"||lu=="days"){
         return ts_value_make_object(TsDuration::Create(0,0,0, days, tsign*h, tsign*mi, tsign*s, tsign*ms, tsign*us, tsign*ns));
     }
     if(lu=="hour"||lu=="hours"||lu=="minute"||lu=="minutes"||lu=="second"||lu=="seconds"||lu=="millisecond"||lu=="milliseconds"||lu=="microsecond"||lu=="microseconds"||lu=="nanosecond"||lu=="nanoseconds"){
-        long long totalNs=days*DAY + t; long long sg=totalNs<0?-1:1, av=totalNs<0?-totalNs:totalNs;
-        bool ok2; long long Lns=unit_ns(lu,&ok2); if(!ok2)Lns=3600000000000LL;
-        long long uns[6]={3600000000000LL,60000000000LL,1000000000LL,1000000LL,1000LL,1LL}; long long o[6]={0,0,0,0,0,0};
+        int64_t totalNs=days*DAY + t; int64_t sg=totalNs<0?-1:1, av=totalNs<0?-totalNs:totalNs;
+        bool ok2; int64_t Lns=unit_ns(lu,&ok2); if(!ok2)Lns=NS_PER_HOUR;
+        int64_t uns[6]={NS_PER_HOUR,NS_PER_MINUTE,NS_PER_SECOND,1000000LL,1000LL,1LL}; int64_t o[6]={0,0,0,0,0,0};
         for(int i=0;i<6;i++){ if(uns[i]<=Lns){ o[i]=(av/uns[i])*sg; av%=uns[i]; } }
         return ts_value_make_object(TsDuration::Create(0,0,0,0, o[0],o[1],o[2],o[3],o[4],o[5]));
     }
     // year/month/week: convert the day count to calendar units (adjusted end date).
-    long long acivil = iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
+    int64_t acivil = iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
     int ey,em,ed; iso_civil_from_days(acivil+days, &ey,&em,&ed);
-    long long yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day, ey,em,ed, lu, &yr,&mo,&wk,&dy);
+    int64_t yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day, ey,em,ed, lu, &yr,&mo,&wk,&dy);
     return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy, tsign*h, tsign*mi, tsign*s, tsign*ms, tsign*us, tsign*ns));
 }
 // Split a signed time-of-day nanosecond count into a Duration's time fields.
-static void split_time_ns(long long t, long long* h,long long* mi,long long* s,long long* ms,long long* us,long long* ns){
-    long long sg=t<0?-1:1, a=t<0?-t:t;
-    *h=sg*(a/3600000000000LL); a%=3600000000000LL; *mi=sg*(a/60000000000LL); a%=60000000000LL;
-    *s=sg*(a/1000000000LL); a%=1000000000LL; *ms=sg*(a/1000000LL); a%=1000000LL; *us=sg*(a/1000LL); *ns=sg*(a%1000LL);
+static void split_time_ns(int64_t t, int64_t* h,int64_t* mi,int64_t* s,int64_t* ms,int64_t* us,int64_t* ns){
+    int64_t sg=t<0?-1:1, a=t<0?-t:t;
+    *h=sg*(a/NS_PER_HOUR); a%=NS_PER_HOUR; *mi=sg*(a/NS_PER_MINUTE); a%=NS_PER_MINUTE;
+    *s=sg*(a/NS_PER_SECOND); a%=NS_PER_SECOND; *ms=sg*(a/1000000LL); a%=1000000LL; *us=sg*(a/1000LL); *ns=sg*(a%1000LL);
 }
 // Round totalNs to a multiple of inc*sNs, returning the result as a COUNT of sNs-units
 // (e.g. days). Overflow-safe: inc*sNs and the ns result exceed int64 for a huge increment
 // (smallestUnit day + roundingIncrement up to 1e9 -> DAY*1e9 = 8.64e22).
-static long long round_unit_count(long long totalNs, long long sNs, long long inc, const std::string& mode){
-    int sign = totalNs<0?-1:1; long long av = totalNs<0?-totalNs:totalNs;
-    long long units = av/sNs; long long sub = av%sNs;
-    long long remU = units%inc; long long base = units - remU;   // multiple of inc, toward zero
+static int64_t round_unit_count(int64_t totalNs, int64_t sNs, int64_t inc, const std::string& mode){
+    int sign = totalNs<0?-1:1; int64_t av = totalNs<0?-totalNs:totalNs;
+    int64_t units = av/sNs; int64_t sub = av%sNs;
+    int64_t remU = units%inc; int64_t base = units - remU;   // multiple of inc, toward zero
     bool hasFrac = (remU!=0)||(sub!=0);
     std::string m = (sign<0)? flip_mode_neg(mode) : mode;        // normalize to the nonneg magnitude
     bool up;
     if(!hasFrac) up=false;
     else if(m=="trunc"||m=="floor") up=false;
     else if(m=="expand"||m=="ceil") up=true;
-    else { long long twice=remU*2;                               // compare remU vs inc/2 (no overflow)
+    else { int64_t twice=remU*2;                               // compare remU vs inc/2 (no overflow)
         if(twice>inc) up=true; else if(twice<inc) up=false;
         else { if(sub>0) up=true; else if(m=="halfExpand"||m=="halfCeil") up=true;
                else if(m=="halfTrunc"||m=="halfFloor") up=false; else up=(((base/inc)%2)!=0); } }
@@ -3637,43 +3665,43 @@ static long long round_unit_count(long long totalNs, long long sNs, long long in
 }
 // Rounding/diff core with options already parsed and largest already resolved
 // (no opts re-read — callers that have already read the options pass them here).
-static TsValue* pdt_diff_rounded(TsPlainDateTime* a, TsPlainDateTime* b, const std::string& smallest, const std::string& largest, const std::string& mode, long long inc){
-    const long long DAY=86400000000000LL;
+static TsValue* pdt_diff_rounded(TsPlainDateTime* a, TsPlainDateTime* b, const std::string& smallest, const std::string& largest, const std::string& mode, int64_t inc){
+    const int64_t DAY=NS_PER_DAY;
     // No-rounding default -> unchanged fast path.
     if((smallest=="nanosecond"||smallest=="nanoseconds") && mode=="trunc" && inc<=1) return pdt_diff(a,b,largest);
-    long long dateDays = iso_days_from_civil(b->iso_year,b->iso_month,b->iso_day) - iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
-    long long timeNs = pdt_time_ns(b) - pdt_time_ns(a);
+    int64_t dateDays = iso_days_from_civil(b->iso_year,b->iso_month,b->iso_day) - iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day);
+    int64_t timeNs = pdt_time_ns(b) - pdt_time_ns(a);
     // smallestUnit week or smaller rounds the combined ns exactly (PDT day == 24h);
     // only month/year need the calendar nudge.
     bool sIsCalendar = (date_unit_rank(smallest)>=4);
     if(!sIsCalendar){
-        long long totalNs = dateDays*DAY + timeNs;   // PlainDateTime day == 24h
-        long long sNs;
+        int64_t totalNs = dateDays*DAY + timeNs;   // PlainDateTime day == 24h
+        int64_t sNs;
         if(smallest=="week"||smallest=="weeks") sNs=7*DAY;
         else if(smallest=="day"||smallest=="days") sNs=DAY;
         else { bool ok; sNs=unit_ns(smallest,&ok); if(!ok) sNs=1; }
         // A huge increment makes sNs*inc (and the rounded ns result) overflow int64; the
         // granularity is then >= 1 day, so the result has no sub-day time. Compute in units.
         if(inc>1 && sNs > (9223372036854775807LL/inc)){
-            long long units = round_unit_count(totalNs, sNs, inc, mode);
-            long long days2 = (smallest=="week"||smallest=="weeks") ? units*7 : units;
+            int64_t units = round_unit_count(totalNs, sNs, inc, mode);
+            int64_t days2 = (smallest=="week"||smallest=="weeks") ? units*7 : units;
             if(date_unit_rank(largest)>=4){
                 int ey,em,ed; iso_civil_from_days(iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day)+days2,&ey,&em,&ed);
-                long long yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,largest,&yr,&mo,&wk,&dy);
+                int64_t yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,largest,&yr,&mo,&wk,&dy);
                 return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
             }
-            if(largest=="week"||largest=="weeks"){ long long wk=days2/7, dy=days2%7; return ts_value_make_object(TsDuration::Create(0,0,wk,dy,0,0,0,0,0,0)); }
+            if(largest=="week"||largest=="weeks"){ int64_t wk=days2/7, dy=days2%7; return ts_value_make_object(TsDuration::Create(0,0,wk,dy,0,0,0,0,0,0)); }
             return ts_value_make_object(TsDuration::Create(0,0,0,days2,0,0,0,0,0,0));
         }
-        long long r=round_signed(totalNs, sNs*(inc>0?inc:1), mode);
-        long long days=r/DAY, t=r%DAY;
-        long long h,mi,s,ms,us,ns; split_time_ns(t,&h,&mi,&s,&ms,&us,&ns);
+        int64_t r=round_signed(totalNs, sNs*(inc>0?inc:1), mode);
+        int64_t days=r/DAY, t=r%DAY;
+        int64_t h,mi,s,ms,us,ns; split_time_ns(t,&h,&mi,&s,&ms,&us,&ns);
         if(date_unit_rank(largest)>=4){ // month/year: balance days to calendar
             int ey,em,ed; iso_civil_from_days(iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day)+days,&ey,&em,&ed);
-            long long yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,largest,&yr,&mo,&wk,&dy);
+            int64_t yr,mo,wk,dy; diff_iso_date(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,largest,&yr,&mo,&wk,&dy);
             return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,h,mi,s,ms,us,ns));
         }
-        if(largest=="week"||largest=="weeks"){ long long wk=days/7, dy=days%7; return ts_value_make_object(TsDuration::Create(0,0,wk,dy,h,mi,s,ms,us,ns)); }
+        if(largest=="week"||largest=="weeks"){ int64_t wk=days/7, dy=days%7; return ts_value_make_object(TsDuration::Create(0,0,wk,dy,h,mi,s,ms,us,ns)); }
         if(largest=="day"||largest=="days") return ts_value_make_object(TsDuration::Create(0,0,0,days,h,mi,s,ms,us,ns));
         // largest < day: fold days into the time fields
         split_time_ns(r, &h,&mi,&s,&ms,&us,&ns);
@@ -3681,16 +3709,16 @@ static TsValue* pdt_diff_rounded(TsPlainDateTime* a, TsPlainDateTime* b, const s
     }
     // DATE smallestUnit: bring the end date toward the start by the time sign, then nudge
     // (sub-day fraction is dropped — exact for trunc, the default for date rounding).
-    long long days=dateDays, t=timeNs;
+    int64_t days=dateDays, t=timeNs;
     if(days>0 && t<0) days--; else if(days<0 && t>0) days++;
     int ey,em,ed; iso_civil_from_days(iso_days_from_civil(a->iso_year,a->iso_month,a->iso_day)+days,&ey,&em,&ed);
-    long long yr,mo,wk,dy; bool _re=false; round_date_duration(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,smallest,largest,inc,mode,&yr,&mo,&wk,&dy,&_re);
+    int64_t yr,mo,wk,dy; bool _re=false; round_date_duration(a->iso_year,a->iso_month,a->iso_day,ey,em,ed,smallest,largest,inc,mode,&yr,&mo,&wk,&dy,&_re);
     if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
 }
 // Reads & validates the diff options once, resolves largestUnit, then rounds.
 static TsValue* pdt_diff_opts(TsPlainDateTime* a, TsPlainDateTime* b, TsValue* opts, const char* defLargest="day", bool negate=false){
-    std::string smallest,largest,mode; long long inc;
+    std::string smallest,largest,mode; int64_t inc;
     read_validated_diff_opts(opts,1,10,"nanosecond","auto",&smallest,&largest,&mode,&inc);
     validate_diff_time_increment(smallest, inc);
     if(largest=="auto") largest = (date_unit_rank(smallest)>date_unit_rank(defLargest)) ? smallest : std::string(defLargest);
@@ -3702,14 +3730,14 @@ extern "C" {
 TsValue* ts_temporal_plaindatetime_add_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* dt=require_plaindatetime(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr); bool _ovrej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.add: invalid duration")); return ts_value_make_undefined(); }
-    if(_ovrej){ long long ty=dt->iso_year+d->years, tm=dt->iso_month+d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
+    if(_ovrej){ int64_t ty=dt->iso_year+d->years, tm=dt->iso_month+d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
         if(dt->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.add: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
     return pdt_add(dt,d,1);
 }
 TsValue* ts_temporal_plaindatetime_subtract_native(void* ctx,int argc,TsValue** argv){
     TsPlainDateTime* dt=require_plaindatetime(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr); bool _ovrej=validate_overflow_option((argc>=2&&argv)?argv[1]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
-    if(_ovrej){ long long ty=dt->iso_year-d->years, tm=dt->iso_month-d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
+    if(_ovrej){ int64_t ty=dt->iso_year-d->years, tm=dt->iso_month-d->months; while(tm>12){tm-=12;ty++;} while(tm<1){tm+=12;ty--;}
         if(dt->iso_day > iso_days_in_month((int)ty,(int)tm)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.subtract: date does not exist with overflow reject")); return ts_value_make_undefined(); } }
     return pdt_add(dt,d,-1);
 }
@@ -3727,23 +3755,23 @@ TsValue* ts_temporal_plaindatetime_since_native(void* ctx,int argc,TsValue** arg
 
 // ======================= Arithmetic: Instant =======================
 // Build a time-only Duration from a sign-aligned (ms, sub-ns) magnitude.
-static TsValue* duration_from_ms_sub(long long ms, long long subNs, const std::string& largest){
-    int sign = (ms<0||subNs<0)?-1:1; long long ams=ms<0?-ms:ms; long long asub=subNs<0?-subNs:subNs;
+static TsValue* duration_from_ms_sub(int64_t ms, int64_t subNs, const std::string& largest){
+    int sign = (ms<0||subNs<0)?-1:1; int64_t ams=ms<0?-ms:ms; int64_t asub=subNs<0?-subNs:subNs;
     // microsecond / nanosecond largestUnit: fold the whole millisecond part down too.
-    if(largest=="microsecond"||largest=="microseconds"){ long long us=ams*1000LL+asub/1000LL, ns=asub%1000LL; return ts_value_make_object(TsDuration::Create(0,0,0,0,0,0,0,0, sign*us, sign*ns)); }
-    if(largest=="nanosecond"||largest=="nanoseconds"){ long long ns=ams*1000000LL+asub; return ts_value_make_object(TsDuration::Create(0,0,0,0,0,0,0,0,0, sign*ns)); }
-    long long h=0,mi=0,s=0,msr=0; long long rem=ams;
+    if(largest=="microsecond"||largest=="microseconds"){ int64_t us=ams*1000LL+asub/1000LL, ns=asub%1000LL; return ts_value_make_object(TsDuration::Create(0,0,0,0,0,0,0,0, sign*us, sign*ns)); }
+    if(largest=="nanosecond"||largest=="nanoseconds"){ int64_t ns=ams*1000000LL+asub; return ts_value_make_object(TsDuration::Create(0,0,0,0,0,0,0,0,0, sign*ns)); }
+    int64_t h=0,mi=0,s=0,msr=0; int64_t rem=ams;
     if(largest=="hour"||largest=="hours"){ h=rem/3600000; rem%=3600000; mi=rem/60000; rem%=60000; s=rem/1000; msr=rem%1000; }
     else if(largest=="minute"||largest=="minutes"){ mi=rem/60000; rem%=60000; s=rem/1000; msr=rem%1000; }
     else if(largest=="millisecond"||largest=="milliseconds"){ msr=rem; }
     else { s=rem/1000; msr=rem%1000; } // second (default)
-    long long us=asub/1000, ns=asub%1000;
+    int64_t us=asub/1000, ns=asub%1000;
     return ts_value_make_object(TsDuration::Create(0,0,0,0, sign*h, sign*mi, sign*s, sign*msr, sign*us, sign*ns));
 }
-static void instant_add_time(long long ems,int esub, TsDuration* d, int sign, long long* oms, int* osub){
-    long long addNs = dur_time_ns(d);
-    long long newMs = ems + sign*(addNs/1000000LL);
-    long long newSub = (long long)esub + sign*(addNs%1000000LL);
+static void instant_add_time(int64_t ems,int esub, TsDuration* d, int sign, int64_t* oms, int* osub){
+    int64_t addNs = dur_time_ns(d);
+    int64_t newMs = ems + sign*(addNs/1000000LL);
+    int64_t newSub = (int64_t)esub + sign*(addNs%1000000LL);
     newMs += newSub/1000000LL; newSub %= 1000000LL;
     if(newMs>0 && newSub<0){ newMs--; newSub+=1000000LL; } else if(newMs<0 && newSub>0){ newMs++; newSub-=1000000LL; }
     *oms=newMs; *osub=(int)newSub;
@@ -3759,7 +3787,7 @@ TsValue* ts_temporal_instant_add_native(void* ctx,int argc,TsValue** argv){
     TsInstant* it=require_instant(ctx,"add"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.add: invalid duration")); return ts_value_make_undefined(); }
     if(d->years||d->months||d->weeks||d->days){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.add: duration must be time-only")); return ts_value_make_undefined(); }
-    long long oms; int osub; instant_add_time(it->epoch_ms,it->sub_ns,d,1,&oms,&osub);
+    int64_t oms; int osub; instant_add_time(it->epoch_ms,it->sub_ns,d,1,&oms,&osub);
     if(!instant_epoch_in_limits(oms,osub)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.add: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsInstant::Create(oms,osub));
 }
@@ -3767,22 +3795,22 @@ TsValue* ts_temporal_instant_subtract_native(void* ctx,int argc,TsValue** argv){
     TsInstant* it=require_instant(ctx,"subtract"); TsDuration* d=coerce_duration_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!d){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.subtract: invalid duration")); return ts_value_make_undefined(); }
     if(d->years||d->months||d->weeks||d->days){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.subtract: duration must be time-only")); return ts_value_make_undefined(); }
-    long long oms; int osub; instant_add_time(it->epoch_ms,it->sub_ns,d,-1,&oms,&osub);
+    int64_t oms; int osub; instant_add_time(it->epoch_ms,it->sub_ns,d,-1,&oms,&osub);
     if(!instant_epoch_in_limits(oms,osub)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.subtract: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsInstant::Create(oms,osub));
 }
 // Instant diff with smallestUnit rounding (time units only; default largestUnit second).
-static TsValue* instant_diff_rounded(long long ms, long long sub, TsValue* opts){
-    std::string largest,smallest,mode; long long inc;
+static TsValue* instant_diff_rounded(int64_t ms, int64_t sub, TsValue* opts){
+    std::string largest,smallest,mode; int64_t inc;
     read_validated_diff_opts(opts,1,6,"nanosecond","auto",&smallest,&largest,&mode,&inc);
     validate_diff_time_increment(smallest, inc);
     // largestUnit "auto" resolves to the coarser of smallestUnit and "second".
     if(largest=="auto"){
-        bool oa,ob; long long sN=unit_ns(smallest,&oa), secN=unit_ns("second",&ob);
+        bool oa,ob; int64_t sN=unit_ns(smallest,&oa), secN=unit_ns("second",&ob);
         largest = (oa && sN>secN) ? smallest : std::string("second");
     }
-    long long totalNs = ms*1000000LL + sub;
-    bool ok; long long sNs=unit_ns(smallest,&ok);
+    int64_t totalNs = ms*1000000LL + sub;
+    bool ok; int64_t sNs=unit_ns(smallest,&ok);
     if(ok && (sNs>1 || inc>1)){
         totalNs = round_signed(totalNs, sNs*(inc>0?inc:1), mode);
     }
@@ -3791,14 +3819,14 @@ static TsValue* instant_diff_rounded(long long ms, long long sub, TsValue* opts)
 TsValue* ts_temporal_instant_until_native(void* ctx,int argc,TsValue** argv){
     TsInstant* a=require_instant(ctx,"until"); TsInstant* b=coerce_instant_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.until: invalid argument")); return ts_value_make_undefined(); }
-    long long ms=b->epoch_ms-a->epoch_ms; long long sub=(long long)b->sub_ns-a->sub_ns;
+    int64_t ms=b->epoch_ms-a->epoch_ms; int64_t sub=(int64_t)b->sub_ns-a->sub_ns;
     if(ms>0&&sub<0){ms--;sub+=1000000;} else if(ms<0&&sub>0){ms++;sub-=1000000;}
     return instant_diff_rounded(ms,sub,(argc>=2&&argv)?argv[1]:nullptr);
 }
 TsValue* ts_temporal_instant_since_native(void* ctx,int argc,TsValue** argv){
     TsInstant* a=require_instant(ctx,"since"); TsInstant* b=coerce_instant_arg((argc>=1&&argv)?argv[0]:nullptr);
     if(!b){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.since: invalid argument")); return ts_value_make_undefined(); }
-    long long ms=a->epoch_ms-b->epoch_ms; long long sub=(long long)a->sub_ns-b->sub_ns;
+    int64_t ms=a->epoch_ms-b->epoch_ms; int64_t sub=(int64_t)a->sub_ns-b->sub_ns;
     if(ms>0&&sub<0){ms--;sub+=1000000;} else if(ms<0&&sub>0){ms++;sub-=1000000;}
     return instant_diff_rounded(ms,sub,(argc>=2&&argv)?argv[1]:nullptr);
 }
@@ -3809,23 +3837,23 @@ TsValue* ts_temporal_instant_round_native(void* ctx,int argc,TsValue** argv){
     TsInstant* it=require_instant(ctx,"round");
     TsValue* roundTo=(argc>=1&&argv)?argv[0]:nullptr;
     if(!roundTo||ts_value_is_undefined(roundTo)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Instant.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
-    std::string unit; long long inc=1; std::string mode="halfExpand";
+    std::string unit; int64_t inc=1; std::string mode="halfExpand";
     if(!parse_round_options(roundTo,&unit,&inc,&mode,1,6)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: smallestUnit is required")); return ts_value_make_undefined(); }
-    bool ok; long long unitNs=unit_ns(unit,&ok);
+    bool ok; int64_t unitNs=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
-    long long q=unitNs*inc; const long long DAY=86400000000000LL;
+    int64_t q=unitNs*inc; const int64_t DAY=NS_PER_DAY;
     if(q>DAY || DAY%q!=0){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); }
-    long long ms=it->epoch_ms, sns=it->sub_ns;
+    int64_t ms=it->epoch_ms, sns=it->sub_ns;
     if(sns<0){ ms-=1; sns+=1000000; }   // FLOOR -> sns in [0,999999]
-    long long rMs, rSns;
+    int64_t rMs, rSns;
     if(q<1000000){
-        long long r=round_signed(sns,q,mode);
+        int64_t r=round_signed(sns,q,mode);
         rMs=ms + r/1000000; rSns=r%1000000;
     } else {
-        long long qMs=q/1000000;
-        long long base=ms - (((ms%qMs)+qMs)%qMs);   // floor toward -inf
-        long long remNs=(ms-base)*1000000 + sns;     // ns past base, in [0, qMs*1e6)
-        long long roundedRem=round_nonneg(remNs, qMs*1000000, mode);
+        int64_t qMs=q/1000000;
+        int64_t base=ms - (((ms%qMs)+qMs)%qMs);   // floor toward -inf
+        int64_t remNs=(ms-base)*1000000 + sns;     // ns past base, in [0, qMs*1e6)
+        int64_t roundedRem=round_nonneg(remNs, qMs*1000000, mode);
         rMs=base + roundedRem/1000000; rSns=0;
     }
     if(!instant_ms_in_range(rMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Instant.prototype.round: instant out of range")); return ts_value_make_undefined(); }
@@ -3837,46 +3865,46 @@ TsValue* ts_temporal_instant_round_native(void* ctx,int argc,TsValue** argv){
 // Fixed-offset only: do the arithmetic on the local wall-clock, then re-derive
 // the epoch (no DST transitions to worry about).
 static TsValue* zdt_add(TsZonedDateTime* z, TsDuration* d, int sign, bool reject=false){
-    const long long DAY=86400000000000LL;
+    const int64_t DAY=NS_PER_DAY;
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
-    long long timeNs = ((((long long)h*60+mi)*60+s)*1000000000LL) + (long long)ms*1000000LL + (long long)us*1000LL + ns;
+    int64_t timeNs = ((((int64_t)h*60+mi)*60+s)*NS_PER_SECOND) + (int64_t)ms*1000000LL + (int64_t)us*1000LL + ns;
     timeNs += sign*dur_time_ns(d);
-    long long carry = timeNs/DAY; long long rem=timeNs%DAY; if(rem<0){rem+=DAY;carry--;}
+    int64_t carry = timeNs/DAY; int64_t rem=timeNs%DAY; if(rem<0){rem+=DAY;carry--;}
     int nY,nM,nD; add_iso_date(Y,M,D, sign*d->years, sign*d->months, sign*d->weeks, sign*d->days+carry, &nY,&nM,&nD, reject);
     if(!iso_date_valid(nY,nM,nD)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
-    int nh=(int)(rem/3600000000000LL); rem%=3600000000000LL; int nmi=(int)(rem/60000000000LL); rem%=60000000000LL;
-    int nss=(int)(rem/1000000000LL); rem%=1000000000LL; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
-    long long localMs = iso_days_from_civil(nY,nM,nD)*86400000LL + (long long)nh*3600000 + (long long)nmi*60000 + (long long)nss*1000 + nms;
+    int nh=(int)(rem/NS_PER_HOUR); rem%=NS_PER_HOUR; int nmi=(int)(rem/NS_PER_MINUTE); rem%=NS_PER_MINUTE;
+    int nss=(int)(rem/NS_PER_SECOND); rem%=NS_PER_SECOND; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
+    int64_t localMs = iso_days_from_civil(nY,nM,nD)*MS_PER_DAY + (int64_t)nh*3600000 + (int64_t)nmi*60000 + (int64_t)nss*1000 + nms;
     // The intermediate wall-clock datetime AND the resulting instant must be representable.
-    long long _itns=(long long)nh*3600000000000LL+(long long)nmi*60000000000LL+(long long)nss*1000000000LL+(long long)nms*1000000LL+(long long)nus*1000LL+nns;
+    int64_t _itns=(int64_t)nh*NS_PER_HOUR+(int64_t)nmi*NS_PER_MINUTE+(int64_t)nss*NS_PER_SECOND+(int64_t)nms*1000000LL+(int64_t)nus*1000LL+nns;
     if(!iso_datetime_in_limits(nY,nM,nD,_itns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime arithmetic: intermediate datetime out of range")); return ts_value_make_undefined(); }
-    long long epoch_ms = localMs - (long long)z->offset_minutes*60000LL;
+    int64_t epoch_ms = localMs - (int64_t)z->offset_minutes*60000LL;
     if(!instant_epoch_in_limits(epoch_ms, nus*1000+nns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime arithmetic: result out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(zdt_same_zone(z, epoch_ms, nus*1000+nns));
 }
 static TsValue* zdt_diff(TsZonedDateTime* a, TsZonedDateTime* b, const std::string& lu){
-    const long long DAY=86400000000000LL;
+    const int64_t DAY=NS_PER_DAY;
     int aY,aM,aD,ah,ami,as,ams,aus,ans; zdt_local(a,&aY,&aM,&aD,&ah,&ami,&as,&ams,&aus,&ans);
     int bY,bM,bD,bh,bmi,bs,bms,bus,bns; zdt_local(b,&bY,&bM,&bD,&bh,&bmi,&bs,&bms,&bus,&bns);
-    long long dateDays = iso_days_from_civil(bY,bM,bD) - iso_days_from_civil(aY,aM,aD);
-    long long timeNs = (((((long long)bh*60+bmi)*60+bs)*1000000000LL)+(long long)bms*1000000LL+(long long)bus*1000LL+bns)
-                     - (((((long long)ah*60+ami)*60+as)*1000000000LL)+(long long)ams*1000000LL+(long long)aus*1000LL+ans);
-    long long days=dateDays, t=timeNs;
+    int64_t dateDays = iso_days_from_civil(bY,bM,bD) - iso_days_from_civil(aY,aM,aD);
+    int64_t timeNs = (((((int64_t)bh*60+bmi)*60+bs)*NS_PER_SECOND)+(int64_t)bms*1000000LL+(int64_t)bus*1000LL+bns)
+                     - (((((int64_t)ah*60+ami)*60+as)*NS_PER_SECOND)+(int64_t)ams*1000000LL+(int64_t)aus*1000LL+ans);
+    int64_t days=dateDays, t=timeNs;
     if(days>0&&t<0){days--;t+=DAY;} else if(days<0&&t>0){days++;t-=DAY;}
-    int tsign=t<0?-1:1; long long at=t<0?-t:t;
-    long long hh=at/3600000000000LL; at%=3600000000000LL; long long mm=at/60000000000LL; at%=60000000000LL;
-    long long ss=at/1000000000LL; at%=1000000000LL; long long mms=at/1000000LL; at%=1000000LL; long long uus=at/1000LL; long long nns=at%1000LL;
+    int tsign=t<0?-1:1; int64_t at=t<0?-t:t;
+    int64_t hh=at/NS_PER_HOUR; at%=NS_PER_HOUR; int64_t mm=at/NS_PER_MINUTE; at%=NS_PER_MINUTE;
+    int64_t ss=at/NS_PER_SECOND; at%=NS_PER_SECOND; int64_t mms=at/1000000LL; at%=1000000LL; int64_t uus=at/1000LL; int64_t nns=at%1000LL;
     if(lu=="year"||lu=="years"||lu=="month"||lu=="months"||lu=="week"||lu=="weeks"){
-        long long acivil=iso_days_from_civil(aY,aM,aD); int ey,em,ed; iso_civil_from_days(acivil+days,&ey,&em,&ed);
-        long long yr,mo,wk,dy; diff_iso_date(aY,aM,aD,ey,em,ed,lu,&yr,&mo,&wk,&dy);
+        int64_t acivil=iso_days_from_civil(aY,aM,aD); int ey,em,ed; iso_civil_from_days(acivil+days,&ey,&em,&ed);
+        int64_t yr,mo,wk,dy; diff_iso_date(aY,aM,aD,ey,em,ed,lu,&yr,&mo,&wk,&dy);
         return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy, tsign*hh,tsign*mm,tsign*ss,tsign*mms,tsign*uus,tsign*nns));
     }
     if(lu=="day"||lu=="days")
         return ts_value_make_object(TsDuration::Create(0,0,0,days, tsign*hh,tsign*mm,tsign*ss,tsign*mms,tsign*uus,tsign*nns));
     // time largestUnit (hour..ns): fold the days into the largest time unit.
-    long long totalNs=days*DAY + t; long long sg=totalNs<0?-1:1, av=totalNs<0?-totalNs:totalNs;
-    bool ok2; long long Lns=unit_ns(lu,&ok2); if(!ok2)Lns=3600000000000LL;
-    long long uns[6]={3600000000000LL,60000000000LL,1000000000LL,1000000LL,1000LL,1LL}; long long o[6]={0,0,0,0,0,0};
+    int64_t totalNs=days*DAY + t; int64_t sg=totalNs<0?-1:1, av=totalNs<0?-totalNs:totalNs;
+    bool ok2; int64_t Lns=unit_ns(lu,&ok2); if(!ok2)Lns=NS_PER_HOUR;
+    int64_t uns[6]={NS_PER_HOUR,NS_PER_MINUTE,NS_PER_SECOND,1000000LL,1000LL,1LL}; int64_t o[6]={0,0,0,0,0,0};
     for(int i=0;i<6;i++){ if(uns[i]<=Lns){ o[i]=(av/uns[i])*sg; av%=uns[i]; } }
     return ts_value_make_object(TsDuration::Create(0,0,0,0, o[0],o[1],o[2],o[3],o[4],o[5]));
 }
@@ -3898,7 +3926,7 @@ static TsZonedDateTime* coerce_zdt_arg(TsValue* v){
 // ZDT diff via the local datetimes (valid for fixed-offset/UTC zones), with
 // smallestUnit rounding (default largestUnit hour). No-rounding -> existing zdt_diff.
 static TsValue* zdt_diff_opts(TsZonedDateTime* a, TsZonedDateTime* b, TsValue* opts, bool negate=false){
-    std::string smallest,largest,mode; long long inc;
+    std::string smallest,largest,mode; int64_t inc;
     read_validated_diff_opts(opts,1,10,"nanosecond","hour",&smallest,&largest,&mode,&inc);
     validate_diff_time_increment(smallest, inc);   // preserved from the former pdt_diff_opts re-read
     // largestUnit "auto" resolves to the larger of smallestUnit and "hour" (was done by the re-read).
@@ -3913,15 +3941,15 @@ static TsValue* zdt_diff_opts(TsZonedDateTime* a, TsZonedDateTime* b, TsValue* o
     // AWAY from zero to the increment) must be representable, even when the value rounds the
     // other way — a huge roundingIncrement can push that bound past the ISO limit (+1e8+1 days).
     if(smallest=="day"||smallest=="days"||smallest=="week"||smallest=="weeks"){
-        const long long DAY2=86400000000000LL;
-        long long sNs2=(smallest=="week"||smallest=="weeks")?7*DAY2:DAY2;
-        long long dateDays2=iso_days_from_civil(bY,bM,bD)-iso_days_from_civil(aY,aM,aD);
-        long long timeNs2=((((long long)bh*60+bmi)*60+bs)*1000000000LL+(long long)bms*1000000LL+(long long)bus*1000LL+bns)
-                        -((((long long)ah*60+ami)*60+as_)*1000000000LL+(long long)ams*1000000LL+(long long)aus*1000LL+ans);
-        long long ceilUnits=round_unit_count(dateDays2*DAY2+timeNs2, sNs2, inc>0?inc:1, "expand");
-        long long ceilDays=(smallest=="week"||smallest=="weeks")?ceilUnits*7:ceilUnits;
+        const int64_t DAY2=NS_PER_DAY;
+        int64_t sNs2=(smallest=="week"||smallest=="weeks")?7*DAY2:DAY2;
+        int64_t dateDays2=iso_days_from_civil(bY,bM,bD)-iso_days_from_civil(aY,aM,aD);
+        int64_t timeNs2=((((int64_t)bh*60+bmi)*60+bs)*NS_PER_SECOND+(int64_t)bms*1000000LL+(int64_t)bus*1000LL+bns)
+                        -((((int64_t)ah*60+ami)*60+as_)*NS_PER_SECOND+(int64_t)ams*1000000LL+(int64_t)aus*1000LL+ans);
+        int64_t ceilUnits=round_unit_count(dateDays2*DAY2+timeNs2, sNs2, inc>0?inc:1, "expand");
+        int64_t ceilDays=(smallest=="week"||smallest=="weeks")?ceilUnits*7:ceilUnits;
         int ey,em,ed; add_iso_date(aY,aM,aD, 0,0,0, ceilDays, &ey,&em,&ed);
-        long long endEpochMs=iso_days_from_civil(ey,em,ed)*86400000LL - (long long)a->offset_minutes*60000LL;
+        int64_t endEpochMs=iso_days_from_civil(ey,em,ed)*MS_PER_DAY - (int64_t)a->offset_minutes*60000LL;
         if(!iso_date_in_limits(ey,em,ed) || !instant_epoch_in_limits(endEpochMs,0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime difference: rounding endpoint is outside the representable range")); return ts_value_make_undefined(); }
     }
     TsValue* r = pdt_diff_rounded(pa,pb,smallest,largest,mode,inc);   // options already read — no second pass
@@ -3938,15 +3966,15 @@ TsValue* ts_temporal_zdt_since_native(void* ctx,int argc,TsValue** argv){
     return zdt_diff_opts(a,b,(argc>=2&&argv)?argv[1]:nullptr,true);
 }
 static TsValue* zdt_from_local(int Y,int M,int D,int h,int mi,int s,int ms,int us,int ns,int off,bool utc){
-    long long localMs=iso_days_from_civil(Y,M,D)*86400000LL+(long long)h*3600000+(long long)mi*60000+(long long)s*1000+ms;
-    long long epoch_ms=localMs-(long long)off*60000LL;
+    int64_t localMs=iso_days_from_civil(Y,M,D)*MS_PER_DAY+(int64_t)h*3600000+(int64_t)mi*60000+(int64_t)s*1000+ms;
+    int64_t epoch_ms=localMs-(int64_t)off*60000LL;
     if(!instant_epoch_in_limits(epoch_ms, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime: result is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, us*1000+ns, off, utc));
 }
 TsValue* ts_temporal_zdt_withTimeZone_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"withTimeZone");
     TsValue* tzf=(argc>=1&&argv)?argv[0]:nullptr; void* tzr=tzf?ts_nanbox_safe_unbox(tzf):nullptr;
-    if(!tzr||(*(uint32_t*)tzr!=0x53545247&&*(uint32_t*)tzr!=0x434F4E53)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.withTimeZone: timeZone must be a string")); return ts_value_make_undefined(); }
+    if(!tzr||(*(uint32_t*)tzr!=TAG_STRING&&*(uint32_t*)tzr!=TAG_CONS_STRING)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.withTimeZone: timeZone must be a string")); return ts_value_make_undefined(); }
     const char* tu=((TsString*)ts_value_get_string(tzf))->ToUtf8(); int off=0; bool utc=false; char zbuf[40];
     if(tu && resolve_timezone_id(tu,&off,&utc,zbuf,sizeof(zbuf))){   // same instant, new zone
         if(zbuf[0]) return ts_value_make_object(TsZonedDateTime::CreateNamed(z->epoch_ms, z->sub_ns, zbuf));
@@ -3967,7 +3995,7 @@ TsValue* ts_temporal_zdt_getTimeZoneTransition_native(void* ctx,int argc,TsValue
     if(!arg || ts_value_is_undefined(arg)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.getTimeZoneTransition: direction is required")); return ts_value_make_undefined(); }
     std::string dir;
     void* raw=ts_nanbox_safe_unbox(arg);
-    bool isStr = raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=0x00007FFFFFFFFFFFULL && (*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53);
+    bool isStr = raw && (uintptr_t)raw>=4096 && (uintptr_t)raw<=PTR_USER_MAX && (*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING);
     if(isStr){ dir=((TsString*)ts_value_get_string(arg))->ToUtf8(); }
     else if(raw){ TsValue* d=ts_object_get_property(raw,"direction");
         if(!d||ts_value_is_undefined(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","getTimeZoneTransition: direction is required")); return ts_value_make_undefined(); }
@@ -4005,7 +4033,7 @@ TsValue* ts_temporal_zdt_withPlainTime_native(void* ctx,int argc,TsValue** argv)
 TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"with");
     void* raw=(argc>=1&&argv&&argv[0])?ts_nanbox_safe_unbox(argv[0]):nullptr;
-    if(!raw||*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
+    if(!raw||*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING||is_temporal_typed_object(raw)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: argument must be a plain object")); return ts_value_make_undefined(); }
     // RejectObjectWithCalendarOrTimeZone (observed first): calendar, then timeZone.
     { TsValue* cf=ts_object_get_property(raw,"calendar"); if(cf&&!ts_value_is_undefined(cf)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: cannot set calendar")); return ts_value_make_undefined(); } }
     { TsValue* tf=ts_object_get_property(raw,"timeZone"); if(tf&&!ts_value_is_undefined(tf)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.with: cannot set timeZone")); return ts_value_make_undefined(); } }
@@ -4040,7 +4068,7 @@ TsValue* ts_temporal_zdt_with_native(void* ctx,int argc,TsValue** argv){
     if(M<1)M=1; if(M>12)M=12; int dim=iso_days_in_month(Y,M); if(D<1)D=1; if(D>dim)D=dim;
     const int lim[6]={23,59,59,999,999,999}; int* tp[6]={&h,&mi,&s,&ms,&us,&ns}; for(int i=0;i<6;i++){ if(*tp[i]<0)*tp[i]=0; if(*tp[i]>lim[i])*tp[i]=lim[i]; }
     if(z->zone_name[0]){   // preserve the named zone, recomputing the DST-aware epoch
-        long long epochMs;
+        int64_t epochMs;
         if(!icu_zone_local_to_epoch(z->zone_name,Y,M,D,h,mi,s,ms,disamb,&epochMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.with: ambiguous local time rejected")); return ts_value_make_undefined(); }
         return ts_value_make_object(TsZonedDateTime::CreateNamed(epochMs, us*1000+ns, z->zone_name));
     }
@@ -4057,33 +4085,33 @@ static TsValue* duration_add_impl(TsDuration* a, TsDuration* b, int bsign){
     {   // Overflow-safe result range check: each operand is a valid duration (whole-second
         // total <= 2^53-1), so the summed whole-second total fits int64 even though
         // dur_time_ns below overflows for near-2^53-second operands.
-        auto secOf=[](TsDuration* d)->long long{
-            long long c=d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
+        auto secOf=[](TsDuration* d)->int64_t{
+            int64_t c=d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
             return d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds + c;
         };
-        long long rs = secOf(a) + (long long)bsign*secOf(b);
+        int64_t rs = secOf(a) + (int64_t)bsign*secOf(b);
         if(rs>9007199254740991LL || rs<-9007199254740991LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration: result is out of range")); return ts_value_make_undefined(); }
     }
-    const long long DAY=86400000000000LL;
+    const int64_t DAY=NS_PER_DAY;
     // Default largestUnit = the largest non-zero unit of either operand; the result
     // must not balance UP past it (e.g. {hours:24} stays 24h, not 1 day).
     auto rankOf=[](TsDuration* d)->int{ if(d->days)return 4; if(d->hours)return 5; if(d->minutes)return 6; if(d->seconds)return 7; if(d->milliseconds)return 8; if(d->microseconds)return 9; if(d->nanoseconds)return 10; return 11; };
     int ra=rankOf(a), rb=rankOf(b), rank=ra<rb?ra:rb;
-    long long totalDays = a->days + bsign*b->days;
-    long long ns = dur_time_ns(a) + bsign*dur_time_ns(b);
+    int64_t totalDays = a->days + bsign*b->days;
+    int64_t ns = dur_time_ns(a) + bsign*dur_time_ns(b);
     if(rank<=4){   // a day (or larger) is present -> whole days absorb the time
         totalDays += ns/DAY; ns %= DAY;
         if(totalDays>0 && ns<0){ totalDays--; ns+=DAY; } else if(totalDays<0 && ns>0){ totalDays++; ns-=DAY; }
     }
-    int sign=(totalDays<0||(totalDays==0&&ns<0))?-1:1; long long ad=totalDays<0?-totalDays:totalDays; long long an=ns<0?-ns:ns;
-    long long h=0,mi=0,s=0,ms=0,us=0,nn=0;
-    if(rank<=5){ h=an/3600000000000LL; an%=3600000000000LL; }
-    if(rank<=6){ mi=an/60000000000LL; an%=60000000000LL; }
-    if(rank<=7){ s=an/1000000000LL; an%=1000000000LL; }
+    int sign=(totalDays<0||(totalDays==0&&ns<0))?-1:1; int64_t ad=totalDays<0?-totalDays:totalDays; int64_t an=ns<0?-ns:ns;
+    int64_t h=0,mi=0,s=0,ms=0,us=0,nn=0;
+    if(rank<=5){ h=an/NS_PER_HOUR; an%=NS_PER_HOUR; }
+    if(rank<=6){ mi=an/NS_PER_MINUTE; an%=NS_PER_MINUTE; }
+    if(rank<=7){ s=an/NS_PER_SECOND; an%=NS_PER_SECOND; }
     if(rank<=8){ ms=an/1000000LL; an%=1000000LL; }
     if(rank<=9){ us=an/1000LL; an%=1000LL; }
     nn=an;
-    long long fr[10]={0,0,0, sign*ad, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn};
+    int64_t fr[10]={0,0,0, sign*ad, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn};
     if(!duration_in_range(fr)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration: result is out of range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsDuration::Create(0,0,0, sign*ad, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*nn));
 }
@@ -4110,7 +4138,7 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
       // ts_object_get_property on a primitive's bogus unbox crashes.
       uint64_t nb=(uint64_t)(uintptr_t)arg;
       bool isObj = arg && ((nb & 0xFFFF000000000000ULL)==0) && (nb >= 0x10000);
-      if(isObj){ uint32_t m0=*(uint32_t*)(void*)nb; if(m0==0x53545247||m0==0x434F4E53||m0==0x53594D42||m0==0x42494749) isObj=false; }
+      if(isObj){ uint32_t m0=*(uint32_t*)(void*)nb; if(m0==TAG_STRING||m0==TAG_CONS_STRING||m0==TAG_SYMBOL||m0==TAG_BIGINT) isObj=false; }
       if(isObj){ void* raw0=ts_nanbox_safe_unbox(arg); if(raw0){ TsValue* relTo=ts_object_get_property(raw0,"relativeTo"); relAnchor=coerce_relativeto_unified(relTo); } } }
     std::string unit;
     if(!tsvalue_to_stdstring(arg,&unit)) unit = read_string_option(arg,"unit","");
@@ -4131,13 +4159,13 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
             // the whole years/months from anchor to the end date, then add the fractional
             // remainder (days past the floor-unit boundary / days spanning one more unit).
             bool isYear=(unit=="year"||unit=="years");
-            long long timeNs=(long long)d->hours*3600000000000LL+(long long)d->minutes*60000000000LL+(long long)d->seconds*1000000000LL+(long long)d->milliseconds*1000000LL+(long long)d->microseconds*1000LL+d->nanoseconds;
-            long long wholeDaysFromTime=timeNs/86400000000000LL, subDayNs=timeNs%86400000000000LL;
+            int64_t timeNs=(int64_t)d->hours*NS_PER_HOUR+(int64_t)d->minutes*NS_PER_MINUTE+(int64_t)d->seconds*NS_PER_SECOND+(int64_t)d->milliseconds*1000000LL+(int64_t)d->microseconds*1000LL+d->nanoseconds;
+            int64_t wholeDaysFromTime=timeNs/NS_PER_DAY, subDayNs=timeNs%NS_PER_DAY;
             int gy,gm,gd; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+wholeDaysFromTime, &gy,&gm,&gd);
             if(!iso_date_in_limits(gy,gm,gd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: result out of range")); return ts_value_make_undefined(); }
-            long long startE2=iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day), endE2=iso_days_from_civil(gy,gm,gd);
-            long long y2,mo2,wk2,dy2; diff_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, gy,gm,gd, isYear?std::string("year"):std::string("month"), &y2,&mo2,&wk2,&dy2);
-            long long whole = isYear ? y2 : mo2;     // diff_iso_date folds years into months for "month"
+            int64_t startE2=iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day), endE2=iso_days_from_civil(gy,gm,gd);
+            int64_t y2,mo2,wk2,dy2; diff_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, gy,gm,gd, isYear?std::string("year"):std::string("month"), &y2,&mo2,&wk2,&dy2);
+            int64_t whole = isYear ? y2 : mo2;     // diff_iso_date folds years into months for "month"
             int sgn=(endE2>=startE2)?1:-1;
             int mY,mM,mD; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, isYear?whole:0, isYear?0:whole, 0,0, &mY,&mM,&mD);
             int n2Y,n2M,n2D; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, isYear?(whole+sgn):0, isYear?0:(whole+sgn), 0,0, &n2Y,&n2M,&n2D);
@@ -4154,7 +4182,7 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
         }
         int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days, &ey,&em,&ed);
         if(!iso_date_in_limits(ey,em,ed)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.total: result out of range")); return ts_value_make_undefined(); }
-        long long dayDiff = iso_days_from_civil(ey,em,ed) - iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
+        int64_t dayDiff = iso_days_from_civil(ey,em,ed) - iso_days_from_civil(rd->iso_year,rd->iso_month,rd->iso_day);
         extraNs = (double)dayDiff*86400000000000.0
             + (double)d->hours*3600000000000.0 + (double)d->minutes*60000000000.0 + (double)d->seconds*1000000000.0
             + (double)d->milliseconds*1000000.0 + (double)d->microseconds*1000.0 + (double)d->nanoseconds;
@@ -4187,28 +4215,28 @@ TsValue* ts_temporal_duration_total_native(void* ctx,int argc,TsValue** argv){
         // total nanoseconds from the overflow-safe (seconds, sub-second-ns) split, divide
         // by unitNs, then round the quotient+remainder into the result's mantissa. Avoids
         // the intermediate double rounding in totalNs that loses ULPs near 2^53.
-        long long carrySec = d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
-        long long subNs = (d->milliseconds%1000)*1000000LL + (d->microseconds%1000000)*1000LL + (d->nanoseconds%1000000000);
-        carrySec += subNs/1000000000LL; subNs %= 1000000000LL;
-        long long totalSec = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds + carrySec;
+        int64_t carrySec = d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
+        int64_t subNs = (d->milliseconds%1000)*1000000LL + (d->microseconds%1000000)*1000LL + (d->nanoseconds%1000000000);
+        carrySec += subNs/NS_PER_SECOND; subNs %= NS_PER_SECOND;
+        int64_t totalSec = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds + carrySec;
         int sgn = (totalSec<0||(totalSec==0&&subNs<0)) ? -1 : 1;
-        unsigned long long aSec=(unsigned long long)(totalSec<0?-totalSec:totalSec);
-        unsigned long long aSub=(unsigned long long)(subNs<0?-subNs:subNs);
-        unsigned long long uNs=(unsigned long long)(long long)unitNs;
-        unsigned long long hi, lo = _umul128(aSec, 1000000000ULL, &hi);   // totalNs128 = aSec*1e9 + aSub
-        { unsigned long long lo2=lo+aSub; if(lo2<lo) hi++; lo=lo2; }
+        uint64_t aSec=(uint64_t)(totalSec<0?-totalSec:totalSec);
+        uint64_t aSub=(uint64_t)(subNs<0?-subNs:subNs);
+        uint64_t uNs=(uint64_t)(int64_t)unitNs;
+        uint64_t hi, lo = _umul128(aSec, 1000000000ULL, &hi);   // totalNs128 = aSec*1e9 + aSub
+        { uint64_t lo2=lo+aSub; if(lo2<lo) hi++; lo=lo2; }
         double res;
         if(hi==0 && lo==0) res=0.0;
         else {
-            unsigned long long r; unsigned long long q=_udiv128(hi,lo,uNs,&r);   // hi<uNs guaranteed (totalNs<2^84, uNs>=1e9)
+            uint64_t r; uint64_t q=_udiv128(hi,lo,uNs,&r);   // hi<uNs guaranteed (totalNs<2^84, uNs>=1e9)
             if(q==0) res=(double)r/(double)uNs;
             else {
                 unsigned long e; _BitScanReverse64(&e,q);
                 unsigned sh=52-(unsigned)e;
-                unsigned long long fhi, flo=_umul128(r,(1ULL<<sh),&fhi);   // r<uNs -> quotient fits, fhi<uNs
-                unsigned long long fr; unsigned long long fq=_udiv128(fhi,flo,uNs,&fr);
-                unsigned long long M=(q<<sh)+fq;
-                unsigned long long twoFr=fr*2;
+                uint64_t fhi, flo=_umul128(r,(1ULL<<sh),&fhi);   // r<uNs -> quotient fits, fhi<uNs
+                uint64_t fr; uint64_t fq=_udiv128(fhi,flo,uNs,&fr);
+                uint64_t M=(q<<sh)+fq;
+                uint64_t twoFr=fr*2;
                 if(twoFr>uNs || (twoFr==uNs && (M&1ULL))) M++;
                 if(M==(1ULL<<53)){ M=(1ULL<<52); e++; }
                 res=ldexp((double)M,(int)e-52);
@@ -4229,7 +4257,7 @@ TsValue* ts_temporal_plaindate_toPlainDateTime_native(void* ctx,int argc,TsValue
         TsPlainTime* t=coerce_plaintime_arg(argv[0]);
         if(t){ h=t->iso_hour;mi=t->iso_minute;s=t->iso_second;ms=t->iso_millisecond;us=t->iso_microsecond;ns=t->iso_nanosecond; }
     }
-    { long long tns=(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+    { int64_t tns=(int64_t)h*NS_PER_HOUR+(int64_t)mi*NS_PER_MINUTE+(int64_t)s*NS_PER_SECOND+(int64_t)ms*1000000LL+(int64_t)us*1000LL+ns;
       if(!iso_datetime_in_limits(pd->iso_year,pd->iso_month,pd->iso_day,tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.toPlainDateTime: result is outside the representable range")); return ts_value_make_undefined(); } }
     return ts_value_make_object(TsPlainDateTime::Create(pd->iso_year,pd->iso_month,pd->iso_day,h,mi,s,ms,us,ns));
 }
@@ -4254,7 +4282,7 @@ static TsPlainYearMonth* coerce_pym_arg(TsValue* v){
     TsValue* c=ts_temporal_plainyearmonth_from(v?1:0,&v); return as_plainyearmonth(ts_nanbox_safe_unbox(c));
 }
 static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts,bool negate=false){
-    std::string smallest,largest,mode; long long inc;
+    std::string smallest,largest,mode; int64_t inc;
     read_validated_diff_opts(opts,9,10,"month","year",&smallest,&largest,&mode,&inc);
     if(largest=="auto") largest="year";
     // Equal year-months -> zero, observed BEFORE the reference-date range check: a min/max PYM
@@ -4264,7 +4292,7 @@ static TsValue* pym_diff(TsPlainYearMonth* a,TsPlainYearMonth* b,TsValue* opts,b
     // The difference anchors each PlainYearMonth at day 1; that reference date must be in the
     // ISO range (the min PYM's day 1, -271821-04-01, is before the minimum date -271821-04-19).
     if(!iso_date_in_limits(a->iso_year,a->iso_month,1) || !iso_date_in_limits(b->iso_year,b->iso_month,1)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainYearMonth: difference reference date is outside the valid ISO range")); return ts_value_make_undefined(); }
-    long long yr,mo,wk,dy;
+    int64_t yr,mo,wk,dy;
     if(negate) mode = negate_temporal_mode(mode);
     if((smallest=="month"||smallest=="months")&&mode=="trunc"&&inc<=1)
         diff_iso_date(a->iso_year,a->iso_month,1,b->iso_year,b->iso_month,1,largest,&yr,&mo,&wk,&dy);
@@ -4287,11 +4315,11 @@ TsValue* ts_temporal_plainyearmonth_since_native(void* ctx,int argc,TsValue** ar
 }
 static TsValue* pym_add_impl(TsPlainYearMonth* a,TsDuration* d,int neg){
     // Lower (time) units balance into whole days (largestUnit "day", truncating).
-    long long timeNs = (long long)d->hours*3600000000000LL + (long long)d->minutes*60000000000LL
-        + (long long)d->seconds*1000000000LL + (long long)d->milliseconds*1000000LL
-        + (long long)d->microseconds*1000LL + d->nanoseconds;
-    long long timeDays = timeNs/86400000000000LL;
-    long long y=d->years*neg, mo=d->months*neg, wk=d->weeks*neg, dd=(d->days+timeDays)*neg;
+    int64_t timeNs = (int64_t)d->hours*NS_PER_HOUR + (int64_t)d->minutes*NS_PER_MINUTE
+        + (int64_t)d->seconds*NS_PER_SECOND + (int64_t)d->milliseconds*1000000LL
+        + (int64_t)d->microseconds*1000LL + d->nanoseconds;
+    int64_t timeDays = timeNs/NS_PER_DAY;
+    int64_t y=d->years*neg, mo=d->months*neg, wk=d->weeks*neg, dd=(d->days+timeDays)*neg;
     int sign=(y<0||mo<0||wk<0||dd<0)?-1:1;
     int refDay=(sign<0)?iso_days_in_month(a->iso_year,a->iso_month):1;
     // The intermediate date at the reference day must itself be representable: at
@@ -4319,7 +4347,7 @@ TsValue* ts_temporal_plainyearmonth_toPlainDate_native(void* ctx,int argc,TsValu
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item || ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.toPlainDate: argument is required")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
-    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>0x00007FFFFFFFFFFFULL || *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.toPlainDate: argument must be an object")); return ts_value_make_undefined(); }
+    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>PTR_USER_MAX || *(uint32_t*)raw==TAG_STRING || *(uint32_t*)raw==TAG_CONS_STRING){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.toPlainDate: argument must be an object")); return ts_value_make_undefined(); }
     TsValue* fd=ts_object_get_property(raw,"day");
     if(!fd || ts_value_is_undefined(fd)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainYearMonth.prototype.toPlainDate: day is required")); return ts_value_make_undefined(); }
     { double dd=ts_to_number(fd); if(std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: day property cannot be Infinity")); return ts_value_make_undefined(); } if(dd==dd) day=(int)std::trunc(dd); }
@@ -4334,7 +4362,7 @@ TsValue* ts_temporal_plainmonthday_toPlainDate_native(void* ctx,int argc,TsValue
     TsValue* item=(argc>=1&&argv)?argv[0]:nullptr;
     if(!item || ts_value_is_undefined(item)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.toPlainDate: argument is required")); return ts_value_make_undefined(); }
     void* raw=ts_nanbox_safe_unbox(item);
-    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>0x00007FFFFFFFFFFFULL || *(uint32_t*)raw==0x53545247 || *(uint32_t*)raw==0x434F4E53){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.toPlainDate: argument must be an object")); return ts_value_make_undefined(); }
+    if(!raw || (uintptr_t)raw<4096 || (uintptr_t)raw>PTR_USER_MAX || *(uint32_t*)raw==TAG_STRING || *(uint32_t*)raw==TAG_CONS_STRING){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.toPlainDate: argument must be an object")); return ts_value_make_undefined(); }
     TsValue* fy=ts_object_get_property(raw,"year");
     if(!fy || ts_value_is_undefined(fy)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainMonthDay.prototype.toPlainDate: year is required")); return ts_value_make_undefined(); }
     { double yy=ts_to_number(fy); if(std::isinf(yy)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: year property cannot be Infinity")); return ts_value_make_undefined(); } if(yy==yy) year=(int)std::trunc(yy); }
@@ -4347,7 +4375,7 @@ TsValue* ts_temporal_instant_toZonedDateTimeISO_native(void* ctx,int argc,TsValu
     int off=0; bool utc=true;
     TsValue* tzArg=(argc>=1&&argv)?argv[0]:nullptr;
     void* tzr=tzArg?ts_nanbox_safe_unbox(tzArg):nullptr;
-    if(tzr && *(uint32_t*)((char*)tzr+16)==0x5A44544D){ TsZonedDateTime* zz=(TsZonedDateTime*)tzr; off=zz->offset_minutes; utc=zz->is_utc; }
+    if(tzr && *(uint32_t*)((char*)tzr+16)==MAGIC_ZONEDDATETIME){ TsZonedDateTime* zz=(TsZonedDateTime*)tzr; off=zz->offset_minutes; utc=zz->is_utc; }
     else if(tzArg && !ts_value_is_undefined(tzArg)){
         std::string tz;
         if(!tsvalue_to_stdstring(tzArg,&tz)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","toZonedDateTimeISO: time zone must be a string")); return ts_value_make_undefined(); }
@@ -4363,14 +4391,14 @@ TsValue* ts_temporal_plaindatetime_toZonedDateTime_native(void* ctx,int argc,TsV
     int off=0; bool utc=true;
     TsValue* tzArg=(argc>=1&&argv)?argv[0]:nullptr;
     void* tzr=tzArg?ts_nanbox_safe_unbox(tzArg):nullptr;
-    if(tzr && *(uint32_t*)((char*)tzr+16)==0x5A44544D){ TsZonedDateTime* zz=(TsZonedDateTime*)tzr; off=zz->offset_minutes; utc=zz->is_utc; }
+    if(tzr && *(uint32_t*)((char*)tzr+16)==MAGIC_ZONEDDATETIME){ TsZonedDateTime* zz=(TsZonedDateTime*)tzr; off=zz->offset_minutes; utc=zz->is_utc; }
     else if(tzArg && !ts_value_is_undefined(tzArg)){
         std::string tz;
         if(!tsvalue_to_stdstring(tzArg,&tz)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","toZonedDateTime: time zone must be a string")); return ts_value_make_undefined(); }
         if(!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); }
     }
-    long long localMs=iso_days_from_civil(d->iso_year,d->iso_month,d->iso_day)*86400000LL + (long long)d->iso_hour*3600000+(long long)d->iso_minute*60000+(long long)d->iso_second*1000+d->iso_ms;
-    long long epoch_ms=localMs-(long long)off*60000LL;
+    int64_t localMs=iso_days_from_civil(d->iso_year,d->iso_month,d->iso_day)*MS_PER_DAY + (int64_t)d->iso_hour*3600000+(int64_t)d->iso_minute*60000+(int64_t)d->iso_second*1000+d->iso_ms;
+    int64_t epoch_ms=localMs-(int64_t)off*60000LL;
     if(!instant_epoch_in_limits(epoch_ms, d->iso_us*1000+d->iso_ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.toZonedDateTime: result is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsZonedDateTime::Create(epoch_ms, d->iso_us*1000+d->iso_ns, off, utc));
 }
@@ -4385,7 +4413,7 @@ TsValue* ts_temporal_plaindatetime_withPlainTime_native(void* ctx,int argc,TsVal
         if(!pt){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.withPlainTime: invalid time")); return ts_value_make_undefined(); }
         h=pt->iso_hour;mi=pt->iso_minute;s=pt->iso_second;ms=pt->iso_millisecond;us=pt->iso_microsecond;ns=pt->iso_nanosecond;
     }
-    long long _tns=(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+    int64_t _tns=(int64_t)h*NS_PER_HOUR+(int64_t)mi*NS_PER_MINUTE+(int64_t)s*NS_PER_SECOND+(int64_t)ms*1000000LL+(int64_t)us*1000LL+ns;
     if(!iso_datetime_in_limits(d->iso_year,d->iso_month,d->iso_day,_tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime.prototype.withPlainTime: result is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsPlainDateTime::Create(d->iso_year,d->iso_month,d->iso_day,h,mi,s,ms,us,ns));
 }
@@ -4393,11 +4421,11 @@ TsValue* ts_temporal_plaindatetime_withPlainTime_native(void* ctx,int argc,TsVal
 TsValue* ts_temporal_zdt_startOfDay_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"startOfDay");
     int Y,M,D,h,mi,s,ms,us,ns; zdt_local(z,&Y,&M,&D,&h,&mi,&s,&ms,&us,&ns);
-    long long localMs=iso_days_from_civil(Y,M,D)*86400000LL;
-    long long epochMs;
+    int64_t localMs=iso_days_from_civil(Y,M,D)*MS_PER_DAY;
+    int64_t epochMs;
     if(z->zone_name[0]){
         if(!icu_zone_local_to_epoch(z->zone_name,Y,M,D,0,0,0,0,0,&epochMs)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.startOfDay: ambiguous local time rejected")); return ts_value_make_undefined(); }
-    } else epochMs = localMs-(long long)z->offset_minutes*60000LL;
+    } else epochMs = localMs-(int64_t)z->offset_minutes*60000LL;
     if(!instant_epoch_in_limits(epochMs,0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.startOfDay: start of day is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(zdt_same_zone(z, epochMs, 0));
 }
@@ -4409,7 +4437,7 @@ TsValue* ts_temporal_plaindate_toZonedDateTime_native(void* ctx,int argc,TsValue
     void* raw=item?ts_nanbox_safe_unbox(item):nullptr;
     if(!raw){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDate.prototype.toZonedDateTime: invalid argument")); return ts_value_make_undefined(); }
     int off=0; bool utc=true; int h=0,mi=0,s=0,ms=0,us=0,ns=0;
-    if(*(uint32_t*)raw==0x53545247||*(uint32_t*)raw==0x434F4E53){
+    if(*(uint32_t*)raw==TAG_STRING||*(uint32_t*)raw==TAG_CONS_STRING){
         std::string tz=((TsString*)ts_value_get_string(item))->ToUtf8();
         if(!parse_timezone(tz.c_str(),&off,&utc)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.toZonedDateTime: unsupported time zone")); return ts_value_make_undefined(); }
     } else {
@@ -4422,15 +4450,15 @@ TsValue* ts_temporal_plaindate_toZonedDateTime_native(void* ctx,int argc,TsValue
             if(pt){ h=pt->iso_hour;mi=pt->iso_minute;s=pt->iso_second;ms=pt->iso_millisecond;us=pt->iso_microsecond;ns=pt->iso_nanosecond; }
         }
     }
-    long long localMs=iso_days_from_civil(d->iso_year,d->iso_month,d->iso_day)*86400000LL + (long long)h*3600000+(long long)mi*60000+(long long)s*1000+ms;
-    long long epochMs=localMs-(long long)off*60000LL;
+    int64_t localMs=iso_days_from_civil(d->iso_year,d->iso_month,d->iso_day)*MS_PER_DAY + (int64_t)h*3600000+(int64_t)mi*60000+(int64_t)s*1000+ms;
+    int64_t epochMs=localMs-(int64_t)off*60000LL;
     if(!instant_epoch_in_limits(epochMs, us*1000+ns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDate.prototype.toZonedDateTime: result is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(TsZonedDateTime::Create(epochMs, us*1000+ns, off, utc));
 }
 }
 
 // ======================= round helpers + more =======================
-static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* inc, std::string* mode, int minRank, int maxRank, std::string* largestOut){
+static bool parse_round_options(TsValue* roundTo, std::string* unit, int64_t* inc, std::string* mode, int minRank, int maxRank, std::string* largestOut){
     *inc=1; *mode="halfExpand";
     // String shorthand: roundTo IS the smallestUnit. Validate it.
     if(roundTo && !ts_value_is_undefined(roundTo) && tsvalue_to_stdstring(roundTo, unit)){
@@ -4449,7 +4477,7 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
         if(!(d==d)||std::isinf(d)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); }
         double ii=std::trunc(d);
         if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","invalid roundingIncrement")); }
-        *inc=(long long)ii;
+        *inc=(int64_t)ii;
     }
     // roundingMode: validate only when a string; invalid string -> RangeError.
     TsValue* rm=ts_object_get_property(raw,"roundingMode");
@@ -4473,8 +4501,8 @@ static bool parse_round_options(TsValue* roundTo, std::string* unit, long long* 
     *unit=s;
     return true;
 }
-static long long round_nonneg(long long v, long long q, const std::string& mode){
-    long long quo=v/q, r=v%q; if(r==0) return v;
+static int64_t round_nonneg(int64_t v, int64_t q, const std::string& mode){
+    int64_t quo=v/q, r=v%q; if(r==0) return v;
     if(mode=="ceil"||mode=="expand") return (quo+1)*q;
     if(mode=="floor"||mode=="trunc") return quo*q;
     if(mode=="halfEven"){ if(r*2>q)return (quo+1)*q; if(r*2<q)return quo*q; return (quo%2==0)?quo*q:(quo+1)*q; }
@@ -4486,18 +4514,18 @@ static int date_unit_rank(const std::string& u){
     if(u=="week"||u=="weeks")return 3; if(u=="day"||u=="days")return 2; return 0;
 }
 // Round (q + num/span) to a multiple of inc (exact integer arithmetic).
-static long long round_frac(long long q,long long num,long long span,long long inc,const std::string& mode){
+static int64_t round_frac(int64_t q,int64_t num,int64_t span,int64_t inc,const std::string& mode){
     if(span<=0) span=1; if(inc<=0) inc=1;
-    long long val=q*span+num, step=inc*span;
+    int64_t val=q*span+num, step=inc*span;
     return round_nonneg(val,step,mode)/span;
 }
 // Round a date difference (a -> b) to smallestUnit with largestUnit balancing,
 // using the spec NudgeToCalendarUnit (anchor at the earlier date, fractional
 // part from the days between the truncated end and the next smallest-unit step).
 static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
-    const std::string& smallest,const std::string& largest,long long inc,const std::string& mode,
-    long long* oy,long long* omo,long long* owk,long long* ody,bool* rangeErr,long long subNsMag){
-    long long ae=iso_days_from_civil(aY,aM,aD), be=iso_days_from_civil(bY,bM,bD);
+    const std::string& smallest,const std::string& largest,int64_t inc,const std::string& mode,
+    int64_t* oy,int64_t* omo,int64_t* owk,int64_t* ody,bool* rangeErr,int64_t subNsMag){
+    int64_t ae=iso_days_from_civil(aY,aM,aD), be=iso_days_from_civil(bY,bM,bD);
     int sign=(be>=ae)?1:-1;
     int sY=aY,sM=aM,sD=aD, eY=bY,eM=bM,eD=bD;
     if(sign<0){ sY=bY;sM=bM;sD=bD; eY=aY;eM=aM;eD=aD; }   // magnitude direction (start<=end)
@@ -4506,9 +4534,9 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     // re-signed result rounds the right way (e.g. ceil toward +inf = magnitude
     // toward zero). Symmetric modes (trunc/expand/halfExpand/...) are unchanged.
     std::string rmode = (sign<0) ? flip_mode_neg(mode) : mode;
-    long long y,mo,wk,dy; diff_iso_date(sY,sM,sD,eY,eM,eD,largest,&y,&mo,&wk,&dy);
-    long long startE=iso_days_from_civil(sY,sM,sD), endE=iso_days_from_civil(eY,eM,eD);
-    long long oy_=y,omo_=mo,owk_=wk,ody_=dy;
+    int64_t y,mo,wk,dy; diff_iso_date(sY,sM,sD,eY,eM,eD,largest,&y,&mo,&wk,&dy);
+    int64_t startE=iso_days_from_civil(sY,sM,sD), endE=iso_days_from_civil(eY,eM,eD);
+    int64_t oy_=y,omo_=mo,owk_=wk,ody_=dy;
     // A time-unit smallestUnit (e.g. the default "nanosecond" when only largestUnit is
     // given) applied to a date-only diff needs NO calendar rounding — return the diff
     // balanced to largestUnit. Anchor it at `a` (b<a gives a signed result directly): the
@@ -4519,11 +4547,11 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         diff_iso_date(aY,aM,aD,bY,bM,bD,largest,oy,omo,owk,ody); return;
     }
     if(smallest=="day"||smallest=="days"){
-        long long incD=(inc>0?inc:1);
-        const long long DAY=86400000000000LL;
+        int64_t incD=(inc>0?inc:1);
+        const int64_t DAY=NS_PER_DAY;
         // Round a day count, folding a sub-day time remainder when present and overflow-safe
         // (diff callers pass subNsMag==0 and take the exact whole-day path unchanged).
-        auto roundDays=[&](long long days)->long long{
+        auto roundDays=[&](int64_t days)->int64_t{
             if(subNsMag>0 && incD<100000) return round_nonneg(days*DAY+subNsMag,incD*DAY,rmode)/DAY;
             return round_nonneg(days,incD,rmode);
         };
@@ -4533,19 +4561,19 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
             // would drop the calendar part (wrong for {5y,6m,...} rounded to days).
             oy_=y; omo_=mo; owk_=0; ody_=roundDays(dy + wk*7);
         } else {
-            long long r=roundDays(endE-startE);
+            int64_t r=roundDays(endE-startE);
             if(largest=="week"||largest=="weeks"){ owk_=r/7; ody_=r%7; oy_=0;omo_=0; }
             else { ody_=r; owk_=0;oy_=0;omo_=0; }
         }
     } else if(smallest=="week"||smallest=="weeks"){
         int axY,axM,axD; add_iso_date(sY,sM,sD,y,mo,wk,0,&axY,&axM,&axD);
         int bxY,bxM,bxD; add_iso_date(axY,axM,axD,0,0,1,0,&bxY,&bxM,&bxD);
-        long long nA=iso_days_from_civil(axY,axM,axD), nB=iso_days_from_civil(bxY,bxM,bxD);
-        long long span=nB-nA, num=endE-nA;
+        int64_t nA=iso_days_from_civil(axY,axM,axD), nB=iso_days_from_civil(bxY,bxM,bxD);
+        int64_t span=nB-nA, num=endE-nA;
         owk_=round_frac(wk,num,span,inc,rmode); oy_=y;omo_=mo;ody_=0;
     } else { // month or year
         bool isYear=(smallest=="year"||smallest=="years");
-        long long q=isYear?y:mo;   // non-negative magnitude of whole units
+        int64_t q=isYear?y:mo;   // non-negative magnitude of whole units
         // NudgeToCalendarUnit anchors the candidates at the relativeTo `a`, stepping in the
         // duration's direction: lo = a + sign*q units, hi = a + sign*(q+1) units, with the
         // end date b between them. Anchoring at the swapped magnitude-start (b for negatives)
@@ -4553,18 +4581,18 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         // For month rounding the whole years are kept fixed and only the month component
         // is rounded, so both candidates carry sign*y years; for year rounding there is no
         // separate month component.
-        long long baseY=isYear?0:(long long)sign*y, loS=(long long)sign*q, hiS=(long long)sign*(q+1);
+        int64_t baseY=isYear?0:(int64_t)sign*y, loS=(int64_t)sign*q, hiS=(int64_t)sign*(q+1);
         int axY,axM,axD; add_iso_date(aY,aM,aD, isYear?loS:baseY, isYear?0:loS, 0,0,&axY,&axM,&axD);
         int bxY,bxM,bxD; add_iso_date(aY,aM,aD, isYear?hiS:baseY, isYear?0:hiS, 0,0,&bxY,&bxM,&bxD);
-        long long nLo=iso_days_from_civil(axY,axM,axD), nHi=iso_days_from_civil(bxY,bxM,bxD);
-        long long bE=iso_days_from_civil(bY,bM,bD);
-        long long span=nHi-nLo, num=bE-nLo;            // share sign -> positive fraction
-        long long numMag=(num<0?-num:num), spanMag=(span<0?-span:span);
+        int64_t nLo=iso_days_from_civil(axY,axM,axD), nHi=iso_days_from_civil(bxY,bxM,bxD);
+        int64_t bE=iso_days_from_civil(bY,bM,bD);
+        int64_t span=nHi-nLo, num=bE-nLo;            // share sign -> positive fraction
+        int64_t numMag=(num<0?-num:num), spanMag=(span<0?-span:span);
         // Fold the sub-day time remainder into the fraction so e.g. 547d12h relative to a
         // year boundary reads as exactly 0.5 year (rounds up). Scale to ns when it can't
         // overflow int64 (q*span small); otherwise the remainder is negligible vs the span.
-        const long long DAY=86400000000000LL;
-        long long rq = (subNsMag>0 && spanMag>0 && q*spanMag<100000LL)
+        const int64_t DAY=NS_PER_DAY;
+        int64_t rq = (subNsMag>0 && spanMag>0 && q*spanMag<100000LL)
             ? round_frac(q, numMag*DAY+subNsMag, spanMag*DAY, inc, rmode)
             : round_frac(q, numMag, spanMag, inc, rmode);
         if(isYear){ oy_=rq;omo_=0; } else { oy_=y;omo_=rq; }
@@ -4572,8 +4600,8 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
         // Spec NudgeToCalendarUnit computes the date of the UPPER candidate
         // (floor-to-increment + increment) regardless of which is chosen; if that
         // date is out of range it throws. A huge increment overflows here.
-        if(inc>1){ long long hiq=(q/inc)*inc+inc; int hY,hM,hD;
-            add_iso_date(aY,aM,aD, isYear?(long long)sign*hiq:baseY, isYear?0:(long long)sign*hiq, 0,0,&hY,&hM,&hD);
+        if(inc>1){ int64_t hiq=(q/inc)*inc+inc; int hY,hM,hD;
+            add_iso_date(aY,aM,aD, isYear?(int64_t)sign*hiq:baseY, isYear?0:(int64_t)sign*hiq, 0,0,&hY,&hM,&hD);
             if(!iso_date_in_limits(hY,hM,hD)){ if(rangeErr)*rangeErr=true; *oy=*omo=*owk=*ody=0; return; } }
         // Balance the rounded month count up to years when largestUnit is year: rounding
         // can reach 12 months, which is exactly one year (e.g. {1y,11m,24d} rounded up to
@@ -4584,12 +4612,12 @@ static void round_date_duration(int aY,int aM,int aD,int bY,int bM,int bD,
     }
     *oy=sign*oy_;*omo=sign*omo_;*owk=sign*owk_;*ody=sign*ody_;
 }
-static long long unit_ns(const std::string& u, bool* ok){
+static int64_t unit_ns(const std::string& u, bool* ok){
     *ok=true;
-    if(u=="day"||u=="days") return 86400000000000LL;
-    if(u=="hour"||u=="hours") return 3600000000000LL;
-    if(u=="minute"||u=="minutes") return 60000000000LL;
-    if(u=="second"||u=="seconds") return 1000000000LL;
+    if(u=="day"||u=="days") return NS_PER_DAY;
+    if(u=="hour"||u=="hours") return NS_PER_HOUR;
+    if(u=="minute"||u=="minutes") return NS_PER_MINUTE;
+    if(u=="second"||u=="seconds") return NS_PER_SECOND;
     if(u=="millisecond"||u=="milliseconds") return 1000000LL;
     if(u=="microsecond"||u=="microseconds") return 1000LL;
     if(u=="nanosecond"||u=="nanoseconds") return 1LL;
@@ -4602,7 +4630,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.Duration.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
     // Options are observed in spec order: largestUnit, relativeTo (full coerce),
     // roundingIncrement, roundingMode, smallestUnit (Duration.round order-of-operations).
-    std::string sUnit,mode="halfExpand",luVal; long long inc=1; bool haveS=false;
+    std::string sUnit,mode="halfExpand",luVal; int64_t inc=1; bool haveS=false;
     TsPlainDate* relAnchor=nullptr;
     void* raw=ts_nanbox_safe_unbox(rt);
     if(rt && !ts_value_is_undefined(rt) && tsvalue_to_stdstring(rt,&sUnit)){
@@ -4615,7 +4643,7 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         TsValue* relTo=ts_object_get_property(raw,"relativeTo");
         relAnchor=coerce_relativeto_unified(relTo);
         TsValue* ri=ts_object_get_property(raw,"roundingIncrement");
-        if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(!(dd==dd)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); } double ii=std::trunc(dd); if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); } inc=(long long)ii; }
+        if(ri&&!ts_value_is_undefined(ri)){ double dd=(reject_nonnumeric_increment(ri), ts_to_number(ri)); if(!(dd==dd)||std::isinf(dd)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); } double ii=std::trunc(dd); if(ii<1.0||ii>1e9){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingIncrement")); return ts_value_make_undefined(); } inc=(int64_t)ii; }
         TsValue* rm=ts_object_get_property(raw,"roundingMode");
         if(rm&&!ts_value_is_undefined(rm)){ std::string m; if(option_to_string(rm,&m)){ if(!temporal_mode_valid(m)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid roundingMode")); return ts_value_make_undefined(); } mode=m; } }
         TsValue* su=ts_object_get_property(raw,"smallestUnit");
@@ -4636,33 +4664,33 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         if(!rd){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round with calendar units requires relativeTo")); return ts_value_make_undefined(); }
         std::string L=lUnit;
         if(L=="auto"){ if(d->years)L="year"; else if(d->months)L="month"; else if(d->weeks)L="week"; else L="day"; if(date_unit_rank(L)<date_unit_rank(sUnit))L=sUnit; }
-        long long timeNsTot=d->hours*3600000000000LL+d->minutes*60000000000LL+d->seconds*1000000000LL+d->milliseconds*1000000LL+d->microseconds*1000LL+d->nanoseconds;
-        long long extraDays=timeNsTot/86400000000000LL;
-        long long subNsMag=timeNsTot%86400000000000LL; if(subNsMag<0) subNsMag=-subNsMag;   // forward magnitude of the sub-day remainder
+        int64_t timeNsTot=d->hours*NS_PER_HOUR+d->minutes*NS_PER_MINUTE+d->seconds*NS_PER_SECOND+d->milliseconds*1000000LL+d->microseconds*1000LL+d->nanoseconds;
+        int64_t extraDays=timeNsTot/NS_PER_DAY;
+        int64_t subNsMag=timeNsTot%NS_PER_DAY; if(subNsMag<0) subNsMag=-subNsMag;   // forward magnitude of the sub-day remainder
         int ey,em,ed; add_iso_date(rd->iso_year,rd->iso_month,rd->iso_day, d->years,d->months,d->weeks, d->days+extraDays, &ey,&em,&ed);
-        long long yr,mo,wk,dy; bool _re=false; round_date_duration(rd->iso_year,rd->iso_month,rd->iso_day, ey,em,ed, sUnit, L, inc, mode, &yr,&mo,&wk,&dy,&_re,subNsMag);
+        int64_t yr,mo,wk,dy; bool _re=false; round_date_duration(rd->iso_year,rd->iso_month,rd->iso_day, ey,em,ed, sUnit, L, inc, mode, &yr,&mo,&wk,&dy,&_re,subNsMag);
         if(_re){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal: rounded date is outside the valid ISO range")); return ts_value_make_undefined(); }
         // A TIME smallestUnit (hour..nanosecond): round_date_duration kept the EXACT date
         // diff (no calendar rounding); the result keeps {yr,mo,wk,dy} and rounds the signed
         // sub-day time remainder at smallestUnit, emitting the time fields.
         if(date_unit_rank(sUnit)==0){
-            const long long DAY=86400000000000LL;
-            long long remTime=timeNsTot%DAY;   // signed sub-day remainder
-            bool ok2; long long uNs=unit_ns(sUnit,&ok2); if(!ok2||uNs<=0) uNs=1;
-            long long rt=round_signed(remTime, uNs*(inc>0?inc:1), mode);
-            if(rt>=DAY||rt<=-DAY){ long long c=rt/DAY; dy+=c; rt-=c*DAY; }   // rounding reached a full day
-            long long a=(rt<0?-rt:rt), sg=(rt<0?-1:1);
-            long long h=a/3600000000000LL; a%=3600000000000LL;
-            long long mi=a/60000000000LL; a%=60000000000LL;
-            long long s=a/1000000000LL;  a%=1000000000LL;
-            long long ms=a/1000000LL;    a%=1000000LL;
-            long long us=a/1000LL;       a%=1000LL;
-            long long ns=a;
+            const int64_t DAY=NS_PER_DAY;
+            int64_t remTime=timeNsTot%DAY;   // signed sub-day remainder
+            bool ok2; int64_t uNs=unit_ns(sUnit,&ok2); if(!ok2||uNs<=0) uNs=1;
+            int64_t rt=round_signed(remTime, uNs*(inc>0?inc:1), mode);
+            if(rt>=DAY||rt<=-DAY){ int64_t c=rt/DAY; dy+=c; rt-=c*DAY; }   // rounding reached a full day
+            int64_t a=(rt<0?-rt:rt), sg=(rt<0?-1:1);
+            int64_t h=a/NS_PER_HOUR; a%=NS_PER_HOUR;
+            int64_t mi=a/NS_PER_MINUTE; a%=NS_PER_MINUTE;
+            int64_t s=a/NS_PER_SECOND;  a%=NS_PER_SECOND;
+            int64_t ms=a/1000000LL;    a%=1000000LL;
+            int64_t us=a/1000LL;       a%=1000LL;
+            int64_t ns=a;
             return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy, sg*h,sg*mi,sg*s,sg*ms,sg*us,sg*ns));
         }
         return ts_value_make_object(TsDuration::Create(yr,mo,wk,dy,0,0,0,0,0,0));
     }
-    bool ok; long long sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
+    bool ok; int64_t sNs=unit_ns(sUnit,&ok); if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: invalid smallestUnit")); return ts_value_make_undefined(); }
     std::string L=lUnit;
     if(L=="auto"){
         if(d->days) L="day"; else if(d->hours) L="hour"; else if(d->minutes) L="minute";
@@ -4670,56 +4698,56 @@ TsValue* ts_temporal_duration_round_native(void* ctx,int argc,TsValue** argv){
         else if(d->microseconds) L="microsecond"; else L="nanosecond";
         if(unit_ns(L,&ok) < sNs) L=sUnit;
     }
-    long long Lns=unit_ns(L,&ok); if(!ok) Lns=86400000000000LL;
+    int64_t Lns=unit_ns(L,&ok); if(!ok) Lns=NS_PER_DAY;
     // Overflow-safe whole-second total. The nanosecond `tot` below overflows int64 for a
     // duration beyond ~9e9 seconds; those (already broken) take a second-level branch, while
     // every smaller duration keeps the exact existing path unchanged (no regression).
-    long long carrySec0 = d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
-    long long subRem0 = (d->milliseconds%1000)*1000000LL + (d->microseconds%1000000)*1000LL + (d->nanoseconds%1000000000);
-    carrySec0 += subRem0/1000000000LL; subRem0 %= 1000000000LL;
-    long long totalSec0 = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds + carrySec0;
+    int64_t carrySec0 = d->milliseconds/1000 + d->microseconds/1000000 + d->nanoseconds/1000000000;
+    int64_t subRem0 = (d->milliseconds%1000)*1000000LL + (d->microseconds%1000000)*1000LL + (d->nanoseconds%1000000000);
+    carrySec0 += subRem0/NS_PER_SECOND; subRem0 %= NS_PER_SECOND;
+    int64_t totalSec0 = d->days*86400LL + d->hours*3600LL + d->minutes*60LL + d->seconds + carrySec0;
     if(totalSec0 > 9000000000LL || totalSec0 < -9000000000LL){
         int sgn = (totalSec0<0||(totalSec0==0&&subRem0<0)) ? -1 : 1;
-        long long aSec = totalSec0<0?-totalSec0:totalSec0;
-        long long aSub = subRem0<0?-subRem0:subRem0;
+        int64_t aSec = totalSec0<0?-totalSec0:totalSec0;
+        int64_t aSub = subRem0<0?-subRem0:subRem0;
         std::string rmode = (sgn<0) ? flip_mode_neg(mode) : mode;
-        auto fracUp=[&](long long num,long long den,long long qv)->bool{
+        auto fracUp=[&](int64_t num,int64_t den,int64_t qv)->bool{
             if(num<=0) return false;
             if(rmode=="trunc"||rmode=="floor") return false;
             if(rmode=="ceil"||rmode=="expand") return true;
-            long long two=num*2;
+            int64_t two=num*2;
             if(rmode=="halfExpand"||rmode=="halfCeil") return two>=den;
             if(rmode=="halfTrunc"||rmode=="halfFloor") return two>den;
             if(rmode=="halfEven"){ if(two>den)return true; if(two<den)return false; return (qv&1)!=0; }
             return two>=den;
         };
-        long long roundedSecMag, roundedSubMag;
-        if(sNs>=1000000000LL){
-            long long qSec=(sNs/1000000000LL)*(inc>0?inc:1);
-            long long quot=aSec/qSec, rem=aSec%qSec;
-            long long fracNum=rem*1000000000LL+aSub, fracDen=qSec*1000000000LL;
+        int64_t roundedSecMag, roundedSubMag;
+        if(sNs>=NS_PER_SECOND){
+            int64_t qSec=(sNs/NS_PER_SECOND)*(inc>0?inc:1);
+            int64_t quot=aSec/qSec, rem=aSec%qSec;
+            int64_t fracNum=rem*NS_PER_SECOND+aSub, fracDen=qSec*NS_PER_SECOND;
             if(fracUp(fracNum,fracDen,quot)) quot+=1;
             roundedSecMag=quot*qSec; roundedSubMag=0;
         } else {
-            long long qns=sNs*(inc>0?inc:1);
-            long long rsub=round_nonneg(aSub,qns,rmode);
-            roundedSecMag=aSec+rsub/1000000000LL; roundedSubMag=rsub%1000000000LL;
+            int64_t qns=sNs*(inc>0?inc:1);
+            int64_t rsub=round_nonneg(aSub,qns,rmode);
+            roundedSecMag=aSec+rsub/NS_PER_SECOND; roundedSubMag=rsub%NS_PER_SECOND;
         }
         if(roundedSecMag>9007199254740991LL){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.Duration.prototype.round: result is out of range")); return ts_value_make_undefined(); }
-        long long out2[7]={0,0,0,0,0,0,0};
-        long long secMag=roundedSecMag; static const long long usec[4]={86400,3600,60,1};
-        for(int i=0;i<4;i++){ long long uNs=usec[i]*1000000000LL; if(uNs>=sNs && uNs<=Lns){ out2[i]=secMag/usec[i]; secMag%=usec[i]; } }
-        long long subMag=roundedSubMag; static const long long usub[3]={1000000,1000,1};
+        int64_t out2[7]={0,0,0,0,0,0,0};
+        int64_t secMag=roundedSecMag; static const int64_t usec[4]={86400,3600,60,1};
+        for(int i=0;i<4;i++){ int64_t uNs=usec[i]*NS_PER_SECOND; if(uNs>=sNs && uNs<=Lns){ out2[i]=secMag/usec[i]; secMag%=usec[i]; } }
+        int64_t subMag=roundedSubMag; static const int64_t usub[3]={1000000,1000,1};
         for(int i=0;i<3;i++){ if(usub[i]>=sNs && usub[i]<=Lns){ out2[4+i]=subMag/usub[i]; subMag%=usub[i]; } }
         for(int i=0;i<7;i++) out2[i]*=sgn;
         return ts_value_make_object(TsDuration::Create(0,0,0,out2[0],out2[1],out2[2],out2[3],out2[4],out2[5],out2[6]));
     }
-    long long tot = d->days*86400000000000LL + d->hours*3600000000000LL + d->minutes*60000000000LL
-        + d->seconds*1000000000LL + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
-    long long q=sNs*(inc>0?inc:1);
-    long long rounded = round_signed(tot,q,mode);
-    long long rem = rounded<0?-rounded:rounded; long long rs = rounded<0?-1:1;
-    long long out[7]={0,0,0,0,0,0,0}; long long uns[7]={86400000000000LL,3600000000000LL,60000000000LL,1000000000LL,1000000LL,1000LL,1LL};
+    int64_t tot = d->days*NS_PER_DAY + d->hours*NS_PER_HOUR + d->minutes*NS_PER_MINUTE
+        + d->seconds*NS_PER_SECOND + d->milliseconds*1000000LL + d->microseconds*1000LL + d->nanoseconds;
+    int64_t q=sNs*(inc>0?inc:1);
+    int64_t rounded = round_signed(tot,q,mode);
+    int64_t rem = rounded<0?-rounded:rounded; int64_t rs = rounded<0?-1:1;
+    int64_t out[7]={0,0,0,0,0,0,0}; int64_t uns[7]={NS_PER_DAY,NS_PER_HOUR,NS_PER_MINUTE,NS_PER_SECOND,1000000LL,1000LL,1LL};
     for(int i=0;i<7;i++){ if(uns[i]>=sNs && uns[i]<=Lns){ out[i]=(rem/uns[i])*rs; rem%=uns[i]; } }
     return ts_value_make_object(TsDuration::Create(0,0,0,out[0],out[1],out[2],out[3],out[4],out[5],out[6]));
 }
@@ -4727,22 +4755,22 @@ TsValue* ts_temporal_plaindatetime_round_native(void* ctx,int argc,TsValue** arg
     TsPlainDateTime* dt=require_plaindatetime(ctx,"round");
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.PlainDateTime.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
-    std::string unit,mode; long long inc;
+    std::string unit,mode; int64_t inc;
     if(!parse_round_options(rt,&unit,&inc,&mode,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
-    bool ok; long long un=unit_ns(unit,&ok);
+    bool ok; int64_t un=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
     if(inc<1)inc=1;
     validate_diff_time_increment(unit, inc);
     // For instant-based .round(), smallestUnit "day" has maximum increment 1 (inclusive): you
     // round to a whole day, not an N-day multiple. (Diff methods allow large day increments.)
     if((unit=="day"||unit=="days") && inc!=1){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: roundingIncrement must be 1 when smallestUnit is day")); return ts_value_make_undefined(); }
-    long long q=un*inc; long long nsOfDay=pdt_time_ns(dt);
-    long long rounded=round_nonneg(nsOfDay,q,mode);
-    const long long DAY=86400000000000LL; long long carry=rounded/DAY; long long rem=rounded%DAY;
+    int64_t q=un*inc; int64_t nsOfDay=pdt_time_ns(dt);
+    int64_t rounded=round_nonneg(nsOfDay,q,mode);
+    const int64_t DAY=NS_PER_DAY; int64_t carry=rounded/DAY; int64_t rem=rounded%DAY;
     int Y,M,D; add_iso_date(dt->iso_year,dt->iso_month,dt->iso_day, 0,0,0, carry, &Y,&M,&D);
-    int h=(int)(rem/3600000000000LL); rem%=3600000000000LL; int mi=(int)(rem/60000000000LL); rem%=60000000000LL;
-    int s=(int)(rem/1000000000LL); rem%=1000000000LL; int ms=(int)(rem/1000000LL); rem%=1000000LL; int us=(int)(rem/1000LL); int ns=(int)(rem%1000LL);
-    { long long tns=(long long)h*3600000000000LL+(long long)mi*60000000000LL+(long long)s*1000000000LL+(long long)ms*1000000LL+(long long)us*1000LL+ns;
+    int h=(int)(rem/NS_PER_HOUR); rem%=NS_PER_HOUR; int mi=(int)(rem/NS_PER_MINUTE); rem%=NS_PER_MINUTE;
+    int s=(int)(rem/NS_PER_SECOND); rem%=NS_PER_SECOND; int ms=(int)(rem/1000000LL); rem%=1000000LL; int us=(int)(rem/1000LL); int ns=(int)(rem%1000LL);
+    { int64_t tns=(int64_t)h*NS_PER_HOUR+(int64_t)mi*NS_PER_MINUTE+(int64_t)s*NS_PER_SECOND+(int64_t)ms*1000000LL+(int64_t)us*1000LL+ns;
       if(!iso_datetime_in_limits(Y,M,D,tns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.PlainDateTime: result is outside the representable range")); return ts_value_make_undefined(); } }
     return ts_value_make_object(TsPlainDateTime::Create(Y,M,D,h,mi,s,ms,us,ns));
 }
@@ -4750,9 +4778,9 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
     TsZonedDateTime* z=require_zoneddatetime(ctx,"round");
     TsValue* rt=(argc>=1&&argv)?argv[0]:nullptr;
     if(!rt||ts_value_is_undefined(rt)){ ts_throw((TsValue*)ts_error_create_typed("TypeError","Temporal.ZonedDateTime.prototype.round: roundTo is required")); return ts_value_make_undefined(); }
-    std::string unit,mode; long long inc;
+    std::string unit,mode; int64_t inc;
     if(!parse_round_options(rt,&unit,&inc,&mode,1,10)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: smallestUnit is required")); return ts_value_make_undefined(); }
-    bool ok; long long un=unit_ns(unit,&ok);
+    bool ok; int64_t un=unit_ns(unit,&ok);
     if(!ok){ ts_throw((TsValue*)ts_error_create_typed("RangeError","round: invalid smallestUnit")); return ts_value_make_undefined(); }
     if(inc<1)inc=1;
     validate_diff_time_increment(unit, inc);
@@ -4764,46 +4792,46 @@ TsValue* ts_temporal_zdt_round_native(void* ctx,int argc,TsValue** argv){
         // The day-rounding interval is [startOfDay, startOfNextDay]; the upper bound must be
         // representable regardless of which way the value rounds.
         int ny,nm,nd; iso_civil_from_days(iso_days_from_civil(Y,M,D)+1,&ny,&nm,&nd);
-        long long nextEp;
+        int64_t nextEp;
         if(z->zone_name[0]){ if(!icu_zone_local_to_epoch(z->zone_name,ny,nm,nd,0,0,0,0,0,&nextEp)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.round: day boundary is outside the representable range")); return ts_value_make_undefined(); } }
-        else nextEp = iso_days_from_civil(ny,nm,nd)*86400000LL - (long long)z->offset_minutes*60000LL;
+        else nextEp = iso_days_from_civil(ny,nm,nd)*MS_PER_DAY - (int64_t)z->offset_minutes*60000LL;
         if(!instant_epoch_in_limits(nextEp,0)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.round: upper bound for rounding is out of range")); return ts_value_make_undefined(); }
     }
-    long long nsOfDay = ((((long long)h*60+mi)*60+s)*1000000000LL)+(long long)ms*1000000LL+(long long)us*1000LL+ns;
-    long long q=un*inc; long long rounded=round_nonneg(nsOfDay,q,mode);
-    const long long DAY=86400000000000LL; long long carry=rounded/DAY; long long rem=rounded%DAY;
+    int64_t nsOfDay = ((((int64_t)h*60+mi)*60+s)*NS_PER_SECOND)+(int64_t)ms*1000000LL+(int64_t)us*1000LL+ns;
+    int64_t q=un*inc; int64_t rounded=round_nonneg(nsOfDay,q,mode);
+    const int64_t DAY=NS_PER_DAY; int64_t carry=rounded/DAY; int64_t rem=rounded%DAY;
     int nY,nM,nD; add_iso_date(Y,M,D, 0,0,0, carry, &nY,&nM,&nD);
-    int nh=(int)(rem/3600000000000LL); rem%=3600000000000LL; int nmi=(int)(rem/60000000000LL); rem%=60000000000LL;
-    int nss=(int)(rem/1000000000LL); rem%=1000000000LL; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
-    long long localMs=iso_days_from_civil(nY,nM,nD)*86400000LL+(long long)nh*3600000+(long long)nmi*60000+(long long)nss*1000+nms;
-    long long epoch_ms=localMs-(long long)z->offset_minutes*60000LL;
+    int nh=(int)(rem/NS_PER_HOUR); rem%=NS_PER_HOUR; int nmi=(int)(rem/NS_PER_MINUTE); rem%=NS_PER_MINUTE;
+    int nss=(int)(rem/NS_PER_SECOND); rem%=NS_PER_SECOND; int nms=(int)(rem/1000000LL); rem%=1000000LL; int nus=(int)(rem/1000LL); int nns=(int)(rem%1000LL);
+    int64_t localMs=iso_days_from_civil(nY,nM,nD)*MS_PER_DAY+(int64_t)nh*3600000+(int64_t)nmi*60000+(int64_t)nss*1000+nms;
+    int64_t epoch_ms=localMs-(int64_t)z->offset_minutes*60000LL;
     if(!instant_epoch_in_limits(epoch_ms, nus*1000+nns)){ ts_throw((TsValue*)ts_error_create_typed("RangeError","Temporal.ZonedDateTime.prototype.round: result is outside the representable range")); return ts_value_make_undefined(); }
     return ts_value_make_object(zdt_same_zone(z, epoch_ms, nus*1000+nns));
 }
 }
 
 // Time-only difference -> Duration, honoring largestUnit + smallestUnit rounding.
-static TsValue* duration_from_time_opts(long long diff, const std::string& largest, long long smallestNs, const std::string& mode){
-    int sign=diff<0?-1:1; long long ad=diff<0?-diff:diff;
+static TsValue* duration_from_time_opts(int64_t diff, const std::string& largest, int64_t smallestNs, const std::string& mode){
+    int sign=diff<0?-1:1; int64_t ad=diff<0?-diff:diff;
     if(smallestNs>1) ad = round_nonneg(ad, smallestNs, sign<0?flip_mode_neg(mode):mode);
-    long long h=0,mi=0,s=0,ms=0,us=0,ns=0; long long rem=ad;
+    int64_t h=0,mi=0,s=0,ms=0,us=0,ns=0; int64_t rem=ad;
     std::string L = largest.empty()?"hour":largest;
-    if(L=="hour"||L=="hours"){ h=rem/3600000000000LL; rem%=3600000000000LL; mi=rem/60000000000LL; rem%=60000000000LL; s=rem/1000000000LL; rem%=1000000000LL; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
-    else if(L=="minute"||L=="minutes"){ mi=rem/60000000000LL; rem%=60000000000LL; s=rem/1000000000LL; rem%=1000000000LL; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
-    else if(L=="second"||L=="seconds"){ s=rem/1000000000LL; rem%=1000000000LL; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
+    if(L=="hour"||L=="hours"){ h=rem/NS_PER_HOUR; rem%=NS_PER_HOUR; mi=rem/NS_PER_MINUTE; rem%=NS_PER_MINUTE; s=rem/NS_PER_SECOND; rem%=NS_PER_SECOND; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
+    else if(L=="minute"||L=="minutes"){ mi=rem/NS_PER_MINUTE; rem%=NS_PER_MINUTE; s=rem/NS_PER_SECOND; rem%=NS_PER_SECOND; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
+    else if(L=="second"||L=="seconds"){ s=rem/NS_PER_SECOND; rem%=NS_PER_SECOND; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
     else if(L=="millisecond"||L=="milliseconds"){ ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
     else if(L=="microsecond"||L=="microseconds"){ us=rem/1000LL; ns=rem%1000LL; }
     else if(L=="nanosecond"||L=="nanoseconds"){ ns=rem; }
-    else { h=rem/3600000000000LL; rem%=3600000000000LL; mi=rem/60000000000LL; rem%=60000000000LL; s=rem/1000000000LL; rem%=1000000000LL; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
+    else { h=rem/NS_PER_HOUR; rem%=NS_PER_HOUR; mi=rem/NS_PER_MINUTE; rem%=NS_PER_MINUTE; s=rem/NS_PER_SECOND; rem%=NS_PER_SECOND; ms=rem/1000000LL; rem%=1000000LL; us=rem/1000LL; ns=rem%1000LL; }
     return ts_value_make_object(TsDuration::Create(0,0,0,0, sign*h, sign*mi, sign*s, sign*ms, sign*us, sign*ns));
 }
 // Read largestUnit / smallestUnit / roundingMode for a time-diff and produce the Duration.
-static TsValue* time_diff_with_opts(long long diff, TsValue* opts, const char* defLargest){
-    std::string largest,smallest,mode; long long inc;
+static TsValue* time_diff_with_opts(int64_t diff, TsValue* opts, const char* defLargest){
+    std::string largest,smallest,mode; int64_t inc;
     read_validated_diff_opts(opts,1,6,"nanosecond",defLargest,&smallest,&largest,&mode,&inc);
     validate_diff_time_increment(smallest, inc);
     if(largest=="auto") largest=defLargest;
-    bool ok; long long sNs = unit_ns(smallest, &ok); if(!ok) sNs=1;
+    bool ok; int64_t sNs = unit_ns(smallest, &ok); if(!ok) sNs=1;
     if(inc<1)inc=1;
     return duration_from_time_opts(diff, largest, sNs*inc, mode);
 }

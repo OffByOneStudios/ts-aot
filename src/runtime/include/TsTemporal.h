@@ -32,11 +32,11 @@ public:
 class TsDuration : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x54445552; // 'TDUR'
-    long long years = 0, months = 0, weeks = 0, days = 0, hours = 0;
-    long long minutes = 0, seconds = 0, milliseconds = 0, microseconds = 0, nanoseconds = 0;
+    int64_t years = 0, months = 0, weeks = 0, days = 0, hours = 0;
+    int64_t minutes = 0, seconds = 0, milliseconds = 0, microseconds = 0, nanoseconds = 0;
 
-    static TsDuration* Create(long long y, long long mo, long long w, long long d, long long h,
-                              long long mi, long long s, long long ms, long long us, long long ns);
+    static TsDuration* Create(int64_t y, int64_t mo, int64_t w, int64_t d, int64_t h,
+                              int64_t mi, int64_t s, int64_t ms, int64_t us, int64_t ns);
     int Sign() const;  // -1 | 0 | 1 (first non-zero component's sign)
     TsValue GetPropertyVirtual(const char* key) override;
 };
@@ -86,9 +86,9 @@ public:
 class TsInstant : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x494E5354; // 'INST'
-    long long epoch_ms = 0;
+    int64_t epoch_ms = 0;
     int sub_ns = 0;  // -999999..999999, same sign as epoch_ms
-    static TsInstant* Create(long long ms, int subNs);
+    static TsInstant* Create(int64_t ms, int subNs);
     TsValue GetPropertyVirtual(const char* key) override;
 };
 
@@ -98,13 +98,13 @@ public:
 class TsZonedDateTime : public TsObject {
 public:
     static constexpr uint32_t MAGIC = 0x5A44544D; // 'ZDTM'
-    long long epoch_ms = 0;
+    int64_t epoch_ms = 0;
     int sub_ns = 0;
     int offset_minutes = 0;  // fixed offset from UTC (used when zone_name is empty)
     bool is_utc = true;      // "UTC" named zone vs a numeric offset zone
     char zone_name[40] = {0};// named IANA zone ("America/New_York"); empty => fixed offset
-    static TsZonedDateTime* Create(long long ms, int subNs, int offMin, bool utc);
-    static TsZonedDateTime* CreateNamed(long long ms, int subNs, const char* zone);
+    static TsZonedDateTime* Create(int64_t ms, int subNs, int offMin, bool utc);
+    static TsZonedDateTime* CreateNamed(int64_t ms, int subNs, const char* zone);
     TsValue GetPropertyVirtual(const char* key) override;
 };
 
