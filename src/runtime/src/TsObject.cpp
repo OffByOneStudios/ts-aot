@@ -31,20 +31,16 @@ extern "C" void* g_ts_proxy_vtable;
 #include "TsDate.h"
 #include "TsSymbol.h"
 #include "TsRuntime.h"
+#include "TsObject_Internal.h"  // PRE-1: extern decls for the shared file-scope state
 
 // Virtual-inheritance HTTP class dispatch, registered by TsHttp.cpp at startup.
 // Can't include TsHttp.h here (pulls in TsHeaders from separate extension lib).
 // Instead, TsHttp.cpp registers vtable pointers and dispatch callbacks.
-typedef TsValue (*VtableDispatchFn)(void* obj, const char* key);
-typedef bool (*VtableSetDispatchFn)(void* obj, const char* key, TsValue value);
-struct VtableDispatchEntry {
-    uint64_t vtable;
-    VtableDispatchFn dispatch;
-    VtableSetDispatchFn setDispatch;
-    bool isEventEmitter;
-};
-static VtableDispatchEntry g_vtable_dispatch[8];
-static int g_vtable_dispatch_count = 0;
+// VtableDispatchFn/VtableSetDispatchFn/VtableDispatchEntry + the shared
+// file-scope state now live (as extern decls) in TsObject_Internal.h; the SINGLE
+// definitions of the state stay here (see PRE-1 below).
+VtableDispatchEntry g_vtable_dispatch[8];
+int g_vtable_dispatch_count = 0;
 
 extern "C" void ts_register_vtable_dispatch(uint64_t vtable, VtableDispatchFn fn, bool isEventEmitter) {
     if (g_vtable_dispatch_count < 8) {
@@ -127,7 +123,7 @@ extern "C" {
     TsValue* ts_object_setPrototypeOf(TsValue* obj, TsValue* proto);
 }
 
-static std::unordered_map<std::string, TsValue*> g_module_cache;
+std::unordered_map<std::string, TsValue*> g_module_cache;  // PRE-1: single def; extern in TsObject_Internal.h
 
 // GC scanner for module cache: keeps cached module objects alive during full GC.
 // Minor GC fixup: fixes up nursery pointers when objects are promoted.
@@ -154,7 +150,7 @@ static struct ModuleCacheScanner {
 // struct layouts — they can't store arbitrary JS properties. This map associates an
 // external TsMap* property bag with any native object pointer, enabling patterns like
 // Express's setPrototypeOf(res, app.response) which copies methods onto native objects.
-static std::unordered_map<void*, TsMap*> g_native_object_props;
+std::unordered_map<void*, TsMap*> g_native_object_props;  // PRE-1: single def; extern in TsObject_Internal.h
 
 static struct NativePropsScanner {
     NativePropsScanner() {
@@ -530,12 +526,12 @@ static std::string resolve_node_module(const std::string& spec, const std::strin
 // Global 'this' context for Function.prototype.call/apply support.
 // Set before calling a function via .call(thisArg), read by function
 // expressions that reference 'this'.
-static void* ts_call_this_value = nullptr;
+void* ts_call_this_value = nullptr;  // PRE-1: single def; extern in TsObject_Internal.h
 
 // Global argument count for the most recent function call.
 // Used to implement the 'arguments' object in the JS slow path.
 // Set before each call by ts_call_N/ts_call_with_this_N/ts_function_call_with_this.
-static int64_t ts_last_call_argc = 0;
+int64_t ts_last_call_argc = 0;  // PRE-1: single def; extern in TsObject_Internal.h
 
 extern "C" {
 
