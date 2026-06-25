@@ -10414,26 +10414,12 @@ TsValue* ts_value_make_int(int64_t i) {
             // already checked above (8810/8867); start at the prototype map.
             // Mirrors the ts_object_get_property closure walk.
             if (closure->properties && keyStr) {
-                const char* k = keyStr->ToUtf8();
-                if (k) {
-                    std::string getterKey = std::string("__getter_") + k;
-                    TsValue gk; gk.type = ValueType::STRING_PTR;
-                    gk.ptr_val = TsString::GetInterned(getterKey.c_str());
-                    TsValue dk = nanbox_to_tagged(key);
-                    TsMap* pm = closure->properties->GetPrototype();
-                    int guard = 0;
-                    while (pm && (uintptr_t)pm >= 0x10000 && guard++ < 1000) {
-                        TsValue gv = pm->Get(gk);
-                        if (gv.type != ValueType::UNDEFINED) {
-                            TsValue* getterFunc = nanbox_from_tagged(gv);
-                            return invoke_accessor_getter(getterFunc, obj);
-                        }
-                        TsValue dv = pm->Get(dk);
-                        if (dv.type != ValueType::UNDEFINED) {
-                            return nanbox_from_tagged(dv);
-                        }
-                        pm = pm->GetPrototype();
-                    }
+                // Canonical resolution over the constructor's [[Prototype]] chain
+                // (own props already checked above; start at the prototype map).
+                TsValue* resolved = nullptr;
+                if (resolve_map_chain_get(closure->properties->GetPrototype(),
+                                          keyStr->ToUtf8(), obj, &resolved)) {
+                    return resolved;
                 }
             }
             if (keyStr) {
