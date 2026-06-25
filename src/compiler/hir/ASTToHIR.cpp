@@ -6143,6 +6143,18 @@ void ASTToHIR::visitAssignmentExpression(ast::AssignmentExpression* node) {
             }
         }
 
+        // Private member WRITE brand check: on an untyped receiver `obj.#x = v`
+        // must throw TypeError if obj is not an instance of the declaring class
+        // (ts_object_set_private validates the hidden field / private setter is
+        // present). A typed receiver is a provable instance → direct hidden-key set.
+        if (!propAccess->name.empty() && propAccess->name[0] == '#'
+            && obj->type && obj->type->kind == HIRTypeKind::Any) {
+            auto keyStr = builder_.createConstString(propAccess->name);
+            builder_.createCall("ts_object_set_private",
+                {obj, keyStr, boxValueIfNeeded(rhs)}, HIRType::makeVoid());
+            lastValue_ = rhs;
+            return;
+        }
         builder_.createSetPropStatic(obj, privateStorageKey(propAccess->name), rhs);
         lastValue_ = rhs;
         return;

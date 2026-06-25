@@ -9830,6 +9830,53 @@ TsValue* ts_value_make_int(int64_t i) {
         return ts_value_make_undefined();
     }
 
+    // Private member WRITE with brand check (ECMA-262): `obj.#x = v` on an object
+    // that is not an instance of the declaring class is a TypeError. The member is
+    // a hidden field ("\x01#x") or a private setter ("__setter_#x"); if neither is
+    // present the receiver lacks the brand → throw.
+    extern "C" bool ts_object_has_property(void* objArg, void* keyArg);
+    void ts_object_set_private(void* obj, void* keyName, TsValue* value) {
+        void* rawObj = ts_value_get_object((TsValue*)obj);
+        if (!rawObj) rawObj = obj;
+        TsString* ks = (TsString*)ts_value_get_string((TsValue*)keyName);
+        const char* key = ks ? ks->ToUtf8() : nullptr;
+        if (!key || key[0] != '#') {
+            if (key) ts_object_set_property(rawObj, ts_value_make_string(TsString::Create(key)), value);
+            return;
+        }
+        std::string fieldKey = std::string("\x01") + key;
+        // A class constructor (TsClosure/TsFunction) is the receiver for STATIC
+        // private members (`C.#x = v`) whose hidden-field storage the presence
+        // check below can't see — never brand-throw on a constructor; fall through
+        // to the normal mangled-key set so static private writes keep working.
+        if (rawObj) {
+            uint32_t m16 = *(uint32_t*)((char*)rawObj + 16);
+            if (m16 == 0x434C5352 /*CLSR*/ || m16 == 0x46554E43 /*FUNC*/) {
+                ts_object_set_property(rawObj, ts_value_make_string(TsString::Create(fieldKey.c_str())), value);
+                return;
+            }
+        }
+        bool hasField = false, hasSetter = false;
+        if (rawObj) {
+            TsValue* fk = ts_value_make_string(TsString::Create(fieldKey.c_str()));
+            TsValue* sk = ts_value_make_string(TsString::Create((std::string("__setter_") + key).c_str()));
+            hasField = ts_object_has_property(rawObj, fk);
+            hasSetter = ts_object_has_property(rawObj, sk);
+        }
+        if (hasField) {  // write the hidden field slot directly
+            ts_object_set_property(rawObj, ts_value_make_string(TsString::Create(fieldKey.c_str())), value);
+            return;
+        }
+        if (hasSetter) {  // route through the normal set so the setter walk invokes it
+            ts_object_set_property(rawObj, ts_value_make_string(TsString::Create(key)), value);
+            return;
+        }
+        char msg[160];
+        snprintf(msg, sizeof(msg),
+            "Cannot write private member %s to an object whose class did not declare it", key);
+        ts_throw((TsValue*)ts_error_create_typed("TypeError", msg));
+    }
+
     TsValue* ts_object_get_dynamic(TsValue* obj, TsValue* key) {
         if (!obj || !key) return ts_value_make_undefined();
 
